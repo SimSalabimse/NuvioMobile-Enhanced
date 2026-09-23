@@ -105,6 +105,8 @@ internal fun PlayerScreenModalHosts(
     onSubmitIntroEndTimeChanged: (String) -> Unit,
     onSubmitIntroDismissed: () -> Unit,
     onSubmitIntroSuccess: () -> Unit,
+    skipIntervals: List<com.nuvio.app.features.player.skip.SkipInterval> = emptyList(),
+    submittedSegmentTypesInSession: Set<String> = emptySet(),
     showStreamInfoModal: Boolean,
     mediaInfoJson: String,
     onStreamInfoModalDismissed: () -> Unit,
@@ -263,6 +265,8 @@ internal fun PlayerScreenModalHosts(
             isMovie = isMovie,
             videoId = activeVideoId ?: parentMetaId.ifBlank { metaUiState.meta?.id },
             parentMetaType = parentMetaType.ifBlank { metaUiState.meta?.type.orEmpty() },
+            existingSegments = skipIntervals,
+            submittedTypesInSession = submittedSegmentTypesInSession,
         )
     }
 

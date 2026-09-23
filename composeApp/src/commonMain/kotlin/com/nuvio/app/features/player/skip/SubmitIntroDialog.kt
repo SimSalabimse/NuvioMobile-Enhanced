@@ -87,11 +87,32 @@ fun SubmitIntroDialog(
     isMovie: Boolean = false,
     videoId: String? = null,
     parentMetaType: String = "",
+    existingSegments: List<SkipInterval> = emptyList(),
+    submittedTypesInSession: Set<String> = emptySet(),
 ) {
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
     var isSubmitting by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    
+    val disabledTypes = remember(existingSegments, submittedTypesInSession) {
+        buildSet {
+            existingSegments.forEach { interval ->
+                normalizeSegmentTypeForSubmit(interval.type)?.let { add(it) }
+            }
+            addAll(submittedTypesInSession.map { it.lowercase() })
+        }
+    }
+    
+    val availableTypes = remember(disabledTypes) {
+        listOf("intro", "recap", "outro", "preview").filterNot { it in disabledTypes }
+    }
+    
+    androidx.compose.runtime.LaunchedEffect(segmentType, disabledTypes) {
+        if (segmentType in disabledTypes && availableTypes.isNotEmpty()) {
+            onSegmentTypeChange(availableTypes.first())
+        }
+    }
 
     BasicAlertDialog(onDismissRequest = onDismiss) {
         Surface(
@@ -150,6 +171,7 @@ fun SubmitIntroDialog(
                                 icon = Icons.Rounded.PlayCircleOutline,
                                 selected = segmentType == "intro",
                                 onClick = { onSegmentTypeChange("intro") },
+                                disabled = "intro" in disabledTypes,
                                 modifier = Modifier.weight(1f)
                             )
                             SegmentTypeButton(
@@ -157,6 +179,7 @@ fun SubmitIntroDialog(
                                 icon = Icons.Rounded.Replay,
                                 selected = segmentType == "recap",
                                 onClick = { onSegmentTypeChange("recap") },
+                                disabled = "recap" in disabledTypes,
                                 modifier = Modifier.weight(1f)
                             )
                         }
@@ -169,6 +192,7 @@ fun SubmitIntroDialog(
                                 icon = Icons.Rounded.StopCircle,
                                 selected = segmentType == "outro",
                                 onClick = { onSegmentTypeChange("outro") },
+                                disabled = "outro" in disabledTypes,
                                 modifier = Modifier.weight(1f)
                             )
                             SegmentTypeButton(
@@ -176,6 +200,7 @@ fun SubmitIntroDialog(
                                 icon = Icons.Rounded.Visibility,
                                 selected = segmentType == "preview",
                                 onClick = { onSegmentTypeChange("preview") },
+                                disabled = "preview" in disabledTypes,
                                 modifier = Modifier.weight(1f)
                             )
                         }
@@ -249,13 +274,14 @@ fun SubmitIntroDialog(
                                 isSubmitting = true
                                 errorMessage = null
                                 scope.launch {
+                                    val submittedType = segmentType
                                     val result = submitManualSkipSegment(
                                         imdbId = imdbId,
                                         season = season,
                                         episode = episode,
                                         startSec = start,
                                         endSec = end,
-                                        segmentType = segmentType,
+                                        segmentType = submittedType,
                                         durationMs = durationMs,
                                         isMovie = isMovie,
                                         videoId = videoId,
@@ -362,12 +388,24 @@ private fun SegmentTypeButton(
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    disabled: Boolean = false,
 ) {
+    val backgroundColor = when {
+        disabled -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        selected -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    val contentColor = when {
+        disabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+        selected -> MaterialTheme.colorScheme.onPrimary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant)
-            .clickable(onClick = onClick)
+            .background(backgroundColor)
+            .clickable(enabled = !disabled, onClick = onClick)
             .padding(vertical = 10.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -378,12 +416,12 @@ private fun SegmentTypeButton(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = contentColor,
                 modifier = Modifier.size(18.dp)
             )
             Text(
                 text = label,
-                color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = contentColor,
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.SemiBold
             )
@@ -506,4 +544,14 @@ private fun parseTimeToSeconds(input: String): Double? {
         }
     }
     return input.toDoubleOrNull()
+}
+
+private fun normalizeSegmentTypeForSubmit(type: String): String? {
+    return when (type.trim().lowercase()) {
+        "intro", "op", "mixed-op" -> "intro"
+        "credits", "outro", "ed", "mixed-ed", "ending", "movie-credits" -> "outro"
+        "recap" -> "recap"
+        "preview" -> "preview"
+        else -> null
+    }
 }

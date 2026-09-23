@@ -851,11 +851,18 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
                     "e=${activeEpisodeNumber ?: 0} type=$submitIntroSegmentType " +
                     "start=$submitIntroStartTimeStr end=$submitIntroEndTimeStr",
             )
+            val currentVideoId = activeVideoId.orEmpty()
+            if (currentVideoId.isNotBlank()) {
+                submittedSegmentTypesByVideoId.getOrPut(currentVideoId) { mutableSetOf() }
+                    .add(submitIntroSegmentType)
+            }
             submitIntroStartTimeStr = "00:00"
             submitIntroEndTimeStr = "00:00"
             submitIntroSegmentType = "intro"
             showSubmitIntroModal = false
         },
+        skipIntervals = skipIntervals,
+        submittedSegmentTypesInSession = submittedSegmentTypesByVideoId[activeVideoId.orEmpty()] ?: emptySet(),
         showStreamInfoModal = showStreamInfoModal,
         mediaInfoJson = playbackSnapshot.mediaInfoJson,
         onStreamInfoModalDismissed = { showStreamInfoModal = false },
