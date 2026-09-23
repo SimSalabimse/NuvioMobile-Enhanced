@@ -467,16 +467,13 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
                     )
                 }
             },
-            onSubmitIntroClick = if (
-                isSeries &&
-                playerSettingsUiState.introSubmitEnabled &&
-                playerSettingsUiState.introDbApiKey.isNotBlank()
-            ) {
+            onSubmitIntroClick = if (playerSettingsUiState.canSubmitIntroSegments()) {
                 {
                     InAppLogger.info(
                         "Player/SkipIntro",
-                        "open submit dialog videoId=${activeVideoId.orEmpty()} s=${activeSeasonNumber ?: 0} " +
-                            "e=${activeEpisodeNumber ?: 0} positionMs=$displayedPositionMs",
+                        "open submit dialog videoId=${activeVideoId.orEmpty()} " +
+                            "isSeries=$isSeries s=${activeSeasonNumber ?: 0} e=${activeEpisodeNumber ?: 0} " +
+                            "positionMs=$displayedPositionMs",
                     )
                     showSubmitIntroModal = true
                 }

@@ -35,7 +35,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,11 +44,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.nuvio.app.features.player.PlayerSettingsRepository
+import com.nuvio.app.features.tmdb.TmdbService
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_cancel
@@ -81,10 +81,15 @@ fun SubmitIntroDialog(
     onEndTimeChange: (String) -> Unit,
     onDismiss: () -> Unit,
     onSuccess: () -> Unit,
+    durationMs: Long = 0L,
+    isMovie: Boolean = false,
+    videoId: String? = null,
+    parentMetaType: String = "",
 ) {
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
     var isSubmitting by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
     BasicAlertDialog(onDismissRequest = onDismiss) {
         Surface(
@@ -103,7 +108,6 @@ fun SubmitIntroDialog(
                     .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                // Header
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -124,7 +128,6 @@ fun SubmitIntroDialog(
                     }
                 }
 
-                // Segment Type
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         text = stringResource(Res.string.submit_intro_segment_type_label),
@@ -160,7 +163,14 @@ fun SubmitIntroDialog(
                     }
                 }
 
-                // Start Time
+                if (durationMs > 0L) {
+                    Text(
+                        text = "Length ${formatSecondsToMMSS(durationMs / 1000.0)} (from this stream)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
                 TimeInputRow(
                     label = stringResource(Res.string.submit_intro_start_time_label),
                     value = startTimeStr,
@@ -168,7 +178,6 @@ fun SubmitIntroDialog(
                     onCapture = { onStartTimeChange(formatSecondsToMMSS(currentTimeSec)) }
                 )
 
-                // End Time
                 TimeInputRow(
                     label = stringResource(Res.string.submit_intro_end_time_label),
                     value = endTimeStr,
@@ -176,9 +185,16 @@ fun SubmitIntroDialog(
                     onCapture = { onEndTimeChange(formatSecondsToMMSS(currentTimeSec)) }
                 )
 
+                if (errorMessage != null) {
+                    Text(
+                        text = errorMessage!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Actions
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -207,21 +223,30 @@ fun SubmitIntroDialog(
                             .clickable(enabled = !isSubmitting) {
                                 val start = parseTimeToSeconds(startTimeStr)
                                 val end = parseTimeToSeconds(endTimeStr)
-                                if (start != null && end != null && end > start) {
-                                    isSubmitting = true
-                                    scope.launch {
-                                        val result = SkipIntroRepository.submitIntro(
-                                            imdbId = imdbId,
-                                            season = season,
-                                            episode = episode,
-                                            startSec = start,
-                                            endSec = end,
-                                            segmentType = segmentType,
-                                        )
-                                        isSubmitting = false
-                                        if (result) {
-                                            onSuccess()
-                                        }
+                                if (start == null || end == null || end <= start) {
+                                    errorMessage = "Set a start and end time first"
+                                    return@clickable
+                                }
+                                isSubmitting = true
+                                errorMessage = null
+                                scope.launch {
+                                    val result = submitManualSkipSegment(
+                                        imdbId = imdbId,
+                                        season = season,
+                                        episode = episode,
+                                        startSec = start,
+                                        endSec = end,
+                                        segmentType = segmentType,
+                                        durationMs = durationMs,
+                                        isMovie = isMovie,
+                                        videoId = videoId,
+                                        parentMetaType = parentMetaType,
+                                    )
+                                    isSubmitting = false
+                                    if (result) {
+                                        onSuccess()
+                                    } else {
+                                        errorMessage = "Submit failed. Enable Submit in Playback settings and paste your theintrodb.org API key (or an introdb.app idb_ key)."
                                     }
                                 }
                             },
@@ -252,13 +277,72 @@ fun SubmitIntroDialog(
     }
 }
 
+internal suspend fun submitManualSkipSegment(
+    imdbId: String,
+    season: Int,
+    episode: Int,
+    startSec: Double,
+    endSec: Double,
+    segmentType: String,
+    durationMs: Long,
+    isMovie: Boolean,
+    videoId: String?,
+    parentMetaType: String,
+): Boolean {
+    val settings = PlayerSettingsRepository.uiState.value
+    if (!settings.introSubmitEnabled) return false
+    val introDbAppKey = settings.introDbApiKey.trim()
+    val theIntroDbKey = settings.theIntroDbApiKey.trim()
+    val fallbackTheIntroKey = introDbAppKey.takeIf { it.isNotBlank() && !it.startsWith("idb_", ignoreCase = true) }.orEmpty()
+    val resolvedTheIntroKey = theIntroDbKey.ifBlank { fallbackTheIntroKey }
+    if (introDbAppKey.isBlank() && resolvedTheIntroKey.isBlank()) return false
+    var submitted = false
+    if (introDbAppKey.startsWith("idb_", ignoreCase = true) && !isMovie && imdbId.startsWith("tt")) {
+        submitted = SkipIntroRepository.submitIntro(
+            imdbId = imdbId,
+            season = season,
+            episode = episode,
+            startSec = startSec,
+            endSec = endSec,
+            segmentType = segmentType,
+        ) || submitted
+    }
+    if (resolvedTheIntroKey.isNotBlank()) {
+        val mediaType = when {
+            isMovie -> "movie"
+            parentMetaType.equals("movie", ignoreCase = true) -> "movie"
+            else -> "tv"
+        }
+        val resolvedTmdb = TmdbService.ensureTmdbId(
+            videoId = videoId?.takeIf { it.isNotBlank() } ?: imdbId,
+            mediaType = mediaType,
+            fallbackImdbId = imdbId.takeIf { it.startsWith("tt", ignoreCase = true) },
+        )?.toIntOrNull()
+        if (resolvedTmdb != null && resolvedTmdb > 0) {
+            submitted = TheIntroDb.submitTimestamp(
+                apiKey = resolvedTheIntroKey,
+                tmdbId = resolvedTmdb,
+                imdbId = imdbId.takeIf { it.startsWith("tt", ignoreCase = true) },
+                type = mediaType,
+                segment = segmentType,
+                season = season.takeIf { mediaType == "tv" && season > 0 },
+                episode = episode.takeIf { mediaType == "tv" && episode > 0 },
+                startSec = startSec,
+                endSec = endSec,
+                videoDurationMs = durationMs.takeIf { it > 0L },
+            ) || submitted
+        }
+    }
+    return submitted
+}
+
 @Composable
 private fun SegmentTypeButton(
     label: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     selected: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     Box(
         modifier = modifier
@@ -293,7 +377,7 @@ private fun TimeInputRow(
     label: String,
     value: String,
     onValueChange: (String) -> Unit,
-    onCapture: () -> Unit
+    onCapture: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -368,26 +452,20 @@ private fun formatSecondsToMMSS(seconds: Double): String {
 
 private fun parseTimeToSeconds(input: String): Double? {
     if (input.isBlank()) return null
-
-    // Check for separator (colon or dot)
     val separator = when {
         input.contains(':') -> ":"
         input.contains('.') -> "."
         else -> null
     }
-
     if (separator != null) {
         val parts = input.split(separator)
         if (parts.size == 2) {
             val mins = parts[0].toIntOrNull() ?: return null
             val secs = parts[1].toIntOrNull() ?: return null
-            // If the user uses a dot, we assume they mean MM.SS (e.g. 1.24 = 1m 24s)
-            // But we only treat it as minutes if seconds are 0-59.
             if (secs in 0..59) {
                 return (mins * 60 + secs).toDouble()
             }
         }
     }
-
     return input.toDoubleOrNull()
 }

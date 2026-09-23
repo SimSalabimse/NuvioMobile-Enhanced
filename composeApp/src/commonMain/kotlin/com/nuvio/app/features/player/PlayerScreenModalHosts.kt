@@ -95,6 +95,7 @@ internal fun PlayerScreenModalHosts(
     activeVideoId: String?,
     metaUiState: MetaDetailsUiState,
     displayedPositionMs: Long,
+    durationMs: Long = 0L,
     submitIntroSegmentType: String,
     onSubmitIntroSegmentTypeChanged: (String) -> Unit,
     submitIntroStartTimeStr: String,
@@ -236,12 +237,17 @@ internal fun PlayerScreenModalHosts(
     val imdbId = activeVideoId?.split(":")?.firstOrNull()?.takeIf { it.startsWith("tt") }
         ?: parentMetaId.takeIf { it.startsWith("tt") }
         ?: metaUiState.meta?.id?.takeIf { it.startsWith("tt") }
+        ?: metaUiState.meta?.imdbId?.takeIf { it.startsWith("tt") }
+    val isMovie = !isSeries || parentMetaType.equals("movie", ignoreCase = true)
+    val canSubmit = showSubmitIntroModal && (
+        isMovie || (season != null && episode != null)
+    )
 
-    if (showSubmitIntroModal && season != null && episode != null && !imdbId.isNullOrBlank()) {
+    if (canSubmit) {
         com.nuvio.app.features.player.skip.SubmitIntroDialog(
-            imdbId = imdbId,
-            season = season,
-            episode = episode,
+            imdbId = imdbId.orEmpty(),
+            season = season ?: 0,
+            episode = episode ?: 0,
             currentTimeSec = displayedPositionMs / 1000.0,
             segmentType = submitIntroSegmentType,
             onSegmentTypeChange = onSubmitIntroSegmentTypeChanged,
@@ -251,6 +257,10 @@ internal fun PlayerScreenModalHosts(
             onEndTimeChange = onSubmitIntroEndTimeChanged,
             onDismiss = onSubmitIntroDismissed,
             onSuccess = onSubmitIntroSuccess,
+            durationMs = durationMs,
+            isMovie = isMovie,
+            videoId = activeVideoId ?: parentMetaId.ifBlank { metaUiState.meta?.id },
+            parentMetaType = parentMetaType.ifBlank { metaUiState.meta?.type.orEmpty() },
         )
     }
 
