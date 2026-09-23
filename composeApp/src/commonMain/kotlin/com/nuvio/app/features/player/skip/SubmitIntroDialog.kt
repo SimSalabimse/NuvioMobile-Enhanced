@@ -165,7 +165,7 @@ fun SubmitIntroDialog(
 
                 if (durationMs > 0L) {
                     Text(
-                        text = "Length ${formatSecondsToMMSS(durationMs / 1000.0)} (from this stream)",
+                        text = "Length ${formatSecondsToHMS(durationMs / 1000.0)} (from this stream)",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -175,14 +175,14 @@ fun SubmitIntroDialog(
                     label = stringResource(Res.string.submit_intro_start_time_label),
                     value = startTimeStr,
                     onValueChange = onStartTimeChange,
-                    onCapture = { onStartTimeChange(formatSecondsToMMSS(currentTimeSec)) }
+                    onCapture = { onStartTimeChange(formatSecondsToHMS(currentTimeSec)) }
                 )
 
                 TimeInputRow(
                     label = stringResource(Res.string.submit_intro_end_time_label),
                     value = endTimeStr,
                     onValueChange = onEndTimeChange,
-                    onCapture = { onEndTimeChange(formatSecondsToMMSS(currentTimeSec)) }
+                    onCapture = { onEndTimeChange(formatSecondsToHMS(currentTimeSec)) }
                 )
 
                 if (errorMessage != null) {
@@ -444,10 +444,17 @@ private fun TimeInputRow(
     }
 }
 
-private fun formatSecondsToMMSS(seconds: Double): String {
-    val mins = floor(seconds / 60).toInt()
-    val secs = floor(seconds % 60).toInt()
-    return "${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}"
+private fun formatSecondsToHMS(seconds: Double): String {
+    val totalSecs = seconds.toInt()
+    val hours = totalSecs / 3600
+    val mins = (totalSecs % 3600) / 60
+    val secs = totalSecs % 60
+    
+    return if (hours > 0) {
+        "$hours:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}"
+    } else {
+        "${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}"
+    }
 }
 
 private fun parseTimeToSeconds(input: String): Double? {
@@ -459,11 +466,23 @@ private fun parseTimeToSeconds(input: String): Double? {
     }
     if (separator != null) {
         val parts = input.split(separator)
-        if (parts.size == 2) {
-            val mins = parts[0].toIntOrNull() ?: return null
-            val secs = parts[1].toIntOrNull() ?: return null
-            if (secs in 0..59) {
-                return (mins * 60 + secs).toDouble()
+        when (parts.size) {
+            3 -> {
+                // H:MM:SS format
+                val hours = parts[0].toIntOrNull() ?: return null
+                val mins = parts[1].toIntOrNull() ?: return null
+                val secs = parts[2].toIntOrNull() ?: return null
+                if (mins in 0..59 && secs in 0..59) {
+                    return (hours * 3600 + mins * 60 + secs).toDouble()
+                }
+            }
+            2 -> {
+                // MM:SS format (backward compatible)
+                val mins = parts[0].toIntOrNull() ?: return null
+                val secs = parts[1].toIntOrNull() ?: return null
+                if (secs in 0..59) {
+                    return (mins * 60 + secs).toDouble()
+                }
             }
         }
     }
