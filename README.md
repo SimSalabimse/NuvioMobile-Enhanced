@@ -1,85 +1,73 @@
 # NuvioMobile-Enhanced
 
-Public mirror of [luqmanfadlli/NuvioMobile-Enhanced](https://github.com/luqmanfadlli/NuvioMobile-Enhanced) with:
+Personal mirror of [luqmanfadlli/NuvioMobile-Enhanced](https://github.com/luqmanfadlli/NuvioMobile-Enhanced) with **TheIntroDB** (`https://theintrodb.org`) skip-intro provider restored as a first-class source.
 
-- **TheIntroDB** (`https://theintrodb.org`) skip-intro provider restored as a first-class source
-- **Unsigned IPA** builds for SideStore / AltStore / TrollStore (no Apple certificate on the server)
-- **Daily auto-sync** from the public Enhanced `enhanced` branch, then an IPA rebuild when the tree changes
+This repository provides:
+- **TheIntroDB integration** (v3 API at `https://api.theintrodb.org/v3/media`) alongside the official introdb.app provider
+- **Unsigned IPA builds** for SideStore / AltStore / TrollStore (no Apple certificate required)
+- **Daily auto-sync** from upstream Enhanced `enhanced` branch with automatic IPA rebuilds
 
-Official Nuvio still talks to **introdb.app**. This fork keeps that provider and adds **TheIntroDB v3** (`https://api.theintrodb.org/v3/media`) beside it.
+> **Note:** This is not a GitHub fork because [SimSalabimse/NuvioMobile](https://github.com/SimSalabimse/NuvioMobile) already occupies the network fork slot for the original Nuvio repository.
 
-## 1. Mirror the Enhanced tree (required once)
+## Building a Sideload IPA
 
-GitHub will not let a fork of a public repo be private. This repository was created private and empty on purpose. Copy Enhanced in:
+### Manual Build
 
-```bash
-git clone https://github.com/SimSalabimse/NuvioMobile-Enhanced.git
-cd NuvioMobile-Enhanced
-git remote add enhanced https://github.com/luqmanfadlli/NuvioMobile-Enhanced.git
-git fetch enhanced
-git checkout -B enhanced enhanced/enhanced
-# keep the overlay files from main
-git checkout main -- README.md .github/workflows/sync-upstream.yml .github/workflows/build-sideload-ipa.yml composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/skip/TheIntroDb.kt
-git add README.md .github composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/skip/TheIntroDb.kt
-git commit -m "Keep TheIntroDB overlay and sideload CI on Enhanced tree"
-git push -u origin enhanced
-```
+Go to **Actions → Build Sideload IPA → Run workflow** and select:
+- **Configuration:** Release (production) or Debug (faster validation)
+- **Publish release:** Yes to create a GitHub pre-release and update `store.json`
 
-Then in GitHub: **Settings → General → Default branch → `enhanced`**.
-
-Until that mirror exists, the IPA workflow will no-op because `scripts/build-ios-ipa.sh` is not in the tree.
-
-## 2. Build an unsigned IPA
-
-Actions → **Build Sideload IPA** → Run workflow.
-
-The IPA is produced with:
-
+The workflow produces an unsigned IPA with:
 ```
 CODE_SIGNING_ALLOWED=NO
 CODE_SIGNING_REQUIRED=NO
 CODE_SIGN_IDENTITY=
 ```
 
-Install it with SideStore, AltStore, or TrollStore. Those tools sign on-device with *your* Apple ID. No paid developer certificate is required on this repo.
+Install it with SideStore, AltStore, or TrollStore. These tools sign on-device using your Apple ID—no paid developer certificate is required.
 
-Optional repository secret:
+### Test Build (No Release)
 
-- `NUVIO_LOCAL_PROPERTIES_BASE64` — base64 of a `local.properties` that contains Trakt / Simkl keys (same file official/Enhanced CI uses). The IPA still builds without it.
+**Actions → Build Test IPA** runs a validation build without creating a release or updating `store.json`. Useful for quick testing before a full sideload build.
 
-## 3. Auto-update
+### Auto-Sync and Rebuild
 
-- Daily at 06:17 UTC: merge `luqmanfadlli/NuvioMobile-Enhanced@enhanced`, then rebuild the IPA if commits landed.
-- Manual: Actions → **Sync Enhanced upstream**.
+- **Daily at 06:17 UTC:** Merges upstream `luqmanfadlli/NuvioMobile-Enhanced@enhanced`, then rebuilds the IPA if new commits landed
+- **Manual trigger:** Actions → **Sync Enhanced upstream**
 
-### SideStore source
+### SideStore / AltStore Source
 
-After the first published IPA:
+After the first published IPA release, add this source URL:
 
 ```
 https://github.com/SimSalabimse/NuvioMobile-Enhanced/raw/refs/heads/enhanced/store.json
 ```
 
-**Private-repo caveat:** AltStore/SideStore cannot read `raw.githubusercontent.com` or private GitHub Release assets without authentication. Options:
+> **Important:** AltStore and SideStore cannot read private GitHub repositories or releases without authentication. This repository is public to support direct IPA distribution.
 
-1. Leave this repo private and download IPA artifacts from Actions yourself.
-2. Host a public `store.json` gist that points at a public IPA URL.
-3. Only if you accept the risk: put a fine-grained PAT in the source URL.
+### Optional Secret
 
-GitHub also cannot attach public releases to a private repository.
+- **`NUVIO_LOCAL_PROPERTIES_BASE64`** — Base64-encoded `local.properties` file containing Trakt / Simkl API keys (same format used by official Nuvio CI). The IPA builds without it, but sign-in features require valid keys.
 
-## TheIntroDB integration
+## TheIntroDB Integration
 
-Client: `composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/skip/TheIntroDb.kt`
+**Client:** `composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/skip/TheIntroDb.kt`
 
-- `GET https://api.theintrodb.org/v3/media?imdb_id=…&season=…&episode=…` (TMDB id preferred when the player already has one)
-- Times are milliseconds; converted to seconds for Nuvio `SkipInterval`
-- Segment map: intro→intro, recap→recap, credits→outro / movie-credits, preview→preview
-- Merged **first** in `SkipIntroRepository.mergeByPriority`, so it wins over introdb.app when both have the same category
-- Still runs when `INTRODB_API_URL` is blank (that is how official builds disable introdb.app)
+- Fetches skip segments from `GET https://api.theintrodb.org/v3/media?imdb_id=…&season=…&episode=…`
+- TMDB ID is preferred when the player already has one
+- Times are in milliseconds and converted to seconds for Nuvio `SkipInterval`
+- Segment mapping: intro→intro, recap→recap, credits→outro / movie-credits, preview→preview
+- **Priority:** TheIntroDB is merged **first** in `SkipIntroRepository.mergeByPriority`, so it wins over introdb.app when both sources have the same category
+- Works even when `INTRODB_API_URL` is blank (the setting that disables introdb.app in official builds)
 
-After mirroring Enhanced, wire the client into `SkipIntroRepository` (see comments at the bottom of `TheIntroDb.kt`).
+The integration is controlled by a Feature Flag gate. See comments in `TheIntroDb.kt` for wiring details.
+
+## Upstream & Fork Context
+
+- **Upstream Enhanced:** [luqmanfadlli/NuvioMobile-Enhanced](https://github.com/luqmanfadlli/NuvioMobile-Enhanced) (branch `enhanced`)
+- **Official Fork:** [SimSalabimse/NuvioMobile](https://github.com/SimSalabimse/NuvioMobile) (fork of the original Nuvio repository)
+- **This Repository:** Personal mirror that combines Enhanced features with TheIntroDB restoration
 
 ## License
 
-GNU GPLv3, same as Nuvio / Nuvio Enhanced. This is an unofficial private copy and is not affiliated with NuvioMedia or luqmanfadlli.
+GNU GPLv3, same as Nuvio / Nuvio Enhanced. This is an unofficial personal mirror and is not affiliated with NuvioMedia or luqmanfadlli.
