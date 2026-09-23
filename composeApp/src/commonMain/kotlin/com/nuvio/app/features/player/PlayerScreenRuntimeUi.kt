@@ -830,6 +830,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         activeVideoId = activeVideoId,
         metaUiState = metaUiState,
         displayedPositionMs = displayedPositionMs,
+        durationMs = playbackSnapshot.durationMs,
         submitIntroSegmentType = submitIntroSegmentType,
         onSubmitIntroSegmentTypeChanged = { submitIntroSegmentType = it },
         submitIntroStartTimeStr = submitIntroStartTimeStr,
