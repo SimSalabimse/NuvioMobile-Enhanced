@@ -150,51 +150,80 @@ final class MPVAudioCaptureProcessor: NSObject {
     private func processSampleBuffer(_ sampleBuffer: CMSampleBuffer) {
         guard isCapturing else { return }
         
-        // Get audio buffer list
-        guard let audioBufferList = sampleBuffer.audioBufferList else { return }
-        
-        let buffers = UnsafeBufferPointer<AudioBuffer>(
-            start: &audioBufferList.pointee.mBuffers,
-            count: Int(audioBufferList.pointee.mNumberBuffers)
-        )
-        
-        guard let buffer = buffers.first else { return }
-        guard let data = buffer.mData else { return }
-        
         // Get format description
         guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer) else { return }
         guard let streamDescription = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription) else { return }
         
         let sampleRate = streamDescription.pointee.mSampleRate
         let channelCount = Int(streamDescription.pointee.mChannelsPerFrame)
-        let frameCount = Int(buffer.mDataByteSize) / MemoryLayout<Int16>.size / channelCount
         
-        guard frameCount > 0, channelCount > 0, sampleRate > 0 else { return }
+        guard channelCount > 0, sampleRate > 0 else { return }
         
-        // Process PCM samples
-        let samples = data.assumingMemoryBound(to: Int16.self)
+        // Get audio buffer list
+        var audioBufferList = AudioBufferList()
+        var blockBuffer: CMBlockBuffer?
         
-        for i in 0..<frameCount {
-            var sample: Int16 = 0
-            
-            // Mix down to mono if stereo
-            if channelCount == 1 {
-                sample = samples[i]
-            } else {
-                let leftSample = samples[i * channelCount]
-                let rightSample = samples[i * channelCount + 1]
-                sample = Int16((Int32(leftSample) + Int32(rightSample)) / 2)
+        let status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+            sampleBuffer,
+            bufferListSizeNeededOut: nil,
+            bufferListOut: &audioBufferList,
+            bufferListSize: MemoryLayout<AudioBufferList>.size,
+            blockBufferAllocator: nil,
+            blockBufferMemoryAllocator: nil,
+            flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
+            blockBufferOut: &blockBuffer
+        )
+        
+        guard status == noErr else { 
+            InAppLogBridge.shared.warn(
+                tag: "MPV/iOS/AudioCapture",
+                message: "Failed to get audio buffer list: \(status)"
+            )
+            return 
+        }
+        
+        defer {
+            if let blockBuffer = blockBuffer {
+                // Release block buffer when done
+                CFRelease(blockBuffer)
             }
+        }
+        
+        // Process each buffer
+        let bufferCount = Int(audioBufferList.mNumberBuffers)
+        let buffersPointer = UnsafeMutableAudioBufferListPointer(&audioBufferList)
+        
+        for buffer in buffersPointer {
+            guard let data = buffer.mData else { continue }
             
-            // Compute energy
-            let normalized = Double(sample) / Double(Int16.max)
-            energyAccumulator += normalized * normalized
-            samplesInWindow += 1
-            processedSampleCount += 1
+            let frameCount = Int(buffer.mDataByteSize) / MemoryLayout<Int16>.size / channelCount
+            guard frameCount > 0 else { continue }
             
-            // When we have enough samples for a window, compute RMS and store
-            if samplesInWindow >= sampleWindowSize {
-                recordEnergySample(sampleRate: sampleRate)
+            // Process PCM samples (assuming Int16 format)
+            let samples = data.assumingMemoryBound(to: Int16.self)
+            
+            for i in 0..<frameCount {
+                var sample: Int16 = 0
+                
+                // Mix down to mono if stereo
+                if channelCount == 1 {
+                    sample = samples[i]
+                } else {
+                    let leftSample = samples[i * channelCount]
+                    let rightSample = samples[i * channelCount + 1]
+                    sample = Int16((Int32(leftSample) + Int32(rightSample)) / 2)
+                }
+                
+                // Compute energy
+                let normalized = Double(sample) / Double(Int16.max)
+                energyAccumulator += normalized * normalized
+                samplesInWindow += 1
+                processedSampleCount += 1
+                
+                // When we have enough samples for a window, compute RMS and store
+                if samplesInWindow >= sampleWindowSize {
+                    recordEnergySample(sampleRate: sampleRate)
+                }
             }
         }
     }
@@ -210,29 +239,6 @@ final class MPVAudioCaptureProcessor: NSObject {
         // Reset for next window
         energyAccumulator = 0.0
         samplesInWindow = 0
-    }
-}
-
-// Extension to get audio buffer list from CMSampleBuffer
-private extension CMSampleBuffer {
-    var audioBufferList: UnsafeMutablePointer<AudioBufferList>? {
-        var audioBufferList = AudioBufferList()
-        var blockBuffer: CMBlockBuffer?
-        
-        let status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
-            self,
-            bufferListSizeNeededOut: nil,
-            bufferListOut: &audioBufferList,
-            bufferListSize: MemoryLayout<AudioBufferList>.size,
-            blockBufferAllocator: nil,
-            blockBufferMemoryAllocator: nil,
-            flags: kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
-            blockBufferOut: &blockBuffer
-        )
-        
-        guard status == noErr else { return nil }
-        
-        return UnsafeMutablePointer(&audioBufferList)
     }
 }
 
