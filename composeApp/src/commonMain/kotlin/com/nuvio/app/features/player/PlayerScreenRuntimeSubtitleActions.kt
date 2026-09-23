@@ -101,9 +101,9 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
             
             // Capture for 30 seconds
             val captureTargetMs = 30_000L
-            val startTime = System.currentTimeMillis()
+            val startTimeMs = com.nuvio.app.features.streams.epochMs()
             
-            while (System.currentTimeMillis() - startTime < captureTargetMs) {
+            while (com.nuvio.app.features.streams.epochMs() - startTimeMs < captureTargetMs) {
                 val capturedMs = playerController?.getAudioCaptureDuration() ?: 0L
                 if (capturedMs >= 20_000L) {
                     break
@@ -167,7 +167,14 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
 private fun formatOffsetMessage(offsetMs: Int): String {
     val sign = if (offsetMs >= 0) "+" else ""
     val seconds = offsetMs / 1000.0
-    return "${sign}${String.format("%.1f", seconds)}s"
+    val formatted = buildString {
+        append(sign)
+        append(seconds.toInt())
+        append('.')
+        val fraction = ((kotlin.math.abs(seconds) % 1.0) * 10).toInt()
+        append(fraction)
+    }
+    return "${formatted}s"
 }
 
 internal fun PlayerScreenRuntime.applySubtitleAutoSyncCue(cue: SubtitleSyncCue) {
