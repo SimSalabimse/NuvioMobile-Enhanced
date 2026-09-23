@@ -720,6 +720,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         onSubtitleStyleChanged = PlayerSettingsRepository::setSubtitleStyle,
         onSubtitleDelayChanged = { delayMs -> setSubtitleDelay(delayMs) },
         onSubtitleDelayReset = { setSubtitleDelay(0) },
+        onAutoSyncAutomatic = { performAutomaticSubtitleSync() },
         onAutoSyncCapture = { captureSubtitleAutoSyncTime() },
         onAutoSyncCueSelected = { cue -> applySubtitleAutoSyncCue(cue) },
         onAutoSyncReload = { loadSubtitleAutoSyncCues(force = true) },

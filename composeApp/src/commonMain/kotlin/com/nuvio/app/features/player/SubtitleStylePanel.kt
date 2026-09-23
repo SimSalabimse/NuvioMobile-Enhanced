@@ -74,6 +74,7 @@ fun SubtitleStylePanel(
     onStyleChanged: (SubtitleStyleState) -> Unit,
     onSubtitleDelayChanged: (Int) -> Unit,
     onSubtitleDelayReset: () -> Unit,
+    onAutoSyncAutomatic: () -> Unit,
     onAutoSyncCapture: () -> Unit,
     onAutoSyncCueSelected: (SubtitleSyncCue) -> Unit,
     onAutoSyncReload: () -> Unit,
@@ -191,6 +192,7 @@ fun SubtitleStylePanel(
         SubtitleAutoSyncSection(
             selectedAddonSubtitle = selectedAddonSubtitle,
             state = subtitleAutoSyncState,
+            onAutomatic = onAutoSyncAutomatic,
             onCapture = onAutoSyncCapture,
             onCueSelected = onAutoSyncCueSelected,
             onReload = onAutoSyncReload,
@@ -341,6 +343,7 @@ private fun SubtitleColorPicker(
 private fun SubtitleAutoSyncSection(
     selectedAddonSubtitle: AddonSubtitle?,
     state: SubtitleAutoSyncUiState,
+    onAutomatic: () -> Unit,
     onCapture: () -> Unit,
     onCueSelected: (SubtitleSyncCue) -> Unit,
     onReload: () -> Unit,
@@ -361,14 +364,21 @@ private fun SubtitleAutoSyncSection(
     SubtitleStyleSection(title = stringResource(Res.string.compose_player_auto_sync)) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SubtitleTextAction(
-                label = stringResource(Res.string.compose_player_reload),
-                enabled = selectedAddonSubtitle != null,
-                onClick = onReload,
+                label = "Auto Sync",
+                enabled = selectedAddonSubtitle != null && !state.isLoading,
+                onClick = onAutomatic,
             )
             SubtitleTextAction(
                 label = stringResource(Res.string.compose_player_capture_line),
-                enabled = selectedAddonSubtitle != null,
+                enabled = selectedAddonSubtitle != null && !state.isLoading,
                 onClick = onCapture,
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SubtitleTextAction(
+                label = stringResource(Res.string.compose_player_reload),
+                enabled = selectedAddonSubtitle != null && !state.isLoading,
+                onClick = onReload,
             )
         }
 

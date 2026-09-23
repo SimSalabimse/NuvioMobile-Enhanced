@@ -329,6 +329,19 @@ actual fun PlatformPlayerSurface(
                 InAppLogger.info("Player/iOS", "set subtitle delay ms=$targetMs")
                 bridge.setSubtitleDelayMs(targetMs)
             }
+            
+            override fun startAudioEnergyCapture(startTimeMs: Long) {
+                InAppLogger.info("Player/iOS", "Audio energy capture not yet implemented on iOS")
+            }
+            
+            override fun stopAudioEnergyCapture(): List<AudioEnergySample> {
+                InAppLogger.info("Player/iOS", "Audio energy capture not yet implemented on iOS")
+                return emptyList()
+            }
+            
+            override fun getAudioCaptureDuration(): Long {
+                return 0L
+            }
 
             override fun applySubtitleStyle(style: SubtitleStyleState) {
                 InAppLogger.debug(
