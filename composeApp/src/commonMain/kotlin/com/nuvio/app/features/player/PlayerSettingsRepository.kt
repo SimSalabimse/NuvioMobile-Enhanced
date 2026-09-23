@@ -75,6 +75,7 @@ data class PlayerSettingsUiState(
     val animeSkipEnabled: Boolean = false,
     val animeSkipClientId: String = "",
     val introDbApiKey: String = "",
+    val theIntroDbApiKey: String = "",
     val introSubmitEnabled: Boolean = false,
     val streamAutoPlayNextEpisodeEnabled: Boolean = false,
     val randomEpisodesIncludeWatched: Boolean = false,
@@ -150,6 +151,7 @@ object PlayerSettingsRepository {
     private var animeSkipEnabled = false
     private var animeSkipClientId = ""
     private var introDbApiKey = ""
+    private var theIntroDbApiKey = ""
     private var introSubmitEnabled = false
     private var streamAutoPlayNextEpisodeEnabled = false
     private var randomEpisodesIncludeWatched = false
@@ -230,6 +232,7 @@ object PlayerSettingsRepository {
         animeSkipEnabled = false
         animeSkipClientId = ""
         introDbApiKey = ""
+        theIntroDbApiKey = ""
         introSubmitEnabled = false
         streamAutoPlayNextEpisodeEnabled = false
         streamAutoPlayNextEpisodeFallbackEnabled = true
@@ -364,6 +367,7 @@ object PlayerSettingsRepository {
         animeSkipEnabled = PlayerSettingsStorage.loadAnimeSkipEnabled() ?: false
         animeSkipClientId = PlayerSettingsStorage.loadAnimeSkipClientId() ?: ""
         introDbApiKey = PlayerSettingsStorage.loadIntroDbApiKey() ?: ""
+        theIntroDbApiKey = TheIntroDbKeyStore.load() ?: ""
         introSubmitEnabled = PlayerSettingsStorage.loadIntroSubmitEnabled() ?: false
         streamAutoPlayNextEpisodeEnabled = PlayerSettingsStorage.loadStreamAutoPlayNextEpisodeEnabled() ?: false
         streamAutoPlayNextEpisodeFallbackEnabled = PlayerSettingsStorage.loadStreamAutoPlayNextEpisodeFallbackEnabled() ?: true
@@ -768,6 +772,14 @@ object PlayerSettingsRepository {
         PlayerSettingsStorage.saveIntroDbApiKey(apiKey)
     }
 
+    fun setTheIntroDbApiKey(apiKey: String) {
+        ensureLoaded()
+        if (theIntroDbApiKey == apiKey) return
+        theIntroDbApiKey = apiKey
+        publish()
+        TheIntroDbKeyStore.save(apiKey)
+    }
+
     fun setIntroSubmitEnabled(enabled: Boolean) {
         ensureLoaded()
         if (introSubmitEnabled == enabled) return
@@ -1064,6 +1076,7 @@ object PlayerSettingsRepository {
             animeSkipEnabled = animeSkipEnabled,
             animeSkipClientId = animeSkipClientId,
             introDbApiKey = introDbApiKey,
+            theIntroDbApiKey = theIntroDbApiKey,
             introSubmitEnabled = introSubmitEnabled,
             streamAutoPlayNextEpisodeEnabled = streamAutoPlayNextEpisodeEnabled,
             randomEpisodesIncludeWatched = randomEpisodesIncludeWatched,
@@ -1100,4 +1113,18 @@ object PlayerSettingsRepository {
             source
         }
     }
+}
+
+/**
+ * Returns true if intro segment submission is available: submit is enabled AND
+ * at least one usable API key is present (introdb.app or theintrodb.org).
+ * Matches the same key-resolution logic used by submitManualSkipSegment.
+ */
+fun PlayerSettingsUiState.canSubmitIntroSegments(): Boolean {
+    if (!introSubmitEnabled) return false
+    val introDbAppKey = introDbApiKey.trim()
+    val theIntroDbKey = theIntroDbApiKey.trim()
+    val fallbackTheIntroKey = introDbAppKey.takeIf { it.isNotBlank() && !it.startsWith("idb_", ignoreCase = true) }.orEmpty()
+    val resolvedTheIntroKey = theIntroDbKey.ifBlank { fallbackTheIntroKey }
+    return introDbAppKey.isNotBlank() || resolvedTheIntroKey.isNotBlank()
 }

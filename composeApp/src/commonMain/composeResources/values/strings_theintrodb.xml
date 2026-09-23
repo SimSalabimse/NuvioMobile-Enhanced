@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_playback_theintrodb_api_key">TheIntroDB API Key</string>
+    <string name="settings_playback_theintrodb_api_key_description">Paste your theintrodb.org user key. This is separate from the introdb.app key.</string>
+    <string name="settings_playback_theintrodb_skip_description">Use TheIntroDB (theintrodb.org) first, then introdb.app, to detect intros, recaps, and credits.</string>
+</resources>

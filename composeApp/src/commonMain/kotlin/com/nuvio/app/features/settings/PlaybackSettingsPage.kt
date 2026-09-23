@@ -1155,6 +1155,24 @@ private fun PlaybackSettingsSection(
                             onDismiss = { showIntroDbApiKeyDialog = false },
                         )
                     }
+                    SettingsGroupDivider(isTablet = isTablet)
+                    var showTheIntroDbApiKeyDialog by remember { mutableStateOf(false) }
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.settings_playback_theintrodb_api_key),
+                        description = autoPlayPlayerSettings.theIntroDbApiKey.ifBlank { notSetLabel },
+                        isTablet = isTablet,
+                        onClick = { showTheIntroDbApiKeyDialog = true },
+                    )
+                    if (showTheIntroDbApiKeyDialog) {
+                        TheIntroDbApiKeyDialog(
+                            initialValue = autoPlayPlayerSettings.theIntroDbApiKey,
+                            onSave = {
+                                PlayerSettingsRepository.setTheIntroDbApiKey(it)
+                                showTheIntroDbApiKeyDialog = false
+                            },
+                            onDismiss = { showTheIntroDbApiKeyDialog = false },
+                        )
+                    }
                 }
             }
         }
