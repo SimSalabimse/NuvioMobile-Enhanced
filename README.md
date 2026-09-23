@@ -1,196 +1,85 @@
-<div align="center">
+# NuvioMobile-Enhanced
 
-  <img src="https://nuvio.tv/assets/nuvio-app-logo-wordmark.webp" alt="Nuvio" width="320" />
+Public mirror of [luqmanfadlli/NuvioMobile-Enhanced](https://github.com/luqmanfadlli/NuvioMobile-Enhanced) with:
 
-  <h1>Nuvio Enhanced</h1>
+- **TheIntroDB** (`https://theintrodb.org`) skip-intro provider restored as a first-class source
+- **Unsigned IPA** builds for SideStore / AltStore / TrollStore (no Apple certificate on the server)
+- **Daily auto-sync** from the public Enhanced `enhanced` branch, then an IPA rebuild when the tree changes
 
-  <p>
-    An unofficial fork of <a href="https://github.com/NuvioMedia/NuvioMobile">Nuvio Mobile</a> that keeps pace with
-    upstream and adds the features and platform polish on top of it.
-    <br /><br />
-    Bring your own sources. Nuvio turns them into a library with artwork, ratings, subtitles, and your place saved on every screen.
-  </p>
+Official Nuvio still talks to **introdb.app**. This fork keeps that provider and adds **TheIntroDB v3** (`https://api.theintrodb.org/v3/media`) beside it.
 
-  <p>
-    <a href="https://github.com/luqmanfadlli/NuvioMobile-Enhanced/releases/latest">Releases</a> ·
-    <a href="https://github.com/NuvioMedia/NuvioMobile">Upstream project</a> ·
-    <a href="https://nuvio.tv">nuvio.tv</a> ·
-    <a href="https://nuvio.tv/support">Support Nuvio</a>
-  </p>
+## 1. Mirror the Enhanced tree (required once)
 
-</div>
-
-> **Unofficial.** This fork is not affiliated with or supported by the Nuvio team. Please report bugs you find here to
-> **this** repository, not upstream — unless you can reproduce them on an official build too.
-
----
-
-## Install
-
-### iOS — AltStore / SideStore
-
-Add this source, then install **Nuvio Enhanced** from it:
-
-```
-https://github.com/luqmanfadlli/NuvioMobile-Enhanced/raw/refs/heads/enhanced/store.json
-```
-or grab the IPA from [the latest release](https://github.com/luqmanfadlli/NuvioMobile-Enhanced/releases/latest).
-
-### Android
-
-Grab the APK from [the latest release](https://github.com/luqmanfadlli/NuvioMobile-Enhanced/releases/latest).
-
----
-
-## What Enhanced adds
-
-Everythings below are added on top of upstream Nuvio Mobile.
-
-### Home
-
-| Feature | Where | Default |
-|---|---|---|
-| **Hero trailer autoplay** — trailers play in the hero carousel instead of static artwork. The carousel stops auto-advancing while a trailer plays, so it only moves when you swipe. | Settings → Layout → Home Layout → **Hero Trailer Playback** | Off |
-| **Trailer start with sound** — start the hero trailer unmuted instead of muted. You can still mute it with the speaker button. Appears once trailer playback is on. | Settings → Layout → Home Layout → **Start with sound** | Off |
-| **Trailer start delay** — how long the artwork holds before the trailer starts, `Instant` to 10 s. Appears once trailer playback is on. | Settings → Layout → Home Layout → **Trailer Start Delay** | Instant |
-| **Hero style** — `Full-bleed` (artwork spans the screen) or `Card` (rounded, inset). | Settings → Layout → Home Layout → **Hero Style** | Full-bleed |
-| **Dynamic background** — tints the home screen with a gradient pulled from the featured artwork's colours. | Settings → Layout → **Dynamic background color** | Off |
-| **Catalog accent underline** — accent rule under each catalog row heading. | Settings → Layout → **Catalog accent underline** | Off |
-| **Accent gradient everywhere** — the theme accent is drawn as its full gradient rather than a single colour: settings and Profile Insight icons, Taste DNA bars and chips, the catalog accent underline, primary buttons, and the tinted iOS tab bar in every tab bar mode. | Settings → Layout → **Theme** | Follows the selected theme |
-
-### Player
-
-| Feature | Where | Default |
-|---|---|---|
-| **Tap-to-seek on the timeline** — tap anywhere on the progress bar to jump there. | — | Always on |
-| **Volume Boost** — volume can be boosted past 100% | Swipe up all the way past 100% | Always on |
-| **Stream Quality Chooser** - add quality indicator and ability to choose quality on HLS stream whenever available, in both the legacy and the new control layout | Player screen overlay | Best quality supported by hardware |
-| **Info Button** add playback info button to show currently playing video and audio information, in both the legacy and the new control layout | Player screen overlay | — |
-| **Picture in Picture button** — enter PiP straight from the player overlay, in both the legacy and the new control layout. | Player screen overlay | — |
-| **Gesture readouts** — swiping shows the seek target and delta, and the volume/brightness percentage, in the new control layout as well. | — | Always on |
-| **Swipe to Seek toggle** — an option to turn it off to prevent accidental seeking while keeping the up/down brightness and volume swipes. | Settings → Playback → **Swipe to Seek** (under Touch Gestures) | On |
-| **Hardware keyboard shortcuts** — <kbd>Space</kbd> play/pause, <kbd>←</kbd> / <kbd>→</kbd> seek 10 s, <kbd>Esc</kbd> leave the player. Inert while a panel is open or the controls are locked. | — | Always on |
-| **Adjustable subtitle transparency** | Settings → Playback → Subtitle Rendering → **Background Color** | — |
-
-### Live TV
-
-Upstream Nuvio has no Live TV. This fork adds the whole feature.
-
-| Feature | Where | Default |
-|---|---|---|
-| **M3U playlists** | Settings → Integrations → Live TV → **Playlists** | — |
-| **Xtream** — connect with a server URL, username and password. | Settings → Integrations → Live TV → **Providers** → Xtream | Not configured |
-| **Stalker Portal** — connect with a portal URL and MAC address; login details optional. | Settings → Integrations → Live TV → **Providers** → Stalker Portal | Not configured |
-| **Show Live TV in navigation** — the tab appears once at least one source is configured. | Settings → Integrations → Live TV → **Show Live TV in navigation** | On |
-
-### Profiles
-
-| Feature | Where | Default |
-|---|---|---|
-| **Profile Insights** — activity, library and taste breakdowns for the active profile, in Overview and Taste sections. | Settings → **Profile** | Always available |
-| **Custom profile background** — point a profile at any `http(s)` image URL. | Edit Profile → **Choose Profile Background** → Custom → **Custom background URL** | None |
-
-### Details & discovery
-
-| Feature | Where | Default |
-|---|---|---|
-| **More Like This → View All** — the recommendation rail's header opens the full list as a paged grid that keeps loading as you scroll, instead of stopping at one page. | — | Always on when the rail has more to show |
-| **Budget and revenue** — added to the details block for movies. | Shown with Settings → Layout → Detail Page → **Details** | — |
-| **Episode ratings** — TMDB vote averages on episode cards. | Settings → Content & Discovery → TMDB Enrichment → **Episode ratings** | — |
-| **Icon action row** — play/resume spans the full width and the other actions (download, start from the beginning, random episode, external player, watched, library) sit as icons underneath it, instead of hiding behind the 3-dots menu. Turn it off to get the old row back. | Settings → Layout → Detail Page → **Icon action row** | On |
-| **Download button** — adds a download button under Play that opens the stream list in download mode. | Settings → Downloads → **Show download button** | Off |
-| **Trailer start with sound** — start the details-page trailer unmuted. Appears once trailer playback is on. | Settings → Layout → Detail Page → **Start with sound** | Off |
-| **Random Episode** — Play random episode for series. | 3 dots next to play button → **random icon** | — |
-| **Include watched episodes toggle** — Include watched episodes in random playback. | Settings → Playback → **Include watched episodes in random playback**| Off |
-
-### Streams
-
-| Feature | Where | Default |
-|---|---|---|
-| **Pinned sources** — pin an addon or a scraper source so its results always sort to the top of the stream list. Pins are kept per profile. | Stream list → long-press a stream or its source header → **Pin to top** | None pinned |
-| **Search bar** — a filter field above the stream list that narrows the results as you type, matching every term against the stream name, description, source, addon, filename and badges — so `1080 hevc multi` works. | Settings → Layout → Streams → **Search bar** | Off |
-
-### Library
-
-| Feature | Where | Default |
-|---|---|---|
-| **Library Calendar** — show release date of ongoing series in the library. | Library screen → **calendar icon toggle** | — |
-
-### Downloads
-
-| Feature | Where | Default |
-|---|---|---|
-| **Wi-Fi-only downloads** — downloads wait for Wi-Fi unless you allow mobile data. The switch sits at the top of the Downloads screen, not in Settings. | Downloads screen → **Allow mobile data** | Off (Wi-Fi only) |
-| **Custom download location** — pick any folder to save downloads to (a folder you grant via Storage Access Framework on Android, or via the Files app on iOS) instead of the app's private storage. | Downloads screen → **gear icon** → **Download Location** | Internal storage |
-| **Background downloads (iOS)** — a download keeps transferring after you leave the app, instead of stalling the moment it's backgrounded. Doesn't survive a full force-quit. | — | Always on |
-| **Download progress notification (iOS)** — live progress shown in a Lock Screen/Dynamic Island Live Activity while a download is running. | — | Always on |
-
-### Tracking
-
-| Feature | Where | Default |
-|---|---|---|
-| **Sign in with a code** — device-code sign-in for **Trakt** and **SIMKL**, for when the browser redirect will not come back, especially for installation within LiveContainer. Shows a code to enter on any other device. | Settings → Tracking → provider card → **Connect with code** | — |
-
-### iOS look and feel
-
-| Feature | Where | Default |
-|---|---|---|
-| **Experimental Picture in Picture** *(iOS)* — Metal-based render pipeline that slides into PiP without reopening the stream. It changes the core video output, so treat it as experimental. | Settings → Playback → **Experimental Picture in Picture** | Off |
-| **Morphed Liquid Glass tab bar** — shrinks to a compact pill, with native drag-across-tabs and the system glass highlight (requires an **iPhone on iOS 26 or newer**). | Settings → Layout → **Liquid Glass tab bar** | Morphed |
-| **Skia graphics engine** — rebuild graphics engine for animated artwork rendering with shared codecs and bounded memory. Fixed crash on large animated collection, support animated avatar and badge | — | — |
-| **Bundle CJK Font** — fixed Chinese subtitle rendering | — | — |
-
----
-
-## Build from source
+GitHub will not let a fork of a public repo be private. This repository was created private and empty on purpose. Copy Enhanced in:
 
 ```bash
-git clone https://github.com/luqmanfadlli/NuvioMobile-Enhanced.git
+git clone https://github.com/SimSalabimse/NuvioMobile-Enhanced.git
 cd NuvioMobile-Enhanced
-git checkout enhanced
+git remote add enhanced https://github.com/luqmanfadlli/NuvioMobile-Enhanced.git
+git fetch enhanced
+git checkout -B enhanced enhanced/enhanced
+# keep the overlay files from main
+git checkout main -- README.md .github/workflows/sync-upstream.yml .github/workflows/build-sideload-ipa.yml composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/skip/TheIntroDb.kt
+git add README.md .github composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/skip/TheIntroDb.kt
+git commit -m "Keep TheIntroDB overlay and sideload CI on Enhanced tree"
+git push -u origin enhanced
 ```
 
-### Android
+Then in GitHub: **Settings → General → Default branch → `enhanced`**.
 
-Requires Android Studio and the Android SDK.
+Until that mirror exists, the IPA workflow will no-op because `scripts/build-ios-ipa.sh` is not in the tree.
 
-```bash
-./gradlew :androidApp:assembleFullDebug        # sideload flavour
-./gradlew :androidApp:assemblePlaystoreDebug   # store flavour
+## 2. Build an unsigned IPA
+
+Actions → **Build Sideload IPA** → Run workflow.
+
+The IPA is produced with:
+
+```
+CODE_SIGNING_ALLOWED=NO
+CODE_SIGNING_REQUIRED=NO
+CODE_SIGN_IDENTITY=
 ```
 
-### iOS
+Install it with SideStore, AltStore, or TrollStore. Those tools sign on-device with *your* Apple ID. No paid developer certificate is required on this repo.
 
-Requires macOS and Xcode.
+Optional repository secret:
 
-```bash
-env NUVIO_IOS_DISTRIBUTION=full xcodebuild \
-  -project iosApp/iosApp.xcodeproj \
-  -scheme iosApp \
-  -configuration Debug \
-  -sdk iphonesimulator \
-  -derivedDataPath build/ios-derived-full-simulator \
-  CODE_SIGNING_ALLOWED=NO \
-  build
+- `NUVIO_LOCAL_PROPERTIES_BASE64` — base64 of a `local.properties` that contains Trakt / Simkl keys (same file official/Enhanced CI uses). The IPA still builds without it.
+
+## 3. Auto-update
+
+- Daily at 06:17 UTC: merge `luqmanfadlli/NuvioMobile-Enhanced@enhanced`, then rebuild the IPA if commits landed.
+- Manual: Actions → **Sync Enhanced upstream**.
+
+### SideStore source
+
+After the first published IPA:
+
+```
+https://github.com/SimSalabimse/NuvioMobile-Enhanced/raw/refs/heads/enhanced/store.json
 ```
 
-## Staying in sync
+**Private-repo caveat:** AltStore/SideStore cannot read `raw.githubusercontent.com` or private GitHub Release assets without authentication. Options:
 
-This fork tracks `upstream/cmp-rewrite` and merges upstream releases as they land. If you are working on the fork:
+1. Leave this repo private and download IPA artifacts from Actions yourself.
+2. Host a public `store.json` gist that points at a public IPA URL.
+3. Only if you accept the risk: put a fine-grained PAT in the source URL.
 
-```bash
-git remote add upstream https://github.com/NuvioMedia/NuvioMobile.git
-git fetch upstream
-git merge upstream/cmp-rewrite
-```
+GitHub also cannot attach public releases to a private repository.
 
----
+## TheIntroDB integration
 
-## Credits
+Client: `composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/skip/TheIntroDb.kt`
 
-Nuvio is built by [NuvioMedia](https://github.com/NuvioMedia) — all credit for the app itself belongs to them and its
-contributors. This repository only adds to their work. If you enjoy Nuvio, [support the upstream project](https://nuvio.tv/support).
+- `GET https://api.theintrodb.org/v3/media?imdb_id=…&season=…&episode=…` (TMDB id preferred when the player already has one)
+- Times are milliseconds; converted to seconds for Nuvio `SkipInterval`
+- Segment map: intro→intro, recap→recap, credits→outro / movie-credits, preview→preview
+- Merged **first** in `SkipIntroRepository.mergeByPriority`, so it wins over introdb.app when both have the same category
+- Still runs when `INTRODB_API_URL` is blank (that is how official builds disable introdb.app)
+
+After mirroring Enhanced, wire the client into `SkipIntroRepository` (see comments at the bottom of `TheIntroDb.kt`).
 
 ## License
 
-[GNU General Public License v3.0](./LICENSE) — same as upstream.
+GNU GPLv3, same as Nuvio / Nuvio Enhanced. This is an unofficial private copy and is not affiliated with NuvioMedia or luqmanfadlli.

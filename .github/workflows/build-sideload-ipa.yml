@@ -1,0 +1,258 @@
+name: Build Sideload IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      configuration:
+        description: Xcode configuration
+        type: choice
+        options:
+          - Release
+          - Debug
+        default: Release
+      publish_release:
+        description: Publish a GitHub pre-release and refresh store.json
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      configuration:
+        type: string
+        default: Release
+      publish_release:
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sideload-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Unsigned full IPA
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      GRADLE_OPTS: -Dfile.encoding=UTF-8
+      IOS_CONFIGURATION: ${{ inputs.configuration || 'Release' }}
+      KOTLIN_DAEMON_JVMARGS: -Xmx2048M
+      NUVIO_GRADLE_JVMARGS: -Xmx4608M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768M
+      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx4608M
+      RELEASE_PROPERTIES_BASE64: ${{ secrets.NUVIO_LOCAL_PROPERTIES_BASE64 }}
+      CONTRIBUTIONS_URL: https://api.github.com/repos/luqmanfadlli/NuvioMobile-Enhanced/contributors?per_page=100
+    outputs:
+      tag: ${{ steps.pack.outputs.tag }}
+      version: ${{ steps.pack.outputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Require Enhanced tree
+        run: |
+          if [[ ! -f scripts/build-ios-ipa.sh || ! -f scripts/prepare-ios-dependencies.sh ]]; then
+            echo "Enhanced tree is not mirrored yet. Run the README bootstrap commands first." >&2
+            exit 1
+          fi
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Cache Kotlin Native
+        uses: actions/cache@v5
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: |
+            konan-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Verify Apple toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Configure runtime properties
+        run: |
+          set -euo pipefail
+          if [[ -n "${RELEASE_PROPERTIES_BASE64}" ]]; then
+            printf '%s' "${RELEASE_PROPERTIES_BASE64}" | base64 --decode > local.properties
+          else
+            cat > local.properties <<'EOF'
+          # Sideload CI stub so generateRuntimeConfigs has an @InputFile.
+          EOF
+          fi
+          sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
+          # Public official client config (https://nuvio.tv/docs and GET https://api.nuvio.tv/.well-known/nuvio).
+          # Needed for Official sign-in. Non-blank secret-decoded values win.
+          ensure_prop() {
+            local key="$1"
+            local value="$2"
+            if grep -Eq "^[[:space:]]*${key}[[:space:]]*=[[:space:]]*[^[:space:]]" local.properties; then
+              return 0
+            fi
+            sed -i '' -E "/^[[:space:]]*${key}[[:space:]]*=/d" local.properties
+            printf '%s=%s\n' "${key}" "${value}" >> local.properties
+          }
+          ensure_prop NUVIO_SUPABASE_URL 'https://api.nuvio.tv'
+          ensure_prop NUVIO_SUPABASE_ANON_KEY 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiIsImlzcyI6InN1cGFiYXNlIiwiaWF0IjoxNzgxNTIxMzQ2LCJleHAiOjE5MzkyMDEzNDZ9.tmQaj682pwzehpqlgCDMnySOqiUvpgRbrE43T4VJpDI'
+          if [[ -n "${CONTRIBUTIONS_URL:-}" ]]; then
+            sed -i '' -E '/^[[:space:]]*CONTRIBUTIONS_URL[[:space:]]*=/d' local.properties
+            printf 'CONTRIBUTIONS_URL=%s\n' "${CONTRIBUTIONS_URL}" >> local.properties
+          fi
+          echo "local.properties keys (names only):"
+          awk -F= '/^[[:space:]]*[^#[:space:]]/ { print $1 }' local.properties
+
+      - name: Prepare iOS dependencies
+        run: ./scripts/prepare-ios-dependencies.sh
+
+      - name: Build unsigned IPA
+        run: |
+          (
+            while sleep 60; do
+              echo "::group::Build resources $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+              uptime
+              vm_stat
+              ps -Ao pid,etime,%cpu,rss,command -r | head -n 12 || true
+              echo "::endgroup::"
+            done
+          ) &
+          monitor_pid=$!
+          trap 'kill "${monitor_pid}" 2>/dev/null || true' EXIT
+          ./scripts/build-ios-ipa.sh
+
+      - name: Dump Kotlin compile errors
+        if: failure()
+        run: |
+          set +e
+          configuration_slug="$(printf '%s' "${IOS_CONFIGURATION:-Release}" | tr '[:upper:]' '[:lower:]')"
+          derived="build/ios-derived-full-${configuration_slug}"
+          echo "::group::Kotlin / Gradle error extract"
+          echo "derived=${derived}"
+          ls -la "${derived}" 2>/dev/null | head -n 40
+          echo "----- e: / Unresolved / What went wrong -----"
+          grep -R -n -E '(^e: |error: |Unresolved reference|What went wrong|Execution failed|BUILD FAILED|Cannot find|No matching|doesn'\''t exist)' \
+            "${derived}" \
+            --include='*.txt' --include='*.log' --include='*.out' 2>/dev/null | tail -n 300
+          echo "----- Gradle What went wrong context -----"
+          find "${HOME}/.gradle" -name '*.log' -mmin -90 2>/dev/null | while read -r logfile; do
+            echo "## ${logfile}"
+            grep -n -E '(^e: |Unresolved reference|What went wrong|Execution failed|doesn'\''t exist|generateRuntimeConfigs)' "${logfile}" | tail -n 80
+            python3 - "${logfile}" <<'PY'
+          import sys
+          path = sys.argv[1]
+          try:
+              lines = open(path, errors='replace').read().splitlines()
+          except OSError:
+              raise SystemExit(0)
+          for i, line in enumerate(lines):
+              if 'What went wrong' in line or 'generateRuntimeConfigs' in line or line.startswith('e: '):
+                  start = max(0, i - 2)
+                  end = min(len(lines), i + 25)
+                  print(f'--- {path}:{i+1} ---')
+                  for j in range(start, end):
+                      print(f'{j+1}:{lines[j]}')
+          PY
+          done
+          echo "::endgroup::"
+
+      - name: Package metadata
+        id: pack
+        run: |
+          set -euo pipefail
+          configuration_slug="$(printf '%s' "${IOS_CONFIGURATION}" | tr '[:upper:]' '[:lower:]')"
+          ipa_path="$(find build/ios-ipa -maxdepth 1 -type f -name "*-full-${configuration_slug}.ipa" -print -quit)"
+          test -n "${ipa_path}"
+          version="$(basename "${ipa_path}" | sed -E "s/^nuvio-//; s/-full-${configuration_slug}\\.ipa$//")"
+          short_sha="$(git rev-parse --short HEAD)"
+          tag="sideload-${version}-${short_sha}"
+          echo "ipa_name=$(basename "${ipa_path}")" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Sideload IPA"
+            echo
+            echo "- File: $(basename "${ipa_path}")"
+            echo "- Size: $(du -h "${ipa_path}" | cut -f1)"
+            echo "- SHA-256: $(shasum -a 256 "${ipa_path}" | awk '{print $1}')"
+            echo "- Signing: unsigned (SideStore / AltStore / TrollStore)"
+            echo "- Tag: ${tag}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuvio-sideload-ipa-${{ github.sha }}
+          path: build/ios-ipa/*.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish pre-release
+        if: ${{ inputs.publish_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.pack.outputs.tag }}
+          VERSION: ${{ steps.pack.outputs.version }}
+        run: |
+          set -euo pipefail
+          ipa_path="$(find build/ios-ipa -maxdepth 1 -type f -name "*.ipa" -print -quit)"
+          notes="Unsigned sideload IPA ${VERSION} (${GITHUB_SHA:0:7}). Sign with SideStore, AltStore, or TrollStore. No Apple certificate is embedded."
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" "${ipa_path}" --clobber
+          else
+            gh release create "${TAG}" "${ipa_path}" --prerelease --title "Sideload ${VERSION}" --notes "${notes}"
+          fi
+
+  store:
+    name: Refresh store.json
+    needs: build
+    if: ${{ inputs.publish_release }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out default branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: Update store.json from the new release
+        if: hashFiles('scripts/update-store-source.py') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.build.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          release_json="${RUNNER_TEMP}/release.json"
+          release_notes="${RUNNER_TEMP}/release-notes.md"
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" > "${release_json}"
+          ipa_name="$(jq -r '.assets[] | select(.name | endswith(".ipa")) | .name' "${release_json}")"
+          download_url="$(jq -r --arg name "${ipa_name}" '.assets[] | select(.name == $name) | .browser_download_url' "${release_json}")"
+          release_date="$(jq -r '.published_at // .created_at' "${release_json}")"
+          mkdir -p source-assets
+          gh release download "${RELEASE_TAG}" --pattern "${ipa_name}" --dir source-assets
+          jq -rj '.body // ""' "${release_json}" > "${release_notes}"
+          python3 scripts/update-store-source.py \
+            --source store.json \
+            --ipa "source-assets/${ipa_name}" \
+            --release-notes "${release_notes}" \
+            --release-version "${RELEASE_VERSION%-beta}" \
+            --release-date "${release_date}" \
+            --download-url "${download_url}"
+          if [[ -n "$(git status --porcelain -- store.json)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add store.json
+            git commit -m "chore(store): publish sideload ${RELEASE_VERSION}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi

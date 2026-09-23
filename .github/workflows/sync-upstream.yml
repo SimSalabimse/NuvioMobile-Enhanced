@@ -1,0 +1,73 @@
+name: Sync Enhanced upstream
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      build_ipa:
+        description: Build unsigned sideload IPA if upstream changed
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Merge luqmanfadlli/NuvioMobile-Enhanced
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.merge.outputs.changed }}
+    steps:
+      - name: Check out default branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Merge enhanced/enhanced
+        id: merge
+        env:
+          UPSTREAM_REMOTE: https://github.com/luqmanfadlli/NuvioMobile-Enhanced.git
+          UPSTREAM_REF: enhanced
+        run: |
+          set -euo pipefail
+          if [[ ! -f scripts/build-ios-ipa.sh ]]; then
+            echo "Enhanced tree is not mirrored yet. Run the README bootstrap commands first."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add enhanced "$UPSTREAM_REMOTE" 2>/dev/null || git remote set-url enhanced "$UPSTREAM_REMOTE"
+          git fetch enhanced "$UPSTREAM_REF"
+          before="$(git rev-parse HEAD)"
+          if ! git merge --no-edit "enhanced/${UPSTREAM_REF}"; then
+            echo "Merge conflict with TheIntroDB/local patches. Resolve locally." >&2
+            git merge --abort || true
+            exit 1
+          fi
+          after="$(git rev-parse HEAD)"
+          if [[ "${before}" != "${after}" ]]; then
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build-ipa:
+    name: Build unsigned IPA after sync
+    needs: sync
+    if: >-
+      needs.sync.outputs.changed == 'true' &&
+      (github.event_name == 'schedule' || inputs.build_ipa)
+    uses: ./.github/workflows/build-sideload-ipa.yml
+    with:
+      publish_release: true
+      configuration: Release
+    secrets: inherit
