@@ -183,10 +183,9 @@ final class MPVAudioCaptureProcessor: NSObject {
         }
         
         defer {
-            if let blockBuffer = blockBuffer {
-                // Release block buffer when done
-                CFRelease(blockBuffer)
-            }
+            // ARC automatically manages the blockBuffer lifetime
+            // No manual CFRelease needed in modern Swift with ARC
+            _ = blockBuffer
         }
         
         // Process each buffer
