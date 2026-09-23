@@ -98,7 +98,7 @@ fun SubmitIntroDialog(
     val disabledTypes = remember(existingSegments, submittedTypesInSession) {
         buildSet {
             existingSegments.forEach { interval ->
-                add(interval.type.lowercase())
+                normalizeSegmentTypeForSubmit(interval.type)?.let { add(it) }
             }
             addAll(submittedTypesInSession.map { it.lowercase() })
         }
@@ -544,4 +544,14 @@ private fun parseTimeToSeconds(input: String): Double? {
         }
     }
     return input.toDoubleOrNull()
+}
+
+private fun normalizeSegmentTypeForSubmit(type: String): String? {
+    return when (type.trim().lowercase()) {
+        "intro", "op", "mixed-op" -> "intro"
+        "credits", "outro", "ed", "mixed-ed", "ending", "movie-credits" -> "outro"
+        "recap" -> "recap"
+        "preview" -> "preview"
+        else -> null
+    }
 }
