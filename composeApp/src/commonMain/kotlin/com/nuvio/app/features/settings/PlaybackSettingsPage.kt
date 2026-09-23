@@ -174,6 +174,12 @@ private fun formatP2pCacheBytes(bytes: Long): String {
     }
 }
 
+private fun maskIntroDbApiKey(key: String, notSetLabel: String): String {
+    val trimmed = key.trim()
+    if (trimmed.isBlank()) return notSetLabel
+    return if (trimmed.length <= 4) "****" else "******${trimmed.takeLast(4)}"
+}
+
 fun snapToStep(value: Float, step: Float): Float {
     return (value / step).roundToInt() * step
 }
@@ -1141,7 +1147,7 @@ private fun PlaybackSettingsSection(
                     val notSetLabel = stringResource(Res.string.settings_playback_not_set)
                     SettingsNavigationRow(
                         title = stringResource(Res.string.settings_playback_introdb_api_key),
-                        description = autoPlayPlayerSettings.introDbApiKey.ifBlank { notSetLabel },
+                        description = maskIntroDbApiKey(autoPlayPlayerSettings.introDbApiKey, notSetLabel),
                         isTablet = isTablet,
                         onClick = { showIntroDbApiKeyDialog = true },
                     )
@@ -1159,7 +1165,7 @@ private fun PlaybackSettingsSection(
                     var showTheIntroDbApiKeyDialog by remember { mutableStateOf(false) }
                     SettingsNavigationRow(
                         title = stringResource(Res.string.settings_playback_theintrodb_api_key),
-                        description = autoPlayPlayerSettings.theIntroDbApiKey.ifBlank { notSetLabel },
+                        description = maskIntroDbApiKey(autoPlayPlayerSettings.theIntroDbApiKey, notSetLabel),
                         isTablet = isTablet,
                         onClick = { showTheIntroDbApiKeyDialog = true },
                     )
