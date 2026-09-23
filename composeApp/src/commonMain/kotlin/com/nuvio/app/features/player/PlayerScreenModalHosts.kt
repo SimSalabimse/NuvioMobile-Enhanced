@@ -108,6 +108,10 @@ internal fun PlayerScreenModalHosts(
     showStreamInfoModal: Boolean,
     mediaInfoJson: String,
     onStreamInfoModalDismissed: () -> Unit,
+    showDetectedSegmentNotification: Boolean,
+    currentDetectedSegment: com.nuvio.app.features.player.skip.DetectedSegment?,
+    onOpenDetectedSegment: () -> Unit,
+    onDismissDetectedSegment: () -> Unit,
 ) {
     if (pendingP2pSwitch != null) {
         P2pConsentDialog(
@@ -273,6 +277,19 @@ internal fun PlayerScreenModalHosts(
         selectedQualityIsAuto = selectedQualityIsAuto,
         onDismiss = onStreamInfoModalDismissed,
     )
+    
+    androidx.compose.foundation.layout.Box(
+        modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+        contentAlignment = androidx.compose.ui.Alignment.BottomCenter,
+    ) {
+        com.nuvio.app.features.player.skip.DetectedSegmentNotification(
+            visible = showDetectedSegmentNotification,
+            segment = currentDetectedSegment,
+            onOpenFlag = onOpenDetectedSegment,
+            onDismiss = onDismissDetectedSegment,
+            modifier = androidx.compose.ui.Modifier.padding(bottom = 120.dp),
+        )
+    }
 }
 
 internal fun selectDownloadedEpisodeForPlayback(
