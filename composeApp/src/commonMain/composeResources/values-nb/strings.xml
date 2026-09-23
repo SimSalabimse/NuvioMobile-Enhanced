@@ -2129,6 +2129,7 @@ Du bruker denne funksjonen helt på eget ansvar. P2P kan deaktiveres når som he
     <string name="submit_intro_end_time_label">SLUTTID (MM:SS)</string>
     <string name="submit_intro_segment_intro">Intro</string>
     <string name="submit_intro_segment_outro">Outro</string>
+    <string name="submit_intro_segment_preview">Preview</string>
     <string name="submit_intro_segment_recap">Recap</string>
     <string name="submit_intro_segment_type">SEGMENTTYPE</string>
     <string name="submit_intro_segment_type_label">SEGMENTTYPE</string>

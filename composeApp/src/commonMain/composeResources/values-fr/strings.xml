@@ -1748,6 +1748,7 @@
     <string name="submit_intro_segment_intro">Intro</string>
     <string name="submit_intro_segment_recap">Récap</string>
     <string name="submit_intro_segment_outro">Outro</string>
+    <string name="submit_intro_segment_preview">Preview</string>
     <string name="submit_intro_start_time">DÉBUT (MM:SS)</string>
     <string name="submit_intro_end_time">FIN (MM:SS)</string>
     <string name="submit_intro_submit">Soumettre</string>

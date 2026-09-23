@@ -1818,6 +1818,7 @@
     <string name="submit_intro_end_time_label">CZAS KOŃCA (MM:SS)</string>
     <string name="submit_intro_segment_intro">Intro</string>
     <string name="submit_intro_segment_outro">Outro</string>
+    <string name="submit_intro_segment_preview">Preview</string>
     <string name="submit_intro_segment_recap">Podsumowanie</string>
     <string name="submit_intro_segment_type">TYP SEGMENTU</string>
     <string name="submit_intro_segment_type_label">TYP SEGMENTU</string>

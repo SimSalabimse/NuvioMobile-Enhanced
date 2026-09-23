@@ -2057,6 +2057,7 @@
     <string name="submit_intro_segment_intro">Introducción</string>
     <string name="submit_intro_segment_recap">Resumen</string>
     <string name="submit_intro_segment_outro">Outro</string>
+    <string name="submit_intro_segment_preview">Preview</string>
     <string name="submit_intro_start_time">HORA DE INICIO (MM:SS)</string>
     <string name="submit_intro_end_time">HORA DE FINALIZACIÓN (MM:SS)</string>
     <string name="submit_intro_submit">Entregar</string>

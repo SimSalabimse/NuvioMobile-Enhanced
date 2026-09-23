@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.PlayCircleOutline
 import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material.icons.rounded.StopCircle
+import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.BasicAlertDialog
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -59,6 +60,7 @@ import nuvio.composeapp.generated.resources.submit_intro_capture_button
 import nuvio.composeapp.generated.resources.submit_intro_end_time_label
 import nuvio.composeapp.generated.resources.submit_intro_segment_intro
 import nuvio.composeapp.generated.resources.submit_intro_segment_outro
+import nuvio.composeapp.generated.resources.submit_intro_segment_preview
 import nuvio.composeapp.generated.resources.submit_intro_segment_recap
 import nuvio.composeapp.generated.resources.submit_intro_segment_type_label
 import nuvio.composeapp.generated.resources.submit_intro_start_time_label
@@ -135,31 +137,48 @@ fun SubmitIntroDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    Row(
+                    Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        SegmentTypeButton(
-                            label = stringResource(Res.string.submit_intro_segment_intro),
-                            icon = Icons.Rounded.PlayCircleOutline,
-                            selected = segmentType == "intro",
-                            onClick = { onSegmentTypeChange("intro") },
-                            modifier = Modifier.weight(1f)
-                        )
-                        SegmentTypeButton(
-                            label = stringResource(Res.string.submit_intro_segment_recap),
-                            icon = Icons.Rounded.Replay,
-                            selected = segmentType == "recap",
-                            onClick = { onSegmentTypeChange("recap") },
-                            modifier = Modifier.weight(1f)
-                        )
-                        SegmentTypeButton(
-                            label = stringResource(Res.string.submit_intro_segment_outro),
-                            icon = Icons.Rounded.StopCircle,
-                            selected = segmentType == "outro",
-                            onClick = { onSegmentTypeChange("outro") },
-                            modifier = Modifier.weight(1f)
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            SegmentTypeButton(
+                                label = stringResource(Res.string.submit_intro_segment_intro),
+                                icon = Icons.Rounded.PlayCircleOutline,
+                                selected = segmentType == "intro",
+                                onClick = { onSegmentTypeChange("intro") },
+                                modifier = Modifier.weight(1f)
+                            )
+                            SegmentTypeButton(
+                                label = stringResource(Res.string.submit_intro_segment_recap),
+                                icon = Icons.Rounded.Replay,
+                                selected = segmentType == "recap",
+                                onClick = { onSegmentTypeChange("recap") },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            SegmentTypeButton(
+                                label = stringResource(Res.string.submit_intro_segment_outro),
+                                icon = Icons.Rounded.StopCircle,
+                                selected = segmentType == "outro",
+                                onClick = { onSegmentTypeChange("outro") },
+                                modifier = Modifier.weight(1f)
+                            )
+                            SegmentTypeButton(
+                                label = stringResource(Res.string.submit_intro_segment_preview),
+                                icon = Icons.Rounded.Visibility,
+                                selected = segmentType == "preview",
+                                onClick = { onSegmentTypeChange("preview") },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
                 }
 
