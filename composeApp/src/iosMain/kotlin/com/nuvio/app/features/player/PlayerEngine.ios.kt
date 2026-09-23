@@ -331,16 +331,18 @@ actual fun PlatformPlayerSurface(
             }
             
             override fun startAudioEnergyCapture(startTimeMs: Long) {
-                InAppLogger.info("Player/iOS", "Audio energy capture not yet implemented on iOS")
+                InAppLogger.info("Player/iOS", "start audio energy capture at positionMs=$startTimeMs")
+                bridge.startAudioEnergyCapture(startTimeMs)
             }
             
             override fun stopAudioEnergyCapture(): List<AudioEnergySample> {
-                InAppLogger.info("Player/iOS", "Audio energy capture not yet implemented on iOS")
-                return emptyList()
+                val samples = bridge.stopAudioEnergyCapture()
+                InAppLogger.info("Player/iOS", "stop audio energy capture, collected ${samples.size} samples")
+                return samples
             }
             
             override fun getAudioCaptureDuration(): Long {
-                return 0L
+                return bridge.getAudioCaptureDuration()
             }
 
             override fun applySubtitleStyle(style: SubtitleStyleState) {
