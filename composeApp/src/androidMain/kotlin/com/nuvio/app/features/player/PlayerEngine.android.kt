@@ -293,6 +293,7 @@ private fun ExoPlayerSurface(
     var initializedAudioDecoderName by remember(playerSourceKey) { mutableStateOf<String?>(null) }
     val effectiveDecoderPriority = decoderPriorityOverride ?: playerSettings.decoderPriority
     val volumeBoostAudioProcessor = remember(playerSourceKey) { VolumeBoostAudioProcessor() }
+    val audioEnergyCaptureProcessor = remember(playerSourceKey) { AudioEnergyCaptureProcessor() }
 
     var resolvedMediaItem by remember(playerSourceKey, externalSubtitles) {
         mutableStateOf(
@@ -383,6 +384,7 @@ private fun ExoPlayerSurface(
             },
             shouldStripSdhProvider = { currentSubtitleStyle.stripSdh },
             volumeBoostAudioProcessor = volumeBoostAudioProcessor,
+            audioEnergyCaptureProcessor = audioEnergyCaptureProcessor,
             videoBoundsFractionProvider = {
                 playerViewRef?.videoBoundsFraction(latestVideoAspectRatio.value)
             },
@@ -1134,6 +1136,21 @@ private fun ExoPlayerSurface(
                     val targetMs = delayMs.coerceIn(SUBTITLE_DELAY_MIN_MS, SUBTITLE_DELAY_MAX_MS)
                     InAppLogger.info("ExoPlayer/Android", "set subtitle delay ms=$targetMs")
                     subtitleDelayMs = targetMs
+                }
+                
+                override fun startAudioEnergyCapture(startTimeMs: Long) {
+                    InAppLogger.info("ExoPlayer/Android", "start audio energy capture at positionMs=$startTimeMs")
+                    audioEnergyCaptureProcessor.startCapture(startTimeMs)
+                }
+                
+                override fun stopAudioEnergyCapture(): List<AudioEnergySample> {
+                    val samples = audioEnergyCaptureProcessor.stopCapture()
+                    InAppLogger.info("ExoPlayer/Android", "stop audio energy capture, collected ${samples.size} samples")
+                    return samples
+                }
+                
+                override fun getAudioCaptureDuration(): Long {
+                    return audioEnergyCaptureProcessor.getCaptureDuration()
                 }
             }
         )
@@ -2035,6 +2052,21 @@ private class NuvioLibmpvView(
                     mpv.setPropertyDouble("sub-delay", targetMs / 1000.0)
                 }
             }
+            
+            override fun startAudioEnergyCapture(startTimeMs: Long) {
+                InAppLogger.info("MPV/Android", "start audio energy capture at positionMs=$startTimeMs")
+                audioEnergyCaptureProcessor.startCapture(startTimeMs)
+            }
+            
+            override fun stopAudioEnergyCapture(): List<AudioEnergySample> {
+                val samples = audioEnergyCaptureProcessor.stopCapture()
+                InAppLogger.info("MPV/Android", "stop audio energy capture, collected ${samples.size} samples")
+                return samples
+            }
+            
+            override fun getAudioCaptureDuration(): Long {
+                return audioEnergyCaptureProcessor.getCaptureDuration()
+            }
         }
 
     fun refreshTracks(context: Context) {
@@ -2886,6 +2918,93 @@ private class VolumeBoostAudioProcessor : BaseAudioProcessor() {
     }
 }
 
+/**
+ * Audio processor that captures audio energy for subtitle auto-sync.
+ * Measures RMS energy in the audio stream and provides samples for correlation analysis.
+ */
+@androidx.annotation.OptIn(UnstableApi::class)
+private class AudioEnergyCaptureProcessor : BaseAudioProcessor() {
+    @Volatile
+    var isCapturing: Boolean = false
+    
+    @Volatile
+    var captureStartTimeMs: Long = 0L
+    
+    private val samples = mutableListOf<AudioEnergySample>()
+    private var processedSampleCount = 0L
+    private var energyAccumulator = 0.0
+    private var samplesInWindow = 0
+    
+    private val sampleWindowSize = 4800
+    
+    override fun onConfigure(inputAudioFormat: AudioProcessor.AudioFormat): AudioProcessor.AudioFormat {
+        return if (inputAudioFormat.encoding == C.ENCODING_PCM_16BIT) {
+            inputAudioFormat
+        } else {
+            AudioProcessor.AudioFormat.NOT_SET
+        }
+    }
+    
+    override fun queueInput(inputBuffer: ByteBuffer) {
+        val inputSize = inputBuffer.remaining()
+        val outputBuffer = replaceOutputBuffer(inputSize).order(ByteOrder.nativeOrder())
+        val input = inputBuffer.order(ByteOrder.nativeOrder())
+        
+        if (isCapturing && inputAudioFormat.sampleRate > 0) {
+            val samplesInBuffer = inputSize / 2
+            
+            input.mark()
+            while (input.remaining() >= 2) {
+                val sample = input.short.toInt()
+                val normalized = sample.toDouble() / Short.MAX_VALUE
+                energyAccumulator += normalized * normalized
+                samplesInWindow++
+                processedSampleCount++
+                
+                if (samplesInWindow >= sampleWindowSize) {
+                    val rmsEnergy = kotlin.math.sqrt(energyAccumulator / samplesInWindow)
+                    val timestampMs = captureStartTimeMs + (processedSampleCount * 1000L) / inputAudioFormat.sampleRate
+                    
+                    synchronized(samples) {
+                        samples.add(AudioEnergySample(timestampMs, rmsEnergy))
+                    }
+                    
+                    energyAccumulator = 0.0
+                    samplesInWindow = 0
+                }
+            }
+            input.reset()
+        }
+        
+        input.position(0)
+        outputBuffer.put(input)
+        outputBuffer.flip()
+    }
+    
+    fun startCapture(startTimeMs: Long) {
+        synchronized(samples) {
+            samples.clear()
+        }
+        processedSampleCount = 0L
+        energyAccumulator = 0.0
+        samplesInWindow = 0
+        captureStartTimeMs = startTimeMs
+        isCapturing = true
+    }
+    
+    fun stopCapture(): List<AudioEnergySample> {
+        isCapturing = false
+        return synchronized(samples) {
+            samples.toList()
+        }
+    }
+    
+    fun getCaptureDuration(): Long {
+        if (inputAudioFormat.sampleRate <= 0) return 0L
+        return (processedSampleCount * 1000L) / inputAudioFormat.sampleRate
+    }
+}
+
 private fun PlayerView.videoBoundsFraction(aspectRatio: Float): RectF? {
     val subtitleView = this.subtitleView ?: return null
     val viewWidth = subtitleView.width.toFloat()
@@ -2930,6 +3049,7 @@ private class SubtitleOffsetRenderersFactory(
     private val shouldNormalizeCuePositionProvider: () -> Boolean,
     private val shouldStripSdhProvider: () -> Boolean,
     private val volumeBoostAudioProcessor: VolumeBoostAudioProcessor,
+    private val audioEnergyCaptureProcessor: AudioEnergyCaptureProcessor,
     private val videoBoundsFractionProvider: () -> RectF?,
 ) : DefaultRenderersFactory(context) {
     override fun buildAudioSink(
@@ -2940,7 +3060,7 @@ private class SubtitleOffsetRenderersFactory(
         return DefaultAudioSink.Builder(context)
             .setEnableFloatOutput(false)
             .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-            .setAudioProcessors(arrayOf(volumeBoostAudioProcessor))
+            .setAudioProcessors(arrayOf(volumeBoostAudioProcessor, audioEnergyCaptureProcessor))
             .build()
     }
 
