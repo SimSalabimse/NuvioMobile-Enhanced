@@ -117,7 +117,7 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
             if (audioSamples.isEmpty()) {
                 subtitleAutoSyncState = subtitleAutoSyncState.copy(
                     isLoading = false,
-                    errorMessage = "Could not capture audio data. Auto-sync works on Android only.",
+                    errorMessage = "Could not capture audio data. Please ensure playback is active.",
                 )
                 return@launch
             }

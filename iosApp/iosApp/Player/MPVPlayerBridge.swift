@@ -191,6 +191,19 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
     func clearExternalSubtitle() { playerVC?.removeExternalSubtitles() }
     func clearExternalSubtitleAndSelect(trackId: Int32) { playerVC?.removeExternalSubtitlesAndSelect(Int(trackId)) }
     func setSubtitleDelayMs(delayMs: Int32) { playerVC?.setSubtitleDelayMs(Int(delayMs)) }
+    
+    func startAudioEnergyCapture(startTimeMs: Int64) {
+        playerVC?.startAudioEnergyCapture(startTimeMs: startTimeMs)
+    }
+    
+    func stopAudioEnergyCapture() -> [ComposeApp.AudioEnergySample] {
+        return playerVC?.stopAudioEnergyCapture() ?? []
+    }
+    
+    func getAudioCaptureDuration() -> Int64 {
+        return playerVC?.getAudioCaptureDuration() ?? 0
+    }
+    
     func applySubtitleStyle(
         textColor: String,
         backgroundColor: String,
@@ -464,6 +477,9 @@ final class MPVPlayerViewController: UIViewController {
     // Cached track lists
     var audioTracks: [TrackInfo] = []
     var subtitleTracks: [TrackInfo] = []
+    
+    // Audio capture for subtitle Auto Sync
+    private lazy var audioCaptureProcessor = MPVAudioCaptureProcessor(playerViewController: self)
 
     // State (polled from Kotlin every 250ms)
     var isPlayerLoading: Bool = true
@@ -1473,6 +1489,22 @@ final class MPVPlayerViewController: UIViewController {
         lastSubtitleDelayMs = delayMs
         guard mpv != nil else { return }
         setDoubleProperty("sub-delay", Double(max(-60_000, min(60_000, delayMs))) / 1000.0)
+    }
+    
+    // MARK: - Audio Capture for Subtitle Auto Sync
+    
+    func startAudioEnergyCapture(startTimeMs: Int64) {
+        InAppLogBridge.shared.info(tag: "MPV/iOS", message: "Starting audio energy capture at \(startTimeMs)ms")
+        audioCaptureProcessor.startCapture(startTimeMs: startTimeMs)
+    }
+    
+    func stopAudioEnergyCapture() -> [ComposeApp.AudioEnergySample] {
+        InAppLogBridge.shared.info(tag: "MPV/iOS", message: "Stopping audio energy capture")
+        return audioCaptureProcessor.stopCapture()
+    }
+    
+    func getAudioCaptureDuration() -> Int64 {
+        return audioCaptureProcessor.getCaptureDuration()
     }
 
     func applySubtitleStyle(
