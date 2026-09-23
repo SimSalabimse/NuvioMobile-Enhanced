@@ -32,6 +32,7 @@ tools
 AGENTS.md
 PERFORMANCE_FINDINGS.md
 scripts/*
+!scripts/build-sideload-ipa-local.sh
 !scripts/sign-ios-device-app.py
 iosApp/Configuration/DeviceSigning.local.json
 
