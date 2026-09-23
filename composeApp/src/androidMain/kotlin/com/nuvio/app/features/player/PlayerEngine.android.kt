@@ -2930,10 +2930,14 @@ private class AudioEnergyCaptureProcessor : BaseAudioProcessor() {
     @Volatile
     var captureStartTimeMs: Long = 0L
     
+    @Volatile
+    var progressiveCaptureEnabled: Boolean = false
+    
     private val samples = mutableListOf<AudioEnergySample>()
     private var processedSampleCount = 0L
     private var energyAccumulator = 0.0
     private var samplesInWindow = 0
+    private var lastSampleBatchSize = 0
     
     private val sampleWindowSize = 4800
     
@@ -2981,14 +2985,16 @@ private class AudioEnergyCaptureProcessor : BaseAudioProcessor() {
         outputBuffer.flip()
     }
     
-    fun startCapture(startTimeMs: Long) {
+    fun startCapture(startTimeMs: Long, progressive: Boolean = false) {
         synchronized(samples) {
             samples.clear()
         }
         processedSampleCount = 0L
         energyAccumulator = 0.0
         samplesInWindow = 0
+        lastSampleBatchSize = 0
         captureStartTimeMs = startTimeMs
+        progressiveCaptureEnabled = progressive
         isCapturing = true
     }
     
@@ -3002,6 +3008,23 @@ private class AudioEnergyCaptureProcessor : BaseAudioProcessor() {
     fun getCaptureDuration(): Long {
         if (inputAudioFormat.sampleRate <= 0) return 0L
         return (processedSampleCount * 1000L) / inputAudioFormat.sampleRate
+    }
+    
+    fun getNewSamples(): List<AudioEnergySample> {
+        if (!progressiveCaptureEnabled) return emptyList()
+        
+        return synchronized(samples) {
+            val totalCount = samples.size
+            val newCount = totalCount - lastSampleBatchSize
+            
+            if (newCount <= 0) {
+                emptyList()
+            } else {
+                val newSamples = samples.subList(totalCount - newCount, totalCount).toList()
+                lastSampleBatchSize = totalCount
+                newSamples
+            }
+        }
     }
 }
 
