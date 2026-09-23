@@ -2171,6 +2171,7 @@
     <string name="submit_intro_end_time_label">ΩΡΑ ΛΗΞΗΣ (MM:SS)</string>
     <string name="submit_intro_segment_intro">Εισαγωγή</string>
     <string name="submit_intro_segment_outro">Τίτλοι τέλους</string>
+    <string name="submit_intro_segment_preview">Preview</string>
     <string name="submit_intro_segment_recap">Ανακεφαλαίωση</string>
     <string name="submit_intro_segment_type">ΤΥΠΟΣ ΤΜΗΜΑΤΟΣ</string>
     <string name="submit_intro_segment_type_label">ΤΥΠΟΣ ΤΜΗΜΑΤΟΣ</string>

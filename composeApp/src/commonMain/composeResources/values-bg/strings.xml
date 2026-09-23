@@ -2012,6 +2012,7 @@
     <string name="submit_intro_segment_intro">Въведение</string>
     <string name="submit_intro_segment_recap">Резюме</string>
     <string name="submit_intro_segment_outro">Финал</string>
+    <string name="submit_intro_segment_preview">Preview</string>
     <string name="submit_intro_start_time">НАЧАЛНО ВРЕМЕ (ММ:СС)</string>
     <string name="submit_intro_end_time">КРАЙНО ВРЕМЕ (ММ:СС)</string>
     <string name="submit_intro_submit">Изпрати</string>

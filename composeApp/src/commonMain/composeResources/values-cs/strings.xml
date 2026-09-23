@@ -1735,6 +1735,7 @@
     <string name="submit_intro_segment_intro">Intro</string>
     <string name="submit_intro_segment_recap">Rekapitulace</string>
     <string name="submit_intro_segment_outro">Outro</string>
+    <string name="submit_intro_segment_preview">Preview</string>
     <string name="submit_intro_start_time">ČAS ZAČÁTKU (MM:SS)</string>
     <string name="submit_intro_end_time">ČAS KONCE (MM:SS)</string>
     <string name="submit_intro_submit">Odeslat</string>

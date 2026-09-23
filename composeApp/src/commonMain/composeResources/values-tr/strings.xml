@@ -1913,6 +1913,7 @@
     <string name="submit_intro_segment_intro">Giriş</string>
     <string name="submit_intro_segment_recap">Özet</string>
     <string name="submit_intro_segment_outro">Kapanış</string>
+    <string name="submit_intro_segment_preview">Preview</string>
     <string name="submit_intro_start_time">BAŞLANGIÇ ZAMANI (DK:SN)</string>
     <string name="submit_intro_end_time">BİTİŞ ZAMANI (DK:SN)</string>
     <string name="submit_intro_submit">Gönder</string>

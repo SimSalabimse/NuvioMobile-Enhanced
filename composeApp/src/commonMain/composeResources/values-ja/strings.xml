@@ -1730,6 +1730,7 @@
     <string name="submit_intro_segment_intro">イントロ</string>
     <string name="submit_intro_segment_recap">振り返り</string>
     <string name="submit_intro_segment_outro">アウトロ</string>
+    <string name="submit_intro_segment_preview">Preview</string>
     <string name="submit_intro_start_time">開始時刻 (MM:SS)</string>
     <string name="submit_intro_end_time">終了時刻 (MM:SS)</string>
     <string name="submit_intro_submit">投稿</string>
