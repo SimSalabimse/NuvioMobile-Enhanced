@@ -204,6 +204,18 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
         return playerVC?.getAudioCaptureDuration() ?? 0
     }
     
+    func startProgressiveAudioCapture(startTimeMs: Int64) {
+        playerVC?.startProgressiveAudioCapture(startTimeMs: startTimeMs)
+    }
+    
+    func stopProgressiveAudioCapture() {
+        playerVC?.stopProgressiveAudioCapture()
+    }
+    
+    func getProgressiveAudioSamples() -> [ComposeApp.AudioEnergySample] {
+        return playerVC?.getProgressiveAudioSamples() ?? []
+    }
+    
     func applySubtitleStyle(
         textColor: String,
         backgroundColor: String,
@@ -1505,6 +1517,20 @@ final class MPVPlayerViewController: UIViewController {
     
     func getAudioCaptureDuration() -> Int64 {
         return audioCaptureProcessor.getCaptureDuration()
+    }
+    
+    func startProgressiveAudioCapture(startTimeMs: Int64) {
+        InAppLogBridge.shared.info(tag: "MPV/iOS", message: "Starting progressive audio capture at \(startTimeMs)ms")
+        audioCaptureProcessor.startCapture(startTimeMs: startTimeMs, progressive: true)
+    }
+    
+    func stopProgressiveAudioCapture() {
+        InAppLogBridge.shared.info(tag: "MPV/iOS", message: "Stopping progressive audio capture")
+        _ = audioCaptureProcessor.stopCapture()
+    }
+    
+    func getProgressiveAudioSamples() -> [ComposeApp.AudioEnergySample] {
+        return audioCaptureProcessor.getNewSamples()
     }
 
     func applySubtitleStyle(

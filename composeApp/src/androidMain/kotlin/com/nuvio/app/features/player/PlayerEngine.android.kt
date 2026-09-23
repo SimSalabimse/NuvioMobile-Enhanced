@@ -1152,6 +1152,20 @@ private fun ExoPlayerSurface(
                 override fun getAudioCaptureDuration(): Long {
                     return audioEnergyCaptureProcessor.getCaptureDuration()
                 }
+                
+                override fun startProgressiveAudioCapture(startTimeMs: Long) {
+                    InAppLogger.info("ExoPlayer/Android", "start progressive audio capture at positionMs=$startTimeMs")
+                    audioEnergyCaptureProcessor.startCapture(startTimeMs, progressive = true)
+                }
+                
+                override fun stopProgressiveAudioCapture() {
+                    InAppLogger.info("ExoPlayer/Android", "stop progressive audio capture")
+                    audioEnergyCaptureProcessor.stopCapture()
+                }
+                
+                override fun getProgressiveAudioSamples(): List<AudioEnergySample> {
+                    return audioEnergyCaptureProcessor.getNewSamples()
+                }
             }
         )
     }
@@ -2066,6 +2080,20 @@ private class NuvioLibmpvView(
             
             override fun getAudioCaptureDuration(): Long {
                 return audioEnergyCaptureProcessor.getCaptureDuration()
+            }
+            
+            override fun startProgressiveAudioCapture(startTimeMs: Long) {
+                InAppLogger.info("MPV/Android", "start progressive audio capture at positionMs=$startTimeMs")
+                audioEnergyCaptureProcessor.startCapture(startTimeMs, progressive = true)
+            }
+            
+            override fun stopProgressiveAudioCapture() {
+                InAppLogger.info("MPV/Android", "stop progressive audio capture")
+                audioEnergyCaptureProcessor.stopCapture()
+            }
+            
+            override fun getProgressiveAudioSamples(): List<AudioEnergySample> {
+                return audioEnergyCaptureProcessor.getNewSamples()
             }
         }
 

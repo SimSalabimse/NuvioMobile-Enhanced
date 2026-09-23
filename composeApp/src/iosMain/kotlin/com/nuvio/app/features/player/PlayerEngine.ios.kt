@@ -344,6 +344,20 @@ actual fun PlatformPlayerSurface(
             override fun getAudioCaptureDuration(): Long {
                 return bridge.getAudioCaptureDuration()
             }
+            
+            override fun startProgressiveAudioCapture(startTimeMs: Long) {
+                InAppLogger.info("Player/iOS", "start progressive audio capture at positionMs=$startTimeMs")
+                bridge.startProgressiveAudioCapture(startTimeMs)
+            }
+            
+            override fun stopProgressiveAudioCapture() {
+                InAppLogger.info("Player/iOS", "stop progressive audio capture")
+                bridge.stopProgressiveAudioCapture()
+            }
+            
+            override fun getProgressiveAudioSamples(): List<AudioEnergySample> {
+                return bridge.getProgressiveAudioSamples()
+            }
 
             override fun applySubtitleStyle(style: SubtitleStyleState) {
                 InAppLogger.debug(
