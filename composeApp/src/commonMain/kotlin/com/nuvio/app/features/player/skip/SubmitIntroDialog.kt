@@ -95,13 +95,8 @@ fun SubmitIntroDialog(
     var isSubmitting by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     
-    val disabledTypes = remember(existingSegments, submittedTypesInSession) {
-        buildSet {
-            existingSegments.forEach { interval ->
-                normalizeSegmentTypeForSubmit(interval.type)?.let { add(it) }
-            }
-            addAll(submittedTypesInSession.map { it.lowercase() })
-        }
+    val disabledTypes = remember(submittedTypesInSession) {
+        submittedTypesInSession.map { it.lowercase() }.toSet()
     }
     
     val availableTypes = remember(disabledTypes) {
