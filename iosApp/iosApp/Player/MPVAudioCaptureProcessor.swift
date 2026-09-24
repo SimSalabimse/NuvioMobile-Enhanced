@@ -10,6 +10,8 @@ import ComposeApp
  * computes RMS energy over time windows, and provides timestamped energy samples
  * for correlation with subtitle cues.
  * 
+ * Supports both Float32 (most common on iOS) and Int16 PCM audio formats.
+ * 
  * Note: This implementation works with sideload builds. ReplayKit allows capturing
  * app audio without microphone entitlements. The user may see a brief screen recording
  * indicator when audio capture starts.
@@ -50,6 +52,15 @@ final class MPVAudioCaptureProcessor: NSObject {
         samplesLock.unlock()
         
         isCapturing = true
+        
+        // Check ReplayKit availability first
+        let recorder = RPScreenRecorder.shared()
+        if !recorder.isAvailable {
+            InAppLogBridge.shared.error(
+                tag: "MPV/iOS/AudioCapture",
+                message: "ReplayKit not available. Device may not support screen recording or feature is disabled."
+            )
+        }
         
         // Start capturing audio via ReplayKit
         setupAudioCapture()
@@ -106,6 +117,8 @@ final class MPVAudioCaptureProcessor: NSObject {
         // Start capturing app audio only (not microphone)
         recorder.isMicrophoneEnabled = false
         
+        var receivedFirstBuffer = false
+        
         recorder.startCapture(handler: { [weak self] sampleBuffer, sampleType, error in
             guard let self = self else { return }
             
@@ -119,6 +132,13 @@ final class MPVAudioCaptureProcessor: NSObject {
             
             // Process only audio samples
             if sampleType == .audioApp {
+                if !receivedFirstBuffer {
+                    receivedFirstBuffer = true
+                    InAppLogBridge.shared.info(
+                        tag: "MPV/iOS/AudioCapture",
+                        message: "Received first audio buffer from ReplayKit"
+                    )
+                }
                 self.processSampleBuffer(sampleBuffer)
             }
         }) { error in
@@ -156,6 +176,17 @@ final class MPVAudioCaptureProcessor: NSObject {
         
         let sampleRate = streamDescription.pointee.mSampleRate
         let channelCount = Int(streamDescription.pointee.mChannelsPerFrame)
+        let formatFlags = streamDescription.pointee.mFormatFlags
+        let isFloat = (formatFlags & kAudioFormatFlagIsFloat) != 0
+        let bitsPerChannel = Int(streamDescription.pointee.mBitsPerChannel)
+        
+        // Log format on first buffer
+        if processedSampleCount == 0 {
+            InAppLogBridge.shared.info(
+                tag: "MPV/iOS/AudioCapture",
+                message: "Audio format: \(isFloat ? "Float32" : "Int16"), \(channelCount)ch, \(Int(sampleRate))Hz, \(bitsPerChannel)bit"
+            )
+        }
         
         guard channelCount > 0, sampleRate > 0 else { return }
         
@@ -195,33 +226,69 @@ final class MPVAudioCaptureProcessor: NSObject {
         for buffer in buffersPointer {
             guard let data = buffer.mData else { continue }
             
-            let frameCount = Int(buffer.mDataByteSize) / MemoryLayout<Int16>.size / channelCount
-            guard frameCount > 0 else { continue }
-            
-            // Process PCM samples (assuming Int16 format)
-            let samples = data.assumingMemoryBound(to: Int16.self)
-            
-            for i in 0..<frameCount {
-                var sample: Int16 = 0
+            if isFloat {
+                // Process Float32 audio (most common on iOS)
+                let frameCount = Int(buffer.mDataByteSize) / MemoryLayout<Float32>.size / channelCount
+                guard frameCount > 0 else { continue }
                 
-                // Mix down to mono if stereo
-                if channelCount == 1 {
-                    sample = samples[i]
-                } else {
-                    let leftSample = samples[i * channelCount]
-                    let rightSample = samples[i * channelCount + 1]
-                    sample = Int16((Int32(leftSample) + Int32(rightSample)) / 2)
+                let samples = data.assumingMemoryBound(to: Float32.self)
+                
+                for i in 0..<frameCount {
+                    var sample: Float32 = 0
+                    
+                    // Mix down to mono if stereo
+                    if channelCount == 1 {
+                        sample = samples[i]
+                    } else {
+                        var mixedSample: Float32 = 0
+                        for ch in 0..<channelCount {
+                            mixedSample += samples[i * channelCount + ch]
+                        }
+                        sample = mixedSample / Float32(channelCount)
+                    }
+                    
+                    // Compute energy (sample is already normalized -1.0 to 1.0)
+                    let normalized = Double(sample)
+                    energyAccumulator += normalized * normalized
+                    samplesInWindow += 1
+                    processedSampleCount += 1
+                    
+                    // When we have enough samples for a window, compute RMS and store
+                    if samplesInWindow >= sampleWindowSize {
+                        recordEnergySample(sampleRate: sampleRate)
+                    }
                 }
+            } else {
+                // Process Int16 audio (less common but still supported)
+                let frameCount = Int(buffer.mDataByteSize) / MemoryLayout<Int16>.size / channelCount
+                guard frameCount > 0 else { continue }
                 
-                // Compute energy
-                let normalized = Double(sample) / Double(Int16.max)
-                energyAccumulator += normalized * normalized
-                samplesInWindow += 1
-                processedSampleCount += 1
+                let samples = data.assumingMemoryBound(to: Int16.self)
                 
-                // When we have enough samples for a window, compute RMS and store
-                if samplesInWindow >= sampleWindowSize {
-                    recordEnergySample(sampleRate: sampleRate)
+                for i in 0..<frameCount {
+                    var sample: Int16 = 0
+                    
+                    // Mix down to mono if stereo
+                    if channelCount == 1 {
+                        sample = samples[i]
+                    } else {
+                        var mixedSample: Int32 = 0
+                        for ch in 0..<channelCount {
+                            mixedSample += Int32(samples[i * channelCount + ch])
+                        }
+                        sample = Int16(mixedSample / Int32(channelCount))
+                    }
+                    
+                    // Compute energy
+                    let normalized = Double(sample) / Double(Int16.max)
+                    energyAccumulator += normalized * normalized
+                    samplesInWindow += 1
+                    processedSampleCount += 1
+                    
+                    // When we have enough samples for a window, compute RMS and store
+                    if samplesInWindow >= sampleWindowSize {
+                        recordEnergySample(sampleRate: sampleRate)
+                    }
                 }
             }
         }
