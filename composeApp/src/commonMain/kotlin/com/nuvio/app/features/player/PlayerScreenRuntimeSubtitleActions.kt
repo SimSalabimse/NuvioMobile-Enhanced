@@ -117,7 +117,7 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
             if (audioSamples.isEmpty()) {
                 subtitleAutoSyncState = subtitleAutoSyncState.copy(
                     isLoading = false,
-                    errorMessage = "Could not capture audio data. Please ensure playback is active.",
+                    errorMessage = "Could not capture audio data. ReplayKit may not be available or MPV audio routing issue. Check logs for details.",
                 )
                 return@launch
             }
