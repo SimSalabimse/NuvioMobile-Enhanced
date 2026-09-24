@@ -22,11 +22,11 @@
         {
           "version": "0.5.1",
           "buildVersion": "133",
-          "date": "2026-09-23T23:50:33Z",
-          "localizedDescription": "Unsigned sideload IPA 0.5.1 (e23b5d6). Sign with SideStore, AltStore, or TrollStore. No Apple certificate is embedded.",
-          "downloadURL": "https://github.com/SimSalabimse/NuvioMobile-Enhanced/releases/download/sideload-0.5.1-e23b5d64/nuvio-0.5.1-full-release.ipa",
-          "size": 68116649,
-          "sha256": "93437bb40a937d65752f8e63e98bc29870f1858cd33c48993a28028cd599bd6d",
+          "date": "2026-09-24T09:24:30Z",
+          "localizedDescription": "Unsigned sideload IPA 0.5.1 (865114c). Sign with SideStore, AltStore, or TrollStore. No Apple certificate is embedded.",
+          "downloadURL": "https://github.com/SimSalabimse/NuvioMobile-Enhanced/releases/download/sideload-0.5.1-865114c7/nuvio-0.5.1-full-release.ipa",
+          "size": 68113448,
+          "sha256": "f1bd4db4763216da5a7f2825d778796a216800e79ab55d10f9671411f926677b",
           "minOSVersion": "16.1"
         },
         {
