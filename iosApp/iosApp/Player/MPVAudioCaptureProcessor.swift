@@ -106,20 +106,33 @@ final class MPVAudioCaptureProcessor: NSObject {
         captureStartTime = CACurrentMediaTime()
         isCapturing = true
         
-        // Try AVAsset method first (works on SideStore)
+        // Try AVAsset method first (works on SideStore) if we have a compatible URL
         if let mediaURL = playerViewController?.getCurrentMediaURL(),
            let headers = playerViewController?.getActiveRequestHeaders() {
-            InAppLogBridge.shared.info(
-                tag: "MPV/iOS/AudioCapture",
-                message: "Using AVAsset dual-decode method (SideStore compatible)"
-            )
-            currentMethod = .avAsset
-            avAssetCapture?.startCapture(startTimeMs: startTimeMs, mediaURL: mediaURL, headers: headers)
+            
+            // Check if URL scheme is compatible with AVAsset
+            let scheme = mediaURL.scheme?.lowercased() ?? ""
+            let isAvAssetCompatible = ["file", "http", "https"].contains(scheme)
+            
+            if isAvAssetCompatible {
+                InAppLogBridge.shared.info(
+                    tag: "MPV/iOS/AudioCapture",
+                    message: "Using AVAsset dual-decode method (SideStore compatible) for \(scheme):// URL"
+                )
+                currentMethod = .avAsset
+                avAssetCapture?.startCapture(startTimeMs: startTimeMs, mediaURL: mediaURL, headers: headers)
+            } else {
+                InAppLogBridge.shared.warn(
+                    tag: "MPV/iOS/AudioCapture",
+                    message: "URL scheme '\(scheme)' not compatible with AVAsset, falling back to ReplayKit"
+                )
+                startReplayKitCapture()
+            }
         } else {
             // Fall back to ReplayKit if AVAsset is not available
             InAppLogBridge.shared.warn(
                 tag: "MPV/iOS/AudioCapture",
-                message: "Media URL not available, falling back to ReplayKit method"
+                message: "Media URL not available or headers missing, falling back to ReplayKit method"
             )
             startReplayKitCapture()
         }
@@ -158,7 +171,7 @@ final class MPVAudioCaptureProcessor: NSObject {
      * Stop capturing and return all collected energy samples.
      */
     func stopCapture() -> [ComposeApp.AudioEnergySample] {
-        InAppLogBridge.shared.info(tag: "MPV/iOS/AudioCapture", message: "Stopping audio capture")
+        InAppLogBridge.shared.info(tag: "MPV/iOS/AudioCapture", message: "Stopping audio capture (method: \(currentMethod == .avAsset ? "AVAsset" : "ReplayKit"))")
         
         // Cancel any pending startup check
         startupCheckWorkItem?.cancel()
@@ -168,10 +181,24 @@ final class MPVAudioCaptureProcessor: NSObject {
         
         // Stop the appropriate capture method
         var capturedSamples: [ComposeApp.AudioEnergySample] = []
+        let captureMethod = currentMethod  // Capture for logging
         
         switch currentMethod {
         case .avAsset:
             capturedSamples = avAssetCapture?.stopCapture() ?? []
+            
+            // Log if AVAsset failed to produce samples
+            if capturedSamples.isEmpty {
+                InAppLogBridge.shared.error(
+                    tag: "MPV/iOS/AudioCapture",
+                    message: "AVAsset capture produced 0 samples. Check logs above for: (1) URL parsing failures, (2) Track loading failures, (3) AVAssetReader errors, (4) No audio track. If URL scheme was not file/http/https, AVAsset cannot decode it."
+                )
+            } else {
+                InAppLogBridge.shared.info(
+                    tag: "MPV/iOS/AudioCapture",
+                    message: "AVAsset capture succeeded: \(capturedSamples.count) samples"
+                )
+            }
             
         case .replayKit:
             teardownAudioCapture()

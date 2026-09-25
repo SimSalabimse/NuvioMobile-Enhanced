@@ -171,17 +171,58 @@ final class AVAssetAudioEnergyCapture: NSObject {
         
         InAppLogBridge.shared.info(
             tag: "MPV/iOS/AudioCapture/AVAsset",
-            message: "Setting up AVAsset for \(url.absoluteString)"
+            message: "Setting up AVAsset for \(url.scheme ?? "no-scheme")://... (path: \(url.path.suffix(50)))"
         )
         
         // Create asset with headers if needed
         let asset = createAsset(url: url, headers: requestHeaders)
         
-        // Load tracks asynchronously (but we'll use the sync API for simplicity in thread)
-        guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
+        // Check if asset is playable first
+        if !asset.isPlayable {
             InAppLogBridge.shared.error(
                 tag: "MPV/iOS/AudioCapture/AVAsset",
-                message: "No audio track found in media"
+                message: "AVAsset reports media is not playable (might be unsupported format or DRM)"
+            )
+            captureThread = nil
+            return
+        }
+        
+        // Load tracks with timeout (important for remote URLs)
+        var audioTrack: AVAssetTrack?
+        let semaphore = DispatchSemaphore(value: 0)
+        var loadError: Error?
+        
+        asset.loadTracks(withMediaType: .audio) { tracks, error in
+            audioTrack = tracks?.first
+            loadError = error
+            semaphore.signal()
+        }
+        
+        // Wait up to 10 seconds for track loading (important for remote media)
+        let timeout = semaphore.wait(timeout: .now() + 10.0)
+        
+        if timeout == .timedOut {
+            InAppLogBridge.shared.error(
+                tag: "MPV/iOS/AudioCapture/AVAsset",
+                message: "Timed out loading audio tracks after 10s (slow network or unsupported URL)"
+            )
+            captureThread = nil
+            return
+        }
+        
+        if let error = loadError {
+            InAppLogBridge.shared.error(
+                tag: "MPV/iOS/AudioCapture/AVAsset",
+                message: "Failed to load audio tracks: \(error.localizedDescription)"
+            )
+            captureThread = nil
+            return
+        }
+        
+        guard let track = audioTrack else {
+            InAppLogBridge.shared.error(
+                tag: "MPV/iOS/AudioCapture/AVAsset",
+                message: "No audio track found in media (video-only or unsupported format)"
             )
             captureThread = nil
             return
@@ -189,14 +230,14 @@ final class AVAssetAudioEnergyCapture: NSObject {
         
         InAppLogBridge.shared.info(
             tag: "MPV/iOS/AudioCapture/AVAsset",
-            message: "Found audio track, creating reader"
+            message: "Found audio track (format: \(track.mediaType.rawValue)), creating reader"
         )
         
         // Create asset reader
         guard let reader = try? AVAssetReader(asset: asset) else {
             InAppLogBridge.shared.error(
                 tag: "MPV/iOS/AudioCapture/AVAsset",
-                message: "Failed to create AVAssetReader"
+                message: "Failed to create AVAssetReader (unsupported container or codec)"
             )
             captureThread = nil
             return
@@ -211,7 +252,7 @@ final class AVAssetAudioEnergyCapture: NSObject {
             AVLinearPCMIsNonInterleaved: false
         ]
         
-        let output = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: outputSettings)
         reader.add(output)
         
         // Seek to start position
