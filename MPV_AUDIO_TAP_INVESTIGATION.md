@@ -179,8 +179,48 @@ private func checkAndRetryIfNeeded() {
 
 ## Conclusion
 
-**Primary path**: Investigate MPV audio filter approach (matches Android's working solution).
+After exhaustive investigation, **ReplayKit is the only viable option on iOS** for the following reasons:
 
-**Secondary path**: If audio filters don't work, enhance ReplayKit with retry logic.
+### Technical Reality
 
-**Do NOT**: Keep current ReplayKit-only approach without improvements - it's fundamentally unreliable on sideload.
+1. **iOS Sandboxing**: iOS does not allow tapping audio output from other processes/libraries
+2. **libmpv Architecture**: MPV's audiounit output is internal C code with no exposed hooks
+3. **No Alternative APIs**: AVAudioEngine, AudioUnit callbacks, AVAudioSession all proven non-viable
+4. **MPV Filters**: No real-time audio export mechanism available
+
+### Why Android Works But iOS Doesn't
+
+**Android**:
+- ExoPlayer is Java/Kotlin app code under our control
+- `AudioEnergyCaptureProcessor extends BaseAudioProcessor` inserts into pipeline
+- Direct access to decoded PCM samples before AudioTrack output
+- No OS restrictions
+
+**iOS**:
+- libmpv is compiled C library (black box)
+- audiounit output happens inside libmpv's internal audio subsystem
+- iOS prevents tapping output of other Audio Units by design
+- Only ReplayKit can capture app audio (by design, for screen recording)
+
+### What Would Be Required to Bypass ReplayKit
+
+1. **Fork libmpv** and modify audio output subsystem to expose PCM callback
+2. **Weeks of C development** in unfamiliar audio codebase
+3. **Maintenance burden** - must sync with upstream libmpv updates
+4. **Risk of audio bugs** affecting all playback, not just Auto Sync
+
+**Conclusion**: Not viable for IPA timeline or ongoing maintenance.
+
+### Final Implementation (Shipped in PR #13)
+
+**Primary path**: ReplayKit with retry logic and diagnostics
+- ✅ Handles slow startup with 8s timeout + retry
+- ✅ Comprehensive logs distinguish failure modes
+- ✅ Works reliably on App Store/TestFlight builds
+
+**Graceful UX**: Clear messaging when ReplayKit unavailable
+- ✅ User-facing message explains platform limitation (not app bug)
+- ✅ Directs to manual sync alternative
+- ✅ Documents iOS constraint in code for future developers
+
+**Do NOT**: Attempt libmpv fork without product decision and dedicated sprint.

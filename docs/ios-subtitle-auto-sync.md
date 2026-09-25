@@ -188,14 +188,25 @@ Both implementations produce identical energy samples, ensuring cross-platform c
 
 ### Critical Limitations
 
-1. **Sideload Restrictions** ⚠️
+1. **iOS Platform Constraint: ReplayKit-Only** ⚠️
+   - **ReplayKit is the ONLY iOS API** for app audio capture without microphone entitlements
+   - iOS does not allow tapping/intercepting audio output from libraries like libmpv
+   - Alternative approaches investigated (AVAudioEngine taps, AudioUnit callbacks, MPV filters)
+     all proven non-viable due to iOS sandboxing and libmpv's internal audio handling
+   - **Why Android works but iOS has restrictions**:
+     - Android: ExoPlayer's AudioProcessor inserts into pipeline (direct PCM access)
+     - iOS: libmpv's audiounit output is internal & opaque (no tap points)
+   - **Only path to bypass ReplayKit**: Fork libmpv and add custom audio export (weeks of work)
+
+2. **Sideload Restrictions** ⚠️
    - ReplayKit may be unavailable or restricted in sideloaded apps (SideStore, AltStore)
    - iOS may deny audio capture for apps without proper provisioning
    - Works reliably in App Store and TestFlight builds
    - **Symptom**: Empty audio samples even when video is playing
    - **Detection**: Logs show "ReplayKit not available" or "No audio buffers received"
+   - **User Experience**: Clear message directs to manual sync when Auto Sync unavailable
 
-2. **MPV Audio Routing**
+3. **MPV Audio Routing**
    - MPV must use `audiounit` output for ReplayKit compatibility
    - Other audio outputs may not route through AVFoundation
    - **Symptom**: ReplayKit starts but never receives audio buffers

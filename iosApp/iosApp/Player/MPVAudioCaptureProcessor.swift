@@ -12,6 +12,27 @@ import ComposeApp
  * 
  * Supports both Float32 (most common on iOS) and Int16 PCM audio formats.
  * 
+ * ## iOS Platform Constraint (ReplayKit-Only)
+ * 
+ * **Why ReplayKit is Required:**
+ * iOS does not provide any API to tap/intercept audio output from another library.
+ * Unlike Android (where ExoPlayer's AudioProcessor can be inserted into the pipeline),
+ * iOS sandboxing prevents direct audio capture. ReplayKit is Apple's ONLY official API
+ * for capturing app audio without microphone entitlements.
+ * 
+ * **Why Android Works But iOS Has Restrictions:**
+ * - Android: ExoPlayer is app code → AudioProcessor taps pipeline directly
+ * - iOS: libmpv is compiled library → audiounit output is internal & opaque
+ * 
+ * **Alternatives Investigated (None Viable):**
+ * - AVAudioEngine taps: Only for input (microphone), not output
+ * - AudioUnit callbacks: Can't tap MPV's internal AudioUnit
+ * - AVAudioSession hooks: Configuration only, no data access
+ * - MPV audio filters: No real-time export mechanism available
+ * - Custom MPV fork: Would require weeks of work to add audio hooks
+ * 
+ * **Result:** ReplayKit is the only practical option on iOS.
+ * 
  * ## Requirements and Limitations:
  * 
  * 1. **ReplayKit Availability**: Requires iOS ReplayKit to be available. May fail on
