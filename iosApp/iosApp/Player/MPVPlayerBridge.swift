@@ -1519,7 +1519,7 @@ final class MPVPlayerViewController: UIViewController {
     }
     
     func getCurrentMediaURL() -> URL? {
-        return lastLoadRequest?.urlString.flatMap { URL(string: $0) }
+        return lastLoadRequest.flatMap { URL(string: $0.urlString) }
     }
     
     func getActiveRequestHeaders() -> [String: String] {
