@@ -38,6 +38,18 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
     LaunchedEffect(parentMetaId, videoId) {
         randomEpisodePlayback = RandomEpisodePlaybackTracker.consume(parentMetaId)
     }
+    
+    LaunchedEffect(initialLoadCompleted, playerSettingsUiState.progressiveSegmentDetectionEnabled) {
+        if (initialLoadCompleted && playerSettingsUiState.progressiveSegmentDetectionEnabled) {
+            startProgressiveSegmentDetection()
+        }
+    }
+    
+    DisposableEffect(Unit) {
+        onDispose {
+            stopProgressiveSegmentDetection()
+        }
+    }
     val currentFeedback = liveGestureFeedback ?: gestureFeedback
     LaunchedEffect(currentFeedback) {
         if (currentFeedback != null) {

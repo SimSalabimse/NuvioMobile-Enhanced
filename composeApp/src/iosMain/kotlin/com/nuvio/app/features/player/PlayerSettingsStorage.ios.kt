@@ -74,6 +74,7 @@ actual object PlayerSettingsStorage {
     private const val animeSkipClientIdKey = "animeskip_client_id"
     private const val introDbApiKeyKey = "introdb_api_key"
     private const val introSubmitEnabledKey = "intro_submit_enabled"
+    private const val progressiveSegmentDetectionEnabledKey = "progressive_segment_detection_enabled"
     private const val streamAutoPlayNextEpisodeEnabledKey = "stream_auto_play_next_episode_enabled"
     private const val streamAutoPlayNextEpisodeFallbackEnabledKey = "stream_auto_play_next_episode_fallback_enabled"
     private const val streamAutoPlayPreferBingeGroupKey = "stream_auto_play_prefer_binge_group"
@@ -828,6 +829,20 @@ actual object PlayerSettingsStorage {
 
     actual fun saveIntroSubmitEnabled(enabled: Boolean) {
         NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(introSubmitEnabledKey))
+    }
+
+    actual fun loadProgressiveSegmentDetectionEnabled(): Boolean? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(progressiveSegmentDetectionEnabledKey)
+        return if (defaults.objectForKey(key) != null) {
+            defaults.boolForKey(key)
+        } else {
+            null
+        }
+    }
+
+    actual fun saveProgressiveSegmentDetectionEnabled(enabled: Boolean) {
+        NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(progressiveSegmentDetectionEnabledKey))
     }
 
     actual fun loadStreamAutoPlayNextEpisodeEnabled(): Boolean? {

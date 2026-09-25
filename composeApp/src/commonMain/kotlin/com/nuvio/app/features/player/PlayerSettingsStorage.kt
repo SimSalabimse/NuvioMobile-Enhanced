@@ -118,6 +118,8 @@ internal expect object PlayerSettingsStorage {
     fun saveIntroDbApiKey(apiKey: String)
     fun loadIntroSubmitEnabled(): Boolean?
     fun saveIntroSubmitEnabled(enabled: Boolean)
+    fun loadProgressiveSegmentDetectionEnabled(): Boolean?
+    fun saveProgressiveSegmentDetectionEnabled(enabled: Boolean)
     fun loadStreamAutoPlayNextEpisodeEnabled(): Boolean?
     fun saveStreamAutoPlayNextEpisodeEnabled(enabled: Boolean)
     fun loadStreamAutoPlayNextEpisodeFallbackEnabled(): Boolean?

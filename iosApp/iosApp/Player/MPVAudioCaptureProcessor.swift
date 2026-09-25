@@ -30,6 +30,10 @@ final class MPVAudioCaptureProcessor: NSObject {
     private var samplesInWindow = 0
     private var processedSampleCount: Int64 = 0
     
+    // Progressive capture mode
+    private var progressiveCaptureEnabled = false
+    private var lastSampleBatchSize = 0
+    
     weak var playerViewController: MPVPlayerViewController?
     
     init(playerViewController: MPVPlayerViewController) {
@@ -40,8 +44,8 @@ final class MPVAudioCaptureProcessor: NSObject {
     /**
      * Start capturing audio energy at the specified playback position.
      */
-    func startCapture(startTimeMs: Int64) {
-        InAppLogBridge.shared.info(tag: "MPV/iOS/AudioCapture", message: "Starting audio capture at \(startTimeMs)ms")
+    func startCapture(startTimeMs: Int64, progressive: Bool = false) {
+        InAppLogBridge.shared.info(tag: "MPV/iOS/AudioCapture", message: "Starting audio capture at \(startTimeMs)ms progressive=\(progressive)")
         
         samplesLock.lock()
         samples.removeAll()
@@ -49,6 +53,8 @@ final class MPVAudioCaptureProcessor: NSObject {
         samplesInWindow = 0
         processedSampleCount = 0
         captureStartPositionMs = startTimeMs
+        progressiveCaptureEnabled = progressive
+        lastSampleBatchSize = 0
         samplesLock.unlock()
         
         isCapturing = true
@@ -97,6 +103,31 @@ final class MPVAudioCaptureProcessor: NSObject {
         
         // Each sample represents ~100ms
         return Int64(count * 100)
+    }
+    
+    /**
+     * Get new samples since last call (for progressive mode).
+     * Returns only samples that haven't been retrieved yet.
+     */
+    func getNewSamples() -> [ComposeApp.AudioEnergySample] {
+        guard progressiveCaptureEnabled else { return [] }
+        
+        samplesLock.lock()
+        let totalCount = samples.count
+        let newCount = totalCount - lastSampleBatchSize
+        
+        if newCount <= 0 {
+            samplesLock.unlock()
+            return []
+        }
+        
+        let newSamples = samples.suffix(newCount).map { sample in
+            ComposeApp.AudioEnergySample(timestampMs: sample.timestampMs, energy: sample.energy)
+        }
+        lastSampleBatchSize = totalCount
+        samplesLock.unlock()
+        
+        return newSamples
     }
     
     // MARK: - Audio Capture Implementation

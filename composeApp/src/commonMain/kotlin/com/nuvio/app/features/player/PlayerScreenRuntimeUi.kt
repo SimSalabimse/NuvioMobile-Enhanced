@@ -866,6 +866,10 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         showStreamInfoModal = showStreamInfoModal,
         mediaInfoJson = playbackSnapshot.mediaInfoJson,
         onStreamInfoModalDismissed = { showStreamInfoModal = false },
+        showDetectedSegmentNotification = showDetectedSegmentNotification,
+        currentDetectedSegment = currentDetectedSegment,
+        onOpenDetectedSegment = { openDetectedSegmentForSubmit() },
+        onDismissDetectedSegment = { dismissDetectedSegmentNotification() },
     )
 }
 

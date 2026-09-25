@@ -57,6 +57,9 @@ interface PlayerEngineController {
     fun startAudioEnergyCapture(startTimeMs: Long) {}
     fun stopAudioEnergyCapture(): List<AudioEnergySample> = emptyList()
     fun getAudioCaptureDuration(): Long = 0L
+    fun startProgressiveAudioCapture(startTimeMs: Long) {}
+    fun stopProgressiveAudioCapture() {}
+    fun getProgressiveAudioSamples(): List<AudioEnergySample> = emptyList()
 }
 
 internal fun sanitizePlaybackHeaders(headers: Map<String, String>?): Map<String, String> {

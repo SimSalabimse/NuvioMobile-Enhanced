@@ -77,6 +77,7 @@ data class PlayerSettingsUiState(
     val introDbApiKey: String = "",
     val theIntroDbApiKey: String = "",
     val introSubmitEnabled: Boolean = false,
+    val progressiveSegmentDetectionEnabled: Boolean = false,
     val streamAutoPlayNextEpisodeEnabled: Boolean = false,
     val randomEpisodesIncludeWatched: Boolean = false,
     val streamAutoPlayNextEpisodeFallbackEnabled: Boolean = true,
@@ -147,6 +148,7 @@ object PlayerSettingsRepository {
     private var streamAutoPlayRegex = ""
     private var streamAutoPlayTimeoutSeconds = 3
     private var skipIntroEnabled = true
+    private var progressiveSegmentDetectionEnabled = false
     private var autoSkipSegmentTypes: Set<AutoSkipSegmentType> = emptySet()
     private var animeSkipEnabled = false
     private var animeSkipClientId = ""
@@ -234,6 +236,7 @@ object PlayerSettingsRepository {
         introDbApiKey = ""
         theIntroDbApiKey = ""
         introSubmitEnabled = false
+        progressiveSegmentDetectionEnabled = false
         streamAutoPlayNextEpisodeEnabled = false
         streamAutoPlayNextEpisodeFallbackEnabled = true
         streamAutoPlayPreferBingeGroup = true
@@ -369,6 +372,7 @@ object PlayerSettingsRepository {
         introDbApiKey = PlayerSettingsStorage.loadIntroDbApiKey() ?: ""
         theIntroDbApiKey = TheIntroDbKeyStore.load() ?: ""
         introSubmitEnabled = PlayerSettingsStorage.loadIntroSubmitEnabled() ?: false
+        progressiveSegmentDetectionEnabled = PlayerSettingsStorage.loadProgressiveSegmentDetectionEnabled() ?: false
         streamAutoPlayNextEpisodeEnabled = PlayerSettingsStorage.loadStreamAutoPlayNextEpisodeEnabled() ?: false
         streamAutoPlayNextEpisodeFallbackEnabled = PlayerSettingsStorage.loadStreamAutoPlayNextEpisodeFallbackEnabled() ?: true
         streamAutoPlayPreferBingeGroup = PlayerSettingsStorage.loadStreamAutoPlayPreferBingeGroup() ?: true
@@ -786,6 +790,14 @@ object PlayerSettingsRepository {
         introSubmitEnabled = enabled
         publish()
         PlayerSettingsStorage.saveIntroSubmitEnabled(enabled)
+    }
+
+    fun setProgressiveSegmentDetectionEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (progressiveSegmentDetectionEnabled == enabled) return
+        progressiveSegmentDetectionEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveProgressiveSegmentDetectionEnabled(enabled)
     }
 
     fun setStreamAutoPlayNextEpisodeEnabled(enabled: Boolean) {

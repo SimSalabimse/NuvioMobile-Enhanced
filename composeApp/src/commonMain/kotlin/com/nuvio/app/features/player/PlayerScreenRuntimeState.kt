@@ -15,7 +15,9 @@ import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.livetv.LiveTvUiState
 import com.nuvio.app.features.p2p.P2pSettingsUiState
 import com.nuvio.app.features.p2p.P2pStreamingState
+import com.nuvio.app.features.player.skip.DetectedSegment
 import com.nuvio.app.features.player.skip.NextEpisodeInfo
+import com.nuvio.app.features.player.skip.ProgressiveSegmentSession
 import com.nuvio.app.features.player.skip.SkipInterval
 import com.nuvio.app.features.streams.StreamsUiState
 import com.nuvio.app.features.tracking.TrackingMediaReference
@@ -232,6 +234,11 @@ internal class PlayerScreenRuntime(
     var subtitleDelayMs by mutableStateOf(0)
     var subtitleAutoSyncState by mutableStateOf(SubtitleAutoSyncUiState())
     var isAutoSubtitleShowing by mutableStateOf(false)
+    
+    var progressiveSegmentSession: ProgressiveSegmentSession? = null
+    var showDetectedSegmentNotification by mutableStateOf(false)
+    var currentDetectedSegment by mutableStateOf<DetectedSegment?>(null)
+    var progressiveSegmentAnalysisJob by mutableStateOf<Job?>(null)
     var autoSubtitleRewindWatermarkMs by mutableStateOf<Long?>(null)
     var isAutoSubtitleMuteActive by mutableStateOf(false)
     var wasAutoSubtitleVolumeMuted by mutableStateOf(false)
