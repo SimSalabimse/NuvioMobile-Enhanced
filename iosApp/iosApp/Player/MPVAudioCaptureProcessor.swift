@@ -29,11 +29,25 @@ import ComposeApp
  * 5. **No Microphone Entitlement Needed**: Uses ReplayKit app audio capture, which does
  *    not require microphone permissions.
  * 
+ * ## Retry Logic:
+ * 
+ * - Waits 8 seconds for first audio buffer before considering retry
+ * - Attempts one retry if no buffers received (in case ReplayKit had slow startup)
+ * - Total of 2 attempts before declaring failure
+ * - Helps handle timing races where ReplayKit takes time to initialize
+ * 
  * ## Diagnostics:
  * 
  * - Logs detailed information at each step (availability, format, buffer reception)
  * - Tracks whether any audio buffers were received from ReplayKit
  * - Provides specific failure reasons (unavailable, no buffers, timeout, etc.)
+ * - Reports retry attempts in final summary
+ * 
+ * ## Future: Alternative Capture Approach
+ * 
+ * Android uses a direct audio pipeline tap (AudioProcessor) that's 100% reliable.
+ * iOS could potentially use MPV audio filters (`af=`) to export PCM data directly,
+ * bypassing ReplayKit entirely. See MPV_AUDIO_TAP_INVESTIGATION.md for details.
  */
 final class MPVAudioCaptureProcessor: NSObject {
     
@@ -45,10 +59,13 @@ final class MPVAudioCaptureProcessor: NSObject {
     private var receivedAnyBuffer = false
     private var captureStartTime: TimeInterval = 0
     private var captureFailureReason: String?
+    private var retryCount = 0
+    private var startupCheckWorkItem: DispatchWorkItem?
     
     // Configuration
     private let sampleWindowSize = 4800  // ~100ms at 48kHz
-    private let firstBufferTimeoutSeconds: TimeInterval = 5.0
+    private let firstBufferTimeoutSeconds: TimeInterval = 8.0  // Increased from 5s to allow slow ReplayKit startup
+    private let maxRetryAttempts = 1  // Retry once if no buffers received
     private var energyAccumulator: Double = 0.0
     private var samplesInWindow = 0
     private var processedSampleCount: Int64 = 0
@@ -66,6 +83,10 @@ final class MPVAudioCaptureProcessor: NSObject {
     func startCapture(startTimeMs: Int64) {
         InAppLogBridge.shared.info(tag: "MPV/iOS/AudioCapture", message: "Starting audio capture at \(startTimeMs)ms")
         
+        // Cancel any pending startup check
+        startupCheckWorkItem?.cancel()
+        startupCheckWorkItem = nil
+        
         samplesLock.lock()
         samples.removeAll()
         energyAccumulator = 0.0
@@ -74,6 +95,7 @@ final class MPVAudioCaptureProcessor: NSObject {
         captureStartPositionMs = startTimeMs
         receivedAnyBuffer = false
         captureFailureReason = nil
+        retryCount = 0
         samplesLock.unlock()
         
         captureStartTime = CACurrentMediaTime()
@@ -101,6 +123,9 @@ final class MPVAudioCaptureProcessor: NSObject {
         
         // Start capturing audio via ReplayKit
         setupAudioCapture()
+        
+        // Schedule startup check - if no buffers after timeout, consider retry
+        scheduleStartupCheck()
     }
     
     /**
@@ -108,6 +133,10 @@ final class MPVAudioCaptureProcessor: NSObject {
      */
     func stopCapture() -> [ComposeApp.AudioEnergySample] {
         InAppLogBridge.shared.info(tag: "MPV/iOS/AudioCapture", message: "Stopping audio capture")
+        
+        // Cancel any pending startup check
+        startupCheckWorkItem?.cancel()
+        startupCheckWorkItem = nil
         
         isCapturing = false
         teardownAudioCapture()
@@ -118,31 +147,33 @@ final class MPVAudioCaptureProcessor: NSObject {
         }
         let gotAnyBuffer = receivedAnyBuffer
         let failure = captureFailureReason
+        let retries = retryCount
         samplesLock.unlock()
         
         let duration = CACurrentMediaTime() - captureStartTime
+        let retriesInfo = retries > 0 ? " (\(retries) retries attempted)" : ""
         
         if capturedSamples.isEmpty {
             if let failure = failure {
                 InAppLogBridge.shared.error(
                     tag: "MPV/iOS/AudioCapture",
-                    message: "Capture failed: \(failure). Duration: \(String(format: "%.1f", duration))s"
+                    message: "Capture failed: \(failure). Duration: \(String(format: "%.1f", duration))s\(retriesInfo)"
                 )
             } else if !gotAnyBuffer {
                 InAppLogBridge.shared.error(
                     tag: "MPV/iOS/AudioCapture",
-                    message: "ReplayKit never delivered audio buffers after \(String(format: "%.1f", duration))s. Possible causes: (1) Sideload restrictions on ReplayKit, (2) MPV audio routing incompatibility, (3) iOS denying background audio capture, (4) No audio playback active."
+                    message: "ReplayKit never delivered audio buffers after \(String(format: "%.1f", duration))s\(retriesInfo). Possible causes: (1) Sideload restrictions on ReplayKit, (2) MPV audio routing incompatibility, (3) iOS denying background audio capture, (4) No audio playback active."
                 )
             } else {
                 InAppLogBridge.shared.warn(
                     tag: "MPV/iOS/AudioCapture",
-                    message: "Received buffers but captured 0 energy samples after \(String(format: "%.1f", duration))s. Audio may be silent or below threshold."
+                    message: "Received buffers but captured 0 energy samples after \(String(format: "%.1f", duration))s\(retriesInfo). Audio may be silent or below threshold."
                 )
             }
         } else {
             InAppLogBridge.shared.info(
                 tag: "MPV/iOS/AudioCapture",
-                message: "Successfully captured \(capturedSamples.count) energy samples over \(String(format: "%.1f", duration))s"
+                message: "Successfully captured \(capturedSamples.count) energy samples over \(String(format: "%.1f", duration))s\(retriesInfo)"
             )
         }
         
@@ -180,6 +211,77 @@ final class MPVAudioCaptureProcessor: NSObject {
         samplesLock.lock()
         defer { samplesLock.unlock() }
         return receivedAnyBuffer
+    }
+    
+    // MARK: - Retry Logic
+    
+    private func scheduleStartupCheck() {
+        startupCheckWorkItem?.cancel()
+        
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.checkAndRetryIfNeeded()
+        }
+        startupCheckWorkItem = workItem
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + firstBufferTimeoutSeconds, execute: workItem)
+        
+        InAppLogBridge.shared.info(
+            tag: "MPV/iOS/AudioCapture",
+            message: "Scheduled startup check in \(String(format: "%.1f", firstBufferTimeoutSeconds))s"
+        )
+    }
+    
+    private func checkAndRetryIfNeeded() {
+        guard isCapturing else { return }
+        
+        samplesLock.lock()
+        let gotBuffer = receivedAnyBuffer
+        let retries = retryCount
+        samplesLock.unlock()
+        
+        if gotBuffer {
+            InAppLogBridge.shared.info(
+                tag: "MPV/iOS/AudioCapture",
+                message: "Startup check: buffers received, ReplayKit working normally"
+            )
+            return
+        }
+        
+        // No buffers received yet
+        let elapsed = CACurrentMediaTime() - captureStartTime
+        
+        if retries < maxRetryAttempts {
+            InAppLogBridge.shared.warn(
+                tag: "MPV/iOS/AudioCapture",
+                message: "No buffers after \(String(format: "%.1f", elapsed))s, retrying ReplayKit (attempt \(retries + 2) of \(maxRetryAttempts + 1))"
+            )
+            
+            samplesLock.lock()
+            retryCount += 1
+            let currentStartTime = captureStartPositionMs
+            samplesLock.unlock()
+            
+            // Stop and restart ReplayKit
+            teardownAudioCapture()
+            
+            // Brief delay before retry
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self = self, self.isCapturing else { return }
+                self.setupAudioCapture()
+                self.scheduleStartupCheck()
+            }
+        } else {
+            InAppLogBridge.shared.error(
+                tag: "MPV/iOS/AudioCapture",
+                message: "No buffers after \(String(format: "%.1f", elapsed))s and \(maxRetryAttempts) retries. ReplayKit likely blocked on this device/build."
+            )
+            
+            samplesLock.lock()
+            if captureFailureReason == nil {
+                captureFailureReason = "ReplayKit never delivered buffers after \(maxRetryAttempts) attempts"
+            }
+            samplesLock.unlock()
+        }
     }
     
     // MARK: - Audio Capture Implementation
