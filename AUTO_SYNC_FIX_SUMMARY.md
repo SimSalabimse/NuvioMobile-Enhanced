@@ -330,9 +330,79 @@ The error "Could not capture audio data" after Float32 fix (PR #12) revealed tha
 3. **Check all logs**: Verify diagnostics are helpful
 4. **Edge case testing**: Paused, silent, background scenarios
 
+## Additional Investigation & Retry Logic (Commit 2)
+
+### Android vs iOS Comparison
+
+Discovered fundamental architectural difference:
+
+**Android** (lines 2926-3005, PlayerEngine.android.kt):
+```kotlin
+class AudioEnergyCaptureProcessor : BaseAudioProcessor() {
+    override fun queueInput(inputBuffer: ByteBuffer) {
+        // Process Int16 PCM samples directly from player pipeline
+    }
+}
+// Attached at line 3064:
+setAudioProcessors(arrayOf(volumeBoostAudioProcessor, audioEnergyCaptureProcessor))
+```
+- ✅ Taps audio pipeline directly
+- ✅ 100% reliable on all builds
+- ✅ No external APIs or OS permissions
+
+**iOS** (current):
+- Uses ReplayKit (external screen recording API)
+- Subject to sideload restrictions
+- No direct pipeline access
+
+### ReplayKit Retry Logic (Immediate Fix)
+
+**Problem**: Timing race - ReplayKit may take 5-8s to start.
+
+**Solution**:
+1. Increase timeout from 5s → 8s
+2. Add retry: if no buffers after 8s, restart ReplayKit once
+3. Total 2 attempts before failure
+4. Better logging of retry attempts
+
+**Code Changes** (`MPVAudioCaptureProcessor.swift`):
+- Added `retryCount`, `startupCheckWorkItem` state
+- `scheduleStartupCheck()` schedules 8s timeout check
+- `checkAndRetryIfNeeded()` restarts ReplayKit if needed
+- Clean up on `stopCapture()` to prevent late checks
+
+**Benefits**:
+- ✅ Handles slow ReplayKit startup
+- ✅ Fast to implement
+- ✅ No breaking changes
+- ⚠️ Still fails if ReplayKit completely blocked
+
+### MPV Audio Filter Investigation (Future Path)
+
+Created `MPV_AUDIO_TAP_INVESTIGATION.md` documenting potential long-term solution:
+
+**Concept**: Use MPV's audio filter chain to export PCM directly to Swift
+- MPV supports `af=` (audio filters)
+- Could add custom filter with Swift callback
+- Would match Android's direct pipeline approach
+- Requires libmpv audio filter API research
+
+**Advantages**:
+- No ReplayKit dependency
+- No sideload restrictions
+- Same architecture as Android (proven)
+- Works on simulator
+
+**Challenges**:
+- Need to verify libmpv audio filter support on iOS
+- May require C bridging code
+- More complex than ReplayKit
+
+**Decision**: Document for future investigation, implement retry logic now as pragmatic quick win.
+
 ## Conclusion
 
-This fix transforms Auto Sync from **silently failing with misleading errors** to **failing fast with actionable diagnostics**. It doesn't solve the fundamental iOS restriction on sideload ReplayKit, but it:
+This fix transforms Auto Sync from **silently failing with misleading errors** to **failing fast with actionable diagnostics**, with **retry logic to handle timing races**. It doesn't solve the fundamental iOS restriction on sideload ReplayKit, but it:
 
 1. ✅ Detects the restriction immediately
 2. ✅ Explains what went wrong
@@ -340,10 +410,13 @@ This fix transforms Auto Sync from **silently failing with misleading errors** t
 4. ✅ Provides detailed logs for support
 5. ✅ Documents known limitations
 6. ✅ Preserves functionality for supported builds
+7. ✅ **NEW**: Retries ReplayKit if slow startup detected
+8. ✅ **NEW**: Documents MPV audio filter alternative for future
 
-**The best fix for an unavoidable platform limitation is clear, fast failure with helpful guidance.**
+**The best fix for an unavoidable platform limitation is clear, fast failure with helpful guidance - plus retry logic for timing races.**
 
 ---
 
 **Status**: Ready for device testing and review
-**Next**: Build IPA, test on device, verify logs, merge if successful
+**Next**: Build IPA, test on device, verify retry behavior, merge if successful
+**Future**: Investigate MPV audio filter approach for truly reliable sideload support
