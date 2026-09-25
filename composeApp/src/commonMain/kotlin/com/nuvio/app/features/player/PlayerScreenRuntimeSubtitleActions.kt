@@ -23,10 +23,14 @@ internal fun PlayerScreenRuntime.setSubtitleDelay(delayMs: Int) {
     playerController?.setSubtitleDelayMs(clamped)
 }
 
-internal fun PlayerScreenRuntime.loadSubtitleAutoSyncCues(force: Boolean = false) {
+internal fun PlayerScreenRuntime.loadSubtitleAutoSyncCues(force: Boolean = false, preserveLoadingState: Boolean = false) {
     val subtitle = selectedAddonSubtitle ?: return
     if (!force && subtitleAutoSyncState.cues.isNotEmpty()) return
-    subtitleAutoSyncState = subtitleAutoSyncState.copy(isLoading = true, errorMessage = null)
+    
+    if (!preserveLoadingState) {
+        subtitleAutoSyncState = subtitleAutoSyncState.copy(isLoading = true, errorMessage = null)
+    }
+    
     scope.launch {
         val result = runCatching {
             val body = httpGetTextWithHeaders(
@@ -39,13 +43,13 @@ internal fun PlayerScreenRuntime.loadSubtitleAutoSyncCues(force: Boolean = false
             onSuccess = { cues ->
                 subtitleAutoSyncState = subtitleAutoSyncState.copy(
                     cues = cues,
-                    isLoading = false,
+                    isLoading = if (preserveLoadingState) subtitleAutoSyncState.isLoading else false,
                     errorMessage = if (cues.isEmpty()) localizedNoSubtitleLinesFound() else null,
                 )
             },
             onFailure = { error ->
                 subtitleAutoSyncState = subtitleAutoSyncState.copy(
-                    isLoading = false,
+                    isLoading = if (preserveLoadingState) subtitleAutoSyncState.isLoading else false,
                     errorMessage = error.message ?: localizedSubtitleLinesLoadError(),
                 )
             },
@@ -70,13 +74,22 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
         return
     }
     
-    // Start loading subtitle cues if needed
-    if (subtitleAutoSyncState.cues.isEmpty()) {
-        loadSubtitleAutoSyncCues(force = true)
+    // Guard against double-tap - don't start a new sync if already running
+    if (subtitleAutoSyncState.isLoading) {
+        println("[AutoSync] Sync already in progress, ignoring duplicate request")
+        return
     }
     
-    // Mark as loading
-    subtitleAutoSyncState = subtitleAutoSyncState.copy(isLoading = true, errorMessage = null)
+    // Mark as loading immediately and keep it throughout the entire process
+    subtitleAutoSyncState = subtitleAutoSyncState.copy(
+        isLoading = true, 
+        errorMessage = "Capturing audio... (this may take up to 30 seconds)"
+    )
+    
+    // Start loading subtitle cues if needed, but preserve loading state
+    if (subtitleAutoSyncState.cues.isEmpty()) {
+        loadSubtitleAutoSyncCues(force = true, preserveLoadingState = true)
+    }
     
     scope.launch {
         try {
@@ -95,6 +108,11 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
                 return@launch
             }
             
+            // Update status to show we're capturing
+            subtitleAutoSyncState = subtitleAutoSyncState.copy(
+                errorMessage = "Capturing audio... (this may take up to 30 seconds)"
+            )
+            
             // Start audio capture
             val startPositionMs = playbackSnapshot.positionMs.coerceAtLeast(0L)
             playerController?.startAudioEnergyCapture(startPositionMs)
@@ -104,10 +122,20 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
             val minCaptureMs = 20_000L
             val startTimeMs = com.nuvio.app.features.streams.epochMs()
             var lastLoggedMs = 0L
+            var lastStatusUpdateMs = 0L
             
             while (com.nuvio.app.features.streams.epochMs() - startTimeMs < captureTargetMs) {
                 val capturedMs = playerController?.getAudioCaptureDuration() ?: 0L
                 val elapsedMs = com.nuvio.app.features.streams.epochMs() - startTimeMs
+                
+                // Update status message every 3 seconds to show progress
+                if (elapsedMs - lastStatusUpdateMs >= 3000) {
+                    val secondsElapsed = elapsedMs / 1000
+                    subtitleAutoSyncState = subtitleAutoSyncState.copy(
+                        errorMessage = "Capturing audio... (${secondsElapsed}s / 30s)"
+                    )
+                    lastStatusUpdateMs = elapsedMs
+                }
                 
                 // Log progress every 5 seconds for debugging
                 if (elapsedMs - lastLoggedMs >= 5000) {
@@ -136,6 +164,11 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
                 )
                 return@launch
             }
+            
+            // Update status to show we're computing
+            subtitleAutoSyncState = subtitleAutoSyncState.copy(
+                errorMessage = "Computing sync offset..."
+            )
             
             // Compute optimal offset
             val result = SubtitleAutoSyncEngine.computeOptimalOffset(
