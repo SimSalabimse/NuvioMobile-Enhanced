@@ -127,12 +127,12 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
             println("[AutoSync] Received ${audioSamples.size} audio samples from capture")
             
             if (audioSamples.isEmpty()) {
-                // Auto Sync requires iOS ReplayKit for audio capture, which may be restricted
-                // on sideloaded apps (SideStore, AltStore) due to iOS provisioning limitations.
-                // See: iosApp/iosApp/Player/MPVAudioCaptureProcessor.swift for technical details.
+                // Audio capture failed - could be due to unsupported media format, no audio track,
+                // or other decode issues. AVAsset dual-decode is attempted first (works on sideloads),
+                // with ReplayKit as fallback. See: iosApp/iosApp/Player/MPVAudioCaptureProcessor.swift
                 subtitleAutoSyncState = subtitleAutoSyncState.copy(
                     isLoading = false,
-                    errorMessage = "Auto Sync unavailable on this build. iOS ReplayKit audio capture is restricted on sideloaded apps. Use manual subtitle delay adjustment instead (tap Settings icon below, adjust delay with ± buttons).",
+                    errorMessage = "Could not capture audio from this media. The file may not have an audio track or uses an unsupported format. Try manual subtitle delay adjustment instead (tap Settings icon below, adjust delay with ± buttons).",
                 )
                 return@launch
             }

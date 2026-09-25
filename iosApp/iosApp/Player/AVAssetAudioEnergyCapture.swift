@@ -58,7 +58,7 @@ final class AVAssetAudioEnergyCapture: NSObject {
     
     weak var playerViewController: MPVPlayerViewController?
     
-    init(playerViewController: MPVPlayerViewController) {
+    init(playerViewController: MPVPlayerViewController?) {
         self.playerViewController = playerViewController
         super.init()
     }

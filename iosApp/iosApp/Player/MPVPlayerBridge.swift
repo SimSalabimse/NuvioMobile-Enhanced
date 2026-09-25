@@ -1525,6 +1525,24 @@ final class MPVPlayerViewController: UIViewController {
     func getActiveRequestHeaders() -> [String: String] {
         return activeRequestHeaders
     }
+    
+    // MARK: - Test Support
+    
+    /**
+     * Run AVAsset audio capture test harness.
+     * This is a self-contained test that validates AVAsset capture without needing MPV playback.
+     * Returns a test report with pass/fail status.
+     */
+    @objc func runAudioCaptureTest() -> String {
+        InAppLogBridge.shared.info(
+            tag: "MPV/iOS/Test",
+            message: "Starting AVAsset audio capture test harness..."
+        )
+        
+        let report = AVAssetAudioCaptureTestHarness.runAllTests()
+        
+        return report.summary()
+    }
 
     func applySubtitleStyle(
         textColor: String,
