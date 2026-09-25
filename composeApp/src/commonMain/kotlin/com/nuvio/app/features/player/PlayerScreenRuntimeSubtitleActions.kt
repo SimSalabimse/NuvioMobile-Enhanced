@@ -99,13 +99,24 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
             val startPositionMs = playbackSnapshot.positionMs.coerceAtLeast(0L)
             playerController?.startAudioEnergyCapture(startPositionMs)
             
-            // Capture for 30 seconds
+            // Capture for 30 seconds or until we have enough data
             val captureTargetMs = 30_000L
+            val minCaptureMs = 20_000L
             val startTimeMs = com.nuvio.app.features.streams.epochMs()
+            var lastLoggedMs = 0L
             
             while (com.nuvio.app.features.streams.epochMs() - startTimeMs < captureTargetMs) {
                 val capturedMs = playerController?.getAudioCaptureDuration() ?: 0L
-                if (capturedMs >= 20_000L) {
+                val elapsedMs = com.nuvio.app.features.streams.epochMs() - startTimeMs
+                
+                // Log progress every 5 seconds for debugging
+                if (elapsedMs - lastLoggedMs >= 5000) {
+                    println("[AutoSync] Capture progress: ${capturedMs}ms captured after ${elapsedMs}ms elapsed")
+                    lastLoggedMs = elapsedMs
+                }
+                
+                if (capturedMs >= minCaptureMs) {
+                    println("[AutoSync] Reached target of ${minCaptureMs}ms after ${elapsedMs}ms")
                     break
                 }
                 delay(500)
@@ -113,11 +124,12 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
             
             // Stop capture and get samples
             val audioSamples = playerController?.stopAudioEnergyCapture() ?: emptyList()
+            println("[AutoSync] Received ${audioSamples.size} audio samples from capture")
             
             if (audioSamples.isEmpty()) {
                 subtitleAutoSyncState = subtitleAutoSyncState.copy(
                     isLoading = false,
-                    errorMessage = "Could not capture audio data. ReplayKit may not be available or MPV audio routing issue. Check logs for details.",
+                    errorMessage = "Could not capture audio data. ReplayKit may not be available or there's an MPV audio routing issue. Check logs for details. This feature may not work on sideloaded apps.",
                 )
                 return@launch
             }

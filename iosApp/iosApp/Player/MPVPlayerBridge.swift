@@ -1506,6 +1506,17 @@ final class MPVPlayerViewController: UIViewController {
     func getAudioCaptureDuration() -> Int64 {
         return audioCaptureProcessor.getCaptureDuration()
     }
+    
+    func getCurrentAudioOutput() -> String? {
+        guard mpv != nil else { return nil }
+        let coreGeneration = mpvGeneration
+        var result: String?
+        mpvQueue.sync { [weak self] in
+            guard let self, self.mpvGeneration == coreGeneration, self.mpv != nil else { return }
+            result = self.getString("current-ao")
+        }
+        return result
+    }
 
     func applySubtitleStyle(
         textColor: String,

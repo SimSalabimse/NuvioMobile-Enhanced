@@ -6,15 +6,34 @@ import ComposeApp
 /**
  * Captures audio energy from MPV player for subtitle Auto Sync.
  * 
- * This processor uses ReplayKit's audio capture to get system audio output,
+ * This processor uses ReplayKit's RPScreenRecorder to capture app audio output,
  * computes RMS energy over time windows, and provides timestamped energy samples
  * for correlation with subtitle cues.
  * 
  * Supports both Float32 (most common on iOS) and Int16 PCM audio formats.
  * 
- * Note: This implementation works with sideload builds. ReplayKit allows capturing
- * app audio without microphone entitlements. The user may see a brief screen recording
- * indicator when audio capture starts.
+ * ## Requirements and Limitations:
+ * 
+ * 1. **ReplayKit Availability**: Requires iOS ReplayKit to be available. May fail on
+ *    simulators or devices with ReplayKit disabled.
+ * 
+ * 2. **Sideload Restrictions**: ReplayKit may be restricted or unavailable in sideloaded
+ *    apps (e.g., via SideStore, AltStore) depending on iOS version and provisioning.
+ *    iOS may deny audio capture for apps without proper entitlements.
+ * 
+ * 3. **MPV Audio Output**: MPV must route audio through AVFoundation-compatible outputs
+ *    (like 'audiounit'). Other audio outputs may not be visible to ReplayKit.
+ * 
+ * 4. **User Indicators**: A brief screen recording indicator may appear when capture starts.
+ * 
+ * 5. **No Microphone Entitlement Needed**: Uses ReplayKit app audio capture, which does
+ *    not require microphone permissions.
+ * 
+ * ## Diagnostics:
+ * 
+ * - Logs detailed information at each step (availability, format, buffer reception)
+ * - Tracks whether any audio buffers were received from ReplayKit
+ * - Provides specific failure reasons (unavailable, no buffers, timeout, etc.)
  */
 final class MPVAudioCaptureProcessor: NSObject {
     
@@ -23,9 +42,13 @@ final class MPVAudioCaptureProcessor: NSObject {
     private var samples: [AudioEnergySample] = []
     private let samplesLock = NSLock()
     private var captureStartPositionMs: Int64 = 0
+    private var receivedAnyBuffer = false
+    private var captureStartTime: TimeInterval = 0
+    private var captureFailureReason: String?
     
     // Configuration
     private let sampleWindowSize = 4800  // ~100ms at 48kHz
+    private let firstBufferTimeoutSeconds: TimeInterval = 5.0
     private var energyAccumulator: Double = 0.0
     private var samplesInWindow = 0
     private var processedSampleCount: Int64 = 0
@@ -49,18 +72,32 @@ final class MPVAudioCaptureProcessor: NSObject {
         samplesInWindow = 0
         processedSampleCount = 0
         captureStartPositionMs = startTimeMs
+        receivedAnyBuffer = false
+        captureFailureReason = nil
         samplesLock.unlock()
         
-        isCapturing = true
+        captureStartTime = CACurrentMediaTime()
         
-        // Check ReplayKit availability first
+        // Check ReplayKit availability before starting
         let recorder = RPScreenRecorder.shared()
         if !recorder.isAvailable {
-            InAppLogBridge.shared.error(
+            let errorMsg = "ReplayKit not available on this device. This may occur on sideloaded apps or simulators. Screen recording capability is required for Auto Sync audio capture."
+            InAppLogBridge.shared.error(tag: "MPV/iOS/AudioCapture", message: errorMsg)
+            samplesLock.lock()
+            captureFailureReason = "ReplayKit unavailable"
+            samplesLock.unlock()
+            return
+        }
+        
+        // Verify MPV is using compatible audio output
+        if let mpvAo = playerViewController?.getCurrentAudioOutput(), !mpvAo.contains("audiounit") {
+            InAppLogBridge.shared.warn(
                 tag: "MPV/iOS/AudioCapture",
-                message: "ReplayKit not available. Device may not support screen recording or feature is disabled."
+                message: "MPV audio output '\(mpvAo)' may not be compatible with ReplayKit. 'audiounit' is recommended."
             )
         }
+        
+        isCapturing = true
         
         // Start capturing audio via ReplayKit
         setupAudioCapture()
@@ -79,9 +116,36 @@ final class MPVAudioCaptureProcessor: NSObject {
         let capturedSamples = samples.map { sample in
             ComposeApp.AudioEnergySample(timestampMs: sample.timestampMs, energy: sample.energy)
         }
+        let gotAnyBuffer = receivedAnyBuffer
+        let failure = captureFailureReason
         samplesLock.unlock()
         
-        InAppLogBridge.shared.info(tag: "MPV/iOS/AudioCapture", message: "Captured \(capturedSamples.count) energy samples")
+        let duration = CACurrentMediaTime() - captureStartTime
+        
+        if capturedSamples.isEmpty {
+            if let failure = failure {
+                InAppLogBridge.shared.error(
+                    tag: "MPV/iOS/AudioCapture",
+                    message: "Capture failed: \(failure). Duration: \(String(format: "%.1f", duration))s"
+                )
+            } else if !gotAnyBuffer {
+                InAppLogBridge.shared.error(
+                    tag: "MPV/iOS/AudioCapture",
+                    message: "ReplayKit never delivered audio buffers after \(String(format: "%.1f", duration))s. Possible causes: (1) Sideload restrictions on ReplayKit, (2) MPV audio routing incompatibility, (3) iOS denying background audio capture, (4) No audio playback active."
+                )
+            } else {
+                InAppLogBridge.shared.warn(
+                    tag: "MPV/iOS/AudioCapture",
+                    message: "Received buffers but captured 0 energy samples after \(String(format: "%.1f", duration))s. Audio may be silent or below threshold."
+                )
+            }
+        } else {
+            InAppLogBridge.shared.info(
+                tag: "MPV/iOS/AudioCapture",
+                message: "Successfully captured \(capturedSamples.count) energy samples over \(String(format: "%.1f", duration))s"
+            )
+        }
+        
         return capturedSamples
     }
     
@@ -93,10 +157,29 @@ final class MPVAudioCaptureProcessor: NSObject {
         
         samplesLock.lock()
         let count = samples.count
+        let gotBuffer = receivedAnyBuffer
         samplesLock.unlock()
+        
+        // Log a warning if we haven't received any buffers after a timeout
+        let elapsed = CACurrentMediaTime() - captureStartTime
+        if !gotBuffer && elapsed > firstBufferTimeoutSeconds {
+            InAppLogBridge.shared.warn(
+                tag: "MPV/iOS/AudioCapture",
+                message: "No audio buffers received from ReplayKit after \(String(format: "%.1f", elapsed))s. This likely indicates a sideload/ReplayKit restriction or audio routing issue."
+            )
+        }
         
         // Each sample represents ~100ms
         return Int64(count * 100)
+    }
+    
+    /**
+     * Check if any audio buffers have been received from ReplayKit.
+     */
+    func hasReceivedAudioBuffers() -> Bool {
+        samplesLock.lock()
+        defer { samplesLock.unlock() }
+        return receivedAnyBuffer
     }
     
     // MARK: - Audio Capture Implementation
@@ -108,16 +191,23 @@ final class MPVAudioCaptureProcessor: NSObject {
         let recorder = RPScreenRecorder.shared()
         screenRecorder = recorder
         
-        // Check if recording is available
+        // Double-check recording availability
         guard recorder.isAvailable else {
-            InAppLogBridge.shared.error(tag: "MPV/iOS/AudioCapture", message: "Screen recorder not available")
+            InAppLogBridge.shared.error(tag: "MPV/iOS/AudioCapture", message: "Screen recorder not available in setupAudioCapture")
+            samplesLock.lock()
+            captureFailureReason = "ReplayKit unavailable in setup"
+            samplesLock.unlock()
+            isCapturing = false
             return
         }
         
         // Start capturing app audio only (not microphone)
         recorder.isMicrophoneEnabled = false
         
-        var receivedFirstBuffer = false
+        InAppLogBridge.shared.info(
+            tag: "MPV/iOS/AudioCapture",
+            message: "Calling RPScreenRecorder.startCapture with isMicrophoneEnabled=false"
+        )
         
         recorder.startCapture(handler: { [weak self] sampleBuffer, sampleType, error in
             guard let self = self else { return }
@@ -125,30 +215,49 @@ final class MPVAudioCaptureProcessor: NSObject {
             if let error = error {
                 InAppLogBridge.shared.error(
                     tag: "MPV/iOS/AudioCapture",
-                    message: "Capture error: \(error.localizedDescription)"
+                    message: "Capture handler error: \(error.localizedDescription)"
                 )
+                self.samplesLock.lock()
+                if self.captureFailureReason == nil {
+                    self.captureFailureReason = "ReplayKit error: \(error.localizedDescription)"
+                }
+                self.samplesLock.unlock()
                 return
             }
             
             // Process only audio samples
             if sampleType == .audioApp {
-                if !receivedFirstBuffer {
-                    receivedFirstBuffer = true
+                self.samplesLock.lock()
+                let isFirstBuffer = !self.receivedAnyBuffer
+                if isFirstBuffer {
+                    self.receivedAnyBuffer = true
+                }
+                self.samplesLock.unlock()
+                
+                if isFirstBuffer {
+                    let elapsed = CACurrentMediaTime() - self.captureStartTime
                     InAppLogBridge.shared.info(
                         tag: "MPV/iOS/AudioCapture",
-                        message: "Received first audio buffer from ReplayKit"
+                        message: "Received first audio buffer from ReplayKit after \(String(format: "%.2f", elapsed))s"
                     )
                 }
                 self.processSampleBuffer(sampleBuffer)
             }
-        }) { error in
+        }) { [weak self] error in
+            guard let self = self else { return }
+            
             if let error = error {
-                InAppLogBridge.shared.error(
-                    tag: "MPV/iOS/AudioCapture",
-                    message: "Failed to start capture: \(error.localizedDescription)"
-                )
+                let errorMsg = "Failed to start ReplayKit capture: \(error.localizedDescription)"
+                InAppLogBridge.shared.error(tag: "MPV/iOS/AudioCapture", message: errorMsg)
+                self.samplesLock.lock()
+                self.captureFailureReason = errorMsg
+                self.samplesLock.unlock()
+                self.isCapturing = false
             } else {
-                InAppLogBridge.shared.info(tag: "MPV/iOS/AudioCapture", message: "Audio capture started successfully")
+                InAppLogBridge.shared.info(
+                    tag: "MPV/iOS/AudioCapture",
+                    message: "ReplayKit startCapture completed successfully. Waiting for audio buffers..."
+                )
             }
         }
     }
@@ -300,7 +409,28 @@ final class MPVAudioCaptureProcessor: NSObject {
         
         samplesLock.lock()
         samples.append(AudioEnergySample(timestampMs: timestampMs, energy: rmsEnergy))
+        let sampleCount = samples.count
         samplesLock.unlock()
+        
+        // Log a diagnostic warning if we're consistently getting very low energy
+        // (might indicate audio is muted, paused, or not routing through ReplayKit)
+        if sampleCount == 50 { // After ~5 seconds of capture
+            samplesLock.lock()
+            let avgEnergy = samples.prefix(50).map { $0.energy }.reduce(0.0, +) / 50.0
+            samplesLock.unlock()
+            
+            if avgEnergy < 0.001 {
+                InAppLogBridge.shared.warn(
+                    tag: "MPV/iOS/AudioCapture",
+                    message: "Audio energy is very low (avg: \(String(format: "%.6f", avgEnergy))). Audio may be silent, muted, or MPV audio routing may not be compatible with ReplayKit."
+                )
+            } else {
+                InAppLogBridge.shared.info(
+                    tag: "MPV/iOS/AudioCapture",
+                    message: "Audio energy looks good (avg: \(String(format: "%.6f", avgEnergy))) after 5s"
+                )
+            }
+        }
         
         // Reset for next window
         energyAccumulator = 0.0
