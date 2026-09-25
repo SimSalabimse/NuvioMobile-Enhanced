@@ -1517,6 +1517,14 @@ final class MPVPlayerViewController: UIViewController {
         }
         return result
     }
+    
+    func getCurrentMediaURL() -> URL? {
+        return lastLoadRequest?.urlString.flatMap { URL(string: $0) }
+    }
+    
+    func getActiveRequestHeaders() -> [String: String] {
+        return activeRequestHeaders
+    }
 
     func applySubtitleStyle(
         textColor: String,
