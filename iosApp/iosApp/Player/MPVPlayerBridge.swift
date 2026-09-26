@@ -301,6 +301,12 @@ struct AudioCaptureSource {
     let audioTrackId: Int
 }
 
+struct CachedPlaybackDump {
+    let fileURL: URL
+    let originMs: Int64
+    let durationMs: Int64
+}
+
 // MARK: - MPV Player View Controller
 
 final class MPVPlayerViewController: UIViewController {
@@ -1543,6 +1549,76 @@ final class MPVPlayerViewController: UIViewController {
             headers: activeRequestHeaders,
             audioTrackId: aid
         )
+    }
+
+    /// Writes the demuxer cache around the playhead to a local Matroska file.
+    /// A second network open of the same URL often sits past the old 12s cutoff
+    /// with no warn line; this file is the media the player is already playing.
+    func dumpCachedPlayback(startTimeMs: Int64) -> CachedPlaybackDump? {
+        let generation = mpvGeneration
+        if DispatchQueue.getSpecific(key: Self.mpvQueueKey) != nil {
+            guard mpvGeneration == generation, mpv != nil else { return nil }
+            return makeCachedPlaybackDump(startTimeMs: startTimeMs)
+        }
+        var dump: CachedPlaybackDump?
+        mpvQueue.sync {
+            guard self.mpvGeneration == generation, self.mpv != nil else { return }
+            dump = self.makeCachedPlaybackDump(startTimeMs: startTimeMs)
+        }
+        return dump
+    }
+
+    private func makeCachedPlaybackDump(startTimeMs: Int64) -> CachedPlaybackDump? {
+        guard mpv != nil else { return nil }
+        let live = getDouble("time-pos")
+        let origin = live.isFinite && live >= 0 ? live : Double(startTimeMs) / 1000.0
+        let cacheTime = getDouble("demuxer-cache-time")
+        let cacheDuration = getDouble("demuxer-cache-duration")
+        let ahead = [cacheTime, cacheDuration].filter { $0.isFinite && $0 > 0 }.max() ?? 0
+        let hasVideo = getInt("vid") > 0
+        let minimum = hasVideo ? 2.0 : 0.5
+        guard ahead >= minimum else {
+            InAppLogBridge.shared.info(
+                tag: "MPV/iOS/AudioCapture/PCM",
+                message: "Playback cache too short (\(String(format: "%.2f", ahead))s) for a local dump"
+            )
+            return nil
+        }
+        let start = max(0, origin)
+        let end = origin + min(ahead - 0.15, 30)
+        guard end - start >= minimum else { return nil }
+
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nuvio-autosync-cache-\(UUID().uuidString).mkv")
+        let status = commandSync(
+            "dump-cache",
+            args: [String(format: "%.3f", start), String(format: "%.3f", end), fileURL.path]
+        )
+        let byteCount = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? NSNumber)?.int64Value ?? 0
+        let header = (try? FileHandle(forReadingFrom: fileURL).read(upToCount: 4)) ?? Data()
+        let isMatroska = header.count == 4 && header[0] == 0x1A && header[1] == 0x45 && header[2] == 0xDF && header[3] == 0xA3
+        guard status >= 0, byteCount >= 8_192, isMatroska else {
+            try? FileManager.default.removeItem(at: fileURL)
+            InAppLogBridge.shared.warn(
+                tag: "MPV/iOS/AudioCapture/PCM",
+                message: "Playback cache dump unusable status=\(status) bytes=\(byteCount) matroska=\(isMatroska)"
+            )
+            return nil
+        }
+        let durationMs = Int64(((end - start) * 1000.0).rounded())
+        let originMs = Int64((start * 1000.0).rounded())
+        InAppLogBridge.shared.info(
+            tag: "MPV/iOS/AudioCapture/PCM",
+            message: "Playback cache dump \(byteCount) bytes for \(durationMs)ms"
+        )
+        return CachedPlaybackDump(fileURL: fileURL, originMs: originMs, durationMs: durationMs)
+    }
+
+    private func commandSync(_ command: String, args: [String?]) -> CInt {
+        guard let ctx = mpv else { return -1 }
+        var cargs = makeCArgs(command, args).map { $0.flatMap { UnsafePointer<CChar>(strdup($0)) } }
+        defer { for ptr in cargs where ptr != nil { free(UnsafeMutablePointer(mutating: ptr!)) } }
+        return mpv_command(ctx, &cargs)
     }
     
     func getCurrentAudioOutput() -> String? {

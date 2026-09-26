@@ -134,6 +134,10 @@ final class MPVAudioCaptureProcessor: NSObject {
                 tag: "MPV/iOS/AudioCapture",
                 message: "Using headless mpv PCM decode for \(redacted(resolved.url))"
             )
+            let external = source.externalAudioURLString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let cacheDump = external.isEmpty
+                ? playerViewController?.dumpCachedPlayback(startTimeMs: startTimeMs)
+                : nil
             currentMethod = .mpvPcm
             pcmStarted = true
             mpvPcmCapture.onHardFailure = { [weak self] reason in
@@ -143,7 +147,10 @@ final class MPVAudioCaptureProcessor: NSObject {
                 urlString: resolved.url,
                 headers: source.headers,
                 audioTrackId: resolved.trackId,
-                startTimeMs: startTimeMs
+                startTimeMs: startTimeMs,
+                cacheFile: cacheDump?.fileURL,
+                cacheOriginMs: cacheDump?.originMs ?? startTimeMs,
+                cacheDurationMs: cacheDump?.durationMs ?? 0
             )
         } else {
             recordFailure("no media url")

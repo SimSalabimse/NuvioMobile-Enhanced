@@ -3,12 +3,14 @@ import QuartzCore
 import Libmpv
 import ComposeApp
 
-/// Decodes the playing URL with a second, headless libmpv (`vo=null`, `ao=pcm`) and
-/// turns that WAV into RMS energy. AVAssetReader cannot open Matroska, and its
-/// `isPlayable` flag is false for remote URLs until the asset keys load.
+/// Decodes media with a second, headless libmpv (`vo=null`, `ao=pcm`) and turns
+/// that WAV into RMS energy. AVAssetReader cannot open Matroska.
 ///
 /// libmpv 0.41 rejects inline `ao` suboptions (`pcm:file=...`). The pcm writer is
 /// configured with separate `ao`, `ao-pcm-file`, and `ao-pcm-waveheader` options.
+/// ao=pcm writes a WAVE_FORMAT_EXTENSIBLE file and only creates it once the
+/// audio output starts, so an empty file plus a warn-only log used to surface
+/// as "timed out opening media" with no mpv text.
 final class MpvPcmEnergyCapture {
     var onHardFailure: ((String) -> Void)?
 
@@ -27,7 +29,10 @@ final class MpvPcmEnergyCapture {
         headers: [String: String],
         audioTrackId: Int?,
         startTimeMs: Int64,
-        durationMs: Int64 = 30_000
+        durationMs: Int64 = 30_000,
+        cacheFile: URL? = nil,
+        cacheOriginMs: Int64 = 0,
+        cacheDurationMs: Int64 = 0
     ) {
         stop()
         stateLock.lock()
@@ -52,7 +57,10 @@ final class MpvPcmEnergyCapture {
                 audioTrackId: audioTrackId,
                 startTimeMs: startTimeMs,
                 durationMs: durationMs,
-                wavURL: wavURL
+                wavURL: wavURL,
+                cacheFile: cacheFile,
+                cacheOriginMs: cacheOriginMs,
+                cacheDurationMs: cacheDurationMs
             )
         }.start()
     }
@@ -92,24 +100,100 @@ final class MpvPcmEnergyCapture {
         return storedFailureReason
     }
 
+    private struct Attempt {
+        let urlString: String
+        let headers: [String: String]
+        let audioTrackId: Int?
+        let decodeStartMs: Int64
+        let timestampOriginMs: Int64
+        let durationMs: Int64
+        let local: Bool
+        let label: String
+    }
+
     private func run(
         urlString: String,
         headers: [String: String],
         audioTrackId: Int?,
         startTimeMs: Int64,
         durationMs: Int64,
-        wavURL: URL
+        wavURL: URL,
+        cacheFile: URL?,
+        cacheOriginMs: Int64,
+        cacheDurationMs: Int64
     ) {
         defer {
             try? FileManager.default.removeItem(at: wavURL)
+            if let cacheFile {
+                try? FileManager.default.removeItem(at: cacheFile)
+            }
             stateLock.lock()
             self.wavURL = nil
             stateLock.unlock()
         }
 
+        var attempts: [Attempt] = []
+        if let cacheFile {
+            attempts.append(Attempt(
+                urlString: cacheFile.path,
+                headers: [:],
+                audioTrackId: nil,
+                decodeStartMs: 0,
+                timestampOriginMs: cacheOriginMs,
+                durationMs: max(cacheDurationMs, 1_000),
+                local: true,
+                label: "cache"
+            ))
+        }
+        attempts.append(Attempt(
+            urlString: urlString,
+            headers: headers,
+            audioTrackId: audioTrackId,
+            decodeStartMs: startTimeMs,
+            timestampOriginMs: startTimeMs,
+            durationMs: durationMs,
+            local: isLocal(urlString),
+            label: cacheFile == nil ? "url" : "url-after-cache"
+        ))
+
+        var details: [String] = []
+        for attempt in attempts {
+            if isUserStopRequested() { break }
+            let decoded = decode(attempt, wavURL: wavURL)
+            if !decoded.samples.isEmpty {
+                let peak = decoded.samples.map(\.energy).max() ?? 0
+                InAppLogBridge.shared.info(
+                    tag: "MPV/iOS/AudioCapture/PCM",
+                    message: "Captured N=\(decoded.samples.count) peak=\(String(format: "%.4f", peak)) via \(attempt.label)"
+                )
+                finish(samples: decoded.samples, failure: "", hard: false)
+                return
+            }
+            if !decoded.detail.isEmpty {
+                details.append(decoded.detail)
+            }
+        }
+
+        let chosen: String
+        if details.count >= 2 {
+            chosen = "cache-miss; \(details[details.count - 1])"
+        } else {
+            chosen = details.last ?? ""
+        }
+        let line = PcmCaptureDiagnostic.failureLine(
+            log: chosen,
+            endError: nil,
+            snapshot: "mpv logged nothing; wav=0B"
+        )
+        finish(samples: [], failure: line, hard: !isUserStopRequested())
+    }
+
+    private func decode(_ attempt: Attempt, wavURL: URL) -> (samples: [ComposeApp.AudioEnergySample], detail: String) {
+        try? FileManager.default.removeItem(at: wavURL)
+        FileManager.default.createFile(atPath: wavURL.path, contents: Data())
+
         guard let created = mpv_create() else {
-            finish(samples: [], failure: "pcm: mpv_create failed", hard: true)
-            return
+            return ([], "mpv_create failed")
         }
         var destroyed = false
         defer {
@@ -120,23 +204,17 @@ final class MpvPcmEnergyCapture {
 
         InAppLogBridge.shared.info(
             tag: "MPV/iOS/AudioCapture/PCM",
-            message: "Using headless mpv ao-pcm-file"
+            message: "Using headless mpv ao-pcm-file (\(attempt.label))"
         )
-        if let failure = rejection(of: created, option: "ao", value: "pcm") {
-            finish(samples: [], failure: failure, hard: true)
-            return
-        }
         let wavPath = wavURL.path
-        if rejection(of: created, option: "ao-pcm-file", value: wavPath) != nil {
-            FileManager.default.createFile(atPath: wavPath, contents: Data())
-            if let failure = rejection(of: created, option: "ao-pcm-file", value: wavPath) {
-                finish(samples: [], failure: failure, hard: true)
-                return
-            }
+        if let failure = rejection(of: created, option: "ao-pcm-file", value: wavPath) {
+            return ([], failure)
         }
         if let failure = rejection(of: created, option: "ao-pcm-waveheader", value: "yes") {
-            finish(samples: [], failure: failure, hard: true)
-            return
+            return ([], failure)
+        }
+        if let failure = rejection(of: created, option: "ao", value: "pcm") {
+            return ([], failure)
         }
         setOption(created, "vo", "null")
         setOption(created, "vid", "no")
@@ -150,35 +228,50 @@ final class MpvPcmEnergyCapture {
         setOption(created, "audio-format", "s16")
         setOption(created, "audio-samplerate", "48000")
         setOption(created, "audio-channels", "stereo")
-        setOption(created, "hr-seek", "yes")
+        setOption(created, "audio-fallback-to-null", "no")
+        setOption(created, "hr-seek", "no")
+        setOption(created, "pause", "no")
         setOption(created, "keep-open", "no")
         setOption(created, "cache-pause", "no")
-        setOption(created, "network-timeout", "20")
+        setOption(created, "network-timeout", attempt.local ? "8" : "18")
         setOption(created, "demuxer-max-bytes", "\(32 * 1024 * 1024)")
-        let scheme = URL(string: urlString)?.scheme?.lowercased() ?? ""
+        setOption(
+            created,
+            "demuxer-lavf-o",
+            "protocol_whitelist=[file,crypto,data,http,https,tcp,tls]"
+        )
+        let scheme = URL(string: attempt.urlString)?.scheme?.lowercased() ?? ""
         setOption(created, "ytdl", scheme == "ytdl" ? "yes" : "no")
-        let startSeconds = String(format: "%.3f", Double(startTimeMs) / 1000.0)
-        let lengthSeconds = String(format: "%.3f", Double(durationMs) / 1000.0)
+        let startSeconds = String(format: "%.3f", Double(attempt.decodeStartMs) / 1000.0)
+        let lengthSeconds = String(format: "%.3f", Double(attempt.durationMs + 1_000) / 1000.0)
         if let failure = rejection(of: created, option: "start", value: startSeconds) {
-            finish(samples: [], failure: failure, hard: true)
-            return
+            return ([], failure)
         }
         setOption(created, "length", lengthSeconds)
-        if let audioTrackId, audioTrackId > 0 {
+        if let audioTrackId = attempt.audioTrackId, audioTrackId > 0 {
             setOption(created, "aid", "\(audioTrackId)")
         }
-        applyHeaders(created, headers)
-        mpv_request_log_messages(created, "warn")
+        applyHeaders(created, attempt.headers)
+        mpv_request_log_messages(created, "info")
 
         let initStatus = mpv_initialize(created)
         if initStatus < 0 {
-            finish(samples: [], failure: "pcm: initialize \(String(cString: mpv_error_string(initStatus)))", hard: true)
-            return
+            return ([], "initialize \(String(cString: mpv_error_string(initStatus)))")
+        }
+        if let failure = propertyRejection(created, "ao", "pcm")
+            ?? propertyRejection(created, "ao-pcm-file", wavPath)
+            ?? propertyRejection(created, "ao-pcm-waveheader", "yes") {
+            return ([], failure)
+        }
+        if let actual = propertyString(created, "ao-pcm-file"),
+           !actual.isEmpty,
+           !actual.contains((wavPath as NSString).lastPathComponent) {
+            return ([], "ao-pcm-file is \(actual)")
         }
 
         var loadArgs: [UnsafePointer<CChar>?] = [
             UnsafePointer(strdup("loadfile")),
-            UnsafePointer(strdup(urlString)),
+            UnsafePointer(strdup(attempt.urlString)),
             UnsafePointer(strdup("replace")),
             nil
         ]
@@ -189,26 +282,25 @@ final class MpvPcmEnergyCapture {
         }
         let loadStatus = mpv_command(created, &loadArgs)
         if loadStatus < 0 {
-            finish(samples: [], failure: "pcm: loadfile \(String(cString: mpv_error_string(loadStatus)))", hard: true)
-            return
+            return ([], "loadfile \(String(cString: mpv_error_string(loadStatus)))")
         }
 
         InAppLogBridge.shared.info(
             tag: "MPV/iOS/AudioCapture/PCM",
-            message: "Headless decode started at \(startTimeMs)ms for \(scheme.isEmpty ? "no-scheme" : scheme) url"
+            message: "Headless decode started at \(attempt.decodeStartMs)ms via \(attempt.label)"
         )
 
         let openedAt = CACurrentMediaTime()
+        let openDeadline: CFTimeInterval = attempt.local ? 8 : 22
         var endError: String?
         var lastWarn = ""
         var playbackEnded = false
         while !isUserStopRequested() && !playbackEnded {
-            if AudioEnergyWave.capturedDurationMs(at: wavURL) >= durationMs {
+            let captured = AudioEnergyWave.capturedDurationMs(at: wavURL)
+            if captured >= attempt.durationMs {
                 break
             }
-            if AudioEnergyWave.capturedDurationMs(at: wavURL) == 0,
-               CACurrentMediaTime() - openedAt > 12 {
-                endError = lastWarn.isEmpty ? "timed out opening media" : lastWarn
+            if captured == 0, CACurrentMediaTime() - openedAt > openDeadline {
                 break
             }
             guard let event = mpv_wait_event(created, 0.2) else { break }
@@ -218,16 +310,18 @@ final class MpvPcmEnergyCapture {
             case MPV_EVENT_LOG_MESSAGE:
                 if let message = event.pointee.data {
                     let log = UnsafeMutablePointer<mpv_event_log_message>(OpaquePointer(message))
+                    let level = String(cString: log.pointee.level).trimmingCharacters(in: .whitespacesAndNewlines)
+                    let prefix = String(cString: log.pointee.prefix).trimmingCharacters(in: .whitespacesAndNewlines)
                     let text = String(cString: log.pointee.text).trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !text.isEmpty {
-                        lastWarn = String(text.prefix(160))
+                    if !text.isEmpty, level == "warn" || level == "error" || level == "fatal" {
+                        lastWarn = String("\(prefix): \(text)".prefix(140))
                     }
                 }
             case MPV_EVENT_END_FILE:
                 if let data = event.pointee.data {
                     let endFile = UnsafePointer<mpv_event_end_file>(OpaquePointer(data)).pointee
                     if endFile.reason == MPV_END_FILE_REASON_ERROR {
-                        endError = String(cString: mpv_error_string(endFile.error))
+                        endError = "end-file \(String(cString: mpv_error_string(endFile.error)))"
                     }
                 }
                 playbackEnded = true
@@ -238,23 +332,43 @@ final class MpvPcmEnergyCapture {
             }
         }
 
+        let snapshot = playbackSnapshot(created, wavURL: wavURL)
         mpv_terminate_destroy(created)
         destroyed = true
-        let points = AudioEnergyWave.energySamples(from: wavURL, startTimeMs: startTimeMs)
+        let points = AudioEnergyWave.energySamples(from: wavURL, startTimeMs: attempt.timestampOriginMs)
         let samples = points.map {
             ComposeApp.AudioEnergySample(timestampMs: $0.timestampMs, energy: $0.energy)
         }
-        if samples.isEmpty {
-            let reason = endError ?? (lastWarn.isEmpty ? "decoded no audio" : lastWarn)
-            finish(samples: [], failure: "pcm: \(reason)", hard: !isUserStopRequested())
-        } else {
-            let peak = points.map(\.energy).max() ?? 0
-            InAppLogBridge.shared.info(
-                tag: "MPV/iOS/AudioCapture/PCM",
-                message: "Captured N=\(samples.count) peak=\(String(format: "%.4f", peak))"
-            )
-            finish(samples: samples, failure: "", hard: false)
+        if !samples.isEmpty {
+            return (samples, "")
         }
+        if !lastWarn.isEmpty {
+            return ([], lastWarn)
+        }
+        if let endError, !endError.isEmpty {
+            return ([], endError)
+        }
+        return ([], snapshot)
+    }
+
+    private func playbackSnapshot(_ ctx: OpaquePointer, wavURL: URL) -> String {
+        let ao = propertyString(ctx, "current-ao") ?? propertyString(ctx, "ao") ?? "unknown"
+        let bytes = wavByteCount(wavURL)
+        let idle = flag(ctx, "core-idle") ? 1 : 0
+        let pause = flag(ctx, "pause") ? 1 : 0
+        let cache = flag(ctx, "paused-for-cache") ? 1 : 0
+        let seeking = flag(ctx, "seeking") ? 1 : 0
+        let eof = flag(ctx, "eof-reached") ? 1 : 0
+        return "mpv logged nothing; wav=\(bytes)B idle=\(idle) pause=\(pause) cache=\(cache) seek=\(seeking) eof=\(eof) ao=\(ao)"
+    }
+
+    private func wavByteCount(_ url: URL) -> Int64 {
+        (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? 0
+    }
+
+    private func isLocal(_ urlString: String) -> Bool {
+        let scheme = URL(string: urlString)?.scheme?.lowercased() ?? ""
+        return scheme.isEmpty || scheme == "file"
     }
 
     private func finish(samples: [ComposeApp.AudioEnergySample], failure: String, hard: Bool) {
@@ -283,7 +397,8 @@ final class MpvPcmEnergyCapture {
         return userStop
     }
 
-    /// On-screen line for a rejected option. Nil means mpv accepted it.
+    /// On-screen fragment for a rejected option. Nil means mpv accepted it.
+    /// Callers that surface this directly prefix `pcm:`; decode() passes it through failureLine.
     private func rejection(of ctx: OpaquePointer, option name: String, value: String) -> String? {
         let status = mpv_set_option_string(ctx, name, value)
         if status < 0 {
@@ -292,9 +407,31 @@ final class MpvPcmEnergyCapture {
                 tag: "MPV/iOS/AudioCapture/PCM",
                 message: "option \(name) rejected: \(reason)"
             )
-            return "pcm: \(name) rejected: \(reason)"
+            return "\(name) rejected: \(reason)"
         }
         return nil
+    }
+
+    private func propertyRejection(_ ctx: OpaquePointer, _ name: String, _ value: String) -> String? {
+        let status = mpv_set_property_string(ctx, name, value)
+        if status < 0 {
+            let reason = String(cString: mpv_error_string(status))
+            return "\(name) property \(reason)"
+        }
+        return nil
+    }
+
+    private func propertyString(_ ctx: OpaquePointer, _ name: String) -> String? {
+        guard let cstr = mpv_get_property_string(ctx, name) else { return nil }
+        let value = String(cString: cstr)
+        mpv_free(cstr)
+        return value.isEmpty ? nil : value
+    }
+
+    private func flag(_ ctx: OpaquePointer, _ name: String) -> Bool {
+        var data = CInt(0)
+        guard mpv_get_property(ctx, name, MPV_FORMAT_FLAG, &data) >= 0 else { return false }
+        return data > 0
     }
 
     @discardableResult

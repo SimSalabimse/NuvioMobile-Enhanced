@@ -40,6 +40,11 @@ enum AudioEnergyWave {
                         let sample: Int16 = readInt16(base, frameOffset + channel * 2)
                         mixed += Double(sample) / Double(Int16.max)
                     }
+                } else if format.bitsPerSample == 32 {
+                    for channel in 0..<channels {
+                        let sample: Int32 = readInt32(base, frameOffset + channel * 4)
+                        mixed += Double(sample) / Double(Int32.max)
+                    }
                 } else {
                     return
                 }
@@ -95,10 +100,18 @@ enum AudioEnergyWave {
                 let channels = Int(readU16(prefix, chunkStart + 2))
                 let sampleRate = Double(readU32(prefix, chunkStart + 4))
                 let bits = Int(readU16(prefix, chunkStart + 14))
-                let isFloat = audioFormat == 3
                 let blockAlign = Int(readU16(prefix, chunkStart + 12))
-                let resolvedAlign = blockAlign > 0 ? blockAlign : channels * (bits / 8)
-                if channels > 0, sampleRate > 0, resolvedAlign > 0, (isFloat && bits == 32) || (!isFloat && bits == 16) {
+                let resolvedAlign = blockAlign > 0 ? blockAlign : channels * max(bits / 8, 1)
+                let isFloat = isFloatWave(
+                    audioFormat: audioFormat,
+                    bits: bits,
+                    prefix: prefix,
+                    chunkStart: chunkStart,
+                    chunkSize: chunkSize
+                )
+                // mpv ao=pcm writes WAVE_FORMAT_EXTENSIBLE (0xFFFE), including s16 and s32.
+                let supported = (isFloat && bits == 32) || (!isFloat && (bits == 16 || bits == 32))
+                if channels > 0, sampleRate > 0, resolvedAlign > 0, supported {
                     format = WaveFormat(
                         sampleRate: sampleRate,
                         channelCount: channels,
@@ -137,10 +150,34 @@ enum AudioEnergyWave {
             | (UInt32(data[offset + 3]) << 24)
     }
 
+    /// ao=pcm always writes an extensible header. The real PCM/float tag is the GUID subformat.
+    private static func isFloatWave(
+        audioFormat: UInt16,
+        bits: Int,
+        prefix: Data,
+        chunkStart: Int,
+        chunkSize: Int
+    ) -> Bool {
+        if audioFormat == 3 { return true }
+        if audioFormat == 0xFFFE, chunkSize >= 40, chunkStart + 26 <= prefix.count {
+            // WAVEFORMATEXTENSIBLE: cbSize at 16, valid bits at 18, mask at 20, GUID at 24.
+            return readU16(prefix, chunkStart + 24) == 3
+        }
+        return false
+    }
+
     private static func readInt16(_ base: UnsafeRawPointer, _ offset: Int) -> Int16 {
         let low = UInt16(base.load(fromByteOffset: offset, as: UInt8.self))
         let high = UInt16(base.load(fromByteOffset: offset + 1, as: UInt8.self))
         return Int16(bitPattern: low | (high << 8))
+    }
+
+    private static func readInt32(_ base: UnsafeRawPointer, _ offset: Int) -> Int32 {
+        let b0 = UInt32(base.load(fromByteOffset: offset, as: UInt8.self))
+        let b1 = UInt32(base.load(fromByteOffset: offset + 1, as: UInt8.self))
+        let b2 = UInt32(base.load(fromByteOffset: offset + 2, as: UInt8.self))
+        let b3 = UInt32(base.load(fromByteOffset: offset + 3, as: UInt8.self))
+        return Int32(bitPattern: b0 | (b1 << 8) | (b2 << 16) | (b3 << 24))
     }
 
     private static func readFloat32(_ base: UnsafeRawPointer, _ offset: Int) -> Float32 {
@@ -149,5 +186,15 @@ enum AudioEnergyWave {
         let b2 = UInt32(base.load(fromByteOffset: offset + 2, as: UInt8.self))
         let b3 = UInt32(base.load(fromByteOffset: offset + 3, as: UInt8.self))
         return Float32(bitPattern: b0 | (b1 << 8) | (b2 << 16) | (b3 << 24))
+    }
+}
+
+/// On-screen Auto Sync line when headless pcm produces no samples.
+enum PcmCaptureDiagnostic {
+    static func failureLine(log: String, endError: String?, snapshot: String) -> String {
+        let logTrim = log.trimmingCharacters(in: .whitespacesAndNewlines)
+        let endTrim = (endError ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let detail = !logTrim.isEmpty ? logTrim : (!endTrim.isEmpty ? endTrim : snapshot)
+        return String("pcm: no audio (\(detail))".prefix(180))
     }
 }
