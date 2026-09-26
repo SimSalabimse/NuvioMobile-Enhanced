@@ -1506,6 +1506,84 @@ final class MPVPlayerViewController: UIViewController {
     func getAudioCaptureDuration() -> Int64 {
         return audioCaptureProcessor.getCaptureDuration()
     }
+    
+    func getCurrentAudioOutput() -> String? {
+        guard mpv != nil else { return nil }
+        let coreGeneration = mpvGeneration
+        var result: String?
+        mpvQueue.sync { [weak self] in
+            guard let self, self.mpvGeneration == coreGeneration, self.mpv != nil else { return }
+            result = self.getString("current-ao")
+        }
+        return result
+    }
+    
+    func getCurrentMediaURL() -> URL? {
+        guard let request = lastLoadRequest else {
+            InAppLogBridge.shared.warn(
+                tag: "MPV/iOS/AudioCapture",
+                message: "getCurrentMediaURL: lastLoadRequest is nil (no media loaded yet)"
+            )
+            return nil
+        }
+        
+        // Log raw URL string first for diagnostics
+        let urlString = request.urlString
+        InAppLogBridge.shared.info(
+            tag: "MPV/iOS/AudioCapture",
+            message: "getCurrentMediaURL: Raw URL string (first 200 chars): '\(urlString.prefix(200))'"
+        )
+        
+        guard let url = URL(string: urlString) else {
+            InAppLogBridge.shared.error(
+                tag: "MPV/iOS/AudioCapture",
+                message: "getCurrentMediaURL: Failed to parse URL (invalid format or unsupported scheme)"
+            )
+            return nil
+        }
+        
+        let scheme = url.scheme ?? "no-scheme"
+        let host = url.host ?? "no-host"
+        let path = url.path.isEmpty ? "/" : String(url.path.prefix(80))
+        
+        InAppLogBridge.shared.info(
+            tag: "MPV/iOS/AudioCapture",
+            message: "getCurrentMediaURL: Parsed URL - scheme:\(scheme) host:\(host) path:\(path)"
+        )
+        
+        // Check if scheme is compatible with AVAsset
+        let avAssetCompatible = ["file", "http", "https"].contains(scheme.lowercased())
+        if !avAssetCompatible {
+            InAppLogBridge.shared.warn(
+                tag: "MPV/iOS/AudioCapture",
+                message: "getCurrentMediaURL: URL scheme '\(scheme)' is NOT compatible with AVAsset (only file/http/https work)"
+            )
+        }
+        
+        return url
+    }
+    
+    func getActiveRequestHeaders() -> [String: String] {
+        return activeRequestHeaders
+    }
+    
+    // MARK: - Test Support
+    
+    /**
+     * Run AVAsset audio capture test harness.
+     * This is a self-contained test that validates AVAsset capture without needing MPV playback.
+     * Returns a test report with pass/fail status.
+     */
+    @objc func runAudioCaptureTest() -> String {
+        InAppLogBridge.shared.info(
+            tag: "MPV/iOS/Test",
+            message: "Starting AVAsset audio capture test harness..."
+        )
+        
+        let report = AVAssetAudioCaptureTestHarness.runAllTests()
+        
+        return report.summary()
+    }
 
     func applySubtitleStyle(
         textColor: String,
