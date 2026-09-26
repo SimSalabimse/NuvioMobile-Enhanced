@@ -295,8 +295,18 @@ final class MpvPcmEnergyCapture {
         var endError: String?
         var lastWarn = ""
         var playbackEnded = false
+        var latchedSampleZero = false
+        var stampOriginMs = attempt.timestampOriginMs
         while !isUserStopRequested() && !playbackEnded {
             let captured = AudioEnergyWave.capturedDurationMs(at: wavURL)
+            if !latchedSampleZero {
+                latchedSampleZero = latchSampleZero(
+                    created,
+                    attempt: attempt,
+                    capturedMs: captured,
+                    stampOriginMs: &stampOriginMs
+                )
+            }
             if captured >= attempt.durationMs {
                 break
             }
@@ -332,10 +342,20 @@ final class MpvPcmEnergyCapture {
             }
         }
 
+        if !latchedSampleZero {
+            let captured = AudioEnergyWave.capturedDurationMs(at: wavURL)
+            _ = latchSampleZero(
+                created,
+                attempt: attempt,
+                capturedMs: captured,
+                stampOriginMs: &stampOriginMs,
+                force: true
+            )
+        }
         let snapshot = playbackSnapshot(created, wavURL: wavURL)
         mpv_terminate_destroy(created)
         destroyed = true
-        let points = AudioEnergyWave.energySamples(from: wavURL, startTimeMs: attempt.timestampOriginMs)
+        let points = AudioEnergyWave.energySamples(from: wavURL, startTimeMs: stampOriginMs)
         let samples = points.map {
             ComposeApp.AudioEnergySample(timestampMs: $0.timestampMs, energy: $0.energy)
         }
@@ -349,6 +369,55 @@ final class MpvPcmEnergyCapture {
             return ([], endError)
         }
         return ([], snapshot)
+    }
+
+    /// Logs dump origin against the first audio PTS. A multi-second gap means the
+    /// wav's first frame is not the dump origin (the -7.2s miss). Stamp sample 0 there.
+    private func latchSampleZero(
+        _ ctx: OpaquePointer,
+        attempt: Attempt,
+        capturedMs: Int64,
+        stampOriginMs: inout Int64,
+        force: Bool = false
+    ) -> Bool {
+        guard capturedMs >= 1_000 || force else { return false }
+        let audioPts = propertyDouble(ctx, "audio-pts")
+        let timePos = propertyDouble(ctx, "time-pos")
+        let pts = audioPts ?? timePos
+        guard let pts, pts.isFinite, pts >= 0 else {
+            if force {
+                InAppLogBridge.shared.info(
+                    tag: "MPV/iOS/AudioCapture/PCM",
+                    message: "Dump origin \(attempt.timestampOriginMs)ms decodeStart \(attempt.decodeStartMs)ms first audio PTS unavailable via \(attempt.label)"
+                )
+            }
+            return force
+        }
+        let ptsMs = Int64((pts * 1000.0).rounded())
+        let gapMs = ptsMs - attempt.decodeStartMs - capturedMs
+        // A large negative gap is a PTS that has not caught up with the wav yet.
+        if !force && gapMs < -300 {
+            return false
+        }
+        InAppLogBridge.shared.info(
+            tag: "MPV/iOS/AudioCapture/PCM",
+            message: "Dump origin \(attempt.timestampOriginMs)ms decodeStart \(attempt.decodeStartMs)ms first audio PTS \(ptsMs - capturedMs)ms gap \(gapMs)ms captured \(capturedMs)ms via \(attempt.label)"
+        )
+        if gapMs >= 1_000 {
+            stampOriginMs = attempt.timestampOriginMs + gapMs
+            InAppLogBridge.shared.info(
+                tag: "MPV/iOS/AudioCapture/PCM",
+                message: "Stamping PCM from first audio PTS, origin \(stampOriginMs)ms (gap \(gapMs)ms)"
+            )
+        }
+        return true
+    }
+
+    private func propertyDouble(_ ctx: OpaquePointer, _ name: String) -> Double? {
+        var data = 0.0
+        guard mpv_get_property(ctx, name, MPV_FORMAT_DOUBLE, &data) >= 0 else { return nil }
+        guard data.isFinite else { return nil }
+        return data
     }
 
     private func playbackSnapshot(_ ctx: OpaquePointer, wavURL: URL) -> String {

@@ -184,15 +184,19 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
             
             when (result) {
                 is SubtitleAutoSyncResult.Success -> {
-                    setSubtitleDelay(result.offsetMs)
+                    if (result.movesSubtitleDelay()) {
+                        setSubtitleDelay(result.offsetMs)
+                    }
                     subtitleAutoSyncState = subtitleAutoSyncState.copy(
-                        errorMessage = "Synced! Offset: ${formatOffsetMessage(result.offsetMs)} (${formatEnergyStats(audioSamples)}, confidence: ${(result.confidence * 100).toInt()}%)",
+                        errorMessage = "Synced! Offset: ${formatOffsetMessage(result.offsetMs)} (${formatEnergyStats(audioSamples)}, margin: ${formatMargin(result.confidence)})",
                     )
                 }
                 is SubtitleAutoSyncResult.LowConfidence -> {
-                    setSubtitleDelay(result.offsetMs)
+                    if (result.movesSubtitleDelay()) {
+                        setSubtitleDelay(result.offsetMs)
+                    }
                     subtitleAutoSyncState = subtitleAutoSyncState.copy(
-                        errorMessage = "Low confidence sync. Offset: ${formatOffsetMessage(result.offsetMs)} (${formatEnergyStats(audioSamples)}). Try a scene with more dialogue.",
+                        errorMessage = "Low confidence sync. Offset: ${formatOffsetMessage(result.offsetMs)} (${formatEnergyStats(audioSamples)}, margin: ${formatMargin(result.confidence)}). Try a scene with more dialogue.",
                     )
                 }
                 is SubtitleAutoSyncResult.Error -> {
@@ -229,6 +233,14 @@ private fun formatFixed3(value: Double): String {
     val whole = scaled / 1000
     val fraction = (scaled % 1000).toString().padStart(3, '0')
     return "$whole.$fraction"
+}
+
+private fun formatMargin(value: Double): String {
+    val sign = if (value < 0.0) "-" else ""
+    val scaled = (kotlin.math.abs(value) * 1000.0).toInt().coerceIn(0, 999_999)
+    val whole = scaled / 1000
+    val fraction = (scaled % 1000).toString().padStart(3, '0')
+    return "$sign$whole.$fraction"
 }
 
 private fun formatOffsetMessage(offsetMs: Int): String {

@@ -18,6 +18,13 @@ object SubtitleAutoSyncEngine {
     private const val MAX_ANALYSIS_DURATION_MS = 60_000L
     private const val MAX_OFFSET_SEARCH_MS = 10_000L
     private const val OFFSET_STEP_MS = 100L
+    /** Rival peaks closer than this are the same lobe, not a second match. */
+    private const val PEAK_SEPARATION_MS = 500
+    /**
+     * Smallest Pearson lead that may move Subtitle Delay off 0.
+     * A 1-sigma bump over the lag table is not this lead.
+     */
+    private const val MIN_OFFSET_LEAD = 0.05
     
     /**
      * Compute the optimal subtitle offset by correlating audio energy with subtitle cue onsets.
@@ -56,8 +63,8 @@ object SubtitleAutoSyncEngine {
         // Convert audio to energy envelope
         val audioEnvelope = buildAudioEnergyEnvelope(windowedAudio, SAMPLE_WINDOW_MS)
         
-        // Convert subtitle cues to onset signal
-        val subtitleOnsets = buildSubtitleOnsetSignal(windowedCues, audioEnvelope.first().timestampMs, audioEnvelope.last().timestampMs, SAMPLE_WINDOW_MS)
+        // Cue onsets use the same time grid as the energy envelope.
+        val subtitleOnsets = buildSubtitleOnsetSignal(windowedCues, audioEnvelope, SAMPLE_WINDOW_MS)
         
         if (audioEnvelope.size < 10 || subtitleOnsets.size < 10) {
             return SubtitleAutoSyncResult.Error("Insufficient dialogue activity detected")
@@ -65,14 +72,14 @@ object SubtitleAutoSyncEngine {
         
         // Find best offset using cross-correlation
         val bestOffset = findBestOffset(audioEnvelope, subtitleOnsets, MAX_OFFSET_SEARCH_MS, OFFSET_STEP_MS)
-        
-        return bestOffset?.let { (offset, confidence) ->
-            if (confidence < 0.3) {
-                SubtitleAutoSyncResult.LowConfidence(offset, confidence)
-            } else {
-                SubtitleAutoSyncResult.Success(offset, confidence)
-            }
-        } ?: SubtitleAutoSyncResult.Error("Could not determine reliable offset")
+            ?: return SubtitleAutoSyncResult.Error("Could not determine reliable offset")
+
+        // 0.3 is a correlation margin, not a z-score. A 1-sigma lead stays well below 1.
+        return if (bestOffset.confidence < 0.3) {
+            SubtitleAutoSyncResult.LowConfidence(bestOffset.offsetMs, bestOffset.confidence)
+        } else {
+            SubtitleAutoSyncResult.Success(bestOffset.offsetMs, bestOffset.confidence)
+        }
     }
     
     /**
@@ -111,31 +118,25 @@ object SubtitleAutoSyncEngine {
     }
     
     /**
-     * Build a subtitle onset signal where each cue start creates a spike.
+     * Spike each cue start on the audio envelope's own bins.
+     * Bin [center - window/2, center + window/2) matches the energy window for that point.
      */
     private fun buildSubtitleOnsetSignal(
         cues: List<SubtitleSyncCue>,
-        startTime: Long,
-        endTime: Long,
+        audioEnvelope: List<EnergyPoint>,
         windowMs: Long,
     ): List<EnergyPoint> {
-        val points = mutableListOf<EnergyPoint>()
-        
-        var currentTime = startTime
-        while (currentTime <= endTime) {
-            val windowEnd = currentTime + windowMs
-            
-            // Count cue onsets in this window and weight by cue text length (longer text = more dialogue)
+        val halfWindow = windowMs / 2
+        val points = audioEnvelope.map { audioPoint ->
+            val windowStart = audioPoint.timestampMs - halfWindow
+            val windowEnd = windowStart + windowMs
             val onsetStrength = cues
-                .filter { it.startTimeMs >= currentTime && it.startTimeMs < windowEnd }
+                .filter { it.startTimeMs >= windowStart && it.startTimeMs < windowEnd }
                 .sumOf { min(it.text.length, 100) }
                 .toDouble()
-            
-            points.add(EnergyPoint(currentTime + windowMs / 2, onsetStrength))
-            currentTime += windowMs
+            EnergyPoint(audioPoint.timestampMs, onsetStrength)
         }
-        
-        // Normalize
+
         val maxValue = points.maxOfOrNull { it.value } ?: 1.0
         return if (maxValue > 0) {
             points.map { it.copy(value = it.value / maxValue) }
@@ -145,85 +146,94 @@ object SubtitleAutoSyncEngine {
     }
     
     /**
-     * Find the best offset by cross-correlating audio energy with subtitle onsets.
-     * Returns offset in ms and confidence score (0-1).
+     * Cross-correlate mean-centered energy with cue onsets.
+     * The returned offset is 0 unless that lag beats offset 0 and the next peak
+     * at least 500ms away. [OffsetMatch.confidence] is that Pearson margin.
      */
     private fun findBestOffset(
         audioEnvelope: List<EnergyPoint>,
         subtitleOnsets: List<EnergyPoint>,
         maxOffsetMs: Long,
         stepMs: Long,
-    ): Pair<Int, Double>? {
+    ): OffsetMatch? {
         val searchOffsets = generateSequence(-maxOffsetMs) { it + stepMs }
             .takeWhile { it <= maxOffsetMs }
             .toList()
-        
+        if (searchOffsets.isEmpty()) return null
+
         val correlations = searchOffsets.map { offset ->
-            val correlation = computeCorrelation(audioEnvelope, subtitleOnsets, offset)
-            offset.toInt() to correlation
+            offset.toInt() to computeCorrelation(audioEnvelope, subtitleOnsets, offset)
         }
-        
-        val best = correlations.maxByOrNull { it.second } ?: return null
-        
-        // Confidence is based on how much better the best offset is compared to average
-        val avgCorrelation = correlations.map { it.second }.average()
-        val stdDev = sqrt(correlations.map { (it.second - avgCorrelation) * (it.second - avgCorrelation) }.average())
-        val confidence = if (stdDev > 0) {
-            ((best.second - avgCorrelation) / stdDev).coerceIn(0.0, 1.0)
+        val winner = correlations.maxByOrNull { it.second } ?: return null
+        val scoreAtZero = correlations.firstOrNull { it.first == 0 }?.second ?: 0.0
+        val rival = bestSeparatedPeak(correlations, winner.first)
+        val leadOverZero = winner.second - scoreAtZero
+        val leadOverRival = winner.second - rival.second
+
+        // Offset 0 stays when it is within the winner's lead over the next peak.
+        val beatsZero = winner.first != 0 &&
+            leadOverZero > MIN_OFFSET_LEAD &&
+            leadOverRival > MIN_OFFSET_LEAD &&
+            leadOverZero > leadOverRival * 0.5
+        return if (beatsZero) {
+            OffsetMatch(winner.first, min(leadOverZero, leadOverRival))
         } else {
-            0.0
+            val zeroRival = bestSeparatedPeak(correlations, 0)
+            OffsetMatch(0, scoreAtZero - zeroRival.second)
         }
-        
-        return best.first to confidence
     }
-    
+
+    /** Highest score at least [PEAK_SEPARATION_MS] from [fromOffsetMs]. */
+    private fun bestSeparatedPeak(
+        correlations: List<Pair<Int, Double>>,
+        fromOffsetMs: Int,
+    ): Pair<Int, Double> {
+        return correlations
+            .filter { abs(it.first - fromOffsetMs) >= PEAK_SEPARATION_MS }
+            .maxByOrNull { it.second }
+            ?: (fromOffsetMs to 0.0)
+    }
+
     /**
-     * Compute correlation between audio and shifted subtitle signal.
+     * Pearson correlation of the two series on their overlap, after mean-centering both.
+     * Positive [offsetMs] shifts cue onsets later so they meet later audio.
      */
     private fun computeCorrelation(
         audio: List<EnergyPoint>,
         subtitles: List<EnergyPoint>,
         offsetMs: Long,
     ): Double {
-        if (audio.isEmpty() || subtitles.isEmpty()) return 0.0
-        
-        // Shift subtitle signal by offset
+        if (audio.size < 2 || subtitles.isEmpty()) return 0.0
+
         val shiftedSubtitles = subtitles.map { it.copy(timestampMs = it.timestampMs + offsetMs) }
-        
-        // Find overlapping time range
-        val audioStart = audio.first().timestampMs
-        val audioEnd = audio.last().timestampMs
-        val subStart = shiftedSubtitles.first().timestampMs
-        val subEnd = shiftedSubtitles.last().timestampMs
-        
-        val overlapStart = max(audioStart, subStart)
-        val overlapEnd = min(audioEnd, subEnd)
-        
+        val overlapStart = max(audio.first().timestampMs, shiftedSubtitles.first().timestampMs)
+        val overlapEnd = min(audio.last().timestampMs, shiftedSubtitles.last().timestampMs)
         if (overlapStart >= overlapEnd) return 0.0
-        
-        // Sample both signals at regular intervals in overlap region
+
         val sampleInterval = (audio[1].timestampMs - audio[0].timestampMs).coerceAtLeast(50L)
+        val audioValues = ArrayList<Double>()
+        val subtitleValues = ArrayList<Double>()
+        var time = overlapStart
+        while (time <= overlapEnd) {
+            audioValues.add(interpolate(audio, time))
+            subtitleValues.add(interpolate(shiftedSubtitles, time))
+            time += sampleInterval
+        }
+        if (audioValues.size < 2) return 0.0
+
+        val audioMean = audioValues.sum() / audioValues.size
+        val subtitleMean = subtitleValues.sum() / subtitleValues.size
         var sumProduct = 0.0
         var sumAudioSq = 0.0
         var sumSubSq = 0.0
-        var sampleCount = 0
-        
-        var time = overlapStart
-        while (time <= overlapEnd) {
-            val audioValue = interpolate(audio, time)
-            val subValue = interpolate(shiftedSubtitles, time)
-            
-            sumProduct += audioValue * subValue
-            sumAudioSq += audioValue * audioValue
-            sumSubSq += subValue * subValue
-            sampleCount++
-            
-            time += sampleInterval
+        for (index in audioValues.indices) {
+            val centeredAudio = audioValues[index] - audioMean
+            val centeredSubtitle = subtitleValues[index] - subtitleMean
+            sumProduct += centeredAudio * centeredSubtitle
+            sumAudioSq += centeredAudio * centeredAudio
+            sumSubSq += centeredSubtitle * centeredSubtitle
         }
-        
-        if (sampleCount == 0 || sumAudioSq == 0.0 || sumSubSq == 0.0) return 0.0
-        
-        // Pearson correlation coefficient
+        if (sumAudioSq == 0.0 || sumSubSq == 0.0) return 0.0
         return sumProduct / sqrt(sumAudioSq * sumSubSq)
     }
     
@@ -250,6 +260,18 @@ object SubtitleAutoSyncEngine {
         val timestampMs: Long,
         val value: Double,
     )
+
+    private data class OffsetMatch(
+        val offsetMs: Int,
+        val confidence: Double,
+    )
+}
+
+/** Subtitle Delay moves only for a lag that beat offset 0. */
+fun SubtitleAutoSyncResult.movesSubtitleDelay(): Boolean = when (this) {
+    is SubtitleAutoSyncResult.Success -> offsetMs != 0
+    is SubtitleAutoSyncResult.LowConfidence -> offsetMs != 0
+    is SubtitleAutoSyncResult.Error -> false
 }
 
 /**
