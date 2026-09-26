@@ -176,36 +176,37 @@ final class AVAssetAudioEnergyCapture: NSObject {
         
         // Create asset with headers if needed
         let asset = createAsset(url: url, headers: requestHeaders)
-        
-        // Check if asset is playable first
-        if !asset.isPlayable {
-            InAppLogBridge.shared.error(
-                tag: "MPV/iOS/AudioCapture/AVAsset",
-                message: "AVAsset reports media is not playable (might be unsupported format or DRM)"
-            )
-            captureThread = nil
-            return
-        }
-        
-        // Load tracks with timeout (important for remote URLs)
+
+        // isPlayable is false until the asset keys load. Reading it here used to abort
+        // every remote URL before AVFoundation had opened the file.
         var audioTrack: AVAssetTrack?
         let semaphore = DispatchSemaphore(value: 0)
         var loadError: Error?
-        
+
         asset.loadTracks(withMediaType: .audio) { tracks, error in
             audioTrack = tracks?.first
             loadError = error
             semaphore.signal()
         }
-        
-        // Wait up to 10 seconds for track loading (important for remote media)
-        let timeout = semaphore.wait(timeout: .now() + 10.0)
-        
-        if timeout == .timedOut {
+
+        let deadline = Date().addingTimeInterval(12)
+        var timedOut = false
+        while semaphore.wait(timeout: .now() + 0.2) == .timedOut {
+            if shouldStopCapture || Date() >= deadline {
+                timedOut = !shouldStopCapture
+                break
+            }
+        }
+
+        if timedOut {
             InAppLogBridge.shared.error(
                 tag: "MPV/iOS/AudioCapture/AVAsset",
-                message: "Timed out loading audio tracks after 10s (slow network or unsupported URL)"
+                message: "Timed out loading audio tracks after 12s (slow network or unsupported URL). isPlayable=\(asset.isPlayable)"
             )
+            captureThread = nil
+            return
+        }
+        if shouldStopCapture {
             captureThread = nil
             return
         }

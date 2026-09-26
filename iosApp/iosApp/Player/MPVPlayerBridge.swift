@@ -203,6 +203,10 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
     func getAudioCaptureDuration() -> Int64 {
         return playerVC?.getAudioCaptureDuration() ?? 0
     }
+
+    func getAudioCaptureFailureReason() -> String {
+        return playerVC?.audioCaptureFailureReason() ?? ""
+    }
     
     func applySubtitleStyle(
         textColor: String,
@@ -288,6 +292,13 @@ private struct PendingLoadRequest {
     let requestHeaders: [String: String]
     let subtitles: [PluginSubtitle]
     let queuedAtUptime: TimeInterval
+}
+
+struct AudioCaptureSource {
+    let mediaURLString: String?
+    let externalAudioURLString: String?
+    let headers: [String: String]
+    let audioTrackId: Int
 }
 
 // MARK: - MPV Player View Controller
@@ -1505,6 +1516,33 @@ final class MPVPlayerViewController: UIViewController {
     
     func getAudioCaptureDuration() -> Int64 {
         return audioCaptureProcessor.getCaptureDuration()
+    }
+
+    func audioCaptureFailureReason() -> String {
+        audioCaptureProcessor.failureReason()
+    }
+
+    func audioCaptureSource() -> AudioCaptureSource {
+        let request = lastLoadRequest
+        var aid = 0
+        let generation = mpvGeneration
+        if DispatchQueue.getSpecific(key: Self.mpvQueueKey) != nil {
+            if mpv != nil {
+                aid = getInt("aid")
+            }
+        } else {
+            mpvQueue.sync {
+                if self.mpvGeneration == generation, self.mpv != nil {
+                    aid = self.getInt("aid")
+                }
+            }
+        }
+        return AudioCaptureSource(
+            mediaURLString: request?.urlString,
+            externalAudioURLString: request?.audioUrl,
+            headers: activeRequestHeaders,
+            audioTrackId: aid
+        )
     }
     
     func getCurrentAudioOutput() -> String? {

@@ -155,12 +155,15 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
             println("[AutoSync] Received ${audioSamples.size} audio samples from capture")
             
             if (audioSamples.isEmpty()) {
-                // Audio capture failed - could be due to unsupported media format, no audio track,
-                // or other decode issues. AVAsset dual-decode is attempted first (works on sideloads),
-                // with ReplayKit as fallback. See: iosApp/iosApp/Player/MPVAudioCaptureProcessor.swift
+                val reason = playerController?.audioCaptureFailureReason()?.trim().orEmpty()
+                val detail = if (reason.isEmpty()) {
+                    "The file may not have an audio track or uses an unsupported format."
+                } else {
+                    reason
+                }
                 subtitleAutoSyncState = subtitleAutoSyncState.copy(
                     isLoading = false,
-                    errorMessage = "Could not capture audio from this media. The file may not have an audio track or uses an unsupported format. Try manual subtitle delay adjustment instead (tap Settings icon below, adjust delay with ± buttons).",
+                    errorMessage = "Could not capture audio (N=0). $detail",
                 )
                 return@launch
             }
@@ -183,13 +186,13 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
                 is SubtitleAutoSyncResult.Success -> {
                     setSubtitleDelay(result.offsetMs)
                     subtitleAutoSyncState = subtitleAutoSyncState.copy(
-                        errorMessage = "Synced! Offset: ${formatOffsetMessage(result.offsetMs)} (confidence: ${(result.confidence * 100).toInt()}%)",
+                        errorMessage = "Synced! Offset: ${formatOffsetMessage(result.offsetMs)} (${formatEnergyStats(audioSamples)}, confidence: ${(result.confidence * 100).toInt()}%)",
                     )
                 }
                 is SubtitleAutoSyncResult.LowConfidence -> {
                     setSubtitleDelay(result.offsetMs)
                     subtitleAutoSyncState = subtitleAutoSyncState.copy(
-                        errorMessage = "Low confidence sync. Offset: ${formatOffsetMessage(result.offsetMs)}. Try a scene with more dialogue.",
+                        errorMessage = "Low confidence sync. Offset: ${formatOffsetMessage(result.offsetMs)} (${formatEnergyStats(audioSamples)}). Try a scene with more dialogue.",
                     )
                 }
                 is SubtitleAutoSyncResult.Error -> {
@@ -210,6 +213,22 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
             )
         }
     }
+}
+
+private fun formatEnergyStats(samples: List<AudioEnergySample>): String {
+    var peak = 0.0
+    for (sample in samples) {
+        val energy = kotlin.math.abs(sample.energy)
+        if (energy > peak) peak = energy
+    }
+    return "N=${samples.size}, peak=${formatFixed3(peak)}"
+}
+
+private fun formatFixed3(value: Double): String {
+    val scaled = (kotlin.math.abs(value) * 1000.0).toInt().coerceIn(0, 999_999)
+    val whole = scaled / 1000
+    val fraction = (scaled % 1000).toString().padStart(3, '0')
+    return "$whole.$fraction"
 }
 
 private fun formatOffsetMessage(offsetMs: Int): String {

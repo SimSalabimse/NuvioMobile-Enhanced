@@ -47,11 +47,21 @@ final class MPVAudioCaptureProcessor: NSObject {
     
     // Capture method selection
     private enum CaptureMethod {
+        case mpvPcm
         case avAsset
         case replayKit
     }
     
-    private var currentMethod: CaptureMethod = .avAsset
+    private var currentMethod: CaptureMethod = .mpvPcm
+    private let mpvPcmCapture = MpvPcmEnergyCapture()
+    private var pcmStarted = false
+    private var avAssetStarted = false
+    private var didFallbackFromPcm = false
+    private var captureGeneration = 0
+    private var fallbackURLString: String?
+    private var fallbackHeaders: [String: String] = [:]
+    private let failureLock = NSLock()
+    private var storedFailureReason = ""
     private var avAssetCapture: AVAssetAudioEnergyCapture?
     
     // ReplayKit fallback (legacy)
@@ -105,37 +115,46 @@ final class MPVAudioCaptureProcessor: NSObject {
         
         captureStartTime = CACurrentMediaTime()
         isCapturing = true
-        
-        // Try AVAsset method first (works on SideStore) if we have a compatible URL
-        if let mediaURL = playerViewController?.getCurrentMediaURL(),
-           let headers = playerViewController?.getActiveRequestHeaders() {
-            
-            // Check if URL scheme is compatible with AVAsset
-            let scheme = mediaURL.scheme?.lowercased() ?? ""
-            let isAvAssetCompatible = ["file", "http", "https"].contains(scheme)
-            
-            if isAvAssetCompatible {
-                InAppLogBridge.shared.info(
-                    tag: "MPV/iOS/AudioCapture",
-                    message: "Using AVAsset dual-decode method (SideStore compatible) for \(scheme):// URL"
-                )
-                currentMethod = .avAsset
-                avAssetCapture?.startCapture(startTimeMs: startTimeMs, mediaURL: mediaURL, headers: headers)
-            } else {
-                InAppLogBridge.shared.warn(
-                    tag: "MPV/iOS/AudioCapture",
-                    message: "URL scheme '\(scheme)' not compatible with AVAsset, falling back to ReplayKit"
-                )
-                startReplayKitCapture()
-            }
-        } else {
-            // Fall back to ReplayKit if AVAsset is not available
-            InAppLogBridge.shared.warn(
+        pcmStarted = false
+        avAssetStarted = false
+        didFallbackFromPcm = false
+        captureGeneration += 1
+        let generation = captureGeneration
+        fallbackURLString = nil
+        fallbackHeaders = [:]
+        clearFailure()
+
+        // Headless mpv decodes the same URL the player already opened, including MKV.
+        // AVAsset is the fallback for formats it can actually read.
+        if let source = playerViewController?.audioCaptureSource(),
+           let resolved = resolvedCaptureURL(from: source) {
+            fallbackURLString = resolved.url
+            fallbackHeaders = source.headers
+            InAppLogBridge.shared.info(
                 tag: "MPV/iOS/AudioCapture",
-                message: "Media URL not available or headers missing, falling back to ReplayKit method"
+                message: "Using headless mpv PCM decode for \(redacted(resolved.url))"
             )
+            currentMethod = .mpvPcm
+            pcmStarted = true
+            mpvPcmCapture.onHardFailure = { [weak self] reason in
+                self?.fallbackFromPcm(reason: reason, generation: generation)
+            }
+            mpvPcmCapture.start(
+                urlString: resolved.url,
+                headers: source.headers,
+                audioTrackId: resolved.trackId,
+                startTimeMs: startTimeMs
+            )
+        } else {
+            recordFailure("no media url")
             startReplayKitCapture()
         }
+    }
+
+    func failureReason() -> String {
+        failureLock.lock()
+        defer { failureLock.unlock() }
+        return storedFailureReason
     }
     
     private func startReplayKitCapture() {
@@ -171,7 +190,13 @@ final class MPVAudioCaptureProcessor: NSObject {
      * Stop capturing and return all collected energy samples.
      */
     func stopCapture() -> [ComposeApp.AudioEnergySample] {
-        InAppLogBridge.shared.info(tag: "MPV/iOS/AudioCapture", message: "Stopping audio capture (method: \(currentMethod == .avAsset ? "AVAsset" : "ReplayKit"))")
+        let methodName: String
+        switch currentMethod {
+        case .mpvPcm: methodName = "mpv PCM"
+        case .avAsset: methodName = "AVAsset"
+        case .replayKit: methodName = "ReplayKit"
+        }
+        InAppLogBridge.shared.info(tag: "MPV/iOS/AudioCapture", message: "Stopping audio capture (method: \(methodName))")
         
         // Cancel any pending startup check
         startupCheckWorkItem?.cancel()
@@ -181,9 +206,37 @@ final class MPVAudioCaptureProcessor: NSObject {
         
         // Stop the appropriate capture method
         var capturedSamples: [ComposeApp.AudioEnergySample] = []
-        let captureMethod = currentMethod  // Capture for logging
+
+        let pcmSamples = pcmStarted ? mpvPcmCapture.stop() : []
+        if !pcmSamples.isEmpty {
+            if avAssetStarted {
+                _ = avAssetCapture?.stopCapture()
+            }
+            if currentMethod == .replayKit {
+                teardownAudioCapture()
+            }
+            clearFailure()
+            let peak = pcmSamples.map(\.energy).max() ?? 0
+            InAppLogBridge.shared.info(
+                tag: "MPV/iOS/AudioCapture",
+                message: "mpv PCM capture succeeded: N=\(pcmSamples.count) peak=\(String(format: "%.4f", peak))"
+            )
+            return pcmSamples
+        }
+        if pcmStarted {
+            let pcmFailure = mpvPcmCapture.failureReason().trimmingCharacters(in: .whitespacesAndNewlines)
+            if !pcmFailure.isEmpty {
+                recordFailure(pcmFailure)
+            }
+        }
         
         switch currentMethod {
+        case .mpvPcm:
+            InAppLogBridge.shared.error(
+                tag: "MPV/iOS/AudioCapture",
+                message: "mpv PCM capture produced 0 samples. \(failureReason())"
+            )
+            return []
         case .avAsset:
             capturedSamples = avAssetCapture?.stopCapture() ?? []
             
@@ -194,6 +247,7 @@ final class MPVAudioCaptureProcessor: NSObject {
                     message: "AVAsset capture produced 0 samples. Check logs above for: (1) URL parsing failures, (2) Track loading failures, (3) AVAssetReader errors, (4) No audio track. If URL scheme was not file/http/https, AVAsset cannot decode it."
                 )
             } else {
+                clearFailure()
                 InAppLogBridge.shared.info(
                     tag: "MPV/iOS/AudioCapture",
                     message: "AVAsset capture succeeded: \(capturedSamples.count) samples"
@@ -233,6 +287,7 @@ final class MPVAudioCaptureProcessor: NSObject {
                     )
                 }
             } else {
+                clearFailure()
                 InAppLogBridge.shared.info(
                     tag: "MPV/iOS/AudioCapture",
                     message: "Successfully captured \(capturedSamples.count) energy samples via ReplayKit over \(String(format: "%.1f", duration))s\(retriesInfo)"
@@ -250,6 +305,8 @@ final class MPVAudioCaptureProcessor: NSObject {
         guard isCapturing else { return 0 }
         
         switch currentMethod {
+        case .mpvPcm:
+            return mpvPcmCapture.capturedDurationMs()
         case .avAsset:
             return avAssetCapture?.getCaptureDuration() ?? 0
             
@@ -278,6 +335,8 @@ final class MPVAudioCaptureProcessor: NSObject {
      */
     func hasReceivedAudioBuffers() -> Bool {
         switch currentMethod {
+        case .mpvPcm:
+            return mpvPcmCapture.capturedDurationMs() > 0
         case .avAsset:
             // AVAsset capture doesn't use buffer-based approach, check if we have samples
             return (avAssetCapture?.getCaptureDuration() ?? 0) > 0
@@ -289,6 +348,66 @@ final class MPVAudioCaptureProcessor: NSObject {
         }
     }
     
+    private func resolvedCaptureURL(from source: AudioCaptureSource) -> (url: String, trackId: Int?)? {
+        let external = source.externalAudioURLString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !external.isEmpty {
+            return (external, nil)
+        }
+        let media = source.mediaURLString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !media.isEmpty else { return nil }
+        let trackId = source.audioTrackId > 0 ? source.audioTrackId : nil
+        return (media, trackId)
+    }
+
+    private func redacted(_ urlString: String) -> String {
+        let withoutQuery = urlString.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? urlString
+        guard let url = URL(string: withoutQuery) else { return "unparsed-url" }
+        let scheme = url.scheme ?? "no-scheme"
+        let host = url.host ?? "local"
+        return "\(scheme)://\(host)/…"
+    }
+
+    private func fallbackFromPcm(reason: String, generation: Int) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.fallbackFromPcm(reason: reason, generation: generation)
+            }
+            return
+        }
+        guard isCapturing, generation == captureGeneration, !didFallbackFromPcm else { return }
+        didFallbackFromPcm = true
+        recordFailure(reason)
+        InAppLogBridge.shared.warn(
+            tag: "MPV/iOS/AudioCapture",
+            message: "mpv PCM capture failed (\(reason)). Trying AVAsset, then ReplayKit."
+        )
+        if let urlString = fallbackURLString,
+           let url = URL(string: urlString),
+           ["file", "http", "https"].contains(url.scheme?.lowercased() ?? "") {
+            currentMethod = .avAsset
+            avAssetStarted = true
+            avAssetCapture?.startCapture(startTimeMs: captureStartPositionMs, mediaURL: url, headers: fallbackHeaders)
+        } else {
+            startReplayKitCapture()
+        }
+    }
+
+    private func recordFailure(_ reason: String) {
+        let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        failureLock.lock()
+        if storedFailureReason.isEmpty {
+            storedFailureReason = String(trimmed.prefix(180))
+        }
+        failureLock.unlock()
+    }
+
+    private func clearFailure() {
+        failureLock.lock()
+        storedFailureReason = ""
+        failureLock.unlock()
+    }
+
     // MARK: - Retry Logic
     
     private func scheduleStartupCheck() {

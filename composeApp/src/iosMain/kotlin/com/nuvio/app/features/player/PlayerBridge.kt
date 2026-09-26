@@ -74,6 +74,7 @@ interface NuvioPlayerBridge {
     fun startAudioEnergyCapture(startTimeMs: Long)
     fun stopAudioEnergyCapture(): List<AudioEnergySample>
     fun getAudioCaptureDuration(): Long
+    fun getAudioCaptureFailureReason(): String
     fun applySubtitleStyle(
         textColor: String,
         backgroundColor: String,
