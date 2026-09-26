@@ -196,7 +196,12 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
                         setSubtitleDelay(result.offsetMs)
                     }
                     subtitleAutoSyncState = subtitleAutoSyncState.copy(
-                        errorMessage = "Low confidence sync. Offset: ${formatOffsetMessage(result.offsetMs)} (${formatEnergyStats(audioSamples)}, margin: ${formatMargin(result.confidence)}). Try a scene with more dialogue.",
+                        errorMessage = autoSyncLowConfidenceMessage(
+                            offsetMs = result.offsetMs,
+                            energyStats = formatEnergyStats(audioSamples),
+                            confidence = result.confidence,
+                            cuesOnScreen = subtitleAutoSyncState.cues.isNotEmpty(),
+                        ),
                     )
                 }
                 is SubtitleAutoSyncResult.Error -> {
@@ -233,27 +238,6 @@ private fun formatFixed3(value: Double): String {
     val whole = scaled / 1000
     val fraction = (scaled % 1000).toString().padStart(3, '0')
     return "$whole.$fraction"
-}
-
-private fun formatMargin(value: Double): String {
-    val sign = if (value < 0.0) "-" else ""
-    val scaled = (kotlin.math.abs(value) * 1000.0).toInt().coerceIn(0, 999_999)
-    val whole = scaled / 1000
-    val fraction = (scaled % 1000).toString().padStart(3, '0')
-    return "$sign$whole.$fraction"
-}
-
-private fun formatOffsetMessage(offsetMs: Int): String {
-    val sign = if (offsetMs >= 0) "+" else ""
-    val seconds = offsetMs / 1000.0
-    val formatted = buildString {
-        append(sign)
-        append(seconds.toInt())
-        append('.')
-        val fraction = ((kotlin.math.abs(seconds) % 1.0) * 10).toInt()
-        append(fraction)
-    }
-    return "${formatted}s"
 }
 
 internal fun PlayerScreenRuntime.applySubtitleAutoSyncCue(cue: SubtitleSyncCue) {

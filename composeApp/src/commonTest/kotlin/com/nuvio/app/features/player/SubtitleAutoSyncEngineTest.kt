@@ -1,5 +1,8 @@
 package com.nuvio.app.features.player
 
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.sin
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -8,42 +11,88 @@ import kotlin.test.assertTrue
 class SubtitleAutoSyncEngineTest {
 
     @Test
-    fun alignedBurstsAndCuesStayAtZero() {
-        val cues = dialogueCues(burstTimesMs)
-        val audio = energyBursts(burstTimesMs)
-        val result = sync(audio, cues)
+    fun alignedDialogueWithMusicStaysConfidentAtZero() {
+        val cues = dialogueCues(dialogueSpans)
+        val audio = speechDuring(dialogueSpans, attackDelay = true)
+        val result = sync(audio, cues, positionMs = 20_000L)
         assertEquals(0, offsetOf(result))
         assertFalse(result.movesSubtitleDelay())
+        assertTrue(result is SubtitleAutoSyncResult.Success, "expected Synced path, got $result")
+        val confidence = confidenceOf(result)
+        assertTrue(confidence >= 0.3, "margin $confidence")
     }
 
     @Test
-    fun burstsShiftedByTwoSecondsReturnTwoSeconds() {
-        val cues = dialogueCues(burstTimesMs)
-        val audio = energyBursts(burstTimesMs.map { it + 2_000L })
-        val result = sync(audio, cues)
-        assertEquals(2_000, offsetOf(result))
+    fun dialogueShiftedByTwoSecondsFollowsTheSpeech() {
+        val shifted = dialogueSpans.map { (start, end) -> start + 2_000L to end + 2_000L }
+        val cues = dialogueCues(dialogueSpans)
+        val audio = speechDuring(shifted, attackDelay = true)
+        val result = sync(audio, cues, positionMs = 22_000L)
+        val offset = offsetOf(result)
+        assertTrue(abs(offset - 2_000) <= 400, "offset $offset")
         assertTrue(result.movesSubtitleDelay())
+        assertTrue(offset != -7_200)
+    }
+
+    @Test
+    fun loudHitSevenSecondsAwayDoesNotMoveDelay() {
+        val cues = dialogueCues(dialogueSpans)
+        val audio = speechDuring(dialogueSpans, attackDelay = true).toMutableList()
+        val hitAt = dialogueSpans.first().first + 7_200L
+        for (index in audio.indices) {
+            val sample = audio[index]
+            if (sample.timestampMs in hitAt until hitAt + 400L) {
+                audio[index] = sample.copy(energy = sample.energy + 0.8)
+            }
+        }
+        val result = sync(audio, cues, positionMs = 20_000L)
+        assertEquals(0, offsetOf(result))
+        assertFalse(result.movesSubtitleDelay())
     }
 
     @Test
     fun ambiguousEnvelopeDoesNotMoveDelay() {
-        val cues = dialogueCues(burstTimesMs)
+        val cues = dialogueCues(dialogueSpans)
         val audio = flatEnergy()
-        val result = sync(audio, cues)
+        val result = sync(audio, cues, positionMs = 20_000L)
         assertEquals(0, offsetOf(result))
         assertFalse(result.movesSubtitleDelay())
         val confidence = confidenceOf(result)
-        assertTrue(confidence < 1.0, "margin $confidence must stay below 1")
+        assertTrue(confidence < 0.3, "margin $confidence must stay below the sync cutoff")
+    }
+
+    @Test
+    fun lowConfidenceWithCuesOnScreenDoesNotAskForMoreDialogue() {
+        val message = autoSyncLowConfidenceMessage(
+            offsetMs = 0,
+            energyStats = "N=303, peak=0.120",
+            confidence = -0.233,
+            cuesOnScreen = true,
+        )
+        assertTrue(message.startsWith("Low confidence sync. Offset: +0.0s (N=303, peak=0.120, margin:"))
+        assertFalse(message.contains("Try a scene with more dialogue"))
+    }
+
+    @Test
+    fun lowConfidenceWithoutCuesAsksForDialogue() {
+        val message = autoSyncLowConfidenceMessage(
+            offsetMs = 0,
+            energyStats = "N=1, peak=0.010",
+            confidence = 0.01,
+            cuesOnScreen = false,
+        )
+        assertTrue(message.endsWith("Try a scene with more dialogue."))
     }
 
     private fun sync(
         audio: List<AudioEnergySample>,
         cues: List<SubtitleSyncCue>,
+        positionMs: Long = 20_000L,
     ): SubtitleAutoSyncResult {
         return SubtitleAutoSyncEngine.computeOptimalOffset(
             audioSamples = audio,
             subtitleCues = cues,
-            currentPositionMs = 12_000L,
+            currentPositionMs = positionMs,
         ) ?: error("auto sync returned null")
     }
 
@@ -59,24 +108,42 @@ class SubtitleAutoSyncEngineTest {
         is SubtitleAutoSyncResult.Error -> error(result.message)
     }
 
-    private fun dialogueCues(timesMs: List<Long>): List<SubtitleSyncCue> {
-        return timesMs.map { start ->
+    private fun dialogueCues(spans: List<Pair<Long, Long>>): List<SubtitleSyncCue> {
+        return spans.map { (start, end) ->
             SubtitleSyncCue(
                 startTimeMs = start,
-                endTimeMs = start + 800L,
-                text = "Hello there dialogue",
+                endTimeMs = end,
+                text = "Hva har skjedd her?",
             )
         }
     }
 
-    private fun energyBursts(centersMs: List<Long>): List<AudioEnergySample> {
+    /**
+     * Speech is quiet at the cue start and loud through the rest of the line,
+     * with a small music bed underneath. That is the shape that made an onset
+     * spike prefer a lag inside the line.
+     */
+    private fun speechDuring(
+        spans: List<Pair<Long, Long>>,
+        attackDelay: Boolean,
+    ): List<AudioEnergySample> {
         val samples = ArrayList<AudioEnergySample>()
         var time = 0L
-        while (time <= 24_000L) {
-            // One energy bin, the same 100ms window the cue onset lands in.
-            val hot = centersMs.any { center -> time >= center && time < center + 100L }
-            samples.add(AudioEnergySample(timestampMs = time, energy = if (hot) 1.0 else 0.0))
-            time += 50L
+        while (time <= 40_000L) {
+            var energy = 0.03 + 0.008 * (0.5 + 0.5 * sin(time / 700.0))
+            val span = spans.firstOrNull { (start, end) -> time >= start && time < end }
+            if (span != null) {
+                val length = (span.second - span.first).coerceAtLeast(1L)
+                val progress = (time - span.first).toDouble() / length.toDouble()
+                val shape = if (!attackDelay || progress > 0.2) {
+                    sin(PI * progress).let { wave -> wave * wave }
+                } else {
+                    0.05
+                }
+                energy += 0.11 * shape
+            }
+            samples.add(AudioEnergySample(timestampMs = time, energy = energy))
+            time += 100L
         }
         return samples
     }
@@ -84,14 +151,22 @@ class SubtitleAutoSyncEngineTest {
     private fun flatEnergy(): List<AudioEnergySample> {
         val samples = ArrayList<AudioEnergySample>()
         var time = 0L
-        while (time <= 24_000L) {
+        while (time <= 40_000L) {
             samples.add(AudioEnergySample(timestampMs = time, energy = 0.4))
-            time += 50L
+            time += 100L
         }
         return samples
     }
 
     private companion object {
-        val burstTimesMs = listOf(4_000L, 8_000L, 12_000L, 16_000L)
+        val dialogueSpans = listOf(
+            4_000L to 5_800L,
+            8_200L to 10_600L,
+            13_000L to 14_400L,
+            18_000L to 19_800L,
+            20_000L to 22_800L,
+            27_500L to 29_400L,
+            33_000L to 35_200L,
+        )
     }
 }
