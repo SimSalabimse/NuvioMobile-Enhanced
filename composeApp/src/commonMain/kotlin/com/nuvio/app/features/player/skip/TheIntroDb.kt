@@ -119,7 +119,15 @@ internal object TheIntroDb {
         endSec: Double?,
         videoDurationMs: Long? = null,
     ): Boolean {
+        // Validate inputs
         if (apiKey.isBlank() || tmdbId <= 0) return false
+        if (startSec != null && (startSec < 0.0 || !startSec.isFinite())) return false
+        if (endSec != null && (endSec < 0.0 || !endSec.isFinite())) return false
+        if (startSec != null && endSec != null && endSec <= startSec) return false
+        if (videoDurationMs != null && videoDurationMs <= 0) return false
+        if (season != null && (season < 0 || season > 999)) return false
+        if (episode != null && (episode < 0 || episode > 9999)) return false
+        
         val normalizedType = if (type.equals("movie", ignoreCase = true)) "movie" else "tv"
         val normalizedSegment = when (segment.lowercase()) {
             "intro", "op", "mixed-op" -> "intro"
