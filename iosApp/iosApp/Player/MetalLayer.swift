@@ -153,7 +153,15 @@ class MetalLayer: CAMetalLayer {
         let handler = onDrawablePresented
         let deferred = storedCapturesWithoutPresentation && !suspendedNow
         let previous = pendingDrawable
+        #if targetEnvironment(simulator)
+        // iPhoneSimulator 27.0's CAMetalDrawable has no addPresentedHandler.
+        // Hold this drawable and deliver it on the next frame, after the
+        // renderer has submitted it. Device builds use the presented callback.
+        let holdForLaterCapture = !deferred && !suspendedNow && armed && handler != nil && drawable != nil
+        pendingDrawable = (deferred || holdForLaterCapture) ? drawable : nil
+        #else
         pendingDrawable = deferred ? drawable : nil
+        #endif
         captureLock.unlock()
 
         if didSuspend { onRenderingSuspensionChanged?(true, "drawable-acquisition-stalled") }
@@ -173,6 +181,14 @@ class MetalLayer: CAMetalLayer {
             return drawable
         }
 
+        #if targetEnvironment(simulator)
+        if let previous {
+            captureLock.lock()
+            capturedDrawableCount &+= 1
+            captureLock.unlock()
+            handler(previous)
+        }
+        #else
         drawable.addPresentedHandler { [weak self] _ in
             guard let self else { return }
             self.captureLock.lock()
@@ -180,6 +196,7 @@ class MetalLayer: CAMetalLayer {
             self.captureLock.unlock()
             handler(drawable)
         }
+        #endif
 
         return drawable
     }
