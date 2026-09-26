@@ -44,6 +44,8 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # store.json is the personal SideStore source. Keep it across upstream merges.
+          git config merge.ours.driver true
           git remote add enhanced "$UPSTREAM_REMOTE" 2>/dev/null || git remote set-url enhanced "$UPSTREAM_REMOTE"
           git fetch enhanced "$UPSTREAM_REF"
           before="$(git rev-parse HEAD)"

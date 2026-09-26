@@ -51,6 +51,9 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v6
         with:
+          # Branch tip, not the workflow SHA. Sync pushes a merge commit and then
+          # calls this workflow; github.sha is still the pre-merge commit.
+          ref: ${{ github.ref_name }}
           fetch-depth: 0
 
       - name: Require Enhanced tree
@@ -231,6 +234,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.build.outputs.tag }}
           RELEASE_VERSION: ${{ needs.build.outputs.version }}
+          SOURCE_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           release_json="${RUNNER_TEMP}/release.json"
@@ -254,5 +258,5 @@ jobs:
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add store.json
             git commit -m "chore(store): publish sideload ${RELEASE_VERSION}"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
+            git push origin "HEAD:${SOURCE_BRANCH}"
           fi

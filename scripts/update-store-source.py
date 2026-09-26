@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 PRIVACY_KEY_PATTERN = re.compile(r"^NS.+UsageDescription$")
 APP_INFO_PATTERN = re.compile(r"^Payload/[^/]+\.app/Info\.plist$")
 INFO_PATTERN = re.compile(r"^Payload/[^/]+\.app(?:/PlugIns/[^/]+\.appex)?/Info\.plist$")
+PERSONAL_DOWNLOAD_HOST = "github.com/SimSalabimse/NuvioMobile-Enhanced/"
 
 
 def parse_args() -> argparse.Namespace:
@@ -102,6 +103,21 @@ def find_app(source: dict, bundle_identifier: str) -> dict:
     return matches[0]
 
 
+def numeric_parts(value: object) -> tuple[int, ...]:
+    if not isinstance(value, str):
+        return ()
+    return tuple(int(part) for part in re.findall(r"\d+", value))
+
+
+def is_personal_download(version: dict) -> bool:
+    download_url = version.get("downloadURL")
+    return isinstance(download_url, str) and PERSONAL_DOWNLOAD_HOST in download_url
+
+
+def version_sort_key(version: dict) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    return (numeric_parts(version.get("version")), numeric_parts(version.get("buildVersion")))
+
+
 def update_versions(app: dict, entry: dict) -> None:
     versions = app.get("versions")
     if not isinstance(versions, list):
@@ -110,6 +126,8 @@ def update_versions(app: dict, entry: dict) -> None:
     for version in versions:
         if not isinstance(version, dict):
             raise ValueError("source app version entries must be objects")
+        if not is_personal_download(version):
+            continue
         existing_version = version.get("version")
         existing_build = version.get("buildVersion")
         if existing_version == entry["version"] and existing_build == entry["buildVersion"]:
@@ -119,7 +137,8 @@ def update_versions(app: dict, entry: dict) -> None:
         if existing_build == entry["buildVersion"]:
             raise ValueError(f"build {entry['buildVersion']} already exists for version {existing_version}")
         retained.append(version)
-    app["versions"] = [entry, *retained]
+    # SideStore installs versions[0]. Keep the newest personal build there.
+    app["versions"] = sorted([entry, *retained], key=version_sort_key, reverse=True)
 
 
 def write_source(path: Path, source: dict) -> None:

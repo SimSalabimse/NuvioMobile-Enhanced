@@ -37,10 +37,10 @@ Install it with SideStore, AltStore, or TrollStore. These tools sign on-device u
 
 ### SideStore / AltStore Source
 
-After the first published IPA release, add this source URL:
+Add this source in SideStore or AltStore. The first version in the file is the update it installs, and that IPA is built from this repository:
 
 ```
-https://github.com/SimSalabimse/NuvioMobile-Enhanced/raw/refs/heads/enhanced/store.json
+https://raw.githubusercontent.com/SimSalabimse/NuvioMobile-Enhanced/enhanced/store.json
 ```
 
 > **Important:** AltStore and SideStore cannot read private GitHub repositories or releases without authentication. This repository is public to support direct IPA distribution.
