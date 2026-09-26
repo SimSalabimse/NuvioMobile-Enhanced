@@ -20,6 +20,16 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "0.5.1",
+          "buildVersion": "133",
+          "date": "2026-09-26T12:41:28Z",
+          "localizedDescription": "Unsigned sideload IPA 0.5.1 (65c8911). Sign with SideStore, AltStore, or TrollStore. No Apple certificate is embedded.",
+          "downloadURL": "https://github.com/SimSalabimse/NuvioMobile-Enhanced/releases/download/sideload-0.5.1-65c89117/nuvio-0.5.1-full-release.ipa",
+          "size": 68141813,
+          "sha256": "306bb8ce3cbb0dc806e07572f0f476437994d495d78029d60c90deeb2d4f881a",
+          "minOSVersion": "16.1"
+        },
+        {
           "version": "0.5.2",
           "buildVersion": "134",
           "date": "2026-09-26T00:05:01Z",
@@ -27,16 +37,6 @@
           "downloadURL": "https://github.com/luqmanfadlli/NuvioMobile-Enhanced/releases/download/0.5.2-beta/Nuvio-0.5.2-Enhanced.ipa",
           "size": 68152456,
           "sha256": "d8be5c245910bc08832bd6f62da4502a64731a925ac4c57b084dfc06b767ecdd",
-          "minOSVersion": "16.1"
-        },
-        {
-          "version": "0.5.1",
-          "buildVersion": "133",
-          "date": "2026-09-25T12:53:38Z",
-          "localizedDescription": "Unsigned sideload IPA 0.5.1 (88996c3). Sign with SideStore, AltStore, or TrollStore. No Apple certificate is embedded.",
-          "downloadURL": "https://github.com/SimSalabimse/NuvioMobile-Enhanced/releases/download/sideload-0.5.1-88996c3c/nuvio-0.5.1-full-release.ipa",
-          "size": 68122294,
-          "sha256": "5f411c124be118cdd2b8d126905262f5285e45fb7fd5b895a1f4668f8806ccd5",
           "minOSVersion": "16.1"
         },
         {
