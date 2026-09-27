@@ -304,17 +304,15 @@ final class MpvPcmEnergyCapture {
         var endError: String?
         var lastWarn = ""
         var playbackEnded = false
-        var latchedSampleZero = false
         var stampOriginMs = attempt.timestampOriginMs
         while !isUserStopRequested() && !playbackEnded {
             let captured = AudioEnergyWave.capturedDurationMs(at: wavURL)
-            if !latchedSampleZero {
-                latchedSampleZero = latchSampleZero(
-                    created,
-                    attempt: attempt,
-                    capturedMs: captured,
-                    stampOriginMs: &stampOriginMs
-                )
+            // Keep the latest sane clock reading. The first second often sees
+            // only part of the keyframe pre-roll, and freezing that reading
+            // left a −5s lag stamped at −3.3s.
+            if let stamped = measuredSampleZero(created, attempt: attempt, capturedMs: captured),
+               stamped != stampOriginMs {
+                stampOriginMs = stamped
             }
             if captured >= attempt.durationMs {
                 break
@@ -351,16 +349,14 @@ final class MpvPcmEnergyCapture {
             }
         }
 
-        if !latchedSampleZero {
-            let captured = AudioEnergyWave.capturedDurationMs(at: wavURL)
-            _ = latchSampleZero(
-                created,
-                attempt: attempt,
-                capturedMs: captured,
-                stampOriginMs: &stampOriginMs,
-                force: true
-            )
+        let captured = AudioEnergyWave.capturedDurationMs(at: wavURL)
+        if let stamped = measuredSampleZero(created, attempt: attempt, capturedMs: captured) {
+            stampOriginMs = stamped
         }
+        InAppLogBridge.shared.info(
+            tag: "MPV/iOS/AudioCapture/PCM",
+            message: "PCM sample 0 at \(stampOriginMs)ms (request \(attempt.timestampOriginMs)ms, captured \(captured)ms) via \(attempt.label)"
+        )
         let snapshot = playbackSnapshot(created, wavURL: wavURL)
         mpv_terminate_destroy(created)
         destroyed = true
@@ -397,58 +393,30 @@ final class MpvPcmEnergyCapture {
         )
     }
 
-    /// Logs dump origin against the first audio PTS. A multi-second gap means the
-    /// wav's first frame is not the dump origin (the -7.2s miss). Stamp sample 0 there.
-    /// Cache packets keep their media PTS, so that frame is not `origin + PTS`.
-    private func latchSampleZero(
+    /// Media time of WAV sample 0 from the latest audio clock.
+    ///
+    /// `audio-pts` minus the wav duration is sample 0. A keyframe before `start`
+    /// makes that earlier than the request. An early reading sees only part of
+    /// the pre-roll; the caller keeps the latest sane value, including the one
+    /// taken just before the headless player is destroyed.
+    private func measuredSampleZero(
         _ ctx: OpaquePointer,
         attempt: Attempt,
-        capturedMs: Int64,
-        stampOriginMs: inout Int64,
-        force: Bool = false
-    ) -> Bool {
-        guard capturedMs >= 1_000 || force else { return false }
-        let audioPts = propertyDouble(ctx, "audio-pts")
-        let timePos = propertyDouble(ctx, "time-pos")
-        let pts = audioPts ?? timePos
-        guard let pts, pts.isFinite, pts >= 0 else {
-            if force {
-                InAppLogBridge.shared.info(
-                    tag: "MPV/iOS/AudioCapture/PCM",
-                    message: "Dump origin \(attempt.timestampOriginMs)ms decodeStart \(attempt.decodeStartMs)ms first audio PTS unavailable via \(attempt.label)"
-                )
-            }
-            return force
-        }
+        capturedMs: Int64
+    ) -> Int64? {
+        guard capturedMs >= 1_000 else { return nil }
+        let pts = propertyDouble(ctx, "audio-pts") ?? propertyDouble(ctx, "time-pos")
+        guard let pts, pts.isFinite, pts >= 0 else { return nil }
         let ptsMs = Int64((pts * 1000.0).rounded())
         let firstFrameMs = ptsMs - capturedMs
-        // A large negative gap is a PTS that has not caught up with the wav yet.
-        if firstFrameMs < -300 {
-            if force {
-                InAppLogBridge.shared.info(
-                    tag: "MPV/iOS/AudioCapture/PCM",
-                    message: "Dump origin \(attempt.timestampOriginMs)ms decodeStart \(attempt.decodeStartMs)ms first audio PTS \(firstFrameMs)ms still behind the wav via \(attempt.label)"
-                )
-            }
-            return force
-        }
-        let stamped = pcmSampleZeroMs(
+        let gap = firstFrameMs - attempt.timestampOriginMs
+        // A clock that has not reached the wav, or that reset at EOF.
+        if gap < -12_000 || gap > 12_000 { return nil }
+        return pcmSampleZeroMs(
             timestampOriginMs: attempt.timestampOriginMs,
             decodeStartMs: attempt.decodeStartMs,
             firstFrameMs: firstFrameMs
         )
-        InAppLogBridge.shared.info(
-            tag: "MPV/iOS/AudioCapture/PCM",
-            message: "Dump origin \(attempt.timestampOriginMs)ms decodeStart \(attempt.decodeStartMs)ms first audio PTS \(firstFrameMs)ms stamp \(stamped)ms captured \(capturedMs)ms via \(attempt.label)"
-        )
-        if stamped != stampOriginMs {
-            stampOriginMs = stamped
-            InAppLogBridge.shared.info(
-                tag: "MPV/iOS/AudioCapture/PCM",
-                message: "Stamping PCM from first audio PTS, origin \(stampOriginMs)ms"
-            )
-        }
-        return true
     }
 
     private func propertyDouble(_ ctx: OpaquePointer, _ name: String) -> Double? {
@@ -576,16 +544,16 @@ final class MpvPcmEnergyCapture {
 /// Media time of WAV sample 0.
 ///
 /// A URL decode seeks to `decodeStartMs`, which is also the timestamp origin.
-/// `hr-seek=no` starts at the previous keyframe, so the wav's first frame is
-/// earlier than `start`. Stamping sample 0 at the request shifts every lag
-/// toward zero: a real −5s delay was reported as −3.7s. A late keyframe is the
-/// other direction and uses the same 1s gap. A cache dump seeks at 0 in a file
-/// whose packets still carry media PTS. Adding the dump origin on top of that
-/// PTS places the envelope one playhead later than the cues.
+/// With `vid=no`, libmpv still writes the wav from the previous keyframe.
+/// Stamping sample 0 at the request shifts every lag toward zero: a real −5s
+/// delay was reported as −3.3s. The old 1s cutoff ignored that gap when the
+/// first clock reading had only part of the pre-roll. A cache dump seeks at 0
+/// in a file whose packets still carry media PTS. Adding the dump origin on
+/// top of that PTS places the envelope one playhead later than the cues.
 func pcmSampleZeroMs(timestampOriginMs: Int64, decodeStartMs: Int64, firstFrameMs: Int64) -> Int64 {
     if timestampOriginMs == decodeStartMs {
         let seekGap = firstFrameMs - decodeStartMs
-        if abs(seekGap) >= 1_000 {
+        if seekGap >= -12_000 && seekGap <= 4_000 && abs(seekGap) >= 200 {
             return firstFrameMs
         }
         return timestampOriginMs

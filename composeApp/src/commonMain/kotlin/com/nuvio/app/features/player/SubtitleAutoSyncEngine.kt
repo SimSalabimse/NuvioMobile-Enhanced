@@ -47,6 +47,12 @@ object SubtitleAutoSyncEngine {
     private const val PERIODIC_EDGE_MS = 7_000
     /** Offsets inside this band are the playhead lag, not the cap. */
     private const val PLAYHEAD_LAG_MS = 6_000
+    /**
+     * A correlation bump this close to offset 0 is the unsynced alignment.
+     * It is not a second place the playhead could sync. Letting it cap the
+     * margin kept a real −5s lag under the 0.3 cutoff.
+     */
+    private const val ZERO_LOBE_MS = 1_500
     
     /**
      * Compute the optimal subtitle offset by correlating audio energy with subtitle cue activity.
@@ -317,11 +323,15 @@ object SubtitleAutoSyncEngine {
             return OffsetMatch(0, scoreAtZero - zeroRival.second)
         }
         // Flat speech still beats offset 0 by a wide margin, then loses the
-        // printed lead to a copy of that pattern near ±8s. That copy already
-        // lost the argmax. It must not keep a -5s lag under the 0.3 cutoff.
-        val periodicEdge = abs(rival.first) >= PERIODIC_EDGE_MS &&
-            abs(winner.first) <= PLAYHEAD_LAG_MS
-        val margin = if (periodicEdge) leadOverZero else min(leadOverZero, leadOverRival)
+        // printed lead to a copy of that pattern near ±8s, or to a bump on
+        // the unsynced alignment. Those already lost the argmax. They must
+        // not keep a -5s lag under the 0.3 cutoff (the -3.3s / 0.080 miss).
+        val playheadWinner = abs(winner.first) <= PLAYHEAD_LAG_MS
+        val periodicEdge = playheadWinner && abs(rival.first) >= PERIODIC_EDGE_MS
+        val nearZeroRival = playheadWinner &&
+            abs(winner.first) >= ZERO_LOBE_MS &&
+            abs(rival.first) <= ZERO_LOBE_MS
+        val margin = if (periodicEdge || nearZeroRival) leadOverZero else min(leadOverZero, leadOverRival)
         return OffsetMatch(winner.first, margin)
     }
 

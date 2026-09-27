@@ -143,6 +143,41 @@ class SubtitleAutoSyncEngineTest {
     }
 
     @Test
+    fun weakDialogueAtSeventeenMinutesStillSyncsNearMinusFive() {
+        val playhead = 17 * 60 * 1000L
+        val cues = seventeenMinuteCues(playhead)
+        val speech = cues.map { it.startTimeMs - 5_000L to it.endTimeMs - 5_000L }
+        val audio = weakSpeech(speech, playhead - 24_000L, playhead + 8_000L, stampMs = 0L)
+        val result = sync(audio, cues, positionMs = playhead)
+        val offset = offsetOf(result)
+        assertTrue(abs(offset + 5_000) <= 1_000, "offset $offset")
+        assertTrue(offset != -3_300, "device lag $offset")
+        assertTrue(offset != -3_700, "stamp-biased lag $offset")
+        assertTrue(result is SubtitleAutoSyncResult.Success, "expected Synced path, got $result")
+        val confidence = confidenceOf(result)
+        assertTrue(confidence >= 0.3, "margin $confidence")
+        val line = "Synced! Offset: ${formatOffsetMessage(offset)} " +
+            "(${formatEnergyStats(audio)}, margin: ${formatMargin(confidence)})"
+        assertTrue(line.startsWith("Synced! Offset:"), line)
+        assertFalse(line.contains("Low confidence sync"), line)
+        assertFalse(line.contains("-3.3s"), line)
+        assertTrue(result.movesSubtitleDelay())
+    }
+
+    @Test
+    fun lateKeyframeStampDoesNotSyncAtMinusThree() {
+        val playhead = 17 * 60 * 1000L
+        val cues = seventeenMinuteCues(playhead)
+        val speech = cues.map { it.startTimeMs - 5_000L to it.endTimeMs - 5_000L }
+        val audio = weakSpeech(speech, playhead - 24_000L, playhead + 8_000L, stampMs = 1_700L)
+        val result = sync(audio, cues, positionMs = playhead)
+        assertFalse(result.movesSubtitleDelay(), "late stamp wrote ${offsetOf(result)}")
+        assertTrue(result is SubtitleAutoSyncResult.LowConfidence, "expected low confidence, got $result")
+        val offset = offsetOf(result)
+        assertTrue(abs(offset + 3_300) > 200 || confidenceOf(result) < 0.3, "synced the -3.3s miss: $result")
+    }
+
+    @Test
     fun playheadSeventeenMinutesFollowsSpeechFiveSecondsEarly() {
         val playhead = 17 * 60 * 1000L
         val lengths = listOf(1400L, 2800L, 1100L, 3200L, 1700L, 2500L, 1300L, 2900L, 1600L, 2100L, 1900L, 3000L)
@@ -221,6 +256,52 @@ class SubtitleAutoSyncEngineTest {
         is SubtitleAutoSyncResult.Success -> result.confidence
         is SubtitleAutoSyncResult.LowConfidence -> result.confidence
         is SubtitleAutoSyncResult.Error -> error(result.message)
+    }
+
+    private fun seventeenMinuteCues(playhead: Long): List<SubtitleSyncCue> {
+        val lengths = listOf(1400L, 2800L, 1100L, 3200L, 1700L, 2500L, 1300L, 2900L, 1600L, 2100L, 1900L, 3000L)
+        val gaps = listOf(500L, 1100L, 350L, 1800L, 700L, 1400L, 450L, 2200L, 900L, 650L, 1600L)
+        val cues = ArrayList<SubtitleSyncCue>()
+        var cursor = playhead - 18_000L
+        lengths.forEachIndexed { index, length ->
+            cues.add(SubtitleSyncCue(cursor, cursor + length, "line"))
+            cursor += length + gaps[index % gaps.size]
+        }
+        return cues
+    }
+
+    /**
+     * Speech follows the cues, with dropped syllables and a laugh track.
+     * That flattens the lead over a bump next to offset 0 without moving the lag.
+     */
+    private fun weakSpeech(
+        spans: List<Pair<Long, Long>>,
+        t0: Long,
+        t1: Long,
+        stampMs: Long,
+    ): List<AudioEnergySample> {
+        val samples = ArrayList<AudioEnergySample>()
+        var time = t0
+        while (time <= t1) {
+            var energy = 0.04 + 0.015 * sin(time / 500.0)
+            val span = spans.firstOrNull { (start, end) -> time >= start && time < end }
+            if (span != null) {
+                val length = (span.second - span.first).coerceAtLeast(1L)
+                val progress = (time - span.first).toDouble() / length.toDouble()
+                val syllable = sin(progress * PI * 5.0)
+                val gate = ((time / 100L) % 5L).toInt()
+                if (syllable > 0.2 && gate != 0) {
+                    energy += 0.08 * syllable
+                }
+            }
+            val laugh = ((time / 100L) % 40L).toInt()
+            if (laugh == 7 || laugh == 8 || laugh == 9 || laugh == 10) {
+                energy += 0.10
+            }
+            samples.add(AudioEnergySample(timestampMs = time + stampMs, energy = energy.coerceAtLeast(0.0)))
+            time += 100L
+        }
+        return samples
     }
 
     private fun dialogueCues(spans: List<Pair<Long, Long>>): List<SubtitleSyncCue> {
