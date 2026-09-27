@@ -188,7 +188,7 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
                         setSubtitleDelay(result.offsetMs)
                     }
                     subtitleAutoSyncState = subtitleAutoSyncState.copy(
-                        errorMessage = "Synced! Offset: ${formatOffsetMessage(result.offsetMs)} (${formatEnergyStats(audioSamples)}, margin: ${formatMargin(result.confidence)})",
+                        errorMessage = "Synced! Offset: ${formatOffsetMessage(result.offsetMs)} (${formatEnergyStats(audioSamples)}, ${formatEnergyMatchSpan(audioSamples)}, margin: ${formatMargin(result.confidence)})",
                     )
                 }
                 is SubtitleAutoSyncResult.LowConfidence -> {
@@ -196,12 +196,12 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
                         setSubtitleDelay(result.offsetMs)
                     }
                     subtitleAutoSyncState = subtitleAutoSyncState.copy(
-                        errorMessage = autoSyncLowConfidenceMessage(
+                        errorMessage = "${autoSyncLowConfidenceMessage(
                             offsetMs = result.offsetMs,
                             energyStats = formatEnergyStats(audioSamples),
                             confidence = result.confidence,
                             cuesOnScreen = subtitleAutoSyncState.cues.isNotEmpty(),
-                        ),
+                        )} ${formatEnergyMatchSpan(audioSamples)}",
                     )
                 }
                 is SubtitleAutoSyncResult.Error -> {

@@ -88,8 +88,57 @@ class SubtitleAutoSyncEngineTest {
         val result = sync(audio, cues, positionMs = 22_000L)
         val message = (result as SubtitleAutoSyncResult.Error).message
         assertFalse(message.contains("Insufficient dialogue activity detected"))
+        assertFalse(message.contains("Need at least"), message)
+        assertFalse(message.contains("dialogue for reliable sync"), message)
+        assertFalse(message.contains("more dialogue"), message)
+        assertTrue(message.contains("Energy match span"), message)
         assertTrue(message.contains("N="), message)
         assertTrue(message.contains("peak="), message)
+        val peak = message.substringAfter("peak=").substringBefore(",")
+        assertTrue(peak != "0.000", message)
+    }
+
+    @Test
+    fun shortOpeningCaptureSyncsWithoutTheFifteenSecondError() {
+        val spans = listOf(18_000L to 19_800L, 20_000L to 22_200L)
+        val cues = listOf(
+            SubtitleSyncCue(18_000L, 19_800L, "Hva har skjedd her?"),
+            SubtitleSyncCue(20_000L, 22_200L, "Du sov mens Lisbon"),
+        )
+        val audio = speechDuring(spans, attackDelay = true).filter { it.timestampMs in 16_000L..24_000L }
+        val spanMs = audio.maxOf { it.timestampMs } - audio.minOf { it.timestampMs }
+        assertTrue(spanMs < 15_000L, "fixture span ${spanMs}ms")
+        val result = sync(audio, cues, positionMs = 20_000L)
+        assertTrue(result is SubtitleAutoSyncResult.Success, "expected Synced path, got $result")
+        assertTrue(abs(offsetOf(result)) <= 300, "offset ${offsetOf(result)}")
+        assertFalse(result.movesSubtitleDelay())
+        assertFalse(result.toString().contains("Need at least"))
+        assertFalse(result.toString().contains("Low confidence"))
+        val line = "Synced! Offset: ${formatOffsetMessage(offsetOf(result))} " +
+            "(${formatEnergyStats(audio)}, ${formatEnergyMatchSpan(audio)}, margin: ${formatMargin(confidenceOf(result))})"
+        assertTrue(line.startsWith("Synced! Offset: +0."), line)
+        assertTrue(line.contains("Energy match span"), line)
+        assertTrue(line.contains("N="), line)
+        assertTrue(line.contains("peak="), line)
+    }
+
+    @Test
+    fun shortCapturePrintsEnergySpanInsteadOfAskingForDialogue() {
+        val cues = listOf(
+            SubtitleSyncCue(18_000L, 19_800L, "Hva har skjedd her?"),
+            SubtitleSyncCue(20_000L, 21_600L, "Du sov mens Lisbon"),
+        )
+        val audio = speechDuring(emptyList(), attackDelay = false).filter { it.timestampMs in 23_000L..32_000L }
+        val spanMs = audio.maxOf { it.timestampMs } - audio.minOf { it.timestampMs }
+        assertTrue(spanMs < 15_000L, "fixture span ${spanMs}ms")
+        val message = (sync(audio, cues, positionMs = 22_000L) as SubtitleAutoSyncResult.Error).message
+        assertTrue(message.contains("Energy match span"), message)
+        assertTrue(message.contains("N="), message)
+        assertTrue(message.contains("peak="), message)
+        assertFalse(message.contains("Need at least"), message)
+        assertFalse(message.contains("dialogue for reliable sync"), message)
+        assertFalse(message.contains("more dialogue"), message)
+        assertFalse(message.contains("Insufficient dialogue"), message)
         val peak = message.substringAfter("peak=").substringBefore(",")
         assertTrue(peak != "0.000", message)
     }
