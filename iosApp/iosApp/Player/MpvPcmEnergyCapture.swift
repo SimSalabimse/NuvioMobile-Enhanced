@@ -236,7 +236,9 @@ final class MpvPcmEnergyCapture {
         setOption(created, "audio-samplerate", "48000")
         setOption(created, "audio-channels", "stereo")
         setOption(created, "audio-fallback-to-null", "no")
-        setOption(created, "hr-seek", "no")
+        // Precise start. A keyframe seek writes audio from before `start` and
+        // the stamp then sits about a GOP later than the speech (the -3.7s miss).
+        setOption(created, "hr-seek", "yes")
         setOption(created, "pause", "no")
         setOption(created, "keep-open", "no")
         setOption(created, "cache-pause", "no")
@@ -573,15 +575,18 @@ final class MpvPcmEnergyCapture {
 
 /// Media time of WAV sample 0.
 ///
-/// A URL decode seeks to `decodeStartMs`, which is also the timestamp origin, so a
-/// late keyframe is `origin + (firstFrame - decodeStart)`. A cache dump seeks at 0
-/// in a file whose packets still carry media PTS. Adding the dump origin on top of
-/// that PTS places the envelope one playhead later than the cues.
+/// A URL decode seeks to `decodeStartMs`, which is also the timestamp origin.
+/// `hr-seek=no` starts at the previous keyframe, so the wav's first frame is
+/// earlier than `start`. Stamping sample 0 at the request shifts every lag
+/// toward zero: a real −5s delay was reported as −3.7s. A late keyframe is the
+/// other direction and uses the same 1s gap. A cache dump seeks at 0 in a file
+/// whose packets still carry media PTS. Adding the dump origin on top of that
+/// PTS places the envelope one playhead later than the cues.
 func pcmSampleZeroMs(timestampOriginMs: Int64, decodeStartMs: Int64, firstFrameMs: Int64) -> Int64 {
     if timestampOriginMs == decodeStartMs {
         let seekGap = firstFrameMs - decodeStartMs
-        if seekGap >= 1_000 {
-            return timestampOriginMs + seekGap
+        if abs(seekGap) >= 1_000 {
+            return firstFrameMs
         }
         return timestampOriginMs
     }

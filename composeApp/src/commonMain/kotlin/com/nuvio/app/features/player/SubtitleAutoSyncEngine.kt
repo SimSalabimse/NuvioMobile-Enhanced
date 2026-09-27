@@ -40,6 +40,13 @@ object SubtitleAutoSyncEngine {
      * edge from beating the same dialogue pattern one period away.
      */
     private const val SPEECH_LAG_PENALTY = 0.08
+    /**
+     * Same dialogue showing up again near the search cap. It is one period
+     * of the pattern, not a second place the playhead could sync.
+     */
+    private const val PERIODIC_EDGE_MS = 7_000
+    /** Offsets inside this band are the playhead lag, not the cap. */
+    private const val PLAYHEAD_LAG_MS = 6_000
     
     /**
      * Compute the optimal subtitle offset by correlating audio energy with subtitle cue activity.
@@ -305,12 +312,17 @@ object SubtitleAutoSyncEngine {
             leadOverZero > MIN_OFFSET_LEAD &&
             leadOverRival > MIN_OFFSET_LEAD &&
             leadOverZero > leadOverRival * 0.5
-        return if (beatsZero) {
-            OffsetMatch(winner.first, min(leadOverZero, leadOverRival))
-        } else {
+        if (!beatsZero) {
             val zeroRival = bestDistinctPeak(correlations, 0)
-            OffsetMatch(0, scoreAtZero - zeroRival.second)
+            return OffsetMatch(0, scoreAtZero - zeroRival.second)
         }
+        // Flat speech still beats offset 0 by a wide margin, then loses the
+        // printed lead to a copy of that pattern near ±8s. That copy already
+        // lost the argmax. It must not keep a -5s lag under the 0.3 cutoff.
+        val periodicEdge = abs(rival.first) >= PERIODIC_EDGE_MS &&
+            abs(winner.first) <= PLAYHEAD_LAG_MS
+        val margin = if (periodicEdge) leadOverZero else min(leadOverZero, leadOverRival)
+        return OffsetMatch(winner.first, margin)
     }
 
     /**

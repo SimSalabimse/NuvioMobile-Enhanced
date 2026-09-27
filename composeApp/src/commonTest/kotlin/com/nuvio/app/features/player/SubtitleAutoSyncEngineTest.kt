@@ -109,6 +109,40 @@ class SubtitleAutoSyncEngineTest {
     }
 
     @Test
+    fun flatSpeechAtSeventeenMinutesClearsThePeriodicCopy() {
+        val playhead = 17 * 60 * 1000L
+        val lengths = listOf(1400L, 2800L, 1100L, 3200L, 1700L, 2500L, 1300L, 2900L, 1600L, 2100L, 1900L, 3000L)
+        val gaps = listOf(500L, 1100L, 350L, 1800L, 700L, 1400L, 450L, 2200L, 900L, 650L, 1600L)
+        val cues = ArrayList<SubtitleSyncCue>()
+        var cursor = playhead - 18_000L
+        lengths.forEachIndexed { index, length ->
+            cues.add(SubtitleSyncCue(cursor, cursor + length, "line"))
+            cursor += length + gaps[index % gaps.size]
+        }
+        val speech = cues.map { it.startTimeMs - 5_000L to it.endTimeMs - 5_000L }
+        val audio = speechDuring(
+            spans = speech,
+            attackDelay = false,
+            shape = "flat",
+            t0 = playhead - 24_000L,
+            t1 = playhead + 8_000L,
+        )
+        val result = sync(audio, cues, positionMs = playhead)
+        val offset = offsetOf(result)
+        assertTrue(abs(offset + 5_000) <= 1_000, "offset $offset")
+        assertTrue(offset != -3_700, "stamp-biased lag $offset")
+        assertTrue(result is SubtitleAutoSyncResult.Success, "expected Synced path, got $result")
+        val confidence = confidenceOf(result)
+        assertTrue(confidence >= 0.3, "margin $confidence")
+        val line = "Synced! Offset: ${formatOffsetMessage(offset)} " +
+            "(${formatEnergyStats(audio)}, margin: ${formatMargin(confidence)})"
+        assertTrue(line.startsWith("Synced! Offset:"), line)
+        assertFalse(line.contains("Low confidence sync"), line)
+        assertFalse(line.contains("-3.7s"), line)
+        assertTrue(result.movesSubtitleDelay())
+    }
+
+    @Test
     fun playheadSeventeenMinutesFollowsSpeechFiveSecondsEarly() {
         val playhead = 17 * 60 * 1000L
         val lengths = listOf(1400L, 2800L, 1100L, 3200L, 1700L, 2500L, 1300L, 2900L, 1600L, 2100L, 1900L, 3000L)
@@ -224,6 +258,7 @@ class SubtitleAutoSyncEngineTest {
                         val body = 0.55 + 0.45 * sin(progress * PI * 6.0)
                         if (attackDelay && progress < 0.12) 0.08 else body
                     }
+                    "flat" -> 1.0
                     else -> if (!attackDelay || progress > 0.2) {
                         sin(PI * progress).let { wave -> wave * wave }
                     } else {
