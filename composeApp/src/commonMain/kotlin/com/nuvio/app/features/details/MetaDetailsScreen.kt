@@ -605,6 +605,7 @@ fun MetaDetailsScreen(
                             todayIsoDate = todayIsoDate,
                             preferFurthestEpisode = cwPrefs.upNextFromFurthestEpisode,
                             watchedKeys = watchedUiState.watchedKeys,
+                            allowRewatch = true,
                         )
                     }
                 }
