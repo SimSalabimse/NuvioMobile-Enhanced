@@ -1,6 +1,8 @@
 package com.nuvio.app.features.player
 
 import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
@@ -25,6 +27,19 @@ object SubtitleAutoSyncEngine {
      * dialogue-length match is not a second peak.
      */
     private const val MIN_OFFSET_LEAD = 0.05
+    /** Raised-cosine taper at each end of a cue in the speech-mask pass. */
+    private const val SPEECH_CUE_EDGE = 0.08
+    /** Quiet-bed percentile removed before the speech mask is scaled. */
+    private const val SPEECH_FLOOR_PERCENTILE = 0.35
+    /** Scale the mask from this percentile so one hit cannot flatten speech. */
+    private const val SPEECH_SCALE_PERCENTILE = 0.75
+    /** 100ms bins on either side. A 7-bin average turns bursts into the line. */
+    private const val SPEECH_SMOOTH_RADIUS = 3
+    /**
+     * A lag near the ±10s cap is a shorter overlap. This penalty keeps that
+     * edge from beating the same dialogue pattern one period away.
+     */
+    private const val SPEECH_LAG_PENALTY = 0.08
     
     /**
      * Compute the optimal subtitle offset by correlating audio energy with subtitle cue activity.
@@ -74,9 +89,31 @@ object SubtitleAutoSyncEngine {
             )
         }
         
-        // Find best offset using cross-correlation
-        val bestOffset = findBestOffset(audioEnvelope, subtitleActivity, MAX_OFFSET_SEARCH_MS, OFFSET_STEP_MS)
-            ?: return SubtitleAutoSyncResult.Error("Could not determine reliable offset")
+        // The cosine template resolves the opening lines. Real speech is flatter,
+        // and a repeating cadence then ties an edge lag (the +9.6s miss) with
+        // the delay at the playhead. The speech mask picks that delay when it
+        // leads by more.
+        val shapeMatch = findBestOffset(audioEnvelope, subtitleActivity, MAX_OFFSET_SEARCH_MS, OFFSET_STEP_MS)
+        val speechEnvelope = buildSpeechEnergyEnvelope(windowedAudio, SAMPLE_WINDOW_MS)
+        val speechActivity = buildSpeechCueSignal(windowedCues, speechEnvelope, SAMPLE_WINDOW_MS)
+        val speechMatch = if (speechEnvelope.size >= 10 && speechActivity.any { it.value > 0.0 }) {
+            findBestOffset(
+                speechEnvelope,
+                speechActivity,
+                MAX_OFFSET_SEARCH_MS,
+                OFFSET_STEP_MS,
+                zerosOutside = true,
+                lagPenalty = SPEECH_LAG_PENALTY,
+            )
+        } else {
+            null
+        }
+        val bestOffset = when {
+            shapeMatch == null -> speechMatch
+            speechMatch == null -> shapeMatch
+            speechMatch.confidence > shapeMatch.confidence -> speechMatch
+            else -> shapeMatch
+        } ?: return SubtitleAutoSyncResult.Error("Could not determine reliable offset")
 
         // 0.3 is a correlation margin, not a z-score. A 1-sigma lead stays well below 1.
         return if (bestOffset.confidence < 0.3) {
@@ -93,31 +130,81 @@ object SubtitleAutoSyncEngine {
         samples: List<AudioEnergySample>,
         windowMs: Long,
     ): List<EnergyPoint> {
-        if (samples.isEmpty()) return emptyList()
-        
-        val startTime = samples.first().timestampMs
-        val endTime = samples.last().timestampMs
-        val points = mutableListOf<EnergyPoint>()
-        
-        var windowStart = startTime
-        while (windowStart <= endTime) {
-            val windowEnd = windowStart + windowMs
-            val windowSamples = samples.filter { it.timestampMs >= windowStart && it.timestampMs < windowEnd }
-            
-            if (windowSamples.isNotEmpty()) {
-                val avgEnergy = windowSamples.map { it.energy }.average()
-                points.add(EnergyPoint(windowStart + windowMs / 2, avgEnergy))
-            }
-            
-            windowStart += windowMs
-        }
-        
-        // Normalize energy values
+        val points = buildRawEnergyEnvelope(samples, windowMs)
         val maxEnergy = points.maxOfOrNull { it.value } ?: 1.0
         return if (maxEnergy > 0) {
             points.map { it.copy(value = it.value / maxEnergy) }
         } else {
             points
+        }
+    }
+
+    /**
+     * Speech mask for dialogue that is not a raised cosine. The quiet bed is
+     * removed, one loud hit cannot own the scale, and a short average fills
+     * the gaps inside a line.
+     */
+    private fun buildSpeechEnergyEnvelope(
+        samples: List<AudioEnergySample>,
+        windowMs: Long,
+    ): List<EnergyPoint> {
+        val raw = buildRawEnergyEnvelope(samples, windowMs)
+        if (raw.isEmpty()) return raw
+        val floor = percentile(raw.map { it.value }, SPEECH_FLOOR_PERCENTILE)
+        val lifted = raw.map { it.copy(value = max(0.0, it.value - floor)) }
+        val scale = percentile(lifted.map { it.value }, SPEECH_SCALE_PERCENTILE)
+        val scaled = if (scale > 0.0) {
+            lifted.map { it.copy(value = min(1.5, it.value / scale)) }
+        } else {
+            lifted
+        }
+        return smooth(scaled, SPEECH_SMOOTH_RADIUS)
+    }
+
+    private fun buildRawEnergyEnvelope(
+        samples: List<AudioEnergySample>,
+        windowMs: Long,
+    ): List<EnergyPoint> {
+        if (samples.isEmpty()) return emptyList()
+
+        val startTime = samples.first().timestampMs
+        val endTime = samples.last().timestampMs
+        val points = mutableListOf<EnergyPoint>()
+
+        var windowStart = startTime
+        while (windowStart <= endTime) {
+            val windowEnd = windowStart + windowMs
+            val windowSamples = samples.filter { it.timestampMs >= windowStart && it.timestampMs < windowEnd }
+
+            if (windowSamples.isNotEmpty()) {
+                val avgEnergy = windowSamples.map { it.energy }.average()
+                points.add(EnergyPoint(windowStart + windowMs / 2, avgEnergy))
+            }
+
+            windowStart += windowMs
+        }
+        return points
+    }
+
+    private fun percentile(values: List<Double>, fraction: Double): Double {
+        if (values.isEmpty()) return 0.0
+        val ordered = values.sorted()
+        val index = (fraction * (ordered.size - 1)).toInt().coerceIn(0, ordered.lastIndex)
+        return ordered[index]
+    }
+
+    private fun smooth(points: List<EnergyPoint>, radius: Int): List<EnergyPoint> {
+        if (radius <= 0 || points.size < 2) return points
+        return points.mapIndexed { index, point ->
+            var sum = 0.0
+            var count = 0
+            for (cursor in (index - radius)..(index + radius)) {
+                if (cursor in points.indices) {
+                    sum += points[cursor].value
+                    count += 1
+                }
+            }
+            point.copy(value = if (count > 0) sum / count else point.value)
         }
     }
     
@@ -149,6 +236,39 @@ object SubtitleAutoSyncEngine {
             EnergyPoint(audioPoint.timestampMs, level)
         }
     }
+
+    /**
+     * High for the whole line, with a short taper so a one-line slide still
+     * falls off. Bursts anywhere in the cue count, which a center-weighted
+     * cosine misses.
+     */
+    private fun buildSpeechCueSignal(
+        cues: List<SubtitleSyncCue>,
+        audioEnvelope: List<EnergyPoint>,
+        windowMs: Long,
+    ): List<EnergyPoint> {
+        val halfWindow = windowMs / 2
+        return audioEnvelope.map { audioPoint ->
+            val windowStart = audioPoint.timestampMs - halfWindow
+            val windowEnd = windowStart + windowMs
+            var level = 0.0
+            for (cue in cues) {
+                val cueEnd = if (cue.endTimeMs > cue.startTimeMs) cue.endTimeMs else cue.startTimeMs + windowMs
+                if (cue.startTimeMs >= windowEnd || cueEnd <= windowStart) continue
+                val length = (cueEnd - cue.startTimeMs).coerceAtLeast(1L).toDouble()
+                val progress = ((audioPoint.timestampMs - cue.startTimeMs).toDouble() / length).coerceIn(0.0, 1.0)
+                val shaped = if (progress < SPEECH_CUE_EDGE) {
+                    0.5 * (1.0 - cos(PI * progress / SPEECH_CUE_EDGE))
+                } else if (progress > 1.0 - SPEECH_CUE_EDGE) {
+                    0.5 * (1.0 - cos(PI * (1.0 - progress) / SPEECH_CUE_EDGE))
+                } else {
+                    1.0
+                }
+                if (shaped > level) level = shaped
+            }
+            EnergyPoint(audioPoint.timestampMs, level)
+        }
+    }
     
     /**
      * Cross-correlate mean-centered energy with cue activity.
@@ -160,14 +280,19 @@ object SubtitleAutoSyncEngine {
         subtitleActivity: List<EnergyPoint>,
         maxOffsetMs: Long,
         stepMs: Long,
+        zerosOutside: Boolean = false,
+        lagPenalty: Double = 0.0,
     ): OffsetMatch? {
         val searchOffsets = generateSequence(-maxOffsetMs) { it + stepMs }
             .takeWhile { it <= maxOffsetMs }
             .toList()
         if (searchOffsets.isEmpty()) return null
 
+        val penaltyScale = maxOffsetMs.toDouble().coerceAtLeast(1.0)
         val correlations = searchOffsets.map { offset ->
-            offset.toInt() to computeCorrelation(audioEnvelope, subtitleActivity, offset)
+            val raw = computeCorrelation(audioEnvelope, subtitleActivity, offset, zerosOutside)
+            val penalized = raw - lagPenalty * (abs(offset).toDouble() / penaltyScale)
+            offset.toInt() to penalized
         }
         val winner = correlations.maxByOrNull { it.second } ?: return null
         val scoreAtZero = correlations.firstOrNull { it.first == 0 }?.second ?: 0.0
@@ -241,12 +366,22 @@ object SubtitleAutoSyncEngine {
         audio: List<EnergyPoint>,
         subtitles: List<EnergyPoint>,
         offsetMs: Long,
+        zerosOutside: Boolean = false,
     ): Double {
         if (audio.size < 2 || subtitles.isEmpty()) return 0.0
 
         val shiftedSubtitles = subtitles.map { it.copy(timestampMs = it.timestampMs + offsetMs) }
-        val overlapStart = max(audio.first().timestampMs, shiftedSubtitles.first().timestampMs)
-        val overlapEnd = min(audio.last().timestampMs, shiftedSubtitles.last().timestampMs)
+        val overlapStart: Long
+        val overlapEnd: Long
+        if (zerosOutside) {
+            // Same samples at every lag. A short overlap cannot outscore the
+            // lines that actually sit on the speech.
+            overlapStart = audio.first().timestampMs
+            overlapEnd = audio.last().timestampMs
+        } else {
+            overlapStart = max(audio.first().timestampMs, shiftedSubtitles.first().timestampMs)
+            overlapEnd = min(audio.last().timestampMs, shiftedSubtitles.last().timestampMs)
+        }
         if (overlapStart >= overlapEnd) return 0.0
 
         val sampleInterval = (audio[1].timestampMs - audio[0].timestampMs).coerceAtLeast(50L)
@@ -255,7 +390,15 @@ object SubtitleAutoSyncEngine {
         var time = overlapStart
         while (time <= overlapEnd) {
             audioValues.add(interpolate(audio, time))
-            subtitleValues.add(interpolate(shiftedSubtitles, time))
+            subtitleValues.add(
+                if (zerosOutside &&
+                    (time < shiftedSubtitles.first().timestampMs || time > shiftedSubtitles.last().timestampMs)
+                ) {
+                    0.0
+                } else {
+                    interpolate(shiftedSubtitles, time)
+                },
+            )
             time += sampleInterval
         }
         if (audioValues.size < 2) return 0.0
@@ -353,10 +496,10 @@ internal fun formatOffsetMessage(offsetMs: Int): String {
     return "${formatted}s"
 }
 
-/** Subtitle Delay moves only for a lag that beat offset 0. */
+/** Subtitle Delay moves only for a confident lag that beat offset 0. */
 fun SubtitleAutoSyncResult.movesSubtitleDelay(): Boolean = when (this) {
     is SubtitleAutoSyncResult.Success -> offsetMs != 0
-    is SubtitleAutoSyncResult.LowConfidence -> offsetMs != 0
+    is SubtitleAutoSyncResult.LowConfidence -> false
     is SubtitleAutoSyncResult.Error -> false
 }
 
