@@ -2058,8 +2058,8 @@
     <string name="submit_intro_segment_recap">Resumen</string>
     <string name="submit_intro_segment_outro">Outro</string>
     <string name="submit_intro_segment_preview">Preview</string>
-    <string name="submit_intro_start_time">HORA DE INICIO (MM:SS)</string>
-    <string name="submit_intro_end_time">HORA DE FINALIZACIÓN (MM:SS)</string>
+    <string name="submit_intro_start_time">HORA DE INICIO (HH:MM:SS)</string>
+    <string name="submit_intro_end_time">HORA DE FINALIZACIÓN (HH:MM:SS)</string>
     <string name="submit_intro_submit">Entregar</string>
     <string name="submit_intro_capture">Captura</string>
     <string name="settings_playback_ios_hw_decoder_dialog">Decodificador de hardware</string>
@@ -2183,9 +2183,9 @@
     <string name="submit_intro_action">Enviar introducción</string>
     <string name="submit_intro_button_submit">Entregar</string>
     <string name="submit_intro_capture_button">Captura</string>
-    <string name="submit_intro_end_time_label">HORA DE FINALIZACIÓN (MM:SS)</string>
+    <string name="submit_intro_end_time_label">HORA DE FINALIZACIÓN (HH:MM:SS)</string>
     <string name="submit_intro_segment_type_label">TIPO DE SEGMENTO</string>
-    <string name="submit_intro_start_time_label">HORA DE INICIO (MM:SS)</string>
+    <string name="submit_intro_start_time_label">HORA DE INICIO (HH:MM:SS)</string>
     <string name="trakt_connected_status">Conectado a Trakt</string>
     <string name="trakt_disconnected_status">Desconectado de Trakt</string>
     <string name="unit_bytes_tb">tuberculosis</string>

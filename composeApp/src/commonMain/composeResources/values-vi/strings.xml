@@ -2096,8 +2096,8 @@
     <string name="submit_intro_segment_recap">Tóm tắt</string>
     <string name="submit_intro_segment_outro">Đoạn kết</string>
     <string name="submit_intro_segment_preview">Preview</string>
-    <string name="submit_intro_start_time">THỜI ĐIỂM BẮT ĐẦU (MM:SS)</string>
-    <string name="submit_intro_end_time">THỜI ĐIỂM KẾT THÚC (MM:SS)</string>
+    <string name="submit_intro_start_time">THỜI ĐIỂM BẮT ĐẦU (HH:MM:SS)</string>
+    <string name="submit_intro_end_time">THỜI ĐIỂM KẾT THÚC (HH:MM:SS)</string>
     <string name="submit_intro_submit">Gửi</string>
     <string name="submit_intro_capture">Đánh dấu</string>
     <!-- iOS advanced playback -->
@@ -2228,9 +2228,9 @@
     <string name="submit_intro_action">Gửi mốc thời gian Giới thiệu</string>
     <string name="submit_intro_button_submit">Gửi</string>
     <string name="submit_intro_capture_button">Đánh dấu</string>
-    <string name="submit_intro_end_time_label">THỜI ĐIỂM KẾT THÚC (MM:SS)</string>
+    <string name="submit_intro_end_time_label">THỜI ĐIỂM KẾT THÚC (HH:MM:SS)</string>
     <string name="submit_intro_segment_type_label">LOẠI PHÂN ĐOẠN</string>
-    <string name="submit_intro_start_time_label">THỜI ĐIỂM BẮT ĐẦU (MM:SS)</string>
+    <string name="submit_intro_start_time_label">THỜI ĐIỂM BẮT ĐẦU (HH:MM:SS)</string>
     <string name="trakt_connected_status">Đã kết nối với Trakt</string>
     <string name="trakt_disconnected_status">Đã ngắt kết nối từ Trakt</string>
     <string name="unit_bytes_tb">TB</string>

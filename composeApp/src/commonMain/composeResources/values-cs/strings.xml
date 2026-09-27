@@ -1736,8 +1736,8 @@
     <string name="submit_intro_segment_recap">Rekapitulace</string>
     <string name="submit_intro_segment_outro">Outro</string>
     <string name="submit_intro_segment_preview">Preview</string>
-    <string name="submit_intro_start_time">ČAS ZAČÁTKU (MM:SS)</string>
-    <string name="submit_intro_end_time">ČAS KONCE (MM:SS)</string>
+    <string name="submit_intro_start_time">ČAS ZAČÁTKU (HH:MM:SS)</string>
+    <string name="submit_intro_end_time">ČAS KONCE (HH:MM:SS)</string>
     <string name="submit_intro_submit">Odeslat</string>
     <string name="submit_intro_capture">Zachytit</string>
     <!-- iOS advanced playback -->
@@ -1868,9 +1868,9 @@
     <string name="submit_intro_action">Odeslat intro</string>
     <string name="submit_intro_button_submit">Odeslat</string>
     <string name="submit_intro_capture_button">Zachytit</string>
-    <string name="submit_intro_end_time_label">ČAS KONCE (MM:SS)</string>
+    <string name="submit_intro_end_time_label">ČAS KONCE (HH:MM:SS)</string>
     <string name="submit_intro_segment_type_label">TYP ÚSEKU</string>
-    <string name="submit_intro_start_time_label">ČAS ZAČÁTKU (MM:SS)</string>
+    <string name="submit_intro_start_time_label">ČAS ZAČÁTKU (HH:MM:SS)</string>
     <string name="trakt_connected_status">Připojeno k Trakt</string>
     <string name="trakt_disconnected_status">Odpojeno od Trakt</string>
     <string name="unit_bytes_tb">TB</string>

@@ -1905,8 +1905,8 @@
     <string name="submit_intro_segment_recap">الملخص</string>
     <string name="submit_intro_segment_outro">النهاية</string>
     <string name="submit_intro_segment_preview">Preview</string>
-    <string name="submit_intro_start_time">وقت البداية (MM:SS)</string>
-    <string name="submit_intro_end_time">وقت النهاية (MM:SS)</string>
+    <string name="submit_intro_start_time">وقت البداية (HH:MM:SS)</string>
+    <string name="submit_intro_end_time">وقت النهاية (HH:MM:SS)</string>
     <string name="submit_intro_submit">إرسال</string>
     <string name="submit_intro_capture">التقاط</string>
     <string name="settings_playback_ios_hw_decoder_dialog">فك الترميز العتادي</string>
@@ -2030,9 +2030,9 @@
     <string name="submit_intro_action">إرسال المقدمة</string>
     <string name="submit_intro_button_submit">إرسال</string>
     <string name="submit_intro_capture_button">التقاط</string>
-    <string name="submit_intro_end_time_label">وقت النهاية (MM:SS)</string>
+    <string name="submit_intro_end_time_label">وقت النهاية (HH:MM:SS)</string>
     <string name="submit_intro_segment_type_label">نوع المقطع</string>
-    <string name="submit_intro_start_time_label">وقت البداية (MM:SS)</string>
+    <string name="submit_intro_start_time_label">وقت البداية (HH:MM:SS)</string>
     <string name="trakt_connected_status">تم الاتصال بـ Trakt</string>
     <string name="trakt_disconnected_status">مفصول عن Trakt</string>
     <string name="unit_bytes_tb">TB</string>

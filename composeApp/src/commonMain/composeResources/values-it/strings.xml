@@ -1780,8 +1780,8 @@
   <string name="submit_intro_segment_recap">Riassunto</string>
   <string name="submit_intro_segment_outro">Outro</string>
     <string name="submit_intro_segment_preview">Preview</string>
-  <string name="submit_intro_start_time">TEMPO INIZIALE (MM:SS)</string>
-  <string name="submit_intro_end_time">TEMPO FINALE (MM:SS)</string>
+  <string name="submit_intro_start_time">TEMPO INIZIALE (HH:MM:SS)</string>
+  <string name="submit_intro_end_time">TEMPO FINALE (HH:MM:SS)</string>
   <string name="submit_intro_submit">Invia</string>
   <string name="submit_intro_capture">Acquisisci</string>
   <string name="settings_playback_ios_hw_decoder_dialog">Decoder hardware</string>
@@ -1901,9 +1901,9 @@
   <string name="submit_intro_action">Invia intro</string>
   <string name="submit_intro_button_submit">Invia</string>
   <string name="submit_intro_capture_button">Acquisisci</string>
-  <string name="submit_intro_end_time_label">TEMPO FINALE (MM:SS)</string>
+  <string name="submit_intro_end_time_label">TEMPO FINALE (HH:MM:SS)</string>
   <string name="submit_intro_segment_type_label">TIPO DI SEGMENTO</string>
-  <string name="submit_intro_start_time_label">TEMPO INIZIALE (MM:SS)</string>
+  <string name="submit_intro_start_time_label">TEMPO INIZIALE (HH:MM:SS)</string>
   <string name="trakt_connected_status">Connesso a Trakt</string>
   <string name="trakt_disconnected_status">Disconnesso da Trakt</string>
   <string name="unit_bytes_tb">TB</string>

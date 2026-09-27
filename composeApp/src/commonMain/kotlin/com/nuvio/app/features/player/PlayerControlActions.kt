@@ -60,10 +60,18 @@ internal fun PlayerToolbar(
     isLocked: Boolean,
     onLockToggle: () -> Unit,
     onBack: () -> Unit,
+    onSubmitIntroClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Spacer(Modifier.weight(1f))
+        if (onSubmitIntroClick != null) {
+            PlayerAction(
+                description = stringResource(Res.string.submit_intro_action),
+                icon = Icons.Rounded.Flag,
+                onClick = onSubmitIntroClick,
+            )
+        }
         PlayerAction(
             description = stringResource(
                 if (isLocked) Res.string.compose_player_unlock_controls else Res.string.compose_player_lock_controls,
@@ -99,7 +107,6 @@ internal fun PlayerControlActions(
     onResizeModeClick: () -> Unit,
     onVideoSettingsClick: (() -> Unit)?,
     onOpenInExternalPlayer: (() -> Unit)?,
-    onSubmitIntroClick: (() -> Unit)?,
     qualityLabel: String? = null,
     onQualityClick: (() -> Unit)? = null,
     onPictureInPictureClick: (() -> Unit)? = null,
@@ -157,12 +164,6 @@ internal fun PlayerControlActions(
             PlayerControlAction(
                 stringResource(Res.string.player_action_video_settings), it,
                 icon = Icons.Rounded.Build,
-            )
-        },
-        onSubmitIntroClick?.let {
-            PlayerControlAction(
-                stringResource(Res.string.submit_intro_action), it,
-                icon = Icons.Rounded.Flag,
             )
         },
         onPictureInPictureClick?.let {

@@ -15,6 +15,7 @@ import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.livetv.LiveTvUiState
 import com.nuvio.app.features.p2p.P2pSettingsUiState
 import com.nuvio.app.features.p2p.P2pStreamingState
+import com.nuvio.app.features.player.skip.EMPTY_SKIP_TIMESTAMP
 import com.nuvio.app.features.player.skip.NextEpisodeInfo
 import com.nuvio.app.features.player.skip.SkipInterval
 import com.nuvio.app.features.streams.StreamsUiState
@@ -182,8 +183,8 @@ internal class PlayerScreenRuntime(
     var showLiveChannelsPanel by mutableStateOf(false)
     var showSubmitIntroModal by mutableStateOf(false)
     var submitIntroSegmentType by mutableStateOf("intro")
-    var submitIntroStartTimeStr by mutableStateOf("00:00")
-    var submitIntroEndTimeStr by mutableStateOf("00:00")
+    var submitIntroStartTimeStr by mutableStateOf(EMPTY_SKIP_TIMESTAMP)
+    var submitIntroEndTimeStr by mutableStateOf(EMPTY_SKIP_TIMESTAMP)
     val submittedSegmentTypesByVideoId = mutableMapOf<String, MutableSet<String>>()
     var episodeStreamsPanelState by mutableStateOf(EpisodeStreamsPanelState())
     var playerMetaVideos by mutableStateOf<List<MetaVideo>>(emptyList())

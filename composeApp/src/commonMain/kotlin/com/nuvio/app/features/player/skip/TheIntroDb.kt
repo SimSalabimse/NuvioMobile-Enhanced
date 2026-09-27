@@ -119,30 +119,18 @@ internal object TheIntroDb {
         endSec: Double?,
         videoDurationMs: Long? = null,
     ): Boolean {
-        if (apiKey.isBlank() || tmdbId <= 0) return false
-        val normalizedType = if (type.equals("movie", ignoreCase = true)) "movie" else "tv"
-        val normalizedSegment = when (segment.lowercase()) {
-            "intro", "op", "mixed-op" -> "intro"
-            "recap" -> "recap"
-            "outro", "ed", "credits", "ending", "movie-credits" -> "credits"
-            "preview" -> "preview"
-            else -> return false
-        }
-        val body = buildJsonObject {
-            put("tmdb_id", tmdbId)
-            if (!imdbId.isNullOrBlank()) put("imdb_id", imdbId)
-            put("type", normalizedType)
-            put("segment", normalizedSegment)
-            if (normalizedType == "tv") {
-                if (season != null) put("season", season)
-                if (episode != null) put("episode", episode)
-            }
-            if (videoDurationMs != null && videoDurationMs > 0) {
-                put("video_duration_ms", videoDurationMs)
-            }
-            if (startSec != null) put("start_ms", (startSec * 1000.0).toLong())
-            if (endSec != null) put("end_ms", (endSec * 1000.0).toLong())
-        }.toString()
+        if (apiKey.isBlank()) return false
+        val body = theIntroDbSubmitPayload(
+            tmdbId = tmdbId,
+            imdbId = imdbId,
+            type = type,
+            segment = segment,
+            season = season,
+            episode = episode,
+            startSec = startSec,
+            endSec = endSec,
+            videoDurationMs = videoDurationMs,
+        ) ?: return false
         return try {
             val response = httpRequestRaw(
                 method = "POST",
@@ -160,6 +148,48 @@ internal object TheIntroDb {
             false
         }
     }
+}
+
+/**
+ * Body for `POST /v3/submit`.
+ * A segment that is not in the media is `start_ms` 0 and `end_ms` 0.
+ * `video_duration_ms` stays the real stream length when it is known.
+ */
+internal fun theIntroDbSubmitPayload(
+    tmdbId: Int,
+    imdbId: String? = null,
+    type: String,
+    segment: String,
+    season: Int? = null,
+    episode: Int? = null,
+    startSec: Double? = null,
+    endSec: Double? = null,
+    videoDurationMs: Long? = null,
+): String? {
+    if (tmdbId <= 0) return null
+    val normalizedType = if (type.equals("movie", ignoreCase = true)) "movie" else "tv"
+    val normalizedSegment = when (segment.lowercase()) {
+        "intro", "op", "mixed-op" -> "intro"
+        "recap" -> "recap"
+        "outro", "ed", "credits", "ending", "movie-credits" -> "credits"
+        "preview" -> "preview"
+        else -> return null
+    }
+    return buildJsonObject {
+        put("tmdb_id", tmdbId)
+        if (!imdbId.isNullOrBlank()) put("imdb_id", imdbId)
+        put("type", normalizedType)
+        put("segment", normalizedSegment)
+        if (normalizedType == "tv") {
+            if (season != null) put("season", season)
+            if (episode != null) put("episode", episode)
+        }
+        if (videoDurationMs != null && videoDurationMs > 0) {
+            put("video_duration_ms", videoDurationMs)
+        }
+        if (startSec != null) put("start_ms", (startSec * 1000.0).toLong())
+        if (endSec != null) put("end_ms", (endSec * 1000.0).toLong())
+    }.toString()
 }
 
 @Serializable

@@ -2013,8 +2013,8 @@
     <string name="submit_intro_segment_recap">Резюме</string>
     <string name="submit_intro_segment_outro">Финал</string>
     <string name="submit_intro_segment_preview">Preview</string>
-    <string name="submit_intro_start_time">НАЧАЛНО ВРЕМЕ (ММ:СС)</string>
-    <string name="submit_intro_end_time">КРАЙНО ВРЕМЕ (ММ:СС)</string>
+    <string name="submit_intro_start_time">НАЧАЛНО ВРЕМЕ (ЧЧ:ММ:СС)</string>
+    <string name="submit_intro_end_time">КРАЙНО ВРЕМЕ (ЧЧ:ММ:СС)</string>
     <string name="submit_intro_submit">Изпрати</string>
     <string name="submit_intro_capture">Запиши</string>
 <!--  iOS advanced playback  -->
@@ -2145,9 +2145,9 @@
     <string name="submit_intro_action">Изпрати въведение</string>
     <string name="submit_intro_button_submit">Изпрати</string>
     <string name="submit_intro_capture_button">Запиши</string>
-    <string name="submit_intro_end_time_label">КРАЙНО ВРЕМЕ (ММ:СС)</string>
+    <string name="submit_intro_end_time_label">КРАЙНО ВРЕМЕ (ЧЧ:ММ:СС)</string>
     <string name="submit_intro_segment_type_label">ТИП НА СЕГМЕНТА</string>
-    <string name="submit_intro_start_time_label">НАЧАЛНО ВРЕМЕ (ММ:СС)</string>
+    <string name="submit_intro_start_time_label">НАЧАЛНО ВРЕМЕ (ЧЧ:ММ:СС)</string>
     <string name="trakt_connected_status">Свързан с Trakt</string>
     <string name="trakt_disconnected_status">Прекъснат от Trakt</string>
     <string name="unit_bytes_tb">ТБ</string>

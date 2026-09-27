@@ -1740,8 +1740,8 @@
     <string name="submit_intro_segment_recap">Recapitulare</string>
     <string name="submit_intro_segment_outro">Outro</string>
     <string name="submit_intro_segment_preview">Preview</string>
-    <string name="submit_intro_start_time">TIMP PORNIRE (MM:SS)</string>
-    <string name="submit_intro_end_time">TIMP FINAL (MM:SS)</string>
+    <string name="submit_intro_start_time">TIMP PORNIRE (HH:MM:SS)</string>
+    <string name="submit_intro_end_time">TIMP FINAL (HH:MM:SS)</string>
     <string name="submit_intro_submit">Trimite</string>
     <string name="submit_intro_capture">Captează</string>
     <string name="settings_playback_ios_hw_decoder_dialog">Decodor hardware</string>
@@ -1865,9 +1865,9 @@
     <string name="submit_intro_action">Trimite Intro</string>
     <string name="submit_intro_button_submit">Trimite</string>
     <string name="submit_intro_capture_button">Captează</string>
-    <string name="submit_intro_end_time_label">TIMP FINAL (MM:SS)</string>
+    <string name="submit_intro_end_time_label">TIMP FINAL (HH:MM:SS)</string>
     <string name="submit_intro_segment_type_label">TIP SEGMENT</string>
-    <string name="submit_intro_start_time_label">TIMP PORNIRE (MM:SS)</string>
+    <string name="submit_intro_start_time_label">TIMP PORNIRE (HH:MM:SS)</string>
     <string name="trakt_connected_status">Conectat la Trakt</string>
     <string name="trakt_disconnected_status">Deconectat de la Trakt</string>
     <string name="unit_bytes_tb">TB</string>

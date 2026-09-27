@@ -2013,8 +2013,8 @@
     <string name="submit_intro_segment_recap">Краткий пересказ</string>
     <string name="submit_intro_segment_outro">Аутро</string>
     <string name="submit_intro_segment_preview">Preview</string>
-    <string name="submit_intro_start_time">ВРЕМЯ НАЧАЛА (ММ:СС)</string>
-    <string name="submit_intro_end_time">ВРЕМЯ КОНЦА (ММ:СС)</string>
+    <string name="submit_intro_start_time">ВРЕМЯ НАЧАЛА (ЧЧ:ММ:СС)</string>
+    <string name="submit_intro_end_time">ВРЕМЯ КОНЦА (ЧЧ:ММ:СС)</string>
     <string name="submit_intro_submit">Отправить</string>
     <string name="submit_intro_capture">Захват</string>
     <!-- iOS advanced playback -->
@@ -2145,9 +2145,9 @@
     <string name="submit_intro_action">Отправить введение</string>
     <string name="submit_intro_button_submit">Отправить</string>
     <string name="submit_intro_capture_button">Захват</string>
-    <string name="submit_intro_end_time_label">ВРЕМЯ КОНЦА (ММ:СС)</string>
+    <string name="submit_intro_end_time_label">ВРЕМЯ КОНЦА (ЧЧ:ММ:СС)</string>
     <string name="submit_intro_segment_type_label">ТИП СЕГМЕНТА</string>
-    <string name="submit_intro_start_time_label">ВРЕМЯ НАЧАЛА (ММ:СС)</string>
+    <string name="submit_intro_start_time_label">ВРЕМЯ НАЧАЛА (ЧЧ:ММ:СС)</string>
     <string name="trakt_connected_status">Подключен к Trakt.</string>
     <string name="trakt_disconnected_status">Отключено от Trakt</string>
     <string name="unit_bytes_tb">ТБ</string>

@@ -20,6 +20,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.layout.onSizeChanged
+import com.nuvio.app.features.player.skip.EMPTY_SKIP_TIMESTAMP
 import com.nuvio.app.features.player.skip.PlayerNextEpisodeRules
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.features.p2p.P2pStreamingState
@@ -483,18 +484,14 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
                     )
                 }
             },
-            onSubmitIntroClick = if (playerSettingsUiState.canSubmitIntroSegments()) {
-                {
-                    InAppLogger.info(
-                        "Player/SkipIntro",
-                        "open submit dialog videoId=${activeVideoId.orEmpty()} " +
-                            "isSeries=$isSeries s=${activeSeasonNumber ?: 0} e=${activeEpisodeNumber ?: 0} " +
-                            "positionMs=$displayedPositionMs",
-                    )
-                    showSubmitIntroModal = true
-                }
-            } else {
-                null
+            onSubmitIntroClick = {
+                InAppLogger.info(
+                    "Player/SkipIntro",
+                    "open submit dialog videoId=${activeVideoId.orEmpty()} " +
+                        "isSeries=$isSeries s=${activeSeasonNumber ?: 0} e=${activeEpisodeNumber ?: 0} " +
+                        "positionMs=$displayedPositionMs",
+                )
+                showSubmitIntroModal = true
             },
             parentalWarnings = parentalWarnings,
             showParentalGuide = showParentalGuide,
@@ -866,8 +863,8 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
                 submittedSegmentTypesByVideoId.getOrPut(currentVideoId) { mutableSetOf() }
                     .add(submitIntroSegmentType)
             }
-            submitIntroStartTimeStr = "00:00"
-            submitIntroEndTimeStr = "00:00"
+            submitIntroStartTimeStr = EMPTY_SKIP_TIMESTAMP
+            submitIntroEndTimeStr = EMPTY_SKIP_TIMESTAMP
             submitIntroSegmentType = "intro"
             showSubmitIntroModal = false
         },

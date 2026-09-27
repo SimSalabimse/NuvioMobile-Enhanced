@@ -1749,8 +1749,8 @@
     <string name="submit_intro_segment_recap">Récap</string>
     <string name="submit_intro_segment_outro">Outro</string>
     <string name="submit_intro_segment_preview">Preview</string>
-    <string name="submit_intro_start_time">DÉBUT (MM:SS)</string>
-    <string name="submit_intro_end_time">FIN (MM:SS)</string>
+    <string name="submit_intro_start_time">DÉBUT (HH:MM:SS)</string>
+    <string name="submit_intro_end_time">FIN (HH:MM:SS)</string>
     <string name="submit_intro_submit">Soumettre</string>
     <string name="submit_intro_capture">Capturer</string>
     <!-- iOS advanced playback -->
@@ -1895,9 +1895,9 @@
     <string name="submit_intro_action">Soumettre l’intro</string>
     <string name="submit_intro_button_submit">Soumettre</string>
     <string name="submit_intro_capture_button">Capturer</string>
-    <string name="submit_intro_end_time_label">FIN (MM:SS)</string>
+    <string name="submit_intro_end_time_label">FIN (HH:MM:SS)</string>
     <string name="submit_intro_segment_type_label">TYPE DE SEGMENT</string>
-    <string name="submit_intro_start_time_label">DÉBUT (MM:SS)</string>
+    <string name="submit_intro_start_time_label">DÉBUT (HH:MM:SS)</string>
     <string name="trakt_connected_status">Connecté à Trakt</string>
     <string name="trakt_disconnected_status">Déconnecté de Trakt</string>
     <string name="unit_bytes_tb">To</string>

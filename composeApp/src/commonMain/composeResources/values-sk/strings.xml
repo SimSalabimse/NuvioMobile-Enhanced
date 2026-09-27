@@ -1707,8 +1707,8 @@
     <string name="submit_intro_segment_recap">Rekapitulácia</string>
     <string name="submit_intro_segment_outro">Outro</string>
     <string name="submit_intro_segment_preview">Preview</string>
-    <string name="submit_intro_start_time">ZAČIATOČNÝ ČAS (MM:SS)</string>
-    <string name="submit_intro_end_time">KONCOVÝ ČAS (MM:SS)</string>
+    <string name="submit_intro_start_time">ZAČIATOČNÝ ČAS (HH:MM:SS)</string>
+    <string name="submit_intro_end_time">KONCOVÝ ČAS (HH:MM:SS)</string>
     <string name="submit_intro_submit">Odoslať</string>
     <string name="submit_intro_capture">Zachytiť</string>
     <!-- iOS advanced playback -->
@@ -1839,9 +1839,9 @@
     <string name="submit_intro_action">Odoslať Intro</string>
     <string name="submit_intro_button_submit">Odoslať</string>
     <string name="submit_intro_capture_button">Zachytiť</string>
-    <string name="submit_intro_end_time_label">KONCOVÝ ČAS (MM:SS)</string>
+    <string name="submit_intro_end_time_label">KONCOVÝ ČAS (HH:MM:SS)</string>
     <string name="submit_intro_segment_type_label">TYP SEGMENTU</string>
-    <string name="submit_intro_start_time_label">ZAČIATOČNÝ ČAS (MM:SS)</string>
+    <string name="submit_intro_start_time_label">ZAČIATOČNÝ ČAS (HH:MM:SS)</string>
     <string name="trakt_connected_status">Pripojené k Trakt</string>
     <string name="trakt_disconnected_status">Odpojené od Trakt</string>
     <string name="unit_bytes_tb">TB</string>

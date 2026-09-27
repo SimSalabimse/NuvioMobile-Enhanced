@@ -243,11 +243,8 @@ internal fun PlayerScreenModalHosts(
         ?: metaUiState.meta?.id?.takeIf { it.startsWith("tt") }
         ?: metaUiState.meta?.imdbId?.takeIf { it.startsWith("tt") }
     val isMovie = !isSeries || parentMetaType.equals("movie", ignoreCase = true)
-    val canSubmit = showSubmitIntroModal && (
-        isMovie || (season != null && episode != null)
-    )
 
-    if (canSubmit) {
+    if (showSubmitIntroModal) {
         com.nuvio.app.features.player.skip.SubmitIntroDialog(
             imdbId = imdbId.orEmpty(),
             season = season ?: 0,

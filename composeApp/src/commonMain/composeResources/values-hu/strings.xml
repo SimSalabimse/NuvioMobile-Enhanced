@@ -1725,8 +1725,8 @@
     <string name="submit_intro_segment_recap">Recap (Összefoglaló)</string>
     <string name="submit_intro_segment_outro">Outro (Stáblista)</string>
     <string name="submit_intro_segment_preview">Preview</string>
-    <string name="submit_intro_start_time">KEZDETI IDŐ (MM:SS)</string>
-    <string name="submit_intro_end_time">VÉG_IDŐ (MM:SS)</string>
+    <string name="submit_intro_start_time">KEZDETI IDŐ (HH:MM:SS)</string>
+    <string name="submit_intro_end_time">VÉG_IDŐ (HH:MM:SS)</string>
     <string name="submit_intro_submit">Beküldés</string>
     <string name="submit_intro_capture">Rögzítés</string>
     <string name="settings_playback_ios_hw_decoder_dialog">Hardveres dekóder</string>
@@ -1850,9 +1850,9 @@
     <string name="submit_intro_action">Időbélyegek beküldése</string>
     <string name="submit_intro_button_submit">Beküldés</string>
     <string name="submit_intro_capture_button">Rögzítés</string>
-    <string name="submit_intro_end_time_label">VÉG_IDŐ (MM:SS)</string>
+    <string name="submit_intro_end_time_label">VÉG_IDŐ (HH:MM:SS)</string>
     <string name="submit_intro_segment_type_label">SZAKASZ TÍPUSA</string>
-    <string name="submit_intro_start_time_label">KEZDETI IDŐ (MM:SS)</string>
+    <string name="submit_intro_start_time_label">KEZDETI IDŐ (HH:MM:SS)</string>
     <string name="trakt_connected_status">Csatlakozva a Trakthoz</string>
     <string name="trakt_disconnected_status">Lecsatlakozva a Traktól</string>
     <string name="unit_bytes_tb">TB</string>

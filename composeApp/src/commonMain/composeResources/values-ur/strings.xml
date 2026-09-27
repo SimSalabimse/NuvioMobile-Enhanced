@@ -2094,8 +2094,8 @@
     <string name="submit_intro_segment_intro">انٹرو</string>
     <string name="submit_intro_segment_recap">خلاصہ</string>
     <string name="submit_intro_segment_outro">اختتامی حصہ</string>
-    <string name="submit_intro_start_time">آغاز کا وقت (MM:SS)</string>
-    <string name="submit_intro_end_time">اختتام کا وقت (MM:SS)</string>
+    <string name="submit_intro_start_time">آغاز کا وقت (HH:MM:SS)</string>
+    <string name="submit_intro_end_time">اختتام کا وقت (HH:MM:SS)</string>
     <string name="submit_intro_submit">جمع کریں</string>
     <string name="submit_intro_capture">کیپچر کریں</string>
     <!-- iOS advanced playback -->
@@ -2226,9 +2226,9 @@
     <string name="submit_intro_action">انٹرو جمع کریں</string>
     <string name="submit_intro_button_submit">جمع کریں</string>
     <string name="submit_intro_capture_button">کیپچر کریں</string>
-    <string name="submit_intro_end_time_label">اختتام کا وقت (MM:SS)</string>
+    <string name="submit_intro_end_time_label">اختتام کا وقت (HH:MM:SS)</string>
     <string name="submit_intro_segment_type_label">حصے کی قسم</string>
-    <string name="submit_intro_start_time_label">آغاز کا وقت (MM:SS)</string>
+    <string name="submit_intro_start_time_label">آغاز کا وقت (HH:MM:SS)</string>
     <string name="trakt_connected_status">Trakt سے منسلک ہے</string>
     <string name="trakt_disconnected_status">Trakt سے منقطع ہے</string>
     <string name="unit_bytes_tb">TB</string>
