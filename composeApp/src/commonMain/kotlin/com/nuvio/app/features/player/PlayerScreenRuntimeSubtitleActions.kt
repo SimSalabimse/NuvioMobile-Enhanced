@@ -224,22 +224,6 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
     }
 }
 
-private fun formatEnergyStats(samples: List<AudioEnergySample>): String {
-    var peak = 0.0
-    for (sample in samples) {
-        val energy = kotlin.math.abs(sample.energy)
-        if (energy > peak) peak = energy
-    }
-    return "N=${samples.size}, peak=${formatFixed3(peak)}"
-}
-
-private fun formatFixed3(value: Double): String {
-    val scaled = (kotlin.math.abs(value) * 1000.0).toInt().coerceIn(0, 999_999)
-    val whole = scaled / 1000
-    val fraction = (scaled % 1000).toString().padStart(3, '0')
-    return "$whole.$fraction"
-}
-
 internal fun PlayerScreenRuntime.applySubtitleAutoSyncCue(cue: SubtitleSyncCue) {
     val capturedPositionMs = subtitleAutoSyncState.capturedPositionMs ?: return
     val newDelayMs = (capturedPositionMs - cue.startTimeMs - SUBTITLE_AUTO_SYNC_REACTION_COMPENSATION_MS)

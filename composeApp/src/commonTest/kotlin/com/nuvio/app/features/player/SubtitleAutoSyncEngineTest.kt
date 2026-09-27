@@ -62,6 +62,39 @@ class SubtitleAutoSyncEngineTest {
     }
 
     @Test
+    fun openingLinesInsideTheCaptureSyncAtZero() {
+        val spans = listOf(18_000L to 19_800L, 20_000L to 22_200L)
+        val cues = listOf(
+            SubtitleSyncCue(18_000L, 19_800L, "Hva har skjedd her?"),
+            SubtitleSyncCue(20_000L, 22_200L, "Du sov mens Lisbon"),
+        )
+        val audio = speechDuring(spans, attackDelay = true).filter { it.timestampMs in 0L..22_000L }
+        val result = sync(audio, cues, positionMs = 20_000L)
+        assertEquals(0, offsetOf(result))
+        assertTrue(result is SubtitleAutoSyncResult.Success, "expected Synced path, got $result")
+        val confidence = confidenceOf(result)
+        assertTrue(confidence >= 0.3, "margin $confidence")
+        assertFalse(result.toString().contains("Insufficient dialogue activity detected"))
+        assertFalse(result.toString().contains("Low confidence sync"))
+    }
+
+    @Test
+    fun audioAfterTheLinesReportsEnergyInsteadOfInsufficientDialogue() {
+        val cues = listOf(
+            SubtitleSyncCue(18_000L, 19_800L, "Hva har skjedd her?"),
+            SubtitleSyncCue(20_000L, 21_600L, "Du sov mens Lisbon"),
+        )
+        val audio = speechDuring(emptyList(), attackDelay = false).filter { it.timestampMs in 23_000L..43_000L }
+        val result = sync(audio, cues, positionMs = 22_000L)
+        val message = (result as SubtitleAutoSyncResult.Error).message
+        assertFalse(message.contains("Insufficient dialogue activity detected"))
+        assertTrue(message.contains("N="), message)
+        assertTrue(message.contains("peak="), message)
+        val peak = message.substringAfter("peak=").substringBefore(",")
+        assertTrue(peak != "0.000", message)
+    }
+
+    @Test
     fun lowConfidenceWithCuesOnScreenDoesNotAskForMoreDialogue() {
         val message = autoSyncLowConfidenceMessage(
             offsetMs = 0,

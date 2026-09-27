@@ -1,7 +1,9 @@
 package com.nuvio.app.features.player
 
+import kotlin.math.PI
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
@@ -65,7 +67,11 @@ object SubtitleAutoSyncEngine {
         val subtitleActivity = buildSubtitleActivitySignal(windowedCues, audioEnvelope, SAMPLE_WINDOW_MS)
         
         if (audioEnvelope.size < 10 || subtitleActivity.size < 10 || subtitleActivity.none { it.value > 0.0 }) {
-            return SubtitleAutoSyncResult.Error("Insufficient dialogue activity detected")
+            val audioStart = windowedAudio.minOf { it.timestampMs }
+            val audioEnd = windowedAudio.maxOf { it.timestampMs }
+            return SubtitleAutoSyncResult.Error(
+                "Captured audio does not overlap these cues (${formatEnergyStats(windowedAudio)}, audio ${audioStart}-${audioEnd}ms)",
+            )
         }
         
         // Find best offset using cross-correlation
@@ -116,8 +122,9 @@ object SubtitleAutoSyncEngine {
     }
     
     /**
-     * Mark each bin that overlaps a cue. Speech energy fills the line, so a
-     * spike on the cue start misses the loud middle and locks onto the wrong lag.
+     * Speech is quiet at the edges of a line and loud in the middle. A flat
+     * rectangle still matches when one line slides onto the next, so two opening
+     * cues cannot clear the margin. A raised cosine over the cue does.
      * Bin [center - window/2, center + window/2) matches the energy window.
      */
     private fun buildSubtitleActivitySignal(
@@ -129,11 +136,17 @@ object SubtitleAutoSyncEngine {
         return audioEnvelope.map { audioPoint ->
             val windowStart = audioPoint.timestampMs - halfWindow
             val windowEnd = windowStart + windowMs
-            val active = cues.any { cue ->
+            var level = 0.0
+            for (cue in cues) {
                 val cueEnd = if (cue.endTimeMs > cue.startTimeMs) cue.endTimeMs else cue.startTimeMs + windowMs
-                cue.startTimeMs < windowEnd && cueEnd > windowStart
+                if (cue.startTimeMs >= windowEnd || cueEnd <= windowStart) continue
+                val length = (cueEnd - cue.startTimeMs).coerceAtLeast(1L).toDouble()
+                val progress = ((audioPoint.timestampMs - cue.startTimeMs).toDouble() / length).coerceIn(0.0, 1.0)
+                val wave = sin(PI * progress)
+                val shaped = wave * wave
+                if (shaped > level) level = shaped
             }
-            EnergyPoint(audioPoint.timestampMs, if (active) 1.0 else 0.0)
+            EnergyPoint(audioPoint.timestampMs, level)
         }
     }
     
@@ -309,6 +322,22 @@ internal fun formatMargin(value: Double): String {
     val whole = scaled / 1000
     val fraction = (scaled % 1000).toString().padStart(3, '0')
     return "$sign$whole.$fraction"
+}
+
+internal fun formatEnergyStats(samples: List<AudioEnergySample>): String {
+    var peak = 0.0
+    for (sample in samples) {
+        val energy = kotlin.math.abs(sample.energy)
+        if (energy > peak) peak = energy
+    }
+    return "N=${samples.size}, peak=${formatFixed3(peak)}"
+}
+
+private fun formatFixed3(value: Double): String {
+    val scaled = (kotlin.math.abs(value) * 1000.0).toInt().coerceIn(0, 999_999)
+    val whole = scaled / 1000
+    val fraction = (scaled % 1000).toString().padStart(3, '0')
+    return "$whole.$fraction"
 }
 
 internal fun formatOffsetMessage(offsetMs: Int): String {

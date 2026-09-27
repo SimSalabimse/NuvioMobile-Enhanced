@@ -133,28 +133,35 @@ final class MpvPcmEnergyCapture {
         }
 
         var attempts: [Attempt] = []
-        if let cacheFile {
-            attempts.append(Attempt(
-                urlString: cacheFile.path,
-                headers: [:],
-                audioTrackId: nil,
-                decodeStartMs: 0,
-                timestampOriginMs: cacheOriginMs,
-                durationMs: max(cacheDurationMs, 1_000),
-                local: true,
-                label: "cache"
+        // Lines on screen start before the tap. A dump that begins at the
+        // playhead has no energy under those cues, and the matcher reports
+        // no dialogue. Prefer audio that already contains them.
+        let coveredStartMs = max(0, startTimeMs - 20_000)
+        let cacheCoversLines = cacheFile != nil && cacheOriginMs + 1_000 < startTimeMs
+        if let cacheFile, cacheCoversLines {
+            attempts.append(cacheAttempt(
+                cacheFile: cacheFile,
+                cacheOriginMs: cacheOriginMs,
+                cacheDurationMs: cacheDurationMs
             ))
         }
         attempts.append(Attempt(
             urlString: urlString,
             headers: headers,
             audioTrackId: audioTrackId,
-            decodeStartMs: startTimeMs,
-            timestampOriginMs: startTimeMs,
-            durationMs: durationMs,
+            decodeStartMs: coveredStartMs,
+            timestampOriginMs: coveredStartMs,
+            durationMs: max(durationMs, startTimeMs - coveredStartMs + 5_000),
             local: isLocal(urlString),
             label: cacheFile == nil ? "url" : "url-after-cache"
         ))
+        if let cacheFile, !cacheCoversLines {
+            attempts.append(cacheAttempt(
+                cacheFile: cacheFile,
+                cacheOriginMs: cacheOriginMs,
+                cacheDurationMs: cacheDurationMs
+            ))
+        }
 
         var details: [String] = []
         for attempt in attempts {
@@ -371,8 +378,26 @@ final class MpvPcmEnergyCapture {
         return ([], snapshot)
     }
 
+    private func cacheAttempt(
+        cacheFile: URL,
+        cacheOriginMs: Int64,
+        cacheDurationMs: Int64
+    ) -> Attempt {
+        Attempt(
+            urlString: cacheFile.path,
+            headers: [:],
+            audioTrackId: nil,
+            decodeStartMs: 0,
+            timestampOriginMs: cacheOriginMs,
+            durationMs: max(cacheDurationMs, 1_000),
+            local: true,
+            label: "cache"
+        )
+    }
+
     /// Logs dump origin against the first audio PTS. A multi-second gap means the
     /// wav's first frame is not the dump origin (the -7.2s miss). Stamp sample 0 there.
+    /// Cache packets keep their media PTS, so that frame is not `origin + PTS`.
     private func latchSampleZero(
         _ ctx: OpaquePointer,
         attempt: Attempt,
@@ -394,20 +419,31 @@ final class MpvPcmEnergyCapture {
             return force
         }
         let ptsMs = Int64((pts * 1000.0).rounded())
-        let gapMs = ptsMs - attempt.decodeStartMs - capturedMs
+        let firstFrameMs = ptsMs - capturedMs
         // A large negative gap is a PTS that has not caught up with the wav yet.
-        if !force && gapMs < -300 {
-            return false
+        if firstFrameMs < -300 {
+            if force {
+                InAppLogBridge.shared.info(
+                    tag: "MPV/iOS/AudioCapture/PCM",
+                    message: "Dump origin \(attempt.timestampOriginMs)ms decodeStart \(attempt.decodeStartMs)ms first audio PTS \(firstFrameMs)ms still behind the wav via \(attempt.label)"
+                )
+            }
+            return force
         }
+        let stamped = pcmSampleZeroMs(
+            timestampOriginMs: attempt.timestampOriginMs,
+            decodeStartMs: attempt.decodeStartMs,
+            firstFrameMs: firstFrameMs
+        )
         InAppLogBridge.shared.info(
             tag: "MPV/iOS/AudioCapture/PCM",
-            message: "Dump origin \(attempt.timestampOriginMs)ms decodeStart \(attempt.decodeStartMs)ms first audio PTS \(ptsMs - capturedMs)ms gap \(gapMs)ms captured \(capturedMs)ms via \(attempt.label)"
+            message: "Dump origin \(attempt.timestampOriginMs)ms decodeStart \(attempt.decodeStartMs)ms first audio PTS \(firstFrameMs)ms stamp \(stamped)ms captured \(capturedMs)ms via \(attempt.label)"
         )
-        if gapMs >= 1_000 {
-            stampOriginMs = attempt.timestampOriginMs + gapMs
+        if stamped != stampOriginMs {
+            stampOriginMs = stamped
             InAppLogBridge.shared.info(
                 tag: "MPV/iOS/AudioCapture/PCM",
-                message: "Stamping PCM from first audio PTS, origin \(stampOriginMs)ms (gap \(gapMs)ms)"
+                message: "Stamping PCM from first audio PTS, origin \(stampOriginMs)ms"
             )
         }
         return true
@@ -533,4 +569,30 @@ final class MpvPcmEnergyCapture {
             .joined(separator: ",")
         setOption(ctx, "http-header-fields", serialized)
     }
+}
+
+/// Media time of WAV sample 0.
+///
+/// A URL decode seeks to `decodeStartMs`, which is also the timestamp origin, so a
+/// late keyframe is `origin + (firstFrame - decodeStart)`. A cache dump seeks at 0
+/// in a file whose packets still carry media PTS. Adding the dump origin on top of
+/// that PTS places the envelope one playhead later than the cues.
+func pcmSampleZeroMs(timestampOriginMs: Int64, decodeStartMs: Int64, firstFrameMs: Int64) -> Int64 {
+    if timestampOriginMs == decodeStartMs {
+        let seekGap = firstFrameMs - decodeStartMs
+        if seekGap >= 1_000 {
+            return timestampOriginMs + seekGap
+        }
+        return timestampOriginMs
+    }
+    let fromDecode = abs(firstFrameMs - decodeStartMs)
+    let fromOrigin = abs(firstFrameMs - timestampOriginMs)
+    if fromOrigin <= fromDecode {
+        return firstFrameMs
+    }
+    let seekGap = firstFrameMs - decodeStartMs
+    if seekGap >= 1_000 {
+        return timestampOriginMs + seekGap
+    }
+    return timestampOriginMs
 }

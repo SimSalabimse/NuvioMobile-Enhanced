@@ -1571,23 +1571,62 @@ final class MPVPlayerViewController: UIViewController {
     private func makeCachedPlaybackDump(startTimeMs: Int64) -> CachedPlaybackDump? {
         guard mpv != nil else { return nil }
         let live = getDouble("time-pos")
-        let origin = live.isFinite && live >= 0 ? live : Double(startTimeMs) / 1000.0
-        let cacheTime = getDouble("demuxer-cache-time")
-        let cacheDuration = getDouble("demuxer-cache-duration")
-        let ahead = [cacheTime, cacheDuration].filter { $0.isFinite && $0 > 0 }.max() ?? 0
+        let playhead = live.isFinite && live >= 0 ? live : Double(startTimeMs) / 1000.0
         let hasVideo = getInt("vid") > 0
         let minimum = hasVideo ? 2.0 : 0.5
-        guard ahead >= minimum else {
+        let cacheStart = cachedRangeStart(playhead: playhead)
+        let cacheEnd = cachedRangeEnd(playhead: playhead)
+        guard cacheEnd - cacheStart >= minimum else {
             InAppLogBridge.shared.info(
                 tag: "MPV/iOS/AudioCapture/PCM",
-                message: "Playback cache too short (\(String(format: "%.2f", ahead))s) for a local dump"
+                message: "Playback cache too short (\(String(format: "%.2f", cacheEnd - cacheStart))s) for a local dump"
             )
             return nil
         }
-        let start = max(0, origin)
-        let end = origin + min(ahead - 0.15, 30)
-        guard end - start >= minimum else { return nil }
+        // The cues on screen start before the tap. Keep that speech in the dump
+        // when the demuxer still has it, then fall back to the forward cache.
+        let lookbackStart = max(cacheStart, playhead - 20)
+        let coveredEnd = min(cacheEnd, max(playhead + 5, lookbackStart + 20))
+        if let covered = writeCacheDump(start: lookbackStart, end: coveredEnd, minimum: minimum) {
+            return covered
+        }
+        return writeCacheDump(start: max(cacheStart, playhead), end: min(cacheEnd, playhead + 30), minimum: minimum)
+    }
 
+    /// Absolute start of the seekable demuxer cache, or 0 when mpv does not report one.
+    private func cachedRangeStart(playhead: Double) -> Double {
+        let seekable = finiteProperty("demuxer-cache-state/seekable-ranges/0/start")
+        if let seekable, seekable >= 0, seekable <= playhead + 1 {
+            return seekable
+        }
+        return 0
+    }
+
+    /// Absolute end of the cached media. `demuxer-cache-time` is an end timestamp.
+    /// `demuxer-cache-duration` is seconds ahead of the playhead, not an end time.
+    private func cachedRangeEnd(playhead: Double) -> Double {
+        let seekableEnd = finiteProperty("demuxer-cache-state/seekable-ranges/0/end")
+        let cacheTime = finiteProperty("demuxer-cache-time")
+        let absoluteEnds = [seekableEnd, cacheTime].compactMap { $0 }.filter { $0 > playhead + 0.4 }
+        if let end = absoluteEnds.max() {
+            return end
+        }
+        if let ahead = finiteProperty("demuxer-cache-duration"), ahead > 0.5, ahead < 180 {
+            return playhead + ahead
+        }
+        return playhead
+    }
+
+    private func finiteProperty(_ name: String) -> Double? {
+        guard let ctx = mpv else { return nil }
+        var data = 0.0
+        guard mpv_get_property(ctx, name, MPV_FORMAT_DOUBLE, &data) >= 0 else { return nil }
+        guard data.isFinite else { return nil }
+        return data
+    }
+
+    private func writeCacheDump(start: Double, end: Double, minimum: Double) -> CachedPlaybackDump? {
+        guard end - start >= minimum else { return nil }
         let fileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("nuvio-autosync-cache-\(UUID().uuidString).mkv")
         let status = commandSync(
@@ -1601,7 +1640,7 @@ final class MPVPlayerViewController: UIViewController {
             try? FileManager.default.removeItem(at: fileURL)
             InAppLogBridge.shared.warn(
                 tag: "MPV/iOS/AudioCapture/PCM",
-                message: "Playback cache dump unusable status=\(status) bytes=\(byteCount) matroska=\(isMatroska)"
+                message: "Playback cache dump unusable status=\(status) bytes=\(byteCount) matroska=\(isMatroska) range=\(String(format: "%.2f", start))-\(String(format: "%.2f", end))"
             )
             return nil
         }
@@ -1609,7 +1648,7 @@ final class MPVPlayerViewController: UIViewController {
         let originMs = Int64((start * 1000.0).rounded())
         InAppLogBridge.shared.info(
             tag: "MPV/iOS/AudioCapture/PCM",
-            message: "Playback cache dump \(byteCount) bytes for \(durationMs)ms"
+            message: "Playback cache dump \(byteCount) bytes from \(originMs)ms for \(durationMs)ms"
         )
         return CachedPlaybackDump(fileURL: fileURL, originMs: originMs, durationMs: durationMs)
     }
