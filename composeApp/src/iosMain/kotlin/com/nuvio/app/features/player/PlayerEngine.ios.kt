@@ -345,6 +345,10 @@ actual fun PlatformPlayerSurface(
                 return bridge.getAudioCaptureDuration()
             }
 
+            override fun audioCaptureFailureReason(): String {
+                return bridge.getAudioCaptureFailureReason()
+            }
+
             override fun applySubtitleStyle(style: SubtitleStyleState) {
                 InAppLogger.debug(
                     "Player/iOS",

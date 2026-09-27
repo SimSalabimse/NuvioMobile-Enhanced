@@ -203,6 +203,10 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
     func getAudioCaptureDuration() -> Int64 {
         return playerVC?.getAudioCaptureDuration() ?? 0
     }
+
+    func getAudioCaptureFailureReason() -> String {
+        return playerVC?.audioCaptureFailureReason() ?? ""
+    }
     
     func applySubtitleStyle(
         textColor: String,
@@ -288,6 +292,19 @@ private struct PendingLoadRequest {
     let requestHeaders: [String: String]
     let subtitles: [PluginSubtitle]
     let queuedAtUptime: TimeInterval
+}
+
+struct AudioCaptureSource {
+    let mediaURLString: String?
+    let externalAudioURLString: String?
+    let headers: [String: String]
+    let audioTrackId: Int
+}
+
+struct CachedPlaybackDump {
+    let fileURL: URL
+    let originMs: Int64
+    let durationMs: Int64
 }
 
 // MARK: - MPV Player View Controller
@@ -1505,6 +1522,220 @@ final class MPVPlayerViewController: UIViewController {
     
     func getAudioCaptureDuration() -> Int64 {
         return audioCaptureProcessor.getCaptureDuration()
+    }
+
+    func audioCaptureFailureReason() -> String {
+        audioCaptureProcessor.failureReason()
+    }
+
+    func audioCaptureSource() -> AudioCaptureSource {
+        let request = lastLoadRequest
+        var aid = 0
+        let generation = mpvGeneration
+        if DispatchQueue.getSpecific(key: Self.mpvQueueKey) != nil {
+            if mpv != nil {
+                aid = getInt("aid")
+            }
+        } else {
+            mpvQueue.sync {
+                if self.mpvGeneration == generation, self.mpv != nil {
+                    aid = self.getInt("aid")
+                }
+            }
+        }
+        return AudioCaptureSource(
+            mediaURLString: request?.urlString,
+            externalAudioURLString: request?.audioUrl,
+            headers: activeRequestHeaders,
+            audioTrackId: aid
+        )
+    }
+
+    /// Writes the demuxer cache around the playhead to a local Matroska file.
+    /// A second network open of the same URL often sits past the old 12s cutoff
+    /// with no warn line; this file is the media the player is already playing.
+    func dumpCachedPlayback(startTimeMs: Int64) -> CachedPlaybackDump? {
+        let generation = mpvGeneration
+        if DispatchQueue.getSpecific(key: Self.mpvQueueKey) != nil {
+            guard mpvGeneration == generation, mpv != nil else { return nil }
+            return makeCachedPlaybackDump(startTimeMs: startTimeMs)
+        }
+        var dump: CachedPlaybackDump?
+        mpvQueue.sync {
+            guard self.mpvGeneration == generation, self.mpv != nil else { return }
+            dump = self.makeCachedPlaybackDump(startTimeMs: startTimeMs)
+        }
+        return dump
+    }
+
+    private func makeCachedPlaybackDump(startTimeMs: Int64) -> CachedPlaybackDump? {
+        guard mpv != nil else { return nil }
+        let live = getDouble("time-pos")
+        let playhead = live.isFinite && live >= 0 ? live : Double(startTimeMs) / 1000.0
+        let hasVideo = getInt("vid") > 0
+        let minimum = hasVideo ? 2.0 : 0.5
+        let cacheStart = cachedRangeStart(playhead: playhead)
+        let cacheEnd = cachedRangeEnd(playhead: playhead)
+        guard cacheEnd - cacheStart >= minimum else {
+            InAppLogBridge.shared.info(
+                tag: "MPV/iOS/AudioCapture/PCM",
+                message: "Playback cache too short (\(String(format: "%.2f", cacheEnd - cacheStart))s) for a local dump"
+            )
+            return nil
+        }
+        // The cues on screen start before the tap. Keep that speech in the dump
+        // when the demuxer still has it, then fall back to the forward cache.
+        let lookbackStart = max(cacheStart, playhead - 20)
+        let coveredEnd = min(cacheEnd, max(playhead + 5, lookbackStart + 20))
+        if let covered = writeCacheDump(start: lookbackStart, end: coveredEnd, minimum: minimum) {
+            return covered
+        }
+        return writeCacheDump(start: max(cacheStart, playhead), end: min(cacheEnd, playhead + 30), minimum: minimum)
+    }
+
+    /// Absolute start of the seekable demuxer cache, or 0 when mpv does not report one.
+    private func cachedRangeStart(playhead: Double) -> Double {
+        let seekable = finiteProperty("demuxer-cache-state/seekable-ranges/0/start")
+        if let seekable, seekable >= 0, seekable <= playhead + 1 {
+            return seekable
+        }
+        return 0
+    }
+
+    /// Absolute end of the cached media. `demuxer-cache-time` is an end timestamp.
+    /// `demuxer-cache-duration` is seconds ahead of the playhead, not an end time.
+    private func cachedRangeEnd(playhead: Double) -> Double {
+        let seekableEnd = finiteProperty("demuxer-cache-state/seekable-ranges/0/end")
+        let cacheTime = finiteProperty("demuxer-cache-time")
+        let absoluteEnds = [seekableEnd, cacheTime].compactMap { $0 }.filter { $0 > playhead + 0.4 }
+        if let end = absoluteEnds.max() {
+            return end
+        }
+        if let ahead = finiteProperty("demuxer-cache-duration"), ahead > 0.5, ahead < 180 {
+            return playhead + ahead
+        }
+        return playhead
+    }
+
+    private func finiteProperty(_ name: String) -> Double? {
+        guard let ctx = mpv else { return nil }
+        var data = 0.0
+        guard mpv_get_property(ctx, name, MPV_FORMAT_DOUBLE, &data) >= 0 else { return nil }
+        guard data.isFinite else { return nil }
+        return data
+    }
+
+    private func writeCacheDump(start: Double, end: Double, minimum: Double) -> CachedPlaybackDump? {
+        guard end - start >= minimum else { return nil }
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nuvio-autosync-cache-\(UUID().uuidString).mkv")
+        let status = commandSync(
+            "dump-cache",
+            args: [String(format: "%.3f", start), String(format: "%.3f", end), fileURL.path]
+        )
+        let byteCount = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? NSNumber)?.int64Value ?? 0
+        let header = (try? FileHandle(forReadingFrom: fileURL).read(upToCount: 4)) ?? Data()
+        let isMatroska = header.count == 4 && header[0] == 0x1A && header[1] == 0x45 && header[2] == 0xDF && header[3] == 0xA3
+        guard status >= 0, byteCount >= 8_192, isMatroska else {
+            try? FileManager.default.removeItem(at: fileURL)
+            InAppLogBridge.shared.warn(
+                tag: "MPV/iOS/AudioCapture/PCM",
+                message: "Playback cache dump unusable status=\(status) bytes=\(byteCount) matroska=\(isMatroska) range=\(String(format: "%.2f", start))-\(String(format: "%.2f", end))"
+            )
+            return nil
+        }
+        let durationMs = Int64(((end - start) * 1000.0).rounded())
+        let originMs = Int64((start * 1000.0).rounded())
+        InAppLogBridge.shared.info(
+            tag: "MPV/iOS/AudioCapture/PCM",
+            message: "Playback cache dump \(byteCount) bytes from \(originMs)ms for \(durationMs)ms"
+        )
+        return CachedPlaybackDump(fileURL: fileURL, originMs: originMs, durationMs: durationMs)
+    }
+
+    private func commandSync(_ command: String, args: [String?]) -> CInt {
+        guard let ctx = mpv else { return -1 }
+        var cargs = makeCArgs(command, args).map { $0.flatMap { UnsafePointer<CChar>(strdup($0)) } }
+        defer { for ptr in cargs where ptr != nil { free(UnsafeMutablePointer(mutating: ptr!)) } }
+        return mpv_command(ctx, &cargs)
+    }
+    
+    func getCurrentAudioOutput() -> String? {
+        guard mpv != nil else { return nil }
+        let coreGeneration = mpvGeneration
+        var result: String?
+        mpvQueue.sync { [weak self] in
+            guard let self, self.mpvGeneration == coreGeneration, self.mpv != nil else { return }
+            result = self.getString("current-ao")
+        }
+        return result
+    }
+    
+    func getCurrentMediaURL() -> URL? {
+        guard let request = lastLoadRequest else {
+            InAppLogBridge.shared.warn(
+                tag: "MPV/iOS/AudioCapture",
+                message: "getCurrentMediaURL: lastLoadRequest is nil (no media loaded yet)"
+            )
+            return nil
+        }
+        
+        // Log raw URL string first for diagnostics
+        let urlString = request.urlString
+        InAppLogBridge.shared.info(
+            tag: "MPV/iOS/AudioCapture",
+            message: "getCurrentMediaURL: Raw URL string (first 200 chars): '\(urlString.prefix(200))'"
+        )
+        
+        guard let url = URL(string: urlString) else {
+            InAppLogBridge.shared.error(
+                tag: "MPV/iOS/AudioCapture",
+                message: "getCurrentMediaURL: Failed to parse URL (invalid format or unsupported scheme)"
+            )
+            return nil
+        }
+        
+        let scheme = url.scheme ?? "no-scheme"
+        let host = url.host ?? "no-host"
+        let path = url.path.isEmpty ? "/" : String(url.path.prefix(80))
+        
+        InAppLogBridge.shared.info(
+            tag: "MPV/iOS/AudioCapture",
+            message: "getCurrentMediaURL: Parsed URL - scheme:\(scheme) host:\(host) path:\(path)"
+        )
+        
+        // Check if scheme is compatible with AVAsset
+        let avAssetCompatible = ["file", "http", "https"].contains(scheme.lowercased())
+        if !avAssetCompatible {
+            InAppLogBridge.shared.warn(
+                tag: "MPV/iOS/AudioCapture",
+                message: "getCurrentMediaURL: URL scheme '\(scheme)' is NOT compatible with AVAsset (only file/http/https work)"
+            )
+        }
+        
+        return url
+    }
+    
+    func getActiveRequestHeaders() -> [String: String] {
+        return activeRequestHeaders
+    }
+    
+    // MARK: - Test Support
+    
+    /**
+     * Run AVAsset audio capture test harness.
+     * This is a self-contained test that validates AVAsset capture without needing MPV playback.
+     * Returns a test report with pass/fail status.
+     */
+    @objc func runAudioCaptureTest() -> String {
+        InAppLogBridge.shared.info(
+            tag: "MPV/iOS/Test",
+            message: "Starting AVAsset audio capture test harness..."
+        )
+        
+        let report = AVAssetAudioCaptureTestHarness.runAllTests()
+        
+        return report.summary()
     }
 
     func applySubtitleStyle(

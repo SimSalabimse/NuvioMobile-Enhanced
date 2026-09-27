@@ -52,6 +52,7 @@ fi
     CODE_SIGNING_ALLOWED=NO \
     CODE_SIGNING_REQUIRED=NO \
     CODE_SIGN_IDENTITY= \
+    ${NUVIO_IOS_SKIP_DSYM:+DEBUG_INFORMATION_FORMAT=dwarf} \
     build
 
 products_directory="${derived_data}/Build/Products/${configuration}-iphoneos"
