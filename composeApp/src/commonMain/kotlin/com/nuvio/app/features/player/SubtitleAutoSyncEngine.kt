@@ -22,6 +22,10 @@ object SubtitleAutoSyncEngine {
     private const val EDGE_PENALTY = 0.25
     /** ffsubsync caps the edge guard at 2s so a long cue does not reach the next line. */
     private const val EDGE_GUARD_MS = 2_000L
+    /** A peak under this margin is not written to Subtitle Delay. */
+    const val MIN_CONFIDENCE = 0.3
+    /** Cache audio shorter than the pre-playhead lookback does not win the capture. */
+    const val LOOKBACK_MS = 20_000L
 
     /**
      * @param audioSamples Audio amplitude samples with timestamps
@@ -55,8 +59,34 @@ object SubtitleAutoSyncEngine {
         }
 
         val decision = alignSpeech(envelope, windowedCues)
+        if (decision.confidence < MIN_CONFIDENCE) {
+            return SubtitleAutoSyncResult.LowConfidence(decision.offsetMs, decision.confidence)
+        }
         return SubtitleAutoSyncResult.Success(decision.offsetMs, decision.confidence)
     }
+
+    /**
+     * A cache dump shorter than the 20s lookback does not win. The URL decode
+     * that starts 20s before the playhead runs instead.
+     */
+    fun planPcmCapture(
+        hasCache: Boolean,
+        cacheOriginMs: Long,
+        cacheDurationMs: Long,
+        playheadMs: Long,
+    ): PcmCapturePlan {
+        val urlDecodeStartMs = max(0L, playheadMs - LOOKBACK_MS)
+        val coversLines = hasCache && cacheOriginMs + 1_000L < playheadMs
+        val longEnough = hasCache && cacheDumpWins(cacheDurationMs)
+        return PcmCapturePlan(
+            cacheFirst = coversLines && longEnough,
+            includeCache = longEnough,
+            urlDecodeStartMs = urlDecodeStartMs,
+        )
+    }
+
+    /** True when a decoded cache span is long enough to be the chosen capture. */
+    fun cacheDumpWins(sampleSpanMs: Long): Boolean = sampleSpanMs >= LOOKBACK_MS
 
     private fun cuesOverlapAudio(
         cues: List<SubtitleSyncCue>,
@@ -386,6 +416,13 @@ internal fun formatOffsetMessage(offsetMs: Int): String {
     }
     return "${formatted}s"
 }
+
+/** Which decode runs, and whether a cache dump is allowed to win. */
+data class PcmCapturePlan(
+    val cacheFirst: Boolean,
+    val includeCache: Boolean,
+    val urlDecodeStartMs: Long,
+)
 
 /** Subtitle Delay moves only for a confident lag outside the zero band. */
 fun SubtitleAutoSyncResult.movesSubtitleDelay(): Boolean = when (this) {

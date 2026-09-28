@@ -135,16 +135,23 @@ final class MpvPcmEnergyCapture {
         var attempts: [Attempt] = []
         // Lines on screen start before the tap. A dump that begins at the
         // playhead has no energy under those cues, and the matcher reports
-        // no dialogue. Prefer audio that already contains them.
-        let coveredStartMs = max(0, startTimeMs - 20_000)
-        let cacheCoversLines = cacheFile != nil && cacheOriginMs + 1_000 < startTimeMs
-        if let cacheFile, cacheCoversLines {
+        // no dialogue. Prefer audio that already contains them when the dump
+        // covers the 20s lookback. A shorter dump does not win: the URL
+        // decode that starts 20s before the playhead runs instead.
+        let plan = SubtitleAutoSyncEngine.shared.planPcmCapture(
+            hasCache: cacheFile != nil,
+            cacheOriginMs: cacheOriginMs,
+            cacheDurationMs: cacheDurationMs,
+            playheadMs: startTimeMs
+        )
+        if plan.cacheFirst, let cacheFile {
             attempts.append(cacheAttempt(
                 cacheFile: cacheFile,
                 cacheOriginMs: cacheOriginMs,
                 cacheDurationMs: cacheDurationMs
             ))
         }
+        let coveredStartMs = plan.urlDecodeStartMs
         attempts.append(Attempt(
             urlString: urlString,
             headers: headers,
@@ -155,7 +162,7 @@ final class MpvPcmEnergyCapture {
             local: isLocal(urlString),
             label: cacheFile == nil ? "url" : "url-after-cache"
         ))
-        if let cacheFile, !cacheCoversLines {
+        if plan.includeCache, !plan.cacheFirst, let cacheFile {
             attempts.append(cacheAttempt(
                 cacheFile: cacheFile,
                 cacheOriginMs: cacheOriginMs,
@@ -168,6 +175,15 @@ final class MpvPcmEnergyCapture {
             if isUserStopRequested() { break }
             let decoded = decode(attempt, wavURL: wavURL)
             if !decoded.samples.isEmpty {
+                let span = sampleSpanMs(decoded.samples)
+                if attempt.label == "cache",
+                   !SubtitleAutoSyncEngine.shared.cacheDumpWins(sampleSpanMs: span) {
+                    InAppLogBridge.shared.info(
+                        tag: "MPV/iOS/AudioCapture/PCM",
+                        message: "Cache dump span \(span)ms is shorter than the 20s lookback; falling through"
+                    )
+                    continue
+                }
                 let peak = decoded.samples.map(\.energy).max() ?? 0
                 InAppLogBridge.shared.info(
                     tag: "MPV/iOS/AudioCapture/PCM",
@@ -374,6 +390,12 @@ final class MpvPcmEnergyCapture {
             return ([], endError)
         }
         return ([], snapshot)
+    }
+
+    private func sampleSpanMs(_ samples: [ComposeApp.AudioEnergySample]) -> Int64 {
+        let timestamps = samples.map(\.timestampMs)
+        guard let first = timestamps.min(), let last = timestamps.max() else { return 0 }
+        return last - first
     }
 
     private func cacheAttempt(

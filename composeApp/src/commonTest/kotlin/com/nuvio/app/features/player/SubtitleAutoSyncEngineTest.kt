@@ -46,7 +46,10 @@ class SubtitleAutoSyncEngineTest {
         assertTrue(offset != -3_300, "offset $offset")
         assertTrue(offset != -3_700, "offset $offset")
         assertTrue(offset != 0, "offset $offset")
-        assertTrue(result.movesSubtitleDelay())
+        val confidence = confidenceOf(result)
+        assertTrue(confidence < 0.3, "margin $confidence")
+        assertTrue(result is SubtitleAutoSyncResult.LowConfidence, "got $result")
+        assertFalse(result.movesSubtitleDelay())
     }
 
     @Test
@@ -109,10 +112,11 @@ class SubtitleAutoSyncEngineTest {
         )
         val audio = speechDuring(spans, attackDelay = true).filter { it.timestampMs in 0L..22_000L }
         val result = sync(audio, cues, positionMs = 20_000L)
-        assertTrue(result is SubtitleAutoSyncResult.Success, "expected Synced path, got $result")
+        assertTrue(result is SubtitleAutoSyncResult.LowConfidence, "expected low confidence, got $result")
         assertTrue(abs(offsetOf(result)) <= 1_000, "offset ${offsetOf(result)}")
+        assertTrue(confidenceOf(result) < 0.3, "margin ${confidenceOf(result)}")
+        assertFalse(result.movesSubtitleDelay())
         assertFalse(result.toString().contains("Insufficient dialogue activity detected"))
-        assertFalse(result.toString().contains("Low confidence sync"))
     }
 
     @Test
@@ -342,6 +346,88 @@ class SubtitleAutoSyncEngineTest {
         )
         assertTrue(message.startsWith("Low confidence sync. Offset: +0.0s (N=303, peak=0.120, margin:"))
         assertFalse(message.contains("Try a scene with more dialogue"))
+    }
+
+    @Test
+    fun ninePointNineSecondCaptureDoesNotSucceedAtMinusEightPointFive() {
+        // N=100 over 9.9s. Speech sits 8.5s early, and the FFT peak overlaps
+        // that capture by about 1.4s. Margin stays under 0.3, so Subtitle Delay
+        // stays where the user left it.
+        val playhead = 17 * 60 * 1000L
+        val cues = seventeenMinuteCues(playhead)
+        val speech = cues.map { it.startTimeMs - 8_500L to it.endTimeMs - 8_500L }
+        val origin = playhead - 27_900L
+        val audio = speechDuring(
+            spans = speech,
+            attackDelay = true,
+            shape = "bursty",
+            t0 = origin,
+            t1 = origin + 9_900L,
+        )
+        assertEquals(100, audio.size)
+        val spanMs = audio.maxOf { it.timestampMs } - audio.minOf { it.timestampMs }
+        assertEquals(9_900L, spanMs)
+        assertTrue(formatEnergyMatchSpan(audio).endsWith("9.9s"), formatEnergyMatchSpan(audio))
+        val result = sync(audio, cues, positionMs = playhead)
+        val offset = offsetOf(result)
+        val confidence = confidenceOf(result)
+        assertTrue(result is SubtitleAutoSyncResult.LowConfidence, "got $result offset $offset margin $confidence")
+        assertEquals(-8_500, offset)
+        assertTrue(confidence < 0.3, "margin $confidence")
+        assertFalse(result.movesSubtitleDelay())
+        val line = autoSyncLowConfidenceMessage(
+            offsetMs = offset,
+            energyStats = formatEnergyStats(audio),
+            confidence = confidence,
+            cuesOnScreen = true,
+        )
+        assertTrue(line.startsWith("Low confidence sync."), line)
+        assertFalse(line.startsWith("Synced!"), line)
+    }
+
+    @Test
+    fun cacheDumpShorterThanLookbackFallsThroughToUrl() {
+        val playhead = 17 * 60 * 1000L
+        val plan = SubtitleAutoSyncEngine.planPcmCapture(
+            hasCache = true,
+            cacheOriginMs = playhead - 9_900L,
+            cacheDurationMs = 9_900L,
+            playheadMs = playhead,
+        )
+        assertFalse(plan.cacheFirst)
+        assertFalse(plan.includeCache)
+        assertEquals(playhead - 20_000L, plan.urlDecodeStartMs)
+        assertFalse(SubtitleAutoSyncEngine.cacheDumpWins(9_900L))
+    }
+
+    @Test
+    fun cacheDumpAtLeastTwentySecondsCanLead() {
+        val playhead = 17 * 60 * 1000L
+        val plan = SubtitleAutoSyncEngine.planPcmCapture(
+            hasCache = true,
+            cacheOriginMs = playhead - 20_000L,
+            cacheDurationMs = 25_100L,
+            playheadMs = playhead,
+        )
+        assertTrue(plan.cacheFirst)
+        assertTrue(plan.includeCache)
+        assertEquals(playhead - 20_000L, plan.urlDecodeStartMs)
+        assertTrue(SubtitleAutoSyncEngine.cacheDumpWins(20_000L))
+        assertTrue(SubtitleAutoSyncEngine.cacheDumpWins(25_100L))
+    }
+
+    @Test
+    fun cacheThatStartsAtThePlayheadStaysBehindTheUrl() {
+        val playhead = 17 * 60 * 1000L
+        val plan = SubtitleAutoSyncEngine.planPcmCapture(
+            hasCache = true,
+            cacheOriginMs = playhead,
+            cacheDurationMs = 30_000L,
+            playheadMs = playhead,
+        )
+        assertFalse(plan.cacheFirst)
+        assertTrue(plan.includeCache)
+        assertEquals(playhead - 20_000L, plan.urlDecodeStartMs)
     }
 
     @Test

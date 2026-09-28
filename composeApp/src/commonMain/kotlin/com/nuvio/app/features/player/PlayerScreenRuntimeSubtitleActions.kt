@@ -192,9 +192,6 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
                     )
                 }
                 is SubtitleAutoSyncResult.LowConfidence -> {
-                    if (result.movesSubtitleDelay()) {
-                        setSubtitleDelay(result.offsetMs)
-                    }
                     subtitleAutoSyncState = subtitleAutoSyncState.copy(
                         errorMessage = "${autoSyncLowConfidenceMessage(
                             offsetMs = result.offsetMs,
