@@ -41,6 +41,13 @@ export NUVIO_KOTLIN_NATIVE_JVMARGS="${NUVIO_KOTLIN_NATIVE_JVMARGS:--Xmx4608M}"
 export KOTLIN_DAEMON_JVMARGS="${KOTLIN_DAEMON_JVMARGS:--Xmx2048M}"
 export GRADLE_OPTS="${GRADLE_OPTS:--Dfile.encoding=UTF-8}"
 
+# shellcheck source=../NuvioMobile-sim44-ipa-status/scripts/ipa-live-status.sh
+source "${repository_root}/../NuvioMobile-sim44-ipa-status/scripts/ipa-live-status.sh"
+export IPA_STATUS_REPO="${repository_root}"
+ipa_live_status_open_build
+trap ipa_live_status_close EXIT
+ipa_live_status stage --name preflight
+
 echo "==> Repo: ${repository_root}"
 echo "==> Configuration: ${configuration}"
 echo "==> JAVA_HOME: ${JAVA_HOME:-"(unset)"}"
@@ -96,6 +103,7 @@ if [[ ! -f MPVKit/Package.swift ]]; then
   git submodule update --init --depth 1 MPVKit
 fi
 
+ipa_live_status stage --name prepare
 echo "==> Preparing iOS dependencies (NuvioEngine xcframework)"
 ./scripts/prepare-ios-dependencies.sh
 

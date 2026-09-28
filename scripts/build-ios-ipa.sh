@@ -29,6 +29,22 @@ if [[ ! "${version}" =~ ^[0-9A-Za-z][0-9A-Za-z._-]*$ ]]; then
 fi
 
 cd "${repository_root}"
+
+# shellcheck source=../NuvioMobile-sim44-ipa-status/scripts/ipa-live-status.sh
+source "${repository_root}/../NuvioMobile-sim44-ipa-status/scripts/ipa-live-status.sh"
+
+ipa_build_cleanup() {
+    local code=$?
+    if [[ -n "${package_root:-}" ]]; then
+        rm -rf "${package_root}"
+    fi
+    ipa_live_status_close "${code}"
+}
+trap ipa_build_cleanup EXIT
+export IPA_STATUS_REPO="${repository_root}"
+ipa_live_status_open_build
+ipa_live_status stage --name xcodebuild
+
 build_environment=(
     env
     NUVIO_IOS_DISTRIBUTION=full
@@ -55,6 +71,7 @@ fi
     ${NUVIO_IOS_SKIP_DSYM:+DEBUG_INFORMATION_FORMAT=dwarf} \
     build
 
+ipa_live_status stage --name checks
 products_directory="${derived_data}/Build/Products/${configuration}-iphoneos"
 app_paths=()
 while IFS= read -r candidate; do
@@ -104,10 +121,11 @@ if [[ " ${widget_architectures} " != *" arm64 "* ]]; then
     exit 1
 fi
 
+ipa_live_status stage --name zip
 mkdir -p "${output_directory}"
 output_directory="$(cd "${output_directory}" && pwd -P)"
 package_root="$(mktemp -d "${TMPDIR:-/tmp}/nuvio-ios-ipa.XXXXXX")"
-trap 'rm -rf "${package_root}"' EXIT
+trap ipa_build_cleanup EXIT
 mkdir -p "${package_root}/Payload"
 ditto "${app_path}" "${package_root}/Payload/${app_bundle_name}"
 
