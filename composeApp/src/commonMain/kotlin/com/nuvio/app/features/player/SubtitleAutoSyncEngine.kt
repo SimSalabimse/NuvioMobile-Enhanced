@@ -15,6 +15,13 @@ object SubtitleAutoSyncEngine {
     private const val OFFSET_STEP_MS = 100L
     /** A second alignment has to sit this far from the winner to count. */
     private const val RIVAL_GAP_MS = 1_500
+    /** Offsets inside this band are the playhead lag, not the search edge. */
+    private const val PLAYHEAD_LAG_MS = 6_000
+    /**
+     * A second copy of the same dialogue this far out is one period of the
+     * pattern. It is not another place the playhead can sync.
+     */
+    private const val PERIODIC_EDGE_MS = 7_000
     /** Separation required before Subtitle Delay may move. */
     private const val MIN_SEPARATION = 0.3
     /** Quiet-bed percentile removed before cue energy is scored. */
@@ -188,8 +195,41 @@ object SubtitleAutoSyncEngine {
             val offset = if (abs(best.offsetMs) <= ZERO_DEADZONE_MS) 0 else best.offsetMs
             return OffsetDecision(offset, winnerMargin, best.excess)
         }
+        // The rival at least 1500ms from 0 can outscore offset 0 while this
+        // lag still loses the 0.3 cutoff against its own next lobe. That
+        // fallback prints +0.0s with a negative margin. A periodic copy near
+        // the search edge, and the unsynced bump beside 0, are not a second
+        // place the playhead can sync. The speech lag — positive excess, so
+        // the cues sit on the louder bins, and a lead over offset 0 — keeps
+        // the separation from offset 0 as its margin. The search cap stays a
+        // rival: that shortest overlap is what keeps a late keyframe stamp
+        // from writing Subtitle Delay. Non-positive excess is not speech on
+        // the louder bins, so it still takes the fallback.
+        if (isSpeechAlignment(best, zero) && rivalDoesNotCompete(best, rival)) {
+            return OffsetDecision(best.offsetMs, separation(best.excess, zero.excess), best.excess)
+        }
         val zeroRival = bestRival(scores, 0)
         return OffsetDecision(0, separation(zero.excess, zeroRival.excess), zero.excess)
+    }
+
+    /** Cues on the louder bins, far enough from 0 that the lag is a real alignment. */
+    private fun isSpeechAlignment(best: OffsetScore, zero: OffsetScore): Boolean {
+        return abs(best.offsetMs) >= RIVAL_GAP_MS &&
+            best.excess > zero.excess &&
+            best.excess > 0.0
+    }
+
+    /**
+     * True when [rival] is the periodic copy or the unsynced bump, not an
+     * in-band second alignment. A score on the search cap is the short-overlap
+     * artifact and still competes.
+     */
+    private fun rivalDoesNotCompete(best: OffsetScore, rival: OffsetScore): Boolean {
+        if (abs(best.offsetMs) > PLAYHEAD_LAG_MS) return false
+        val rivalAbs = abs(rival.offsetMs)
+        val periodicCopy = rivalAbs >= PERIODIC_EDGE_MS && rivalAbs < MAX_OFFSET_SEARCH_MS.toInt()
+        val zeroBump = rivalAbs <= RIVAL_GAP_MS
+        return periodicCopy || zeroBump
     }
 
     private fun bestRival(scores: List<OffsetScore>, anchorMs: Int): OffsetScore {
