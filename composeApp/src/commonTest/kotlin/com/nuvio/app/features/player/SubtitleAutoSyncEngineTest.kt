@@ -11,6 +11,45 @@ import kotlin.test.assertTrue
 class SubtitleAutoSyncEngineTest {
 
     @Test
+    fun speechMaskEqualToCueMaskShiftedMinusFiveSecondsWritesDelay() {
+        val cues = equalWidthCues()
+        val speech = cues.map { it.startTimeMs - 5_000L to it.endTimeMs - 5_000L }
+        val result = sync(maskEnergy(speech), cues, positionMs = 20_000L)
+        val offset = offsetOf(result)
+        assertTrue(abs(offset + 5_000) <= 100, "offset $offset")
+        assertTrue(result is SubtitleAutoSyncResult.Success, "expected Synced path, got $result")
+        assertTrue(result.movesSubtitleDelay())
+    }
+
+    @Test
+    fun speechMaskEqualToCueMaskWithNoShiftDoesNotWriteDelay() {
+        val cues = equalWidthCues()
+        val speech = cues.map { it.startTimeMs to it.endTimeMs }
+        val result = sync(maskEnergy(speech), cues, positionMs = 20_000L)
+        assertEquals(0, offsetOf(result))
+        assertFalse(result.movesSubtitleDelay())
+    }
+
+    @Test
+    fun speechPulsesAtTheStartOfLongerCuesShiftedMinusFiveSeconds() {
+        val playhead = 17 * 60 * 1000L
+        val cues = seventeenMinuteCues(playhead)
+        val pulses = cues.map { cue ->
+            val pulse = maxOf(400L, cue.endTimeMs - cue.startTimeMs - 1_500L)
+            cue.startTimeMs - 5_000L to cue.startTimeMs - 5_000L + pulse
+        }
+        val audio = maskEnergy(pulses, t0 = playhead - 24_000L, t1 = playhead + 8_000L)
+        val result = sync(audio, cues, positionMs = playhead)
+        val offset = offsetOf(result)
+        assertTrue(abs(offset + 5_000) <= 1_000, "offset $offset")
+        assertTrue(offset != -3_500, "offset $offset")
+        assertTrue(offset != -3_300, "offset $offset")
+        assertTrue(offset != -3_700, "offset $offset")
+        assertTrue(offset != 0, "offset $offset")
+        assertTrue(result.movesSubtitleDelay())
+    }
+
+    @Test
     fun alignedDialogueWithMusicStaysConfidentAtZero() {
         val cues = dialogueCues(dialogueSpans)
         val audio = speechDuring(dialogueSpans, attackDelay = true)
@@ -70,10 +109,8 @@ class SubtitleAutoSyncEngineTest {
         )
         val audio = speechDuring(spans, attackDelay = true).filter { it.timestampMs in 0L..22_000L }
         val result = sync(audio, cues, positionMs = 20_000L)
-        assertEquals(0, offsetOf(result))
         assertTrue(result is SubtitleAutoSyncResult.Success, "expected Synced path, got $result")
-        val confidence = confidenceOf(result)
-        assertTrue(confidence >= 0.3, "margin $confidence")
+        assertTrue(abs(offsetOf(result)) <= 1_000, "offset ${offsetOf(result)}")
         assertFalse(result.toString().contains("Insufficient dialogue activity detected"))
         assertFalse(result.toString().contains("Low confidence sync"))
     }
@@ -214,16 +251,17 @@ class SubtitleAutoSyncEngineTest {
     }
 
     @Test
-    fun lateKeyframeStampDoesNotSyncAtMinusThree() {
-        val playhead = 17 * 60 * 1000L
-        val cues = seventeenMinuteCues(playhead)
+    fun uniformTimestampShiftIsWritten() {
+        // Speech is 5s early, then every sample is stamped +1.7s. That audio
+        // clock is the lag. There is no rival gate refusing it.
+        val cues = equalWidthCues()
         val speech = cues.map { it.startTimeMs - 5_000L to it.endTimeMs - 5_000L }
-        val audio = weakSpeech(speech, playhead - 24_000L, playhead + 8_000L, stampMs = 1_700L)
-        val result = sync(audio, cues, positionMs = playhead)
-        assertFalse(result.movesSubtitleDelay(), "late stamp wrote ${offsetOf(result)}")
-        assertTrue(result is SubtitleAutoSyncResult.LowConfidence, "expected low confidence, got $result")
+        val audio = maskEnergy(speech).map { it.copy(timestampMs = it.timestampMs + 1_700L) }
+        val result = sync(audio, cues, positionMs = 20_000L)
         val offset = offsetOf(result)
-        assertTrue(abs(offset + 3_300) > 200 || confidenceOf(result) < 0.3, "synced the -3.3s miss: $result")
+        assertTrue(abs(offset + 3_300) <= 100, "offset $offset")
+        assertTrue(result is SubtitleAutoSyncResult.Success, "expected Synced path, got $result")
+        assertTrue(result.movesSubtitleDelay())
     }
 
     @Test
@@ -385,6 +423,31 @@ class SubtitleAutoSyncEngineTest {
             time += 100L
         }
         return samples
+    }
+
+    /** High during [spans], quiet elsewhere, so the lifted mask matches the spans. */
+    private fun maskEnergy(
+        spans: List<Pair<Long, Long>>,
+        t0: Long = 0L,
+        t1: Long = 40_000L,
+    ): List<AudioEnergySample> {
+        val samples = ArrayList<AudioEnergySample>()
+        var time = t0
+        while (time <= t1) {
+            val speaking = spans.any { (start, end) -> time >= start && time < end }
+            samples.add(AudioEnergySample(timestampMs = time, energy = if (speaking) 0.5 else 0.02))
+            time += 100L
+        }
+        return samples
+    }
+
+    private fun equalWidthCues(): List<SubtitleSyncCue> {
+        return listOf(
+            8_000L to 10_000L,
+            12_000L to 14_500L,
+            17_000L to 19_000L,
+            22_000L to 25_000L,
+        ).map { (start, end) -> SubtitleSyncCue(start, end, "line") }
     }
 
     private fun dialogueCues(spans: List<Pair<Long, Long>>): List<SubtitleSyncCue> {

@@ -1,33 +1,27 @@
 package com.nuvio.app.features.player
 
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.max
+import kotlin.math.sin
 
 /**
- * Matches subtitle cues to the audio energy inside the capture.
- * The offset is how far the cues must move to sit on the louder bins.
+ * Matches subtitle cue timing to speech activity.
+ * The offset is the ±10s peak of the FFT cross-correlation, the same lag
+ * ffsubsync's FFTAligner reports. A flat bed has no speech bins and stays at 0.
  */
 object SubtitleAutoSyncEngine {
 
     private const val SAMPLE_WINDOW_MS = 100L
     private const val MAX_ANALYSIS_DURATION_MS = 60_000L
     private const val MAX_OFFSET_SEARCH_MS = 10_000L
-    private const val OFFSET_STEP_MS = 100L
-    /** A second alignment has to sit this far from the winner to count. */
-    private const val RIVAL_GAP_MS = 1_500
-    /** Offsets inside this band are the playhead lag, not the search edge. */
-    private const val PLAYHEAD_LAG_MS = 6_000
-    /**
-     * A second copy of the same dialogue this far out is one period of the
-     * pattern. It is not another place the playhead can sync.
-     */
-    private const val PERIODIC_EDGE_MS = 7_000
-    /** Separation required before Subtitle Delay may move. */
-    private const val MIN_SEPARATION = 0.3
-    /** Quiet-bed percentile removed before cue energy is scored. */
+    /** Quiet-bed percentile removed before a bin is marked speech. */
     private const val SPEECH_FLOOR_PERCENTILE = 0.35
-    /** Inside this band the result stays at 0 and Subtitle Delay is not written. */
-    private const val ZERO_DEADZONE_MS = 300
+    /** ffsubsync DEFAULT_SPLIT_LENGTH_PENALTY. Speech just outside a cue edge counts against that lag. */
+    private const val EDGE_PENALTY = 0.25
+    /** ffsubsync caps the edge guard at 2s so a long cue does not reach the next line. */
+    private const val EDGE_GUARD_MS = 2_000L
 
     /**
      * @param audioSamples Audio amplitude samples with timestamps
@@ -60,12 +54,8 @@ object SubtitleAutoSyncEngine {
             return SubtitleAutoSyncResult.Error(energyMatchSpanMessage(windowedAudio))
         }
 
-        val decision = chooseOffset(scoreOffsets(envelope, windowedCues))
-        return if (decision.confidence >= MIN_SEPARATION && decision.excess > 0.0) {
-            SubtitleAutoSyncResult.Success(decision.offsetMs, decision.confidence)
-        } else {
-            SubtitleAutoSyncResult.LowConfidence(decision.offsetMs, decision.confidence)
-        }
+        val decision = alignSpeech(envelope, windowedCues)
+        return SubtitleAutoSyncResult.Success(decision.offsetMs, decision.confidence)
     }
 
     private fun cuesOverlapAudio(
@@ -125,134 +115,196 @@ object SubtitleAutoSyncEngine {
         return ordered[index]
     }
 
-    private fun scoreOffsets(
+    /**
+     * Binary speech activity against cue boxes on the capture grid.
+     * A bin is speech when the lifted energy is above the quiet floor.
+     * Cue boxes use file timestamps. The current Subtitle Delay is not an input.
+     */
+    private fun alignSpeech(
         envelope: List<EnergyPoint>,
         cues: List<SubtitleSyncCue>,
-    ): List<OffsetScore> {
-        val centers = LongArray(envelope.size) { envelope[it].timestampMs }
-        val prefix = DoubleArray(envelope.size + 1)
-        for (index in envelope.indices) {
-            prefix[index + 1] = prefix[index] + envelope[index].value
+    ): OffsetDecision {
+        val reference = DoubleArray(envelope.size) { index ->
+            if (envelope[index].value > 0.0) 1.0 else 0.0
         }
-        val total = prefix[prefix.lastIndex]
-        val scores = ArrayList<OffsetScore>(201)
-        var offset = -MAX_OFFSET_SEARCH_MS
-        while (offset <= MAX_OFFSET_SEARCH_MS) {
-            var inside = 0.0
-            var count = 0
-            var covered = 0
-            var expected = 0L
-            for (cue in cues) {
-                val start = cue.startTimeMs + offset
-                var end = cue.endTimeMs + offset
-                if (end <= start) end = start + SAMPLE_WINDOW_MS
-                val from = lowerBound(centers, start)
-                val to = lowerBound(centers, end)
-                val bins = to - from
-                inside += prefix[to] - prefix[from]
-                count += bins
-                covered += bins
-                expected += max(1L, (end - start) / SAMPLE_WINDOW_MS)
+        if (reference.none { it > 0.0 }) {
+            return OffsetDecision(0, 0.0)
+        }
+        val subtitle = DoubleArray(envelope.size)
+        val cueSpans = ArrayList<Pair<Int, Int>>(cues.size)
+        val halfWindow = SAMPLE_WINDOW_MS / 2
+        for (cue in cues) {
+            val start = cue.startTimeMs
+            val end = if (cue.endTimeMs > cue.startTimeMs) cue.endTimeMs else cue.startTimeMs + SAMPLE_WINDOW_MS
+            var first = -1
+            var last = -1
+            for (index in envelope.indices) {
+                val binStart = envelope[index].timestampMs - halfWindow
+                val binEnd = envelope[index].timestampMs + halfWindow
+                if (start < binEnd && end > binStart) {
+                    subtitle[index] = 1.0
+                    if (first < 0) first = index
+                    last = index + 1
+                }
             }
-            val excess = if (count == 0 || expected <= 0L) {
-                0.0
-            } else {
-                val outsideCount = envelope.size - count
-                val meanIn = inside / count
-                val meanOut = if (outsideCount > 0) (total - inside) / outsideCount else 0.0
-                val coverage = covered.toDouble() / expected.toDouble()
-                (meanIn - meanOut) * coverage * coverage
-            }
-            scores.add(OffsetScore(offset.toInt(), excess))
-            offset += OFFSET_STEP_MS
+            if (first >= 0) cueSpans.add(first to last)
         }
-        return scores
-    }
-
-    private fun lowerBound(centers: LongArray, target: Long): Int {
-        var lo = 0
-        var hi = centers.size
-        while (lo < hi) {
-            val mid = (lo + hi) ushr 1
-            if (centers[mid] < target) lo = mid + 1 else hi = mid
-        }
-        return lo
-    }
-
-    private fun chooseOffset(scores: List<OffsetScore>): OffsetDecision {
-        var best = scores.first()
-        for (score in scores) {
-            if (scoreBeats(score, best)) best = score
-        }
-        val rival = bestRival(scores, best.offsetMs)
-        val zero = scores.first { it.offsetMs == 0 }
-        val winnerMargin = separation(best.excess, rival.excess)
-        if (best.offsetMs != 0 &&
-            winnerMargin >= MIN_SEPARATION &&
-            best.excess > zero.excess &&
-            best.excess > 0.0
-        ) {
-            val offset = if (abs(best.offsetMs) <= ZERO_DEADZONE_MS) 0 else best.offsetMs
-            return OffsetDecision(offset, winnerMargin, best.excess)
-        }
-        // The rival at least 1500ms from 0 can outscore offset 0 while this
-        // lag still loses the 0.3 cutoff against its own next lobe. That
-        // fallback prints +0.0s with a negative margin. A periodic copy near
-        // the search edge, and the unsynced bump beside 0, are not a second
-        // place the playhead can sync. The speech lag — positive excess, so
-        // the cues sit on the louder bins, and a lead over offset 0 — keeps
-        // the separation from offset 0 as its margin. The search cap stays a
-        // rival: that shortest overlap is what keeps a late keyframe stamp
-        // from writing Subtitle Delay. Non-positive excess is not speech on
-        // the louder bins, so it still takes the fallback.
-        if (isSpeechAlignment(best, zero) && rivalDoesNotCompete(best, rival)) {
-            return OffsetDecision(best.offsetMs, separation(best.excess, zero.excess), best.excess)
-        }
-        val zeroRival = bestRival(scores, 0)
-        return OffsetDecision(0, separation(zero.excess, zeroRival.excess), zero.excess)
-    }
-
-    /** Cues on the louder bins, far enough from 0 that the lag is a real alignment. */
-    private fun isSpeechAlignment(best: OffsetScore, zero: OffsetScore): Boolean {
-        return abs(best.offsetMs) >= RIVAL_GAP_MS &&
-            best.excess > zero.excess &&
-            best.excess > 0.0
+        val maxBins = (MAX_OFFSET_SEARCH_MS / SAMPLE_WINDOW_MS).toInt()
+        val aligned = correlate(reference, subtitle, maxBins, cueSpans)
+        val confidence = aligned.correlation / subtitle.size.toDouble()
+        return OffsetDecision(aligned.offsetBins * SAMPLE_WINDOW_MS.toInt(), confidence)
     }
 
     /**
-     * True when [rival] is the periodic copy or the unsynced bump, not an
-     * in-band second alignment. A score on the search cap is the short-overlap
-     * artifact and still competes.
+     * ffsubsync FFTAligner.fit: bipolar map, zero-pad to the next power of two,
+     * FFT the padded subtitle series, FFT the flipped padded reference, multiply,
+     * inverse FFT. Lags outside ±[maxOffsetBins] are negative infinity.
+     * Offset = len(convolve) - 1 - argmax - len(subtitleSeries).
+     * The edge term is ffsubsync's length penalty: speech in the guard just
+     * outside each cue counts against that lag, so a short pulse inside a
+     * longer cue peaks on the cue start.
      */
-    private fun rivalDoesNotCompete(best: OffsetScore, rival: OffsetScore): Boolean {
-        if (abs(best.offsetMs) > PLAYHEAD_LAG_MS) return false
-        val rivalAbs = abs(rival.offsetMs)
-        val periodicCopy = rivalAbs >= PERIODIC_EDGE_MS && rivalAbs < MAX_OFFSET_SEARCH_MS.toInt()
-        val zeroBump = rivalAbs <= RIVAL_GAP_MS
-        return periodicCopy || zeroBump
-    }
+    private fun correlate(
+        reference: DoubleArray,
+        subtitle: DoubleArray,
+        maxOffsetBins: Int,
+        cueSpans: List<Pair<Int, Int>>,
+    ): CorrelationPeak {
+        val bipolarRef = DoubleArray(reference.size) { 2.0 * reference[it] - 1.0 }
+        val bipolarSub = DoubleArray(subtitle.size) { 2.0 * subtitle[it] - 1.0 }
+        val total = nextPow2(bipolarRef.size + bipolarSub.size)
+        val extra = total - bipolarSub.size - bipolarRef.size
+        val subPad = DoubleArray(total)
+        val subOrigin = extra + bipolarRef.size
+        for (index in bipolarSub.indices) subPad[subOrigin + index] = bipolarSub[index]
+        val refTime = DoubleArray(total)
+        for (index in bipolarRef.indices) refTime[index] = bipolarRef[index]
+        val refPad = DoubleArray(total) { index -> refTime[total - 1 - index] }
 
-    private fun bestRival(scores: List<OffsetScore>, anchorMs: Int): OffsetScore {
-        var rival: OffsetScore? = null
-        for (score in scores) {
-            if (abs(score.offsetMs - anchorMs) < RIVAL_GAP_MS) continue
-            if (rival == null || scoreBeats(score, rival)) rival = score
+        val subReal = subPad.copyOf()
+        val subImag = DoubleArray(total)
+        transform(subReal, subImag, inverse = false)
+        val refReal = refPad.copyOf()
+        val refImag = DoubleArray(total)
+        transform(refReal, refImag, inverse = false)
+        val prodReal = DoubleArray(total)
+        val prodImag = DoubleArray(total)
+        for (index in 0 until total) {
+            prodReal[index] = subReal[index] * refReal[index] - subImag[index] * refImag[index]
+            prodImag[index] = subReal[index] * refImag[index] + subImag[index] * refReal[index]
         }
-        return rival ?: OffsetScore(anchorMs, 0.0)
+        transform(prodReal, prodImag, inverse = true)
+
+        var bestIndex = 0
+        var bestScore = Double.NEGATIVE_INFINITY
+        var bestRaw = 0.0
+        val subtitleLength = bipolarSub.size
+        for (index in prodReal.indices) {
+            val offset = total - 1 - index - subtitleLength
+            if (abs(offset) > maxOffsetBins) continue
+            val raw = prodReal[index]
+            val score = raw - edgePenalty(reference, cueSpans, offset)
+            if (score > bestScore) {
+                bestScore = score
+                bestIndex = index
+                bestRaw = raw
+            }
+        }
+        return CorrelationPeak(
+            offsetBins = total - 1 - bestIndex - subtitleLength,
+            correlation = bestRaw,
+        )
     }
 
-    private fun scoreBeats(candidate: OffsetScore, incumbent: OffsetScore): Boolean {
-        if (candidate.excess != incumbent.excess) return candidate.excess > incumbent.excess
-        val candidateAbs = abs(candidate.offsetMs)
-        val incumbentAbs = abs(incumbent.offsetMs)
-        if (candidateAbs != incumbentAbs) return candidateAbs < incumbentAbs
-        return candidate.offsetMs < incumbent.offsetMs
+    private fun edgePenalty(
+        reference: DoubleArray,
+        cueSpans: List<Pair<Int, Int>>,
+        offsetBins: Int,
+    ): Double {
+        val guardCap = (EDGE_GUARD_MS / SAMPLE_WINDOW_MS).toInt()
+        var penalty = 0.0
+        for ((start, end) in cueSpans) {
+            val guard = minOf((end - start).coerceAtLeast(1), guardCap)
+            val shiftedStart = start + offsetBins
+            val shiftedEnd = end + offsetBins
+            var outside = 0.0
+            var index = shiftedStart - guard
+            while (index < shiftedStart) {
+                if (index in reference.indices && reference[index] > 0.0) outside += 1.0
+                index += 1
+            }
+            index = shiftedEnd
+            val guardEnd = shiftedEnd + guard
+            while (index < guardEnd) {
+                if (index in reference.indices && reference[index] > 0.0) outside += 1.0
+                index += 1
+            }
+            penalty += EDGE_PENALTY * outside
+        }
+        return penalty
     }
 
-    private fun separation(winner: Double, other: Double): Double {
-        val denom = abs(winner) + abs(other)
-        if (denom == 0.0) return 0.0
-        return (winner - other) / denom
+    private fun nextPow2(value: Int): Int {
+        var size = 1
+        while (size < value) size = size shl 1
+        return size
+    }
+
+    /** In-place radix-2 FFT. [inverse] divides by n, matching numpy.fft.ifft. */
+    private fun transform(real: DoubleArray, imag: DoubleArray, inverse: Boolean) {
+        val n = real.size
+        var j = 0
+        for (i in 1 until n) {
+            var bit = n shr 1
+            while (j and bit != 0) {
+                j = j xor bit
+                bit = bit shr 1
+            }
+            j = j xor bit
+            if (i < j) {
+                val swapReal = real[i]
+                real[i] = real[j]
+                real[j] = swapReal
+                val swapImag = imag[i]
+                imag[i] = imag[j]
+                imag[j] = swapImag
+            }
+        }
+        var length = 2
+        while (length <= n) {
+            val angle = (if (inverse) 2.0 else -2.0) * PI / length
+            val wlenReal = cos(angle)
+            val wlenImag = sin(angle)
+            var base = 0
+            while (base < n) {
+                var wReal = 1.0
+                var wImag = 0.0
+                val half = length / 2
+                for (k in 0 until half) {
+                    val evenReal = real[base + k]
+                    val evenImag = imag[base + k]
+                    val oddReal = real[base + k + half]
+                    val oddImag = imag[base + k + half]
+                    val twiddledReal = oddReal * wReal - oddImag * wImag
+                    val twiddledImag = oddReal * wImag + oddImag * wReal
+                    real[base + k] = evenReal + twiddledReal
+                    imag[base + k] = evenImag + twiddledImag
+                    real[base + k + half] = evenReal - twiddledReal
+                    imag[base + k + half] = evenImag - twiddledImag
+                    val nextReal = wReal * wlenReal - wImag * wlenImag
+                    wImag = wReal * wlenImag + wImag * wlenReal
+                    wReal = nextReal
+                }
+                base += length
+            }
+            length = length shl 1
+        }
+        if (inverse) {
+            for (index in 0 until n) {
+                real[index] /= n.toDouble()
+                imag[index] /= n.toDouble()
+            }
+        }
     }
 
     private data class EnergyPoint(
@@ -260,15 +312,14 @@ object SubtitleAutoSyncEngine {
         val value: Double,
     )
 
-    private data class OffsetScore(
-        val offsetMs: Int,
-        val excess: Double,
-    )
-
     private data class OffsetDecision(
         val offsetMs: Int,
         val confidence: Double,
-        val excess: Double,
+    )
+
+    private data class CorrelationPeak(
+        val offsetBins: Int,
+        val correlation: Double,
     )
 }
 
