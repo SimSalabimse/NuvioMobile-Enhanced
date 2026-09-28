@@ -10,6 +10,7 @@ import kotlin.math.sin
  * Matches subtitle cue timing to speech activity.
  * The offset is the ±10s peak of the FFT cross-correlation, the same lag
  * ffsubsync's FFTAligner reports. A flat bed has no speech bins and stays at 0.
+ * A mask that stays active across most of the window is a bed and is not written.
  */
 object SubtitleAutoSyncEngine {
 
@@ -26,6 +27,18 @@ object SubtitleAutoSyncEngine {
     const val MIN_CONFIDENCE = 0.3
     /** Cache audio shorter than the pre-playhead lookback does not win the capture. */
     const val LOOKBACK_MS = 20_000L
+    /**
+     * auditok min_length on the non-transcribing aligner. A shorter run is a click.
+     * Bins are 100ms, so this is two bins.
+     */
+    private const val MIN_SPEECH_RUN_MS = 200L
+    /**
+     * Silence at or under this stays inside the run. auditok max_continuous_silence
+     * is 250ms; two 100ms bins is the longest gap that still fits under that.
+     */
+    private const val MAX_SILENCE_BRIDGE_MS = 200L
+    /** After the activity rule, a mask this full has no dialogue pauses. It is a bed. */
+    private const val BED_ACTIVE_FRACTION = 0.80
 
     /**
      * @param audioSamples Audio amplitude samples with timestamps
@@ -147,17 +160,20 @@ object SubtitleAutoSyncEngine {
 
     /**
      * Binary speech activity against cue boxes on the capture grid.
-     * A bin is speech when the lifted energy is above the quiet floor.
+     * A bin counts only inside a run that lasts at least [MIN_SPEECH_RUN_MS],
+     * and a click is dropped. A mask that stays active across most of the
+     * window is a bed, so its peak is not a subtitle lag.
      * Cue boxes use file timestamps. The current Subtitle Delay is not an input.
      */
     private fun alignSpeech(
         envelope: List<EnergyPoint>,
         cues: List<SubtitleSyncCue>,
     ): OffsetDecision {
-        val reference = DoubleArray(envelope.size) { index ->
+        val raised = DoubleArray(envelope.size) { index ->
             if (envelope[index].value > 0.0) 1.0 else 0.0
         }
-        if (reference.none { it > 0.0 }) {
+        val reference = speechActivity(raised)
+        if (reference.none { it > 0.0 } || maskFillsWindow(reference)) {
             return OffsetDecision(0, 0.0)
         }
         val subtitle = DoubleArray(envelope.size)
@@ -183,6 +199,52 @@ object SubtitleAutoSyncEngine {
         val aligned = correlate(reference, subtitle, maxBins, cueSpans)
         val confidence = aligned.correlation / subtitle.size.toDouble()
         return OffsetDecision(aligned.offsetBins * SAMPLE_WINDOW_MS.toInt(), confidence)
+    }
+
+    /**
+     * The non-transcribing aligner's activity rule. Short gaps stay in the run.
+     * A bin outside a long-enough run is cleared, which drops a click.
+     */
+    private fun speechActivity(raw: DoubleArray): DoubleArray {
+        val mask = raw.copyOf()
+        val bridgeBins = (MAX_SILENCE_BRIDGE_MS / SAMPLE_WINDOW_MS).toInt()
+        val minRunBins = (MIN_SPEECH_RUN_MS / SAMPLE_WINDOW_MS).toInt()
+        var index = 0
+        while (index < mask.size) {
+            if (mask[index] == 0.0) {
+                var end = index
+                while (end < mask.size && mask[end] == 0.0) end += 1
+                if (end - index <= bridgeBins && index > 0 && end < mask.size) {
+                    for (fill in index until end) mask[fill] = 1.0
+                }
+                index = end
+            } else {
+                index += 1
+            }
+        }
+        index = 0
+        while (index < mask.size) {
+            if (mask[index] > 0.0) {
+                var end = index
+                while (end < mask.size && mask[end] > 0.0) end += 1
+                if (end - index < minRunBins) {
+                    for (clear in index until end) mask[clear] = 0.0
+                }
+                index = end
+            } else {
+                index += 1
+            }
+        }
+        return mask
+    }
+
+    private fun maskFillsWindow(mask: DoubleArray): Boolean {
+        if (mask.isEmpty()) return false
+        var active = 0
+        for (value in mask) {
+            if (value > 0.0) active += 1
+        }
+        return active.toDouble() / mask.size.toDouble() >= BED_ACTIVE_FRACTION
     }
 
     /**

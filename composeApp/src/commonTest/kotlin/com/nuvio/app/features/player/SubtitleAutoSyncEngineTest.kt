@@ -386,6 +386,63 @@ class SubtitleAutoSyncEngineTest {
     }
 
     @Test
+    fun speechBurstsShiftedMinusFiveOnTwentySecondCaptureWritesDelay() {
+        val playhead = 17 * 60 * 1000L
+        val captureStart = playhead - 20_000L
+        val captureEnd = playhead
+        val bursts = twentySecondBursts(captureStart)
+        val cues = bursts.map { (start, end) ->
+            SubtitleSyncCue(start + 5_000L, end + 5_000L, "line")
+        }
+        val audio = maskEnergy(bursts, t0 = captureStart, t1 = captureEnd)
+        val spanMs = audio.maxOf { it.timestampMs } - audio.minOf { it.timestampMs }
+        assertTrue(spanMs in 19_000L..21_000L, "span ${spanMs}ms")
+        val result = sync(audio, cues, positionMs = playhead)
+        val offset = offsetOf(result)
+        val confidence = confidenceOf(result)
+        assertTrue(result is SubtitleAutoSyncResult.Success, "got $result")
+        assertTrue(abs(offset + 5_000) <= 1_000, "offset $offset")
+        assertTrue(confidence >= 0.300, "margin $confidence")
+        assertTrue(result.movesSubtitleDelay())
+        val line = "Synced! Offset: ${formatOffsetMessage(offset)} " +
+            "(${formatEnergyStats(audio)}, ${formatEnergyMatchSpan(audio)}, margin: ${formatMargin(confidence)})"
+        assertTrue(line.startsWith("Synced! Offset:"), line)
+        assertTrue(line.contains("margin: 0."), line)
+    }
+
+    @Test
+    fun alignedBurstsOnTwentySecondCaptureStayAtZero() {
+        val playhead = 17 * 60 * 1000L
+        val captureStart = playhead - 20_000L
+        val captureEnd = playhead
+        val bursts = twentySecondBursts(captureStart).map { (start, end) ->
+            start + 5_000L to end + 5_000L
+        }
+        val cues = bursts.map { (start, end) -> SubtitleSyncCue(start, end, "line") }
+        val audio = maskEnergy(bursts, t0 = captureStart, t1 = captureEnd)
+        val result = sync(audio, cues, positionMs = playhead)
+        assertEquals(0, offsetOf(result))
+        assertFalse(result.movesSubtitleDelay())
+    }
+
+    @Test
+    fun burstsOnABedAboveThePercentileDoNotSucceedAtMinusOnePointNine() {
+        val playhead = 17 * 60 * 1000L
+        val captureStart = playhead - 20_000L
+        val captureEnd = playhead
+        val bursts = twentySecondBursts(captureStart)
+        val cues = bursts.map { (start, end) ->
+            SubtitleSyncCue(start + 5_000L, end + 5_000L, "line")
+        }
+        val audio = rippleBed(bursts, captureStart, captureEnd)
+        val result = sync(audio, cues, positionMs = playhead)
+        val wroteMinusOnePointNine = result is SubtitleAutoSyncResult.Success && offsetOf(result) == -1_900
+        assertFalse(wroteMinusOnePointNine, "got $result")
+        assertTrue(result is SubtitleAutoSyncResult.LowConfidence, "a filled bed got $result")
+        assertFalse(result.movesSubtitleDelay())
+    }
+
+    @Test
     fun cacheDumpShorterThanLookbackFallsThroughToUrl() {
         val playhead = 17 * 60 * 1000L
         val plan = SubtitleAutoSyncEngine.planPcmCapture(
@@ -523,6 +580,43 @@ class SubtitleAutoSyncEngineTest {
             val speaking = spans.any { (start, end) -> time >= start && time < end }
             samples.add(AudioEnergySample(timestampMs = time, energy = if (speaking) 0.5 else 0.02))
             time += 100L
+        }
+        return samples
+    }
+
+    /**
+     * Four speech bursts inside a 20s capture, with quiet gaps longer than a click.
+     * The cues for the shifted case are these spans plus 5s.
+     */
+    private fun twentySecondBursts(captureStart: Long): List<Pair<Long, Long>> {
+        return listOf(
+            captureStart + 2_000L to captureStart + 3_800L,
+            captureStart + 5_500L to captureStart + 7_800L,
+            captureStart + 10_000L to captureStart + 12_400L,
+            captureStart + 14_500L to captureStart + 16_800L,
+        )
+    }
+
+    /**
+     * The same bursts sit on a ripple that stays above the 35th percentile.
+     * The troughs are one bin, so the activity rule joins them into one bed.
+     */
+    private fun rippleBed(
+        bursts: List<Pair<Long, Long>>,
+        t0: Long,
+        t1: Long,
+    ): List<AudioEnergySample> {
+        val samples = ArrayList<AudioEnergySample>()
+        var time = t0
+        var index = 0
+        while (time <= t1) {
+            var energy = 0.40 + 0.002 * sin(time / 50.0) + 0.0001 * (index % 7)
+            if (bursts.any { (start, end) -> time >= start && time < end }) {
+                energy += 0.30
+            }
+            samples.add(AudioEnergySample(timestampMs = time, energy = energy))
+            time += 100L
+            index += 1
         }
         return samples
     }
