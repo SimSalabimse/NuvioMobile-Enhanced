@@ -23,8 +23,14 @@ object SubtitleAutoSyncEngine {
     private const val EDGE_PENALTY = 0.25
     /** ffsubsync caps the edge guard at 2s so a long cue does not reach the next line. */
     private const val EDGE_GUARD_MS = 2_000L
-    /** A peak under this margin is not written to Subtitle Delay. */
+    /**
+     * Lead of the chosen penalized peak over the next peak at least
+     * [RIVAL_SEPARATION_MS] away, divided by the chosen score. Below this,
+     * Subtitle Delay is not written.
+     */
     const val MIN_CONFIDENCE = 0.3
+    /** A lag this close to the winner is the same peak, not a rival. */
+    private const val RIVAL_SEPARATION_MS = 1_000L
     /** Cache audio shorter than the pre-playhead lookback does not win the capture. */
     const val LOOKBACK_MS = 20_000L
     /**
@@ -73,9 +79,17 @@ object SubtitleAutoSyncEngine {
 
         val decision = alignSpeech(envelope, windowedCues)
         if (decision.confidence < MIN_CONFIDENCE) {
-            return SubtitleAutoSyncResult.LowConfidence(decision.offsetMs, decision.confidence)
+            return SubtitleAutoSyncResult.LowConfidence(
+                offsetMs = decision.offsetMs,
+                confidence = decision.confidence,
+                rivalOffsetMs = decision.rivalOffsetMs,
+            )
         }
-        return SubtitleAutoSyncResult.Success(decision.offsetMs, decision.confidence)
+        return SubtitleAutoSyncResult.Success(
+            offsetMs = decision.offsetMs,
+            confidence = decision.confidence,
+            rivalOffsetMs = decision.rivalOffsetMs,
+        )
     }
 
     /**
@@ -174,7 +188,7 @@ object SubtitleAutoSyncEngine {
         }
         val reference = speechActivity(raised)
         if (reference.none { it > 0.0 } || maskFillsWindow(reference)) {
-            return OffsetDecision(0, 0.0)
+            return OffsetDecision(offsetMs = 0, confidence = 0.0, rivalOffsetMs = 0)
         }
         val subtitle = DoubleArray(envelope.size)
         val cueSpans = ArrayList<Pair<Int, Int>>(cues.size)
@@ -197,8 +211,23 @@ object SubtitleAutoSyncEngine {
         }
         val maxBins = (MAX_OFFSET_SEARCH_MS / SAMPLE_WINDOW_MS).toInt()
         val aligned = correlate(reference, subtitle, maxBins, cueSpans)
-        val confidence = aligned.correlation / subtitle.size.toDouble()
-        return OffsetDecision(aligned.offsetBins * SAMPLE_WINDOW_MS.toInt(), confidence)
+        val offsetMs = aligned.offsetBins * SAMPLE_WINDOW_MS.toInt()
+        val rivalOffsetMs = aligned.rivalOffsetBins * SAMPLE_WINDOW_MS.toInt()
+        val rivalScore = max(0.0, aligned.rivalScore)
+        var confidence = if (aligned.score > 0.0) {
+            (aligned.score - rivalScore) / aligned.score
+        } else {
+            0.0
+        }
+        val spanMs = envelope.last().timestampMs - envelope.first().timestampMs
+        if (offsetMs != 0 && !cacheDumpWins(spanMs)) {
+            confidence = 0.0
+        }
+        return OffsetDecision(
+            offsetMs = offsetMs,
+            confidence = confidence,
+            rivalOffsetMs = rivalOffsetMs,
+        )
     }
 
     /**
@@ -287,25 +316,73 @@ object SubtitleAutoSyncEngine {
         }
         transform(prodReal, prodImag, inverse = true)
 
-        var bestIndex = 0
+        var bestOffset = 0
         var bestScore = Double.NEGATIVE_INFINITY
-        var bestRaw = 0.0
         val subtitleLength = bipolarSub.size
+        val lagOffsets = IntArray(prodReal.size)
+        val lagScores = DoubleArray(prodReal.size)
+        var lagCount = 0
         for (index in prodReal.indices) {
             val offset = total - 1 - index - subtitleLength
             if (abs(offset) > maxOffsetBins) continue
             val raw = prodReal[index]
             val score = raw - edgePenalty(reference, cueSpans, offset)
+            lagOffsets[lagCount] = offset
+            lagScores[lagCount] = score
+            lagCount += 1
             if (score > bestScore) {
                 bestScore = score
-                bestIndex = index
-                bestRaw = raw
+                bestOffset = offset
             }
         }
-        return CorrelationPeak(
-            offsetBins = total - 1 - bestIndex - subtitleLength,
-            correlation = bestRaw,
+        val rival = rivalPeak(
+            offsets = lagOffsets,
+            scores = lagScores,
+            count = lagCount,
+            bestOffset = bestOffset,
+            minSeparationBins = (RIVAL_SEPARATION_MS / SAMPLE_WINDOW_MS).toInt(),
         )
+        return CorrelationPeak(
+            offsetBins = bestOffset,
+            score = if (bestScore.isFinite()) bestScore else 0.0,
+            rivalOffsetBins = rival.first,
+            rivalScore = rival.second,
+        )
+    }
+
+    /**
+     * Next local maximum at least [minSeparationBins] from the winner.
+     * A shoulder on the same hill is not a rival.
+     */
+    private fun rivalPeak(
+        offsets: IntArray,
+        scores: DoubleArray,
+        count: Int,
+        bestOffset: Int,
+        minSeparationBins: Int,
+    ): Pair<Int, Double> {
+        val lags = ArrayList<Pair<Int, Double>>(count)
+        for (index in 0 until count) {
+            lags.add(offsets[index] to scores[index])
+        }
+        lags.sortBy { it.first }
+        var rivalOffset = 0
+        var rivalScore = 0.0
+        var foundRival = false
+        for (index in lags.indices) {
+            val offset = lags[index].first
+            val score = lags[index].second
+            if (abs(offset - bestOffset) < minSeparationBins) continue
+            val left = if (index > 0) lags[index - 1].second else Double.NEGATIVE_INFINITY
+            val right = if (index < lags.lastIndex) lags[index + 1].second else Double.NEGATIVE_INFINITY
+            if (score < left || score < right) continue
+            if (!foundRival || score > rivalScore) {
+                rivalOffset = offset
+                rivalScore = score
+                foundRival = true
+            }
+        }
+        return rivalOffset to rivalScore
     }
 
     private fun edgePenalty(
@@ -407,11 +484,14 @@ object SubtitleAutoSyncEngine {
     private data class OffsetDecision(
         val offsetMs: Int,
         val confidence: Double,
+        val rivalOffsetMs: Int,
     )
 
     private data class CorrelationPeak(
         val offsetBins: Int,
-        val correlation: Double,
+        val score: Double,
+        val rivalOffsetBins: Int,
+        val rivalScore: Double,
     )
 }
 
@@ -437,9 +517,20 @@ internal fun autoSyncLowConfidenceMessage(
     energyStats: String,
     confidence: Double,
     cuesOnScreen: Boolean,
+    rivalOffsetMs: Int,
 ): String {
-    val detail = "Low confidence sync. Offset: ${formatOffsetMessage(offsetMs)} ($energyStats, margin: ${formatMargin(confidence)})."
+    val detail = "Low confidence sync. Offset: ${formatOffsetMessage(offsetMs)} ($energyStats, margin: ${formatMargin(confidence)}, next: ${formatOffsetMessage(rivalOffsetMs)})."
     return if (cuesOnScreen) detail else "$detail Try a scene with more dialogue."
+}
+
+internal fun autoSyncSuccessMessage(
+    offsetMs: Int,
+    energyStats: String,
+    energySpan: String,
+    confidence: Double,
+    rivalOffsetMs: Int,
+): String {
+    return "Synced! Offset: ${formatOffsetMessage(offsetMs)} ($energyStats, $energySpan, margin: ${formatMargin(confidence)}, next: ${formatOffsetMessage(rivalOffsetMs)})"
 }
 
 internal fun formatMargin(value: Double): String {
@@ -505,7 +596,15 @@ data class AudioEnergySample(
  * Result of auto-sync computation.
  */
 sealed class SubtitleAutoSyncResult {
-    data class Success(val offsetMs: Int, val confidence: Double) : SubtitleAutoSyncResult()
-    data class LowConfidence(val offsetMs: Int, val confidence: Double) : SubtitleAutoSyncResult()
+    data class Success(
+        val offsetMs: Int,
+        val confidence: Double,
+        val rivalOffsetMs: Int,
+    ) : SubtitleAutoSyncResult()
+    data class LowConfidence(
+        val offsetMs: Int,
+        val confidence: Double,
+        val rivalOffsetMs: Int,
+    ) : SubtitleAutoSyncResult()
     data class Error(val message: String) : SubtitleAutoSyncResult()
 }

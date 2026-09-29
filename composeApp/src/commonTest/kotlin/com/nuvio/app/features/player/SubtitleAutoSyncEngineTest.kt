@@ -112,10 +112,7 @@ class SubtitleAutoSyncEngineTest {
         )
         val audio = speechDuring(spans, attackDelay = true).filter { it.timestampMs in 0L..22_000L }
         val result = sync(audio, cues, positionMs = 20_000L)
-        assertTrue(result is SubtitleAutoSyncResult.LowConfidence, "expected low confidence, got $result")
         assertTrue(abs(offsetOf(result)) <= 1_000, "offset ${offsetOf(result)}")
-        assertTrue(confidenceOf(result) < 0.3, "margin ${confidenceOf(result)}")
-        assertFalse(result.movesSubtitleDelay())
         assertFalse(result.toString().contains("Insufficient dialogue activity detected"))
     }
 
@@ -155,12 +152,18 @@ class SubtitleAutoSyncEngineTest {
         assertFalse(result.movesSubtitleDelay())
         assertFalse(result.toString().contains("Need at least"))
         assertFalse(result.toString().contains("Low confidence"))
-        val line = "Synced! Offset: ${formatOffsetMessage(offsetOf(result))} " +
-            "(${formatEnergyStats(audio)}, ${formatEnergyMatchSpan(audio)}, margin: ${formatMargin(confidenceOf(result))})"
+        val line = autoSyncSuccessMessage(
+            offsetMs = offsetOf(result),
+            energyStats = formatEnergyStats(audio),
+            energySpan = formatEnergyMatchSpan(audio),
+            confidence = confidenceOf(result),
+            rivalOffsetMs = rivalOffsetOf(result),
+        )
         assertTrue(line.startsWith("Synced! Offset: +0."), line)
         assertTrue(line.contains("Energy match span"), line)
         assertTrue(line.contains("N="), line)
         assertTrue(line.contains("peak="), line)
+        assertTrue(line.contains("next:"), line)
     }
 
     @Test
@@ -187,15 +190,21 @@ class SubtitleAutoSyncEngineTest {
     @Test
     fun lowConfidenceDoesNotWriteSubtitleDelay() {
         // 9700ms is the search step that this formatter prints as +9.6s.
-        val result = SubtitleAutoSyncResult.LowConfidence(offsetMs = 9_700, confidence = 0.087)
+        val result = SubtitleAutoSyncResult.LowConfidence(
+            offsetMs = 9_700,
+            confidence = 0.087,
+            rivalOffsetMs = -5_000,
+        )
         assertFalse(result.movesSubtitleDelay())
         val line = autoSyncLowConfidenceMessage(
             offsetMs = 9_700,
             energyStats = "N=256, peak=0.121",
             confidence = 0.087,
             cuesOnScreen = true,
+            rivalOffsetMs = -5_000,
         )
         assertTrue(line.startsWith("Low confidence sync. Offset: +9.6s"), line)
+        assertTrue(line.contains("next: -5.0s"), line)
     }
 
     @Test
@@ -224,9 +233,15 @@ class SubtitleAutoSyncEngineTest {
         assertTrue(result is SubtitleAutoSyncResult.Success, "expected Synced path, got $result")
         val confidence = confidenceOf(result)
         assertTrue(confidence >= 0.3, "margin $confidence")
-        val line = "Synced! Offset: ${formatOffsetMessage(offset)} " +
-            "(${formatEnergyStats(audio)}, margin: ${formatMargin(confidence)})"
+        val line = autoSyncSuccessMessage(
+            offsetMs = offset,
+            energyStats = formatEnergyStats(audio),
+            energySpan = formatEnergyMatchSpan(audio),
+            confidence = confidence,
+            rivalOffsetMs = rivalOffsetOf(result),
+        )
         assertTrue(line.startsWith("Synced! Offset:"), line)
+        assertTrue(line.contains("next:"), line)
         assertFalse(line.contains("Low confidence sync"), line)
         assertFalse(line.contains("-3.7s"), line)
         assertTrue(result.movesSubtitleDelay())
@@ -240,18 +255,25 @@ class SubtitleAutoSyncEngineTest {
         val audio = weakSpeech(speech, playhead - 24_000L, playhead + 8_000L, stampMs = 0L)
         val result = sync(audio, cues, positionMs = playhead)
         val offset = offsetOf(result)
+        val rival = rivalOffsetOf(result)
         assertTrue(abs(offset + 5_000) <= 1_000, "offset $offset")
         assertTrue(offset != -3_300, "device lag $offset")
         assertTrue(offset != -3_700, "stamp-biased lag $offset")
-        assertTrue(result is SubtitleAutoSyncResult.Success, "expected Synced path, got $result")
+        assertTrue(result is SubtitleAutoSyncResult.LowConfidence, "got $result")
         val confidence = confidenceOf(result)
-        assertTrue(confidence >= 0.3, "margin $confidence")
-        val line = "Synced! Offset: ${formatOffsetMessage(offset)} " +
-            "(${formatEnergyStats(audio)}, margin: ${formatMargin(confidence)})"
-        assertTrue(line.startsWith("Synced! Offset:"), line)
-        assertFalse(line.contains("Low confidence sync"), line)
+        assertTrue(confidence < 0.3, "margin $confidence")
+        assertTrue(abs(rival + 5_000) > 1_000, "rival $rival")
+        assertFalse(result.movesSubtitleDelay())
+        val line = autoSyncLowConfidenceMessage(
+            offsetMs = offset,
+            energyStats = formatEnergyStats(audio),
+            confidence = confidence,
+            cuesOnScreen = true,
+            rivalOffsetMs = rival,
+        )
+        assertTrue(line.startsWith("Low confidence sync."), line)
+        assertTrue(line.contains("next:"), line)
         assertFalse(line.contains("-3.3s"), line)
-        assertTrue(result.movesSubtitleDelay())
     }
 
     @Test
@@ -294,9 +316,15 @@ class SubtitleAutoSyncEngineTest {
         assertTrue(result is SubtitleAutoSyncResult.Success, "expected Synced path, got $result")
         val confidence = confidenceOf(result)
         assertTrue(confidence >= 0.3, "margin $confidence")
-        val line = "Synced! Offset: ${formatOffsetMessage(offset)} " +
-            "(${formatEnergyStats(audio)}, margin: ${formatMargin(confidence)})"
+        val line = autoSyncSuccessMessage(
+            offsetMs = offset,
+            energyStats = formatEnergyStats(audio),
+            energySpan = formatEnergyMatchSpan(audio),
+            confidence = confidence,
+            rivalOffsetMs = rivalOffsetOf(result),
+        )
         assertTrue(line.startsWith("Synced! Offset:"), line)
+        assertTrue(line.contains("next:"), line)
         assertFalse(line.contains("Low confidence sync"), line)
         assertFalse(line.contains("+9.6s"), line)
         assertTrue(result.movesSubtitleDelay())
@@ -323,13 +351,19 @@ class SubtitleAutoSyncEngineTest {
         val result = sync(audio, cues, positionMs = playhead)
         val offset = offsetOf(result)
         val confidence = confidenceOf(result)
-        val line = "Synced! Offset: ${formatOffsetMessage(offset)} " +
-            "(${formatEnergyStats(audio)}, ${formatEnergyMatchSpan(audio)}, margin: ${formatMargin(confidence)})"
+        val line = autoSyncSuccessMessage(
+            offsetMs = offset,
+            energyStats = formatEnergyStats(audio),
+            energySpan = formatEnergyMatchSpan(audio),
+            confidence = confidence,
+            rivalOffsetMs = rivalOffsetOf(result),
+        )
         assertTrue(result is SubtitleAutoSyncResult.Success, "expected Synced path, got $result")
         assertTrue(abs(offset + 5_000) <= 1_000, "offset $offset")
         assertTrue(confidence >= 0.3, "margin $confidence")
         assertTrue(line.startsWith("Synced! Offset:"), line)
         assertTrue(line.contains("Energy match span 25.1s"), line)
+        assertTrue(line.contains("next:"), line)
         assertFalse(line.contains("Low confidence sync"), line)
         assertFalse(line.contains("margin: -"), line)
         assertFalse(line.contains("+0.0s"), line)
@@ -343,8 +377,10 @@ class SubtitleAutoSyncEngineTest {
             energyStats = "N=303, peak=0.120",
             confidence = -0.233,
             cuesOnScreen = true,
+            rivalOffsetMs = 2_700,
         )
         assertTrue(message.startsWith("Low confidence sync. Offset: +0.0s (N=303, peak=0.120, margin:"))
+        assertTrue(message.contains("next: +2.7s"), message)
         assertFalse(message.contains("Try a scene with more dialogue"))
     }
 
@@ -380,8 +416,10 @@ class SubtitleAutoSyncEngineTest {
             energyStats = formatEnergyStats(audio),
             confidence = confidence,
             cuesOnScreen = true,
+            rivalOffsetMs = rivalOffsetOf(result),
         )
         assertTrue(line.startsWith("Low confidence sync."), line)
+        assertTrue(line.contains("next:"), line)
         assertFalse(line.startsWith("Synced!"), line)
     }
 
@@ -404,10 +442,18 @@ class SubtitleAutoSyncEngineTest {
         assertTrue(abs(offset + 5_000) <= 1_000, "offset $offset")
         assertTrue(confidence >= 0.300, "margin $confidence")
         assertTrue(result.movesSubtitleDelay())
-        val line = "Synced! Offset: ${formatOffsetMessage(offset)} " +
-            "(${formatEnergyStats(audio)}, ${formatEnergyMatchSpan(audio)}, margin: ${formatMargin(confidence)})"
+        val rival = rivalOffsetOf(result)
+        assertTrue(abs(rival + 5_000) > 1_000, "rival $rival too close to -5s")
+        val line = autoSyncSuccessMessage(
+            offsetMs = offset,
+            energyStats = formatEnergyStats(audio),
+            energySpan = formatEnergyMatchSpan(audio),
+            confidence = confidence,
+            rivalOffsetMs = rival,
+        )
         assertTrue(line.startsWith("Synced! Offset:"), line)
         assertTrue(line.contains("margin: 0."), line)
+        assertTrue(line.contains("next:"), line)
     }
 
     @Test
@@ -421,6 +467,54 @@ class SubtitleAutoSyncEngineTest {
         val cues = bursts.map { (start, end) -> SubtitleSyncCue(start, end, "line") }
         val audio = maskEnergy(bursts, t0 = captureStart, t1 = captureEnd)
         val result = sync(audio, cues, positionMs = playhead)
+        assertEquals(0, offsetOf(result))
+        assertFalse(result.movesSubtitleDelay())
+    }
+
+    @Test
+    fun plus2700WinnerWithMinusFiveRivalAtLeastSeventyPercentIsLowConfidence() {
+        val playhead = 17 * 60 * 1000L
+        val captureStart = playhead - 20_000L
+        val captureEnd = playhead
+        val cues = plus2700Cues(captureStart)
+        val winnerSpeech = cues.map { it.startTimeMs + 2_700L to it.endTimeMs + 2_700L + 200L }
+        val rivalSpeech = cues.map { it.startTimeMs - 5_000L to it.endTimeMs - 5_000L }
+        val audio = maskEnergy(winnerSpeech + rivalSpeech, t0 = captureStart, t1 = captureEnd)
+        val result = sync(audio, cues, positionMs = playhead)
+        val offset = offsetOf(result)
+        val rival = rivalOffsetOf(result)
+        assertTrue(result is SubtitleAutoSyncResult.LowConfidence, "got $result")
+        assertTrue(abs(offset - 2_700) <= 100, "winner $offset")
+        assertTrue(abs(rival + 5_000) <= 1_000, "rival $rival")
+        assertTrue(confidenceOf(result) < 0.3, "margin ${confidenceOf(result)}")
+        assertFalse(result.movesSubtitleDelay())
+        val line = autoSyncLowConfidenceMessage(
+            offsetMs = offset,
+            energyStats = formatEnergyStats(audio),
+            confidence = confidenceOf(result),
+            cuesOnScreen = true,
+            rivalOffsetMs = rival,
+        )
+        assertTrue(line.contains("next: ${formatOffsetMessage(rival)}"), line)
+        assertFalse(line.startsWith("Synced!"), line)
+    }
+
+    @Test
+    fun maskActiveAcrossEightyPercentStaysLowConfidenceAtZero() {
+        val playhead = 17 * 60 * 1000L
+        val captureStart = playhead - 20_000L
+        val captureEnd = playhead
+        val speech = listOf(
+            captureStart to captureStart + 9_000L,
+            captureStart + 11_000L to captureEnd,
+        )
+        val cues = listOf(
+            SubtitleSyncCue(captureStart + 1_000L, captureStart + 3_000L, "line"),
+            SubtitleSyncCue(captureStart + 13_000L, captureStart + 15_000L, "line"),
+        )
+        val audio = maskEnergy(speech, t0 = captureStart, t1 = captureEnd)
+        val result = sync(audio, cues, positionMs = playhead)
+        assertTrue(result is SubtitleAutoSyncResult.LowConfidence, "got $result")
         assertEquals(0, offsetOf(result))
         assertFalse(result.movesSubtitleDelay())
     }
@@ -494,8 +588,10 @@ class SubtitleAutoSyncEngineTest {
             energyStats = "N=1, peak=0.010",
             confidence = 0.01,
             cuesOnScreen = false,
+            rivalOffsetMs = 0,
         )
         assertTrue(message.endsWith("Try a scene with more dialogue."))
+        assertTrue(message.contains("next: +0.0s"), message)
     }
 
     private fun sync(
@@ -513,6 +609,12 @@ class SubtitleAutoSyncEngineTest {
     private fun offsetOf(result: SubtitleAutoSyncResult): Int = when (result) {
         is SubtitleAutoSyncResult.Success -> result.offsetMs
         is SubtitleAutoSyncResult.LowConfidence -> result.offsetMs
+        is SubtitleAutoSyncResult.Error -> error(result.message)
+    }
+
+    private fun rivalOffsetOf(result: SubtitleAutoSyncResult): Int = when (result) {
+        is SubtitleAutoSyncResult.Success -> result.rivalOffsetMs
+        is SubtitleAutoSyncResult.LowConfidence -> result.rivalOffsetMs
         is SubtitleAutoSyncResult.Error -> error(result.message)
     }
 
@@ -590,11 +692,22 @@ class SubtitleAutoSyncEngineTest {
      */
     private fun twentySecondBursts(captureStart: Long): List<Pair<Long, Long>> {
         return listOf(
-            captureStart + 2_000L to captureStart + 3_800L,
-            captureStart + 5_500L to captureStart + 7_800L,
-            captureStart + 10_000L to captureStart + 12_400L,
-            captureStart + 14_500L to captureStart + 16_800L,
+            captureStart + 1_200L to captureStart + 3_400L,
+            captureStart + 4_200L to captureStart + 5_100L,
+            captureStart + 8_800L to captureStart + 12_200L,
+            captureStart + 15_000L to captureStart + 16_400L,
         )
+    }
+
+    /**
+     * Two cues spaced away from both 2.7s and 5s so offset 0 does not
+     * inherit overlap from the extra speech copies.
+     */
+    private fun plus2700Cues(captureStart: Long): List<SubtitleSyncCue> {
+        return listOf(
+            captureStart + 5_500L to captureStart + 7_500L,
+            captureStart + 14_000L to captureStart + 16_500L,
+        ).map { (start, end) -> SubtitleSyncCue(start, end, "line") }
     }
 
     /**
