@@ -1,4 +1,5 @@
 import Combine
+import ObjectiveC
 import SwiftUI
 import UIKit
 import ComposeApp
@@ -36,6 +37,161 @@ private enum NuvioComposeHost {
             hidesContainingTabBar: hidesContainingTabBar,
             onTabBarControllerAvailable: onTabBarControllerAvailable
         )
+    }
+}
+
+private enum NuvioEdgePopAssociation {
+    static var key: UInt8 = 0
+}
+
+private extension UINavigationController {
+    var nuvioEdgePop: NuvioEdgePopGestureController {
+        if let existing = objc_getAssociatedObject(self, &NuvioEdgePopAssociation.key) as? NuvioEdgePopGestureController {
+            return existing
+        }
+        let created = NuvioEdgePopGestureController(navigationController: self)
+        objc_setAssociatedObject(
+            self,
+            &NuvioEdgePopAssociation.key,
+            created,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+        return created
+    }
+}
+
+/// Keeps the system back swipe on the leading edge without letting iOS 26's
+/// content-wide pop steal horizontal carousels. The player can still lock it.
+private final class NuvioEdgePopGestureController: NSObject, UIGestureRecognizerDelegate {
+    private static let leadingEdgeMargin: CGFloat = 32
+
+    private weak var navigationController: UINavigationController?
+    private var savedPopDelegate: WeakGestureDelegate?
+    private var savedContentDelegate: WeakGestureDelegate?
+    private var installed = false
+    var allowsEdgePop = true
+
+    init(navigationController: UINavigationController) {
+        self.navigationController = navigationController
+    }
+
+    func installIfNeeded() {
+        guard let navigationController else { return }
+        let pop = navigationController.interactivePopGestureRecognizer
+        if pop?.delegate !== self {
+            savedPopDelegate = WeakGestureDelegate(pop?.delegate)
+            pop?.delegate = self
+        }
+        if #available(iOS 26.0, *) {
+            let content = navigationController.interactiveContentPopGestureRecognizer
+            if content?.delegate !== self {
+                savedContentDelegate = WeakGestureDelegate(content?.delegate)
+                content?.delegate = self
+            }
+        }
+        installed = true
+    }
+
+    func applyEnabledState() {
+        guard installed, let navigationController else { return }
+        navigationController.interactivePopGestureRecognizer?.isEnabled = allowsEdgePop
+        if #available(iOS 26.0, *) {
+            navigationController.interactiveContentPopGestureRecognizer?.isEnabled = allowsEdgePop
+        }
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard allowsEdgePop,
+              let navigationController,
+              navigationController.viewControllers.count > 1,
+              navigationController.transitionCoordinator == nil else { return false }
+        if isContentPop(gestureRecognizer) {
+            // iOS 26's content-wide pop is the swipe-back. Keep it on the leading
+            // edge even if the saved delegate vetoes the rest of the pan, so a
+            // carousel in the middle of the screen cannot pop the route.
+            return beginsAtLeadingEdge(gestureRecognizer)
+        }
+        return originalDelegate(for: gestureRecognizer)?
+            .gestureRecognizerShouldBegin?(gestureRecognizer) ?? true
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        originalDelegate(for: gestureRecognizer)?.gestureRecognizer?(
+            gestureRecognizer,
+            shouldRecognizeSimultaneouslyWith: otherGestureRecognizer
+        ) ?? false
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        originalDelegate(for: gestureRecognizer)?.gestureRecognizer?(
+            gestureRecognizer,
+            shouldRequireFailureOf: otherGestureRecognizer
+        ) ?? false
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        originalDelegate(for: gestureRecognizer)?.gestureRecognizer?(
+            gestureRecognizer,
+            shouldBeRequiredToFailBy: otherGestureRecognizer
+        ) ?? false
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldReceive touch: UITouch
+    ) -> Bool {
+        if isContentPop(gestureRecognizer) {
+            return allowsEdgePop
+        }
+        return originalDelegate(for: gestureRecognizer)?.gestureRecognizer?(
+            gestureRecognizer,
+            shouldReceive: touch
+        ) ?? true
+    }
+
+    private func isContentPop(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard #available(iOS 26.0, *),
+              let content = navigationController?.interactiveContentPopGestureRecognizer else { return false }
+        return gestureRecognizer === content
+    }
+
+    private func beginsAtLeadingEdge(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let view = navigationController?.view else { return false }
+        let x = gestureRecognizer.location(in: view).x
+        if view.effectiveUserInterfaceLayoutDirection == .rightToLeft {
+            return x >= view.bounds.width - Self.leadingEdgeMargin
+        }
+        return x <= Self.leadingEdgeMargin
+    }
+
+    private func originalDelegate(
+        for gestureRecognizer: UIGestureRecognizer
+    ) -> UIGestureRecognizerDelegate? {
+        if gestureRecognizer === navigationController?.interactivePopGestureRecognizer {
+            return savedPopDelegate?.value
+        }
+        if isContentPop(gestureRecognizer) {
+            return savedContentDelegate?.value
+        }
+        return nil
+    }
+}
+
+private final class WeakGestureDelegate {
+    weak var object: AnyObject?
+    var value: UIGestureRecognizerDelegate? { object as? UIGestureRecognizerDelegate }
+
+    init(_ delegate: UIGestureRecognizerDelegate?) {
+        object = delegate as AnyObject?
     }
 }
 
@@ -141,7 +297,7 @@ final class RootComposeViewController: UIViewController {
         super.viewWillAppear(animated)
         refreshContainingTabBarVisibility()
         refreshImmersiveSystemUI()
-        setInteractiveContentPopGestureEnabled(false)
+        updateInteractivePopGesture()
         setNavigationBarPassthroughEnabled(true)
     }
 
@@ -149,7 +305,11 @@ final class RootComposeViewController: UIViewController {
         super.viewDidAppear(animated)
         refreshContainingTabBarVisibility()
         refreshImmersiveSystemUI()
-        setInteractiveContentPopGestureEnabled(false)
+        updateInteractivePopGesture()
+        // UIKit can reset the recognizers after this callback.
+        DispatchQueue.main.async { [weak self] in
+            self?.updateInteractivePopGesture()
+        }
         if let tabBarController {
             onTabBarControllerAvailable?(tabBarController)
         }
@@ -162,7 +322,13 @@ final class RootComposeViewController: UIViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         setNavigationBarPassthroughEnabled(false)
-        setInteractiveContentPopGestureEnabled(true)
+        // The screen underneath must get the edge swipe back as this host leaves,
+        // including when the leaving host is the immersive player.
+        if disablesInteractiveContentPopGesture, let navigationController {
+            let coordinator = navigationController.nuvioEdgePop
+            coordinator.allowsEdgePop = true
+            coordinator.applyEnabledState()
+        }
         super.viewWillDisappear(animated)
     }
 
@@ -189,13 +355,41 @@ final class RootComposeViewController: UIViewController {
             controller = current.parent
         }
         SystemUI.shared.refresh()
+        updateInteractivePopGesture()
     }
 
-    private func setInteractiveContentPopGestureEnabled(_ enabled: Bool) {
+    /// Hierarchical screens keep the leading-edge swipe. The iOS 26 content-wide pop
+    /// stays limited to that edge so a horizontal carousel does not pop the screen.
+    /// The immersive player may still lock the edge until it leaves.
+    private func updateInteractivePopGesture() {
         guard disablesInteractiveContentPopGesture else { return }
-        if #available(iOS 26.0, *) {
-            navigationController?.interactiveContentPopGestureRecognizer?.isEnabled = enabled
+        guard viewIfLoaded?.window != nil, let navigationController else { return }
+        let coordinator = navigationController.nuvioEdgePop
+        coordinator.allowsEdgePop = !playerLocksLeadingEdge
+        coordinator.installIfNeeded()
+        coordinator.applyEnabledState()
+    }
+
+    /// Only the host that actually contains the player may lock the edge.
+    /// A title underneath stays able to restore the swipe as the player leaves,
+    /// even if the immersive flag has not cleared yet.
+    private var playerLocksLeadingEdge: Bool {
+        if let player = SystemUI.shared.activePlayer, contains(player) {
+            if SystemUI.shared.isPlayerImmersive { return true }
+            return player.preferredScreenEdgesDeferringSystemGestures.contains(.left)
         }
+        let deferred = immersiveController(in: contentController)?
+            .preferredScreenEdgesDeferringSystemGestures ?? []
+        return deferred.contains(.left)
+    }
+
+    private func contains(_ player: UIViewController) -> Bool {
+        var current: UIViewController? = player
+        while let cursor = current {
+            if cursor === self || cursor === contentController { return true }
+            current = cursor.parent
+        }
+        return false
     }
 
     private func setNavigationBarPassthroughEnabled(_ enabled: Bool) {
@@ -950,10 +1144,13 @@ final class AppNavigationCoordinator: ObservableObject {
         tabBarTransitionTask?.cancel()
         tabBarTransitionTask = nil
 
-        guard animated else {
+        guard animated, !UIAccessibility.isReduceMotionEnabled else {
             isTabBarVisible = visible
             isNativeTabBarVisible = visible
             isCompactPillHidden = visible
+            if visible {
+                refreshNativeTabBarMetrics()
+            }
             return
         }
 
@@ -1815,6 +2012,7 @@ struct NativeNavContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 }
                 .ignoresSafeArea(.all)
+                .allowsHitTesting(!appCoordinator.isTabBarVisible)
                 .opacity(appCoordinator.isCompactPillHidden ? 0 : 1)
                 .accessibilityHidden(appCoordinator.isCompactPillHidden)
             }

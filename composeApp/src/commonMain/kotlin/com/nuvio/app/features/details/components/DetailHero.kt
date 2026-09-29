@@ -86,6 +86,9 @@ fun DetailHero(
             label = "detail_hero_trailer_alpha",
         )
         val muteIconSize = if (isTablet) 20.dp else 22.dp
+        val trailerAudioLabel = stringResource(
+            if (heroTrailerMuted) Res.string.compose_player_muted else Res.string.compose_player_volume,
+        )
         val heroChromeTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() +
             8.dp +
             ((40.dp - muteIconSize) / 2)
@@ -170,6 +173,7 @@ fun DetailHero(
                                 enabled = heroTrailerReady,
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null,
+                                onClickLabel = trailerAudioLabel,
                                 onClick = onHeroTrailerMuteToggle,
                             ),
                     )
@@ -197,7 +201,7 @@ fun DetailHero(
                     ) { muted ->
                         Icon(
                             imageVector = if (muted) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp,
-                            contentDescription = null,
+                            contentDescription = trailerAudioLabel,
                             tint = Color.White,
                             modifier = Modifier.size(muteIconSize),
                         )

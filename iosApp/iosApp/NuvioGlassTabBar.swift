@@ -63,6 +63,7 @@ struct NuvioGlassTabBar: View {
 
     @Namespace private var glassNamespace
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let barGlassID = "nuvio.tabbar"
 
@@ -123,8 +124,8 @@ struct NuvioGlassTabBar: View {
         .ignoresSafeArea(.container, edges: .bottom)
         .allowsHitTesting(!isExpanded)
         .accessibilityHidden(isExpanded)
-        .animation(.smooth(duration: 0.38), value: isExpanded)
-        .animation(.smooth(duration: 0.26), value: selectedTab)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.38), value: isExpanded)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.26), value: selectedTab)
     }
 
     private func item(for tab: NuvioAppTab) -> some View {
@@ -163,6 +164,8 @@ struct NuvioGlassTabBar: View {
             content
         }
         .buttonStyle(.plain)
+        .frame(minWidth: 44, minHeight: 44)
+        .contentShape(Rectangle())
         .accessibilityLabel(Text(appCoordinator.title(for: tab)))
         .accessibilityAddTraits(selected ? [.isSelected] : [])
 

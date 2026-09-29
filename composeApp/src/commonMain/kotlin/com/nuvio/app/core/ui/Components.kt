@@ -288,7 +288,7 @@ fun NuvioBackButton(
 
     Box(
         modifier = modifier
-            .size(buttonSize)
+            .size(buttonSize.atLeastIosHitTarget())
             .clip(shape)
             .background(containerColor)
             .clickable(onClick = onClick),

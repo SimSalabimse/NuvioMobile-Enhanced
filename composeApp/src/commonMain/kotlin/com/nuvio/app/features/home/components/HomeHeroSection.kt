@@ -73,6 +73,7 @@ import coil3.compose.AsyncImage
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.build.TrailerPlaybackMode
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
+import com.nuvio.app.core.ui.atLeastIosHitTarget
 import com.nuvio.app.core.ui.dynamicScrimAlpha
 import com.nuvio.app.core.ui.heroStretchHeight
 import com.nuvio.app.core.ui.ScreenActivityEffect
@@ -671,6 +672,13 @@ internal fun HomeHeroSection(
 
                     if (heroTrailerReady && heroTrailerPlaybackSource != null) {
                         val muteIconSize = 20.dp
+                        val muteLabel = stringResource(
+                            if (heroTrailerMuted) {
+                                Res.string.compose_player_muted
+                            } else {
+                                Res.string.compose_player_volume
+                            },
+                        )
                         Box(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
@@ -678,19 +686,21 @@ internal fun HomeHeroSection(
                                     top = statusBarTopPadding + 12.dp,
                                     end = if (layout.isTablet) 32.dp else 18.dp,
                                 )
+                                .size((muteIconSize + 16.dp).atLeastIosHitTarget())
                                 .clip(CircleShape)
                                 .background(Color.Black.copy(alpha = 0.35f))
                                 .clickable(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null,
+                                    onClickLabel = muteLabel,
                                 ) {
                                     HeroTrailerAudioState.toggleMuted(HeroTrailerSurface.Home)
-                                }
-                                .padding(8.dp),
+                                },
+                            contentAlignment = Alignment.Center,
                         ) {
                             Icon(
                                 imageVector = if (heroTrailerMuted) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp,
-                                contentDescription = null,
+                                contentDescription = muteLabel,
                                 tint = Color.White,
                                 modifier = Modifier.size(muteIconSize),
                             )

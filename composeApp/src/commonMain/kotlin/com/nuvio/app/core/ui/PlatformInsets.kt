@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.nuvio.app.isIos
 
 internal expect val nuvioPlatformExtraTopPadding: Dp
 internal expect val nuvioPlatformExtraBottomPadding: Dp
@@ -34,3 +35,6 @@ internal fun nuvioSafeBottomPadding(extra: Dp = 0.dp): Dp {
 		LocalNuvioBottomNavigationOverlayPadding.current +
 		extra
 }
+
+/** Apple's 44pt minimum control. Android keeps the size the caller already chose. */
+internal fun Dp.atLeastIosHitTarget(): Dp = if (isIos) coerceAtLeast(44.dp) else this

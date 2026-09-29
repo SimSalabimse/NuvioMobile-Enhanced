@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.ui.NuvioBackButton
+import com.nuvio.app.core.ui.atLeastIosHitTarget
 import com.nuvio.app.core.ui.platformPhysicalTopInset
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.isIos
@@ -100,20 +101,21 @@ fun DetailFloatingHeader(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                val sideSlot = 40.dp.atLeastIosHitTarget()
                 if (interactive && !useNativeNavigation) {
                     NuvioBackButton(
                         onClick = onBack,
-                        modifier = Modifier.size(40.dp),
+                        modifier = Modifier.size(sideSlot),
                         containerColor = Color.Transparent,
                         contentColor = MaterialTheme.colorScheme.onBackground,
-                        buttonSize = 40.dp,
+                        buttonSize = sideSlot,
                         iconSize = 24.dp,
                     )
                 } else {
                     // Native iOS navigation owns the back button, but retaining
                     // this slot keeps the Compose logo centered as the floating
                     // header replaces the hero while scrolling.
-                    Box(modifier = Modifier.size(40.dp))
+                    Box(modifier = Modifier.size(sideSlot))
                 }
 
                 Box(
@@ -173,7 +175,7 @@ private fun DetailFloatingHeaderAction(
 ) {
     Box(
         modifier = Modifier
-            .size(40.dp)
+            .size(40.dp.atLeastIosHitTarget())
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

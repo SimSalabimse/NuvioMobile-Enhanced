@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContent
@@ -72,11 +73,14 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.LayoutDirection
 import com.nuvio.app.core.ui.AppIconResource
 import com.nuvio.app.core.ui.NuvioBackButton
+import com.nuvio.app.core.ui.atLeastIosHitTarget
+import com.nuvio.app.isIos
 import com.nuvio.app.core.ui.themePalette
 import com.nuvio.app.core.ui.accentBrush
 import com.nuvio.app.core.ui.appIconPainter
@@ -531,7 +535,7 @@ internal fun PlayerHeaderIconButton(
 ) {
     Box(
         modifier = Modifier
-            .size(buttonSize)
+            .size(buttonSize.atLeastIosHitTarget())
             .clip(CircleShape)
             .background(Color.Black.copy(alpha = 0.35f))
             .clickable(onClick = onClick),
@@ -812,8 +816,8 @@ internal fun PlayerSeekBar(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(metrics.sliderTouchHeight)
-                .graphicsLayer(scaleY = metrics.sliderScaleY)
+                .height(metrics.transportTouchHeight())
+                .graphicsLayer(scaleY = metrics.transportScaleY())
                 .tapToSeekOnTimeline(
                     durationMs = durationMs,
                     currentPositionMs = { displayedPositionMs },
@@ -955,8 +959,8 @@ internal fun LockedPlayerOverlay(
                 Slider(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(metrics.sliderTouchHeight)
-                        .graphicsLayer(scaleY = metrics.sliderScaleY),
+                        .height(metrics.transportTouchHeight())
+                        .graphicsLayer(scaleY = metrics.transportScaleY()),
                     value = displayedPositionMs.coerceIn(0L, durationMs).toFloat(),
                     onValueChange = {},
                     onValueChangeFinished = {},
@@ -1027,6 +1031,7 @@ private fun PlayerActionPillButton(
 ) {
     Row(
         modifier = Modifier
+            .heightIn(min = 0.dp.atLeastIosHitTarget())
             .clip(RoundedCornerShape(22.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 12.dp),
@@ -1058,3 +1063,8 @@ private fun PlayerActionPillButton(
         )
     }
 }
+
+private fun PlayerLayoutMetrics.transportTouchHeight(): Dp = sliderTouchHeight.atLeastIosHitTarget()
+
+private fun PlayerLayoutMetrics.transportScaleY(): Float =
+    if (isIos && sliderTouchHeight < 44.dp) 1f else sliderScaleY

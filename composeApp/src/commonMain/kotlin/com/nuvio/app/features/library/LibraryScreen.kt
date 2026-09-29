@@ -57,6 +57,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.ViewAgenda
+import com.nuvio.app.core.ui.atLeastIosHitTarget
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.CircularProgressIndicator
@@ -435,7 +436,7 @@ fun LibraryScreen(
                             IconButton(
                                 onClick = { showReleaseCalendar = true },
                                 modifier = Modifier
-                                    .size(40.dp)
+                                    .size(40.dp.atLeastIosHitTarget())
                                     .semantics { contentDescription = openCalendarLabel },
                             ) {
                                 LibraryCalendarGlyph(
@@ -1677,7 +1678,7 @@ private fun LibraryCalendarTopBar(
         }
         IconButton(
             onClick = onDismiss,
-            modifier = Modifier.size(40.dp),
+            modifier = Modifier.size(40.dp.atLeastIosHitTarget()),
         ) {
             Icon(
                 imageVector = Icons.Rounded.Close,
@@ -1909,7 +1910,7 @@ private fun LibraryCalendarCard(
             ) {
                 IconButton(
                     onClick = onPrevious,
-                    modifier = Modifier.size(38.dp),
+                    modifier = Modifier.size(38.dp.atLeastIosHitTarget()),
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
@@ -1950,7 +1951,7 @@ private fun LibraryCalendarCard(
                 }
                 IconButton(
                     onClick = onNext,
-                    modifier = Modifier.size(38.dp),
+                    modifier = Modifier.size(38.dp.atLeastIosHitTarget()),
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
@@ -2012,6 +2013,7 @@ private fun LibraryCalendarMonthGrid(
     onDateSelected: (LibraryCalendarDate) -> Unit,
 ) {
     val cells = remember(month) { libraryCalendarCells(month) }
+    val dayCellHeight = 40.dp.atLeastIosHitTarget()
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         cells.chunked(7).forEach { week ->
             Row(
@@ -2022,7 +2024,7 @@ private fun LibraryCalendarMonthGrid(
                         Spacer(
                             modifier = Modifier
                                 .weight(1f)
-                                .height(40.dp),
+                                .height(dayCellHeight),
                         )
                     } else {
                         val dayEvents = eventsByDate[date.iso].orEmpty()
@@ -2032,7 +2034,7 @@ private fun LibraryCalendarMonthGrid(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .height(40.dp)
+                                .height(dayCellHeight)
                                 .clickable { onDateSelected(date) },
                             contentAlignment = Alignment.Center,
                         ) {
