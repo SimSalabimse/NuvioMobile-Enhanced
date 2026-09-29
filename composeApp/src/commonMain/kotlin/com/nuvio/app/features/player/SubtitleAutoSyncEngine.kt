@@ -167,9 +167,17 @@ object SubtitleAutoSyncEngine {
         
         // Confidence is based on how much better the best offset is compared to average
         val avgCorrelation = correlations.map { it.second }.average()
-        val stdDev = sqrt(correlations.map { (it.second - avgCorrelation) * (it.second - avgCorrelation) }.average())
-        val confidence = if (stdDev > 0) {
+        if (!avgCorrelation.isFinite()) return null
+        
+        val variance = correlations.map { (it.second - avgCorrelation) * (it.second - avgCorrelation) }.average()
+        if (!variance.isFinite() || variance < 0.0) return null
+        
+        val stdDev = sqrt(variance)
+        val confidence = if (stdDev > 1e-6 && best.second.isFinite()) {
             ((best.second - avgCorrelation) / stdDev).coerceIn(0.0, 1.0)
+        } else if (best.second > 0.5) {
+            // If variance is very low but correlation is high, assign moderate confidence
+            0.5
         } else {
             0.0
         }
@@ -221,10 +229,17 @@ object SubtitleAutoSyncEngine {
             time += sampleInterval
         }
         
-        if (sampleCount == 0 || sumAudioSq == 0.0 || sumSubSq == 0.0) return 0.0
+        if (sampleCount == 0) return 0.0
         
-        // Pearson correlation coefficient
-        return sumProduct / sqrt(sumAudioSq * sumSubSq)
+        // Guard against division by zero and invalid values
+        if (sumAudioSq < 1e-10 || sumSubSq < 1e-10) return 0.0
+        
+        val denominator = sqrt(sumAudioSq * sumSubSq)
+        if (!denominator.isFinite() || denominator < 1e-10) return 0.0
+        
+        // Pearson correlation coefficient with safety checks
+        val correlation = sumProduct / denominator
+        return if (correlation.isFinite()) correlation.coerceIn(-1.0, 1.0) else 0.0
     }
     
     /**

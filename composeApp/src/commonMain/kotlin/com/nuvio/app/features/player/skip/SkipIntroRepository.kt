@@ -7,9 +7,12 @@ import com.nuvio.app.features.tmdb.TmdbService
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 object SkipIntroRepository {
 
+    private val cacheLock = Mutex()
     private val cache = HashMap<String, List<SkipInterval>>()
     private val imdbEntriesCache = HashMap<String, List<ArmEntry>>()
     private val animeSkipShowIdCache = HashMap<String, String>()
@@ -39,7 +42,10 @@ object SkipIntroRepository {
         )
         if (imdbId == null) return@coroutineScope emptyList()
         val cacheKey = "movie:$imdbId"
-        cache[cacheKey]?.let { return@coroutineScope it }
+        
+        cacheLock.withLock {
+            cache[cacheKey]?.let { return@coroutineScope it }
+        }
 
         val theIntroDbDeferred = async { fetchMovieFromTheIntroDb(imdbId) }
         val introDbDeferred = async {
@@ -47,9 +53,12 @@ object SkipIntroRepository {
                 SkipIntroApi.getIntroDbMovieSegments(imdbId)?.movieSkipIntervals().orEmpty()
             } else emptyList()
         }
-        mergeByPriority(theIntroDbDeferred.await(), introDbDeferred.await()).also {
-            cache[cacheKey] = it
+        val result = mergeByPriority(theIntroDbDeferred.await(), introDbDeferred.await())
+        
+        cacheLock.withLock {
+            cache[cacheKey] = result
         }
+        result
     }
 
     suspend fun getSkipIntervals(
@@ -69,10 +78,14 @@ object SkipIntroRepository {
         }
 
         val cacheKey = "$imdbId:$season:$episode"
-        cache[cacheKey]?.let { cached ->
-            InAppLogger.debug("Player/SkipIntro", "skip lookup cache hit imdb=$imdbId s=$season e=$episode count=${cached.size}")
-            return@coroutineScope cached
+        
+        cacheLock.withLock {
+            cache[cacheKey]?.let { cached ->
+                InAppLogger.debug("Player/SkipIntro", "skip lookup cache hit imdb=$imdbId s=$season e=$episode count=${cached.size}")
+                return@coroutineScope cached
+            }
         }
+        
         InAppLogger.info(
             "Player/SkipIntro",
             "skip lookup imdb=$imdbId s=$season e=$episode introDb=$introDbConfigured " +
@@ -95,7 +108,9 @@ object SkipIntroRepository {
                 "skip lookup fast result imdb=$imdbId s=$season e=$episode count=${primary.size} " +
                     "theintrodb=${theIntroDb.size} introdb=${introDb.size}",
             )
-            cache[cacheKey] = primary
+            cacheLock.withLock {
+                cache[cacheKey] = primary
+            }
             return@coroutineScope primary
         }
 
@@ -119,20 +134,25 @@ object SkipIntroRepository {
 
         val animeSkip = animeSkipDeferred.await()
         val aniSkip = aniSkipDeferred.await()
-        return@coroutineScope mergeByPriority(
+        val result = mergeByPriority(
             theIntroDb,
             introDb,
             animeSkip,
             aniSkip,
-        ).also { merged ->
-            InAppLogger.info(
-                "Player/SkipIntro",
-                "skip lookup result imdb=$imdbId s=$season e=$episode count=${merged.size} " +
-                    "theintrodb=${theIntroDb.size} introdb=${introDb.size} " +
-                    "animeskip=${animeSkip.size} aniskip=${aniSkip.size}",
-            )
-            cache[cacheKey] = merged
+        )
+        
+        InAppLogger.info(
+            "Player/SkipIntro",
+            "skip lookup result imdb=$imdbId s=$season e=$episode count=${result.size} " +
+                "theintrodb=${theIntroDb.size} introdb=${introDb.size} " +
+                "animeskip=${animeSkip.size} aniskip=${aniSkip.size}",
+        )
+        
+        cacheLock.withLock {
+            cache[cacheKey] = result
         }
+        
+        result
     }
 
     suspend fun getSkipIntervalsForMal(
@@ -150,10 +170,14 @@ object SkipIntroRepository {
         }
 
         val cacheKey = "mal:$malId:$episode"
-        cache[cacheKey]?.let { cached ->
-            InAppLogger.debug("Player/SkipIntro", "skip lookup cache hit mal=$malId e=$episode count=${cached.size}")
-            return@coroutineScope cached
+        
+        cacheLock.withLock {
+            cache[cacheKey]?.let { cached ->
+                InAppLogger.debug("Player/SkipIntro", "skip lookup cache hit mal=$malId e=$episode count=${cached.size}")
+                return@coroutineScope cached
+            }
         }
+        
         InAppLogger.info("Player/SkipIntro", "skip lookup mal=$malId e=$episode")
 
         val aniSkipDeferred = async { fetchFromAniSkip(malId, episode) }
@@ -185,14 +209,19 @@ object SkipIntroRepository {
         }
 
         val aniSkip = aniSkipDeferred.await()
-        return@coroutineScope mergeByPriority(introDb, animeSkip, aniSkip).also { merged ->
-            InAppLogger.info(
-                "Player/SkipIntro",
-                "skip lookup result mal=$malId e=$episode count=${merged.size} " +
-                    "introdb=${introDb.size} animeskip=${animeSkip.size} aniskip=${aniSkip.size}",
-            )
-            cache[cacheKey] = merged
+        val result = mergeByPriority(introDb, animeSkip, aniSkip)
+        
+        InAppLogger.info(
+            "Player/SkipIntro",
+            "skip lookup result mal=$malId e=$episode count=${result.size} " +
+                "introdb=${introDb.size} animeskip=${animeSkip.size} aniskip=${aniSkip.size}",
+        )
+        
+        cacheLock.withLock {
+            cache[cacheKey] = result
         }
+        
+        result
     }
 
     suspend fun getSkipIntervalsForKitsu(
@@ -210,10 +239,14 @@ object SkipIntroRepository {
         }
 
         val cacheKey = "kitsu:$kitsuId:$episode"
-        cache[cacheKey]?.let { cached ->
-            InAppLogger.debug("Player/SkipIntro", "skip lookup cache hit kitsu=$kitsuId e=$episode count=${cached.size}")
-            return@coroutineScope cached
+        
+        cacheLock.withLock {
+            cache[cacheKey]?.let { cached ->
+                InAppLogger.debug("Player/SkipIntro", "skip lookup cache hit kitsu=$kitsuId e=$episode count=${cached.size}")
+                return@coroutineScope cached
+            }
         }
+        
         InAppLogger.info("Player/SkipIntro", "skip lookup kitsu=$kitsuId e=$episode")
 
         val malIdDeferred = async {
@@ -251,14 +284,19 @@ object SkipIntroRepository {
         }
 
         val aniSkip = aniSkipDeferred.await()
-        return@coroutineScope mergeByPriority(introDb, animeSkip, aniSkip).also { merged ->
-            InAppLogger.info(
-                "Player/SkipIntro",
-                "skip lookup result kitsu=$kitsuId e=$episode count=${merged.size} " +
-                    "introdb=${introDb.size} animeskip=${animeSkip.size} aniskip=${aniSkip.size}",
-            )
-            cache[cacheKey] = merged
+        val result = mergeByPriority(introDb, animeSkip, aniSkip)
+        
+        InAppLogger.info(
+            "Player/SkipIntro",
+            "skip lookup result kitsu=$kitsuId e=$episode count=${result.size} " +
+                "introdb=${introDb.size} animeskip=${animeSkip.size} aniskip=${aniSkip.size}",
+        )
+        
+        cacheLock.withLock {
+            cache[cacheKey] = result
         }
+        
+        result
     }
 
     private fun mergeByPriority(vararg providerResults: List<SkipInterval>): List<SkipInterval> {
@@ -429,9 +467,12 @@ object SkipIntroRepository {
     }
 
     private suspend fun resolveAnimeSkipShowIds(anilistId: String, clientId: String): List<String> {
-        animeSkipShowIdCache[anilistId]?.let { cached ->
-            return if (cached == NO_ID) emptyList() else listOf(cached)
+        cacheLock.withLock {
+            animeSkipShowIdCache[anilistId]?.let { cached ->
+                return if (cached == NO_ID) emptyList() else listOf(cached)
+            }
         }
+        
         val query = "{ findShowsByExternalId(service: ANILIST, serviceId: \"$anilistId\") { id } }"
         val showIds = withSkipProviderTimeout(
             provider = "AnimeSkip show resolve",
@@ -447,14 +488,21 @@ object SkipIntroRepository {
                 emptyList()
             }
         }
-        if (showIds.size == 1) animeSkipShowIdCache[anilistId] = showIds[0]
-        else if (showIds.isEmpty()) animeSkipShowIdCache[anilistId] = NO_ID
+        
+        cacheLock.withLock {
+            if (showIds.size == 1) animeSkipShowIdCache[anilistId] = showIds[0]
+            else if (showIds.isEmpty()) animeSkipShowIdCache[anilistId] = NO_ID
+        }
+        
         return showIds
     }
 
     private suspend fun resolveImdbEntries(imdbId: String): List<ArmEntry> {
-        imdbEntriesCache[imdbId]?.let { return it }
-        return withSkipProviderTimeout("ARM resolve", ARM_LOOKUP_TIMEOUT_MS, emptyList()) {
+        cacheLock.withLock {
+            imdbEntriesCache[imdbId]?.let { return it }
+        }
+        
+        val entries = withSkipProviderTimeout("ARM resolve", ARM_LOOKUP_TIMEOUT_MS, emptyList()) {
             try {
                 SkipIntroApi.resolveImdbToAll(imdbId)
             } catch (error: CancellationException) {
@@ -462,7 +510,13 @@ object SkipIntroRepository {
             } catch (_: Exception) {
                 emptyList()
             }
-        }.also { imdbEntriesCache[imdbId] = it }
+        }
+        
+        cacheLock.withLock {
+            imdbEntriesCache[imdbId] = entries
+        }
+        
+        return entries
     }
 
     suspend fun submitIntro(
@@ -511,9 +565,17 @@ object SkipIntroRepository {
     }
 
     fun clearCache() {
-        cache.clear()
-        imdbEntriesCache.clear()
-        animeSkipShowIdCache.clear()
+        cacheLock.tryLock().also { locked ->
+            if (locked) {
+                try {
+                    cache.clear()
+                    imdbEntriesCache.clear()
+                    animeSkipShowIdCache.clear()
+                } finally {
+                    cacheLock.unlock()
+                }
+            }
+        }
     }
 }
 
