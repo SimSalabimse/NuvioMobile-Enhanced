@@ -116,10 +116,11 @@ echo "==> Building unsigned IPA (this can take 15–60+ minutes on first run)"
 ./scripts/build-ios-ipa.sh
 
 configuration_slug="$(printf '%s' "${configuration}" | tr '[:upper:]' '[:lower:]')"
-ipa_path="$(find build/ios-ipa -maxdepth 1 -type f -name "*-full-${configuration_slug}.ipa" -print -quit 2>/dev/null || true)"
+ipa_output_dir="${IOS_IPA_OUTPUT_DIR:-${repository_root}/build/ios-ipa}"
+ipa_path="$(find "${ipa_output_dir}" -maxdepth 1 -type f -name "*-full-${configuration_slug}.ipa" -print -quit 2>/dev/null || true)"
 if [[ -z "${ipa_path}" ]]; then
-  echo "ERROR: IPA not found under build/ios-ipa/" >&2
-  ls -la build/ios-ipa/ 2>&1 || true
+  echo "ERROR: IPA not found under ${ipa_output_dir}/" >&2
+  ls -la "${ipa_output_dir}/" 2>&1 || true
   exit 1
 fi
 
