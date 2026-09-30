@@ -30,8 +30,13 @@ fi
 
 cd "${repository_root}"
 
+ipa_status_helper="${IPA_STATUS_HELPER:-${repository_root}/../NuvioMobile-sim44-ipa-status/scripts/ipa-live-status.sh}"
+if [[ ! -f "${ipa_status_helper}" ]]; then
+    echo "ipa-status: helper missing: ${ipa_status_helper}" >&2
+    exit 1
+fi
 # shellcheck source=../NuvioMobile-sim44-ipa-status/scripts/ipa-live-status.sh
-source "${repository_root}/../NuvioMobile-sim44-ipa-status/scripts/ipa-live-status.sh"
+source "${ipa_status_helper}"
 
 ipa_build_cleanup() {
     local code=$?
@@ -137,5 +142,6 @@ temporary_ipa="${package_root}/nuvio-${version}-full-${configuration_slug}.ipa"
 )
 unzip -tq "${temporary_ipa}"
 mv "${temporary_ipa}" "${ipa_path}"
+ipa_live_status_record_ipa "${ipa_path}" "${version}"
 
 echo "Created ${ipa_path}"
