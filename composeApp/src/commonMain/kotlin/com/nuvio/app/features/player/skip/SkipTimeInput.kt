@@ -41,6 +41,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.nuvio.app.core.ui.atLeastIosHitTarget
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.submit_intro_capture_button
 import nuvio.composeapp.generated.resources.submit_intro_time_decrease
@@ -403,7 +404,7 @@ private fun SkipTimeNudgeButton(
     val description = contentDescription
     Box(
         modifier = modifier
-            .height(36.dp)
+            .height(36.dp.atLeastIosHitTarget())
             .clip(RoundedCornerShape(10.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .semantics(mergeDescendants = true) { this.contentDescription = description }

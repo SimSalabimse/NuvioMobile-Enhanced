@@ -2,7 +2,9 @@ package com.nuvio.app.features.player.skip
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class IntroSubmitServiceTest {
     @Test
@@ -46,5 +48,15 @@ class IntroSubmitServiceTest {
         assertNull(
             introSubmitBlockReason(IntroSubmitService.THE_INTRODB, "the-key", isMovie = true, imdbId = "", season = 0, episode = 0),
         )
+    }
+
+    @Test
+    fun `flag dialog hides the api field only when that service already has a working key`() {
+        assertFalse(introSubmitShowsApiKeyField(IntroSubmitService.INTRODB, "idb_example"))
+        assertFalse(introSubmitShowsApiKeyField(IntroSubmitService.THE_INTRODB, "the-key"))
+        assertTrue(introSubmitShowsApiKeyField(IntroSubmitService.INTRODB, "  "))
+        assertTrue(introSubmitShowsApiKeyField(IntroSubmitService.INTRODB, "the-key"))
+        assertTrue(introSubmitShowsApiKeyField(IntroSubmitService.THE_INTRODB, ""))
+        assertTrue(introSubmitShowsApiKeyField(IntroSubmitService.THE_INTRODB, "idb_example"))
     }
 }

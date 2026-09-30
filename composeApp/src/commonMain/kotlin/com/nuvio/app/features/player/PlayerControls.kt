@@ -151,34 +151,30 @@ internal fun PlayerControlsShell(
             metrics.centerLift,
             timelineHeight * 2 + centerControlHeight + 16.dp - maxHeight,
         )
-        Box(
+        PlayerChromeBackdrop(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(160.dp)
-                .align(Alignment.TopCenter)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Black.copy(alpha = 0.7f),
-                            Color.Transparent,
-                        ),
-                    ),
+                .align(Alignment.TopCenter),
+            fallbackBrush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.Black.copy(alpha = 0.7f),
+                    Color.Transparent,
                 ),
+            ),
         )
 
-        Box(
+        PlayerChromeBackdrop(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(if (useLegacyLayout) 220.dp else 260.dp)
-                .align(Alignment.BottomCenter)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color.Black.copy(alpha = if (useLegacyLayout) 0.7f else 0.8f),
-                        ),
-                    ),
+                .align(Alignment.BottomCenter),
+            fallbackBrush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    Color.Black.copy(alpha = if (useLegacyLayout) 0.7f else 0.8f),
                 ),
+            ),
         )
 
         Box(
@@ -531,14 +527,22 @@ private fun PlayerHeader(
                             onClick = onInfoClick,
                         )
                     }
-                    NuvioBackButton(
-                        onClick = onBack,
-                        containerColor = Color.Black.copy(alpha = 0.35f),
-                        contentColor = Color.White,
-                        buttonSize = metrics.headerIconSize + 16.dp,
-                        iconSize = metrics.headerIconSize,
-                        contentDescription = stringResource(Res.string.compose_player_close),
-                    )
+                    Box(contentAlignment = Alignment.Center) {
+                        val closeSize = (metrics.headerIconSize + 16.dp).atLeastIosHitTarget()
+                        PlayerChromeBackdrop(
+                            modifier = Modifier.size(closeSize),
+                            shape = CircleShape,
+                            fallbackColor = Color.Black.copy(alpha = 0.35f),
+                        )
+                        NuvioBackButton(
+                            onClick = onBack,
+                            containerColor = Color.Transparent,
+                            contentColor = Color.White,
+                            buttonSize = metrics.headerIconSize + 16.dp,
+                            iconSize = metrics.headerIconSize,
+                            contentDescription = stringResource(Res.string.compose_player_close),
+                        )
+                    }
                 }
             }
         }
@@ -558,10 +562,14 @@ internal fun PlayerHeaderIconButton(
         modifier = Modifier
             .size(buttonSize.atLeastIosHitTarget())
             .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.35f))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
+        PlayerChromeBackdrop(
+            modifier = Modifier.matchParentSize(),
+            shape = CircleShape,
+            fallbackColor = Color.Black.copy(alpha = 0.35f),
+        )
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
@@ -701,15 +709,20 @@ private fun ProgressControls(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center,
         ) {
-            Surface(
-                color = Color.Black.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(24.dp),
-                modifier = Modifier.border(
-                    width = 1.dp,
-                    color = Color.White.copy(alpha = 0.2f),
-                    shape = RoundedCornerShape(24.dp),
-                ),
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(24.dp))
+                    .border(
+                        width = 1.dp,
+                        color = Color.White.copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(24.dp),
+                    ),
             ) {
+                PlayerChromeBackdrop(
+                    modifier = Modifier.matchParentSize(),
+                    shape = RoundedCornerShape(24.dp),
+                    fallbackColor = Color.Black.copy(alpha = 0.5f),
+                )
                 Row(
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
                     horizontalArrangement = Arrangement.Center,
@@ -924,19 +937,17 @@ internal fun LockedPlayerOverlay(
     )
 
     Box(modifier = modifier.fillMaxSize()) {
-        Box(
+        PlayerChromeBackdrop(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(220.dp)
-                .align(Alignment.BottomCenter)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.72f),
-                        ),
-                    ),
+                .align(Alignment.BottomCenter),
+            fallbackBrush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    Color.Black.copy(alpha = 0.72f),
                 ),
+            ),
         )
 
         Column(
@@ -947,13 +958,17 @@ internal fun LockedPlayerOverlay(
         ) {
             Box(
                 modifier = Modifier
-                    .size(78.dp)
+                    .size(78.dp.atLeastIosHitTarget())
                     .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.52f))
                     .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape)
                     .clickable(onClick = onUnlock),
                 contentAlignment = Alignment.Center,
             ) {
+                PlayerChromeBackdrop(
+                    modifier = Modifier.matchParentSize(),
+                    shape = CircleShape,
+                    fallbackColor = Color.Black.copy(alpha = 0.52f),
+                )
                 Icon(
                     imageVector = Icons.Rounded.Lock,
                     contentDescription = stringResource(Res.string.compose_player_unlock_controls),
@@ -1026,11 +1041,17 @@ private fun TimePill(
 ) {
     Box(
         modifier = Modifier
+            .heightIn(min = 0.dp.atLeastIosHitTarget())
             .clip(RoundedCornerShape(12.dp))
-            .background(Color.Black.copy(alpha = 0.5f))
             .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
             .padding(horizontal = 10.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center,
     ) {
+        PlayerChromeBackdrop(
+            modifier = Modifier.matchParentSize(),
+            shape = RoundedCornerShape(12.dp),
+            fallbackColor = Color.Black.copy(alpha = 0.5f),
+        )
         Text(
             text = text,
             style = MaterialTheme.nuvioTypeScale.labelSm.copy(

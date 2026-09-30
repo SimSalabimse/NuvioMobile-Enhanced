@@ -43,6 +43,10 @@ internal fun savedKeyForService(
     }
 }
 
+/** A saved key is written only after a live check, so a well-shaped saved key counts as working. */
+internal fun introSubmitShowsApiKeyField(service: IntroSubmitService, savedKey: String): Boolean =
+    introSubmitKeyProblem(service, savedKey) != IntroSubmitKeyProblem.NONE
+
 internal fun introSubmitKeyProblem(service: IntroSubmitService, apiKey: String): IntroSubmitKeyProblem {
     val key = apiKey.trim()
     if (key.isEmpty()) return IntroSubmitKeyProblem.MISSING

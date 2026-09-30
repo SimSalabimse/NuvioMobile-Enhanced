@@ -1,6 +1,8 @@
 package com.nuvio.app.features.player
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -20,10 +22,16 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -40,9 +48,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import com.nuvio.app.core.ui.PlatformBackHandler
+import com.nuvio.app.core.ui.atLeastIosHitTarget
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.shimmer
 import com.nuvio.app.features.streams.ProviderFilterRow
+import com.nuvio.app.isIos
 import com.nuvio.app.features.streams.StreamsUiState
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.collections_tab_all
@@ -59,19 +69,28 @@ internal fun PlayerSidePanel(
     val tokens = MaterialTheme.nuvio
     val backgroundInteraction = remember { MutableInteractionSource() }
     val panelInteraction = remember { MutableInteractionSource() }
+    val reduceMotion = playerReduceMotionEnabled()
+    val scrimAlpha = playerSidePanelScrimAlpha(
+        ios = isIos,
+        reduceTransparency = playerReduceTransparencyEnabled(),
+    )
+    val fadeEnter = if (reduceMotion) EnterTransition.None else fadeIn(tween(200))
+    val fadeExit = if (reduceMotion) ExitTransition.None else fadeOut(tween(160))
+    val slideEnter = if (reduceMotion) EnterTransition.None else slideInHorizontally(tween(250)) { it }
+    val slideExit = if (reduceMotion) ExitTransition.None else slideOutHorizontally(tween(200)) { it }
 
     PlatformBackHandler(enabled = visible, onBack = onDismiss)
 
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn(tween(200)),
-        exit = fadeOut(tween(160)),
+        enter = fadeEnter,
+        exit = fadeExit,
         modifier = modifier,
     ) {
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.34f))
+                .background(Color.Black.copy(alpha = scrimAlpha))
                 .clickable(
                     interactionSource = backgroundInteraction,
                     indication = null,
@@ -83,23 +102,43 @@ internal fun PlayerSidePanel(
 
             AnimatedVisibility(
                 visible = visible,
-                enter = slideInHorizontally(tween(250)) { it },
-                exit = slideOutHorizontally(tween(200)) { it },
+                enter = slideEnter,
+                exit = slideExit,
                 modifier = Modifier.align(Alignment.CenterEnd),
             ) {
-                Column(
+                Box(
                     modifier = Modifier
                         .width(resolvedWidth)
                         .fillMaxHeight()
                         .clip(shape)
-                        .background(tokens.colors.surfaceElevated)
                         .clickable(
                             interactionSource = panelInteraction,
                             indication = null,
                             onClick = {},
                         ),
-                    content = content,
-                )
+                ) {
+                    PlayerChromeBackdrop(
+                        modifier = Modifier.matchParentSize(),
+                        shape = shape,
+                        fallbackColor = tokens.colors.surfaceElevated,
+                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(
+                                if (isIos) {
+                                    Modifier.windowInsetsPadding(
+                                        WindowInsets.safeContent.only(
+                                            WindowInsetsSides.Top + WindowInsetsSides.Bottom + WindowInsetsSides.End,
+                                        ),
+                                    )
+                                } else {
+                                    Modifier
+                                },
+                            ),
+                        content = content,
+                    )
+                }
             }
         }
     }
@@ -147,6 +186,7 @@ internal fun PlayerDialogButton(
     Box(
         modifier = modifier
             .alpha(if (enabled) 1f else tokens.opacity.disabled)
+            .heightIn(min = 0.dp.atLeastIosHitTarget())
             .clip(RoundedCornerShape(12.dp))
             .background(tokens.colors.surfaceCard)
             .clickable(enabled = enabled, onClick = onClick)
@@ -224,6 +264,7 @@ private fun AddonFilterChip(
 
     Box(
         modifier = modifier
+            .heightIn(min = 0.dp.atLeastIosHitTarget())
             .clip(RoundedCornerShape(20.dp))
             .background(containerColor)
             .border(

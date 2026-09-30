@@ -8,10 +8,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -31,6 +36,7 @@ import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -39,6 +45,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,8 +60,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.nuvio.app.core.ui.NuvioModalBottomSheet
+import com.nuvio.app.core.ui.atLeastIosHitTarget
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.tmdb.TmdbService
+import com.nuvio.app.isIos
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
@@ -128,6 +138,13 @@ fun SubmitIntroDialog(
     var introDbKeyDraft by remember { mutableStateOf(savedKeyForService(IntroSubmitService.INTRODB, initialSettings.introDbApiKey, initialSettings.theIntroDbApiKey)) }
     var theIntroDbKeyDraft by remember { mutableStateOf(savedKeyForService(IntroSubmitService.THE_INTRODB, initialSettings.introDbApiKey, initialSettings.theIntroDbApiKey)) }
     var keyVisible by remember { mutableStateOf(false) }
+    val playerSettings by PlayerSettingsRepository.uiState.collectAsState()
+    val savedKeyForSelected = savedKeyForService(
+        selectedService,
+        playerSettings.introDbApiKey,
+        playerSettings.theIntroDbApiKey,
+    )
+    val showApiKeyField = introSubmitShowsApiKeyField(selectedService, savedKeyForSelected)
     val keyDraft = if (selectedService == IntroSubmitService.INTRODB) introDbKeyDraft else theIntroDbKeyDraft
     val requiredKeyMessage = stringResource(Res.string.submit_intro_api_key_required)
     val introDbPrefixMessage = stringResource(Res.string.submit_intro_introdb_prefix)
@@ -205,7 +222,12 @@ fun SubmitIntroDialog(
         }
         val (start, end) = times
         val service = selectedService
-        val draft = keyDraft
+        val savedNow = savedKeyForService(
+            service,
+            PlayerSettingsRepository.uiState.value.introDbApiKey,
+            PlayerSettingsRepository.uiState.value.theIntroDbApiKey,
+        )
+        val draft = if (introSubmitShowsApiKeyField(service, savedNow)) keyDraft else savedNow
         val block = introSubmitBlockReason(
             service = service,
             apiKey = draft,
@@ -269,23 +291,11 @@ fun SubmitIntroDialog(
         }
     }
 
-    BasicAlertDialog(onDismissRequest = onDismiss) {
-        Surface(
-            modifier = Modifier
-                .padding(horizontal = 16.dp, vertical = 24.dp)
-                .widthIn(max = 420.dp)
-                .heightIn(max = 680.dp),
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 8.dp,
+    val formContent: @Composable (Modifier) -> Unit = { formModifier ->
+        Column(
+            modifier = formModifier.verticalScroll(scrollState),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Column(
-                modifier = Modifier
-                    .padding(24.dp)
-                    .heightIn(max = 640.dp)
-                    .verticalScroll(scrollState),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -340,101 +350,106 @@ fun SubmitIntroDialog(
                             modifier = Modifier.weight(1f),
                         )
                     }
-                    Text(
-                        text = keyHint,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Surface(
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
-                        ) {
-                            BasicTextField(
-                                value = keyDraft,
-                                onValueChange = ::updateKeyDraft,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                                textStyle = MaterialTheme.typography.bodyLarge.copy(
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                ),
-                                visualTransformation = if (keyVisible) {
-                                    VisualTransformation.None
-                                } else {
-                                    PasswordVisualTransformation()
-                                },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                singleLine = true,
-                                decorationBox = { inner ->
-                                    Box {
-                                        if (keyDraft.isEmpty()) {
-                                            Text(
-                                                text = stringResource(Res.string.submit_intro_api_key_label),
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
-                                        }
-                                        inner()
-                                    }
-                                },
-                            )
-                        }
-                        IconButton(onClick = { keyVisible = !keyVisible }, enabled = !busy) {
-                            Icon(
-                                imageVector = if (keyVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                                contentDescription = stringResource(
-                                    if (keyVisible) Res.string.settings_hide_secret else Res.string.settings_show_secret,
-                                ),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    TextButton(
-                        onClick = {
-                            isSavingKey = true
-                            errorMessage = null
-                            keyStatusMessage = null
-                            val service = selectedService
-                            val draft = keyDraft
-                            scope.launch {
-                                val saved = savedKeyForService(
-                                    service,
-                                    PlayerSettingsRepository.uiState.value.introDbApiKey,
-                                    PlayerSettingsRepository.uiState.value.theIntroDbApiKey,
-                                )
-                                when (val result = prepareIntroSubmitKey(service, draft, saved)) {
-                                    IntroSubmitKeyPrepareResult.Ready -> keyStatusMessage = keySavedMessage
-                                    IntroSubmitKeyPrepareResult.Invalid -> errorMessage = invalidKeyMessage
-                                    is IntroSubmitKeyPrepareResult.Rejected -> errorMessage = problemMessage(result.problem)
-                                }
-                                isSavingKey = false
-                            }
-                        },
-                        enabled = !busy,
-                    ) {
-                        if (isSavingKey) {
-                            NuvioLoadingIndicator(
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        } else {
-                            Text(stringResource(Res.string.action_save))
-                        }
-                    }
-                    if (keyStatusMessage != null) {
+                    if (showApiKeyField) {
                         Text(
-                            text = keyStatusMessage!!,
+                            text = keyHint,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 0.dp.atLeastIosHitTarget()),
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
+                            ) {
+                                BasicTextField(
+                                    value = keyDraft,
+                                    onValueChange = ::updateKeyDraft,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    ),
+                                    visualTransformation = if (keyVisible) {
+                                        VisualTransformation.None
+                                    } else {
+                                        PasswordVisualTransformation()
+                                    },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                    singleLine = true,
+                                    decorationBox = { inner ->
+                                        Box {
+                                            if (keyDraft.isEmpty()) {
+                                                Text(
+                                                    text = stringResource(Res.string.submit_intro_api_key_label),
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            }
+                                            inner()
+                                        }
+                                    },
+                                )
+                            }
+                            IconButton(onClick = { keyVisible = !keyVisible }, enabled = !busy) {
+                                Icon(
+                                    imageVector = if (keyVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                    contentDescription = stringResource(
+                                        if (keyVisible) Res.string.settings_hide_secret else Res.string.settings_show_secret,
+                                    ),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        TextButton(
+                            modifier = Modifier.heightIn(min = 0.dp.atLeastIosHitTarget()),
+                            onClick = {
+                                isSavingKey = true
+                                errorMessage = null
+                                keyStatusMessage = null
+                                val service = selectedService
+                                val draft = keyDraft
+                                scope.launch {
+                                    val saved = savedKeyForService(
+                                        service,
+                                        PlayerSettingsRepository.uiState.value.introDbApiKey,
+                                        PlayerSettingsRepository.uiState.value.theIntroDbApiKey,
+                                    )
+                                    when (val result = prepareIntroSubmitKey(service, draft, saved)) {
+                                        IntroSubmitKeyPrepareResult.Ready -> keyStatusMessage = keySavedMessage
+                                        IntroSubmitKeyPrepareResult.Invalid -> errorMessage = invalidKeyMessage
+                                        is IntroSubmitKeyPrepareResult.Rejected -> errorMessage = problemMessage(result.problem)
+                                    }
+                                    isSavingKey = false
+                                }
+                            },
+                            enabled = !busy,
+                        ) {
+                            if (isSavingKey) {
+                                NuvioLoadingIndicator(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            } else {
+                                Text(stringResource(Res.string.action_save))
+                            }
+                        }
+                        if (keyStatusMessage != null) {
+                            Text(
+                                text = keyStatusMessage!!,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
                     }
                 }
 
@@ -614,6 +629,42 @@ fun SubmitIntroDialog(
                 }
             }
         }
+
+    if (isIos) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        NuvioModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = sheetState,
+            showDragHandle = true,
+            fullHeight = true,
+        ) {
+            formContent(
+                Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 24.dp),
+            )
+        }
+    } else {
+        BasicAlertDialog(onDismissRequest = onDismiss) {
+            Surface(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp, vertical = 24.dp)
+                    .widthIn(max = 420.dp)
+                    .heightIn(max = 680.dp),
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 8.dp,
+            ) {
+                formContent(
+                    Modifier
+                        .padding(24.dp)
+                        .heightIn(max = 640.dp),
+                )
+            }
+        }
     }
 }
 
@@ -754,6 +805,7 @@ private fun SegmentTypeButton(
     
     Box(
         modifier = modifier
+            .heightIn(min = 0.dp.atLeastIosHitTarget())
             .clip(RoundedCornerShape(12.dp))
             .background(backgroundColor)
             .clickable(enabled = !disabled, onClick = onClick)
