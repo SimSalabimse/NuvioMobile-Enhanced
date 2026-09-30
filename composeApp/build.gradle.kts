@@ -2,6 +2,7 @@ import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
+import org.gradle.api.provider.Provider
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.Optional
@@ -25,6 +26,12 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
 
     @get:Input
     abstract val appVersionCode: Property<Int>
+
+    @get:Input
+    abstract val gitRevision: Property<String>
+
+    @get:Input
+    abstract val gitDirty: Property<Boolean>
 
     @get:Input
     abstract val supabaseUrl: Property<String>
@@ -185,6 +192,8 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |object AppVersionConfig {
                 |    const val VERSION_NAME = "${appVersionName.get()}"
                 |    const val VERSION_CODE = ${appVersionCode.get()}
+                |    const val GIT_REVISION = "${gitRevision.get()}"
+                |    const val GIT_DIRTY = ${gitDirty.get() && gitRevision.get().isNotEmpty()}
                 |}
                 """.trimMargin()
             )
@@ -241,6 +250,18 @@ val releaseAppVersionName = providers.gradleProperty("nuvio.app.versionName").or
 val releaseAppVersionCode = readXcconfigValue(appVersionConfigFile, "CURRENT_PROJECT_VERSION")
     ?.toIntOrNull()
     ?: error("CURRENT_PROJECT_VERSION is missing or invalid in ${appVersionConfigFile.path}")
+
+fun Project.gitExecProvider(vararg args: String): Provider<String> =
+    providers.exec {
+        commandLine(listOf("git", *args))
+        workingDir(rootProject.projectDir)
+        isIgnoreExitValue = true
+    }.standardOutput.asText.map { it.trim() }
+
+val gitRevisionProvider = gitExecProvider("rev-parse", "--short=7", "HEAD").map { raw ->
+    raw.lowercase().takeIf { it.matches(Regex("[0-9a-f]{4,40}")) }.orEmpty()
+}
+val gitDirtyProvider = gitExecProvider("status", "--porcelain", "--untracked-files=no").map { it.isNotEmpty() }
 val iosDistribution = (
     providers.gradleProperty("nuvio.ios.distribution").orNull
         ?: System.getenv("NUVIO_IOS_DISTRIBUTION")
@@ -319,6 +340,8 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
     localPropertiesFile.set(rootProject.layout.projectDirectory.file("local.properties"))
     appVersionName.set(releaseAppVersionName)
     appVersionCode.set(releaseAppVersionCode)
+    gitRevision.set(gitRevisionProvider)
+    gitDirty.set(gitDirtyProvider)
     supabaseUrl.set(runtimeConfigValue("NUVIO_SUPABASE_URL"))
     supabaseAnonKey.set(runtimeConfigValue("NUVIO_SUPABASE_ANON_KEY"))
     supabaseFallbackUrl.set(runtimeConfigValue("NUVIO_SUPABASE_FALLBACK_URL"))
