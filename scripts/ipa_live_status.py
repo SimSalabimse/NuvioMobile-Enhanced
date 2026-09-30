@@ -18,6 +18,8 @@ import re
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 import zipfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -69,6 +71,25 @@ OLDER_DOWNLOAD_ROUTE = re.compile(r"^/download/older/([A-Za-z0-9._-]+)$")
 PRODUCT_IPHONE = "Nuvio for iPhone"
 PRODUCT_MAC = "Nuvio for Mac"
 PACKAGE_NOTICE = "The package was published and the debug-symbol step failed."
+PAPERCLIP_ORIGIN = "http://127.0.0.1:3100"
+PAPERCLIP_COMPANY_ID = "cd341142-29fa-4c5e-91e5-a4ac0b86f3b2"
+NUVIO_PROJECT_ID = "5b2fd5e1-2635-4253-8f06-e289c17cc993"
+PAPERCLIP_POLL_SECONDS = 15.0
+RUN_CAP_SECONDS = 6 * 60 * 60
+SUMMARY_LIMIT = 4
+STASH_LIMIT = 4
+HELD_BACK_LIMIT = 180
+EXPECTED_SAMPLE = 20
+EXPECTED_MINIMUM = 5
+ISSUE_KEY = re.compile(r"^[A-Z][A-Z0-9]+-\d+$")
+COMMIT_SUBJECT = re.compile(r"^- ([0-9a-fA-F]{7,40}) (.+) @(\S+)\s*$")
+IPA_SEED_COMMIT = "7f6b9bb9"
+HELD_BACK_IPA_SEED = (
+    "0.5.4 still shows the player API key after a key is saved, and the player is a dark scrim. "
+    "Both return in the next IPA."
+)
+STATUS_RANK = {"in_progress": 0, "in_review": 1, "todo": 2, "blocked": 3, "done": 4}
+OPEN_STATUSES = ("in_progress", "in_review", "todo", "blocked")
 
 PAGE = r"""<!DOCTYPE html>
 <html lang="en">
@@ -478,8 +499,54 @@ PAGE = r"""<!DOCTYPE html>
     overflow-wrap: anywhere;
     font-weight: 600;
   }
-  .columns { min-width: 0; display: flex; flex-direction: column; gap: 22pt; }
+  .columns, .next-grid { min-width: 0; display: flex; flex-direction: column; gap: 22pt; }
   .column { min-width: 0; display: flex; flex-direction: column; gap: 22pt; }
+  .hero-kicker {
+    margin: 0;
+    color: var(--secondary);
+    font: -apple-system-subheadline;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .block { position: relative; min-width: 0; padding: 8pt 16pt; }
+  .block + .block::before,
+  .block + .task::before,
+  .task + .task::before,
+  .task + .block::before {
+    content: "";
+    position: absolute;
+    left: 16pt;
+    right: 0;
+    top: 0;
+    height: 0.5px;
+    background: var(--separator);
+  }
+  .block-label {
+    margin: 0 0 2pt;
+    color: var(--secondary);
+    font: -apple-system-footnote;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    text-transform: uppercase;
+  }
+  .bullet, .task {
+    position: relative;
+    min-width: 0;
+    min-height: 44pt;
+    margin: 0;
+    padding: 8pt 0 0;
+    color: var(--label);
+    overflow-wrap: anywhere;
+    font: -apple-system-body;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .task { padding: 8pt 16pt; }
+  .task-meta, .more-line {
+    margin: 2pt 0 0;
+    color: var(--secondary);
+    overflow-wrap: anywhere;
+    font: -apple-system-footnote;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .work-track { margin-top: 8pt; }
   .download-file {
     margin: 0;
     min-width: 0;
@@ -513,7 +580,7 @@ PAGE = r"""<!DOCTYPE html>
   @media (min-width: 700px) {
     main { max-width: 960px; }
     #ipa-column > .column-title, #desktop-column > .column-title { display: block; }
-    .columns {
+    .columns, .next-grid {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       gap: 22pt;
@@ -525,6 +592,40 @@ PAGE = r"""<!DOCTYPE html>
 <body>
 <main>
   <h1>Nuvio builds</h1>
+  <div class="next-grid">
+    <section class="column" id="next-ipa-column">
+      <h2 class="column-title">Next iPhone</h2>
+      <div class="card" id="next-ipa-card">
+        <div class="block">
+          <p class="block-label">In the next IPA</p>
+          <p class="empty-notes">Nothing new is queued.</p>
+        </div>
+        <div class="block">
+          <p class="block-label">Stashed while testing</p>
+          <p class="empty-notes">Nothing is stashed for the next IPA.</p>
+        </div>
+      </div>
+    </section>
+    <section class="column" id="next-dmg-column">
+      <h2 class="column-title">Next Mac</h2>
+      <div class="card" id="next-dmg-card">
+        <div class="block">
+          <p class="block-label">In the next DMG</p>
+          <p class="empty-notes">Nothing new is queued.</p>
+        </div>
+        <div class="block">
+          <p class="block-label">Stashed while testing</p>
+          <p class="empty-notes">Nothing is stashed for the next DMG.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+  <section class="group" id="working-now">
+    <h2 class="group-title">Working now</h2>
+    <div class="card" id="working-now-card">
+      <div class="row"><p class="empty-notes">No one is working right now.</p></div>
+    </div>
+  </section>
   <section class="group" id="downloads-group">
     <h2 class="group-title">Downloads</h2>
   </section>
@@ -535,6 +636,7 @@ PAGE = r"""<!DOCTYPE html>
         <div class="row"><p class="empty-notes">No package</p></div>
       </div>
       <header class="hero">
+        <p class="hero-kicker">Compile</p>
         <div class="hero-metrics">
           <p class="percent" id="percent"></p>
           <p class="status-word" id="status" data-state="idle">Idle</p>
@@ -575,6 +677,12 @@ PAGE = r"""<!DOCTYPE html>
           <div class="build-list" id="build-list"></div>
         </div>
       </section>
+      <section class="group" id="version-group">
+        <h2 class="group-title">In this version</h2>
+        <div class="card" id="version-lines">
+          <div class="row"><p class="empty-notes">No summary for this file.</p></div>
+        </div>
+      </section>
       <section class="group" id="notes-group">
         <h2 class="group-title">Release notes</h2>
         <div class="card">
@@ -591,6 +699,7 @@ PAGE = r"""<!DOCTYPE html>
         <div class="row"><p class="empty-notes">No package</p></div>
       </div>
       <header class="hero">
+        <p class="hero-kicker">Compile</p>
         <div class="hero-metrics">
           <p class="percent" id="desktop-percent"></p>
           <p class="status-word" id="desktop-status" data-state="idle">Idle</p>
@@ -629,6 +738,12 @@ PAGE = r"""<!DOCTYPE html>
         <div class="card">
           <pre id="desktop-log-view" class="log-view">none</pre>
           <div class="build-list" id="desktop-build-list"></div>
+        </div>
+      </section>
+      <section class="group" id="desktop-version-group">
+        <h2 class="group-title">In this version</h2>
+        <div class="card" id="desktop-version-lines">
+          <div class="row"><p class="empty-notes">No summary for this file.</p></div>
         </div>
       </section>
       <section class="group">
@@ -927,13 +1042,144 @@ function bindColumnLog(prefix) {
     refresh();
   });
 }
+function versionLines(text) {
+  var parsed = parseNotes(text);
+  if (!parsed || parsed.kind !== "rows") return ["No summary for this file."];
+  var subjects = [];
+  for (var i = 0; i < parsed.items.length; i++) {
+    if (parsed.items[i].kind === "commit") subjects.push(parsed.items[i].subject);
+  }
+  if (!subjects.length) return ["No summary for this file."];
+  var lines = subjects.slice(0, 4);
+  if (subjects.length > 4) lines.push("And " + (subjects.length - 4) + " more in Release notes");
+  return lines;
+}
+function fillVersion(text, elementId) {
+  var node = document.getElementById(elementId);
+  var lines = versionLines(text);
+  var stamp = lines.join("\n");
+  if (node.getAttribute("data-stamp") === stamp) return;
+  node.setAttribute("data-stamp", stamp);
+  clearNode(node);
+  for (var i = 0; i < lines.length; i++) {
+    var more = lines[i].indexOf("And ") === 0 && lines[i].indexOf(" more in Release notes") > 0;
+    var empty = lines[i] === "No summary for this file.";
+    var row = el("div", empty ? "row" : "note");
+    row.appendChild(el("p", empty ? "empty-notes" : (more ? "more-line" : "note-subject"), lines[i]));
+    node.appendChild(row);
+  }
+}
 function apply(payload) {
   applyInto("", payload);
+  fillVersion(payload.releaseNotes, "version-lines");
   fillNotes(payload.releaseNotes);
 }
 function applyDesktop(payload) {
   applyInto("desktop-", payload);
+  fillVersion(payload.releaseNotes, "desktop-version-lines");
   desktopNotesStamp = fillNotesInto(payload.releaseNotes, "desktop-notes", "desktop-notes-toggle", desktopNotesExpanded, desktopNotesStamp);
+}
+function workStatus(value) {
+  if (value === "in_progress") return "In progress";
+  if (value === "in_review") return "In review";
+  if (value === "todo") return "To do";
+  if (value === "blocked") return "Blocked";
+  if (value === "done") return "Done";
+  return value || "None";
+}
+function packageWord(value) {
+  if (value === "ipa") return "IPA";
+  if (value === "dmg") return "DMG";
+  return "Neither";
+}
+function fillPackage(cardId, group) {
+  var card = document.getElementById(cardId);
+  var stamp = JSON.stringify(group || {});
+  if (card.getAttribute("data-stamp") === stamp) return;
+  card.setAttribute("data-stamp", stamp);
+  clearNode(card);
+  var next = group && group.inNext ? group.inNext : {};
+  var nextBlock = el("div", "block");
+  nextBlock.appendChild(el("p", "block-label", group && group.nextLabel ? group.nextLabel : "In the next"));
+  var items = next.items || [];
+  if (!items.length) {
+    nextBlock.appendChild(el("p", "empty-notes", "Nothing new is queued."));
+  } else {
+    for (var i = 0; i < items.length; i++) nextBlock.appendChild(el("p", "bullet", items[i]));
+  }
+  card.appendChild(nextBlock);
+  var stash = group && group.stashed ? group.stashed : {};
+  var stashBlock = el("div", "block");
+  stashBlock.appendChild(el("p", "block-label", "Stashed while testing"));
+  var stashed = stash.items || [];
+  if (!stashed.length) {
+    stashBlock.appendChild(el("p", "empty-notes", stash.emptyText || "Nothing is stashed."));
+  } else {
+    for (var s = 0; s < stashed.length; s++) {
+      var line = stashed[s].summary || "";
+      if (stashed[s].issue) line += " · " + stashed[s].issue;
+      stashBlock.appendChild(el("p", "bullet", line));
+    }
+    if (stash.more) stashBlock.appendChild(el("p", "more-line", "And " + stash.more + " more stashed."));
+  }
+  card.appendChild(stashBlock);
+  var progress = el("div", "block");
+  progress.appendChild(el("p", "block-label", group && group.headline ? group.headline : "Nothing is queued."));
+  if (group && group.percent != null) {
+    var track = el("div", "track work-track");
+    track.setAttribute("role", "progressbar");
+    track.setAttribute("aria-valuemin", "0");
+    track.setAttribute("aria-valuemax", "100");
+    track.setAttribute("aria-valuenow", String(group.percent));
+    track.setAttribute("aria-label", group.headline || "Task progress");
+    var bar = el("span", "bar");
+    bar.style.width = Math.max(0, Math.min(100, Number(group.percent) || 0)) + "%";
+    track.appendChild(bar);
+    progress.appendChild(track);
+  }
+  card.appendChild(progress);
+  if (group && group.agentTime) card.appendChild(el("div", "block")).appendChild(el("p", "task-meta", group.agentTime));
+  if (group && group.compile) card.appendChild(el("div", "block")).appendChild(el("p", "task-meta", group.compile));
+  var tasks = group && group.tasks ? group.tasks : [];
+  for (var t = 0; t < tasks.length; t++) {
+    var task = tasks[t];
+    var row = el("div", "task");
+    row.appendChild(el("p", "note-subject", (task.id ? task.id + " · " : "") + (task.title || "")));
+    var meta = [workStatus(task.status), task.agent || "None", task.elapsed || ""].filter(function (part) { return part; });
+    row.appendChild(el("p", "task-meta", meta.join(" · ")));
+    if (task.tokens) row.appendChild(el("p", "task-meta", task.tokens));
+    if (task.billing) row.appendChild(el("p", "task-meta", task.billing));
+    if (task.model) row.appendChild(el("p", "task-meta", task.model));
+    card.appendChild(row);
+  }
+}
+function fillWorking(rows) {
+  var card = document.getElementById("working-now-card");
+  var list = rows || [];
+  var stamp = JSON.stringify(list);
+  if (card.getAttribute("data-stamp") === stamp) return;
+  card.setAttribute("data-stamp", stamp);
+  clearNode(card);
+  if (!list.length) {
+    var empty = el("div", "row");
+    empty.appendChild(el("p", "empty-notes", "No one is working right now."));
+    card.appendChild(empty);
+    return;
+  }
+  for (var i = 0; i < list.length; i++) {
+    var item = list[i];
+    var row = el("div", "task");
+    row.appendChild(el("p", "note-subject", (item.id || "") + " · " + (item.title || "")));
+    var meta = [workStatus(item.status), item.agent || "None", item.elapsed || "", packageWord(item.package)];
+    row.appendChild(el("p", "task-meta", meta.filter(function (part) { return part; }).join(" · ")));
+    if (item.model) row.appendChild(el("p", "task-meta", item.model));
+    card.appendChild(row);
+  }
+}
+function applyWork(payload) {
+  fillPackage("next-ipa-card", payload.ipa || {});
+  fillPackage("next-dmg-card", payload.dmg || {});
+  fillWorking(payload.workingNow || []);
 }
 function megabytes(bytes) {
   var number = Number(bytes);
@@ -1050,6 +1296,10 @@ async function refresh() {
   try {
     var downloadsResponse = await fetch("/api/downloads", { cache: "no-store" });
     if (downloadsResponse.ok) applyDownloads(await downloadsResponse.json());
+  } catch (err) {}
+  try {
+    var workResponse = await fetch("/api/work", { cache: "no-store" });
+    if (workResponse.ok) applyWork(await workResponse.json());
   } catch (err) {}
 }
 document.getElementById("notes-toggle").addEventListener("click", function () {
@@ -2260,6 +2510,957 @@ def command_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def parse_iso(value: object) -> float | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def format_span(seconds: float) -> str:
+    minutes = int(round(max(0.0, float(seconds)) / 60.0))
+    if minutes < 90:
+        return f"{minutes} min"
+    hours, mins = divmod(minutes, 60)
+    if mins:
+        return f"{hours} hr {mins} min"
+    return f"{hours} hr"
+
+
+def format_elapsed(seconds: float) -> str:
+    whole = max(0, int(seconds))
+    minutes, secs = divmod(whole, 60)
+    if minutes < 90:
+        if minutes == 0:
+            return f"{secs} sec"
+        return f"{minutes} min {secs} sec"
+    hours, mins = divmod(minutes, 60)
+    if mins:
+        return f"{hours} hr {mins} min"
+    return f"{hours} hr"
+
+
+def format_count(value: int) -> str:
+    number = max(0, int(value))
+    if number >= 1_000_000:
+        return f"{number / 1_000_000:.1f}M"
+    if number >= 1_000:
+        return f"{number / 1_000:.1f}k"
+    return str(number)
+
+
+def median_numbers(values: list[float]) -> float:
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) / 2.0
+
+
+def commit_subjects(notes: object) -> list[str]:
+    if not isinstance(notes, str):
+        return []
+    raw = notes.strip()
+    if raw in ("", "none", "(no release notes)"):
+        return []
+    subjects = []
+    for line in raw.splitlines():
+        match = COMMIT_SUBJECT.match(line.strip())
+        if match:
+            subjects.append(match.group(2).strip())
+    return subjects
+
+
+def version_summary(notes: object) -> dict:
+    subjects = commit_subjects(notes)
+    if not subjects:
+        return {"lines": ["No summary for this file."], "empty": True}
+    lines = subjects[:SUMMARY_LIMIT]
+    extra = len(subjects) - len(lines)
+    if extra:
+        lines.append(f"And {extra} more in Release notes")
+    return {"lines": lines, "empty": False}
+
+
+def strip_platform_prefix(title: str) -> str:
+    for prefix in ("iOS:", "macOS:", "Desktop:"):
+        if title.startswith(prefix):
+            return title[len(prefix):].lstrip()
+    return title
+
+
+def package_for_title(title: str) -> str | None:
+    # A builds-page task names both packages and belongs to neither.
+    folded = title.lower()
+    if "builds page" in folded or "build site" in folded:
+        return None
+    if title.startswith("iOS:"):
+        return "ipa"
+    if title.startswith("macOS:"):
+        return "dmg"
+    has_ipa = "IPA" in title
+    has_dmg = "DMG" in title or "Mac" in title
+    if has_ipa and has_dmg:
+        return None
+    if has_ipa:
+        return "ipa"
+    if has_dmg:
+        return "dmg"
+    return None
+
+
+def role_of(title: str) -> str:
+    return "qa" if title.startswith("QA") else "engineer"
+
+
+def task_credit(status: str, spent: float, expected: float | None) -> float:
+    if status == "done":
+        return 1.0
+    if status in ("in_progress", "in_review"):
+        if expected is not None and expected > 0 and spent > 0:
+            return min(0.7, spent / expected)
+        return 0.4 if status == "in_progress" else 0.7
+    return 0.0
+
+
+def run_seconds(run: dict, now: float) -> float:
+    if run.get("status") == "cancelled":
+        return 0.0
+    start = parse_iso(run.get("startedAt"))
+    if start is None:
+        return 0.0
+    end = parse_iso(run.get("finishedAt"))
+    if end is None:
+        end = now
+    if end < start:
+        end = start
+    return min(RUN_CAP_SECONDS, end - start)
+
+
+def select_goal(issues: list[dict]) -> dict | None:
+    sim111 = next((issue for issue in issues if issue.get("identifier") == "SIM-111"), None)
+    if sim111 and sim111.get("status") != "done":
+        return sim111
+    project = sim111.get("projectId") if sim111 else NUVIO_PROJECT_ID
+    candidates = []
+    for issue in issues:
+        title = issue.get("title") or ""
+        if not str(title).startswith("One current"):
+            continue
+        if issue.get("status") in ("done", "cancelled"):
+            continue
+        if project and issue.get("projectId") and issue.get("projectId") != project:
+            continue
+        candidates.append(issue)
+    candidates.sort(key=lambda issue: issue.get("createdAt") or "", reverse=True)
+    return candidates[0] if candidates else None
+
+
+def membership_lists(issues: list[dict], goal: dict | None) -> tuple[list[str], list[str]]:
+    if goal is None:
+        return [], []
+    project = goal.get("projectId")
+    by_parent: dict[object, list[dict]] = {}
+    for issue in issues:
+        if project and issue.get("projectId") and issue.get("projectId") != project:
+            continue
+        by_parent.setdefault(issue.get("parentId"), []).append(issue)
+    rows: list[dict] = []
+    for child in by_parent.get(goal.get("id"), []):
+        rows.append(child)
+        rows.extend(by_parent.get(child.get("id"), []))
+    rows.sort(key=lambda issue: int(issue.get("issueNumber") or 0))
+    ipa: list[str] = []
+    dmg: list[str] = []
+    seen: set[str] = set()
+    for issue in rows:
+        identifier = issue.get("identifier")
+        if not isinstance(identifier, str) or identifier in seen or identifier == goal.get("identifier"):
+            continue
+        if issue.get("status") == "cancelled":
+            continue
+        seen.add(identifier)
+        kind = package_for_title(str(issue.get("title") or ""))
+        if kind == "ipa":
+            ipa.append(identifier)
+        elif kind == "dmg":
+            dmg.append(identifier)
+    return ipa, dmg
+
+
+def derive_manifest(issues: list[dict]) -> dict:
+    goal = select_goal(issues)
+    ipa, dmg = membership_lists(issues, goal)
+    return {"dmg": dmg, "goal": goal.get("identifier") if goal else None, "ipa": ipa}
+
+
+def next_package_path(directory: Path) -> Path:
+    return directory / "next-package.json"
+
+
+def held_back_path(directory: Path) -> Path:
+    return directory / "held-back.json"
+
+
+def platform_commit(catalog: dict, platform: str) -> str:
+    if platform == "ipa":
+        entry = catalog.get("ipa")
+    else:
+        entry = (catalog.get("desktop") or {}).get("macos")
+    if isinstance(entry, dict) and isinstance(entry.get("commit"), str):
+        return entry["commit"]
+    return ""
+
+
+def seed_held_back(ipa_commit: str, dmg_commit: str) -> dict:
+    ipa_rows = []
+    if ipa_commit.startswith(IPA_SEED_COMMIT):
+        ipa_rows = [{"issue": "SIM-122", "summary": HELD_BACK_IPA_SEED}]
+    return {
+        "dmg": [],
+        "ipa": ipa_rows,
+        "watched": {"dmg": dmg_commit, "ipa": ipa_commit},
+    }
+
+
+def reconcile_held_back(directory: Path) -> dict:
+    catalog = load_catalog(directory)
+    commits = {
+        "ipa": platform_commit(catalog, "ipa"),
+        "dmg": platform_commit(catalog, "dmg"),
+    }
+    path = held_back_path(directory)
+    raw = read_json(path)
+    if not isinstance(raw, dict) or not isinstance(raw.get("ipa"), list) or not isinstance(raw.get("dmg"), list):
+        seeded = seed_held_back(commits["ipa"], commits["dmg"])
+        write_json(path, seeded)
+        return seeded
+    watched = raw.get("watched") if isinstance(raw.get("watched"), dict) else {}
+    changed = False
+    for platform in ("ipa", "dmg"):
+        current = commits[platform]
+        previous = watched.get(platform)
+        if previous is None:
+            watched[platform] = current
+            changed = True
+            continue
+        if previous != current:
+            raw[platform] = []
+            watched[platform] = current
+            changed = True
+    raw["watched"] = {"dmg": watched.get("dmg") or "", "ipa": watched.get("ipa") or ""}
+    if changed or not isinstance(raw.get("watched"), dict):
+        write_json(path, raw)
+    return raw
+
+
+def ensure_manifest(directory: Path, issues: list[dict]) -> dict:
+    path = next_package_path(directory)
+    raw = read_json(path)
+    if isinstance(raw, dict) and isinstance(raw.get("ipa"), list) and isinstance(raw.get("dmg"), list):
+        return raw
+    if not issues:
+        return {"dmg": [], "goal": None, "ipa": []}
+    derived = derive_manifest(issues)
+    write_json(path, derived)
+    return derived
+
+
+def notes_text(directory: Path, platform: str, now: float) -> str:
+    if platform == "ipa":
+        payload = current_public(directory, now)
+    else:
+        payload = desktop_public(directory, now)
+    notes = payload.get("releaseNotes")
+    return notes if isinstance(notes, str) else ""
+
+
+def compile_line(directory: Path, platform: str) -> str:
+    build_platform = "ipa" if platform == "ipa" else "desktop"
+    samples: list[float] = []
+    for item in load_builds(directory):
+        if item.get("platform") != build_platform or item.get("status") != "succeeded":
+            continue
+        start = parse_iso(item.get("startedAt"))
+        end = parse_iso(item.get("finishedAt"))
+        if start is None or end is None or end < start:
+            continue
+        samples.append(end - start)
+        if len(samples) >= 5:
+            break
+    if len(samples) >= 3:
+        return f"Compile after the tasks: about {format_span(median_numbers(samples))}"
+    if platform == "ipa":
+        baselines = load_baselines(directory)
+        baseline = baselines["xcodebuild"] + baselines["zip"]
+        return f"Compile after the tasks: about {format_span(baseline)}"
+    return "Compile after the tasks: compile time is unknown"
+
+
+def paperclip_get(path: str) -> object:
+    request = urllib.request.Request(
+        PAPERCLIP_ORIGIN + path,
+        headers={"Accept": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=8) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def as_list(payload: object) -> list:
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        for key in ("issues", "items", "runs", "agents"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return value
+    return []
+
+
+def short_code(value: object) -> str | None:
+    if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_]{1,40}", value):
+        return value
+    return None
+
+
+def usage_number(usage: dict, *keys: str) -> int:
+    for key in keys:
+        value = usage.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            continue
+        if math.isfinite(float(value)):
+            return int(value)
+    return 0
+
+
+def safe_issue(raw: dict) -> dict | None:
+    if not isinstance(raw.get("id"), str) or not isinstance(raw.get("identifier"), str):
+        return None
+    number = raw.get("issueNumber")
+    return {
+        "assigneeAgentId": raw.get("assigneeAgentId") if isinstance(raw.get("assigneeAgentId"), str) else None,
+        "completedAt": raw.get("completedAt") if isinstance(raw.get("completedAt"), str) else None,
+        "createdAt": raw.get("createdAt") if isinstance(raw.get("createdAt"), str) else None,
+        "executionRunId": raw.get("executionRunId") if isinstance(raw.get("executionRunId"), str) else None,
+        "id": raw["id"],
+        "identifier": raw["identifier"],
+        "issueNumber": number if isinstance(number, int) and not isinstance(number, bool) else None,
+        "parentId": raw.get("parentId") if isinstance(raw.get("parentId"), str) else None,
+        "projectId": raw.get("projectId") if isinstance(raw.get("projectId"), str) else None,
+        "status": raw.get("status") if isinstance(raw.get("status"), str) else "",
+        "title": raw.get("title") if isinstance(raw.get("title"), str) else "",
+        "updatedAt": raw.get("updatedAt") if isinstance(raw.get("updatedAt"), str) else None,
+    }
+
+
+def safe_run(raw: dict, issue_id: str) -> dict | None:
+    usage = raw.get("usageJson") if isinstance(raw.get("usageJson"), dict) else {}
+    model = usage.get("model") if isinstance(usage.get("model"), str) else None
+    if not model and isinstance(raw.get("_model"), str):
+        model = raw["_model"]
+    if model and (len(model) > 80 or "\n" in model or "/" in model):
+        model = None
+    has_usage = isinstance(raw.get("usageJson"), dict) and any(
+        key in usage
+        for key in (
+            "inputTokens",
+            "input_tokens",
+            "outputTokens",
+            "output_tokens",
+            "cachedInputTokens",
+            "cached_input_tokens",
+        )
+    )
+    run_id = raw.get("runId") or raw.get("id")
+    if not isinstance(run_id, str):
+        return None
+    return {
+        "agentId": raw.get("agentId") if isinstance(raw.get("agentId"), str) else None,
+        "billingType": short_code(usage.get("billingType") or usage.get("billing_type")),
+        "cachedInputTokens": usage_number(usage, "cachedInputTokens", "cached_input_tokens", "cache_read_input_tokens"),
+        "costStatus": short_code(usage.get("costStatus") or usage.get("cost_status")),
+        "finishedAt": raw.get("finishedAt") if isinstance(raw.get("finishedAt"), str) else None,
+        "hasUsage": has_usage,
+        "inputTokens": usage_number(usage, "inputTokens", "input_tokens"),
+        "issueId": issue_id,
+        "model": model,
+        "outputTokens": usage_number(usage, "outputTokens", "output_tokens"),
+        "runId": run_id,
+        "startedAt": raw.get("startedAt") if isinstance(raw.get("startedAt"), str) else None,
+        "status": raw.get("status") if isinstance(raw.get("status"), str) else "",
+    }
+
+
+def safe_live(raw: dict) -> dict | None:
+    if not isinstance(raw.get("id"), str):
+        return None
+    name = raw.get("agentName") if isinstance(raw.get("agentName"), str) else None
+    if name and (len(name) > 80 or "/" in name):
+        name = None
+    return {
+        "agentId": raw.get("agentId") if isinstance(raw.get("agentId"), str) else None,
+        "agentName": name,
+        "finishedAt": raw.get("finishedAt") if isinstance(raw.get("finishedAt"), str) else None,
+        "issueId": raw.get("issueId") if isinstance(raw.get("issueId"), str) else None,
+        "runId": raw["id"],
+        "startedAt": raw.get("startedAt") if isinstance(raw.get("startedAt"), str) else None,
+        "status": raw.get("status") if isinstance(raw.get("status"), str) else "",
+    }
+
+
+def safe_agents(payload: object) -> dict[str, str]:
+    names: dict[str, str] = {}
+    for agent in as_list(payload):
+        if not isinstance(agent, dict):
+            continue
+        agent_id = agent.get("id")
+        name = agent.get("name")
+        if isinstance(agent_id, str) and isinstance(name, str) and name and "/" not in name and len(name) <= 80:
+            names[agent_id] = name
+    return names
+
+
+def normalize_bundle(raw: object) -> dict:
+    if not isinstance(raw, dict):
+        raise ValueError("paperclip payload")
+    issues = []
+    for item in as_list(raw.get("issues")):
+        if isinstance(item, dict):
+            safe = safe_issue(item)
+            if safe:
+                issues.append(safe)
+    runs: dict[str, list[dict]] = {}
+    raw_runs = raw.get("runs")
+    if isinstance(raw_runs, dict):
+        for issue_id, rows in raw_runs.items():
+            if not isinstance(issue_id, str) or not isinstance(rows, list):
+                continue
+            cleaned = []
+            for row in rows:
+                if isinstance(row, dict):
+                    safe = safe_run(row, issue_id)
+                    if safe:
+                        cleaned.append(safe)
+            runs[issue_id] = cleaned
+    live = []
+    for item in as_list(raw.get("liveRuns")):
+        if isinstance(item, dict):
+            safe = safe_live(item)
+            if safe:
+                live.append(safe)
+    return {"agents": safe_agents(raw.get("agents")), "issues": issues, "live": live, "runs": runs}
+
+
+def nuvio_issues(issues: list[dict]) -> list[dict]:
+    project = NUVIO_PROJECT_ID
+    anchor = next((issue for issue in issues if issue.get("identifier") == "SIM-111"), None)
+    if anchor and anchor.get("projectId"):
+        project = anchor["projectId"]
+    return [issue for issue in issues if issue.get("projectId") == project]
+
+
+def ids_for_runs(issues: list[dict], directory: Path, live: list[dict]) -> tuple[set[str], set[str]]:
+    scoped = nuvio_issues(issues)
+    by_ident = {issue.get("identifier"): issue for issue in scoped}
+    manifest = read_json(next_package_path(directory))
+    identifiers: list[str] = []
+    if isinstance(manifest, dict) and isinstance(manifest.get("ipa"), list) and isinstance(manifest.get("dmg"), list):
+        identifiers.extend(str(item) for item in manifest["ipa"] if isinstance(item, str))
+        identifiers.extend(str(item) for item in manifest["dmg"] if isinstance(item, str))
+    else:
+        goal = select_goal(scoped)
+        ipa, dmg = membership_lists(scoped, goal)
+        identifiers.extend(ipa)
+        identifiers.extend(dmg)
+    displayed: set[str] = set()
+    for identifier in identifiers:
+        issue = by_ident.get(identifier)
+        if issue:
+            displayed.add(issue["id"])
+    by_id = {issue["id"]: issue for issue in scoped}
+    for row in live:
+        issue = by_id.get(row.get("issueId"))
+        if issue and issue.get("status") in ("in_progress", "in_review"):
+            displayed.add(issue["id"])
+    for issue in scoped:
+        if issue.get("status") in ("in_progress", "in_review") and issue.get("executionRunId"):
+            displayed.add(issue["id"])
+    wanted = set(displayed)
+    for role in ("qa", "engineer"):
+        done = [
+            issue
+            for issue in scoped
+            if issue.get("status") == "done" and role_of(issue.get("title") or "") == role
+        ]
+        done.sort(key=lambda issue: issue.get("completedAt") or issue.get("updatedAt") or "", reverse=True)
+        for issue in done[:EXPECTED_SAMPLE]:
+            wanted.add(issue["id"])
+    return wanted, displayed
+
+
+def model_from_heartbeat(run_id: str) -> str | None:
+    try:
+        payload = paperclip_get(f"/api/heartbeat-runs/{run_id}")
+    except (OSError, urllib.error.URLError, json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    usage = payload.get("usageJson")
+    if not isinstance(usage, dict):
+        return None
+    model = usage.get("model")
+    if isinstance(model, str) and model and len(model) <= 80 and "/" not in model and "\n" not in model:
+        return model
+    return None
+
+
+def read_paperclip_live() -> dict:
+    directory = status_directory(None)
+    issues = paperclip_get(f"/api/companies/{PAPERCLIP_COMPANY_ID}/issues")
+    agents = paperclip_get(f"/api/companies/{PAPERCLIP_COMPANY_ID}/agents")
+    live_raw = paperclip_get(f"/api/companies/{PAPERCLIP_COMPANY_ID}/live-runs")
+    issue_rows = [item for item in as_list(issues) if isinstance(item, dict)]
+    live_rows = [item for item in as_list(live_raw) if isinstance(item, dict)]
+    live_safe = []
+    for item in live_rows:
+        safe = safe_live(item)
+        if safe:
+            live_safe.append(safe)
+    wanted, displayed = ids_for_runs(issue_rows, directory, live_safe)
+    runs: dict[str, list] = {}
+    for issue_id in sorted(wanted):
+        try:
+            payload = paperclip_get(f"/api/issues/{issue_id}/runs")
+        except (OSError, urllib.error.URLError, json.JSONDecodeError, ValueError):
+            runs[issue_id] = []
+            continue
+        runs[issue_id] = [item for item in as_list(payload) if isinstance(item, dict)]
+    for issue_id in displayed:
+        rows = runs.get(issue_id) or []
+        finished = [row for row in rows if isinstance(row.get("finishedAt"), str)]
+        finished.sort(key=lambda row: row.get("finishedAt") or "", reverse=True)
+        if not finished:
+            continue
+        latest = finished[0]
+        usage = latest.get("usageJson") if isinstance(latest.get("usageJson"), dict) else {}
+        if isinstance(usage.get("model"), str) and usage.get("model"):
+            continue
+        run_id = latest.get("runId") or latest.get("id")
+        if not isinstance(run_id, str):
+            continue
+        model = model_from_heartbeat(run_id)
+        if model:
+            latest["_model"] = model
+    return {"agents": agents, "issues": issue_rows, "liveRuns": live_rows, "runs": runs}
+
+
+class _WorkCache:
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.fetched_at = 0.0
+        self.updated_at: str | None = None
+        self.bundle: dict | None = None
+        self.refreshing = False
+        self.reader = read_paperclip_live
+
+
+WORK_CACHE = _WorkCache()
+
+
+def reset_work_cache() -> None:
+    with WORK_CACHE.lock:
+        WORK_CACHE.fetched_at = 0.0
+        WORK_CACHE.updated_at = None
+        WORK_CACHE.bundle = None
+        WORK_CACHE.refreshing = False
+
+
+def cached_bundle(now: float) -> tuple[dict | None, str | None]:
+    with WORK_CACHE.lock:
+        fresh = WORK_CACHE.bundle is not None and now - WORK_CACHE.fetched_at < PAPERCLIP_POLL_SECONDS
+        if fresh or WORK_CACHE.refreshing:
+            return WORK_CACHE.bundle, WORK_CACHE.updated_at
+        WORK_CACHE.refreshing = True
+        reader = WORK_CACHE.reader
+    try:
+        bundle = normalize_bundle(reader())
+        updated = iso(now)
+        ok = True
+    except Exception:
+        bundle = None
+        updated = None
+        ok = False
+    with WORK_CACHE.lock:
+        WORK_CACHE.refreshing = False
+        WORK_CACHE.fetched_at = now
+        if ok and bundle is not None:
+            WORK_CACHE.bundle = bundle
+            WORK_CACHE.updated_at = updated
+        return WORK_CACHE.bundle, WORK_CACHE.updated_at
+
+
+def runs_for(issue: dict, bundle: dict) -> list[dict]:
+    rows = list((bundle.get("runs") or {}).get(issue.get("id")) or [])
+    known = {row.get("runId") for row in rows}
+    for live in bundle.get("live") or []:
+        if live.get("issueId") != issue.get("id") or live.get("runId") in known:
+            continue
+        if live.get("status") not in ("running", "queued"):
+            continue
+        rows.append(
+            {
+                "agentId": live.get("agentId"),
+                "billingType": None,
+                "cachedInputTokens": 0,
+                "costStatus": None,
+                "finishedAt": live.get("finishedAt"),
+                "hasUsage": False,
+                "inputTokens": 0,
+                "issueId": issue.get("id"),
+                "model": None,
+                "outputTokens": 0,
+                "runId": live.get("runId"),
+                "startedAt": live.get("startedAt"),
+                "status": live.get("status") or "running",
+            }
+        )
+    return rows
+
+
+def spent_seconds(runs: list[dict], now: float) -> float:
+    return sum(run_seconds(run, now) for run in runs)
+
+
+def expected_by_role(issues: list[dict], bundle: dict, now: float) -> dict[str, float | None]:
+    found: dict[str, float | None] = {"engineer": None, "qa": None}
+    for role in ("engineer", "qa"):
+        done = [
+            issue
+            for issue in issues
+            if issue.get("status") == "done" and role_of(issue.get("title") or "") == role
+        ]
+        done.sort(key=lambda issue: issue.get("completedAt") or issue.get("updatedAt") or "", reverse=True)
+        sample = done[:EXPECTED_SAMPLE]
+        if len(sample) < EXPECTED_MINIMUM:
+            continue
+        totals = []
+        for issue in sample:
+            stored = list((bundle.get("runs") or {}).get(issue.get("id")) or [])
+            totals.append(spent_seconds(stored, now))
+        found[role] = median_numbers(totals)
+    return found
+
+
+def agent_time_line(rows: list[dict]) -> str:
+    open_rows = [row for row in rows if row.get("status") not in ("done", "cancelled")]
+    if not open_rows:
+        return "Agent time: 0 min"
+    known = [row for row in open_rows if row.get("expected") is not None]
+    unknown = len(open_rows) - len(known)
+    if not known:
+        return "Agent time: estimate unavailable"
+    remaining = sum(max(0.0, float(row["expected"]) - float(row["spent"])) for row in known)
+    label = format_span(remaining)
+    if unknown == 0:
+        return f"Agent time: {label}"
+    if unknown == 1:
+        return f"Agent time: at least {label}, 1 task has no estimate"
+    return f"Agent time: at least {label}, {unknown} tasks have no estimate"
+
+
+def token_line(runs: list[dict]) -> str | None:
+    if not runs:
+        return None
+    usable = [run for run in runs if run.get("hasUsage")]
+    if not usable:
+        unfinished = [run for run in runs if not run.get("finishedAt") and run.get("status") != "cancelled"]
+        if len(runs) == 1 and unfinished:
+            return "tokens post when the run finishes"
+        if unfinished and len(unfinished) == len(runs):
+            return "tokens post when the run finishes"
+        return None
+    incoming = sum(int(run.get("inputTokens") or 0) for run in usable)
+    cached = sum(int(run.get("cachedInputTokens") or 0) for run in usable)
+    outgoing = sum(int(run.get("outputTokens") or 0) for run in usable)
+    return f"{format_count(incoming)} in · {format_count(cached)} cached · {format_count(outgoing)} out"
+
+
+def billing_line(runs: list[dict]) -> str | None:
+    for run in runs:
+        if run.get("billingType") == "subscription_included" or run.get("costStatus") == "unpriced":
+            return "subscription, unpriced"
+    return None
+
+
+def finished_model(runs: list[dict]) -> str | None:
+    finished = [run for run in runs if run.get("finishedAt") and isinstance(run.get("model"), str)]
+    finished.sort(key=lambda run: run.get("finishedAt") or "", reverse=True)
+    if not finished:
+        return None
+    return finished[0]["model"]
+
+
+def live_for(issue: dict, bundle: dict) -> dict | None:
+    rows = [
+        row
+        for row in bundle.get("live") or []
+        if row.get("issueId") == issue.get("id") and row.get("status") in ("running", "queued")
+    ]
+    rows.sort(key=lambda row: row.get("startedAt") or "", reverse=True)
+    return rows[0] if rows else None
+
+
+def agent_for(issue: dict, runs: list[dict], bundle: dict) -> str:
+    live = live_for(issue, bundle)
+    if live and live.get("agentName"):
+        return str(live["agentName"])
+    agents = bundle.get("agents") or {}
+    assignee = issue.get("assigneeAgentId")
+    if isinstance(assignee, str) and agents.get(assignee):
+        return str(agents[assignee])
+    for run in runs:
+        agent_id = run.get("agentId")
+        if isinstance(agent_id, str) and agents.get(agent_id):
+            return str(agents[agent_id])
+    if live and isinstance(live.get("agentId"), str) and agents.get(live["agentId"]):
+        return str(agents[live["agentId"]])
+    return "None"
+
+
+def public_stash(rows: object, platform: str) -> dict:
+    clean = []
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, dict) or not isinstance(row.get("summary"), str):
+                continue
+            summary = row["summary"].strip()
+            if not summary:
+                continue
+            item = {"summary": summary}
+            issue = row.get("issue")
+            if isinstance(issue, str) and ISSUE_KEY.fullmatch(issue):
+                item["issue"] = issue
+            clean.append(item)
+    empty = (
+        "Nothing is stashed for the next IPA."
+        if platform == "ipa"
+        else "Nothing is stashed for the next DMG."
+    )
+    return {"emptyText": empty, "items": clean[:STASH_LIMIT], "more": max(0, len(clean) - STASH_LIMIT)}
+
+
+def package_snapshot(
+    directory: Path,
+    platform: str,
+    identifiers: list[str],
+    issues_by_ident: dict[str, dict],
+    bundle: dict,
+    expected: dict[str, float | None],
+    notes: str,
+    held_rows: list,
+    now: float,
+) -> dict:
+    ordered = []
+    for index, identifier in enumerate(identifiers):
+        issue = issues_by_ident.get(identifier)
+        if issue is None or issue.get("status") == "cancelled":
+            continue
+        runs = runs_for(issue, bundle)
+        spent = spent_seconds(runs, now)
+        role = role_of(issue.get("title") or "")
+        ordered.append(
+            {
+                "expected": expected.get(role),
+                "index": index,
+                "issue": issue,
+                "runs": runs,
+                "spent": spent,
+                "status": issue.get("status") or "",
+            }
+        )
+    ordered.sort(key=lambda row: (STATUS_RANK.get(row["status"], 5), row["index"]))
+    total = len(ordered)
+    if total == 0:
+        headline = "Nothing is queued."
+        percent = None
+    else:
+        done = sum(1 for row in ordered if row["status"] == "done")
+        credit = sum(task_credit(row["status"], row["spent"], row["expected"]) for row in ordered)
+        headline = f"{done} of {total} tasks done"
+        percent = int(round(100.0 * credit / total))
+    next_items = []
+    for row in ordered:
+        title = row["issue"].get("title") or ""
+        if title.startswith("QA"):
+            continue
+        next_items.append(strip_platform_prefix(title))
+        if len(next_items) >= SUMMARY_LIMIT:
+            break
+    tasks = []
+    for row in ordered:
+        issue = row["issue"]
+        runs = row["runs"]
+        task = {
+            "agent": agent_for(issue, runs, bundle),
+            "elapsed": format_elapsed(row["spent"]),
+            "elapsedSeconds": int(row["spent"]),
+            "id": issue.get("identifier"),
+            "status": row["status"],
+            "title": strip_platform_prefix(issue.get("title") or ""),
+        }
+        tokens = token_line(runs)
+        billing = billing_line(runs)
+        model = finished_model(runs)
+        if tokens:
+            task["tokens"] = tokens
+        if billing:
+            task["billing"] = billing
+        if model:
+            task["model"] = model
+        tasks.append(task)
+    label = "In the next IPA" if platform == "ipa" else "In the next DMG"
+    return {
+        "agentTime": agent_time_line(ordered),
+        "compile": compile_line(directory, platform),
+        "headline": headline,
+        "inNext": {"empty": not next_items, "items": next_items},
+        "inThisVersion": version_summary(notes),
+        "nextLabel": label,
+        "percent": percent,
+        "stashed": public_stash(held_rows, platform),
+        "tasks": tasks,
+    }
+
+
+def working_rows(issues: list[dict], manifest: dict, bundle: dict, now: float) -> list[dict]:
+    ipa_ids = {item for item in manifest.get("ipa") or [] if isinstance(item, str)}
+    dmg_ids = {item for item in manifest.get("dmg") or [] if isinstance(item, str)}
+    live_ids = {
+        row.get("issueId")
+        for row in bundle.get("live") or []
+        if row.get("status") in ("running", "queued") and row.get("issueId")
+    }
+    rows = []
+    for issue in issues:
+        if issue.get("status") not in ("in_progress", "in_review"):
+            continue
+        if issue.get("id") not in live_ids and not issue.get("executionRunId"):
+            continue
+        runs = runs_for(issue, bundle)
+        live = live_for(issue, bundle)
+        if live and live.get("startedAt"):
+            elapsed = run_seconds(
+                {"startedAt": live.get("startedAt"), "finishedAt": live.get("finishedAt"), "status": live.get("status")},
+                now,
+            )
+        else:
+            elapsed = spent_seconds(runs, now)
+        identifier = issue.get("identifier")
+        if identifier in ipa_ids:
+            landing = "ipa"
+        elif identifier in dmg_ids:
+            landing = "dmg"
+        else:
+            landing = "neither"
+        row = {
+            "agent": agent_for(issue, runs, bundle),
+            "elapsed": format_elapsed(elapsed),
+            "elapsedSeconds": int(elapsed),
+            "id": identifier,
+            "package": landing,
+            "status": issue.get("status"),
+            "title": issue.get("title") or "",
+        }
+        model = finished_model(runs)
+        if model:
+            row["model"] = model
+        rows.append(row)
+    rows.sort(key=lambda row: row.get("id") or "")
+    return rows
+
+
+def public_work(directory: Path, now: float) -> dict:
+    bundle, updated_at = cached_bundle(now)
+    safe = bundle or {"agents": {}, "issues": [], "live": [], "runs": {}}
+    scoped = nuvio_issues(safe["issues"]) if safe["issues"] else []
+    with locked(directory):
+        manifest = ensure_manifest(directory, scoped)
+        held = reconcile_held_back(directory)
+    ipa_notes = notes_text(directory, "ipa", now)
+    dmg_notes = notes_text(directory, "dmg", now)
+    expected = expected_by_role(scoped, safe, now)
+    by_ident = {issue.get("identifier"): issue for issue in scoped}
+    ipa_ids = [item for item in manifest.get("ipa") or [] if isinstance(item, str)]
+    dmg_ids = [item for item in manifest.get("dmg") or [] if isinstance(item, str)]
+    return {
+        "dmg": package_snapshot(
+            directory,
+            "dmg",
+            dmg_ids,
+            by_ident,
+            safe,
+            expected,
+            dmg_notes,
+            held.get("dmg") if isinstance(held.get("dmg"), list) else [],
+            now,
+        ),
+        "ipa": package_snapshot(
+            directory,
+            "ipa",
+            ipa_ids,
+            by_ident,
+            safe,
+            expected,
+            ipa_notes,
+            held.get("ipa") if isinstance(held.get("ipa"), list) else [],
+            now,
+        ),
+        "updatedAt": updated_at,
+        "workingNow": working_rows(scoped, manifest, safe, now),
+    }
+
+
+def command_held_back_add(args: argparse.Namespace) -> int:
+    summary = args.summary if isinstance(args.summary, str) else ""
+    if len(summary) > HELD_BACK_LIMIT or not summary.strip():
+        print("ipa-status: summary must be 1 to 180 characters", file=sys.stderr)
+        return 2
+    directory = status_directory(args.status_dir)
+    with locked(directory):
+        raw = reconcile_held_back(directory)
+        rows = raw.get(args.platform)
+        if not isinstance(rows, list):
+            rows = []
+        rows.append({"summary": summary})
+        raw[args.platform] = rows
+        write_json(held_back_path(directory), raw)
+    return 0
+
+
+def command_held_back_clear(args: argparse.Namespace) -> int:
+    directory = status_directory(args.status_dir)
+    with locked(directory):
+        raw = reconcile_held_back(directory)
+        raw[args.platform] = []
+        write_json(held_back_path(directory), raw)
+    return 0
+
+
+def command_next_package(args: argparse.Namespace) -> int:
+    directory = status_directory(args.status_dir)
+    try:
+        bundle = normalize_bundle(WORK_CACHE.reader())
+    except Exception:
+        print("ipa-status: Paperclip is not available", file=sys.stderr)
+        return 1
+    derived = derive_manifest(nuvio_issues(bundle["issues"]))
+    with locked(directory):
+        write_json(next_package_path(directory), derived)
+    return 0
+
+
 def self_test() -> int:
     import tempfile
 
@@ -2700,6 +3901,410 @@ def self_test() -> int:
         capped = load_builds(directory)
         check(len(capped) == 40, f"build index cap {len(capped)}")
         check(len(recent_builds(directory, "ipa")) == 8, "recent window is not 8")
+
+        check("In this version" in html and "No summary for this file." in html, "version summary missing")
+        check("In the next IPA" in html and "In the next DMG" in html, "next package labels")
+        check("Stashed while testing" in html, "stash label")
+        check("Working now" in html and "next-grid" in html, "working now layout")
+        check(html.count('class="hero-kicker">Compile') == 2, "compile label")
+        check('fetch("/api/work"' in html, "work poll missing")
+        check("more in Release notes" in html, "summary cap copy")
+        check("Nothing is stashed for the next IPA." in html and "Nothing is stashed for the next DMG." in html, "empty stash copy")
+        check("Nothing new is queued." in html, "empty next copy")
+
+        check(task_credit("done", 10, 10) == 1.0, "done credit")
+        check(task_credit("in_progress", 3000, 3000) == 0.7, "spent ratio caps at 0.7")
+        check(task_credit("in_progress", 0, 3000) == 0.4, "in progress without spent")
+        check(abs(task_credit("in_review", 1000, 2000) - 0.5) < 1e-9, "in review ratio")
+        check(task_credit("in_review", 0, None) == 0.7, "in review default")
+        check(task_credit("todo", 5, 5) == 0.0 and task_credit("blocked", 5, 5) == 0.0, "todo and blocked credit")
+        check(int(round(100.0 * (1 + 0.7 + 0.4 + 0.5) / 6)) == 43, "bar percent")
+        moment = 1_700_000_000.0
+        check(
+            run_seconds(
+                {"status": "succeeded", "startedAt": iso(moment), "finishedAt": iso(moment + 10 * 3600)},
+                moment + 10 * 3600,
+            )
+            == RUN_CAP_SECONDS,
+            "6 hour cap",
+        )
+        check(
+            run_seconds(
+                {"status": "running", "startedAt": iso(moment - 10 * 3600), "finishedAt": None},
+                moment,
+            )
+            == RUN_CAP_SECONDS,
+            "running 6 hour cap",
+        )
+        six_subjects = "\n".join(f"- {'a' * 7}{index} subject {index} @ann" for index in range(1, 7))
+        summary = version_summary(six_subjects)
+        check(summary["lines"][:4] == [f"subject {index}" for index in range(1, 5)], f"summary subjects {summary}")
+        check(summary["lines"][4] == "And 2 more in Release notes", f"summary cap {summary}")
+        check(all("@" not in line for line in summary["lines"]), "summary kept the author")
+        check(version_summary("no commit rows")["lines"] == ["No summary for this file."], "empty summary")
+        check(
+            agent_time_line(
+                [
+                    {"status": "todo", "expected": 6000, "spent": 600},
+                    {"status": "blocked", "expected": 6000, "spent": 0},
+                ]
+            )
+            == "Agent time: 3 hr 10 min",
+            "full agent estimate",
+        )
+        check(
+            agent_time_line(
+                [
+                    {"status": "todo", "expected": 3600, "spent": 0},
+                    {"status": "todo", "expected": None, "spent": 0},
+                ]
+            )
+            == "Agent time: at least 60 min, 1 task has no estimate",
+            "partial agent estimate",
+        )
+        check(
+            agent_time_line([{"status": "in_progress", "expected": None, "spent": 10}])
+            == "Agent time: estimate unavailable",
+            "missing agent estimate",
+        )
+        goal = {
+            "id": "sim-111",
+            "identifier": "SIM-111",
+            "status": "blocked",
+            "title": "One current iPhone IPA and one current Mac DMG",
+            "projectId": "project-nuvio",
+            "issueNumber": 111,
+            "parentId": None,
+        }
+        child = {
+            "id": "sim-10",
+            "identifier": "SIM-10",
+            "status": "todo",
+            "title": "iOS: child",
+            "parentId": "sim-111",
+            "projectId": "project-nuvio",
+            "issueNumber": 10,
+        }
+        grand = {
+            "id": "sim-11",
+            "identifier": "SIM-11",
+            "status": "todo",
+            "title": "macOS: grand",
+            "parentId": "sim-10",
+            "projectId": "project-nuvio",
+            "issueNumber": 11,
+        }
+        deeper = {
+            "id": "sim-12",
+            "identifier": "SIM-12",
+            "status": "todo",
+            "title": "iOS: too deep",
+            "parentId": "sim-11",
+            "projectId": "project-nuvio",
+            "issueNumber": 12,
+        }
+        both = {
+            "id": "sim-13",
+            "identifier": "SIM-13",
+            "status": "todo",
+            "title": "iOS: also a DMG and a Mac",
+            "parentId": "sim-111",
+            "projectId": "project-nuvio",
+            "issueNumber": 13,
+        }
+        page_issue = {
+            "id": "sim-14",
+            "identifier": "SIM-14",
+            "status": "todo",
+            "title": "Builds page: name the IPA",
+            "parentId": "sim-111",
+            "projectId": "project-nuvio",
+            "issueNumber": 14,
+        }
+        ipa_ids, dmg_ids = membership_lists([goal, child, grand, deeper, both, page_issue], goal)
+        check(ipa_ids == ["SIM-10", "SIM-13"], f"ipa membership {ipa_ids}")
+        check(dmg_ids == ["SIM-11"], f"dmg membership {dmg_ids}")
+        check("SIM-12" not in ipa_ids and "SIM-14" not in ipa_ids + dmg_ids, "depth and builds page")
+        check(package_for_title("Ship the IPA and the Mac DMG") is None, "both packages without a prefix")
+        newer = {
+            "id": "sim-200",
+            "identifier": "SIM-200",
+            "status": "todo",
+            "title": "One current desktop",
+            "projectId": "project-nuvio",
+            "createdAt": "2026-10-01T00:00:00Z",
+        }
+        older = {
+            "id": "sim-100",
+            "identifier": "SIM-100",
+            "status": "todo",
+            "title": "One current old",
+            "projectId": "project-nuvio",
+            "createdAt": "2026-01-01T00:00:00Z",
+        }
+        check(
+            select_goal([dict(goal, status="done"), older, newer])["identifier"] == "SIM-200",
+            "newest open goal",
+        )
+
+        held_dir = directory / "held-root"
+        held_dir.mkdir()
+        write_json(
+            downloads_path(held_dir),
+            {
+                "ipa": {"bytes": 1, "commit": "7f6b9bb9abcdef", "filename": "a.ipa", "sha256": "aa", "version": "0.5.4"},
+                "desktop": {
+                    "linux": None,
+                    "macos": {"bytes": 1, "commit": "abc123", "filename": "m.dmg", "sha256": "bb", "version": "0.1.0"},
+                    "windows": None,
+                },
+            },
+        )
+        seeded = reconcile_held_back(held_dir)
+        check(seeded["dmg"] == [], "dmg stash starts empty")
+        check(
+            seeded["ipa"] == [{"issue": "SIM-122", "summary": HELD_BACK_IPA_SEED}],
+            "ipa stash seed",
+        )
+        check("pre-pr11-dmg" not in json.dumps(seeded), "git stash was seeded")
+        seeded["ipa"].append({"issue": "SIM-1", "summary": "second sentence"})
+        write_json(held_back_path(held_dir), seeded)
+        catalog = load_catalog(held_dir)
+        catalog["ipa"]["commit"] = "ffffffffffffffff"
+        write_json(downloads_path(held_dir), catalog)
+        cleared = reconcile_held_back(held_dir)
+        check(cleared["ipa"] == [], f"held-back did not clear on commit change: {cleared['ipa']}")
+        check(cleared["watched"]["ipa"] == "ffffffffffffffff", "watched commit")
+        long_summary = "x" * 181
+        check(
+            command_held_back_add(
+                argparse.Namespace(status_dir=str(held_dir), platform="ipa", summary=long_summary)
+            )
+            == 2,
+            "long stash summary was accepted",
+        )
+        check(
+            command_held_back_add(
+                argparse.Namespace(status_dir=str(held_dir), platform="dmg", summary="one sentence")
+            )
+            == 0,
+            "stash add failed",
+        )
+        added = read_json(held_back_path(held_dir)) or {}
+        check(added["dmg"] == [{"summary": "one sentence"}], f"stash add {added.get('dmg')}")
+        check(
+            command_held_back_clear(argparse.Namespace(status_dir=str(held_dir), platform="dmg")) == 0,
+            "stash clear failed",
+        )
+        check((read_json(held_back_path(held_dir)) or {})["dmg"] == [], "stash clear did not empty dmg")
+
+        leak = {
+            "description": "LEAK-DESCRIPTION",
+            "stdout": "LEAK-STDOUT",
+            "stderr": "LEAK-STDOUT",
+            "workspacePath": "/Users/leak/workspace",
+            "authorization": "Bearer leak-token",
+            "stash": "stash@{0}",
+            "diff": "@@ -1,2 +1,2 @@",
+            "stashName": "pre-pr11-dmg",
+        }
+
+        def leaked_issue(identifier: str, number: int, status: str, title: str, parent: str | None, **extra: object) -> dict:
+            row = {
+                "id": identifier.lower(),
+                "identifier": identifier,
+                "issueNumber": number,
+                "status": status,
+                "title": title,
+                "parentId": parent,
+                "projectId": "project-nuvio",
+                "createdAt": "2026-09-01T00:00:00Z",
+                "completedAt": "2026-09-02T00:00:00Z" if status == "done" else None,
+                "updatedAt": "2026-09-02T00:00:00Z",
+                "assigneeAgentId": "agent-1",
+            }
+            row.update(leak)
+            row.update(extra)
+            return row
+
+        clock = 1_000_000.0
+        stub_issues = [
+            leaked_issue("SIM-111", 111, "blocked", "One current iPhone IPA and one current Mac DMG", None),
+            leaked_issue("SIM-201", 201, "done", "iOS: hide the key", "sim-111"),
+            leaked_issue("SIM-202", 202, "in_progress", "iOS: player scrim", "sim-111", executionRunId="run-202"),
+            leaked_issue("SIM-203", 203, "in_review", "QA: check the IPA", "sim-111"),
+            leaked_issue("SIM-204", 204, "todo", "Builds page: site task", "sim-111"),
+            leaked_issue("SIM-205", 205, "cancelled", "iOS: dropped", "sim-111"),
+            leaked_issue("SIM-207", 207, "in_progress", "Live Nuvio run", "other", executionRunId="run-live"),
+        ]
+        stub = {
+            "agents": [{"id": "agent-1", "name": "Nuvio Engineer", "adapterConfig": {"token": "Bearer leak-token"}}],
+            "issues": stub_issues,
+            "liveRuns": [
+                {
+                    "id": "run-202",
+                    "issueId": "sim-202",
+                    "agentId": "agent-1",
+                    "agentName": "Nuvio Engineer",
+                    "status": "running",
+                    "startedAt": iso(clock - 100),
+                    "finishedAt": None,
+                    "stdout": "LEAK-STDOUT",
+                    "lastOutputStream": "stdout",
+                    "description": "LEAK-DESCRIPTION",
+                },
+                {
+                    "id": "run-live",
+                    "issueId": "sim-207",
+                    "agentId": "agent-1",
+                    "agentName": "Nuvio Engineer",
+                    "status": "running",
+                    "startedAt": iso(clock - 50),
+                    "finishedAt": None,
+                    "stdout": "LEAK-STDOUT",
+                },
+            ],
+            "runs": {
+                "sim-201": [
+                    {
+                        "runId": "run-201",
+                        "status": "succeeded",
+                        "startedAt": iso(clock - 10 * 3600),
+                        "finishedAt": iso(clock),
+                        "agentId": "agent-1",
+                        "stdout": "LEAK-STDOUT",
+                        "logPath": "/Users/leak/workspace/run.log",
+                        "usageJson": {
+                            "inputTokens": 15_600_000,
+                            "cachedInputTokens": 2000,
+                            "outputTokens": 40,
+                            "billingType": "subscription_included",
+                            "costStatus": "unpriced",
+                            "model": "grok-build",
+                            "raw": "Bearer leak-token",
+                        },
+                    }
+                ],
+                "sim-202": [
+                    {
+                        "runId": "run-202",
+                        "status": "running",
+                        "startedAt": iso(clock - 100),
+                        "finishedAt": None,
+                        "agentId": "agent-1",
+                        "stdout": "LEAK-STDOUT",
+                        "usageJson": None,
+                        "workspacePath": "/Users/leak/workspace",
+                    }
+                ],
+            },
+        }
+        calls = {"n": 0}
+
+        def stub_reader() -> dict:
+            calls["n"] += 1
+            if calls["n"] >= 3:
+                raise RuntimeError("paperclip down")
+            return stub
+
+        WORK_CACHE.reader = stub_reader
+        reset_work_cache()
+        session = read_json(session_path(directory)) or {}
+        session["releaseNotes"] = six_subjects
+        write_json(session_path(directory), session)
+        catalog_now = load_catalog(directory)
+        write_json(
+            held_back_path(directory),
+            {
+                "dmg": [],
+                "ipa": [
+                    {
+                        "diff": "@@ -1,2 +1,2 @@",
+                        "issue": "SIM-122",
+                        "stash": "stash@{0}",
+                        "summary": "kept sentence",
+                    }
+                ],
+                "stashName": "pre-pr11-dmg",
+                "watched": {
+                    "dmg": platform_commit(catalog_now, "dmg"),
+                    "ipa": platform_commit(catalog_now, "ipa"),
+                },
+            },
+        )
+        first = public_work(directory, clock)
+        second = public_work(directory, clock + 10)
+        check(calls["n"] == 1, f"paperclip was read {calls['n']} times inside 15s")
+        later = public_work(directory, clock + 20)
+        check(calls["n"] == 2, f"paperclip did not refresh after 15s ({calls['n']})")
+        check(first["dmg"]["headline"] == "Nothing is queued." and first["dmg"]["percent"] is None, "empty dmg list")
+        check(first["dmg"]["tasks"] == [], "empty dmg tasks")
+        check(first["ipa"]["headline"] == "1 of 3 tasks done", f"ipa headline {first['ipa']['headline']}")
+        check(first["ipa"]["percent"] == 70, f"ipa percent {first['ipa']['percent']}")
+        check(first["ipa"]["inNext"]["items"] == ["player scrim", "hide the key"], f"inNext {first['ipa']['inNext']}")
+        check(all(not item.startswith("QA") for item in first["ipa"]["inNext"]["items"]), "QA title in inNext")
+        check("check the IPA" not in first["ipa"]["inNext"]["items"], "QA title was summarized")
+        done_task = next(task for task in first["ipa"]["tasks"] if task["id"] == "SIM-201")
+        check(done_task["elapsedSeconds"] == RUN_CAP_SECONDS, f"task 6 hour cap {done_task['elapsedSeconds']}")
+        check(done_task["tokens"] == "15.6M in · 2.0k cached · 40 out", f"tokens {done_task.get('tokens')}")
+        check(done_task["billing"] == "subscription, unpriced", "billing text")
+        check(done_task.get("model") == "grok-build", "model")
+        open_task = next(task for task in first["ipa"]["tasks"] if task["id"] == "SIM-202")
+        check(open_task["tokens"] == "tokens post when the run finishes", f"open tokens {open_task.get('tokens')}")
+        check(open_task["elapsedSeconds"] == 100, f"open elapsed {open_task['elapsedSeconds']}")
+        check(later["ipa"]["tasks"][0]["id"] == "SIM-202", "task order")
+        running_later = next(task for task in later["ipa"]["tasks"] if task["id"] == "SIM-202")
+        check(running_later["elapsedSeconds"] == 120, f"elapsed did not advance {running_later['elapsedSeconds']}")
+        check(first["ipa"]["inThisVersion"]["lines"][4] == "And 2 more in Release notes", "api summary cap")
+        check(first["ipa"]["agentTime"] != first["ipa"]["compile"], "agent time mixed with compile")
+        check(first["ipa"]["compile"].startswith("Compile after the tasks:"), first["ipa"]["compile"])
+        check(first["ipa"]["stashed"]["items"] == [{"issue": "SIM-122", "summary": "kept sentence"}], "public stash")
+        workers = {row["id"]: row for row in first["workingNow"]}
+        check(workers["SIM-202"]["package"] == "ipa" and workers["SIM-202"]["agent"] == "Nuvio Engineer", "working package")
+        check(workers["SIM-207"]["package"] == "neither", "working neither")
+        check(workers["SIM-207"]["elapsedSeconds"] == 50, "working elapsed")
+        check(
+            next(row for row in later["workingNow"] if row["id"] == "SIM-207")["elapsedSeconds"] == 70,
+            "working elapsed did not advance",
+        )
+        stale_at = later["updatedAt"]
+        failed = public_work(directory, clock + 40)
+        check(calls["n"] == 3, "down paperclip was not attempted")
+        check(failed["updatedAt"] == stale_at, "down paperclip replaced updatedAt")
+        check(failed["ipa"]["headline"] == "1 of 3 tasks done", "down paperclip dropped the snapshot")
+        rendered = json.dumps(failed)
+        for banned in (
+            "LEAK-DESCRIPTION",
+            "LEAK-STDOUT",
+            "/Users/leak/workspace",
+            "Bearer leak-token",
+            "stash@{",
+            "@@ -1,2 +1,2 @@",
+            "usageJson",
+            "pre-pr11-dmg",
+            "stdout",
+            "description",
+        ):
+            check(banned not in rendered, f"fixture output contains {banned}")
+        reset_work_cache()
+        WORK_CACHE.reader = lambda: stub
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/work", timeout=5) as response:
+            live_body = response.read().decode("utf-8")
+            live_work = json.loads(live_body)
+        check(live_work["ipa"]["headline"] == "1 of 3 tasks done", "api work headline")
+        for banned in (
+            "LEAK-DESCRIPTION",
+            "LEAK-STDOUT",
+            "/Users/leak/workspace",
+            "Bearer leak-token",
+            "stash@{",
+            "@@ ",
+            "usageJson",
+            "pre-pr11-dmg",
+            "stdout",
+            "description",
+        ):
+            check(banned not in live_body, f"api work contains {banned}")
         httpd.shutdown()
 
     if failures:
@@ -2841,6 +4446,9 @@ def _handler_for(directory: Path):
             if path == "/api/downloads":
                 send_json(self, current_downloads(directory))
                 return
+            if path == "/api/work":
+                send_json(self, public_work(directory, time.time()))
+                return
             kind = DOWNLOAD_ROUTES.get(path)
             if kind:
                 send_download(self, directory, kind)
@@ -2889,6 +4497,19 @@ def build_parser() -> argparse.ArgumentParser:
     record.add_argument("--version", default=None)
     record.add_argument("--commit", default=None)
     record.set_defaults(func=command_record_download)
+
+    held = sub.add_parser("held-back")
+    held_sub = held.add_subparsers(dest="held_command", required=True)
+    held_add = held_sub.add_parser("add")
+    held_add.add_argument("platform", choices=("ipa", "dmg"))
+    held_add.add_argument("summary")
+    held_add.set_defaults(func=command_held_back_add)
+    held_clear = held_sub.add_parser("clear")
+    held_clear.add_argument("platform", choices=("ipa", "dmg"))
+    held_clear.set_defaults(func=command_held_back_clear)
+
+    package_cmd = sub.add_parser("next-package")
+    package_cmd.set_defaults(func=command_next_package)
 
     active = sub.add_parser("active")
     active.set_defaults(func=command_active)
