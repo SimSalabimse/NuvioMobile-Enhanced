@@ -16,6 +16,12 @@ internal fun formatReleaseDate(
     return formatCalendarDate(date, localeTag, includeYear)
 }
 
+internal expect fun formatCalendarDate(isoDate: String, localeTag: String, includeYear: Boolean): String
+
+/**
+ * Picks the stored release info, then the hydrated one, then [fallback], and formats it.
+ * Used by Library and Profile Insight cards.
+ */
 internal fun resolveReleaseInfoForDisplay(
     stored: String?,
     hydrated: String?,
@@ -25,8 +31,6 @@ internal fun resolveReleaseInfoForDisplay(
         ?: hydrated?.trim()?.takeIf { it.isNotBlank() }
         ?: fallback,
 )
-
-internal expect fun formatCalendarDate(isoDate: String, localeTag: String, includeYear: Boolean): String
 
 /**
  * Parses a release/air string (ISO date, year-only, or timestamp prefix) for compact UI (e.g. year chips).

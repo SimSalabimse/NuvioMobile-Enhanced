@@ -33,6 +33,7 @@ import com.nuvio.app.features.livetv.LiveTvStorage
 import com.nuvio.app.features.details.MetaScreenSettingsStorage
 import com.nuvio.app.features.details.OmdbEpisodeRatingsStorage
 import com.nuvio.app.features.details.OmdbSettingsStorage
+import com.nuvio.app.features.ratings.UserRatingsStorage
 import com.nuvio.app.features.home.HomeCatalogSettingsStorage
 import com.nuvio.app.features.mdblist.MdbListSettingsStorage
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationPlatform
@@ -51,6 +52,7 @@ import com.nuvio.app.features.profiles.ProfileStorage
 import com.nuvio.app.features.details.SeasonViewModeStorage
 import com.nuvio.app.features.search.DiscoverSelectionStorage
 import com.nuvio.app.features.search.SearchHistoryStorage
+import com.nuvio.app.features.settings.ProfileTitleFactsStorage
 import com.nuvio.app.features.settings.SentrySettingsStorage
 import com.nuvio.app.features.settings.AppIconPlatform
 import com.nuvio.app.features.settings.ThemeSettingsStorage
@@ -125,6 +127,7 @@ open class MainActivity : AppCompatActivity() {
         TmdbSettingsStorage.initialize(applicationContext)
         OmdbEpisodeRatingsStorage.initialize(applicationContext)
         OmdbSettingsStorage.initialize(applicationContext)
+        UserRatingsStorage.initialize(applicationContext)
         MdbListSettingsStorage.initialize(applicationContext)
         TraktAuthStorage.initialize(applicationContext)
         TraktCommentsStorage.initialize(applicationContext)
@@ -144,6 +147,7 @@ open class MainActivity : AppCompatActivity() {
         StreamLinkCacheStorage.initialize(applicationContext)
         StreamBadgeSettingsStorage.initialize(applicationContext)
         BingeGroupCacheStorage.initialize(applicationContext)
+        ProfileTitleFactsStorage.initialize(applicationContext)
         PluginStorage.initialize(applicationContext)
         CollectionMobileSettingsStorage.initialize(applicationContext)
         CollectionStorage.initialize(applicationContext)

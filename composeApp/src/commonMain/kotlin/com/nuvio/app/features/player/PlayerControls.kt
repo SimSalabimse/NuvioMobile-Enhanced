@@ -33,6 +33,8 @@ import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.StarBorder
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.PictureInPictureAlt
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
@@ -124,6 +126,8 @@ internal fun PlayerControlsShell(
     onVideoSettingsClick: (() -> Unit)? = null,
     onPictureInPictureClick: (() -> Unit)? = null,
     onInfoClick: (() -> Unit)? = null,
+    onRateClick: (() -> Unit)? = null,
+    userRating: Int? = null,
     onSourcesClick: (() -> Unit)? = null,
     onEpisodesClick: (() -> Unit)? = null,
     onLiveChannelsClick: (() -> Unit)? = null,
@@ -201,6 +205,8 @@ internal fun PlayerControlsShell(
                     onVideoSettingsClick = onVideoSettingsClick,
                     onPictureInPictureClick = onPictureInPictureClick,
                     onInfoClick = onInfoClick,
+                    onRateClick = onRateClick,
+                    userRating = userRating,
                     onOpenInExternalPlayer = onOpenInExternalPlayer,
                     onBack = onBack,
                     modifier = Modifier
@@ -336,6 +342,8 @@ internal fun PlayerControlsShell(
                         onQualityClick = onQualityClick,
                         onPictureInPictureClick = onPictureInPictureClick,
                         onInfoClick = onInfoClick,
+                        onRateClick = onRateClick,
+                        userRating = userRating,
                         onInteraction = onInteraction,
                     )
                 }
@@ -363,6 +371,8 @@ private fun PlayerHeader(
     onVideoSettingsClick: (() -> Unit)?,
     onPictureInPictureClick: (() -> Unit)?,
     onInfoClick: (() -> Unit)?,
+    onRateClick: (() -> Unit)? = null,
+    userRating: Int? = null,
     onOpenInExternalPlayer: (() -> Unit)?,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -499,6 +509,17 @@ private fun PlayerHeader(
                             buttonSize = metrics.headerIconSize + 16.dp,
                             iconSize = metrics.headerIconSize,
                             onClick = onPictureInPictureClick,
+                        )
+                    }
+                    if (onRateClick != null) {
+                        PlayerHeaderIconButton(
+                            icon = if (userRating != null) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                            contentDescription = userRating?.let {
+                                stringResource(Res.string.user_rating_action_rated, it)
+                            } ?: stringResource(Res.string.user_rating_action_rate),
+                            buttonSize = metrics.headerIconSize + 16.dp,
+                            iconSize = metrics.headerIconSize,
+                            onClick = onRateClick,
                         )
                     }
                     if (onInfoClick != null) {
