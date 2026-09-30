@@ -5,7 +5,7 @@ Personal mirror of [luqmanfadlli/NuvioMobile-Enhanced](https://github.com/luqman
 This repository provides:
 - **TheIntroDB integration** (v3 API at `https://api.theintrodb.org/v3/media`) alongside the official introdb.app provider
 - **Unsigned IPA builds** for SideStore / AltStore / TrollStore (no Apple certificate required)
-- **Daily auto-sync** from upstream Enhanced `enhanced` branch with automatic IPA rebuilds
+- **Daily auto-sync** from upstream Enhanced `enhanced` branch. The schedule merges only; sideload publishing stays on Build Sideload IPA
 
 > **Note:** This is not a GitHub fork because [SimSalabimse/NuvioMobile](https://github.com/SimSalabimse/NuvioMobile) already occupies the network fork slot for the original Nuvio repository.
 
@@ -30,10 +30,11 @@ Install it with SideStore, AltStore, or TrollStore. These tools sign on-device u
 
 **Actions → Build Test IPA** runs a validation build without creating a release or updating `store.json`. Useful for quick testing before a full sideload build.
 
-### Auto-Sync and Rebuild
+### Auto-Sync
 
-- **Daily at 06:17 UTC:** Merges upstream `luqmanfadlli/NuvioMobile-Enhanced@enhanced`, then rebuilds the IPA if new commits landed
-- **Manual trigger:** Actions → **Sync Enhanced upstream**
+- **Daily at 06:17 UTC:** Merges upstream `luqmanfadlli/NuvioMobile-Enhanced@enhanced` into this repo. The schedule does not build an IPA.
+- **Manual trigger:** Actions → **Sync Enhanced upstream** (same merge).
+- **Publish:** Actions → **Build Sideload IPA**, after the release-train manifest check. That run creates the GitHub pre-release and refreshes `store.json`.
 
 ### SideStore / AltStore Source
 
