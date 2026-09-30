@@ -34,6 +34,8 @@ PERFORMANCE_FINDINGS.md
 scripts/*
 !scripts/build-sideload-ipa-local.sh
 !scripts/sign-ios-device-app.py
+!scripts/ipa-live-status.sh
+!scripts/ipa_live_status.py
 iosApp/Configuration/DeviceSigning.local.json
 
 # Local MPVKit iOS build environment (sparse APFS image, see MPVKit docs)

@@ -30,12 +30,12 @@ fi
 
 cd "${repository_root}"
 
-ipa_status_helper="${IPA_STATUS_HELPER:-${repository_root}/../NuvioMobile-sim44-ipa-status/scripts/ipa-live-status.sh}"
+ipa_status_helper="${IPA_STATUS_HELPER:-${repository_root}/scripts/ipa-live-status.sh}"
 if [[ ! -f "${ipa_status_helper}" ]]; then
     echo "ipa-status: helper missing: ${ipa_status_helper}" >&2
     exit 1
 fi
-# shellcheck source=../NuvioMobile-sim44-ipa-status/scripts/ipa-live-status.sh
+# shellcheck source=ipa-live-status.sh
 source "${ipa_status_helper}"
 
 ipa_build_cleanup() {

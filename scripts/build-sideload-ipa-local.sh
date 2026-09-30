@@ -41,12 +41,12 @@ export NUVIO_KOTLIN_NATIVE_JVMARGS="${NUVIO_KOTLIN_NATIVE_JVMARGS:--Xmx4608M}"
 export KOTLIN_DAEMON_JVMARGS="${KOTLIN_DAEMON_JVMARGS:--Xmx2048M}"
 export GRADLE_OPTS="${GRADLE_OPTS:--Dfile.encoding=UTF-8}"
 
-ipa_status_helper="${IPA_STATUS_HELPER:-${repository_root}/../NuvioMobile-sim44-ipa-status/scripts/ipa-live-status.sh}"
+ipa_status_helper="${IPA_STATUS_HELPER:-${repository_root}/scripts/ipa-live-status.sh}"
 if [[ ! -f "${ipa_status_helper}" ]]; then
   echo "ipa-status: helper missing: ${ipa_status_helper}" >&2
   exit 1
 fi
-# shellcheck source=../NuvioMobile-sim44-ipa-status/scripts/ipa-live-status.sh
+# shellcheck source=ipa-live-status.sh
 source "${ipa_status_helper}"
 export IPA_STATUS_REPO="${repository_root}"
 ipa_live_status_open_build
