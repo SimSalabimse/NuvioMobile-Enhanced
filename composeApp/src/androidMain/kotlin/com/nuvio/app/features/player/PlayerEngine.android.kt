@@ -1526,6 +1526,8 @@ private class NuvioLibmpvView(
         setVo(videoOutput.mpvValue)
         mpv.setOptionString("profile", "fast")
         mpv.setOptionString("hwdec", if (hardwareDecodingEnabled) "auto" else "no")
+        // Precise seeks must decode reference frames. Dropping them leaves the hardware decoder on a blocky recovery picture.
+        mpv.setOptionString("hr-seek-framedrop", "no").logIfMpvError("hr-seek-framedrop")
         if (yuv420pEnabled) {
             mpv.setOptionString("vf", "format=yuv420p")
         }
@@ -1628,7 +1630,22 @@ private class NuvioLibmpvView(
 
     fun seekToMs(positionMs: Long) {
         executeMpv {
-            mpv.command("seek", (positionMs.coerceAtLeast(0L) / 1000.0).toString(), "absolute")
+            val seconds = positionMs.coerceAtLeast(0L) / 1000.0
+            val currentSeconds = runCatching { mpv.getPropertyDouble("time-pos") }.getOrNull()
+            val flags = if (
+                currentSeconds != null &&
+                currentSeconds.isFinite() &&
+                seconds < currentSeconds
+            ) {
+                "absolute+exact"
+            } else {
+                "absolute"
+            }
+            InAppLogger.info(
+                "MPV/Android",
+                "seek flags=$flags targetSeconds=$seconds currentSeconds=$currentSeconds",
+            )
+            mpv.command("seek", seconds.toString(), flags)
         }
     }
 
@@ -1853,7 +1870,9 @@ private class NuvioLibmpvView(
 
     fun seekByMs(offsetMs: Long) {
         executeMpv {
-            mpv.command("seek", (offsetMs / 1000.0).toString(), "relative")
+            val flags = if (offsetMs < 0L) "relative+exact" else "relative"
+            InAppLogger.info("MPV/Android", "seekBy flags=$flags offsetMs=$offsetMs")
+            mpv.command("seek", (offsetMs / 1000.0).toString(), flags)
         }
     }
 
