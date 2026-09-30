@@ -2,17 +2,14 @@ name: Sync Enhanced upstream
 
 on:
   schedule:
+    # Merge only. Sideload publishing is Build Sideload IPA (workflow_dispatch),
+    # after the release-train manifest check. This schedule must not build an IPA,
+    # publish a GitHub release, or update store.json.
     - cron: "17 6 * * *"
   workflow_dispatch:
-    inputs:
-      build_ipa:
-        description: Build unsigned sideload IPA if upstream changed
-        type: boolean
-        default: true
 
 permissions:
   contents: write
-  actions: write
 
 concurrency:
   group: sync-upstream
@@ -61,15 +58,3 @@ jobs:
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
-
-  build-ipa:
-    name: Build unsigned IPA after sync
-    needs: sync
-    if: >-
-      needs.sync.outputs.changed == 'true' &&
-      (github.event_name == 'schedule' || inputs.build_ipa)
-    uses: ./.github/workflows/build-sideload-ipa.yml
-    with:
-      publish_release: true
-      configuration: Release
-    secrets: inherit
