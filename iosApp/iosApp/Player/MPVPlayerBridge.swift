@@ -751,6 +751,8 @@ final class MPVPlayerViewController: UIViewController {
         setSetupOption("gpu-api", "vulkan")
         setSetupOption("gpu-context", "moltenvk")
         setSetupOption("hwdec", "videotoolbox")
+        // Precise seeks must decode reference frames. Dropping them leaves VideoToolbox on a blocky recovery picture.
+        setSetupOption("hr-seek-framedrop", "no")
         setSetupOption("ao", Self.defaultAudioOutput)
         setSetupOption("audio-channels", "auto")
         setSetupOption("audio-fallback-to-null", "yes")
@@ -946,7 +948,8 @@ final class MPVPlayerViewController: UIViewController {
         guard mpv != nil else { return }
         let seconds = Double(ms) / 1000.0
         if isRecoveringFromDeviceLoss { deviceLossResumeSeconds = max(0, seconds) }
-        command("seek", args: [String(format: "%.3f", seconds), "absolute"])
+        let mode = seekTargetIsBehind(seconds) ? "absolute+exact" : "absolute"
+        command("seek", args: [String(format: "%.3f", seconds), mode])
         primaryRenderSurface?.didSeek()
         automaticPictureInPicturePrepared = false
         automaticPictureInPicturePreparedAt = 0
@@ -955,13 +958,24 @@ final class MPVPlayerViewController: UIViewController {
         }
     }
 
+    /// True when the absolute target is behind `time-pos`, or the position cannot be read.
+    /// An unknown position uses an exact seek. Exact seeks are safe: the timeline seeks once on release.
+    private func seekTargetIsBehind(_ seconds: Double) -> Bool {
+        guard let ctx = mpv else { return true }
+        var data = Double.nan
+        let status = mpv_get_property(ctx, "time-pos", MPV_FORMAT_DOUBLE, &data)
+        guard status >= 0, data.isFinite else { return true }
+        return seconds < data
+    }
+
     func seekByMs(_ ms: Int64) {
         guard mpv != nil else { return }
         let seconds = Double(ms) / 1000.0
         if isRecoveringFromDeviceLoss {
             deviceLossResumeSeconds = max(0, deviceLossResumeSeconds + seconds)
         }
-        command("seek", args: [String(format: "%.3f", seconds), "relative"])
+        let mode = ms < 0 ? "relative+exact" : "relative"
+        command("seek", args: [String(format: "%.3f", seconds), mode])
         primaryRenderSurface?.didSeek()
         automaticPictureInPicturePrepared = false
         automaticPictureInPicturePreparedAt = 0
