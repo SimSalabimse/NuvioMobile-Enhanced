@@ -272,10 +272,7 @@ function renderCut(platform, cut, enabled) {
     box.checked = !!state.selected[row.commit];
     box.setAttribute("data-index", String(i));
     label.appendChild(box);
-    var copy = el("span", "cut-copy");
-    copy.appendChild(el("span", "cut-subject", row.subject || "(no subject)"));
-    copy.appendChild(el("span", "cut-meta", shortHash(row.commit)));
-    label.appendChild(copy);
+    label.appendChild(el("span", "cut-subject", row.subject || "(no subject)"));
     line.appendChild(label);
     var issues = row.issues || [];
     if (issues.length) {
@@ -283,6 +280,7 @@ function renderCut(platform, cut, enabled) {
       for (var n = 0; n < issues.length; n++) issueRow.appendChild(issueAnchor(issues[n]));
       line.appendChild(issueRow);
     }
+    line.appendChild(el("span", "cut-meta", shortHash(row.commit)));
     list.appendChild(line);
   }
   root.appendChild(list);
