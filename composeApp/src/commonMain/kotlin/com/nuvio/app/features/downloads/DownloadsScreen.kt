@@ -44,6 +44,7 @@ import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.settings.DownloadsSettingsScreen
 import nuvio.composeapp.generated.resources.*
@@ -56,6 +57,7 @@ fun DownloadsScreen(
     initialShowId: String? = null,
     onNavigateToShow: ((showId: String, title: String) -> Unit)? = null,
     onBackFromShow: (() -> Unit)? = null,
+    onOpenSettings: (() -> Unit)? = null,
 ) {
     val uiState by remember {
         DownloadsRepository.ensureLoaded()
@@ -83,6 +85,7 @@ fun DownloadsScreen(
     }
 
     if (showSettings) {
+        PlatformBackHandler(enabled = true) { showSettings = false }
         DownloadsSettingsScreen(
             onBack = { showSettings = false },
         )
@@ -121,7 +124,9 @@ fun DownloadsScreen(
                         )
                     }
                     if (selectedShowId == null) {
-                        IconButton(onClick = { showSettings = true }) {
+                        IconButton(onClick = {
+                            onOpenSettings?.invoke() ?: run { showSettings = true }
+                        }) {
                             Icon(
                                 imageVector = Icons.Rounded.Settings,
                                 contentDescription = stringResource(Res.string.compose_settings_page_root),

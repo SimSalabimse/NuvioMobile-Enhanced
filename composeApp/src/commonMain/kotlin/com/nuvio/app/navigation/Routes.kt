@@ -93,6 +93,17 @@ data class DownloadShowRoute(
     override val title: String,
 ) : AppRoute
 
+/**
+ * Native iOS back pops one SwiftUI screen. This stays a library-tab route,
+ * not a [SettingsDestinationRoute], so that pop returns to [DownloadsRoute]
+ * instead of the library root or the Settings tab.
+ */
+@Serializable
+data class DownloadsSettingsRoute(override val title: String = "") : AppRoute {
+    override val preferredTabName: String
+        get() = "Library"
+}
+
 @Serializable
 data class AddonsSettingsRoute(override val title: String = "") : SettingsDestinationRoute
 

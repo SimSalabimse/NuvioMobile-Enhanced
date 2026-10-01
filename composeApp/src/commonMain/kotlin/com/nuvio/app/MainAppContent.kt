@@ -1808,6 +1808,12 @@ internal fun MainAppContent(
                         onOpenDownload = ::openDownloadedItem,
                     )
                 }
+                entry<DownloadsSettingsRoute> { route ->
+                    DownloadsSettingsDestination(
+                        route = route,
+                        navController = navController,
+                    )
+                }
                 entry<AddonsSettingsRoute> { route ->
                     SettingsDestination(route, navController) { onBack ->
                         AddonsSettingsScreen(onBack = onBack)
