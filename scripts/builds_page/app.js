@@ -478,44 +478,56 @@ function renderOlder(rows) {
   group.hidden = false;
   for (var i = 0; i < list.length; i++) root.appendChild(olderRow(list[i]));
 }
-async function refresh() {
+function applyDashboard(payload) {
+  var downloads = payload.downloads || {};
+  var desktopDownload = downloads.desktop || {};
+  var iphone = payload.iphone || {};
+  var desktop = payload.desktop || {};
+  renderPackage("ipa-package", "ipa-summary", downloads.ipa, "/download/ipa", iphone.releaseNotes, "iPhone");
+  renderPackage("dmg-package", "dmg-summary", desktopDownload.macos, "/download/desktop/macos", desktop.releaseNotes, "Mac");
+  renderCompile("", iphone);
+  renderCompile("desktop-", desktop);
+  renderOlder(downloads.older || []);
+  var cuts = payload.cuts || {};
+  var enabled = payload.requestEnabled !== false;
+  renderCut("ipa", cuts.ipa || {}, enabled);
+  renderCut("dmg", cuts.dmg || {}, enabled);
+  if (payload.poll) return !!payload.poll.active;
+  var iphoneState = iphone.status;
+  var desktopState = desktop.status;
+  return iphoneState === "building" || iphoneState === "queued" || desktopState === "building" || desktopState === "queued";
+}
+function readSeed() {
+  var node = document.getElementById("dashboard-seed");
+  if (!node || !node.textContent) return null;
+  try {
+    return JSON.parse(node.textContent);
+  } catch (err) {
+    return null;
+  }
+}
+function refresh() {
   if (refreshRunning) return;
   refreshRunning = true;
   var active = lastActive;
-  try {
-    var response = await fetch("/api/dashboard", { cache: "no-store" });
-    if (response.ok) {
-      var payload = await response.json();
-      var downloads = payload.downloads || {};
-      var desktopDownload = downloads.desktop || {};
-      var iphone = payload.iphone || {};
-      var desktop = payload.desktop || {};
-      renderPackage("ipa-package", "ipa-summary", downloads.ipa, "/download/ipa", iphone.releaseNotes, "iPhone");
-      renderPackage("dmg-package", "dmg-summary", desktopDownload.macos, "/download/desktop/macos", desktop.releaseNotes, "Mac");
-      renderCompile("", iphone);
-      renderCompile("desktop-", desktop);
-      renderOlder(downloads.older || []);
-      var cuts = payload.cuts || {};
-      var enabled = payload.requestEnabled !== false;
-      renderCut("ipa", cuts.ipa || {}, enabled);
-      renderCut("dmg", cuts.dmg || {}, enabled);
-      active = !!(payload.poll && payload.poll.active);
-      if (!payload.poll) {
-        var iphoneState = iphone.status;
-        var desktopState = desktop.status;
-        active = iphoneState === "building" || iphoneState === "queued" || desktopState === "building" || desktopState === "queued";
-      }
-    }
-  } catch (err) {
-    active = false;
-  } finally {
+  fetch("/api/dashboard", { cache: "no-store", credentials: "same-origin" }).then(function (response) {
+    var type = response.headers.get("content-type") || "";
+    if (!response.ok || type.indexOf("json") < 0) return null;
+    return response.json();
+  }).then(function (payload) {
+    if (payload) active = applyDashboard(payload);
+  }).catch(function () {
+    active = lastActive;
+  }).then(function () {
     refreshRunning = false;
     lastActive = active;
     window.clearTimeout(pollTimer);
     pollTimer = window.setTimeout(refresh, active ? ACTIVE_POLL_MS : IDLE_POLL_MS);
-  }
+  });
 }
 function boot() {
+  var seed = readSeed();
+  if (seed) lastActive = applyDashboard(seed);
   refresh();
 }
 if (typeof document !== "undefined") boot();

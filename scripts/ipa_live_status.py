@@ -2394,9 +2394,19 @@ def self_test() -> int:
             js_cache = response.headers.get("Cache-Control", "")
         html = page_html + "\n" + page_css + "\n" + page_js
         check("public" in page_cache and "no-store" not in page_cache, f"html cache {page_cache}")
-        check("public" in css_cache and "no-store" not in css_cache, f"css cache {css_cache}")
-        check("public" in js_cache and "no-store" not in js_cache, f"js cache {js_cache}")
+        check("max-age=0" in page_cache and "no-transform" in page_cache, f"html is cacheable by the proxy {page_cache}")
+        check("public" in css_cache and "no-store" not in css_cache and "no-transform" in css_cache, f"css cache {css_cache}")
+        check("public" in js_cache and "no-store" not in js_cache and "no-transform" in js_cache, f"js cache {js_cache}")
         check(bool(page_etag), "html etag missing")
+        check('src="/assets/app.js"' not in page_html, "page still loads the cached script")
+        check('href="/assets/app.css"' not in page_html, "page still loads the cached stylesheet")
+        check('id="dashboard-seed"' in page_html and "<style>" in page_html, "inline page missing")
+        seed_start = page_html.find('id="dashboard-seed"')
+        seed_json = page_html.split('id="dashboard-seed" type="application/json">', 1)[1].split("</script>", 1)[0]
+        seed_payload = json.loads(seed_json)
+        check("downloads" in seed_payload and "cuts" in seed_payload, "seed is not the dashboard")
+        check("servedAt" not in seed_payload, "seed etag changes every second")
+        check(seed_start > 0, "seed marker missing")
         import urllib.error
 
         etag_request = urllib.request.Request(
@@ -3011,6 +3021,9 @@ def self_test() -> int:
                 raise RuntimeError("paperclip down")
             return stub
 
+        # The page document reads the work snapshot. That can store a manifest
+        # before this stub exists. Drop it so the fixture derives its own list.
+        next_package_path(directory).unlink(missing_ok=True)
         WORK_CACHE.reader = stub_reader
         reset_work_cache()
         session = read_json(session_path(directory)) or {}
@@ -3650,8 +3663,6 @@ def send_older(handler: BaseHTTPRequestHandler, directory: Path, name: str) -> N
 
 
 STATIC_FILES = {
-    "/": "index.html",
-    "/index.html": "index.html",
     "/assets/app.css": "app.css",
     "/assets/app.js": "app.js",
 }
@@ -3670,6 +3681,55 @@ def static_root() -> Path:
     return Path(__file__).resolve().parent / "builds_page"
 
 
+def page_document(directory: Path) -> bytes:
+    """One document. The script and package data travel with the HTML.
+
+    Cloudflare keeps /assets/app.js from the previous page. That script stops
+    on the first missing node and never paints the packages. A separate
+    /api/dashboard fetch can also come back as the Access login page.
+    """
+    root = static_root()
+    html = (root / "index.html").read_text(encoding="utf-8")
+    css = (root / "app.css").read_text(encoding="utf-8").replace("</style", "<\\/style")
+    script = (root / "app.js").read_text(encoding="utf-8").replace("</script", "<\\/script")
+    payload = dashboard_payload(directory, time.time())
+    payload.pop("servedAt", None)
+    payload.pop("work", None)
+    for key in ("iphone", "desktop"):
+        block = payload.get(key)
+        if isinstance(block, dict):
+            block.pop("updatedAt", None)
+    seed = json.dumps(payload, sort_keys=True, separators=(",", ":")).replace("<", "\\u003c")
+    style = "<style>\n" + css + "\n</style>"
+    inline = (
+        '<script id="dashboard-seed" type="application/json">'
+        + seed
+        + "</script>\n<script>\n"
+        + script
+        + "\n</script>"
+    )
+    link = '<link rel="stylesheet" href="/assets/app.css">'
+    source = '<script src="/assets/app.js" defer></script>'
+    if html.count(link) != 1 or html.count(source) != 1:
+        raise RuntimeError("builds page asset markers missing")
+    html = html.replace(link, style, 1).replace(source, inline, 1)
+    return html.encode("utf-8")
+
+
+def send_page(handler: BaseHTTPRequestHandler, directory: Path) -> None:
+    body = page_document(directory)
+    etag = hashlib.sha256(body).hexdigest()
+    cache = "public, max-age=0, must-revalidate, no-transform"
+    if handler.headers.get("If-None-Match") == etag:
+        handler.send_response(304)
+        handler.send_header("ETag", etag)
+        handler.send_header("Cache-Control", cache)
+        handler.send_header("Content-Length", "0")
+        handler.end_headers()
+        return
+    send_bytes(handler, 200, "text/html; charset=utf-8", body, cache_control=cache, etag=etag)
+
+
 def send_static(handler: BaseHTTPRequestHandler, name: str) -> None:
     root = static_root().resolve()
     path = (root / name).resolve()
@@ -3682,7 +3742,7 @@ def send_static(handler: BaseHTTPRequestHandler, name: str) -> None:
         send_bytes(handler, 404, "text/plain; charset=utf-8", b"not found\n")
         return
     etag = hashlib.sha256(body).hexdigest()
-    cache = "public, max-age=3600"
+    cache = "public, max-age=3600, no-transform"
     if handler.headers.get("If-None-Match") == etag:
         handler.send_response(304)
         handler.send_header("ETag", etag)
@@ -3894,6 +3954,9 @@ def _handler_for(directory: Path):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
             path = urlparse(self.path).path
+            if path in ("/", "/index.html"):
+                send_page(self, directory)
+                return
             static_name = STATIC_FILES.get(path)
             if static_name:
                 send_static(self, static_name)
