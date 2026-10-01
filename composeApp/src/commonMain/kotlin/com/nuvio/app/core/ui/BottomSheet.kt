@@ -42,7 +42,8 @@ internal const val FLAG_SHEET_CARD_WIDTH = 560.0
 /**
  * Height of the flag card inside the sheet's maximum detent.
  * Short heights (landscape phones) stay at most 72% and leave 72pt so the card cannot cover
- * the player. Tall phones cap at 640pt. A very short height can still fill so the form fits.
+ * the player. Tall screens cap at 340pt, enough for the compact form. A very short height
+ * can still fill so the form fits.
  */
 internal fun flagSheetDetentHeight(maximumPoints: Double): Double {
     if (maximumPoints <= 0.0) return 0.0
@@ -50,7 +51,7 @@ internal fun flagSheetDetentHeight(maximumPoints: Double): Double {
     if (maximumPoints <= 500.0) {
         return minOf(maximumPoints - 72.0, maximumPoints * 0.72)
     }
-    return minOf(maximumPoints * 0.78, 640.0)
+    return minOf(maximumPoints * 0.5, 340.0)
 }
 
 internal fun flagSheetCardWidth(containerWidth: Double): Double {

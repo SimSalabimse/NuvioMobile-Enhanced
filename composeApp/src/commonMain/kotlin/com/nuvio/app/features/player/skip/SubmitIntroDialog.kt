@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -61,6 +60,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.atLeastIosHitTarget
@@ -88,20 +89,18 @@ import nuvio.composeapp.generated.resources.submit_intro_introdb_prefix
 import nuvio.composeapp.generated.resources.submit_intro_key_saved_submit_failed
 import nuvio.composeapp.generated.resources.submit_intro_service_introdb
 import nuvio.composeapp.generated.resources.submit_intro_service_label
-import nuvio.composeapp.generated.resources.submit_intro_none_hint
 import nuvio.composeapp.generated.resources.submit_intro_none_intro
 import nuvio.composeapp.generated.resources.submit_intro_none_outro
 import nuvio.composeapp.generated.resources.submit_intro_none_preview
 import nuvio.composeapp.generated.resources.submit_intro_none_recap
 import nuvio.composeapp.generated.resources.submit_intro_service_theintrodb
 import nuvio.composeapp.generated.resources.submit_intro_theintrodb_prefix
-import nuvio.composeapp.generated.resources.submit_intro_end_time_label
+import nuvio.composeapp.generated.resources.submit_intro_end_short
 import nuvio.composeapp.generated.resources.submit_intro_segment_intro
 import nuvio.composeapp.generated.resources.submit_intro_segment_outro
 import nuvio.composeapp.generated.resources.submit_intro_segment_preview
 import nuvio.composeapp.generated.resources.submit_intro_segment_recap
-import nuvio.composeapp.generated.resources.submit_intro_segment_type_label
-import nuvio.composeapp.generated.resources.submit_intro_start_time_label
+import nuvio.composeapp.generated.resources.submit_intro_start_short
 import nuvio.composeapp.generated.resources.submit_intro_title
 import org.jetbrains.compose.resources.stringResource
 
@@ -197,10 +196,64 @@ fun SubmitIntroDialog(
         keyStatusMessage = null
     }
     
-    val disabledTypes = remember(submittedTypesInSession) {
-        submittedTypesInSession.map { it.lowercase() }.toSet()
+    val contentKey = flagSubmitContentKey(imdbId, season, episode, isMovie)
+    val localTypes = remember(contentKey, submittedTypesInSession) {
+        (FlagSubmitLedger.loadTypes(contentKey) + submittedTypesInSession)
+            .mapNotNull { canonicalFlagSegmentType(it) }
+            .toSet()
     }
-    
+    var remoteTypes by remember(contentKey) {
+        mutableStateOf(remoteFlagTypesByContentKey[contentKey].orEmpty())
+    }
+    androidx.compose.runtime.LaunchedEffect(
+        contentKey,
+        imdbId,
+        season,
+        episode,
+        isMovie,
+        videoId,
+        playerSettings.theIntroDbApiKey,
+        playerSettings.introDbApiKey,
+    ) {
+        val apiKey = savedKeyForService(
+            IntroSubmitService.THE_INTRODB,
+            playerSettings.introDbApiKey,
+            playerSettings.theIntroDbApiKey,
+        )
+        if (apiKey.isBlank()) return@LaunchedEffect
+        val mediaType = if (isMovie) "movie" else "tv"
+        val tmdbId = try {
+            TmdbService.ensureTmdbId(
+                videoId = videoId?.takeIf { it.isNotBlank() } ?: imdbId,
+                mediaType = mediaType,
+                fallbackImdbId = imdbId.takeIf { it.startsWith("tt", ignoreCase = true) },
+            )?.toIntOrNull()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        } ?: return@LaunchedEffect
+        val types = try {
+            submittedFlagTypesForTitle(
+                records = TheIntroDb.listMySubmissions(apiKey, tmdbId, mediaType).mapNotNull { it.toFlagRecord() },
+                tmdbId = tmdbId,
+                isMovie = isMovie,
+                season = season,
+                episode = episode,
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            emptySet()
+        }
+        if (contentKey.isNotEmpty()) {
+            remoteFlagTypesByContentKey[contentKey] = types
+            types.forEach { FlagSubmitLedger.rememberType(contentKey, it) }
+        }
+        remoteTypes = types
+    }
+    val disabledTypes = localTypes + remoteTypes
+
     val availableTypes = remember(disabledTypes) {
         listOf("intro", "recap", "outro", "preview").filterNot { it in disabledTypes }
     }
@@ -279,6 +332,14 @@ fun SubmitIntroDialog(
                     service = service,
                 )
                 if (result) {
+                    val submittedKey = flagSubmitContentKey(imdbId, season, episode, isMovie)
+                    FlagSubmitLedger.rememberType(submittedKey, segmentType)
+                    canonicalFlagSegmentType(segmentType)?.let { type ->
+                        if (submittedKey.isNotEmpty()) {
+                            remoteFlagTypesByContentKey[submittedKey] =
+                                remoteFlagTypesByContentKey[submittedKey].orEmpty() + type
+                        }
+                    }
                     onSuccess()
                 } else {
                     errorMessage = if (keyWasNew) {
@@ -296,7 +357,7 @@ fun SubmitIntroDialog(
     val formContent: @Composable (Modifier) -> Unit = { formModifier ->
         Column(
             modifier = formModifier.verticalScroll(scrollState),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -305,15 +366,22 @@ fun SubmitIntroDialog(
                 ) {
                     Text(
                         text = stringResource(Res.string.submit_intro_title),
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface,
                         fontWeight = FontWeight.Bold,
                     )
-                    IconButton(onClick = onDismiss) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(onClick = onDismiss),
+                        contentAlignment = Alignment.Center,
+                    ) {
                         Icon(
                             Icons.Rounded.Close,
                             contentDescription = stringResource(Res.string.action_close),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                 }
@@ -455,67 +523,41 @@ fun SubmitIntroDialog(
                 }
                 }
 
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = stringResource(Res.string.submit_intro_segment_type_label),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.SemiBold,
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    SegmentTypeButton(
+                        label = stringResource(Res.string.submit_intro_segment_intro),
+                        icon = Icons.Rounded.PlayCircleOutline,
+                        selected = segmentType == "intro",
+                        onClick = { onSegmentTypeChange("intro") },
+                        disabled = "intro" in disabledTypes,
+                        modifier = Modifier.weight(1f),
                     )
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            SegmentTypeButton(
-                                label = stringResource(Res.string.submit_intro_segment_intro),
-                                icon = Icons.Rounded.PlayCircleOutline,
-                                selected = segmentType == "intro",
-                                onClick = { onSegmentTypeChange("intro") },
-                                disabled = "intro" in disabledTypes,
-                                modifier = Modifier.weight(1f)
-                            )
-                            SegmentTypeButton(
-                                label = stringResource(Res.string.submit_intro_segment_recap),
-                                icon = Icons.Rounded.Replay,
-                                selected = segmentType == "recap",
-                                onClick = { onSegmentTypeChange("recap") },
-                                disabled = "recap" in disabledTypes,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            SegmentTypeButton(
-                                label = stringResource(Res.string.submit_intro_segment_outro),
-                                icon = Icons.Rounded.StopCircle,
-                                selected = segmentType == "outro",
-                                onClick = { onSegmentTypeChange("outro") },
-                                disabled = "outro" in disabledTypes,
-                                modifier = Modifier.weight(1f)
-                            )
-                            SegmentTypeButton(
-                                label = stringResource(Res.string.submit_intro_segment_preview),
-                                icon = Icons.Rounded.Visibility,
-                                selected = segmentType == "preview",
-                                onClick = { onSegmentTypeChange("preview") },
-                                disabled = "preview" in disabledTypes,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-                }
-
-                if (durationMs > 0L) {
-                    Text(
-                        text = "Length ${formatSecondsToHms(durationMs / 1000.0)} (from this stream)",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    SegmentTypeButton(
+                        label = stringResource(Res.string.submit_intro_segment_recap),
+                        icon = Icons.Rounded.Replay,
+                        selected = segmentType == "recap",
+                        onClick = { onSegmentTypeChange("recap") },
+                        disabled = "recap" in disabledTypes,
+                        modifier = Modifier.weight(1f),
+                    )
+                    SegmentTypeButton(
+                        label = stringResource(Res.string.submit_intro_segment_outro),
+                        icon = Icons.Rounded.StopCircle,
+                        selected = segmentType == "outro",
+                        onClick = { onSegmentTypeChange("outro") },
+                        disabled = "outro" in disabledTypes,
+                        modifier = Modifier.weight(1f),
+                    )
+                    SegmentTypeButton(
+                        label = stringResource(Res.string.submit_intro_segment_preview),
+                        icon = Icons.Rounded.Visibility,
+                        selected = segmentType == "preview",
+                        onClick = { onSegmentTypeChange("preview") },
+                        disabled = "preview" in disabledTypes,
+                        modifier = Modifier.weight(1f),
                     )
                 }
 
@@ -524,8 +566,8 @@ fun SubmitIntroDialog(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(48.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .height(30.dp)
+                            .clip(RoundedCornerShape(8.dp))
                             .background(
                                 if (noneDisabled) {
                                     MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
@@ -541,32 +583,34 @@ fun SubmitIntroDialog(
                         Text(
                             text = noneSegmentLabel,
                             color = if (noneDisabled) {
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                             } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
+                                MaterialTheme.colorScheme.onSurface
                             },
+                            style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold,
+                            textDecoration = if (noneDisabled) TextDecoration.LineThrough else null,
                         )
                     }
-                    Text(
-                        text = stringResource(Res.string.submit_intro_none_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
 
                 SkipTimestampEditor(
-                    label = stringResource(Res.string.submit_intro_start_time_label),
+                    label = stringResource(Res.string.submit_intro_start_short),
                     value = startTimeStr,
                     onValueChange = onStartTimeChange,
                     onCapture = { onStartTimeChange(formatSecondsToHms(currentTimeSec)) },
                 )
 
                 SkipTimestampEditor(
-                    label = stringResource(Res.string.submit_intro_end_time_label),
+                    label = stringResource(Res.string.submit_intro_end_short),
                     value = endTimeStr,
                     onValueChange = onEndTimeChange,
                     onCapture = { onEndTimeChange(formatSecondsToHms(currentTimeSec)) },
+                    onUseDuration = if (durationMs > 0L) {
+                        { onEndTimeChange(formatSecondsToHms(durationMs / 1000.0)) }
+                    } else {
+                        null
+                    },
                 )
 
                 if (errorMessage != null) {
@@ -577,17 +621,15 @@ fun SubmitIntroDialog(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
-
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .height(48.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .height(34.dp)
+                            .clip(RoundedCornerShape(8.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant)
                             .clickable(enabled = !busy, onClick = onDismiss),
                         contentAlignment = Alignment.Center
@@ -601,8 +643,8 @@ fun SubmitIntroDialog(
                     Box(
                         modifier = Modifier
                             .weight(2f)
-                            .height(48.dp)
-                            .clip(RoundedCornerShape(12.dp))
+                            .height(34.dp)
+                            .clip(RoundedCornerShape(8.dp))
                             .background(MaterialTheme.colorScheme.primary)
                             .clickable(enabled = !busy) {
                                 beginSubmit(absentSegment = false)
@@ -646,8 +688,8 @@ fun SubmitIntroDialog(
                     .fillMaxWidth()
                     .weight(1f)
                     .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = 24.dp),
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 8.dp),
             )
         }
     } else {
@@ -801,44 +843,49 @@ private fun SegmentTypeButton(
     disabled: Boolean = false,
 ) {
     val backgroundColor = when {
-        disabled -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        disabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
         selected -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.surfaceVariant
+        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
     }
     val contentColor = when {
-        disabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+        disabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
         selected -> MaterialTheme.colorScheme.onPrimary
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
+        else -> MaterialTheme.colorScheme.onSurface
     }
-    
+
     Box(
         modifier = modifier
-            .heightIn(min = 0.dp.atLeastIosHitTarget())
-            .clip(RoundedCornerShape(12.dp))
+            .height(30.dp)
+            .clip(RoundedCornerShape(8.dp))
             .background(backgroundColor)
             .clickable(enabled = !disabled, onClick = onClick)
-            .padding(vertical = 10.dp),
+            .padding(horizontal = 4.dp),
         contentAlignment = Alignment.Center
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
                 tint = contentColor,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(14.dp)
             )
             Text(
                 text = label,
                 color = contentColor,
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.SemiBold
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textDecoration = if (disabled) TextDecoration.LineThrough else null,
             )
         }
     }
 }
+
+private val remoteFlagTypesByContentKey = mutableMapOf<String, Set<String>>()
 
 private fun normalizeSegmentTypeForSubmit(type: String): String? {
     return when (type.trim().lowercase()) {

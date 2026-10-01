@@ -25,8 +25,6 @@ import androidx.compose.ui.window.ComposeUIViewController
 import kotlinx.cinterop.useContents
 import platform.CoreGraphics.CGSizeMake
 import platform.UIKit.UIAdaptivePresentationControllerDelegateProtocol
-import platform.UIKit.UIGlassEffect
-import platform.UIKit.UIGlassEffectStyle
 import platform.UIKit.UIBlurEffect
 import platform.UIKit.UIBlurEffectStyle
 import platform.UIKit.UIColor
@@ -84,7 +82,6 @@ internal actual fun NuvioNativeModalBottomSheet(
     val latestDensity = rememberUpdatedState(density)
     val latestRippleConfiguration = rememberUpdatedState(rippleConfiguration)
     val latestLiquidGlass = rememberUpdatedState(liquidGlass)
-    val systemLiquidGlass = iosSupportsSystemLiquidGlass()
 
     DisposableEffect(parentViewController, liquidGlass, fullHeight) {
         val contentController = ComposeUIViewController(
@@ -113,14 +110,14 @@ internal actual fun NuvioNativeModalBottomSheet(
                     ) {
                         val glass = latestLiquidGlass.value
                         Box(modifier = Modifier.fillMaxSize()) {
-                            if (glass && !systemLiquidGlass) {
+                            if (glass && !iosAtLeast(26, 1)) {
                                 LegacySheetBlur(Modifier.fillMaxSize())
                             }
                             Column(
                                 modifier = latestModifier.value
                                     .fillMaxSize()
-                                    .background(if (glass) Color.Transparent else latestContainerColor.value)
-                                    .padding(top = NuvioTokens.Space.s20),
+                                    .background(if (glass) FlagSheetFrostTint else latestContainerColor.value)
+                                    .padding(top = if (glass) NuvioTokens.Space.s6 else NuvioTokens.Space.s20),
                             ) {
                                 latestContent.value(this)
                             }
@@ -156,9 +153,9 @@ internal actual fun NuvioNativeModalBottomSheet(
                     },
                 )
                 if (iosAtLeast(26, 1)) {
-                    val glass = UIGlassEffect.effectWithStyle(UIGlassEffectStyle.UIGlassEffectStyleRegular)
-                    glass.interactive = false
-                    detent.backgroundEffect = glass
+                    detent.backgroundEffect = UIBlurEffect.effectWithStyle(
+                        UIBlurEffectStyle.UIBlurEffectStyleSystemUltraThinMaterialDark,
+                    )
                 }
                 detents = listOf(detent)
                 selectedDetentIdentifier = FLAG_SHEET_DETENT_ID
@@ -166,7 +163,7 @@ internal actual fun NuvioNativeModalBottomSheet(
                 prefersEdgeAttachedInCompactHeight = true
                 prefersPageSizing = false
                 widthFollowsPreferredContentSizeWhenEdgeAttached = true
-                preferredCornerRadius = 36.0
+                preferredCornerRadius = 28.0
             } else if (fullHeight) {
                 detents = listOf(UISheetPresentationControllerDetent.largeDetent())
             } else {
@@ -246,7 +243,7 @@ private class NuvioNativeBottomSheetDelegate(
     }
 }
 
-private fun iosSupportsSystemLiquidGlass(): Boolean = iosAtLeast(26)
+private val FlagSheetFrostTint = Color.Black.copy(alpha = 0.10f)
 
 private fun iosAtLeast(major: Int, minor: Int = 0): Boolean {
     val parts = UIDevice.currentDevice.systemVersion.split('.')

@@ -14,6 +14,7 @@ internal object TheIntroDb {
     const val API_BASE = "https://api.theintrodb.org/v3"
     const val MEDIA_URL = "$API_BASE/media"
     const val SUBMIT_URL = "$API_BASE/submit"
+    const val SUBMISSIONS_URL = "$API_BASE/submissions"
     const val USER_STATS_URL = "$API_BASE/user/stats"
     const val PROVIDER = "theintrodb"
 
@@ -105,6 +106,55 @@ internal object TheIntroDb {
         } catch (_: Exception) {
             false
         }
+    }
+
+    /**
+     * This account's submissions for one title. TheIntroDB has no per-episode filter,
+     * so callers keep the rows that match the episode they are flagging.
+     */
+    suspend fun listMySubmissions(
+        apiKey: String,
+        tmdbId: Int,
+        mediaType: String,
+    ): List<TheIntroDbUserSubmission> {
+        if (apiKey.isBlank() || tmdbId <= 0) return emptyList()
+        val type = if (mediaType.equals("movie", ignoreCase = true)) "movie" else "tv"
+        val collected = mutableListOf<TheIntroDbUserSubmission>()
+        var offset = 0
+        val pageSize = 100
+        repeat(10) {
+            val url = "$SUBMISSIONS_URL?tmdb_id=$tmdbId&type=$type&limit=$pageSize&offset=$offset"
+            val response = try {
+                httpRequestRaw(
+                    method = "GET",
+                    url = url,
+                    headers = mapOf(
+                        "Authorization" to "Bearer $apiKey",
+                        "Accept" to "application/json",
+                    ),
+                    body = "",
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                return collected
+            }
+            if (response.status !in 200..299 || response.body.isBlank()) return collected
+            val page = try {
+                json.decodeFromString<TheIntroDbSubmissionsPage>(response.body)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                return collected
+            }
+            collected += page.submissions
+            val next = offset + page.submissions.size
+            if (page.submissions.isEmpty() || page.submissions.size < pageSize || (page.total > 0 && next >= page.total)) {
+                return collected
+            }
+            offset = next
+        }
+        return collected
     }
 
     suspend fun submitTimestamp(
@@ -225,6 +275,38 @@ internal fun TheIntroDbMediaResponse.movieSkipIntervals(): List<SkipInterval> {
     val laterCredits = creditIntervals.drop(1).map { it.copy(type = "post-credits") }
     val introIntervals = intro.toTheIntroDbIntervals("intro")
     return listOfNotNull(firstCredits) + laterCredits + introIntervals
+}
+
+@Serializable
+internal data class TheIntroDbSubmissionsPage(
+    val submissions: List<TheIntroDbUserSubmission> = emptyList(),
+    val total: Int = 0,
+    val limit: Int = 0,
+    val offset: Int = 0,
+)
+
+@Serializable
+internal data class TheIntroDbUserSubmission(
+    val id: String? = null,
+    @SerialName("tmdb_id") val tmdbId: Int? = null,
+    val type: String? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
+    val segment: String? = null,
+    val status: String? = null,
+)
+
+internal fun TheIntroDbUserSubmission.toFlagRecord(): FlagSubmissionRecord? {
+    val id = tmdbId ?: return null
+    val segmentName = segment?.takeIf { it.isNotBlank() } ?: return null
+    return FlagSubmissionRecord(
+        tmdbId = id,
+        type = type.orEmpty(),
+        season = season,
+        episode = episode,
+        segment = segmentName,
+        status = status.orEmpty(),
+    )
 }
 
 private fun List<TheIntroDbSegment>?.toTheIntroDbIntervals(type: String): List<SkipInterval> {

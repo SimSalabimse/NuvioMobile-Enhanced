@@ -7,7 +7,7 @@ import kotlin.test.assertTrue
 class FlagSheetDetentTest {
     @Test
     fun `flag sheet stays short of a tall phone and a landscape phone`() {
-        assertEquals(640.0, flagSheetDetentHeight(900.0))
+        assertEquals(340.0, flagSheetDetentHeight(900.0))
         val landscape = flagSheetDetentHeight(390.0)
         assertTrue(landscape < 390.0 - 72.0)
         assertEquals(280.8, landscape, absoluteTolerance = 0.01)

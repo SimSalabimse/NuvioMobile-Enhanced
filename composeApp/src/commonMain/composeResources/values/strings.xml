@@ -2457,6 +2457,7 @@
     <string name="submit_intro_api_key_theintrodb_hint">Paste your theintrodb.org user key. This is separate from the introdb.app key.</string>
     <string name="submit_intro_button_submit">Submit</string>
     <string name="submit_intro_capture_button">Capture</string>
+    <string name="submit_intro_end_short">End</string>
     <string name="submit_intro_end_time_label">END TIME (HH:MM:SS)</string>
     <string name="submit_intro_introdb_episode">IntroDB needs an IMDb id plus a season and episode.</string>
     <string name="submit_intro_introdb_movie">IntroDB accepts episode timestamps. Choose TheIntroDB for movies.</string>
@@ -2466,8 +2467,11 @@
     <string name="submit_intro_service_introdb">IntroDB</string>
     <string name="submit_intro_service_label">Service</string>
     <string name="submit_intro_service_theintrodb">TheIntroDB</string>
+    <string name="submit_intro_start_short">Start</string>
     <string name="submit_intro_start_time_label">START TIME (HH:MM:SS)</string>
     <string name="submit_intro_theintrodb_prefix">That key looks like an introdb.app key. Choose IntroDB to save it.</string>
+    <string name="submit_intro_use_end">End</string>
+    <string name="submit_intro_use_end_hint">Set the end time to the length of this stream</string>
     <string name="submit_intro_none_intro">No intro</string>
     <string name="submit_intro_none_recap">No recap</string>
     <string name="submit_intro_none_outro">No outro</string>
@@ -2477,6 +2481,7 @@
     <string name="submit_intro_time_hours">hours</string>
     <string name="submit_intro_time_increase">Increase %1$s</string>
     <string name="submit_intro_time_minutes">minutes</string>
+    <string name="submit_intro_time_now">Now</string>
     <string name="submit_intro_time_nudge_back_1">Subtract 1 second</string>
     <string name="submit_intro_time_nudge_back_10">Subtract 10 seconds</string>
     <string name="submit_intro_time_nudge_forward_1">Add 1 second</string>
