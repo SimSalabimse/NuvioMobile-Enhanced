@@ -55,6 +55,8 @@ import com.nuvio.app.core.ui.LocalNuvioBottomNavigationOverlayPadding
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.PlatformBackHandler
+import com.nuvio.app.core.ui.RunningVersionLine
+import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.isLiquidGlassNativeTabBarSupported
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
@@ -714,13 +716,24 @@ private fun MobileSettingsScreen(
             } else if (showInternalHeader) {
                 stickyHeader {
                     val previousPage = page.previousPage()
-                    NuvioScreenHeader(
-                        title = stringResource(page.titleRes),
-                        onBack = previousPage?.let { { onNavigateBack() } },
-                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.nuvio.colors.background),
+                    ) {
+                        NuvioScreenHeader(
+                            title = stringResource(page.titleRes),
+                            onBack = previousPage?.let { { onNavigateBack() } },
+                        )
+                        RunningVersionLine(
+                            includeVersionWord = false,
+                            modifier = Modifier.padding(bottom = 8.dp),
+                        )
+                    }
                 }
             } else {
                 item { Spacer(modifier = Modifier.height(44.dp)) }
+                item { RunningVersionLine(includeVersionWord = false) }
             }
 
             when (page) {
@@ -1090,10 +1103,17 @@ private fun TabletSettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 24.dp)
-                        .padding(bottom = 20.dp),
+                        .padding(bottom = 2.dp),
                     style = MaterialTheme.typography.displayLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Bold,
+                )
+                RunningVersionLine(
+                    includeVersionWord = false,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp)
+                        .padding(top = 4.dp, bottom = 16.dp),
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 

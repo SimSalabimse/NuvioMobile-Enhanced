@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import com.nuvio.app.core.ui.RunningVersionLine
 import com.nuvio.app.core.ui.accentBrush
 import com.nuvio.app.core.ui.themePalette
 import com.nuvio.app.core.ui.nuvioTypeScale
@@ -68,6 +69,12 @@ internal fun PlayerTimelineDetails(
             color = Color.White,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+        )
+        RunningVersionLine(
+            includeVersionWord = false,
+            style = typeScale.labelSm.copy(fontSize = metrics.metadataSize),
+            color = Color.White.copy(alpha = 0.9f),
+            maxLines = 1,
         )
         if (seasonNumber != null && episodeNumber != null) {
             val episodeCode = stringResource(Res.string.compose_player_episode_code_full, seasonNumber, episodeNumber)

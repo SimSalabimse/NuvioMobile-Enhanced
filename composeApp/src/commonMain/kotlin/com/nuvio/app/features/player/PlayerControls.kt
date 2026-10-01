@@ -81,6 +81,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.LayoutDirection
 import com.nuvio.app.core.ui.AppIconResource
 import com.nuvio.app.core.ui.NuvioBackButton
+import com.nuvio.app.core.ui.RunningVersionLine
 import com.nuvio.app.core.ui.atLeastIosHitTarget
 import com.nuvio.app.isIos
 import com.nuvio.app.core.ui.themePalette
@@ -402,6 +403,15 @@ private fun PlayerHeader(
                         color = Color.White,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
+                    )
+                    RunningVersionLine(
+                        includeVersionWord = false,
+                        style = typeScale.labelSm.copy(
+                            fontSize = metrics.metadataSize,
+                            lineHeight = metrics.metadataSize * 1.25f,
+                        ),
+                        color = Color.White.copy(alpha = 0.9f),
+                        maxLines = 1,
                     )
                     if (seasonNumber != null && episodeNumber != null && !episodeTitle.isNullOrBlank()) {
                         Text(

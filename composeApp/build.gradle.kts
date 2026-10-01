@@ -3,6 +3,8 @@ import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.provider.Provider
+import org.gradle.api.provider.ValueSource
+import org.gradle.api.provider.ValueSourceParameters
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.Optional
@@ -11,7 +13,40 @@ import org.gradle.api.tasks.TaskAction
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.plugin.mpp.TestExecutable
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
+import java.io.File
 import java.util.Properties
+
+abstract class GitRevisionValueSource : ValueSource<String, GitRevisionValueSource.Params> {
+    interface Params : ValueSourceParameters {
+        val explicitRevision: Property<String>
+        val workingDirectory: Property<String>
+    }
+
+    override fun obtain(): String {
+        val fromGit = readGitRevision(File(parameters.workingDirectory.get()))
+        return hexRevision(fromGit)
+            ?: hexRevision(parameters.explicitRevision.get())
+            ?: error(
+                "GIT_REVISION is empty. git rev-parse --short=7 HEAD did not print a 4-40 character hex sha. " +
+                    "Pass -Pnuvio.git.revision=<sha> or set GIT_REVISION.",
+            )
+    }
+
+    private fun readGitRevision(directory: File): String =
+        try {
+            val process = ProcessBuilder("git", "rev-parse", "--short=7", "HEAD")
+                .directory(directory)
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
+                .start()
+            val output = process.inputStream.bufferedReader().use { it.readText() }
+            if (process.waitFor() == 0) output else ""
+        } catch (_: Exception) {
+            ""
+        }
+
+    private fun hexRevision(raw: String): String? =
+        raw.trim().lowercase().takeIf { it.matches(Regex("[0-9a-f]{4,40}")) }
+}
 
 abstract class GenerateRuntimeConfigsTask : DefaultTask() {
     @get:OutputDirectory
@@ -258,8 +293,14 @@ fun Project.gitExecProvider(vararg args: String): Provider<String> =
         isIgnoreExitValue = true
     }.standardOutput.asText.map { it.trim() }
 
-val gitRevisionProvider = gitExecProvider("rev-parse", "--short=7", "HEAD").map { raw ->
-    raw.lowercase().takeIf { it.matches(Regex("[0-9a-f]{4,40}")) }.orEmpty()
+// git rev-parse wins when it prints hex. An explicit sha is only the fallback when this
+// Gradle/Xcode process cannot see the checkout. An empty revision fails the build.
+val explicitGitRevisionProvider = providers.gradleProperty("nuvio.git.revision")
+    .orElse(providers.environmentVariable("GIT_REVISION"))
+    .orElse("")
+val gitRevisionProvider = providers.of(GitRevisionValueSource::class.java) {
+    parameters.explicitRevision.set(explicitGitRevisionProvider)
+    parameters.workingDirectory.set(rootProject.projectDir.absolutePath)
 }
 val gitDirtyProvider = gitExecProvider("status", "--porcelain", "--untracked-files=no").map { it.isNotEmpty() }
 val iosDistribution = (
