@@ -43,9 +43,16 @@ internal fun savedKeyForService(
     }
 }
 
-/** A saved key is written only after a live check, so a well-shaped saved key counts as working. */
-internal fun introSubmitShowsApiKeyField(service: IntroSubmitService, savedKey: String): Boolean =
+/**
+ * The flag sheet's service block (service picker and key field) stays hidden once that service
+ * already has a working saved key. A saved key is written only after a live check, so a
+ * well-shaped saved key counts as working.
+ */
+internal fun introSubmitShowsServiceSection(service: IntroSubmitService, savedKey: String): Boolean =
     introSubmitKeyProblem(service, savedKey) != IntroSubmitKeyProblem.NONE
+
+internal fun introSubmitShowsApiKeyField(service: IntroSubmitService, savedKey: String): Boolean =
+    introSubmitShowsServiceSection(service, savedKey)
 
 internal fun introSubmitKeyProblem(service: IntroSubmitService, apiKey: String): IntroSubmitKeyProblem {
     val key = apiKey.trim()

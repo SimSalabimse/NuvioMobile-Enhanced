@@ -51,12 +51,14 @@ class IntroSubmitServiceTest {
     }
 
     @Test
-    fun `flag dialog hides the api field only when that service already has a working key`() {
+    fun `flag dialog hides the service section only when that service already has a working key`() {
+        assertFalse(introSubmitShowsServiceSection(IntroSubmitService.INTRODB, "idb_example"))
+        assertFalse(introSubmitShowsServiceSection(IntroSubmitService.THE_INTRODB, "the-key"))
+        assertTrue(introSubmitShowsServiceSection(IntroSubmitService.INTRODB, "  "))
+        assertTrue(introSubmitShowsServiceSection(IntroSubmitService.INTRODB, "the-key"))
+        assertTrue(introSubmitShowsServiceSection(IntroSubmitService.THE_INTRODB, ""))
+        assertTrue(introSubmitShowsServiceSection(IntroSubmitService.THE_INTRODB, "idb_example"))
         assertFalse(introSubmitShowsApiKeyField(IntroSubmitService.INTRODB, "idb_example"))
-        assertFalse(introSubmitShowsApiKeyField(IntroSubmitService.THE_INTRODB, "the-key"))
-        assertTrue(introSubmitShowsApiKeyField(IntroSubmitService.INTRODB, "  "))
         assertTrue(introSubmitShowsApiKeyField(IntroSubmitService.INTRODB, "the-key"))
-        assertTrue(introSubmitShowsApiKeyField(IntroSubmitService.THE_INTRODB, ""))
-        assertTrue(introSubmitShowsApiKeyField(IntroSubmitService.THE_INTRODB, "idb_example"))
     }
 }

@@ -1,6 +1,7 @@
 package com.nuvio.app.core.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -12,20 +13,27 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.interop.UIKitView
+import kotlinx.cinterop.ExperimentalForeignApi
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.uikit.LocalUIViewController
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.window.ComposeUIViewController
 import platform.UIKit.UIAdaptivePresentationControllerDelegateProtocol
+import platform.UIKit.UIBlurEffect
+import platform.UIKit.UIBlurEffectStyle
 import platform.UIKit.UIColor
+import platform.UIKit.UIDevice
 import platform.UIKit.UIModalPresentationPageSheet
 import platform.UIKit.UIPresentationController
 import platform.UIKit.UISheetPresentationController
 import platform.UIKit.UISheetPresentationControllerDetent
 import platform.UIKit.UISheetPresentationControllerDetentIdentifierMedium
 import platform.UIKit.UIViewController
+import platform.UIKit.UIVisualEffectView
 import platform.UIKit.presentationController
 import platform.darwin.NSObject
 
@@ -34,7 +42,7 @@ internal actual val usesNativeNuvioBottomSheet: Boolean = true
 private var activeNativeBottomSheet: UIViewController? = null
 private var activeNativeBottomSheetDelegate: NuvioNativeBottomSheetDelegate? = null
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 internal actual fun NuvioNativeModalBottomSheet(
     onDismissRequest: () -> Unit,
@@ -43,6 +51,7 @@ internal actual fun NuvioNativeModalBottomSheet(
     contentColor: Color,
     showDragHandle: Boolean,
     fullHeight: Boolean,
+    liquidGlass: Boolean,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
     val parentViewController = LocalUIViewController.current
@@ -70,9 +79,15 @@ internal actual fun NuvioNativeModalBottomSheet(
     val latestThemePalette = rememberUpdatedState(themePalette)
     val latestDensity = rememberUpdatedState(density)
     val latestRippleConfiguration = rememberUpdatedState(rippleConfiguration)
+    val latestLiquidGlass = rememberUpdatedState(liquidGlass)
+    val systemLiquidGlass = iosSupportsSystemLiquidGlass()
 
-    DisposableEffect(parentViewController) {
-        val contentController = ComposeUIViewController {
+    DisposableEffect(parentViewController, liquidGlass, fullHeight) {
+        val contentController = ComposeUIViewController(
+            configure = {
+                if (liquidGlass) opaque = false
+            },
+        ) {
             CompositionLocalProvider(
                 LocalDensity provides Density(
                     density = latestDensity.value.density,
@@ -92,13 +107,19 @@ internal actual fun NuvioNativeModalBottomSheet(
                     CompositionLocalProvider(
                         LocalContentColor provides latestContentColor.value,
                     ) {
-                        Column(
-                            modifier = latestModifier.value
-                                .fillMaxSize()
-                                .background(latestContainerColor.value)
-                                .padding(top = NuvioTokens.Space.s20),
-                        ) {
-                            latestContent.value(this)
+                        val glass = latestLiquidGlass.value
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            if (glass && !systemLiquidGlass) {
+                                LegacySheetBlur(Modifier.fillMaxSize())
+                            }
+                            Column(
+                                modifier = latestModifier.value
+                                    .fillMaxSize()
+                                    .background(if (glass) Color.Transparent else latestContainerColor.value)
+                                    .padding(top = NuvioTokens.Space.s20),
+                            ) {
+                                latestContent.value(this)
+                            }
                         }
                     }
                 }
@@ -106,9 +127,23 @@ internal actual fun NuvioNativeModalBottomSheet(
         }
         val sheetController = contentController
         sheetController.modalPresentationStyle = UIModalPresentationPageSheet
-        sheetController.view.backgroundColor = latestContainerColor.value.toUIColor()
+        if (liquidGlass) {
+            sheetController.view.backgroundColor = UIColor.clearColor
+            sheetController.view.opaque = false
+        } else {
+            sheetController.view.backgroundColor = latestContainerColor.value.toUIColor()
+        }
         (sheetController.presentationController() as? UISheetPresentationController)?.apply {
-            if (fullHeight) {
+            if (liquidGlass) {
+                val detent = UISheetPresentationControllerDetent.customDetentWithIdentifier(
+                    identifier = FLAG_SHEET_DETENT_ID,
+                    resolver = { context ->
+                        flagSheetDetentHeight(context?.maximumDetentValue ?: 0.0)
+                    },
+                )
+                detents = listOf(detent)
+                selectedDetentIdentifier = FLAG_SHEET_DETENT_ID
+            } else if (fullHeight) {
                 detents = listOf(UISheetPresentationControllerDetent.largeDetent())
             } else {
                 detents = listOf(
@@ -178,6 +213,29 @@ private class NuvioNativeBottomSheetDelegate(
         didNotifyDismissal = true
         onDismissRequest()
     }
+}
+
+private fun iosSupportsSystemLiquidGlass(): Boolean =
+    (UIDevice.currentDevice.systemVersion.substringBefore('.').toIntOrNull() ?: 0) >= 26
+
+@OptIn(ExperimentalForeignApi::class)
+@Composable
+private fun LegacySheetBlur(modifier: Modifier) {
+    UIKitView(
+        factory = {
+            UIVisualEffectView(
+                effect = UIBlurEffect.effectWithStyle(UIBlurEffectStyle.UIBlurEffectStyleSystemUltraThinMaterialDark),
+            ).apply {
+                userInteractionEnabled = false
+                backgroundColor = UIColor.clearColor
+                opaque = false
+            }
+        },
+        modifier = modifier,
+        background = Color.Transparent,
+        interactive = false,
+        accessibilityEnabled = false,
+    )
 }
 
 private fun Color.toUIColor(): UIColor = UIColor(

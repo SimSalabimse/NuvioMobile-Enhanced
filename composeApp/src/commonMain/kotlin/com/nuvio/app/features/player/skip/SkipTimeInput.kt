@@ -1,57 +1,54 @@
 package com.nuvio.app.features.player.skip
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.snapping.SnapPosition
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.GpsFixed
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.atLeastIosHitTarget
+import kotlin.math.abs
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.submit_intro_capture_button
-import nuvio.composeapp.generated.resources.submit_intro_time_decrease
 import nuvio.composeapp.generated.resources.submit_intro_time_hours
-import nuvio.composeapp.generated.resources.submit_intro_time_increase
 import nuvio.composeapp.generated.resources.submit_intro_time_minutes
 import nuvio.composeapp.generated.resources.submit_intro_time_nudge_back_1
-import nuvio.composeapp.generated.resources.submit_intro_time_nudge_back_10
 import nuvio.composeapp.generated.resources.submit_intro_time_nudge_forward_1
-import nuvio.composeapp.generated.resources.submit_intro_time_nudge_forward_10
 import nuvio.composeapp.generated.resources.submit_intro_time_seconds
 import org.jetbrains.compose.resources.stringResource
 
@@ -128,6 +125,15 @@ internal fun stepSkipTimePart(input: String, part: SkipTimePart, delta: Int): St
     return stepSkipTimestamp(input, delta * unit)
 }
 
+internal data class WheelRow(val index: Int, val offset: Int, val size: Int)
+
+/** The row whose center is closest to the middle of the wheel viewport. */
+internal fun centeredWheelIndex(viewportStart: Int, viewportEnd: Int, rows: List<WheelRow>): Int? {
+    if (rows.isEmpty()) return null
+    val center = (viewportStart + viewportEnd) / 2
+    return rows.minBy { abs((it.offset + it.size / 2) - center) }.index
+}
+
 internal fun replaceSkipTimePart(input: String, part: SkipTimePart, digits: String): String {
     val (hours, minutes, seconds) = skipTimeParts(input)
     val parsed = digits.filter(Char::isDigit).take(2).toIntOrNull() ?: 0
@@ -148,9 +154,6 @@ internal fun SkipTimestampEditor(
     modifier: Modifier = Modifier,
 ) {
     val (hours, minutes, seconds) = skipTimeParts(value)
-    val hourFocus = remember { FocusRequester() }
-    val minuteFocus = remember { FocusRequester() }
-    val secondFocus = remember { FocusRequester() }
     val hoursUnit = stringResource(Res.string.submit_intro_time_hours)
     val minutesUnit = stringResource(Res.string.submit_intro_time_minutes)
     val secondsUnit = stringResource(Res.string.submit_intro_time_seconds)
@@ -167,42 +170,39 @@ internal fun SkipTimestampEditor(
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.Top,
+            verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            SkipTimePartField(
+            SkipTimeWheel(
                 caption = "HH",
                 unitName = hoursUnit,
-                part = SkipTimePart.HOURS,
-                partValue = hours,
-                source = value,
-                onValueChange = onValueChange,
-                focusRequester = hourFocus,
-                nextFocus = minuteFocus,
+                value = hours,
+                count = 100,
+                onValueChange = { next ->
+                    onValueChange(replaceSkipTimePart(value, SkipTimePart.HOURS, next.toString()))
+                },
                 modifier = Modifier.weight(1f),
             )
             TimeColon()
-            SkipTimePartField(
+            SkipTimeWheel(
                 caption = "MM",
                 unitName = minutesUnit,
-                part = SkipTimePart.MINUTES,
-                partValue = minutes,
-                source = value,
-                onValueChange = onValueChange,
-                focusRequester = minuteFocus,
-                nextFocus = secondFocus,
+                value = minutes,
+                count = 60,
+                onValueChange = { next ->
+                    onValueChange(replaceSkipTimePart(value, SkipTimePart.MINUTES, next.toString()))
+                },
                 modifier = Modifier.weight(1f),
             )
             TimeColon()
-            SkipTimePartField(
+            SkipTimeWheel(
                 caption = "SS",
                 unitName = secondsUnit,
-                part = SkipTimePart.SECONDS,
-                partValue = seconds,
-                source = value,
-                onValueChange = onValueChange,
-                focusRequester = secondFocus,
-                nextFocus = null,
+                value = seconds,
+                count = 60,
+                onValueChange = { next ->
+                    onValueChange(replaceSkipTimePart(value, SkipTimePart.SECONDS, next.toString()))
+                },
                 modifier = Modifier.weight(1f),
             )
         }
@@ -211,12 +211,6 @@ internal fun SkipTimestampEditor(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            SkipTimeNudgeButton(
-                text = "−10s",
-                contentDescription = stringResource(Res.string.submit_intro_time_nudge_back_10),
-                onClick = { onValueChange(stepSkipTimestamp(value, -10)) },
-                modifier = Modifier.weight(1f),
-            )
             SkipTimeNudgeButton(
                 text = "−1s",
                 contentDescription = stringResource(Res.string.submit_intro_time_nudge_back_1),
@@ -227,12 +221,6 @@ internal fun SkipTimestampEditor(
                 text = "+1s",
                 contentDescription = stringResource(Res.string.submit_intro_time_nudge_forward_1),
                 onClick = { onValueChange(stepSkipTimestamp(value, 1)) },
-                modifier = Modifier.weight(1f),
-            )
-            SkipTimeNudgeButton(
-                text = "+10s",
-                contentDescription = stringResource(Res.string.submit_intro_time_nudge_forward_10),
-                onClick = { onValueChange(stepSkipTimestamp(value, 10)) },
                 modifier = Modifier.weight(1f),
             )
         }
@@ -266,31 +254,51 @@ internal fun SkipTimestampEditor(
     }
 }
 
+private val WheelItemHeight = 36.dp
+
 @Composable
-private fun SkipTimePartField(
+private fun SkipTimeWheel(
     caption: String,
     unitName: String,
-    part: SkipTimePart,
-    partValue: Int,
-    source: String,
-    onValueChange: (String) -> Unit,
-    focusRequester: FocusRequester,
-    nextFocus: FocusRequester?,
+    value: Int,
+    count: Int,
+    onValueChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var draft by remember(part) { mutableStateOf<String?>(null) }
-    LaunchedEffect(partValue) {
-        val current = draft ?: return@LaunchedEffect
-        val typed = current.toIntOrNull()
-        val draftMatches = current.isNotEmpty() && typed == partValue
-        if (!draftMatches) draft = null
-    }
-    val shown = draft ?: partValue.toString().padStart(2, '0')
-    val decrease = stringResource(Res.string.submit_intro_time_decrease, unitName)
-    val increase = stringResource(Res.string.submit_intro_time_increase, unitName)
+    val selected = value.coerceIn(0, count - 1)
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = selected)
+    val flingBehavior = rememberSnapFlingBehavior(listState, SnapPosition.Center)
+    val latestSelected = rememberUpdatedState(selected)
+    var ready by remember { mutableStateOf(false) }
+    var aligning by remember { mutableStateOf(false) }
 
+    LaunchedEffect(selected, count) {
+        aligning = true
+        try {
+            if (listState.currentCenteredIndex() != selected) {
+                listState.centerWheelItem(selected)
+            }
+        } finally {
+            aligning = false
+            ready = true
+        }
+    }
+
+    LaunchedEffect(listState, count) {
+        snapshotFlow {
+            Triple(ready, aligning || listState.isScrollInProgress, listState.currentCenteredIndex())
+        }.collect { (isReady, busy, centered) ->
+            if (!isReady || busy) return@collect
+            val next = centered ?: return@collect
+            if (next != latestSelected.value) onValueChange(next.coerceIn(0, count - 1))
+        }
+    }
+
+    val centeredNow = listState.currentCenteredIndex() ?: selected
     Column(
-        modifier = modifier,
+        modifier = modifier.semantics(mergeDescendants = true) {
+            contentDescription = "$unitName ${selected.toString().padStart(2, '0')}"
+        },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
@@ -300,86 +308,75 @@ private fun SkipTimePartField(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = FontWeight.SemiBold,
         )
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
-            modifier = Modifier.fillMaxWidth(),
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(WheelItemHeight * 3)
+                .clip(RoundedCornerShape(12.dp)),
         ) {
-            BasicTextField(
-                value = shown,
-                onValueChange = { raw ->
-                    val digits = raw.filter(Char::isDigit).take(2)
-                    draft = digits
-                    onValueChange(replaceSkipTimePart(source, part, digits))
-                    if (digits.length == 2) nextFocus?.requestFocus()
-                },
+            Box(
                 modifier = Modifier
+                    .align(Alignment.Center)
                     .fillMaxWidth()
-                    .height(44.dp)
-                    .focusRequester(focusRequester)
-                    .onFocusChanged { state ->
-                        draft = if (state.isFocused) "" else null
-                    },
-                textStyle = MaterialTheme.typography.titleMedium.copy(
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                ),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Number,
-                    imeAction = if (nextFocus != null) ImeAction.Next else ImeAction.Done,
-                ),
-                keyboardActions = KeyboardActions(
-                    onNext = { nextFocus?.requestFocus() },
-                    onDone = { },
-                ),
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                singleLine = true,
-                decorationBox = { inner ->
-                    Box(
+                    .height(WheelItemHeight)
+                    .padding(horizontal = 4.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)),
+            )
+            LazyColumn(
+                state = listState,
+                flingBehavior = flingBehavior,
+                contentPadding = PaddingValues(vertical = WheelItemHeight),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(count) { index ->
+                    val distance = abs(index - centeredNow)
+                    Text(
+                        text = index.toString().padStart(2, '0'),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(44.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (shown.isEmpty()) {
-                            Text(
-                                text = "00",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
-                                fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center,
-                            )
-                        }
-                        inner()
-                    }
-                },
-            )
+                            .height(WheelItemHeight)
+                            .wrapContentHeight(Alignment.CenterVertically),
+                        textAlign = TextAlign.Center,
+                        style = if (distance == 0) {
+                            MaterialTheme.typography.titleMedium
+                        } else {
+                            MaterialTheme.typography.bodyLarge
+                        },
+                        fontWeight = if (distance == 0) FontWeight.Bold else FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(
+                            alpha = when (distance) {
+                                0 -> 1f
+                                1 -> 0.45f
+                                else -> 0.18f
+                            },
+                        ),
+                    )
+                }
+            }
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            SkipTimeNudgeButton(
-                text = "−",
-                contentDescription = decrease,
-                onClick = {
-                    draft = null
-                    onValueChange(stepSkipTimePart(source, part, -1))
-                },
-                modifier = Modifier.weight(1f),
-            )
-            SkipTimeNudgeButton(
-                text = "+",
-                contentDescription = increase,
-                onClick = {
-                    draft = null
-                    onValueChange(stepSkipTimePart(source, part, 1))
-                },
-                modifier = Modifier.weight(1f),
-            )
-        }
+    }
+}
+
+private fun LazyListState.currentCenteredIndex(): Int? {
+    val info = layoutInfo
+    if (info.visibleItemsInfo.isEmpty()) return null
+    return centeredWheelIndex(
+        viewportStart = info.viewportStartOffset,
+        viewportEnd = info.viewportEndOffset,
+        rows = info.visibleItemsInfo.map { WheelRow(it.index, it.offset, it.size) },
+    )
+}
+
+private suspend fun LazyListState.centerWheelItem(index: Int) {
+    scrollToItem(index)
+    val info = layoutInfo
+    val item = info.visibleItemsInfo.firstOrNull { it.index == index } ?: return
+    val viewportCenter = (info.viewportStartOffset + info.viewportEndOffset) / 2
+    val delta = (item.offset + item.size / 2 - viewportCenter).toFloat()
+    if (abs(delta) > 1f) {
+        scroll { scrollBy(delta) }
     }
 }
 
@@ -390,7 +387,7 @@ private fun TimeColon() {
         style = MaterialTheme.typography.titleMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(top = 26.dp),
+        modifier = Modifier.padding(bottom = 46.dp),
     )
 }
 

@@ -46,4 +46,16 @@ class SkipTimeInputTest {
         assertEquals("00:00:03", replaceSkipTimePart("01:00:03", SkipTimePart.HOURS, ""))
         assertEquals("01:30:00", replaceSkipTimePart("90:00", SkipTimePart.SECONDS, "0"))
     }
+
+    @Test
+    fun `wheel centers the row closest to the viewport middle`() {
+        val rows = listOf(
+            WheelRow(index = 0, offset = 0, size = 36),
+            WheelRow(index = 1, offset = 36, size = 36),
+            WheelRow(index = 2, offset = 72, size = 36),
+        )
+        assertEquals(1, centeredWheelIndex(viewportStart = 0, viewportEnd = 108, rows = rows))
+        assertEquals(2, centeredWheelIndex(viewportStart = 36, viewportEnd = 144, rows = rows))
+        assertNull(centeredWheelIndex(viewportStart = 0, viewportEnd = 108, rows = emptyList()))
+    }
 }

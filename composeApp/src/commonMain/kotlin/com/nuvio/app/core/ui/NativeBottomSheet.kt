@@ -15,6 +15,7 @@ internal expect fun NuvioNativeModalBottomSheet(
     contentColor: Color,
     showDragHandle: Boolean,
     fullHeight: Boolean,
+    liquidGlass: Boolean,
     content: @Composable ColumnScope.() -> Unit,
 )
 

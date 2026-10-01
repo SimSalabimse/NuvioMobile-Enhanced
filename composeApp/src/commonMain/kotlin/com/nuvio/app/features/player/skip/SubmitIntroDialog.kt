@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -54,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -144,7 +146,7 @@ fun SubmitIntroDialog(
         playerSettings.introDbApiKey,
         playerSettings.theIntroDbApiKey,
     )
-    val showApiKeyField = introSubmitShowsApiKeyField(selectedService, savedKeyForSelected)
+    val showServiceSection = introSubmitShowsServiceSection(selectedService, savedKeyForSelected)
     val keyDraft = if (selectedService == IntroSubmitService.INTRODB) introDbKeyDraft else theIntroDbKeyDraft
     val requiredKeyMessage = stringResource(Res.string.submit_intro_api_key_required)
     val introDbPrefixMessage = stringResource(Res.string.submit_intro_introdb_prefix)
@@ -316,6 +318,7 @@ fun SubmitIntroDialog(
                     }
                 }
 
+                if (showServiceSection) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         text = stringResource(Res.string.submit_intro_service_label),
@@ -350,7 +353,6 @@ fun SubmitIntroDialog(
                             modifier = Modifier.weight(1f),
                         )
                     }
-                    if (showApiKeyField) {
                         Text(
                             text = keyHint,
                             style = MaterialTheme.typography.bodySmall,
@@ -450,7 +452,7 @@ fun SubmitIntroDialog(
                                 color = MaterialTheme.colorScheme.primary,
                             )
                         }
-                    }
+                }
                 }
 
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -636,7 +638,8 @@ fun SubmitIntroDialog(
             onDismissRequest = onDismiss,
             sheetState = sheetState,
             showDragHandle = true,
-            fullHeight = true,
+            fullHeight = false,
+            liquidGlass = true,
         ) {
             formContent(
                 Modifier
@@ -649,20 +652,25 @@ fun SubmitIntroDialog(
         }
     } else {
         BasicAlertDialog(onDismissRequest = onDismiss) {
-            Surface(
-                modifier = Modifier
-                    .padding(horizontal = 16.dp, vertical = 24.dp)
-                    .widthIn(max = 420.dp)
-                    .heightIn(max = 680.dp),
-                shape = RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 8.dp,
-            ) {
-                formContent(
-                    Modifier
-                        .padding(24.dp)
-                        .heightIn(max = 640.dp),
-                )
+            BoxWithConstraints {
+                val sheetHeight = minOf(640.dp, maxHeight * 0.86f)
+                Surface(
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 24.dp)
+                        .widthIn(max = 420.dp)
+                        .heightIn(max = sheetHeight),
+                    shape = RoundedCornerShape(28.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.22f)),
+                    tonalElevation = 0.dp,
+                    shadowElevation = 16.dp,
+                ) {
+                    formContent(
+                        Modifier
+                            .padding(24.dp)
+                            .heightIn(max = sheetHeight),
+                    )
+                }
             }
         }
     }

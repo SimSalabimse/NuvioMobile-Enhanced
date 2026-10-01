@@ -34,6 +34,19 @@ import androidx.compose.ui.text.style.TextOverflow
 
 private val SheetShape = RoundedCornerShape(NuvioTokens.Space.s28)
 
+internal const val FLAG_SHEET_DETENT_ID = "nuvio.flag"
+
+/**
+ * Height of the phone flag sheet. Stays short of [maximumPoints] so the card is not a full-screen
+ * cover, and caps at 640pt on tall phones. A very short landscape height may still fill the screen
+ * because the form needs the room.
+ */
+internal fun flagSheetDetentHeight(maximumPoints: Double): Double {
+    if (maximumPoints <= 0.0) return 0.0
+    val capped = minOf(maximumPoints * 0.82, 640.0)
+    return maxOf(capped, minOf(maximumPoints, 280.0))
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NuvioModalBottomSheet(
@@ -44,6 +57,7 @@ fun NuvioModalBottomSheet(
     contentColor: Color = MaterialTheme.nuvio.colors.textPrimary,
     showDragHandle: Boolean = true,
     fullHeight: Boolean = false,
+    liquidGlass: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     if (usesNativeNuvioBottomSheet) {
@@ -54,6 +68,7 @@ fun NuvioModalBottomSheet(
             contentColor = contentColor,
             showDragHandle = showDragHandle,
             fullHeight = fullHeight,
+            liquidGlass = liquidGlass,
             content = content,
         )
     } else {
