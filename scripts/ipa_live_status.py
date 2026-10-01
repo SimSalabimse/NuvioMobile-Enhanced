@@ -2412,7 +2412,7 @@ def self_test() -> int:
         check("max-width: 28rem" not in html, "28rem sheet is still the page width")
         check("setInterval(refresh, 2000)" not in html, "idle poll is still every 2 seconds")
         check("Request this iPhone build" in html and "Request this Mac build" in html, "request buttons missing")
-        check("Idle" in html and 'id="notes"' in html, "page missing idle fields")
+        check("Idle" not in page_html and 'id="notes"' not in page_html, "idle meter or notes block still on the page")
         check("flex-direction: column" in html, "page is not one column")
         check("min-width: 0" in html, "full commit line cannot shrink inside the column")
         check(
@@ -2429,7 +2429,8 @@ def self_test() -> int:
         check("color-scheme: dark" in html, "page is not dark-first")
         check("@media (prefers-color-scheme: light)" in html, "light preference missing")
         check("#101218" not in html, "forced dark background still in the page")
-        check("Show All" in html and "Show Less" in html, "release notes cannot expand")
+        check("Show all" in page_js, "summary disclosure missing")
+        check("Show Less" not in html and "Show All" not in html, "notes toggle is still a second control")
         check(
             'fetch("/api/dashboard"' in html and "IDLE_POLL_MS = 30000" in html and "ACTIVE_POLL_MS = 2000" in html,
             "dashboard poll missing",
@@ -2446,20 +2447,32 @@ def self_test() -> int:
         check(body["percent"] == 0, "api kept an idle percent")
         check(body["stage"] is None, "api kept an idle stage")
         check("servedAt" in body, "api timestamp missing")
-        check("Nuvio builds" in html and "Downloads" in html, "builds page title or downloads group missing")
-        check("Nuvio for iPhone" in html and "Nuvio for Mac" in html, "product titles missing")
+        check("<h1>Nuvio</h1>" in page_html, "masthead missing")
+        check("Download the current app, or choose how far the next one goes." in page_html, "lede missing")
+        check(">iPhone</h2>" in page_html and ">Mac</h2>" in page_html, "platform headings missing")
+        check("Nuvio builds" not in page_html, "old builds title still on the page")
         check("IPA debug" not in html, "debug file is still a current label")
-        check("Older" in html, "older section missing")
-        check("Windows and Linux have no package." in html, "missing desktop package line")
-        check("copy-link" in html and "min-height: 44pt" in html, "copy control size missing")
+        check("Older downloads" in page_html, "older disclosure missing")
+        check("Windows and Linux have no package." not in html, "windows line still on the page")
+        check("copy-link" not in html, "copy control still on the page")
+        check("min-height: 44px" in page_css, "44px targets missing")
+        check(":focus-visible" in page_css, "focus ring missing")
+        check("font-size: 16px" in page_css, "body size missing")
+        check("-apple-system" in page_css, "system font missing")
+        check("background: transparent" in page_css and "a.download-link" in page_css, "download is not the filled button")
         check('fetch("/api/desktop"' not in page_js and 'fetch("/api/downloads"' not in page_js, "page still polls split endpoints")
         check("min-width: 840px" in html and "1120px" in html, "wide layout missing")
         check("minmax(0, 1fr) minmax(0, 1fr)" in html, "two equal columns missing")
-        check("a.download-link" in html and "min-height: 44pt" in html, "download control size missing")
+        check("a.download-link" in html and "min-height: 44px" in html, "download control size missing")
         check("max-width: 1120px" in html, "page width missing")
         check("prefers-reduced-motion" in html, "reduced motion missing")
-        check('id="log-view"' in html and 'id="desktop-log-view"' in html, "log views missing")
-        check("12rem" in html and "build-row" in html and "Log" in html, "log group missing")
+        check('id="log-view"' not in page_html and 'id="desktop-log-view"' not in page_html, "log is on the idle page")
+        check("Show log" in page_js, "log disclosure missing")
+        check("This download is already the latest on " in page_js, "latest line missing")
+        check(
+            "Checking a commit includes that commit and everything before it." in page_js,
+            "prefix sentence missing",
+        )
         check(body["logTail"] and "[redacted]" in body["logTail"], "api logTail missing")
         check("supersecretvalue" not in body["logTail"], "api logTail leaked")
         check(body["recentBuilds"] and body["recentBuilds"][0]["status"] == "failed", "api recentBuilds")
@@ -2693,15 +2706,15 @@ def self_test() -> int:
         check(len(capped) == 40, f"build index cap {len(capped)}")
         check(len(recent_builds(directory, "ipa")) == 8, "recent window is not 8")
 
-        check("In this version" in html and "No summary for this file." in html, "version summary missing")
-        check("In the next IPA" in html and "In the next DMG" in html, "next package labels")
-        check("Stashed while testing" in html, "stash label")
-        check("Working now" in html and "next-grid" in html, "working now layout")
-        check(html.count('class="hero-kicker">Compile') == 2, "compile label")
-        check("applyWork" in html and 'fetch("/api/dashboard"' in html, "work payload missing from the page")
-        check("more in Release notes" in html, "summary cap copy")
-        check("Nothing is stashed for the next IPA." in html and "Nothing is stashed for the next DMG." in html, "empty stash copy")
-        check("Nothing new is queued." in html, "empty next copy")
+        check("No summary for this file." not in html and "No release notes" not in html, "empty notes copy still on the page")
+        check("In this version" not in page_html, "version group still on the idle page")
+        check("In the next IPA" not in html and "In the next DMG" not in html, "next package queues still on the page")
+        check("Stashed while testing" not in html, "stash queue still on the page")
+        check("Working now" not in html and "next-grid" not in html, "operations board still on the page")
+        check("hero-kicker" not in html and "build-row" not in html, "compile hero still on the page")
+        check("applyWork" not in page_js and 'fetch("/api/dashboard"' in page_js, "page still renders the work snapshot")
+        check("more in Release notes" not in page_js, "old summary cap copy")
+        check("Nothing is stashed" not in html and "Nothing new is queued." not in html, "empty queue copy still on the page")
 
         check(task_credit("done", 10, 10) == 1.0, "done credit")
         check(task_credit("in_progress", 3000, 3000) == 0.7, "spent ratio caps at 0.7")
@@ -3258,6 +3271,126 @@ assert(!selected.aaa && selected.bbb && context.newestChecked(commits, selected)
                 text=True,
             )
             check(prefix_run.returncode == 0, f"prefix selection {prefix_run.returncode} {prefix_run.stderr}")
+
+            cut_script = r"""
+const fs = require("fs");
+const vm = require("vm");
+const context = { console: console };
+vm.createContext(context);
+vm.runInContext(fs.readFileSync(process.argv[2], "utf8"), context);
+const nodes = {};
+function Element(tag) {
+  this.tagName = String(tag || "").toUpperCase();
+  this.childNodes = [];
+  this.attributes = {};
+  this.hidden = false;
+  this.textContent = "";
+  this.className = "";
+  this.id = "";
+  this.type = "";
+  this.checked = false;
+  this.disabled = false;
+  this.open = false;
+  this.parentNode = null;
+  this.style = {};
+}
+Element.prototype.appendChild = function (child) {
+  child.parentNode = this;
+  this.childNodes.push(child);
+  return child;
+};
+Element.prototype.removeChild = function (child) {
+  const index = this.childNodes.indexOf(child);
+  if (index >= 0) this.childNodes.splice(index, 1);
+  child.parentNode = null;
+  return child;
+};
+Object.defineProperty(Element.prototype, "firstChild", {
+  get() { return this.childNodes[0] || null; }
+});
+Element.prototype.setAttribute = function (name, value) {
+  this.attributes[name] = String(value);
+  if (name === "id") this.id = String(value);
+};
+Element.prototype.getAttribute = function (name) {
+  return Object.prototype.hasOwnProperty.call(this.attributes, name) ? this.attributes[name] : null;
+};
+Element.prototype.removeAttribute = function (name) { delete this.attributes[name]; };
+Element.prototype.addEventListener = function () {};
+Element.prototype.querySelector = function () { return null; };
+Element.prototype.querySelectorAll = function (selector) {
+  const found = [];
+  const visit = (node) => {
+    if (selector === "input[data-index]" && node.tagName === "INPUT" && node.getAttribute("data-index") != null) found.push(node);
+    (node.childNodes || []).forEach(visit);
+  };
+  visit(this);
+  return found;
+};
+function walk(node, found) {
+  found.push(node);
+  (node.childNodes || []).forEach((child) => walk(child, found));
+  return found;
+}
+function textOf(node) {
+  const parts = [];
+  walk(node, []).forEach((item) => {
+    if (item.textContent) parts.push(item.textContent);
+  });
+  return parts.join("\n");
+}
+const documentStub = {
+  createElement(tag) { return new Element(tag); },
+  getElementById(id) { return nodes[id] || null; }
+};
+context.document = documentStub;
+function mount(id) {
+  const node = documentStub.createElement("div");
+  node.id = id;
+  nodes[id] = node;
+  return node;
+}
+const ipa = mount("ipa-cut");
+const dmg = mount("dmg-cut");
+const tip = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+function fail(code, detail) { console.error(detail); process.exit(code); }
+context.renderCut("dmg", { branch: "Dev", commits: [], error: null, pending: false }, true);
+if (textOf(dmg).indexOf("This download is already the latest on Dev.") < 0) fail(2, textOf(dmg));
+if (walk(dmg, []).some((node) => node.className === "request-button")) fail(3, "mac request button");
+context.renderCut("ipa", {
+  branch: "enhanced",
+  commits: [{ commit: tip, issues: ["SIM-11"], short: "aaaaaaaa", subject: "SIM-11 tip cut" }],
+  error: null,
+  pending: false
+}, true);
+const ipaText = textOf(ipa);
+if (ipaText.indexOf("Request this iPhone build") < 0) fail(4, ipaText);
+if (ipaText.indexOf("Checking a commit includes that commit") < 0) fail(5, ipaText);
+if (ipaText.indexOf("SIM-11 tip cut") < 0) fail(6, ipaText);
+const boxes = walk(ipa, []).filter((node) => node.tagName === "INPUT");
+if (boxes.length !== 1 || !boxes[0].checked) fail(7, "default checkbox");
+const link = walk(ipa, []).find((node) => node.tagName === "A" && node.textContent === "SIM-11");
+if (!link || link.href.indexOf("/SIM/issues/SIM-11") < 0) fail(8, "issue link");
+context.renderCut("ipa", {
+  branch: "enhanced",
+  commits: [{ commit: tip, issues: ["SIM-11"], short: "aaaaaaaa", subject: "SIM-11 tip cut" }],
+  error: null,
+  pending: true,
+  request: { commit: tip }
+}, true);
+const pendingText = textOf(ipa);
+if (pendingText.indexOf("Requested · aaaaaaaa") < 0) fail(9, pendingText);
+const pendingButton = walk(ipa, []).find((node) => node.className === "request-button");
+if (!pendingButton || !pendingButton.disabled) fail(10, "pending button");
+"""
+            cut_path = repo / "cut.js"
+            cut_path.write_text(cut_script, encoding="utf-8")
+            cut_run = subprocess.run(
+                [node, str(cut_path), str(static_root() / "app.js")],
+                capture_output=True,
+                text=True,
+            )
+            check(cut_run.returncode == 0, f"cut markup {cut_run.returncode} {cut_run.stdout} {cut_run.stderr}")
 
             builds_request.mobile_repository = lambda: repo
             builds_request.desktop_repository = lambda: None

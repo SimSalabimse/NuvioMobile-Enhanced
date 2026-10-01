@@ -1,33 +1,33 @@
-var STAGE_LABELS = {
-  preflight: "Preflight",
-  prepare: "Prepare",
-  xcodebuild: "Xcode build",
-  checks: "Checks",
-  zip: "Zip"
-};
 var COMMIT_LINE = /^- ([0-9a-fA-F]{7,40}) (.+) @(\S+)\s*$/;
-var notesExpanded = false;
-var notesStamp = "";
-var desktopNotesExpanded = false;
-var desktopNotesStamp = "";
+var ISSUE_LINK = /^SIM-\d+$/;
+var ISSUE_ORIGIN = "https://simsalabim-paperclip.steelyx.org/SIM/issues/";
+var PREFIX_HELP = "Checking a commit includes that commit and everything before it. The newest checked commit is the package.";
+var REQUEST_LABEL = {
+  ipa: "Request this iPhone build",
+  dmg: "Request this Mac build"
+};
+var IDLE_POLL_MS = 30000;
+var ACTIVE_POLL_MS = 2000;
+var pollTimer = 0;
+var refreshRunning = false;
+var lastActive = false;
+var cutState = {
+  ipa: { idStamp: "", domStamp: "", selected: {} },
+  dmg: { idStamp: "", domStamp: "", selected: {} }
+};
+var logFollow = { "": true, "desktop-": true };
 
 function statusWord(value) {
-  if (value === "idle") return "Idle";
   if (value === "queued") return "Queued";
   if (value === "building") return "Building";
-  if (value === "succeeded") return "Succeeded";
   if (value === "failed") return "Failed";
-  return value || "Idle";
+  if (value === "succeeded") return "Succeeded";
+  return value ? String(value) : "";
 }
 function percentText(value) {
   var number = Number(value);
   if (!isFinite(number)) number = 0;
   return (Math.round(number * 10) / 10).toFixed(1) + "%";
-}
-function stageLabel(value) {
-  if (value == null || value === "") return "None";
-  if (Object.prototype.hasOwnProperty.call(STAGE_LABELS, value)) return STAGE_LABELS[value];
-  return String(value);
 }
 function shortHash(value) {
   var text = value == null || value === "" ? "none" : String(value);
@@ -50,9 +50,9 @@ function parseNotes(text) {
     if (match) {
       items.push({ kind: "commit", hash: match[1], subject: trimText(match[2]), author: match[3] });
     } else if (line === "[truncated]") {
-      items.push({ kind: "text", text: "Truncated", muted: true });
+      items.push({ kind: "text", text: "Truncated" });
     } else {
-      items.push({ kind: "text", text: line, muted: false });
+      items.push({ kind: "text", text: line });
     }
   }
   var commits = 0;
@@ -69,469 +69,111 @@ function el(tag, className, text) {
 function clearNode(node) {
   while (node.firstChild) node.removeChild(node.firstChild);
 }
-function commitRow(row) {
-  var wrap = el("div", "note");
-  wrap.appendChild(el("p", "note-subject", row.subject));
-  wrap.appendChild(el("p", "note-meta", shortHash(row.hash) + " · " + row.author));
-  return wrap;
-}
-function textRow(row) {
-  var wrap = el("div", "note");
-  wrap.appendChild(el("p", row.muted ? "empty-notes" : "note-subject", row.text));
-  return wrap;
-}
-function fillNotesInto(text, notesId, toggleId, expanded, stamp) {
-  var next = (expanded ? "1" : "0") + "\n" + String(text == null ? "" : text);
-  if (next === stamp) return stamp;
-  var notes = document.getElementById(notesId);
-  var toggle = document.getElementById(toggleId);
-  clearNode(notes);
-  var parsed = parseNotes(text);
-  if (parsed.kind === "empty") {
-    notes.appendChild(el("div", "row", null));
-    notes.firstChild.appendChild(el("p", "empty-notes", "No release notes"));
-    toggle.hidden = true;
-    return next;
-  }
-  if (parsed.kind === "text") {
-    var plain = el("div", "plain");
-    plain.appendChild(el("p", "plain-text", parsed.text));
-    notes.appendChild(plain);
-    toggle.hidden = true;
-    return next;
-  }
-  var items = parsed.items;
-  var limit = expanded ? items.length : Math.min(5, items.length);
-  for (var i = 0; i < limit; i++) {
-    notes.appendChild(items[i].kind === "commit" ? commitRow(items[i]) : textRow(items[i]));
-  }
-  if (items.length > 5) {
-    toggle.hidden = false;
-    toggle.textContent = expanded ? "Show Less" : "Show All";
-    toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
-  } else {
-    toggle.hidden = true;
-  }
-  return next;
-}
-function fillNotes(text) {
-  notesStamp = fillNotesInto(text, "notes", "notes-toggle", notesExpanded, notesStamp);
-}
-function applyInto(prefix, payload) {
-  var state = payload.status || "idle";
-  var idle = state === "idle";
-  var status = document.getElementById(prefix + "status");
-  status.textContent = statusWord(state);
-  status.setAttribute("data-state", state);
-  var percentNode = document.getElementById(prefix + "percent");
-  percentNode.hidden = idle;
-  percentNode.textContent = idle ? "" : percentText(payload.percent);
-  var width = idle ? 0 : Math.max(0, Math.min(100, Number(payload.percent) || 0));
-  document.getElementById(prefix + "bar").style.width = width + "%";
-  var track = document.getElementById(prefix + "track");
-  track.hidden = idle;
-  track.setAttribute("aria-valuenow", String(Math.round(width)));
-  var remaining = document.getElementById(prefix + "remaining");
-  var label = payload.remainingLabel || "none";
-  if ((state === "building" || state === "queued") && label !== "none") {
-    remaining.hidden = false;
-    remaining.textContent = label + " left";
-  } else {
-    remaining.hidden = true;
-    remaining.textContent = "";
-  }
-  var commit = payload.commit || "none";
-  document.getElementById(prefix + "branch").textContent = payload.branch || "none";
-  document.getElementById(prefix + "commit-short").textContent = shortHash(commit);
-  document.getElementById(prefix + "commit").textContent = commit;
-  var stageRow = document.getElementById(prefix + "stage-row");
-  stageRow.hidden = idle;
-  document.getElementById(prefix + "stage").textContent = idle ? "" : stageLabel(payload.stage);
-  var errorGroup = document.getElementById(prefix + "error-group");
-  var error = document.getElementById(prefix + "error");
-  if (!idle && payload.error) {
-    errorGroup.hidden = false;
-    error.textContent = payload.error;
-  } else {
-    errorGroup.hidden = true;
-    error.textContent = "";
-  }
-  renderColumnLog(prefix, payload);
-}
-var selectedBuild = { "": null, "desktop-": null };
-var shownBuild = { "": "", "desktop-": "" };
-var logFollow = { "": true, "desktop-": true };
-var logRequest = { "": 0, "desktop-": 0 };
-var buildStamp = { "": "", "desktop-": "" };
-function nearBottom(node) {
-  return node.scrollHeight - node.scrollTop - node.clientHeight < 12;
-}
-function jumpLog(node) {
-  node.scrollTop = node.scrollHeight;
-}
 function shortWhen(value) {
-  if (!value) return "none";
+  if (!value) return "";
   var date = new Date(value);
   if (isNaN(date.getTime())) return String(value);
   var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   function two(number) { return (number < 10 ? "0" : "") + number; }
   return months[date.getMonth()] + " " + date.getDate() + " " + two(date.getHours()) + ":" + two(date.getMinutes());
 }
-function setLogText(prefix, buildId, text, running) {
-  var node = document.getElementById(prefix + "log-view");
-  var next = String(text == null ? "" : text);
-  var switched = shownBuild[prefix] !== buildId;
-  var wasAtBottom = nearBottom(node);
-  if (node.textContent !== next) node.textContent = next;
-  shownBuild[prefix] = buildId;
-  if (switched) {
-    logFollow[prefix] = !!running;
-    jumpLog(node);
-    return;
-  }
-  if (running && logFollow[prefix] !== false && wasAtBottom) jumpLog(node);
-}
-function renderBuildList(prefix, builds, chosen) {
-  var stamp = chosen;
-  for (var i = 0; i < builds.length; i++) {
-    var item = builds[i];
-    stamp += "\n" + item.id + "|" + item.status + "|" + item.commit + "|" + item.startedAt;
-  }
-  if (stamp === buildStamp[prefix]) return;
-  buildStamp[prefix] = stamp;
-  var list = document.getElementById(prefix + "build-list");
-  clearNode(list);
-  for (var n = 0; n < builds.length; n++) {
-    var row = builds[n];
-    var button = document.createElement("button");
-    button.type = "button";
-    button.className = "build-row";
-    button.setAttribute("data-id", row.id);
-    button.setAttribute("aria-selected", row.id === chosen ? "true" : "false");
-    var product = row.product || (prefix === "desktop-" ? "Nuvio for Mac" : "Nuvio for iPhone");
-    button.appendChild(el("span", "build-product", product));
-    button.appendChild(el("span", "build-status", statusWord(row.status)));
-    button.appendChild(el("span", "build-commit", shortHash(row.commit)));
-    button.appendChild(el("span", "build-when", shortWhen(row.finishedAt || row.startedAt)));
-    list.appendChild(button);
-  }
-}
-function renderColumnLog(prefix, payload) {
-  var builds = payload.recentBuilds || [];
-  var view = document.getElementById(prefix + "log-view");
-  if (!builds.length) {
-    selectedBuild[prefix] = null;
-    shownBuild[prefix] = "";
-    buildStamp[prefix] = "none";
-    clearNode(document.getElementById(prefix + "build-list"));
-    if (view.textContent !== "none") view.textContent = "none";
-    return;
-  }
-  var chosen = selectedBuild[prefix];
-  var known = false;
-  for (var i = 0; i < builds.length; i++) {
-    if (builds[i].id === chosen) known = true;
-  }
-  if (!known) {
-    selectedBuild[prefix] = null;
-    chosen = builds[0].id;
-  }
-  var active = builds[0];
-  for (var j = 0; j < builds.length; j++) {
-    if (builds[j].id === chosen) active = builds[j];
-  }
-  renderBuildList(prefix, builds, chosen);
-  var running = active.status === "building";
-  if (chosen === builds[0].id) {
-    logRequest[prefix] += 1;
-    setLogText(prefix, chosen, payload.logTail || "", running);
-    return;
-  }
-  var token = ++logRequest[prefix];
-  fetch("/api/builds/" + encodeURIComponent(chosen) + "/log", { cache: "no-store" })
-    .then(function (response) { return response.ok ? response.text() : ""; })
-    .then(function (text) {
-      if (logRequest[prefix] !== token) return;
-      if (selectedBuild[prefix] !== chosen) return;
-      setLogText(prefix, chosen, text, running);
-    })
-    .catch(function () {});
-}
-function bindColumnLog(prefix) {
-  var node = document.getElementById(prefix + "log-view");
-  function syncFollow() {
-    logFollow[prefix] = nearBottom(node);
-  }
-  node.addEventListener("wheel", function () { setTimeout(syncFollow, 0); });
-  node.addEventListener("touchend", syncFollow);
-  node.addEventListener("pointerup", syncFollow);
-  node.addEventListener("keyup", syncFollow);
-  var list = document.getElementById(prefix + "build-list");
-  list.addEventListener("click", function (event) {
-    var target = event.target;
-    while (target && target !== list && target.tagName !== "BUTTON") target = target.parentNode;
-    if (!target || target === list) return;
-    selectedBuild[prefix] = target.getAttribute("data-id");
-    buildStamp[prefix] = "";
-    refresh();
-  });
-}
-function versionLines(text) {
-  var parsed = parseNotes(text);
-  if (!parsed || parsed.kind !== "rows") return ["No summary for this file."];
-  var subjects = [];
-  for (var i = 0; i < parsed.items.length; i++) {
-    if (parsed.items[i].kind === "commit") subjects.push(parsed.items[i].subject);
-  }
-  if (!subjects.length) return ["No summary for this file."];
-  var lines = subjects.slice(0, 4);
-  if (subjects.length > 4) lines.push("And " + (subjects.length - 4) + " more in Release notes");
-  return lines;
-}
-function fillVersion(text, elementId) {
-  var node = document.getElementById(elementId);
-  var lines = versionLines(text);
-  var stamp = lines.join("\n");
-  if (node.getAttribute("data-stamp") === stamp) return;
-  node.setAttribute("data-stamp", stamp);
-  clearNode(node);
-  for (var i = 0; i < lines.length; i++) {
-    var more = lines[i].indexOf("And ") === 0 && lines[i].indexOf(" more in Release notes") > 0;
-    var empty = lines[i] === "No summary for this file.";
-    var row = el("div", empty ? "row" : "note");
-    row.appendChild(el("p", empty ? "empty-notes" : (more ? "more-line" : "note-subject"), lines[i]));
-    node.appendChild(row);
-  }
-}
-function apply(payload) {
-  applyInto("", payload);
-  fillVersion(payload.releaseNotes, "version-lines");
-  fillNotes(payload.releaseNotes);
-}
-function applyDesktop(payload) {
-  applyInto("desktop-", payload);
-  fillVersion(payload.releaseNotes, "desktop-version-lines");
-  desktopNotesStamp = fillNotesInto(payload.releaseNotes, "desktop-notes", "desktop-notes-toggle", desktopNotesExpanded, desktopNotesStamp);
-}
-function workStatus(value) {
-  if (value === "in_progress") return "In progress";
-  if (value === "in_review") return "In review";
-  if (value === "todo") return "To do";
-  if (value === "blocked") return "Blocked";
-  if (value === "done") return "Done";
-  return value || "None";
-}
-function packageWord(value) {
-  if (value === "ipa") return "IPA";
-  if (value === "dmg") return "DMG";
-  return "Neither";
-}
-function fillPackage(cardId, group) {
-  var card = document.getElementById(cardId);
-  var stamp = JSON.stringify(group || {});
-  if (card.getAttribute("data-stamp") === stamp) return;
-  card.setAttribute("data-stamp", stamp);
-  clearNode(card);
-  var next = group && group.inNext ? group.inNext : {};
-  var nextBlock = el("div", "block");
-  nextBlock.appendChild(el("p", "block-label", group && group.nextLabel ? group.nextLabel : "In the next"));
-  var items = next.items || [];
-  if (!items.length) {
-    nextBlock.appendChild(el("p", "empty-notes", "Nothing new is queued."));
-  } else {
-    for (var i = 0; i < items.length; i++) nextBlock.appendChild(el("p", "bullet", items[i]));
-  }
-  card.appendChild(nextBlock);
-  var stash = group && group.stashed ? group.stashed : {};
-  var stashBlock = el("div", "block");
-  stashBlock.appendChild(el("p", "block-label", "Stashed while testing"));
-  var stashed = stash.items || [];
-  if (!stashed.length) {
-    stashBlock.appendChild(el("p", "empty-notes", stash.emptyText || "Nothing is stashed."));
-  } else {
-    for (var s = 0; s < stashed.length; s++) {
-      var line = stashed[s].summary || "";
-      if (stashed[s].issue) line += " · " + stashed[s].issue;
-      stashBlock.appendChild(el("p", "bullet", line));
-    }
-    if (stash.more) stashBlock.appendChild(el("p", "more-line", "And " + stash.more + " more stashed."));
-  }
-  card.appendChild(stashBlock);
-  var progress = el("div", "block");
-  progress.appendChild(el("p", "block-label", group && group.headline ? group.headline : "Nothing is queued."));
-  if (group && group.percent != null) {
-    var track = el("div", "track work-track");
-    track.setAttribute("role", "progressbar");
-    track.setAttribute("aria-valuemin", "0");
-    track.setAttribute("aria-valuemax", "100");
-    track.setAttribute("aria-valuenow", String(group.percent));
-    track.setAttribute("aria-label", group.headline || "Task progress");
-    var bar = el("span", "bar");
-    bar.style.width = Math.max(0, Math.min(100, Number(group.percent) || 0)) + "%";
-    track.appendChild(bar);
-    progress.appendChild(track);
-  }
-  card.appendChild(progress);
-  if (group && group.agentTime) card.appendChild(el("div", "block")).appendChild(el("p", "task-meta", group.agentTime));
-  if (group && group.compile) card.appendChild(el("div", "block")).appendChild(el("p", "task-meta", group.compile));
-  var tasks = group && group.tasks ? group.tasks : [];
-  for (var t = 0; t < tasks.length; t++) {
-    var task = tasks[t];
-    var row = el("div", "task");
-    row.appendChild(el("p", "note-subject", (task.id ? task.id + " · " : "") + (task.title || "")));
-    var meta = [workStatus(task.status), task.agent || "None", task.elapsed || ""].filter(function (part) { return part; });
-    row.appendChild(el("p", "task-meta", meta.join(" · ")));
-    if (task.tokens) row.appendChild(el("p", "task-meta", task.tokens));
-    if (task.billing) row.appendChild(el("p", "task-meta", task.billing));
-    if (task.model) row.appendChild(el("p", "task-meta", task.model));
-    card.appendChild(row);
-  }
-}
-function fillWorking(rows) {
-  var card = document.getElementById("working-now-card");
-  var list = rows || [];
-  var stamp = JSON.stringify(list);
-  if (card.getAttribute("data-stamp") === stamp) return;
-  card.setAttribute("data-stamp", stamp);
-  clearNode(card);
-  if (!list.length) {
-    var empty = el("div", "row");
-    empty.appendChild(el("p", "empty-notes", "No one is working right now."));
-    card.appendChild(empty);
-    return;
-  }
-  for (var i = 0; i < list.length; i++) {
-    var item = list[i];
-    var row = el("div", "task");
-    row.appendChild(el("p", "note-subject", (item.id || "") + " · " + (item.title || "")));
-    var meta = [workStatus(item.status), item.agent || "None", item.elapsed || "", packageWord(item.package)];
-    row.appendChild(el("p", "task-meta", meta.filter(function (part) { return part; }).join(" · ")));
-    if (item.model) row.appendChild(el("p", "task-meta", item.model));
-    card.appendChild(row);
-  }
-}
-function applyWork(payload) {
-  fillPackage("next-ipa-card", payload.ipa || {});
-  fillPackage("next-dmg-card", payload.dmg || {});
-  fillWorking(payload.workingNow || []);
-}
-function megabytes(bytes) {
-  var number = Number(bytes);
-  if (!isFinite(number) || number < 0) return "";
-  return (number / (1024 * 1024)).toFixed(1) + " MB";
-}
-function versionLine(entry) {
+function versionText(entry) {
+  if (!entry) return "";
   var version = entry.version && entry.version !== "none" ? String(entry.version) : "";
   if (entry.build) version = (version ? version + " " : "") + "(" + entry.build + ")";
-  var commit = shortHash(entry.commit);
-  if (version && commit && commit !== "none") return version + " · " + commit;
-  return version || (commit && commit !== "none" ? commit : "");
+  return version;
 }
-function downloadLink(href, savedName) {
+function packageFacts(entry) {
+  var when = entry.packagedAt ? shortWhen(entry.packagedAt) : "";
+  var commit = shortHash(entry.commit);
+  var parts = [];
+  if (when) parts.push(when);
+  if (commit && commit !== "none") parts.push(commit);
+  return parts.join(" · ");
+}
+function downloadLink(href, savedName, label) {
   var link = document.createElement("a");
   link.className = "download-link";
   link.href = href;
   link.textContent = "Download";
+  if (label) link.setAttribute("aria-label", label);
   if (savedName) link.setAttribute("download", savedName);
   return link;
 }
-function fillCard(node, entry, href, title) {
+function noteParts(text) {
+  var parsed = parseNotes(text);
+  var lines = [];
+  var extras = [];
+  if (!parsed || parsed.kind === "empty") return { lines: lines, extras: extras };
+  if (parsed.kind === "text") {
+    extras.push(parsed.text);
+    return { lines: lines, extras: extras };
+  }
+  for (var i = 0; i < parsed.items.length; i++) {
+    var item = parsed.items[i];
+    if (item.kind === "commit") lines.push(item.subject);
+    else if (item.text && lines.indexOf(item.text) < 0) extras.push(item.text);
+  }
+  return { lines: lines, extras: extras };
+}
+function renderSummary(node, text) {
+  var stamp = String(text == null ? "" : text);
+  if (node.getAttribute("data-stamp") === stamp) return;
+  var open = false;
+  var existing = node.querySelector ? node.querySelector("details") : null;
+  if (existing && existing.open) open = true;
+  node.setAttribute("data-stamp", stamp);
   clearNode(node);
-  if (!entry) {
-    var empty = el("div", "row");
-    empty.appendChild(el("p", "empty-notes", "No package"));
-    node.appendChild(empty);
-    return;
+  var parts = noteParts(text);
+  var visible = parts.lines.slice(0, 5);
+  var hiddenLines = parts.lines.slice(5);
+  var extras = [];
+  for (var i = 0; i < parts.extras.length; i++) {
+    if (parts.lines.indexOf(parts.extras[i]) < 0) extras.push(parts.extras[i]);
   }
-  var stack = el("div", "row row-stack");
-  stack.appendChild(el("p", "download-file", entry.product || title));
-  var version = versionLine(entry);
-  if (version) stack.appendChild(el("p", "download-meta", version));
-  var when = entry.packagedAt ? shortWhen(entry.packagedAt) : "";
-  var size = megabytes(entry.bytes);
-  var facts = [when, size].filter(function (part) { return part; }).join(" · ");
-  if (facts) stack.appendChild(el("p", "download-meta", facts));
-  if (entry.notice) stack.appendChild(el("p", "package-note", entry.notice));
-  var actions = el("div", "card-actions");
-  actions.appendChild(downloadLink(href, entry.savedName || entry.filename));
-  var copy = document.createElement("button");
-  copy.type = "button";
-  copy.className = "copy-link";
-  copy.textContent = "Copy";
-  copy.setAttribute("data-copy", entry.copyText || "");
-  actions.appendChild(copy);
-  stack.appendChild(actions);
-  node.appendChild(stack);
-}
-function olderRow(entry) {
-  var row = el("div", "row row-stack");
-  row.appendChild(el("p", "download-file", entry.filename || "Package"));
-  var bits = [];
-  var version = versionLine(entry);
-  if (version) bits.push(version);
-  var size = megabytes(entry.bytes);
-  if (size) bits.push(size);
-  bits.push("Older");
-  row.appendChild(el("p", "download-meta", bits.join(" · ")));
-  var name = entry.filename || "";
-  row.appendChild(downloadLink("/download/older/" + encodeURIComponent(name), name));
-  return row;
-}
-function applyDownloads(payload) {
-  var desktop = payload.desktop || {};
-  fillCard(document.getElementById("iphone-card"), payload.ipa, "/download/ipa", "Nuvio for iPhone");
-  fillCard(document.getElementById("mac-card"), desktop.macos, "/download/desktop/macos", "Nuvio for Mac");
-  var absent = document.getElementById("absent-packages");
-  var missing = [];
-  if (!desktop.windows) missing.push("Windows");
-  if (!desktop.linux) missing.push("Linux");
-  if (!desktop.windows && !desktop.linux) {
-    absent.hidden = false;
-    absent.textContent = "Windows and Linux have no package.";
-  } else if (missing.length === 1) {
-    absent.hidden = false;
-    absent.textContent = missing[0] + " has no package.";
-  } else {
-    absent.hidden = true;
-    absent.textContent = "";
+  if (!visible.length && !hiddenLines.length && !extras.length) return;
+  if (visible.length) {
+    var list = el("ul", "summary-list");
+    for (var n = 0; n < visible.length; n++) list.appendChild(el("li", "", visible[n]));
+    node.appendChild(list);
   }
-  var olderRoot = document.getElementById("older");
-  var olderGroup = document.getElementById("older-group");
-  var older = payload.older || [];
-  clearNode(olderRoot);
-  if (!older.length) {
-    olderGroup.hidden = true;
-    return;
+  if (!hiddenLines.length && !extras.length) return;
+  var details = document.createElement("details");
+  details.className = "more";
+  if (open) details.open = true;
+  var summary = document.createElement("summary");
+  summary.textContent = "Show all";
+  details.appendChild(summary);
+  if (hiddenLines.length) {
+    var rest = el("ul", "summary-list");
+    for (var h = 0; h < hiddenLines.length; h++) rest.appendChild(el("li", "", hiddenLines[h]));
+    details.appendChild(rest);
   }
-  olderGroup.hidden = false;
-  for (var i = 0; i < older.length; i++) olderRoot.appendChild(olderRow(older[i]));
+  if (extras.length) details.appendChild(el("p", "summary-extra", extras.join("\n")));
+  node.appendChild(details);
 }
-function copyText(text) {
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    return navigator.clipboard.writeText(text);
+function renderPackage(packageId, summaryId, entry, href, notes, platformName) {
+  var node = document.getElementById(packageId);
+  var summary = document.getElementById(summaryId);
+  var stamp = JSON.stringify(entry || null);
+  if (node.getAttribute("data-stamp") !== stamp) {
+    node.setAttribute("data-stamp", stamp);
+    clearNode(node);
+    if (!entry) {
+      node.appendChild(el("p", "latest", "No package is available."));
+    } else {
+      var version = versionText(entry);
+      if (version) node.appendChild(el("p", "version", version));
+      var facts = packageFacts(entry);
+      if (facts) node.appendChild(el("p", "meta", facts));
+      if (entry.notice) node.appendChild(el("p", "notice", entry.notice));
+      var label = "Download " + platformName;
+      if (version) label += " " + version;
+      node.appendChild(downloadLink(href, entry.savedName || entry.filename, label));
+    }
   }
-  var area = document.createElement("textarea");
-  area.value = text;
-  document.body.appendChild(area);
-  area.select();
-  try { document.execCommand("copy"); } catch (err) {}
-  document.body.removeChild(area);
-  return Promise.resolve();
+  renderSummary(summary, notes);
 }
-var IDLE_POLL_MS = 30000;
-var ACTIVE_POLL_MS = 2000;
-var REQUEST_LABEL = {
-  ipa: "Request this iPhone build",
-  dmg: "Request this Mac build"
-};
-var cutState = {
-  ipa: { idStamp: "", domStamp: "", selected: {} },
-  dmg: { idStamp: "", domStamp: "", selected: {} }
-};
-var pollTimer = 0;
-var refreshRunning = false;
-var lastActive = false;
-
 function defaultSelection(commits) {
   var selected = {};
   for (var i = 0; i < commits.length; i++) selected[commits[i].commit] = true;
@@ -570,6 +212,20 @@ function syncCutChecks(root, commits, selected) {
     boxes[i].checked = !!selected[commits[index].commit];
   }
 }
+function requestedText(cut) {
+  var commit = cut && cut.request ? cut.request.commit : "";
+  if (!/^[0-9a-fA-F]{7,40}$/.test(String(commit || ""))) return "Requested";
+  return "Requested · " + shortHash(commit);
+}
+function issueAnchor(identifier) {
+  var text = String(identifier || "");
+  if (!ISSUE_LINK.test(text)) return el("span", "issue-link", text);
+  var link = document.createElement("a");
+  link.className = "issue-link";
+  link.href = ISSUE_ORIGIN + text;
+  link.textContent = text;
+  return link;
+}
 function renderCut(platform, cut, enabled) {
   var root = document.getElementById(platform === "ipa" ? "ipa-cut" : "dmg-cut");
   if (!root) return;
@@ -592,35 +248,47 @@ function renderCut(platform, cut, enabled) {
   if (state.domStamp === stamp) return;
   state.domStamp = stamp;
   clearNode(root);
-  root.appendChild(el("p", "block-label", "Cut"));
   if (cut && cut.error) {
-    root.appendChild(el("p", "empty-notes", cut.error));
-  } else if (!commits.length) {
-    root.appendChild(el("p", "empty-notes", "The served package already includes this branch."));
-  } else {
-    var list = el("div", "cut-list");
-    for (var i = 0; i < commits.length; i++) {
-      var row = commits[i];
-      var label = document.createElement("label");
-      label.className = "cut-row";
-      var box = document.createElement("input");
-      box.type = "checkbox";
-      box.checked = !!state.selected[row.commit];
-      box.setAttribute("data-index", String(i));
-      label.appendChild(box);
-      var copy = el("span", "cut-copy");
-      var title = el("span", "cut-subject", row.subject || "(no subject)");
-      var meta = shortHash(row.commit);
-      if (row.issues && row.issues.length) meta += " · " + row.issues.join(" ");
-      copy.appendChild(title);
-      copy.appendChild(el("span", "cut-meta", meta));
-      label.appendChild(copy);
-      list.appendChild(label);
-    }
-    root.appendChild(list);
+    root.appendChild(el("p", "latest", cut.error));
+    return;
   }
+  if (!commits.length) {
+    var branch = (cut && cut.branch) || "this branch";
+    if (cut && cut.pending) {
+      root.appendChild(el("p", "request-state", requestedText(cut)));
+      return;
+    }
+    root.appendChild(el("p", "latest", "This download is already the latest on " + branch + "."));
+    return;
+  }
+  root.appendChild(el("p", "cut-help", PREFIX_HELP));
+  var list = el("div", "cut-list");
+  for (var i = 0; i < commits.length; i++) {
+    var row = commits[i];
+    var line = el("div", "cut-row");
+    var label = document.createElement("label");
+    var box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = !!state.selected[row.commit];
+    box.setAttribute("data-index", String(i));
+    label.appendChild(box);
+    var copy = el("span", "cut-copy");
+    copy.appendChild(el("span", "cut-subject", row.subject || "(no subject)"));
+    copy.appendChild(el("span", "cut-meta", shortHash(row.commit)));
+    label.appendChild(copy);
+    line.appendChild(label);
+    var issues = row.issues || [];
+    if (issues.length) {
+      var issueRow = el("span", "issue-links");
+      for (var n = 0; n < issues.length; n++) issueRow.appendChild(issueAnchor(issues[n]));
+      line.appendChild(issueRow);
+    }
+    list.appendChild(line);
+  }
+  root.appendChild(list);
   var stateNode = el("p", "request-state");
   stateNode.id = platform + "-request-state";
+  stateNode.setAttribute("aria-live", "polite");
   var button = document.createElement("button");
   button.type = "button";
   button.className = "request-button";
@@ -629,13 +297,11 @@ function renderCut(platform, cut, enabled) {
   function paint() {
     var chosen = newestChecked(commits, state.selected);
     var count = checkedCount(commits, state.selected);
-    if (cut && cut.pending) stateNode.textContent = "Requested";
+    if (cut && cut.pending) stateNode.textContent = requestedText(cut);
     else if (cut && cut.busy) stateNode.textContent = cut.busy;
-    else if (cut && cut.error) stateNode.textContent = "";
-    else if (!commits.length) stateNode.textContent = "";
     else if (!chosen) stateNode.textContent = "Choose a commit.";
     else stateNode.textContent = "Includes " + count + (count === 1 ? " commit." : " commits.");
-    button.disabled = !!(cut && (cut.pending || cut.busy || cut.error)) || !chosen;
+    button.disabled = !!(cut && (cut.pending || cut.busy)) || !chosen;
   }
   root.onchange = function (event) {
     var target = event.target;
@@ -677,6 +343,141 @@ function renderCut(platform, cut, enabled) {
   root.appendChild(stateNode);
   root.appendChild(button);
 }
+function compileRoot(prefix) {
+  return document.getElementById(prefix === "desktop-" ? "dmg-compile" : "ipa-compile");
+}
+function logElementId(prefix) {
+  return prefix === "desktop-" ? "desktop-log-view" : "log-view";
+}
+function nearBottom(node) {
+  return node.scrollHeight - node.scrollTop - node.clientHeight < 12;
+}
+function compileMode(payload) {
+  var state = payload && payload.status ? payload.status : "idle";
+  if (state === "building" || state === "queued") return "run";
+  if (state === "failed") return "fail";
+  return "";
+}
+function renderCompile(prefix, payload) {
+  var root = compileRoot(prefix);
+  if (!root) return;
+  var mode = compileMode(payload);
+  if (!mode) {
+    if (!root.hidden) {
+      root.hidden = true;
+      clearNode(root);
+      root.removeAttribute("data-shell");
+    }
+    return;
+  }
+  root.hidden = false;
+  var failed = mode === "fail";
+  if (root.getAttribute("data-shell") !== mode) {
+    clearNode(root);
+    root.setAttribute("data-shell", mode);
+    var row = el("div", "compile-row");
+    var word = el("p", "status-word");
+    word.id = prefix + "status-word";
+    var percent = el("p", "percent");
+    percent.id = prefix + "percent";
+    row.appendChild(word);
+    if (!failed) row.appendChild(percent);
+    root.appendChild(row);
+    if (!failed) {
+      var track = el("div", "track");
+      track.id = prefix + "track";
+      track.setAttribute("role", "progressbar");
+      track.setAttribute("aria-valuemin", "0");
+      track.setAttribute("aria-valuemax", "100");
+      track.setAttribute("aria-label", prefix === "desktop-" ? "Mac build progress" : "iPhone build progress");
+      var bar = el("span", "bar");
+      bar.id = prefix + "bar";
+      track.appendChild(bar);
+      root.appendChild(track);
+    }
+    var error = el("p", "alert");
+    error.id = prefix + "error";
+    error.setAttribute("role", "alert");
+    error.hidden = true;
+    root.appendChild(error);
+    var details = document.createElement("details");
+    details.className = "log";
+    details.id = prefix + "log-details";
+    if (failed) details.open = true;
+    var summary = document.createElement("summary");
+    summary.textContent = "Show log";
+    details.appendChild(summary);
+    var view = el("pre", "log-view");
+    view.id = logElementId(prefix);
+    details.appendChild(view);
+    view.addEventListener("scroll", function () {
+      logFollow[prefix] = nearBottom(view);
+    });
+    root.appendChild(details);
+  }
+  var state = payload.status;
+  var statusNode = document.getElementById(prefix + "status-word");
+  if (statusNode) {
+    statusNode.textContent = statusWord(state);
+    statusNode.setAttribute("data-state", state);
+  }
+  var width = Math.max(0, Math.min(100, Number(payload.percent) || 0));
+  var percentNode = document.getElementById(prefix + "percent");
+  if (percentNode) percentNode.textContent = percentText(payload.percent);
+  var barNode = document.getElementById(prefix + "bar");
+  if (barNode) barNode.style.width = width + "%";
+  var trackNode = document.getElementById(prefix + "track");
+  if (trackNode) trackNode.setAttribute("aria-valuenow", String(Math.round(width)));
+  var errorNode = document.getElementById(prefix + "error");
+  if (errorNode) {
+    if (payload.error) {
+      errorNode.hidden = false;
+      errorNode.textContent = payload.error;
+    } else {
+      errorNode.hidden = true;
+      errorNode.textContent = "";
+    }
+  }
+  var logNode = document.getElementById(logElementId(prefix));
+  if (logNode) {
+    var next = String(payload.logTail == null ? "" : payload.logTail);
+    var stick = logFollow[prefix] !== false && nearBottom(logNode);
+    if (logNode.textContent !== next) logNode.textContent = next;
+    if (stick) logNode.scrollTop = logNode.scrollHeight;
+  }
+}
+function olderRow(entry) {
+  var row = el("div", "older-row");
+  var product = entry.product || "Package";
+  row.appendChild(el("p", "older-product", product));
+  var version = versionText(entry);
+  if (version) row.appendChild(el("p", "meta", version));
+  var name = entry.filename || "";
+  var link = document.createElement("a");
+  link.className = "older-link";
+  link.href = "/download/older/" + encodeURIComponent(name);
+  link.textContent = "Download";
+  link.setAttribute("aria-label", "Download " + product + (version ? " " + version : ""));
+  if (name) link.setAttribute("download", name);
+  row.appendChild(link);
+  return row;
+}
+function renderOlder(rows) {
+  var group = document.getElementById("older-downloads");
+  var root = document.getElementById("older");
+  if (!group || !root) return;
+  var list = rows || [];
+  var stamp = JSON.stringify(list);
+  if (root.getAttribute("data-stamp") === stamp) return;
+  root.setAttribute("data-stamp", stamp);
+  clearNode(root);
+  if (!list.length) {
+    group.hidden = true;
+    return;
+  }
+  group.hidden = false;
+  for (var i = 0; i < list.length; i++) root.appendChild(olderRow(list[i]));
+}
 async function refresh() {
   if (refreshRunning) return;
   refreshRunning = true;
@@ -685,18 +486,23 @@ async function refresh() {
     var response = await fetch("/api/dashboard", { cache: "no-store" });
     if (response.ok) {
       var payload = await response.json();
-      apply(payload.iphone || {});
-      applyDesktop(payload.desktop || {});
-      applyDownloads(payload.downloads || {});
-      applyWork(payload.work || {});
+      var downloads = payload.downloads || {};
+      var desktopDownload = downloads.desktop || {};
+      var iphone = payload.iphone || {};
+      var desktop = payload.desktop || {};
+      renderPackage("ipa-package", "ipa-summary", downloads.ipa, "/download/ipa", iphone.releaseNotes, "iPhone");
+      renderPackage("dmg-package", "dmg-summary", desktopDownload.macos, "/download/desktop/macos", desktop.releaseNotes, "Mac");
+      renderCompile("", iphone);
+      renderCompile("desktop-", desktop);
+      renderOlder(downloads.older || []);
       var cuts = payload.cuts || {};
       var enabled = payload.requestEnabled !== false;
       renderCut("ipa", cuts.ipa || {}, enabled);
       renderCut("dmg", cuts.dmg || {}, enabled);
       active = !!(payload.poll && payload.poll.active);
       if (!payload.poll) {
-        var iphoneState = payload.iphone && payload.iphone.status;
-        var desktopState = payload.desktop && payload.desktop.status;
+        var iphoneState = iphone.status;
+        var desktopState = desktop.status;
         active = iphoneState === "building" || iphoneState === "queued" || desktopState === "building" || desktopState === "queued";
       }
     }
@@ -710,31 +516,6 @@ async function refresh() {
   }
 }
 function boot() {
-  document.getElementById("notes-toggle").addEventListener("click", function () {
-    notesExpanded = !notesExpanded;
-    notesStamp = "";
-    refresh();
-  });
-  document.getElementById("desktop-notes-toggle").addEventListener("click", function () {
-    desktopNotesExpanded = !desktopNotesExpanded;
-    desktopNotesStamp = "";
-    refresh();
-  });
-  bindColumnLog("");
-  bindColumnLog("desktop-");
-  document.querySelector("main").addEventListener("click", function (event) {
-    var target = event.target;
-    while (target && target !== document.body && !(target.getAttribute && target.getAttribute("data-copy"))) {
-      target = target.parentNode;
-    }
-    if (!target || !target.getAttribute) return;
-    var text = target.getAttribute("data-copy");
-    if (!text) return;
-    copyText(text).then(function () {
-      target.textContent = "Copied";
-      setTimeout(function () { target.textContent = "Copy"; }, 1200);
-    }).catch(function () {});
-  });
   refresh();
 }
 if (typeof document !== "undefined") boot();
