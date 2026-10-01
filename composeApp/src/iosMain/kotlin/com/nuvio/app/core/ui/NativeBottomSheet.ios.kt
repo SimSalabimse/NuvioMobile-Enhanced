@@ -22,7 +22,11 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.uikit.LocalUIViewController
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.window.ComposeUIViewController
+import kotlinx.cinterop.useContents
+import platform.CoreGraphics.CGSizeMake
 import platform.UIKit.UIAdaptivePresentationControllerDelegateProtocol
+import platform.UIKit.UIGlassEffect
+import platform.UIKit.UIGlassEffectStyle
 import platform.UIKit.UIBlurEffect
 import platform.UIKit.UIBlurEffectStyle
 import platform.UIKit.UIColor
@@ -42,7 +46,7 @@ internal actual val usesNativeNuvioBottomSheet: Boolean = true
 private var activeNativeBottomSheet: UIViewController? = null
 private var activeNativeBottomSheetDelegate: NuvioNativeBottomSheetDelegate? = null
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class, ExperimentalForeignApi::class)
 @Composable
 internal actual fun NuvioNativeModalBottomSheet(
     onDismissRequest: () -> Unit,
@@ -133,6 +137,16 @@ internal actual fun NuvioNativeModalBottomSheet(
         } else {
             sheetController.view.backgroundColor = latestContainerColor.value.toUIColor()
         }
+        val containerBounds = parentViewController.view.bounds
+        val containerWidth = containerBounds.useContents { size.width }
+        val containerHeight = containerBounds.useContents { size.height }
+        if (liquidGlass) {
+            val cardWidth = flagSheetCardWidth(containerWidth)
+            val cardHeight = flagSheetDetentHeight(containerHeight)
+            if (cardWidth > 0.0 && cardHeight > 0.0) {
+                sheetController.setPreferredContentSize(CGSizeMake(cardWidth, cardHeight))
+            }
+        }
         (sheetController.presentationController() as? UISheetPresentationController)?.apply {
             if (liquidGlass) {
                 val detent = UISheetPresentationControllerDetent.customDetentWithIdentifier(
@@ -141,8 +155,18 @@ internal actual fun NuvioNativeModalBottomSheet(
                         flagSheetDetentHeight(context?.maximumDetentValue ?: 0.0)
                     },
                 )
+                if (iosAtLeast(26, 1)) {
+                    val glass = UIGlassEffect.effectWithStyle(UIGlassEffectStyle.UIGlassEffectStyleRegular)
+                    glass.interactive = false
+                    detent.backgroundEffect = glass
+                }
                 detents = listOf(detent)
                 selectedDetentIdentifier = FLAG_SHEET_DETENT_ID
+                // Compact height (landscape iPhone) otherwise promotes the sheet to a full-screen cover.
+                prefersEdgeAttachedInCompactHeight = true
+                prefersPageSizing = false
+                widthFollowsPreferredContentSizeWhenEdgeAttached = true
+                preferredCornerRadius = 36.0
             } else if (fullHeight) {
                 detents = listOf(UISheetPresentationControllerDetent.largeDetent())
             } else {
@@ -174,7 +198,14 @@ internal actual fun NuvioNativeModalBottomSheet(
         parentViewController.presentViewController(
             viewControllerToPresent = sheetController,
             animated = true,
-            completion = null,
+            completion = if (liquidGlass) {
+                {
+                    sheetController.view.backgroundColor = UIColor.clearColor
+                    sheetController.view.opaque = false
+                }
+            } else {
+                null
+            },
         )
 
         onDispose {
@@ -215,8 +246,14 @@ private class NuvioNativeBottomSheetDelegate(
     }
 }
 
-private fun iosSupportsSystemLiquidGlass(): Boolean =
-    (UIDevice.currentDevice.systemVersion.substringBefore('.').toIntOrNull() ?: 0) >= 26
+private fun iosSupportsSystemLiquidGlass(): Boolean = iosAtLeast(26)
+
+private fun iosAtLeast(major: Int, minor: Int = 0): Boolean {
+    val parts = UIDevice.currentDevice.systemVersion.split('.')
+    val systemMajor = parts.getOrNull(0)?.toIntOrNull() ?: return false
+    val systemMinor = parts.getOrNull(1)?.toIntOrNull() ?: 0
+    return systemMajor > major || (systemMajor == major && systemMinor >= minor)
+}
 
 @OptIn(ExperimentalForeignApi::class)
 @Composable
