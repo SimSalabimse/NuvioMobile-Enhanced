@@ -27,6 +27,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+import builds_request
+
 STAGES = (
     ("preflight", 0.0, 2.0),
     ("prepare", 2.0, 20.0),
@@ -90,1250 +95,6 @@ HELD_BACK_IPA_SEED = (
 )
 STATUS_RANK = {"in_progress": 0, "in_review": 1, "todo": 2, "blocked": 3, "done": 4}
 OPEN_STATUSES = ("in_progress", "in_review", "todo", "blocked")
-
-PAGE = r"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Nuvio builds</title>
-<style>
-  :root {
-    color-scheme: light dark;
-    --bg: #F2F2F7;
-    --card: #FFFFFF;
-    --label: #000000;
-    --secondary: rgba(60, 60, 67, 0.6);
-    --separator: rgba(60, 60, 67, 0.29);
-    --blue: #007AFF;
-    --green: #34C759;
-    --red: #FF3B30;
-    --orange: #FF9500;
-    --track: rgba(118, 118, 128, 0.12);
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #000000;
-      --card: #1C1C1E;
-      --label: #FFFFFF;
-      --secondary: rgba(235, 235, 245, 0.6);
-      --separator: rgba(84, 84, 88, 0.65);
-      --blue: #0A84FF;
-      --green: #30D158;
-      --red: #FF453A;
-      --orange: #FF9F0A;
-      --track: rgba(118, 118, 128, 0.24);
-    }
-  }
-  * { box-sizing: border-box; }
-  [hidden] { display: none !important; }
-  html, body {
-    margin: 0;
-    max-width: 100%;
-    min-height: 100%;
-    overflow-x: hidden;
-    background: var(--bg);
-    color: var(--label);
-  }
-  body {
-    min-height: 100dvh;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-size: 17pt;
-    font-weight: 400;
-    line-height: 1.29;
-    font: -apple-system-body;
-  }
-  main {
-    width: 100%;
-    max-width: 28rem;
-    min-width: 0;
-    margin: 0 auto;
-    display: flex;
-    flex-direction: column;
-    gap: 22pt;
-    padding-top: calc(16pt + env(safe-area-inset-top));
-    padding-right: calc(16pt + env(safe-area-inset-right));
-    padding-bottom: calc(16pt + env(safe-area-inset-bottom));
-    padding-left: calc(16pt + env(safe-area-inset-left));
-  }
-  h1 {
-    margin: 0;
-    color: var(--label);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-size: 22pt;
-    font-weight: 700;
-    line-height: 1.2;
-    font: -apple-system-title2;
-  }
-  .hero { min-width: 0; display: flex; flex-direction: column; gap: 6pt; }
-  .hero-metrics {
-    display: flex;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: baseline;
-    column-gap: 10pt;
-    row-gap: 2pt;
-    min-width: 0;
-    max-width: 100%;
-  }
-  .percent {
-    margin: 0;
-    min-width: 0;
-    color: var(--label);
-    font-family: ui-rounded, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-size: 48pt;
-    font-weight: 700;
-    line-height: 1;
-    letter-spacing: -0.03em;
-    font-variant-numeric: tabular-nums;
-  }
-  .status-word {
-    margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-size: 17pt;
-    font-weight: 600;
-    line-height: 1.2;
-    font: -apple-system-headline;
-  }
-  .status-word[data-state="building"] { color: var(--blue); }
-  .status-word[data-state="queued"] { color: var(--orange); }
-  .status-word[data-state="succeeded"] { color: var(--green); }
-  .status-word[data-state="failed"] { color: var(--red); }
-  .status-word[data-state="idle"] { color: var(--secondary); }
-  .remaining {
-    margin: 0;
-    color: var(--secondary);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-size: 15pt;
-    font-weight: 400;
-    line-height: 1.25;
-    font: -apple-system-subheadline;
-    color: var(--secondary);
-  }
-  .track {
-    height: 5pt;
-    border-radius: 999px;
-    background: var(--track);
-    overflow: hidden;
-  }
-  .bar {
-    display: block;
-    height: 100%;
-    width: 0%;
-    border-radius: 999px;
-    background: var(--blue);
-    transition: width 250ms linear;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .bar { transition: none; }
-    .log-view { scroll-behavior: auto; }
-  }
-  .log-view {
-    height: 12rem;
-    margin: 0;
-    padding: 8pt 16pt;
-    min-width: 0;
-    max-width: 100%;
-    overflow-x: hidden;
-    overflow-y: auto;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    word-break: break-word;
-    scroll-behavior: auto;
-    color: var(--label);
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 11pt;
-    font-weight: 400;
-    line-height: 1.35;
-  }
-  .build-list { min-width: 0; }
-  .build-row {
-    position: relative;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    column-gap: 10pt;
-    row-gap: 2pt;
-    width: 100%;
-    min-height: 44pt;
-    margin: 0;
-    padding: 8pt 16pt;
-    border: 0;
-    background: transparent;
-    text-align: left;
-    cursor: pointer;
-    color: var(--label);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-size: 15pt;
-    font-weight: 400;
-    line-height: 1.25;
-    font: -apple-system-subheadline;
-    color: var(--label);
-  }
-  .log-view + .build-list .build-row:first-child::before,
-  .build-row + .build-row::before {
-    content: "";
-    position: absolute;
-    left: 16pt;
-    right: 0;
-    top: 0;
-    height: 0.5px;
-    background: var(--separator);
-  }
-  .build-row[aria-selected="true"] { background: var(--track); }
-  .build-row:active { opacity: 0.45; }
-  .build-status { flex: 0 0 auto; font-weight: 600; }
-  .build-commit, .build-when {
-    min-width: 0;
-    max-width: 100%;
-    color: var(--secondary);
-    overflow-wrap: anywhere;
-  }
-  .build-commit { flex: 1 1 auto; }
-  .build-when {
-    flex: 0 1 auto;
-    margin-left: auto;
-    font-variant-numeric: tabular-nums;
-  }
-  .group { min-width: 0; display: flex; flex-direction: column; }
-  .group-title {
-    margin: 0 0 6pt 16pt;
-    color: var(--secondary);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-size: 13pt;
-    font-weight: 400;
-    line-height: 1.2;
-    font: -apple-system-footnote;
-    text-transform: uppercase;
-    color: var(--secondary);
-  }
-  .card {
-    background: var(--card);
-    border-radius: 10pt;
-    corner-shape: squircle;
-    overflow: hidden;
-    min-width: 0;
-  }
-  .row {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12pt;
-    min-height: 44pt;
-    padding: 8pt 16pt;
-    min-width: 0;
-  }
-  .row-stack {
-    flex-direction: column;
-    align-items: stretch;
-    justify-content: center;
-  }
-  .row-line {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12pt;
-    min-width: 0;
-    min-height: 22pt;
-  }
-  .row + .row::before,
-  .note + .note::before,
-  .note + .plain::before,
-  .plain + .note::before,
-  .row + .note::before,
-  .note + .row::before,
-  .plain + .plain::before,
-  .row + .plain::before,
-  .plain + .row::before {
-    content: "";
-    position: absolute;
-    left: 16pt;
-    right: 0;
-    top: 0;
-    height: 0.5px;
-    background: var(--separator);
-  }
-  .row-label, .note-subject, .plain-text, .empty-notes, #error {
-    margin: 0;
-    min-width: 0;
-    color: var(--label);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-size: 17pt;
-    font-weight: 400;
-    line-height: 1.29;
-    font: -apple-system-body;
-  }
-  .row-label { flex: 0 0 auto; }
-  .row-value {
-    flex: 1 1 auto;
-    min-width: 0;
-    margin: 0;
-    text-align: right;
-    white-space: normal;
-    overflow: visible;
-    overflow-wrap: anywhere;
-    color: var(--secondary);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-size: 17pt;
-    font-weight: 400;
-    line-height: 1.29;
-    font-variant-numeric: tabular-nums;
-    font: -apple-system-body;
-    color: var(--secondary);
-  }
-  #commit, #desktop-commit {
-    margin: 2pt 0 0;
-    min-width: 0;
-    max-width: 100%;
-    color: var(--secondary);
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 13pt;
-    font-weight: 400;
-    line-height: 1.25;
-    overflow-wrap: anywhere;
-    user-select: text;
-    -webkit-user-select: text;
-    font: -apple-system-footnote;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  }
-  .note, .plain {
-    position: relative;
-    min-height: 44pt;
-    min-width: 0;
-    padding: 8pt 16pt;
-  }
-  .note-subject { color: var(--label); }
-  .note-meta, .empty-notes {
-    margin: 2pt 0 0;
-    color: var(--secondary);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-size: 13pt;
-    font-weight: 400;
-    line-height: 1.25;
-    font: -apple-system-footnote;
-    color: var(--secondary);
-  }
-  .empty-notes { margin: 0; }
-  .note-subject, .plain-text { overflow-wrap: break-word; }
-  .plain-text { white-space: pre-wrap; }
-  #error, #desktop-error {
-    display: block;
-    color: var(--red);
-    overflow-wrap: anywhere;
-  }
-  #notes-toggle, #desktop-notes-toggle {
-    position: relative;
-    display: block;
-    width: 100%;
-    min-height: 44pt;
-    margin: 0;
-    padding: 0 16pt;
-    border: 0;
-    background: transparent;
-    text-align: center;
-    cursor: pointer;
-    color: var(--blue);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-size: 17pt;
-    font-weight: 400;
-    font: -apple-system-body;
-    color: var(--blue);
-  }
-  #notes-toggle::before, #desktop-notes-toggle::before {
-    content: "";
-    position: absolute;
-    left: 16pt;
-    right: 0;
-    top: 0;
-    height: 0.5px;
-    background: var(--separator);
-  }
-  #notes-toggle:active, #desktop-notes-toggle:active { opacity: 0.45; }
-  .column-title {
-    display: block;
-    margin: 0;
-    min-width: 0;
-    overflow-wrap: anywhere;
-    font: -apple-system-headline;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    font-weight: 600;
-  }
-  .card-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 12pt;
-    min-width: 0;
-    max-width: 100%;
-  }
-  button.copy-link {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 44pt;
-    min-width: 44pt;
-    margin: 0;
-    padding: 0 12pt;
-    border: 0;
-    background: transparent;
-    color: var(--blue);
-    cursor: pointer;
-    font: -apple-system-body;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  }
-  button.copy-link:active { opacity: 0.45; }
-  .package-note, .absent-line {
-    margin: 0;
-    min-width: 0;
-    max-width: 100%;
-    color: var(--secondary);
-    overflow-wrap: anywhere;
-    font: -apple-system-footnote;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  }
-  .absent-line { font: -apple-system-subheadline; }
-  .build-product {
-    flex: 1 1 100%;
-    min-width: 0;
-    overflow-wrap: anywhere;
-    font-weight: 600;
-  }
-  .columns, .next-grid { min-width: 0; display: flex; flex-direction: column; gap: 22pt; }
-  .column { min-width: 0; display: flex; flex-direction: column; gap: 22pt; }
-  .hero-kicker {
-    margin: 0;
-    color: var(--secondary);
-    font: -apple-system-subheadline;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  }
-  .block { position: relative; min-width: 0; padding: 8pt 16pt; }
-  .block + .block::before,
-  .block + .task::before,
-  .task + .task::before,
-  .task + .block::before {
-    content: "";
-    position: absolute;
-    left: 16pt;
-    right: 0;
-    top: 0;
-    height: 0.5px;
-    background: var(--separator);
-  }
-  .block-label {
-    margin: 0 0 2pt;
-    color: var(--secondary);
-    font: -apple-system-footnote;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    text-transform: uppercase;
-  }
-  .bullet, .task {
-    position: relative;
-    min-width: 0;
-    min-height: 44pt;
-    margin: 0;
-    padding: 8pt 0 0;
-    color: var(--label);
-    overflow-wrap: anywhere;
-    font: -apple-system-body;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  }
-  .task { padding: 8pt 16pt; }
-  .task-meta, .more-line {
-    margin: 2pt 0 0;
-    color: var(--secondary);
-    overflow-wrap: anywhere;
-    font: -apple-system-footnote;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  }
-  .work-track { margin-top: 8pt; }
-  .download-file {
-    margin: 0;
-    min-width: 0;
-    color: var(--label);
-    overflow-wrap: anywhere;
-    font: -apple-system-body;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  }
-  .download-meta {
-    margin: 2pt 0 0;
-    min-width: 0;
-    color: var(--secondary);
-    overflow-wrap: anywhere;
-    font: -apple-system-footnote;
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  }
-  a.download-link {
-    display: flex;
-    align-items: center;
-    align-self: flex-start;
-    min-height: 44pt;
-    min-width: 44pt;
-    margin: 0;
-    padding: 0;
-    color: var(--blue);
-    font: -apple-system-body;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    text-decoration: none;
-  }
-  a.download-link:active { opacity: 0.45; }
-  @media (min-width: 700px) {
-    main { max-width: 960px; }
-    #ipa-column > .column-title, #desktop-column > .column-title { display: block; }
-    .columns, .next-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-      gap: 22pt;
-      align-items: start;
-    }
-  }
-</style>
-</head>
-<body>
-<main>
-  <h1>Nuvio builds</h1>
-  <div class="next-grid">
-    <section class="column" id="next-ipa-column">
-      <h2 class="column-title">Next iPhone</h2>
-      <div class="card" id="next-ipa-card">
-        <div class="block">
-          <p class="block-label">In the next IPA</p>
-          <p class="empty-notes">Nothing new is queued.</p>
-        </div>
-        <div class="block">
-          <p class="block-label">Stashed while testing</p>
-          <p class="empty-notes">Nothing is stashed for the next IPA.</p>
-        </div>
-      </div>
-    </section>
-    <section class="column" id="next-dmg-column">
-      <h2 class="column-title">Next Mac</h2>
-      <div class="card" id="next-dmg-card">
-        <div class="block">
-          <p class="block-label">In the next DMG</p>
-          <p class="empty-notes">Nothing new is queued.</p>
-        </div>
-        <div class="block">
-          <p class="block-label">Stashed while testing</p>
-          <p class="empty-notes">Nothing is stashed for the next DMG.</p>
-        </div>
-      </div>
-    </section>
-  </div>
-  <section class="group" id="working-now">
-    <h2 class="group-title">Working now</h2>
-    <div class="card" id="working-now-card">
-      <div class="row"><p class="empty-notes">No one is working right now.</p></div>
-    </div>
-  </section>
-  <section class="group" id="downloads-group">
-    <h2 class="group-title">Downloads</h2>
-  </section>
-  <div class="columns">
-    <section class="column" id="ipa-column">
-      <h2 class="column-title">Nuvio for iPhone</h2>
-      <div class="card" id="iphone-card">
-        <div class="row"><p class="empty-notes">No package</p></div>
-      </div>
-      <header class="hero">
-        <p class="hero-kicker">Compile</p>
-        <div class="hero-metrics">
-          <p class="percent" id="percent"></p>
-          <p class="status-word" id="status" data-state="idle">Idle</p>
-        </div>
-        <p class="remaining" id="remaining" hidden></p>
-        <div class="track" id="track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="IPA build progress"><span class="bar" id="bar"></span></div>
-      </header>
-      <section class="group" id="error-group" hidden>
-        <h2 class="group-title">Error</h2>
-        <div class="card">
-          <p class="row" id="error" role="alert"></p>
-        </div>
-      </section>
-      <section class="group" id="build-group">
-        <h2 class="group-title">Build</h2>
-        <div class="card">
-          <div class="row">
-            <p class="row-label">Branch</p>
-            <p class="row-value" id="branch">None</p>
-          </div>
-          <div class="row row-stack">
-            <div class="row-line">
-              <p class="row-label">Commit</p>
-              <p class="row-value" id="commit-short">None</p>
-            </div>
-            <p id="commit"></p>
-          </div>
-          <div class="row" id="stage-row" hidden>
-            <p class="row-label">Stage</p>
-            <p class="row-value" id="stage"></p>
-          </div>
-        </div>
-      </section>
-      <section class="group" id="log-group">
-        <h2 class="group-title">Log</h2>
-        <div class="card">
-          <pre id="log-view" class="log-view">none</pre>
-          <div class="build-list" id="build-list"></div>
-        </div>
-      </section>
-      <section class="group" id="version-group">
-        <h2 class="group-title">In this version</h2>
-        <div class="card" id="version-lines">
-          <div class="row"><p class="empty-notes">No summary for this file.</p></div>
-        </div>
-      </section>
-      <section class="group" id="notes-group">
-        <h2 class="group-title">Release notes</h2>
-        <div class="card">
-          <div id="notes">
-            <div class="row"><p class="empty-notes">No release notes</p></div>
-          </div>
-          <button type="button" id="notes-toggle" hidden>Show All</button>
-        </div>
-      </section>
-    </section>
-    <section class="column" id="desktop-column">
-      <h2 class="column-title">Nuvio for Mac</h2>
-      <div class="card" id="mac-card">
-        <div class="row"><p class="empty-notes">No package</p></div>
-      </div>
-      <header class="hero">
-        <p class="hero-kicker">Compile</p>
-        <div class="hero-metrics">
-          <p class="percent" id="desktop-percent"></p>
-          <p class="status-word" id="desktop-status" data-state="idle">Idle</p>
-        </div>
-        <p class="remaining" id="desktop-remaining" hidden></p>
-        <div class="track" id="desktop-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Desktop build progress"><span class="bar" id="desktop-bar"></span></div>
-      </header>
-      <section class="group" id="desktop-error-group" hidden>
-        <h2 class="group-title">Error</h2>
-        <div class="card">
-          <p class="row" id="desktop-error" role="alert"></p>
-        </div>
-      </section>
-      <section class="group">
-        <h2 class="group-title">Build</h2>
-        <div class="card">
-          <div class="row">
-            <p class="row-label">Branch</p>
-            <p class="row-value" id="desktop-branch">None</p>
-          </div>
-          <div class="row row-stack">
-            <div class="row-line">
-              <p class="row-label">Commit</p>
-              <p class="row-value" id="desktop-commit-short">None</p>
-            </div>
-            <p id="desktop-commit"></p>
-          </div>
-          <div class="row" id="desktop-stage-row" hidden>
-            <p class="row-label">Stage</p>
-            <p class="row-value" id="desktop-stage"></p>
-          </div>
-        </div>
-      </section>
-      <section class="group" id="desktop-log-group">
-        <h2 class="group-title">Log</h2>
-        <div class="card">
-          <pre id="desktop-log-view" class="log-view">none</pre>
-          <div class="build-list" id="desktop-build-list"></div>
-        </div>
-      </section>
-      <section class="group" id="desktop-version-group">
-        <h2 class="group-title">In this version</h2>
-        <div class="card" id="desktop-version-lines">
-          <div class="row"><p class="empty-notes">No summary for this file.</p></div>
-        </div>
-      </section>
-      <section class="group">
-        <h2 class="group-title">Release notes</h2>
-        <div class="card">
-          <div id="desktop-notes">
-            <div class="row"><p class="empty-notes">No release notes</p></div>
-          </div>
-          <button type="button" id="desktop-notes-toggle" hidden>Show All</button>
-        </div>
-      </section>
-    </section>
-  </div>
-  <p class="absent-line" id="absent-packages">Windows and Linux have no package.</p>
-  <section class="group" id="older-group" hidden>
-    <h2 class="group-title">Older</h2>
-    <div class="card" id="older"></div>
-  </section>
-</main>
-<script>
-var STAGE_LABELS = {
-  preflight: "Preflight",
-  prepare: "Prepare",
-  xcodebuild: "Xcode build",
-  checks: "Checks",
-  zip: "Zip"
-};
-var COMMIT_LINE = /^- ([0-9a-fA-F]{7,40}) (.+) @(\S+)\s*$/;
-var notesExpanded = false;
-var notesStamp = "";
-var desktopNotesExpanded = false;
-var desktopNotesStamp = "";
-
-function statusWord(value) {
-  if (value === "idle") return "Idle";
-  if (value === "queued") return "Queued";
-  if (value === "building") return "Building";
-  if (value === "succeeded") return "Succeeded";
-  if (value === "failed") return "Failed";
-  return value || "Idle";
-}
-function percentText(value) {
-  var number = Number(value);
-  if (!isFinite(number)) number = 0;
-  return (Math.round(number * 10) / 10).toFixed(1) + "%";
-}
-function stageLabel(value) {
-  if (value == null || value === "") return "None";
-  if (Object.prototype.hasOwnProperty.call(STAGE_LABELS, value)) return STAGE_LABELS[value];
-  return String(value);
-}
-function shortHash(value) {
-  var text = value == null || value === "" ? "none" : String(value);
-  if (!/^[0-9a-fA-F]{7,40}$/.test(text)) return text;
-  if (text.length <= 12) return text;
-  return text.slice(0, 8);
-}
-function trimText(value) {
-  return String(value == null ? "" : value).replace(/^\s+|\s+$/g, "");
-}
-function parseNotes(text) {
-  var raw = trimText(text);
-  if (!raw || raw === "none" || raw === "(no release notes)") return { kind: "empty" };
-  var lines = raw.split("\n");
-  var items = [];
-  for (var i = 0; i < lines.length; i++) {
-    var line = trimText(lines[i]);
-    if (!line) continue;
-    var match = COMMIT_LINE.exec(line);
-    if (match) {
-      items.push({ kind: "commit", hash: match[1], subject: trimText(match[2]), author: match[3] });
-    } else if (line === "[truncated]") {
-      items.push({ kind: "text", text: "Truncated", muted: true });
-    } else {
-      items.push({ kind: "text", text: line, muted: false });
-    }
-  }
-  var commits = 0;
-  for (var j = 0; j < items.length; j++) if (items[j].kind === "commit") commits++;
-  if (!commits) return { kind: "text", text: raw };
-  return { kind: "rows", items: items };
-}
-function el(tag, className, text) {
-  var node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text != null) node.textContent = text;
-  return node;
-}
-function clearNode(node) {
-  while (node.firstChild) node.removeChild(node.firstChild);
-}
-function commitRow(row) {
-  var wrap = el("div", "note");
-  wrap.appendChild(el("p", "note-subject", row.subject));
-  wrap.appendChild(el("p", "note-meta", shortHash(row.hash) + " · " + row.author));
-  return wrap;
-}
-function textRow(row) {
-  var wrap = el("div", "note");
-  wrap.appendChild(el("p", row.muted ? "empty-notes" : "note-subject", row.text));
-  return wrap;
-}
-function fillNotesInto(text, notesId, toggleId, expanded, stamp) {
-  var next = (expanded ? "1" : "0") + "\n" + String(text == null ? "" : text);
-  if (next === stamp) return stamp;
-  var notes = document.getElementById(notesId);
-  var toggle = document.getElementById(toggleId);
-  clearNode(notes);
-  var parsed = parseNotes(text);
-  if (parsed.kind === "empty") {
-    notes.appendChild(el("div", "row", null));
-    notes.firstChild.appendChild(el("p", "empty-notes", "No release notes"));
-    toggle.hidden = true;
-    return next;
-  }
-  if (parsed.kind === "text") {
-    var plain = el("div", "plain");
-    plain.appendChild(el("p", "plain-text", parsed.text));
-    notes.appendChild(plain);
-    toggle.hidden = true;
-    return next;
-  }
-  var items = parsed.items;
-  var limit = expanded ? items.length : Math.min(5, items.length);
-  for (var i = 0; i < limit; i++) {
-    notes.appendChild(items[i].kind === "commit" ? commitRow(items[i]) : textRow(items[i]));
-  }
-  if (items.length > 5) {
-    toggle.hidden = false;
-    toggle.textContent = expanded ? "Show Less" : "Show All";
-    toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
-  } else {
-    toggle.hidden = true;
-  }
-  return next;
-}
-function fillNotes(text) {
-  notesStamp = fillNotesInto(text, "notes", "notes-toggle", notesExpanded, notesStamp);
-}
-function applyInto(prefix, payload) {
-  var state = payload.status || "idle";
-  var idle = state === "idle";
-  var status = document.getElementById(prefix + "status");
-  status.textContent = statusWord(state);
-  status.setAttribute("data-state", state);
-  var percentNode = document.getElementById(prefix + "percent");
-  percentNode.hidden = idle;
-  percentNode.textContent = idle ? "" : percentText(payload.percent);
-  var width = idle ? 0 : Math.max(0, Math.min(100, Number(payload.percent) || 0));
-  document.getElementById(prefix + "bar").style.width = width + "%";
-  var track = document.getElementById(prefix + "track");
-  track.hidden = idle;
-  track.setAttribute("aria-valuenow", String(Math.round(width)));
-  var remaining = document.getElementById(prefix + "remaining");
-  var label = payload.remainingLabel || "none";
-  if ((state === "building" || state === "queued") && label !== "none") {
-    remaining.hidden = false;
-    remaining.textContent = label + " left";
-  } else {
-    remaining.hidden = true;
-    remaining.textContent = "";
-  }
-  var commit = payload.commit || "none";
-  document.getElementById(prefix + "branch").textContent = payload.branch || "none";
-  document.getElementById(prefix + "commit-short").textContent = shortHash(commit);
-  document.getElementById(prefix + "commit").textContent = commit;
-  var stageRow = document.getElementById(prefix + "stage-row");
-  stageRow.hidden = idle;
-  document.getElementById(prefix + "stage").textContent = idle ? "" : stageLabel(payload.stage);
-  var errorGroup = document.getElementById(prefix + "error-group");
-  var error = document.getElementById(prefix + "error");
-  if (!idle && payload.error) {
-    errorGroup.hidden = false;
-    error.textContent = payload.error;
-  } else {
-    errorGroup.hidden = true;
-    error.textContent = "";
-  }
-  renderColumnLog(prefix, payload);
-}
-var selectedBuild = { "": null, "desktop-": null };
-var shownBuild = { "": "", "desktop-": "" };
-var logFollow = { "": true, "desktop-": true };
-var logRequest = { "": 0, "desktop-": 0 };
-var buildStamp = { "": "", "desktop-": "" };
-function nearBottom(node) {
-  return node.scrollHeight - node.scrollTop - node.clientHeight < 12;
-}
-function jumpLog(node) {
-  node.scrollTop = node.scrollHeight;
-}
-function shortWhen(value) {
-  if (!value) return "none";
-  var date = new Date(value);
-  if (isNaN(date.getTime())) return String(value);
-  var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  function two(number) { return (number < 10 ? "0" : "") + number; }
-  return months[date.getMonth()] + " " + date.getDate() + " " + two(date.getHours()) + ":" + two(date.getMinutes());
-}
-function setLogText(prefix, buildId, text, running) {
-  var node = document.getElementById(prefix + "log-view");
-  var next = String(text == null ? "" : text);
-  var switched = shownBuild[prefix] !== buildId;
-  var wasAtBottom = nearBottom(node);
-  if (node.textContent !== next) node.textContent = next;
-  shownBuild[prefix] = buildId;
-  if (switched) {
-    logFollow[prefix] = !!running;
-    jumpLog(node);
-    return;
-  }
-  if (running && logFollow[prefix] !== false && wasAtBottom) jumpLog(node);
-}
-function renderBuildList(prefix, builds, chosen) {
-  var stamp = chosen;
-  for (var i = 0; i < builds.length; i++) {
-    var item = builds[i];
-    stamp += "\n" + item.id + "|" + item.status + "|" + item.commit + "|" + item.startedAt;
-  }
-  if (stamp === buildStamp[prefix]) return;
-  buildStamp[prefix] = stamp;
-  var list = document.getElementById(prefix + "build-list");
-  clearNode(list);
-  for (var n = 0; n < builds.length; n++) {
-    var row = builds[n];
-    var button = document.createElement("button");
-    button.type = "button";
-    button.className = "build-row";
-    button.setAttribute("data-id", row.id);
-    button.setAttribute("aria-selected", row.id === chosen ? "true" : "false");
-    var product = row.product || (prefix === "desktop-" ? "Nuvio for Mac" : "Nuvio for iPhone");
-    button.appendChild(el("span", "build-product", product));
-    button.appendChild(el("span", "build-status", statusWord(row.status)));
-    button.appendChild(el("span", "build-commit", shortHash(row.commit)));
-    button.appendChild(el("span", "build-when", shortWhen(row.finishedAt || row.startedAt)));
-    list.appendChild(button);
-  }
-}
-function renderColumnLog(prefix, payload) {
-  var builds = payload.recentBuilds || [];
-  var view = document.getElementById(prefix + "log-view");
-  if (!builds.length) {
-    selectedBuild[prefix] = null;
-    shownBuild[prefix] = "";
-    buildStamp[prefix] = "none";
-    clearNode(document.getElementById(prefix + "build-list"));
-    if (view.textContent !== "none") view.textContent = "none";
-    return;
-  }
-  var chosen = selectedBuild[prefix];
-  var known = false;
-  for (var i = 0; i < builds.length; i++) {
-    if (builds[i].id === chosen) known = true;
-  }
-  if (!known) {
-    selectedBuild[prefix] = null;
-    chosen = builds[0].id;
-  }
-  var active = builds[0];
-  for (var j = 0; j < builds.length; j++) {
-    if (builds[j].id === chosen) active = builds[j];
-  }
-  renderBuildList(prefix, builds, chosen);
-  var running = active.status === "building";
-  if (chosen === builds[0].id) {
-    logRequest[prefix] += 1;
-    setLogText(prefix, chosen, payload.logTail || "", running);
-    return;
-  }
-  var token = ++logRequest[prefix];
-  fetch("/api/builds/" + encodeURIComponent(chosen) + "/log", { cache: "no-store" })
-    .then(function (response) { return response.ok ? response.text() : ""; })
-    .then(function (text) {
-      if (logRequest[prefix] !== token) return;
-      if (selectedBuild[prefix] !== chosen) return;
-      setLogText(prefix, chosen, text, running);
-    })
-    .catch(function () {});
-}
-function bindColumnLog(prefix) {
-  var node = document.getElementById(prefix + "log-view");
-  function syncFollow() {
-    logFollow[prefix] = nearBottom(node);
-  }
-  node.addEventListener("wheel", function () { setTimeout(syncFollow, 0); });
-  node.addEventListener("touchend", syncFollow);
-  node.addEventListener("pointerup", syncFollow);
-  node.addEventListener("keyup", syncFollow);
-  var list = document.getElementById(prefix + "build-list");
-  list.addEventListener("click", function (event) {
-    var target = event.target;
-    while (target && target !== list && target.tagName !== "BUTTON") target = target.parentNode;
-    if (!target || target === list) return;
-    selectedBuild[prefix] = target.getAttribute("data-id");
-    buildStamp[prefix] = "";
-    refresh();
-  });
-}
-function versionLines(text) {
-  var parsed = parseNotes(text);
-  if (!parsed || parsed.kind !== "rows") return ["No summary for this file."];
-  var subjects = [];
-  for (var i = 0; i < parsed.items.length; i++) {
-    if (parsed.items[i].kind === "commit") subjects.push(parsed.items[i].subject);
-  }
-  if (!subjects.length) return ["No summary for this file."];
-  var lines = subjects.slice(0, 4);
-  if (subjects.length > 4) lines.push("And " + (subjects.length - 4) + " more in Release notes");
-  return lines;
-}
-function fillVersion(text, elementId) {
-  var node = document.getElementById(elementId);
-  var lines = versionLines(text);
-  var stamp = lines.join("\n");
-  if (node.getAttribute("data-stamp") === stamp) return;
-  node.setAttribute("data-stamp", stamp);
-  clearNode(node);
-  for (var i = 0; i < lines.length; i++) {
-    var more = lines[i].indexOf("And ") === 0 && lines[i].indexOf(" more in Release notes") > 0;
-    var empty = lines[i] === "No summary for this file.";
-    var row = el("div", empty ? "row" : "note");
-    row.appendChild(el("p", empty ? "empty-notes" : (more ? "more-line" : "note-subject"), lines[i]));
-    node.appendChild(row);
-  }
-}
-function apply(payload) {
-  applyInto("", payload);
-  fillVersion(payload.releaseNotes, "version-lines");
-  fillNotes(payload.releaseNotes);
-}
-function applyDesktop(payload) {
-  applyInto("desktop-", payload);
-  fillVersion(payload.releaseNotes, "desktop-version-lines");
-  desktopNotesStamp = fillNotesInto(payload.releaseNotes, "desktop-notes", "desktop-notes-toggle", desktopNotesExpanded, desktopNotesStamp);
-}
-function workStatus(value) {
-  if (value === "in_progress") return "In progress";
-  if (value === "in_review") return "In review";
-  if (value === "todo") return "To do";
-  if (value === "blocked") return "Blocked";
-  if (value === "done") return "Done";
-  return value || "None";
-}
-function packageWord(value) {
-  if (value === "ipa") return "IPA";
-  if (value === "dmg") return "DMG";
-  return "Neither";
-}
-function fillPackage(cardId, group) {
-  var card = document.getElementById(cardId);
-  var stamp = JSON.stringify(group || {});
-  if (card.getAttribute("data-stamp") === stamp) return;
-  card.setAttribute("data-stamp", stamp);
-  clearNode(card);
-  var next = group && group.inNext ? group.inNext : {};
-  var nextBlock = el("div", "block");
-  nextBlock.appendChild(el("p", "block-label", group && group.nextLabel ? group.nextLabel : "In the next"));
-  var items = next.items || [];
-  if (!items.length) {
-    nextBlock.appendChild(el("p", "empty-notes", "Nothing new is queued."));
-  } else {
-    for (var i = 0; i < items.length; i++) nextBlock.appendChild(el("p", "bullet", items[i]));
-  }
-  card.appendChild(nextBlock);
-  var stash = group && group.stashed ? group.stashed : {};
-  var stashBlock = el("div", "block");
-  stashBlock.appendChild(el("p", "block-label", "Stashed while testing"));
-  var stashed = stash.items || [];
-  if (!stashed.length) {
-    stashBlock.appendChild(el("p", "empty-notes", stash.emptyText || "Nothing is stashed."));
-  } else {
-    for (var s = 0; s < stashed.length; s++) {
-      var line = stashed[s].summary || "";
-      if (stashed[s].issue) line += " · " + stashed[s].issue;
-      stashBlock.appendChild(el("p", "bullet", line));
-    }
-    if (stash.more) stashBlock.appendChild(el("p", "more-line", "And " + stash.more + " more stashed."));
-  }
-  card.appendChild(stashBlock);
-  var progress = el("div", "block");
-  progress.appendChild(el("p", "block-label", group && group.headline ? group.headline : "Nothing is queued."));
-  if (group && group.percent != null) {
-    var track = el("div", "track work-track");
-    track.setAttribute("role", "progressbar");
-    track.setAttribute("aria-valuemin", "0");
-    track.setAttribute("aria-valuemax", "100");
-    track.setAttribute("aria-valuenow", String(group.percent));
-    track.setAttribute("aria-label", group.headline || "Task progress");
-    var bar = el("span", "bar");
-    bar.style.width = Math.max(0, Math.min(100, Number(group.percent) || 0)) + "%";
-    track.appendChild(bar);
-    progress.appendChild(track);
-  }
-  card.appendChild(progress);
-  if (group && group.agentTime) card.appendChild(el("div", "block")).appendChild(el("p", "task-meta", group.agentTime));
-  if (group && group.compile) card.appendChild(el("div", "block")).appendChild(el("p", "task-meta", group.compile));
-  var tasks = group && group.tasks ? group.tasks : [];
-  for (var t = 0; t < tasks.length; t++) {
-    var task = tasks[t];
-    var row = el("div", "task");
-    row.appendChild(el("p", "note-subject", (task.id ? task.id + " · " : "") + (task.title || "")));
-    var meta = [workStatus(task.status), task.agent || "None", task.elapsed || ""].filter(function (part) { return part; });
-    row.appendChild(el("p", "task-meta", meta.join(" · ")));
-    if (task.tokens) row.appendChild(el("p", "task-meta", task.tokens));
-    if (task.billing) row.appendChild(el("p", "task-meta", task.billing));
-    if (task.model) row.appendChild(el("p", "task-meta", task.model));
-    card.appendChild(row);
-  }
-}
-function fillWorking(rows) {
-  var card = document.getElementById("working-now-card");
-  var list = rows || [];
-  var stamp = JSON.stringify(list);
-  if (card.getAttribute("data-stamp") === stamp) return;
-  card.setAttribute("data-stamp", stamp);
-  clearNode(card);
-  if (!list.length) {
-    var empty = el("div", "row");
-    empty.appendChild(el("p", "empty-notes", "No one is working right now."));
-    card.appendChild(empty);
-    return;
-  }
-  for (var i = 0; i < list.length; i++) {
-    var item = list[i];
-    var row = el("div", "task");
-    row.appendChild(el("p", "note-subject", (item.id || "") + " · " + (item.title || "")));
-    var meta = [workStatus(item.status), item.agent || "None", item.elapsed || "", packageWord(item.package)];
-    row.appendChild(el("p", "task-meta", meta.filter(function (part) { return part; }).join(" · ")));
-    if (item.model) row.appendChild(el("p", "task-meta", item.model));
-    card.appendChild(row);
-  }
-}
-function applyWork(payload) {
-  fillPackage("next-ipa-card", payload.ipa || {});
-  fillPackage("next-dmg-card", payload.dmg || {});
-  fillWorking(payload.workingNow || []);
-}
-function megabytes(bytes) {
-  var number = Number(bytes);
-  if (!isFinite(number) || number < 0) return "";
-  return (number / (1024 * 1024)).toFixed(1) + " MB";
-}
-function versionLine(entry) {
-  var version = entry.version && entry.version !== "none" ? String(entry.version) : "";
-  if (entry.build) version = (version ? version + " " : "") + "(" + entry.build + ")";
-  var commit = shortHash(entry.commit);
-  if (version && commit && commit !== "none") return version + " · " + commit;
-  return version || (commit && commit !== "none" ? commit : "");
-}
-function downloadLink(href, savedName) {
-  var link = document.createElement("a");
-  link.className = "download-link";
-  link.href = href;
-  link.textContent = "Download";
-  if (savedName) link.setAttribute("download", savedName);
-  return link;
-}
-function fillCard(node, entry, href, title) {
-  clearNode(node);
-  if (!entry) {
-    var empty = el("div", "row");
-    empty.appendChild(el("p", "empty-notes", "No package"));
-    node.appendChild(empty);
-    return;
-  }
-  var stack = el("div", "row row-stack");
-  stack.appendChild(el("p", "download-file", entry.product || title));
-  var version = versionLine(entry);
-  if (version) stack.appendChild(el("p", "download-meta", version));
-  var when = entry.packagedAt ? shortWhen(entry.packagedAt) : "";
-  var size = megabytes(entry.bytes);
-  var facts = [when, size].filter(function (part) { return part; }).join(" · ");
-  if (facts) stack.appendChild(el("p", "download-meta", facts));
-  if (entry.notice) stack.appendChild(el("p", "package-note", entry.notice));
-  var actions = el("div", "card-actions");
-  actions.appendChild(downloadLink(href, entry.savedName || entry.filename));
-  var copy = document.createElement("button");
-  copy.type = "button";
-  copy.className = "copy-link";
-  copy.textContent = "Copy";
-  copy.setAttribute("data-copy", entry.copyText || "");
-  actions.appendChild(copy);
-  stack.appendChild(actions);
-  node.appendChild(stack);
-}
-function olderRow(entry) {
-  var row = el("div", "row row-stack");
-  row.appendChild(el("p", "download-file", entry.filename || "Package"));
-  var bits = [];
-  var version = versionLine(entry);
-  if (version) bits.push(version);
-  var size = megabytes(entry.bytes);
-  if (size) bits.push(size);
-  bits.push("Older");
-  row.appendChild(el("p", "download-meta", bits.join(" · ")));
-  var name = entry.filename || "";
-  row.appendChild(downloadLink("/download/older/" + encodeURIComponent(name), name));
-  return row;
-}
-function applyDownloads(payload) {
-  var desktop = payload.desktop || {};
-  fillCard(document.getElementById("iphone-card"), payload.ipa, "/download/ipa", "Nuvio for iPhone");
-  fillCard(document.getElementById("mac-card"), desktop.macos, "/download/desktop/macos", "Nuvio for Mac");
-  var absent = document.getElementById("absent-packages");
-  var missing = [];
-  if (!desktop.windows) missing.push("Windows");
-  if (!desktop.linux) missing.push("Linux");
-  if (!desktop.windows && !desktop.linux) {
-    absent.hidden = false;
-    absent.textContent = "Windows and Linux have no package.";
-  } else if (missing.length === 1) {
-    absent.hidden = false;
-    absent.textContent = missing[0] + " has no package.";
-  } else {
-    absent.hidden = true;
-    absent.textContent = "";
-  }
-  var olderRoot = document.getElementById("older");
-  var olderGroup = document.getElementById("older-group");
-  var older = payload.older || [];
-  clearNode(olderRoot);
-  if (!older.length) {
-    olderGroup.hidden = true;
-    return;
-  }
-  olderGroup.hidden = false;
-  for (var i = 0; i < older.length; i++) olderRoot.appendChild(olderRow(older[i]));
-}
-function copyText(text) {
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    return navigator.clipboard.writeText(text);
-  }
-  var area = document.createElement("textarea");
-  area.value = text;
-  document.body.appendChild(area);
-  area.select();
-  try { document.execCommand("copy"); } catch (err) {}
-  document.body.removeChild(area);
-  return Promise.resolve();
-}
-async function refresh() {
-  try {
-    var response = await fetch("/api/status", { cache: "no-store" });
-    if (response.ok) apply(await response.json());
-  } catch (err) {}
-  try {
-    var desktopResponse = await fetch("/api/desktop", { cache: "no-store" });
-    if (desktopResponse.ok) applyDesktop(await desktopResponse.json());
-  } catch (err) {}
-  try {
-    var downloadsResponse = await fetch("/api/downloads", { cache: "no-store" });
-    if (downloadsResponse.ok) applyDownloads(await downloadsResponse.json());
-  } catch (err) {}
-  try {
-    var workResponse = await fetch("/api/work", { cache: "no-store" });
-    if (workResponse.ok) applyWork(await workResponse.json());
-  } catch (err) {}
-}
-document.getElementById("notes-toggle").addEventListener("click", function () {
-  notesExpanded = !notesExpanded;
-  notesStamp = "";
-  refresh();
-});
-document.getElementById("desktop-notes-toggle").addEventListener("click", function () {
-  desktopNotesExpanded = !desktopNotesExpanded;
-  desktopNotesStamp = "";
-  refresh();
-});
-bindColumnLog("");
-bindColumnLog("desktop-");
-document.querySelector("main").addEventListener("click", function (event) {
-  var target = event.target;
-  while (target && target !== document.body && !(target.getAttribute && target.getAttribute("data-copy"))) {
-    target = target.parentNode;
-  }
-  if (!target || !target.getAttribute) return;
-  var text = target.getAttribute("data-copy");
-  if (!text) return;
-  copyText(text).then(function () {
-    target.textContent = "Copied";
-    setTimeout(function () { target.textContent = "Copy"; }, 1200);
-  }).catch(function () {});
-});
-refresh();
-setInterval(refresh, 2000);
-</script>
-</body>
-</html>
-"""
-
 
 def repository_root() -> Path:
     return Path(__file__).resolve().parents[1]
@@ -3622,7 +2383,35 @@ def self_test() -> int:
 
         port = httpd.server_address[1]
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=5) as response:
-            html = response.read().decode("utf-8")
+            page_html = response.read().decode("utf-8")
+            page_cache = response.headers.get("Cache-Control", "")
+            page_etag = response.headers.get("ETag", "")
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/assets/app.css", timeout=5) as response:
+            page_css = response.read().decode("utf-8")
+            css_cache = response.headers.get("Cache-Control", "")
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/assets/app.js", timeout=5) as response:
+            page_js = response.read().decode("utf-8")
+            js_cache = response.headers.get("Cache-Control", "")
+        html = page_html + "\n" + page_css + "\n" + page_js
+        check("public" in page_cache and "no-store" not in page_cache, f"html cache {page_cache}")
+        check("public" in css_cache and "no-store" not in css_cache, f"css cache {css_cache}")
+        check("public" in js_cache and "no-store" not in js_cache, f"js cache {js_cache}")
+        check(bool(page_etag), "html etag missing")
+        import urllib.error
+
+        etag_request = urllib.request.Request(
+            f"http://127.0.0.1:{port}/",
+            headers={"If-None-Match": page_etag},
+        )
+        try:
+            with urllib.request.urlopen(etag_request, timeout=5) as response:
+                check(response.status == 304, f"etag status {response.status}")
+        except urllib.error.HTTPError as exc:
+            check(exc.code == 304, f"etag status {exc.code}")
+        check(("<" + "!DOCTYPE html>") not in Path(__file__).read_text(encoding="utf-8"), "page is still inside the python module")
+        check("max-width: 28rem" not in html, "28rem sheet is still the page width")
+        check("setInterval(refresh, 2000)" not in html, "idle poll is still every 2 seconds")
+        check("Request this iPhone build" in html and "Request this Mac build" in html, "request buttons missing")
         check("Idle" in html and 'id="notes"' in html, "page missing idle fields")
         check("flex-direction: column" in html, "page is not one column")
         check("min-width: 0" in html, "full commit line cannot shrink inside the column")
@@ -3637,15 +2426,17 @@ def self_test() -> int:
             "safe-area-inset-top" in html and "safe-area-inset-bottom" in html,
             "missing safe-area insets",
         )
-        check("color-scheme: light dark" in html, "color-scheme is not light and dark")
+        check("color-scheme: dark" in html, "page is not dark-first")
+        check("@media (prefers-color-scheme: light)" in html, "light preference missing")
         check("#101218" not in html, "forced dark background still in the page")
         check("Show All" in html and "Show Less" in html, "release notes cannot expand")
         check(
-            'fetch("/api/status"' in html and "setInterval(refresh, 2000)" in html,
-            "status polling changed",
+            'fetch("/api/dashboard"' in html and "IDLE_POLL_MS = 30000" in html and "ACTIVE_POLL_MS = 2000" in html,
+            "dashboard poll missing",
         )
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/status", timeout=5) as response:
             body = json.loads(response.read().decode("utf-8"))
+            check(response.headers.get("Cache-Control") == "no-store", "json api is cacheable")
         check(body["status"] == "idle", "api did not serve idle for a closed session")
         check(body["remainingLabel"] == "none", "api remaining was not none")
         check(body["branch"] == "demo", "api dropped branch")
@@ -3661,11 +2452,11 @@ def self_test() -> int:
         check("Older" in html, "older section missing")
         check("Windows and Linux have no package." in html, "missing desktop package line")
         check("copy-link" in html and "min-height: 44pt" in html, "copy control size missing")
-        check('fetch("/api/desktop"' in html and 'fetch("/api/downloads"' in html, "desktop fetches missing")
-        check("min-width: 700px" in html and "960px" in html, "wide layout missing")
+        check('fetch("/api/desktop"' not in page_js and 'fetch("/api/downloads"' not in page_js, "page still polls split endpoints")
+        check("min-width: 840px" in html and "1120px" in html, "wide layout missing")
         check("minmax(0, 1fr) minmax(0, 1fr)" in html, "two equal columns missing")
         check("a.download-link" in html and "min-height: 44pt" in html, "download control size missing")
-        check("max-width: 28rem" in html, "narrow width missing")
+        check("max-width: 1120px" in html, "page width missing")
         check("prefers-reduced-motion" in html, "reduced motion missing")
         check('id="log-view"' in html and 'id="desktop-log-view"' in html, "log views missing")
         check("12rem" in html and "build-row" in html and "Log" in html, "log group missing")
@@ -3907,7 +2698,7 @@ def self_test() -> int:
         check("Stashed while testing" in html, "stash label")
         check("Working now" in html and "next-grid" in html, "working now layout")
         check(html.count('class="hero-kicker">Compile') == 2, "compile label")
-        check('fetch("/api/work"' in html, "work poll missing")
+        check("applyWork" in html and 'fetch("/api/dashboard"' in html, "work payload missing from the page")
         check("more in Release notes" in html, "summary cap copy")
         check("Nothing is stashed for the next IPA." in html and "Nothing is stashed for the next DMG." in html, "empty stash copy")
         check("Nothing new is queued." in html, "empty next copy")
@@ -4305,6 +3096,295 @@ def self_test() -> int:
             "description",
         ):
             check(banned not in live_body, f"api work contains {banned}")
+        import shutil
+        import subprocess
+
+        saved_mobile = builds_request.mobile_repository
+        saved_desktop = builds_request.desktop_repository
+        saved_post = builds_request.post_ledger_comment
+        saved_ledger = builds_request.refresh_ledger
+        saved_catalog = downloads_path(directory).read_text(encoding="utf-8")
+        saved_session = session_path(directory).read_text(encoding="utf-8") if session_path(directory).exists() else None
+        repo = Path(tempfile.mkdtemp(prefix="nuvio-cut-"))
+        comments: list[str] = []
+
+        def quiet_ledger(now: float, force: bool = False) -> dict:
+            return {"at": now, "cancelled": {"dmg": [], "ipa": []}, "index": {}}
+
+        def record_comment(body: str) -> None:
+            comments.append(body)
+
+        try:
+            hooks = repo / "no-hooks"
+            hooks.mkdir()
+            subprocess.run(["git", "init", "-b", "enhanced", str(repo)], check=True, capture_output=True, text=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(repo), "config", "user.name", "Nuvio Test"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(repo), "config", "core.hooksPath", str(hooks)], check=True, capture_output=True)
+
+            def git_commit_file(subject: str, body: str = "") -> str:
+                (repo / "f.txt").write_text(subject + "\n", encoding="utf-8")
+                subprocess.run(["git", "-C", str(repo), "add", "f.txt"], check=True, capture_output=True)
+                command = ["git", "-C", str(repo), "commit", "-m", subject]
+                if body:
+                    command.extend(["-m", body])
+                subprocess.run(command, check=True, capture_output=True, text=True)
+                return subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip().lower()
+
+            base = git_commit_file("served package")
+            mid = git_commit_file("SIM-10 first cut")
+            tip = git_commit_file("SIM-11 tip cut", "Also SIM-12")
+            subprocess.run(["git", "-C", str(repo), "checkout", "-b", "side"], check=True, capture_output=True)
+            side = git_commit_file("side only SIM-99")
+            subprocess.run(["git", "-C", str(repo), "checkout", "enhanced"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(repo), "branch", "Dev", base], check=True, capture_output=True)
+            builds_request.clear_commit_cache()
+            listed = builds_request.list_commits(repo, "refs/heads/enhanced", base)
+            check(listed.get("ok") is True, f"commit list {listed.get('error')}")
+            listed_ids = [row["commit"] for row in listed.get("commits") or []]
+            check(listed_ids == [tip, mid], f"commit order {listed_ids}")
+            check(side not in listed_ids, "side branch commit was listed")
+            check(listed["commits"][0]["issues"] == ["SIM-11", "SIM-12"], f"tip issues {listed['commits'][0].get('issues')}")
+            check(
+                builds_request.subjects_through(listed["commits"], mid) == ["SIM-10 first cut"],
+                "mid prefix subjects",
+            )
+            check(
+                builds_request.subjects_through(listed["commits"], tip) == ["SIM-10 first cut", "SIM-11 tip cut"],
+                "tip prefix subjects",
+            )
+            behind = builds_request.list_commits(repo, "refs/heads/Dev", tip)
+            check(behind.get("ok") is True and behind.get("commits") == [], f"branch behind the package {behind}")
+
+            key_dir = repo / "keys"
+            key_dir.mkdir()
+            key_path = key_dir / "key.pem"
+            subprocess.run(
+                ["openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:2048", "-out", str(key_path)],
+                check=True,
+                capture_output=True,
+            )
+            public_text = subprocess.check_output(["openssl", "pkey", "-in", str(key_path), "-pubout", "-text", "-noout"], text=True)
+            modulus_text = public_text.split("Modulus:", 1)[1].split("Exponent:", 1)[0]
+            modulus_hex = re.sub(r"[^0-9a-fA-F]", "", modulus_text).lower()
+            exponent_match = re.search(r"Exponent:\s+\d+\s+\(0x([0-9a-fA-F]+)\)", public_text)
+            check(bool(modulus_hex) and exponent_match is not None, "openssl public key text")
+            exponent_hex = (exponent_match.group(1).lower() if exponent_match else "10001")
+            if len(exponent_hex) % 2:
+                exponent_hex = "0" + exponent_hex
+            if len(modulus_hex) % 2:
+                modulus_hex = "0" + modulus_hex
+
+            def jwk_part(hex_text: str) -> str:
+                raw = bytes.fromhex(hex_text).lstrip(b"\x00") or b"\x00"
+                return builds_request.b64url_encode(raw)
+
+            modulus = jwk_part(modulus_hex)
+            exponent = jwk_part(exponent_hex)
+            pem = builds_request.jwk_rsa_pem(modulus, exponent)
+            pem_path = key_dir / "pub.pem"
+            pem_path.write_text(pem, encoding="utf-8")
+            converted = subprocess.check_output(["openssl", "pkey", "-pubin", "-in", str(pem_path), "-text", "-noout"], text=True)
+            converted_hex = re.sub(r"[^0-9a-fA-F]", "", converted.split("Modulus:", 1)[1].split("Exponent:", 1)[0]).lower()
+            check(converted_hex.lstrip("0") == modulus_hex.lstrip("0"), "jwk pem modulus mismatch")
+            builds_request._jwks_cache["at"] = time.time()
+            builds_request._jwks_cache["keys"] = {"test-kid": {"e": exponent, "kid": "test-kid", "kty": "RSA", "n": modulus}}
+
+            def mint(claims: dict) -> str:
+                header = {"alg": "RS256", "kid": "test-kid", "typ": "JWT"}
+                signing = (
+                    builds_request.b64url_encode(json.dumps(header, separators=(",", ":")).encode())
+                    + "."
+                    + builds_request.b64url_encode(json.dumps(claims, separators=(",", ":")).encode())
+                )
+                data_path = key_dir / "data.bin"
+                sig_path = key_dir / "sig.bin"
+                data_path.write_bytes(signing.encode("ascii"))
+                subprocess.run(
+                    ["openssl", "dgst", "-sha256", "-sign", str(key_path), "-out", str(sig_path), str(data_path)],
+                    check=True,
+                    capture_output=True,
+                )
+                return signing + "." + builds_request.b64url_encode(sig_path.read_bytes())
+
+            moment = int(time.time())
+            good_claims = {
+                "aud": builds_request.ACCESS_AUD,
+                "email": "board@example.com",
+                "exp": moment + 600,
+                "iss": builds_request.ACCESS_ISS,
+                "nbf": moment - 10,
+                "sub": "board",
+            }
+            token = mint(good_claims)
+            verified = builds_request.verify_access_jwt(token, now=moment)
+            check(isinstance(verified, dict) and verified.get("email") == "board@example.com", "access jwt was rejected")
+            bad_aud = dict(good_claims, aud="not-this-host")
+            check(builds_request.verify_access_jwt(mint(bad_aud), now=moment) is None, "bad audience was accepted")
+            expired = dict(good_claims, exp=moment - 120)
+            check(builds_request.verify_access_jwt(mint(expired), now=moment) is None, "expired jwt was accepted")
+            flipped_sig = bytearray(builds_request.b64url_decode(token.split(".")[2]))
+            flipped_sig[-1] ^= 1
+            flipped = token.rsplit(".", 1)[0] + "." + builds_request.b64url_encode(bytes(flipped_sig))
+            check(builds_request.verify_access_jwt(flipped, now=moment) is None, "bad signature was accepted")
+
+            node = shutil.which("node") or "/opt/homebrew/bin/node"
+            prefix_script = r"""
+const fs = require("fs");
+const vm = require("vm");
+const context = { console: console };
+vm.createContext(context);
+vm.runInContext(fs.readFileSync(process.argv[2], "utf8"), context);
+const commits = [{commit:"aaa"},{commit:"bbb"},{commit:"ccc"}];
+let selected = context.defaultSelection(commits);
+function assert(cond, code) { if (!cond) process.exit(code); }
+assert(context.newestChecked(commits, selected) === "aaa", 2);
+selected = context.applyPrefixToggle(commits, selected, 1, false);
+assert(!selected.aaa && !selected.bbb && selected.ccc, 3);
+assert(context.newestChecked(commits, selected) === "ccc", 4);
+selected = context.applyPrefixToggle(commits, selected, 1, true);
+assert(!selected.aaa && selected.bbb && selected.ccc, 5);
+assert(context.newestChecked(commits, selected) === "bbb", 6);
+selected = context.applyPrefixToggle(commits, selected, 0, true);
+assert(context.newestChecked(commits, selected) === "aaa", 7);
+selected = context.applyPrefixToggle(commits, selected, 0, false);
+assert(!selected.aaa && selected.bbb && context.newestChecked(commits, selected) === "bbb", 8);
+"""
+            script_path = repo / "prefix.js"
+            script_path.write_text(prefix_script, encoding="utf-8")
+            prefix_run = subprocess.run(
+                [node, str(script_path), str(static_root() / "app.js")],
+                capture_output=True,
+                text=True,
+            )
+            check(prefix_run.returncode == 0, f"prefix selection {prefix_run.returncode} {prefix_run.stderr}")
+
+            builds_request.mobile_repository = lambda: repo
+            builds_request.desktop_repository = lambda: None
+            builds_request.post_ledger_comment = record_comment
+            builds_request.refresh_ledger = quiet_ledger
+            builds_request.clear_commit_cache()
+            catalog = read_json(downloads_path(directory)) or {}
+            catalog["ipa"]["commit"] = base
+            write_json(downloads_path(directory), catalog)
+
+            def post_json(access_token: str | None, payload: dict | None = None, raw: bytes | None = None) -> tuple[int, dict]:
+                data = raw if raw is not None else json.dumps(payload or {}).encode("utf-8")
+                headers = {"Content-Type": "application/json"}
+                if access_token:
+                    headers["Cf-Access-Jwt-Assertion"] = access_token
+                request = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/api/build-request",
+                    data=data,
+                    headers=headers,
+                    method="POST",
+                )
+                try:
+                    with urllib.request.urlopen(request, timeout=15) as response:
+                        return response.status, json.loads(response.read().decode("utf-8"))
+                except urllib.error.HTTPError as exc:
+                    raw_body = exc.read().decode("utf-8", "replace")
+                    try:
+                        parsed = json.loads(raw_body)
+                    except json.JSONDecodeError:
+                        parsed = {"raw": raw_body}
+                    return exc.code, parsed
+
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/dashboard", timeout=15) as response:
+                dashboard = json.loads(response.read().decode("utf-8"))
+                dash_cache = response.headers.get("Cache-Control", "")
+            check(dash_cache == "no-store", f"dashboard cache {dash_cache}")
+            check(dashboard["poll"]["idleMs"] == 30000 and dashboard["poll"]["activeMs"] == 2000, "poll intervals")
+            check(dashboard["requestEnabled"] is True, "request control hidden")
+            check([row["commit"] for row in dashboard["cuts"]["ipa"]["commits"]] == [tip, mid], "dashboard commit list")
+            check(dashboard["cuts"]["ipa"]["commits"][0]["subject"] == "SIM-11 tip cut", "dashboard tip subject")
+            status, body = post_json(None, {"commit": tip, "platform": "ipa"})
+            check(status == 401, f"missing jwt returned {status}")
+            check(not builds_request.request_path(directory).exists(), "missing jwt wrote a request")
+            check(comments == [], "missing jwt commented")
+            status, body = post_json("not-a-jwt", {"commit": tip, "platform": "ipa"})
+            check(status == 401, f"invalid jwt returned {status}")
+            check(not builds_request.request_path(directory).exists(), "invalid jwt wrote a request")
+            status, body = post_json(token, {"commit": base, "platform": "ipa"})
+            check(status == 409 and "already the served" in str(body.get("error")), f"served commit {status} {body}")
+            status, body = post_json(token, {"commit": side, "platform": "ipa"})
+            check(status == 409, f"side commit returned {status} {body}")
+            status, body = post_json(token, raw=b"not-json")
+            check(status == 400, f"bad body returned {status}")
+            check(not builds_request.request_path(directory).exists(), "refused request wrote a file")
+            write_json(
+                session_path(directory),
+                {
+                    "branch": "enhanced",
+                    "buildStartedAt": time.time(),
+                    "closed": False,
+                    "commit": tip,
+                    "error": None,
+                    "releaseNotes": "hello notes",
+                    "stage": "xcodebuild",
+                    "stageStartedAt": time.time(),
+                    "status": "building",
+                },
+            )
+            status, body = post_json(token, {"commit": tip, "platform": "ipa"})
+            check(status == 409 and "compiling" in str(body.get("error")), f"compiling request {status} {body}")
+            check(comments == [], "compiling request commented")
+            if saved_session is None:
+                session_path(directory).unlink(missing_ok=True)
+            else:
+                session_path(directory).write_text(saved_session, encoding="utf-8")
+            status, saved = post_json(token, {"commit": tip, "platform": "ipa"})
+            check(status == 201, f"tip request {status} {saved}")
+            stored = builds_request.read_requests(directory)
+            check(stored["ipa"]["commit"] == tip and stored["ipa"]["hosted"] is False, f"request file {stored}")
+            check(stored["ipa"]["branch"] == "enhanced" and stored["ipa"]["platform"] == "ipa", "request identity")
+            check(stored["ipa"]["subjects"] == ["SIM-10 first cut", "SIM-11 tip cut"], f"subjects {stored['ipa'].get('subjects')}")
+            check(stored["dmg"] is None, "mac request was written")
+            check(len(comments) == 1, f"comment count {len(comments)}")
+            ledger = comments[0]
+            check("This is not a test." in ledger, "ledger phrase missing")
+            check("Surface: iPhone" in ledger and "Branch: enhanced" in ledger, "ledger surface")
+            check(f"Commit: {tip}" in ledger, "ledger commit")
+            check(ledger.index("SIM-10 first cut") < ledger.index("SIM-11 tip cut"), "ledger subject order")
+            status, body = post_json(token, {"commit": tip, "platform": "ipa"})
+            check(status == 409 and "unhosted" in str(body.get("error")).lower(), f"second press {status} {body}")
+            check(len(comments) == 1, "second press commented")
+            check(builds_request.read_requests(directory)["ipa"]["commit"] == tip, "second press replaced the request")
+            held = builds_request.request_path(directory).read_text(encoding="utf-8")
+            doc = json.loads(held)
+            doc["ipa"]["hosted"] = True
+            builds_request.write_requests(directory, doc)
+            held = builds_request.request_path(directory).read_text(encoding="utf-8")
+
+            def reject_comment(body: str) -> None:
+                raise builds_request.MissingCredential("rejected")
+
+            builds_request.post_ledger_comment = reject_comment
+            status, body = post_json(token, {"commit": mid, "platform": "ipa"})
+            check(status == 503, f"missing credential returned {status} {body}")
+            check(builds_request.request_path(directory).read_text(encoding="utf-8") == held, "credential failure kept the new request")
+            check(builds_request.requests_enabled() is False, "button stayed shipped after a credential failure")
+            status, body = post_json(token, {"commit": mid, "platform": "ipa"})
+            check(status == 404, f"unshipped button returned {status}")
+            check(len(comments) == 1, "credential failure commented")
+        except Exception as exc:
+            check(False, f"request route setup failed: {exc}")
+        finally:
+            builds_request.mobile_repository = saved_mobile
+            builds_request.desktop_repository = saved_desktop
+            builds_request.post_ledger_comment = saved_post
+            builds_request.refresh_ledger = saved_ledger
+            builds_request._requests_enabled = True
+            builds_request._jwks_cache["at"] = 0.0
+            builds_request._jwks_cache["keys"] = {}
+            builds_request.clear_commit_cache()
+            downloads_path(directory).write_text(saved_catalog, encoding="utf-8")
+            if saved_session is None:
+                session_path(directory).unlink(missing_ok=True)
+            else:
+                session_path(directory).write_text(saved_session, encoding="utf-8")
+            shutil.rmtree(repo, ignore_errors=True)
+
         httpd.shutdown()
 
     if failures:
@@ -4337,13 +3417,23 @@ def command_log_follow(args: argparse.Namespace) -> int:
     return 0
 
 
-def send_bytes(handler: BaseHTTPRequestHandler, code: int, content_type: str, body: bytes) -> None:
+def send_bytes(
+    handler: BaseHTTPRequestHandler,
+    code: int,
+    content_type: str,
+    body: bytes,
+    cache_control: str = "no-store",
+    etag: str | None = None,
+) -> None:
     handler.send_response(code)
     handler.send_header("Content-Type", content_type)
     handler.send_header("Content-Length", str(len(body)))
-    handler.send_header("Cache-Control", "no-store")
+    handler.send_header("Cache-Control", cache_control)
+    if etag:
+        handler.send_header("ETag", etag)
     handler.end_headers()
-    handler.wfile.write(body)
+    if code != 304:
+        handler.wfile.write(body)
 
 
 def send_json(handler: BaseHTTPRequestHandler, payload: dict) -> None:
@@ -4426,12 +3516,257 @@ def send_older(handler: BaseHTTPRequestHandler, directory: Path, name: str) -> N
     send_file(handler, path, path.name)
 
 
+STATIC_FILES = {
+    "/": "index.html",
+    "/index.html": "index.html",
+    "/assets/app.css": "app.css",
+    "/assets/app.js": "app.js",
+}
+STATIC_TYPES = {
+    ".css": "text/css; charset=utf-8",
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+}
+SURFACES = {
+    "dmg": {"branch": builds_request.DESKTOP_BRANCH, "name": "Mac", "ref": builds_request.DESKTOP_REF},
+    "ipa": {"branch": builds_request.MOBILE_BRANCH, "name": "iPhone", "ref": builds_request.MOBILE_REF},
+}
+
+
+def static_root() -> Path:
+    return Path(__file__).resolve().parent / "builds_page"
+
+
+def send_static(handler: BaseHTTPRequestHandler, name: str) -> None:
+    root = static_root().resolve()
+    path = (root / name).resolve()
+    if path != root and root not in path.parents:
+        send_bytes(handler, 404, "text/plain; charset=utf-8", b"not found\n")
+        return
+    try:
+        body = path.read_bytes()
+    except OSError:
+        send_bytes(handler, 404, "text/plain; charset=utf-8", b"not found\n")
+        return
+    etag = hashlib.sha256(body).hexdigest()
+    cache = "public, max-age=3600"
+    if handler.headers.get("If-None-Match") == etag:
+        handler.send_response(304)
+        handler.send_header("ETag", etag)
+        handler.send_header("Cache-Control", cache)
+        handler.send_header("Content-Length", "0")
+        handler.end_headers()
+        return
+    send_bytes(handler, 200, STATIC_TYPES[path.suffix], body, cache_control=cache, etag=etag)
+
+
+def surface_repo(platform: str) -> Path | None:
+    if platform == "ipa":
+        repo = builds_request.mobile_repository()
+        return repo if repo.is_dir() else None
+    return builds_request.desktop_repository()
+
+
+def served_commit(directory: Path, platform: str) -> str:
+    commit = platform_commit(load_catalog(directory), platform)
+    if not isinstance(commit, str):
+        return ""
+    commit = commit.strip().lower()
+    if commit in {"", "none"}:
+        return ""
+    return commit
+
+
+def restore_request_file(path: Path, previous: str | None) -> None:
+    if previous is None:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            return
+        return
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(previous, encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def cut_view(directory: Path, platform: str, now: float, status_payload: dict) -> dict:
+    spec = SURFACES[platform]
+    repo = surface_repo(platform)
+    served = served_commit(directory, platform)
+    if repo is None:
+        listing = {
+            "commits": [],
+            "error": f"The {spec['name']} repository is not available.",
+            "ok": False,
+            "served": "",
+            "tip": "",
+        }
+    else:
+        listing = builds_request.list_commits(repo, spec["ref"], served)
+        if listing.get("ok"):
+            builds_request.attach_ledger_issues(listing["commits"], now)
+    busy = None
+    if status_payload.get("status") in ("building", "queued"):
+        busy = f"{spec['name']} is compiling."
+    with locked(directory):
+        doc = builds_request.read_requests(directory)
+        if repo is not None and builds_request.mark_hosted(doc, platform, listing.get("served") or served, repo):
+            builds_request.write_requests(directory, doc)
+        current = doc.get(platform)
+    cancelled = False
+    pending = False
+    if isinstance(current, dict) and current.get("hosted") is not True:
+        cancelled = builds_request.is_cancelled(platform, current.get("commit"), now, force=False)
+        pending = not cancelled
+    request_public = None
+    if isinstance(current, dict):
+        subjects = current.get("subjects") if isinstance(current.get("subjects"), list) else []
+        request_public = {
+            "branch": current.get("branch"),
+            "cancelled": cancelled,
+            "commit": current.get("commit"),
+            "hosted": current.get("hosted") is True,
+            "platform": platform,
+            "requestedAt": current.get("requestedAt"),
+            "subjects": subjects,
+        }
+    return {
+        "branch": spec["branch"],
+        "busy": busy,
+        "commits": listing.get("commits") or [],
+        "error": listing.get("error"),
+        "pending": pending,
+        "request": request_public,
+        "servedCommit": listing.get("served") or "",
+        "tip": listing.get("tip") or "",
+    }
+
+
+def dashboard_payload(directory: Path, now: float) -> dict:
+    iphone = current_public(directory, now)
+    desktop = desktop_public(directory, now)
+    active = iphone.get("status") in ("building", "queued") or desktop.get("status") in ("building", "queued")
+    return {
+        "cuts": {
+            "dmg": cut_view(directory, "dmg", now, desktop),
+            "ipa": cut_view(directory, "ipa", now, iphone),
+        },
+        "desktop": desktop,
+        "downloads": current_downloads(directory),
+        "iphone": iphone,
+        "poll": {"active": active, "activeMs": 2000, "idleMs": 30000},
+        "requestEnabled": builds_request.requests_enabled(),
+        "servedAt": iso(now),
+        "work": public_work(directory, now),
+    }
+
+
+def read_json_body(handler: BaseHTTPRequestHandler) -> tuple[dict | None, str | None]:
+    try:
+        length = int(handler.headers.get("Content-Length") or "0")
+    except ValueError:
+        return None, "The request body is not valid."
+    if length <= 0 or length > 8192:
+        return None, "The request body is not valid."
+    try:
+        payload = json.loads(handler.rfile.read(length).decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError):
+        return None, "The request body is not valid."
+    if not isinstance(payload, dict):
+        return None, "The request body is not valid."
+    return payload, None
+
+
+def submit_build_request(directory: Path, platform: str, commit: str) -> tuple[int, dict]:
+    if platform not in SURFACES:
+        return 400, {"error": "Pick iPhone or Mac."}
+    if not re.fullmatch(r"[0-9a-fA-F]{40}", commit or ""):
+        return 400, {"error": "The commit must be the full 40-character id."}
+    commit = commit.lower()
+    spec = SURFACES[platform]
+    repo = surface_repo(platform)
+    if repo is None:
+        return 409, {"error": f"The {spec['name']} repository is not available."}
+    builds_request.clear_commit_cache()
+    listing = builds_request.list_commits(repo, spec["ref"], served_commit(directory, platform))
+    if not listing.get("ok"):
+        return 409, {"error": listing.get("error") or "The commit list is not available."}
+    served_full = listing.get("served") or ""
+    if served_full and commit == served_full:
+        return 409, {"error": f"That commit is already the served {spec['name']} package."}
+    subjects = builds_request.subjects_through(listing["commits"], commit)
+    if subjects is None:
+        return 409, {"error": "That commit is not on the branch since the served package."}
+    now = time.time()
+    status_payload = current_public(directory, now) if platform == "ipa" else desktop_public(directory, now)
+    if status_payload.get("status") in ("building", "queued"):
+        return 409, {"error": f"{spec['name']} is compiling."}
+    body = builds_request.ledger_body(platform, spec["branch"], commit, subjects)
+    path = builds_request.request_path(directory)
+    with locked(directory):
+        doc = builds_request.read_requests(directory)
+        if builds_request.mark_hosted(doc, platform, served_full, repo):
+            builds_request.write_requests(directory, doc)
+        current = doc.get(platform)
+        if isinstance(current, dict) and current.get("hosted") is not True:
+            if not builds_request.is_cancelled(platform, current.get("commit"), time.time(), force=True):
+                return 409, {"error": f"An unhosted {spec['name']} request is already on the ledger."}
+        previous = path.read_text(encoding="utf-8") if path.exists() else None
+        doc[platform] = {
+            "branch": spec["branch"],
+            "commit": commit,
+            "hosted": False,
+            "platform": platform,
+            "requestedAt": iso(time.time()),
+            "subjects": subjects,
+        }
+        builds_request.write_requests(directory, doc)
+        try:
+            builds_request.post_ledger_comment(body)
+        except builds_request.MissingCredential:
+            restore_request_file(path, previous)
+            builds_request.disable_requests()
+            return 503, {"error": "Paperclip rejected the ledger comment without a credential. The request was not saved."}
+        except builds_request.LedgerError:
+            restore_request_file(path, previous)
+            return 502, {"error": "The ledger comment failed. The request was not saved."}
+        saved = doc[platform]
+    return 201, {"ok": True, "request": saved}
+
+
+def handle_build_request(handler: BaseHTTPRequestHandler, directory: Path) -> None:
+    if not builds_request.requests_enabled():
+        send_bytes(handler, 404, "text/plain; charset=utf-8", b"not found\n")
+        return
+    token = builds_request.token_from_headers(handler.headers)
+    if not token or builds_request.verify_access_jwt(token) is None:
+        body = (json.dumps({"error": "Sign in through Cloudflare Access to request a build."}) + "\n").encode("utf-8")
+        send_bytes(handler, 401, "application/json; charset=utf-8", body)
+        return
+    payload, error = read_json_body(handler)
+    if error or payload is None:
+        body = (json.dumps({"error": error or "The request body is not valid."}) + "\n").encode("utf-8")
+        send_bytes(handler, 400, "application/json; charset=utf-8", body)
+        return
+    status, result = submit_build_request(
+        directory,
+        str(payload.get("platform") or ""),
+        str(payload.get("commit") or ""),
+    )
+    body = (json.dumps(result, sort_keys=True) + "\n").encode("utf-8")
+    send_bytes(handler, status, "application/json; charset=utf-8", body)
+
+
 def _handler_for(directory: Path):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
             path = urlparse(self.path).path
-            if path in ("/", "/index.html"):
-                send_bytes(self, 200, "text/html; charset=utf-8", PAGE.encode("utf-8"))
+            static_name = STATIC_FILES.get(path)
+            if static_name:
+                send_static(self, static_name)
+                return
+            if path == "/api/dashboard":
+                send_json(self, dashboard_payload(directory, time.time()))
                 return
             if path == "/api/status":
                 payload = current_public(directory, time.time())
@@ -4460,6 +3795,13 @@ def _handler_for(directory: Path):
             match = BUILD_LOG_ROUTE.fullmatch(path)
             if match:
                 send_build_log(self, directory, match.group(1))
+                return
+            send_bytes(self, 404, "text/plain; charset=utf-8", b"not found\n")
+
+        def do_POST(self) -> None:  # noqa: N802
+            path = urlparse(self.path).path
+            if path == "/api/build-request":
+                handle_build_request(self, directory)
                 return
             send_bytes(self, 404, "text/plain; charset=utf-8", b"not found\n")
 

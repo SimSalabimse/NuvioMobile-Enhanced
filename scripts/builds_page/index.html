@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Nuvio builds</title>
+<link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+<main>
+  <header class="mast">
+    <p class="eyebrow">Nuvio</p>
+    <h1>Nuvio builds</h1>
+    <p class="lede">Choose the next iPhone or Mac cut. The package is the newest checked commit.</p>
+  </header>
+  <div class="next-grid">
+    <section class="column" id="next-ipa-column">
+      <h2 class="column-title">Next iPhone</h2>
+      <div class="card request-card" id="ipa-cut"></div>
+      <div class="card" id="next-ipa-card">
+        <div class="block">
+          <p class="block-label">In the next IPA</p>
+          <p class="empty-notes">Nothing new is queued.</p>
+        </div>
+        <div class="block">
+          <p class="block-label">Stashed while testing</p>
+          <p class="empty-notes">Nothing is stashed for the next IPA.</p>
+        </div>
+      </div>
+    </section>
+    <section class="column" id="next-dmg-column">
+      <h2 class="column-title">Next Mac</h2>
+      <div class="card request-card" id="dmg-cut"></div>
+      <div class="card" id="next-dmg-card">
+        <div class="block">
+          <p class="block-label">In the next DMG</p>
+          <p class="empty-notes">Nothing new is queued.</p>
+        </div>
+        <div class="block">
+          <p class="block-label">Stashed while testing</p>
+          <p class="empty-notes">Nothing is stashed for the next DMG.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+  <section class="group" id="working-now">
+    <h2 class="group-title">Working now</h2>
+    <div class="card" id="working-now-card">
+      <div class="row"><p class="empty-notes">No one is working right now.</p></div>
+    </div>
+  </section>
+  <section class="group" id="downloads-group">
+    <h2 class="group-title">Downloads</h2>
+  </section>
+  <div class="columns">
+    <section class="column" id="ipa-column">
+      <h2 class="column-title">Nuvio for iPhone</h2>
+      <div class="card" id="iphone-card">
+        <div class="row"><p class="empty-notes">No package</p></div>
+      </div>
+      <header class="hero">
+        <p class="hero-kicker">Compile</p>
+        <div class="hero-metrics">
+          <p class="percent" id="percent"></p>
+          <p class="status-word" id="status" data-state="idle">Idle</p>
+        </div>
+        <p class="remaining" id="remaining" hidden></p>
+        <div class="track" id="track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="IPA build progress"><span class="bar" id="bar"></span></div>
+      </header>
+      <section class="group" id="error-group" hidden>
+        <h2 class="group-title">Error</h2>
+        <div class="card">
+          <p class="row" id="error" role="alert"></p>
+        </div>
+      </section>
+      <section class="group" id="build-group">
+        <h2 class="group-title">Build</h2>
+        <div class="card">
+          <div class="row">
+            <p class="row-label">Branch</p>
+            <p class="row-value" id="branch">None</p>
+          </div>
+          <div class="row row-stack">
+            <div class="row-line">
+              <p class="row-label">Commit</p>
+              <p class="row-value" id="commit-short">None</p>
+            </div>
+            <p id="commit"></p>
+          </div>
+          <div class="row" id="stage-row" hidden>
+            <p class="row-label">Stage</p>
+            <p class="row-value" id="stage"></p>
+          </div>
+        </div>
+      </section>
+      <section class="group" id="log-group">
+        <h2 class="group-title">Log</h2>
+        <div class="card">
+          <pre id="log-view" class="log-view">none</pre>
+          <div class="build-list" id="build-list"></div>
+        </div>
+      </section>
+      <section class="group" id="version-group">
+        <h2 class="group-title">In this version</h2>
+        <div class="card" id="version-lines">
+          <div class="row"><p class="empty-notes">No summary for this file.</p></div>
+        </div>
+      </section>
+      <section class="group" id="notes-group">
+        <h2 class="group-title">Release notes</h2>
+        <div class="card">
+          <div id="notes">
+            <div class="row"><p class="empty-notes">No release notes</p></div>
+          </div>
+          <button type="button" id="notes-toggle" hidden>Show All</button>
+        </div>
+      </section>
+    </section>
+    <section class="column" id="desktop-column">
+      <h2 class="column-title">Nuvio for Mac</h2>
+      <div class="card" id="mac-card">
+        <div class="row"><p class="empty-notes">No package</p></div>
+      </div>
+      <header class="hero">
+        <p class="hero-kicker">Compile</p>
+        <div class="hero-metrics">
+          <p class="percent" id="desktop-percent"></p>
+          <p class="status-word" id="desktop-status" data-state="idle">Idle</p>
+        </div>
+        <p class="remaining" id="desktop-remaining" hidden></p>
+        <div class="track" id="desktop-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Desktop build progress"><span class="bar" id="desktop-bar"></span></div>
+      </header>
+      <section class="group" id="desktop-error-group" hidden>
+        <h2 class="group-title">Error</h2>
+        <div class="card">
+          <p class="row" id="desktop-error" role="alert"></p>
+        </div>
+      </section>
+      <section class="group">
+        <h2 class="group-title">Build</h2>
+        <div class="card">
+          <div class="row">
+            <p class="row-label">Branch</p>
+            <p class="row-value" id="desktop-branch">None</p>
+          </div>
+          <div class="row row-stack">
+            <div class="row-line">
+              <p class="row-label">Commit</p>
+              <p class="row-value" id="desktop-commit-short">None</p>
+            </div>
+            <p id="desktop-commit"></p>
+          </div>
+          <div class="row" id="desktop-stage-row" hidden>
+            <p class="row-label">Stage</p>
+            <p class="row-value" id="desktop-stage"></p>
+          </div>
+        </div>
+      </section>
+      <section class="group" id="desktop-log-group">
+        <h2 class="group-title">Log</h2>
+        <div class="card">
+          <pre id="desktop-log-view" class="log-view">none</pre>
+          <div class="build-list" id="desktop-build-list"></div>
+        </div>
+      </section>
+      <section class="group" id="desktop-version-group">
+        <h2 class="group-title">In this version</h2>
+        <div class="card" id="desktop-version-lines">
+          <div class="row"><p class="empty-notes">No summary for this file.</p></div>
+        </div>
+      </section>
+      <section class="group">
+        <h2 class="group-title">Release notes</h2>
+        <div class="card">
+          <div id="desktop-notes">
+            <div class="row"><p class="empty-notes">No release notes</p></div>
+          </div>
+          <button type="button" id="desktop-notes-toggle" hidden>Show All</button>
+        </div>
+      </section>
+    </section>
+  </div>
+  <p class="absent-line" id="absent-packages">Windows and Linux have no package.</p>
+  <section class="group" id="older-group" hidden>
+    <h2 class="group-title">Older</h2>
+    <div class="card" id="older"></div>
+  </section>
+</main>
+<script src="/assets/app.js" defer></script>
+</body>
+</html>

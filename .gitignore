@@ -36,6 +36,9 @@ scripts/*
 !scripts/sign-ios-device-app.py
 !scripts/ipa-live-status.sh
 !scripts/ipa_live_status.py
+!scripts/builds_request.py
+!scripts/builds_page/
+!scripts/builds_page/**
 iosApp/Configuration/DeviceSigning.local.json
 
 # Local MPVKit iOS build environment (sparse APFS image, see MPVKit docs)
