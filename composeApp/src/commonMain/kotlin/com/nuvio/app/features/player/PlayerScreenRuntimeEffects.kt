@@ -13,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.p2p.P2pStreamRequest
@@ -79,6 +80,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         playerController = null
         playerControllerSourceUrl = null
         playbackSnapshot = PlayerPlaybackSnapshot()
+        playbackClock.reset()
         playbackSnapshotKey = null
         cancelNextEpisodeAutoPlay()
         isScrubbingTimeline = false
@@ -146,6 +148,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         playerController = null
         playerControllerSourceUrl = null
         playbackSnapshot = PlayerPlaybackSnapshot()
+        playbackClock.reset()
         initialLoadCompleted = false
 
         try {
@@ -182,6 +185,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
             playerController = null
             playerControllerSourceUrl = null
             playbackSnapshot = PlayerPlaybackSnapshot()
+            playbackClock.reset()
             initialLoadCompleted = true
             errorMessage = getString(Res.string.player_error_torrent, state.message)
             controlsVisible = !playerControlsLocked
@@ -443,40 +447,41 @@ private fun PlayerScreenRuntime.BindPlayerUiVisibilityEffects() {
     }
 
     LaunchedEffect(
-        playbackSnapshot.positionMs,
         playbackSnapshot.isPlaying,
         playbackSnapshot.isLoading,
         playbackSnapshot.isEnded,
         playbackSnapshot.durationMs,
     ) {
-        if (playbackSnapshot.isEnded) {
-            flushWatchProgress(TrackingScrobbleAction.STOP)
-            previousIsPlaying = false
-            pendingSeekScrobbleRestart = false
-            return@LaunchedEffect
-        }
+        snapshotFlow { playbackClock.positionMs }.collect {
+            if (playbackSnapshot.isEnded) {
+                flushWatchProgress(TrackingScrobbleAction.STOP)
+                previousIsPlaying = false
+                pendingSeekScrobbleRestart = false
+                return@collect
+            }
 
-        if (previousIsPlaying && !playbackSnapshot.isPlaying && !playbackSnapshot.isLoading) {
-            pendingSeekScrobbleRestart = false
-            flushWatchProgress(TrackingScrobbleAction.PAUSE)
-        }
+            if (previousIsPlaying && !playbackSnapshot.isPlaying && !playbackSnapshot.isLoading) {
+                pendingSeekScrobbleRestart = false
+                flushWatchProgress(TrackingScrobbleAction.PAUSE)
+            }
 
-        if (playbackSnapshot.isPlaying && pendingSeekScrobbleRestart) {
-            pendingSeekScrobbleRestart = false
-            if (hasRequestedScrobbleStartForCurrentItem) {
-                emitTrackingSeekScrobbleStart()
-            } else {
+            if (playbackSnapshot.isPlaying && pendingSeekScrobbleRestart) {
+                pendingSeekScrobbleRestart = false
+                if (hasRequestedScrobbleStartForCurrentItem) {
+                    emitTrackingSeekScrobbleStart()
+                } else {
+                    emitTrackingScrobbleStart()
+                }
+            } else if (!previousIsPlaying && playbackSnapshot.isPlaying) {
                 emitTrackingScrobbleStart()
             }
-        } else if (!previousIsPlaying && playbackSnapshot.isPlaying) {
-            emitTrackingScrobbleStart()
-        }
 
-        if (!playbackSnapshot.isLoading) {
-            previousIsPlaying = playbackSnapshot.isPlaying
-        }
-        if (playbackSnapshot.isPlaying) {
-            persistPlaybackProgressTick()
+            if (!playbackSnapshot.isLoading) {
+                previousIsPlaying = playbackSnapshot.isPlaying
+            }
+            if (playbackSnapshot.isPlaying) {
+                persistPlaybackProgressTick()
+            }
         }
     }
 }
@@ -563,7 +568,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
     }
 
     LaunchedEffect(
-        playbackSnapshot.positionMs, playbackSnapshot.durationMs, playbackSnapshot.isPlaying, skipIntervals,
+        playbackSnapshot.durationMs, playbackSnapshot.isPlaying, skipIntervals,
         playerSettingsUiState.autoSkipSegmentTypes,
         playerSettingsUiState.skipIntroEnabled, isScrubbingTimeline, initialSeekApplied,
         lastManualSkipSeekPositions,
@@ -572,35 +577,37 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
             activeSkipInterval = null
             return@LaunchedEffect
         }
-        val positionSec = playbackSnapshot.positionMs / 1000.0
-        lastManualSkipSeekPositions?.let { (fromMs, toMs) ->
-            autoSkippedIntervals += skipIntervals.intervalsAtSeekPositions(fromMs, toMs)
-        }
-        val current = skipIntervals.firstOrNull { interval ->
-            // Fork: intro-like segments show the button a few seconds early (pre-roll).
-            interval.isEligibleForSkipButton(positionSec) &&
-                interval.internalSkipAction(skipIntervals, playbackSnapshot.durationMs) != null
-        }
-        if (current != activeSkipInterval) {
-            activeSkipInterval = current
-            if (current != null) skipIntervalDismissed = false
-        }
-        val controller = playerController
-        if (current != null && controller != null &&
-            playerControllerSourceUrl == activeSourceUrl &&
-            playerSettingsUiState.skipIntroEnabled && playbackSnapshot.isPlaying &&
-            !isScrubbingTimeline && initialSeekApplied &&
-            // The pre-roll only reveals the button; auto-skip waits for the segment itself.
-            positionSec >= current.startTime &&
-            current.shouldAutoSkip(playerSettingsUiState.autoSkipSegmentTypes) &&
-            current !in autoSkippedIntervals
-        ) {
-            autoSkippedIntervals.add(current)
-            val durationMs = playbackSnapshot.durationMs
-            val rawMs = current.internalSkipAction(skipIntervals, durationMs)?.targetMs ?: return@LaunchedEffect
-            controller.seekTo(if (durationMs > 0L) rawMs.coerceAtMost(durationMs - 1) else rawMs)
-            scheduleProgressSyncAfterSeek()
-            skipIntervalDismissed = true
+        snapshotFlow { playbackClock.positionMs }.collect { positionMs ->
+            val positionSec = positionMs / 1000.0
+            lastManualSkipSeekPositions?.let { (fromMs, toMs) ->
+                autoSkippedIntervals += skipIntervals.intervalsAtSeekPositions(fromMs, toMs)
+            }
+            val current = skipIntervals.firstOrNull { interval ->
+                // Fork: intro-like segments show the button a few seconds early (pre-roll).
+                interval.isEligibleForSkipButton(positionSec) &&
+                    interval.internalSkipAction(skipIntervals, playbackSnapshot.durationMs) != null
+            }
+            if (current != activeSkipInterval) {
+                activeSkipInterval = current
+                if (current != null) skipIntervalDismissed = false
+            }
+            val controller = playerController
+            if (current != null && controller != null &&
+                playerControllerSourceUrl == activeSourceUrl &&
+                playerSettingsUiState.skipIntroEnabled && playbackSnapshot.isPlaying &&
+                !isScrubbingTimeline && initialSeekApplied &&
+                // The pre-roll only reveals the button; auto-skip waits for the segment itself.
+                positionSec >= current.startTime &&
+                current.shouldAutoSkip(playerSettingsUiState.autoSkipSegmentTypes) &&
+                current !in autoSkippedIntervals
+            ) {
+                autoSkippedIntervals.add(current)
+                val durationMs = playbackSnapshot.durationMs
+                val rawMs = current.internalSkipAction(skipIntervals, durationMs)?.targetMs ?: return@collect
+                controller.seekTo(if (durationMs > 0L) rawMs.coerceAtMost(durationMs - 1) else rawMs)
+                scheduleProgressSyncAfterSeek()
+                skipIntervalDismissed = true
+            }
         }
     }
 
@@ -687,24 +694,25 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         playerSettingsUiState.streamAutoPlayNextEpisodeEnabled,
         nextEpisodeCardDismissed,
     ) {
-        val shouldShow = nextEpisodeInfo != null && !nextEpisodeCardDismissed && isAtNextEpisodeThreshold()
-        if (nextEpisodeAutoPlayAutomatic &&
-            (!shouldShow || !playerSettingsUiState.streamAutoPlayNextEpisodeEnabled)
-        ) {
-            cancelNextEpisodeAutoPlay()
-        }
-        if (shouldShow && !showNextEpisodeCard) {
-            showNextEpisodeCard = true
-            if (playerSettingsUiState.streamAutoPlayNextEpisodeEnabled && nextEpisodeInfo?.hasAired == true) {
-                playNextEpisode(automatic = true)
+        snapshotFlow { playbackClock.positionMs }.collect {
+            val shouldShow = nextEpisodeInfo != null && !nextEpisodeCardDismissed && isAtNextEpisodeThreshold()
+            if (nextEpisodeAutoPlayAutomatic &&
+                (!shouldShow || !playerSettingsUiState.streamAutoPlayNextEpisodeEnabled)
+            ) {
+                cancelNextEpisodeAutoPlay()
             }
-        } else if (!shouldShow) {
-            showNextEpisodeCard = false
+            if (shouldShow && !showNextEpisodeCard) {
+                showNextEpisodeCard = true
+                if (playerSettingsUiState.streamAutoPlayNextEpisodeEnabled && nextEpisodeInfo?.hasAired == true) {
+                    playNextEpisode(automatic = true)
+                }
+            } else if (!shouldShow) {
+                showNextEpisodeCard = false
+            }
         }
     }
 
     LaunchedEffect(
-        playbackSnapshot.positionMs,
         playbackSnapshot.durationMs,
         playbackSnapshot.isEnded,
         playerMeta?.moreLikeThis,
@@ -712,19 +720,21 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         movieRecommendationDismissedStage,
         playerSettingsUiState.movieRecommendationsEnabled,
     ) {
-        if (!isMoviePlayback || !playerSettingsUiState.movieRecommendationsEnabled || movieRecommendationCandidates.isEmpty()) {
-            showMovieRecommendationCard = false
-            return@LaunchedEffect
+        snapshotFlow { playbackClock.positionMs }.collect { positionMs ->
+            if (!isMoviePlayback || !playerSettingsUiState.movieRecommendationsEnabled || movieRecommendationCandidates.isEmpty()) {
+                showMovieRecommendationCard = false
+                return@collect
+            }
+            val stage = PlayerNextEpisodeRules.movieRecommendationStage(
+                positionMs = positionMs,
+                durationMs = playbackSnapshot.durationMs,
+                isEnded = playbackSnapshot.isEnded,
+            )
+            if (stage == 0 && movieRecommendationDismissedStage != 0) {
+                movieRecommendationDismissedStage = 0
+            }
+            showMovieRecommendationCard = stage > movieRecommendationDismissedStage
         }
-        val stage = PlayerNextEpisodeRules.movieRecommendationStage(
-            positionMs = playbackSnapshot.positionMs,
-            durationMs = playbackSnapshot.durationMs,
-            isEnded = playbackSnapshot.isEnded,
-        )
-        if (stage == 0 && movieRecommendationDismissedStage != 0) {
-            movieRecommendationDismissedStage = 0
-        }
-        showMovieRecommendationCard = stage > movieRecommendationDismissedStage
     }
 }
 
@@ -791,7 +801,7 @@ internal fun PlayerScreenRuntime.tryRefreshCredentialedSourceAfterError(message:
     credentialRefreshAttemptedSourceUrl = failedUrl
     removeFailedStreamFromCache()
 
-    val savedPositionMs = playbackSnapshot.positionMs.coerceAtLeast(0L)
+    val savedPositionMs = playbackClock.positionMs.coerceAtLeast(0L)
     val expectedProviderAddonId = activeProviderAddonId
     val expectedProviderName = activeProviderName
     val expectedStreamTitle = activeStreamTitle

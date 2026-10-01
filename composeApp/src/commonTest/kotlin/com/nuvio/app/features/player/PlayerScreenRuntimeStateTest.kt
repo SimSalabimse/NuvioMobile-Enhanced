@@ -72,7 +72,8 @@ class PlayerScreenRuntimeStateTest {
 
         runtime.updatePlaybackSnapshot(buffering.copy(positionMs = 80_000L))
         assertNull(runtime.scrubbingPositionMs)
-        assertEquals(80_000L, runtime.playbackSnapshot.positionMs)
+        assertEquals(80_000L, runtime.playbackClock.positionMs)
+        assertEquals(0L, runtime.playbackSnapshot.positionMs)
     }
 
     @Test
@@ -98,13 +99,15 @@ class PlayerScreenRuntimeStateTest {
         runtime.updatePlaybackSnapshot(PlayerPlaybackSnapshot(isLoading = false, positionMs = 78_000L))
 
         assertNull(runtime.scrubbingPositionMs)
-        assertEquals(78_000L, runtime.playbackSnapshot.positionMs)
+        assertEquals(78_000L, runtime.playbackClock.positionMs)
+        assertEquals(0L, runtime.playbackSnapshot.positionMs)
     }
 
     @Test
     fun activePlaybackKeepsItsExistingScrubReleaseBehavior() {
         val runtime = PlayerScreenRuntime(testPlayerScreenArgs())
         runtime.playbackSnapshot = PlayerPlaybackSnapshot(isLoading = false, isPlaying = true, positionMs = 30_000L)
+        runtime.playbackClock.positionMs = 30_000L
         runtime.isScrubbingTimeline = true
         runtime.scrubbingPositionMs = 80_000L
 
@@ -155,6 +158,34 @@ class PlayerScreenRuntimeStateTest {
         assertSame(job, runtime.nextEpisodeAutoPlayJob)
         assertTrue(job.isActive)
         job.cancel()
+    }
+
+    @Test
+    fun positionOnlyTicksKeepTheStatusSnapshot() {
+        val runtime = PlayerScreenRuntime(testPlayerScreenArgs())
+        runtime.updatePlaybackSnapshot(
+            PlayerPlaybackSnapshot(
+                isLoading = false,
+                isPlaying = true,
+                positionMs = 1_000L,
+                bufferedPositionMs = 5_000L,
+                durationMs = 60_000L,
+            ),
+        )
+        val status = runtime.playbackSnapshot
+        assertEquals(0L, status.positionMs)
+        assertEquals(0L, status.bufferedPositionMs)
+        assertEquals(1_000L, runtime.playbackClock.positionMs)
+        assertEquals(5_000L, runtime.playbackClock.bufferedPositionMs)
+
+        assertTrue(
+            runtime.updatePlaybackSnapshot(
+                status.copy(positionMs = 1_250L, bufferedPositionMs = 6_000L),
+            ),
+        )
+        assertSame(status, runtime.playbackSnapshot)
+        assertEquals(1_250L, runtime.playbackClock.positionMs)
+        assertEquals(6_000L, runtime.playbackClock.bufferedPositionMs)
     }
 
     @Test

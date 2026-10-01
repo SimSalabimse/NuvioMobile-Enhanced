@@ -31,7 +31,7 @@ internal fun PlayerScreenRuntime.isAtNextEpisodeThreshold(): Boolean {
         isShortPlaceholderDuration(playbackSnapshot.durationMs)
     ) return false
     return playbackSnapshot.isEnded || PlayerNextEpisodeRules.shouldShowNextEpisodeCard(
-        positionMs = playbackSnapshot.positionMs,
+        positionMs = playbackClock.positionMs,
         durationMs = playbackSnapshot.durationMs,
         skipIntervals = skipIntervals,
         thresholdMode = playerSettingsUiState.nextEpisodeThresholdMode,

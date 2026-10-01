@@ -3,9 +3,11 @@ package com.nuvio.app.core.ui
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
 
 @Composable
 internal actual fun NuvioAsyncImage(
@@ -14,10 +16,15 @@ internal actual fun NuvioAsyncImage(
     modifier: Modifier,
     contentScale: ContentScale,
     animateIfPossible: Boolean,
+    crossfade: Boolean,
 ) {
+    val platformContext = LocalPlatformContext.current
+    val model = remember(imageUrl, platformContext, crossfade) {
+        if (crossfade) imageUrl else posterImageRequest(platformContext, imageUrl)
+    }
     if (!animateIfPossible || !imageUrl.looksAnimated()) {
         AsyncImage(
-            model = imageUrl,
+            model = model,
             contentDescription = contentDescription,
             modifier = modifier,
             contentScale = contentScale,
@@ -37,7 +44,7 @@ internal actual fun NuvioAsyncImage(
 
         when {
             state.unavailable -> AsyncImage(
-                model = imageUrl,
+                model = model,
                 contentDescription = contentDescription,
                 modifier = Modifier.matchParentSize(),
                 contentScale = contentScale,

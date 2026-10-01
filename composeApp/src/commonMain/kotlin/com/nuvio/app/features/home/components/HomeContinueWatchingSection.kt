@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.nuvio.app.core.ui.posterImageRequest
 import com.nuvio.app.core.ui.DisintegratingContainer
 import com.nuvio.app.core.ui.DisintegrationRequest
 import com.nuvio.app.core.ui.NuvioCardDepthSurface
@@ -239,16 +240,14 @@ private fun continuewatchingImageModel(
 ): Any? {
     val platformContext = coil3.compose.LocalPlatformContext.current
     return remember(imageUrl, fallbackUrl, platformContext) {
-        if (imageUrl.isNullOrBlank()) return@remember imageUrl
-        if (!fallbackUrl.isNullOrBlank() && fallbackUrl != imageUrl) {
-            coil3.request.ImageRequest.Builder(platformContext)
-                .data(imageUrl)
-                .memoryCacheKeyExtras(
-                    mapOf(com.nuvio.app.core.poster.CustomPosterFallbackInterceptor.FALLBACK_URL_KEY to fallbackUrl)
-                )
-                .build()
-        } else {
+        if (imageUrl.isNullOrBlank()) {
             imageUrl
+        } else {
+            posterImageRequest(
+                context = platformContext,
+                data = imageUrl,
+                fallbackUrl = fallbackUrl,
+            )
         }
     }
 }

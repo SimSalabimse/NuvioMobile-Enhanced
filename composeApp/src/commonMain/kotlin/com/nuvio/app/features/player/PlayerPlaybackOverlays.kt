@@ -27,6 +27,8 @@ internal fun BoxScope.PlayerPlaybackOverlays(
     showRemainingTime: Boolean = false,
     playbackSnapshot: PlayerPlaybackSnapshot,
     displayedPositionMs: Long,
+    playbackClock: PlayerPlaybackClock? = null,
+    scrubbingPositionMs: Long? = null,
     metrics: PlayerLayoutMetrics,
     horizontalSafePadding: Dp,
     onUnlock: () -> Unit,
@@ -40,6 +42,10 @@ internal fun BoxScope.PlayerPlaybackOverlays(
     showP2pRebufferStats: Boolean,
     p2pRebufferMessage: String?,
     p2pRebufferProgress: Float?,
+    p2pDownloadedBytes: Long? = null,
+    p2pDeliveredBytes: Long? = null,
+    p2pPeerInfo: String? = null,
+    p2pDownloadSpeed: String? = null,
     currentGestureFeedback: GestureFeedbackState?,
     renderedGestureFeedback: GestureFeedbackState?,
     initialLoadCompleted: Boolean,
@@ -76,6 +82,8 @@ internal fun BoxScope.PlayerPlaybackOverlays(
         LockedPlayerOverlay(
             playbackSnapshot = playbackSnapshot,
             displayedPositionMs = displayedPositionMs,
+            playbackClock = playbackClock,
+            scrubbingPositionMs = scrubbingPositionMs,
             metrics = metrics,
             horizontalSafePadding = horizontalSafePadding,
             onUnlock = onUnlock,
@@ -98,18 +106,27 @@ internal fun BoxScope.PlayerPlaybackOverlays(
             horizontalSafePadding = horizontalSafePadding,
             modifier = Modifier.fillMaxSize(),
             message = openingLoadingMessage,
-            progress = p2pInitialLoadingProgress,
+            progress = p2pOpeningProgress(
+                playbackClock = playbackClock,
+                downloadedBytes = p2pDownloadedBytes,
+                deliveredBytes = p2pDeliveredBytes,
+                fallback = p2pInitialLoadingProgress,
+            ),
         )
     }
 
-    P2pLoadingStatus(
-        visible = showP2pRebufferStats && errorMessage == null,
-        message = p2pRebufferMessage,
-        progress = p2pRebufferProgress,
-        modifier = Modifier
-            .align(Alignment.Center)
-            .padding(top = 58.dp),
-    )
+    if (showP2pRebufferStats && errorMessage == null) {
+        P2pRebufferStatus(
+            playbackClock = playbackClock,
+            peerInfo = p2pPeerInfo,
+            downloadSpeed = p2pDownloadSpeed,
+            fallbackMessage = p2pRebufferMessage,
+            fallbackProgress = p2pRebufferProgress,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(top = 58.dp),
+        )
+    }
 
     PlayerGestureOverlay(
         currentFeedback = currentGestureFeedback,
@@ -169,4 +186,47 @@ internal fun BoxScope.PlayerPlaybackOverlays(
             onDismiss = onDismissError,
         )
     }
+}
+
+@Composable
+private fun p2pOpeningProgress(
+    playbackClock: PlayerPlaybackClock?,
+    downloadedBytes: Long?,
+    deliveredBytes: Long?,
+    fallback: Float?,
+): Float? {
+    if (playbackClock == null || downloadedBytes == null || deliveredBytes == null) return fallback
+    val bufferedAheadMs = (playbackClock.bufferedPositionMs - playbackClock.positionMs).coerceAtLeast(0L)
+    return p2pInitialLoadingProgress(
+        bufferedAheadMs = bufferedAheadMs,
+        downloadedBytes = downloadedBytes,
+        deliveredBytes = deliveredBytes,
+    )
+}
+
+@Composable
+private fun P2pRebufferStatus(
+    playbackClock: PlayerPlaybackClock?,
+    peerInfo: String?,
+    downloadSpeed: String?,
+    fallbackMessage: String?,
+    fallbackProgress: Float?,
+    modifier: Modifier,
+) {
+    val message: String?
+    val progress: Float?
+    if (playbackClock != null) {
+        val bufferedMs = (playbackClock.bufferedPositionMs - playbackClock.positionMs).coerceAtLeast(0L)
+        message = "${bufferedMs / 1000L}s buffered · ${peerInfo.orEmpty()} · ${downloadSpeed.orEmpty()}"
+        progress = ((bufferedMs / 1000f) / 10f).coerceIn(0f, 1f)
+    } else {
+        message = fallbackMessage
+        progress = fallbackProgress
+    }
+    P2pLoadingStatus(
+        visible = true,
+        message = message,
+        progress = progress,
+        modifier = modifier,
+    )
 }

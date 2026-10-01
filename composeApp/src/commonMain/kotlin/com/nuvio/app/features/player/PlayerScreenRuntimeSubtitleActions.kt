@@ -59,7 +59,7 @@ internal fun PlayerScreenRuntime.loadSubtitleAutoSyncCues(force: Boolean = false
 
 internal fun PlayerScreenRuntime.captureSubtitleAutoSyncTime() {
     subtitleAutoSyncState = subtitleAutoSyncState.copy(
-        capturedPositionMs = playbackSnapshot.positionMs.coerceAtLeast(0L),
+        capturedPositionMs = playbackClock.positionMs.coerceAtLeast(0L),
         errorMessage = null,
     )
     loadSubtitleAutoSyncCues()
@@ -114,7 +114,7 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
             )
             
             // Start audio capture
-            val startPositionMs = playbackSnapshot.positionMs.coerceAtLeast(0L)
+            val startPositionMs = playbackClock.positionMs.coerceAtLeast(0L)
             playerController?.startAudioEnergyCapture(startPositionMs)
             
             // Capture for 30 seconds or until we have enough data

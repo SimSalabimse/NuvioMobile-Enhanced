@@ -7,6 +7,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
+import coil3.request.crossfade
 
 @Composable
 internal actual fun NuvioAsyncImage(
@@ -15,13 +16,15 @@ internal actual fun NuvioAsyncImage(
     modifier: Modifier,
     contentScale: ContentScale,
     animateIfPossible: Boolean,
+    crossfade: Boolean,
 ) {
     val context = LocalContext.current
-    val request: ImageRequest = remember(context, imageUrl) {
+    val request: ImageRequest = remember(context, imageUrl, crossfade) {
         ImageRequest.Builder(context)
             .data(imageUrl)
             .memoryCacheKey("home-collection:$imageUrl")
             .diskCacheKey(imageUrl)
+            .crossfade(crossfade)
             .build()
     }
 

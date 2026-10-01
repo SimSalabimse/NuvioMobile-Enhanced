@@ -40,7 +40,6 @@ import nuvio.composeapp.generated.resources.*
 @Composable
 internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     val runtime = this
-    val displayedPositionMs = scrubbingPositionMs ?: playbackSnapshot.positionMs
     val isEpisode = activeSeasonNumber != null && activeEpisodeNumber != null
     val currentGestureFeedback = liveGestureFeedback ?: gestureFeedback
     val isP2pPlaybackActive = activeTorrentInfoHash != null
@@ -92,37 +91,11 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
             nuvio.composeapp.generated.resources.Res.string.player_torrent_starting_engine,
         )
     }
-    val bufferedAheadMs = (playbackSnapshot.bufferedPositionMs - playbackSnapshot.positionMs)
-        .coerceAtLeast(0L)
-    val p2pInitialLoadingProgress = when {
-        !isP2pPlaybackActive || initialLoadCompleted || p2pStats == null -> null
-        else -> p2pInitialLoadingProgress(
-            bufferedAheadMs = bufferedAheadMs,
-            downloadedBytes = p2pStats.downloadedBytes,
-            deliveredBytes = p2pStats.deliveredBytes,
-        )
-    }
     val showP2pRebufferStats = isP2pPlaybackActive &&
         initialLoadCompleted &&
         playbackSnapshot.isLoading &&
         p2pStats != null &&
         !p2pSettingsUiState.hideTorrentStats
-    val p2pRebufferMessage = when {
-        !showP2pRebufferStats -> null
-        else -> {
-            val bufferedSeconds = ((playbackSnapshot.bufferedPositionMs - playbackSnapshot.positionMs) / 1000L)
-                .coerceAtLeast(0L)
-            "${bufferedSeconds}s buffered · ${p2pPeerInfo.orEmpty()} · ${p2pDownloadSpeed.orEmpty()}"
-        }
-    }
-    val p2pRebufferProgress = when {
-        !showP2pRebufferStats -> null
-        else -> {
-            val bufferedSeconds = ((playbackSnapshot.bufferedPositionMs - playbackSnapshot.positionMs) / 1000f)
-                .coerceAtLeast(0f)
-            (bufferedSeconds / 10f).coerceIn(0f, 1f)
-        }
-    }
     val gestureCallbacks = rememberSurfaceGestureCallbacks()
     val playbackGesturesEnabled = initialLoadCompleted && errorMessage == null
 
@@ -297,6 +270,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                             removeFailedStreamFromCache()
                         }
                     },
+                    includeMediaInfo = showStreamInfoModal,
                 )
             }
         }
@@ -321,18 +295,18 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
             )
         }
 
-        RenderPlayerControls(displayedPositionMs = displayedPositionMs, isEpisode = isEpisode)
+        RenderPlayerControls(isEpisode = isEpisode)
         RenderPlaybackOverlays(
             runtime = runtime,
-            displayedPositionMs = displayedPositionMs,
             currentGestureFeedback = currentGestureFeedback,
             p2pInitialLoadingMessage = p2pInitialLoadingMessage,
-            p2pInitialLoadingProgress = p2pInitialLoadingProgress,
             showP2pRebufferStats = showP2pRebufferStats,
-            p2pRebufferMessage = p2pRebufferMessage,
-            p2pRebufferProgress = p2pRebufferProgress,
+            p2pDownloadedBytes = p2pStats?.downloadedBytes,
+            p2pDeliveredBytes = p2pStats?.deliveredBytes,
+            p2pPeerInfo = p2pPeerInfo,
+            p2pDownloadSpeed = p2pDownloadSpeed,
         )
-        RenderPlayerModals(displayedPositionMs = displayedPositionMs)
+        RenderPlayerModals()
     }
 }
 
@@ -355,7 +329,7 @@ private fun PlayerScreenRuntime.currentInitialPositionRequestKey(): String? {
 }
 
 @Composable
-private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, isEpisode: Boolean) {
+private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
     val isInPip = rememberIsInPictureInPicture()
     val userRatingTarget = currentUserRatingTarget()
     val canRate = rememberCanRate(userRatingTarget)
@@ -374,7 +348,8 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
             episodeNumber = activeEpisodeNumber,
             episodeTitle = activeEpisodeTitle,
             playbackSnapshot = playbackSnapshot,
-            displayedPositionMs = displayedPositionMs,
+            playbackClock = playbackClock,
+            scrubbingPositionMs = scrubbingPositionMs,
             metrics = metrics,
             resizeMode = resizeMode,
             isLocked = playerControlsLocked,
@@ -486,7 +461,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
                             title = title,
                             streamTitle = activeStreamTitle,
                             sourceHeaders = activeSourceHeaders,
-                            resumePositionMs = playbackSnapshot.positionMs,
+                            resumePositionMs = playbackClock.positionMs,
                             durationMs = playbackSnapshot.durationMs.takeIf { it > 0L },
                             playbackSession = playbackSession,
                             subtitles = loadedSubtitles,
@@ -502,7 +477,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
                     "Player/SkipIntro",
                     "open submit dialog videoId=${activeVideoId.orEmpty()} " +
                         "isSeries=$isSeries s=${activeSeasonNumber ?: 0} e=${activeEpisodeNumber ?: 0} " +
-                        "positionMs=$displayedPositionMs",
+                        "positionMs=${playbackClock.positionMs}",
                 )
                 showSubmitIntroModal = true
             },
@@ -527,13 +502,13 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
 @Composable
 private fun BoxScope.RenderPlaybackOverlays(
     runtime: PlayerScreenRuntime,
-    displayedPositionMs: Long,
     currentGestureFeedback: GestureFeedbackState?,
     p2pInitialLoadingMessage: String?,
-    p2pInitialLoadingProgress: Float?,
     showP2pRebufferStats: Boolean,
-    p2pRebufferMessage: String?,
-    p2pRebufferProgress: Float?,
+    p2pDownloadedBytes: Long?,
+    p2pDeliveredBytes: Long?,
+    p2pPeerInfo: String?,
+    p2pDownloadSpeed: String?,
 ) {
     runtime.run {
         PlayerPlaybackOverlays(
@@ -542,8 +517,10 @@ private fun BoxScope.RenderPlaybackOverlays(
             lockedOverlayVisible = lockedOverlayVisible,
             showRemainingTime = showRemainingTime,
             playbackSnapshot = playbackSnapshot,
-        displayedPositionMs = displayedPositionMs,
-        metrics = metrics,
+            displayedPositionMs = 0L,
+            playbackClock = playbackClock,
+            scrubbingPositionMs = scrubbingPositionMs,
+            metrics = metrics,
         horizontalSafePadding = horizontalSafePadding,
         onUnlock = { unlockPlayerControls() },
         showOpeningOverlay = playerSettingsUiState.showLoadingOverlay && !initialLoadCompleted && errorMessage == null,
@@ -561,10 +538,14 @@ private fun BoxScope.RenderPlaybackOverlays(
                 buffering = playbackSnapshot.isLoading,
             )
         } else null,
-        p2pInitialLoadingProgress = p2pInitialLoadingProgress,
+        p2pInitialLoadingProgress = null,
         showP2pRebufferStats = showP2pRebufferStats,
-        p2pRebufferMessage = p2pRebufferMessage,
-        p2pRebufferProgress = p2pRebufferProgress,
+        p2pRebufferMessage = null,
+        p2pRebufferProgress = null,
+        p2pDownloadedBytes = p2pDownloadedBytes,
+        p2pDeliveredBytes = p2pDeliveredBytes,
+        p2pPeerInfo = p2pPeerInfo,
+        p2pDownloadSpeed = p2pDownloadSpeed,
         currentGestureFeedback = currentGestureFeedback,
         renderedGestureFeedback = renderedGestureFeedback,
         initialLoadCompleted = initialLoadCompleted,
@@ -580,7 +561,7 @@ private fun BoxScope.RenderPlaybackOverlays(
                 InAppLogger.info(
                     "Player/SkipIntro",
                     "skip type=${interval.type} provider=${interval.provider} " +
-                        "fromMs=${playbackSnapshot.positionMs} targetMs=$seekMs rawMs=${action.targetMs} " +
+                        "fromMs=${playbackClock.positionMs} targetMs=$seekMs rawMs=${action.targetMs} " +
                         "postCredits=${action.skipsToPostCredits} " +
                         "startSec=${interval.startTime} endSec=${interval.endTime}",
                 )
@@ -594,7 +575,7 @@ private fun BoxScope.RenderPlaybackOverlays(
                 InAppLogger.debug(
                     "Player/SkipIntro",
                     "dismiss type=${interval.type} provider=${interval.provider} " +
-                        "positionMs=${playbackSnapshot.positionMs}",
+                        "positionMs=${playbackClock.positionMs}",
                 )
             }
             skipIntervalDismissed = true
@@ -628,7 +609,7 @@ private fun BoxScope.RenderPlaybackOverlays(
         },
         onDismissMovieRecommendations = {
             movieRecommendationDismissedStage = PlayerNextEpisodeRules.movieRecommendationStage(
-                positionMs = playbackSnapshot.positionMs,
+                positionMs = playbackClock.positionMs,
                 durationMs = playbackSnapshot.durationMs,
                 isEnded = playbackSnapshot.isEnded,
             )
@@ -682,7 +663,7 @@ private fun PlayerScreenRuntime.playbackResolutionLabel(forButton: Boolean): Str
     )
 
 @Composable
-private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
+private fun PlayerScreenRuntime.RenderPlayerModals() {
     PlayerScreenModalHosts(
         pendingP2pSwitch = pendingP2pSwitch,
         onPendingP2pSwitchChanged = { pendingP2pSwitch = it },
@@ -855,7 +836,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
         showSubmitIntroModal = showSubmitIntroModal,
         activeVideoId = activeVideoId,
         metaUiState = metaUiState,
-        displayedPositionMs = displayedPositionMs,
+        playbackClock = playbackClock,
         durationMs = playbackSnapshot.durationMs,
         submitIntroSegmentType = submitIntroSegmentType,
         onSubmitIntroSegmentTypeChanged = { submitIntroSegmentType = it },

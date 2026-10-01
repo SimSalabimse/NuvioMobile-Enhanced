@@ -168,18 +168,12 @@ fun NuvioPosterCard(
         ) {
             if (imageUrl != null) {
                 val platformContext = coil3.compose.LocalPlatformContext.current
-                val hasFallback = !fallbackImageUrl.isNullOrBlank() && fallbackImageUrl != imageUrl
                 val imageModel = remember(imageUrl, fallbackImageUrl, platformContext) {
-                    if (hasFallback) {
-                        coil3.request.ImageRequest.Builder(platformContext)
-                            .data(imageUrl)
-                            .memoryCacheKeyExtras(
-                                mapOf(com.nuvio.app.core.poster.CustomPosterFallbackInterceptor.FALLBACK_URL_KEY to fallbackImageUrl!!)
-                            )
-                            .build()
-                    } else {
-                        imageUrl
-                    }
+                    posterImageRequest(
+                        context = platformContext,
+                        data = imageUrl,
+                        fallbackUrl = fallbackImageUrl,
+                    )
                 }
                 AsyncImage(
                     model = imageModel,

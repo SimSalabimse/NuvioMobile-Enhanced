@@ -108,6 +108,7 @@ private class PlaybackDiagnostics {
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
+@Suppress("UNUSED_PARAMETER")
 actual fun PlatformPlayerSurface(
     sourceUrl: String,
     sourceAudioUrl: String?,
@@ -126,6 +127,7 @@ actual fun PlatformPlayerSurface(
     onControllerReady: (PlayerEngineController) -> Unit,
     onSnapshot: (PlayerPlaybackSnapshot) -> Unit,
     onError: (String?) -> Unit,
+    includeMediaInfo: Boolean,
 ) {
     val playerSettings = remember {
         PlayerSettingsRepository.ensureLoaded()

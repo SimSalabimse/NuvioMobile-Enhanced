@@ -117,10 +117,18 @@ internal fun PlayerTimeline(
     onScrubFinished: (Long) -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    playbackClock: PlayerPlaybackClock? = null,
+    scrubbingPositionMs: Long? = null,
 ) {
+    val positionMs = if (playbackClock != null) {
+        scrubbingPositionMs ?: playbackClock.positionMs
+    } else {
+        displayedPositionMs
+    }
+    val bufferedPositionMs = playbackClock?.bufferedPositionMs ?: snapshot.bufferedPositionMs
     val durationMs = snapshot.durationMs.coerceAtLeast(0L)
     val rangeEnd = durationMs.coerceAtLeast(1L).toFloat()
-    val bufferedFraction = (snapshot.bufferedPositionMs.toFloat() / rangeEnd).coerceIn(0f, 1f)
+    val bufferedFraction = (bufferedPositionMs.toFloat() / rangeEnd).coerceIn(0f, 1f)
     val accent = MaterialTheme.colorScheme.primary
     val accentBrush = MaterialTheme.themePalette.accentBrush()
     val description = stringResource(Res.string.player_seek_position)
@@ -137,14 +145,14 @@ internal fun PlayerTimeline(
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
         Slider(
-            value = displayedPositionMs.coerceIn(0L, durationMs).toFloat(),
+            value = positionMs.coerceIn(0L, durationMs).toFloat(),
             onValueChange = { value ->
                 val position = value.toLong().coerceIn(0L, durationMs)
                 scrubPosition = position
                 onScrubChange(position)
             },
             onValueChangeFinished = {
-                onScrubFinished((scrubPosition ?: displayedPositionMs).coerceIn(0L, durationMs))
+                onScrubFinished((scrubPosition ?: positionMs).coerceIn(0L, durationMs))
                 scrubPosition = null
             },
             valueRange = 0f..rangeEnd,

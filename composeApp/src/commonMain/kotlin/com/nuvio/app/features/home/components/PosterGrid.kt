@@ -31,6 +31,7 @@ import com.nuvio.app.core.ui.NuvioPosterWatchedOverlay
 import com.nuvio.app.core.ui.SkeletonPoster
 import com.nuvio.app.core.ui.nuvioCardDepth
 import com.nuvio.app.core.ui.posterCardClickable
+import com.nuvio.app.core.ui.posterImageRequest
 import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.PosterShape
@@ -140,16 +141,11 @@ private fun PosterGridTile(
                 val platformContext = coil3.compose.LocalPlatformContext.current
                 val hasFallback = !item.rawPosterUrl.isNullOrBlank() && item.rawPosterUrl != item.poster
                 val imageModel = remember(item.poster, item.rawPosterUrl, platformContext) {
-                    if (hasFallback) {
-                        coil3.request.ImageRequest.Builder(platformContext)
-                            .data(item.poster)
-                            .memoryCacheKeyExtras(
-                                mapOf(com.nuvio.app.core.poster.CustomPosterFallbackInterceptor.FALLBACK_URL_KEY to item.rawPosterUrl!!)
-                            )
-                            .build()
-                    } else {
-                        item.poster
-                    }
+                    posterImageRequest(
+                        context = platformContext,
+                        data = item.poster,
+                        fallbackUrl = item.rawPosterUrl.takeIf { hasFallback },
+                    )
                 }
                 AsyncImage(
                     model = imageModel,

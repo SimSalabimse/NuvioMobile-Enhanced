@@ -60,11 +60,13 @@ actual fun PlatformPlayerSurface(
     onControllerReady: (PlayerEngineController) -> Unit,
     onSnapshot: (PlayerPlaybackSnapshot) -> Unit,
     onError: (String?) -> Unit,
+    includeMediaInfo: Boolean,
 ) {
     sanitizePlaybackResponseHeaders(sourceResponseHeaders)
     val latestOnControllerReady = rememberUpdatedState(onControllerReady)
     val latestOnSnapshot = rememberUpdatedState(onSnapshot)
     val latestOnError = rememberUpdatedState(onError)
+    val latestIncludeMediaInfo = rememberUpdatedState(includeMediaInfo)
     val density = LocalDensity.current
     PlayerSettingsRepository.ensureLoaded()
     val playerSettings by PlayerSettingsRepository.uiState.collectAsStateWithLifecycle()
@@ -433,10 +435,19 @@ actual fun PlatformPlayerSurface(
         bridge.applyIosVideoOutputSettings(playerSettings)
     }
 
-    // Polling for snapshots
+    // Polling for snapshots. Media info walks codec and track properties on the mpv
+    // queue, so only request it while the playback-info panel is open.
     LaunchedEffect(bridge) {
         var lastReportedError: String? = null
+        var cachedMediaInfoJson = "{}"
         while (isActive) {
+            if (latestIncludeMediaInfo.value) {
+                val refreshed = bridge.getMediaInfoJson()
+                // The bridge returns "{}" until the async walk finishes.
+                if (refreshed.isNotBlank() && refreshed != "{}") {
+                    cachedMediaInfoJson = refreshed
+                }
+            }
             val snapshot = PlayerPlaybackSnapshot(
                 isLoading = bridge.getIsLoading(),
                 isPlaying = bridge.getIsPlaying(),
@@ -447,7 +458,7 @@ actual fun PlatformPlayerSurface(
                 playbackSpeed = bridge.getPlaybackSpeed(),
                 videoWidth = bridge.getVideoWidth().coerceAtLeast(0),
                 videoHeight = bridge.getVideoHeight().coerceAtLeast(0),
-                mediaInfoJson = bridge.getMediaInfoJson(),
+                mediaInfoJson = cachedMediaInfoJson,
             )
             latestOnSnapshot.value(snapshot)
             val errorMessage = bridge.getErrorMessage().ifBlank { null }

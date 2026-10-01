@@ -173,7 +173,7 @@ internal fun PlayerScreenRuntime.togglePlayback() {
 }
 
 internal fun PlayerScreenRuntime.seekBy(offsetMs: Long) {
-    val fromMs = playbackSnapshot.positionMs
+    val fromMs = playbackClock.positionMs
     val fromPositionMs = fromMs.coerceAtLeast(0L)
     val targetMs = (fromMs + offsetMs).coerceAtLeast(0L)
         .let { if (playbackSnapshot.durationMs > 0L) it.coerceAtMost(playbackSnapshot.durationMs) else it }
@@ -209,7 +209,7 @@ internal fun PlayerScreenRuntime.handleKeyboardShortcut(shortcut: PlayerKeyboard
 }
 
 internal fun PlayerScreenRuntime.handleDoubleTapSeek(direction: PlayerSeekDirection) {
-    val currentPositionMs = playbackSnapshot.positionMs.coerceAtLeast(0L)
+    val currentPositionMs = playbackClock.positionMs.coerceAtLeast(0L)
     val currentSeekState = accumulatedSeekState
     val nextState = if (currentSeekState?.direction == direction) {
         currentSeekState.copy(amountMs = currentSeekState.amountMs + PlayerDoubleTapSeekStepMs)
@@ -346,11 +346,13 @@ internal fun PlayerScreenRuntime.rememberSurfaceGestureCallbacks(): PlayerSurfac
         touchGesturesEnabled = rememberUpdatedState(playerSettingsUiState.touchGesturesEnabled),
         swipeToSeekEnabled = rememberUpdatedState(playerSettingsUiState.swipeToSeekEnabled),
         playerControlsLocked = rememberUpdatedState(playerControlsLocked),
-        currentPositionMs = rememberUpdatedState(playbackSnapshot.positionMs.coerceAtLeast(0L)),
+        currentPositionMs = object : State<Long> {
+            override val value: Long get() = playbackClock.positionMs.coerceAtLeast(0L)
+        },
         currentDurationMs = rememberUpdatedState(playbackSnapshot.durationMs),
         commitHorizontalSeek = rememberUpdatedState { targetPositionMs: Long ->
-            val fromPositionMs = playbackSnapshot.positionMs.coerceAtLeast(0L)
-            lastManualSkipSeekPositions = playbackSnapshot.positionMs to targetPositionMs
+            val fromPositionMs = playbackClock.positionMs.coerceAtLeast(0L)
+            lastManualSkipSeekPositions = playbackClock.positionMs to targetPositionMs
             playerController?.seekTo(targetPositionMs)
             scheduleProgressSyncAfterSeek()
             if (targetPositionMs < fromPositionMs) {

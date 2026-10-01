@@ -152,6 +152,7 @@ private fun CollectionFolderCard(
                             contentDescription = folder.title,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop,
+                            crossfade = false,
                             animateIfPossible = animateGifs &&
                                 isAnimatedCollectionFolderImage(folder, imageUrl) &&
                                 LocalScreenActive.current,

@@ -1,6 +1,9 @@
 package com.nuvio.app.features.player
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.player_ios_hardware_decoder_off
 import nuvio.composeapp.generated.resources.player_ios_preset_compatibility_desc
@@ -233,6 +236,21 @@ data class PlayerPlaybackSnapshot(
     val videoHeight: Int = 0,
     val mediaInfoJson: String = "{}",
 )
+
+/**
+ * Playhead and buffer, separate from [PlayerPlaybackSnapshot] so a position tick
+ * does not recompose the player controls. Only the timeline and the skip-window
+ * clock should read these fields during composition.
+ */
+internal class PlayerPlaybackClock {
+    var positionMs by mutableStateOf(0L)
+    var bufferedPositionMs by mutableStateOf(0L)
+
+    fun reset() {
+        positionMs = 0L
+        bufferedPositionMs = 0L
+    }
+}
 
 data class PlayerNowPlayingInfo(
     val title: String,

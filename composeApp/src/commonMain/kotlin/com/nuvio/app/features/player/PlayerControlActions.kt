@@ -95,7 +95,9 @@ internal fun PlayerToolbar(
 @Composable
 internal fun PlayerControlActions(
     playbackSnapshot: PlayerPlaybackSnapshot,
-    displayedPositionMs: Long,
+    displayedPositionMs: Long = 0L,
+    playbackClock: PlayerPlaybackClock? = null,
+    scrubbingPositionMs: Long? = null,
     showRemainingTime: Boolean,
     onRuntimeClick: () -> Unit,
     metrics: PlayerLayoutMetrics,
@@ -246,15 +248,39 @@ internal fun PlayerControlActions(
                 ),
                 contentAlignment = Alignment.CenterEnd,
             ) {
-                Text(
-                    text = formatPlaybackRuntime(displayedPositionMs, playbackSnapshot.durationMs, showRemainingTime),
-                    style = MaterialTheme.nuvioTypeScale.bodyMd.copy(fontSize = (metrics.timeSize.value + 2).sp),
-                    color = Color.White.copy(alpha = 0.9f),
-                    maxLines = 1,
+                PlaybackRuntimeLabel(
+                    playbackClock = playbackClock,
+                    scrubbingPositionMs = scrubbingPositionMs,
+                    displayedPositionMs = displayedPositionMs,
+                    durationMs = playbackSnapshot.durationMs,
+                    showRemainingTime = showRemainingTime,
+                    metrics = metrics,
                 )
             }
         }
     }
+}
+
+@Composable
+private fun PlaybackRuntimeLabel(
+    playbackClock: PlayerPlaybackClock?,
+    scrubbingPositionMs: Long?,
+    displayedPositionMs: Long,
+    durationMs: Long,
+    showRemainingTime: Boolean,
+    metrics: PlayerLayoutMetrics,
+) {
+    val positionMs = if (playbackClock != null) {
+        scrubbingPositionMs ?: playbackClock.positionMs
+    } else {
+        displayedPositionMs
+    }
+    Text(
+        text = formatPlaybackRuntime(positionMs, durationMs, showRemainingTime),
+        style = MaterialTheme.nuvioTypeScale.bodyMd.copy(fontSize = (metrics.timeSize.value + 2).sp),
+        color = Color.White.copy(alpha = 0.9f),
+        maxLines = 1,
+    )
 }
 
 @Composable

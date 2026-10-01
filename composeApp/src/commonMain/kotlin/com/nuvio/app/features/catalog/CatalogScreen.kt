@@ -56,6 +56,7 @@ import com.nuvio.app.core.ui.SkeletonPoster
 import com.nuvio.app.core.ui.nuvioCardDepth
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.core.ui.posterCardClickable
+import com.nuvio.app.core.ui.posterImageRequest
 import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
 import com.nuvio.app.core.ui.withDuplicateSafeLazyKeys
 import com.nuvio.app.features.home.MetaPreview
@@ -324,8 +325,12 @@ private fun CatalogPosterTile(
                 ),
         ) {
             if (item.poster != null) {
+                val platformContext = coil3.compose.LocalPlatformContext.current
+                val imageModel = remember(item.poster, platformContext) {
+                    posterImageRequest(platformContext, item.poster)
+                }
                 AsyncImage(
-                    model = item.poster,
+                    model = imageModel,
                     contentDescription = item.name,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,

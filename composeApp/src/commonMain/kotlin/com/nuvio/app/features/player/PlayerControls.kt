@@ -103,7 +103,8 @@ internal fun PlayerControlsShell(
     episodeNumber: Int?,
     episodeTitle: String?,
     playbackSnapshot: PlayerPlaybackSnapshot,
-    displayedPositionMs: Long,
+    playbackClock: PlayerPlaybackClock,
+    scrubbingPositionMs: Long?,
     metrics: PlayerLayoutMetrics,
     resizeMode: PlayerResizeMode,
     isLocked: Boolean,
@@ -267,7 +268,8 @@ internal fun PlayerControlsShell(
             if (showPlaybackControls && useLegacyLayout) {
                 ProgressControls(
                     playbackSnapshot = playbackSnapshot,
-                    displayedPositionMs = displayedPositionMs,
+                    playbackClock = playbackClock,
+                    scrubbingPositionMs = scrubbingPositionMs,
                     metrics = metrics,
                     resizeMode = resizeMode,
                     onScrubChange = onScrubChange,
@@ -312,7 +314,9 @@ internal fun PlayerControlsShell(
                     }
                     PlayerTimeline(
                         snapshot = playbackSnapshot,
-                        displayedPositionMs = displayedPositionMs,
+                        displayedPositionMs = 0L,
+                        playbackClock = playbackClock,
+                        scrubbingPositionMs = scrubbingPositionMs,
                         onScrubChange = onScrubChange,
                         onScrubFinished = {
                             onInteraction()
@@ -321,7 +325,8 @@ internal fun PlayerControlsShell(
                     )
                     PlayerControlActions(
                         playbackSnapshot = playbackSnapshot,
-                        displayedPositionMs = displayedPositionMs,
+                        playbackClock = playbackClock,
+                        scrubbingPositionMs = scrubbingPositionMs,
                         showRemainingTime = showRemainingTime,
                         onRuntimeClick = onRuntimeClick,
                         metrics = metrics,
@@ -687,7 +692,8 @@ internal fun PlayPauseControlButton(
 @Composable
 private fun ProgressControls(
     playbackSnapshot: PlayerPlaybackSnapshot,
-    displayedPositionMs: Long,
+    playbackClock: PlayerPlaybackClock,
+    scrubbingPositionMs: Long?,
     metrics: PlayerLayoutMetrics,
     resizeMode: PlayerResizeMode,
     onScrubChange: (Long) -> Unit,
@@ -710,7 +716,8 @@ private fun ProgressControls(
     Column(modifier = modifier) {
         PlayerSeekBar(
             durationMs = playbackSnapshot.durationMs,
-            displayedPositionMs = displayedPositionMs,
+            playbackClock = playbackClock,
+            scrubbingPositionMs = scrubbingPositionMs,
             metrics = metrics,
             onScrubChange = onScrubChange,
             onScrubFinished = onScrubFinished,
@@ -845,12 +852,19 @@ private fun Modifier.tapToSeekOnTimeline(
 @Composable
 internal fun PlayerSeekBar(
     durationMs: Long,
-    displayedPositionMs: Long,
+    displayedPositionMs: Long = 0L,
     metrics: PlayerLayoutMetrics,
     onScrubChange: (Long) -> Unit,
     onScrubFinished: (Long) -> Unit,
     modifier: Modifier = Modifier,
+    playbackClock: PlayerPlaybackClock? = null,
+    scrubbingPositionMs: Long? = null,
 ) {
+    val positionMs = if (playbackClock != null) {
+        scrubbingPositionMs ?: playbackClock.positionMs
+    } else {
+        displayedPositionMs
+    }
     val seekDurationMs = durationMs.coerceAtLeast(1L)
     val seekDescription = stringResource(Res.string.player_seek_position)
     Column(modifier = modifier) {
@@ -864,7 +878,7 @@ internal fun PlayerSeekBar(
                 .graphicsLayer(scaleY = metrics.transportScaleY())
                 .tapToSeekOnTimeline(
                     durationMs = durationMs,
-                    currentPositionMs = { displayedPositionMs },
+                    currentPositionMs = { positionMs },
                     onSeek = { positionMs ->
                         val targetPositionMs = positionMs.coerceIn(0L, seekDurationMs)
                         onScrubChange(targetPositionMs)
@@ -876,9 +890,9 @@ internal fun PlayerSeekBar(
                 modifier = Modifier
                     .fillMaxSize()
                     .semantics { contentDescription = seekDescription },
-                value = displayedPositionMs.coerceIn(0L, seekDurationMs).toFloat(),
+                value = positionMs.coerceIn(0L, seekDurationMs).toFloat(),
                 onValueChange = { value -> onScrubChange(value.toLong()) },
-                onValueChangeFinished = { onScrubFinished(displayedPositionMs.coerceIn(0L, seekDurationMs)) },
+                onValueChangeFinished = { onScrubFinished(positionMs.coerceIn(0L, seekDurationMs)) },
                 enabled = durationMs > 0L,
                 valueRange = 0f..seekDurationMs.toFloat(),
                 track = { sliderState -> PlayerProgressTrack(sliderState) },
@@ -892,7 +906,7 @@ internal fun PlayerSeekBar(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TimePill(text = formatPlaybackTime(displayedPositionMs), fontSize = metrics.timeSize)
+            TimePill(text = formatPlaybackTime(positionMs), fontSize = metrics.timeSize)
             TimePill(text = formatPlaybackTime(durationMs), fontSize = metrics.timeSize)
         }
     }
@@ -928,24 +942,16 @@ private fun PlayerProgressTrack(sliderState: SliderState) {
 @Composable
 internal fun LockedPlayerOverlay(
     playbackSnapshot: PlayerPlaybackSnapshot,
-    displayedPositionMs: Long,
+    displayedPositionMs: Long = 0L,
     metrics: PlayerLayoutMetrics,
     horizontalSafePadding: androidx.compose.ui.unit.Dp,
     onUnlock: () -> Unit,
     useLegacyLayout: Boolean = false,
     showRemainingTime: Boolean = false,
     modifier: Modifier = Modifier,
+    playbackClock: PlayerPlaybackClock? = null,
+    scrubbingPositionMs: Long? = null,
 ) {
-    val durationMs = playbackSnapshot.durationMs.coerceAtLeast(1L)
-    val sliderColors = SliderDefaults.colors(
-        thumbColor = Color.White,
-        activeTrackColor = Color.White,
-        inactiveTrackColor = Color.White.copy(alpha = 0.28f),
-        disabledThumbColor = Color.White,
-        disabledActiveTrackColor = Color.White,
-        disabledInactiveTrackColor = Color.White.copy(alpha = 0.28f),
-    )
-
     Box(modifier = modifier.fillMaxSize()) {
         PlayerChromeBackdrop(
             modifier = Modifier
@@ -994,52 +1000,89 @@ internal fun LockedPlayerOverlay(
             )
         }
 
-        Column(
+        LockedOverlayTimeline(
+            playbackSnapshot = playbackSnapshot,
+            displayedPositionMs = displayedPositionMs,
+            playbackClock = playbackClock,
+            scrubbingPositionMs = scrubbingPositionMs,
+            metrics = metrics,
+            useLegacyLayout = useLegacyLayout,
+            showRemainingTime = showRemainingTime,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .padding(horizontal = horizontalSafePadding + metrics.horizontalPadding)
                 .padding(bottom = metrics.sliderBottomOffset),
-        ) {
-            if (useLegacyLayout) {
-                Slider(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(metrics.transportTouchHeight())
-                        .graphicsLayer(scaleY = metrics.transportScaleY()),
-                    value = displayedPositionMs.coerceIn(0L, durationMs).toFloat(),
-                    onValueChange = {},
-                    onValueChangeFinished = {},
-                    valueRange = 0f..durationMs.toFloat(),
-                    enabled = false,
-                    colors = sliderColors,
-                )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp)
-                        .padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    TimePill(text = formatPlaybackTime(displayedPositionMs), fontSize = metrics.timeSize)
-                    TimePill(text = formatPlaybackTime(durationMs), fontSize = metrics.timeSize)
-                }
-            } else {
-                PlayerTimeline(
-                    snapshot = playbackSnapshot,
-                    displayedPositionMs = displayedPositionMs,
-                    onScrubChange = {},
-                    onScrubFinished = {},
-                    enabled = false,
-                )
-                Text(
-                    text = formatPlaybackRuntime(displayedPositionMs, playbackSnapshot.durationMs, showRemainingTime),
-                    style = MaterialTheme.nuvioTypeScale.bodyMd.copy(fontSize = (metrics.timeSize.value + 2).sp),
-                    color = Color.White.copy(alpha = 0.9f),
-                    modifier = Modifier.align(Alignment.End),
-                )
+        )
+    }
+}
+
+@Composable
+private fun LockedOverlayTimeline(
+    playbackSnapshot: PlayerPlaybackSnapshot,
+    displayedPositionMs: Long,
+    playbackClock: PlayerPlaybackClock?,
+    scrubbingPositionMs: Long?,
+    metrics: PlayerLayoutMetrics,
+    useLegacyLayout: Boolean,
+    showRemainingTime: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val positionMs = if (playbackClock != null) {
+        scrubbingPositionMs ?: playbackClock.positionMs
+    } else {
+        displayedPositionMs
+    }
+    val durationMs = playbackSnapshot.durationMs.coerceAtLeast(1L)
+    val sliderColors = SliderDefaults.colors(
+        thumbColor = Color.White,
+        activeTrackColor = Color.White,
+        inactiveTrackColor = Color.White.copy(alpha = 0.28f),
+        disabledThumbColor = Color.White,
+        disabledActiveTrackColor = Color.White,
+        disabledInactiveTrackColor = Color.White.copy(alpha = 0.28f),
+    )
+    Column(modifier = modifier) {
+        if (useLegacyLayout) {
+            Slider(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(metrics.transportTouchHeight())
+                    .graphicsLayer(scaleY = metrics.transportScaleY()),
+                value = positionMs.coerceIn(0L, durationMs).toFloat(),
+                onValueChange = {},
+                onValueChangeFinished = {},
+                valueRange = 0f..durationMs.toFloat(),
+                enabled = false,
+                colors = sliderColors,
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp)
+                    .padding(top = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TimePill(text = formatPlaybackTime(positionMs), fontSize = metrics.timeSize)
+                TimePill(text = formatPlaybackTime(durationMs), fontSize = metrics.timeSize)
             }
+        } else {
+            PlayerTimeline(
+                snapshot = playbackSnapshot,
+                displayedPositionMs = positionMs,
+                onScrubChange = {},
+                onScrubFinished = {},
+                enabled = false,
+                playbackClock = playbackClock,
+                scrubbingPositionMs = scrubbingPositionMs,
+            )
+            Text(
+                text = formatPlaybackRuntime(positionMs, playbackSnapshot.durationMs, showRemainingTime),
+                style = MaterialTheme.nuvioTypeScale.bodyMd.copy(fontSize = (metrics.timeSize.value + 2).sp),
+                color = Color.White.copy(alpha = 0.9f),
+                modifier = Modifier.align(Alignment.End),
+            )
         }
     }
 }
