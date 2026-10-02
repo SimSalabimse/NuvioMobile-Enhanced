@@ -6,8 +6,8 @@ import kotlin.test.assertEquals
 
 class PlayerChromeTest {
     @Test
-    fun `reduce transparency replaces the system material with an opaque scrim`() {
-        assertEquals(PlayerChromeKind.SystemMaterial, playerChromeKind(reduceTransparency = false))
+    fun `reduce transparency replaces the fallback fill with an opaque scrim`() {
+        assertEquals(PlayerChromeKind.FallbackFill, playerChromeKind(reduceTransparency = false))
         assertEquals(PlayerChromeKind.OpaqueScrim, playerChromeKind(reduceTransparency = true))
         assertEquals(1f, PlayerOpaqueScrim.alpha)
         assertEquals(Color(0xFF1C1C1E), PlayerOpaqueScrim)

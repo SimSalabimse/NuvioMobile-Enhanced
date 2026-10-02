@@ -15,18 +15,22 @@ import com.nuvio.app.isIos
 internal val PlayerOpaqueScrim = Color(0xFF1C1C1E)
 
 internal enum class PlayerChromeKind {
-    SystemMaterial,
+    FallbackFill,
     OpaqueScrim,
 }
 
-/** iOS uses a system material unless Reduce Transparency asks for a solid scrim. */
+/**
+ * iOS paints the call-site brush or color unless Reduce Transparency asks for a
+ * solid scrim. The system material stays out of this choice: a clear effect
+ * view would cover the fill.
+ */
 internal fun playerChromeKind(reduceTransparency: Boolean): PlayerChromeKind =
-    if (reduceTransparency) PlayerChromeKind.OpaqueScrim else PlayerChromeKind.SystemMaterial
+    if (reduceTransparency) PlayerChromeKind.OpaqueScrim else PlayerChromeKind.FallbackFill
 
 /**
  * Dismiss veil behind a side panel. Android keeps the existing 34% slab.
  * iOS stays light enough that the picture shows through, and darkens when
- * Reduce Transparency removes the panel material.
+ * Reduce Transparency is on.
  */
 internal fun playerSidePanelScrimAlpha(ios: Boolean, reduceTransparency: Boolean): Float = when {
     !ios -> 0.34f
@@ -42,21 +46,24 @@ internal fun PlayerChromeBackdrop(
     fallbackBrush: Brush? = null,
 ) {
     val clipped = modifier.clip(shape)
-    if (!isIos) {
-        if (fallbackBrush != null) {
-            Box(clipped.background(fallbackBrush))
-        } else {
-            Box(clipped.background(fallbackColor))
-        }
+    if (
+        isIos &&
+        playerChromeKind(playerReduceTransparencyEnabled()) == PlayerChromeKind.OpaqueScrim
+    ) {
+        Box(clipped.background(PlayerOpaqueScrim))
         return
     }
-    if (playerChromeKind(playerReduceTransparencyEnabled()) == PlayerChromeKind.OpaqueScrim) {
-        Box(clipped.background(PlayerOpaqueScrim))
+    if (fallbackBrush != null) {
+        Box(clipped.background(fallbackBrush))
     } else {
-        IosSystemMaterial(clipped)
+        Box(clipped.background(fallbackColor))
     }
 }
 
+/**
+ * Ultra-thin dark material. [PlayerChromeBackdrop] does not stack this view:
+ * it draws clear over the player picture and drops its effect while a panel fades in.
+ */
 @Composable
 internal expect fun IosSystemMaterial(modifier: Modifier)
 
