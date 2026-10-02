@@ -8,11 +8,13 @@ local_trusted comments as the board. A rejected comment rolls the file back.
 
 from __future__ import annotations
 
+import argparse
 import base64
 import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import time
 import urllib.error
@@ -47,6 +49,10 @@ class MissingCredential(Exception):
 
 
 class LedgerError(Exception):
+    pass
+
+
+class CombineError(Exception):
     pass
 
 
@@ -196,13 +202,19 @@ def token_from_headers(headers) -> str | None:
     return None
 
 
-def run_git(repo: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
+def run_git(
+    repo: Path,
+    args: list[str],
+    env: dict[str, str] | None = None,
+    timeout: int = 15,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", "-C", str(repo), *args],
         check=False,
         capture_output=True,
         text=True,
-        timeout=15,
+        timeout=timeout,
+        env=env,
     )
 
 
@@ -342,6 +354,20 @@ def clear_commit_cache() -> None:
     _commit_cache.clear()
 
 
+def commits_through(commits: list[dict], chosen: str) -> list[str] | None:
+    """Full ids from the branch root of this list through chosen, oldest first."""
+    index = next((i for i, row in enumerate(commits) if row.get("commit") == chosen), None)
+    if index is None:
+        return None
+    ordered = list(reversed(commits[index:]))
+    found: list[str] = []
+    for row in ordered:
+        sha = str(row.get("commit") or "")
+        if FULL_SHA.fullmatch(sha):
+            found.append(sha)
+    return found or None
+
+
 def subjects_through(commits: list[dict], chosen: str) -> list[str] | None:
     """Subjects from the branch root of this list through chosen, oldest first."""
     index = next((i for i, row in enumerate(commits) if row.get("commit") == chosen), None)
@@ -349,6 +375,291 @@ def subjects_through(commits: list[dict], chosen: str) -> list[str] | None:
         return None
     ordered = list(reversed(commits[index:]))
     return [str(row.get("subject") or "(no subject)") for row in ordered]
+
+
+def _branch_snapshot(repo: Path) -> str:
+    heads = run_git(repo, ["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads"])
+    current = run_git(repo, ["rev-parse", "--verify", "HEAD"])
+    return heads.stdout + "\n" + current.stdout
+
+
+def _git_bytes(repo: Path, args: list[str], env: dict[str, str] | None = None, data: bytes | None = None) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        ["git", "-C", str(repo), *args],
+        check=False,
+        capture_output=True,
+        input=data,
+        timeout=30,
+        env=env,
+    )
+
+
+def _lookup_blob(repo: Path, rev: str, path: str) -> tuple[str, str] | None:
+    result = _git_bytes(repo, ["ls-tree", "-z", "--end-of-options", rev, "--", path])
+    if result.returncode != 0 or not result.stdout:
+        return None
+    record = result.stdout.split(b"\0", 1)[0]
+    meta, _, _found = record.partition(b"\t")
+    parts = meta.decode("ascii", "replace").split()
+    if len(parts) < 3 or parts[1] != "blob" or not FULL_SHA.fullmatch(parts[2]):
+        return None
+    return parts[0], parts[2]
+
+
+def _cat_blob(repo: Path, sha: str) -> bytes:
+    result = _git_bytes(repo, ["cat-file", "blob", "--end-of-options", sha])
+    if result.returncode != 0:
+        raise CombineError("A file in the replay could not be read.")
+    return result.stdout
+
+
+def _write_blob(repo: Path, data: bytes) -> str:
+    result = _git_bytes(repo, ["hash-object", "-w", "--stdin"], data=data)
+    if result.returncode != 0:
+        raise CombineError("A replayed file could not be stored.")
+    sha = result.stdout.decode("ascii", "replace").strip().lower()
+    if not FULL_SHA.fullmatch(sha):
+        raise CombineError("A replayed file could not be stored.")
+    return sha
+
+
+def _changed_paths(repo: Path, parent: str, commit: str) -> list[tuple[str, str]]:
+    result = _git_bytes(
+        repo,
+        ["diff-tree", "-r", "--no-renames", "--no-commit-id", "--name-status", "-z", "--end-of-options", parent, commit],
+    )
+    if result.returncode != 0:
+        raise CombineError("A selected commit could not be read.")
+    parts = result.stdout.split(b"\0")
+    found: list[tuple[str, str]] = []
+    index = 0
+    while index + 1 < len(parts):
+        status = parts[index].decode("utf-8", "replace")
+        path = parts[index + 1].decode("utf-8", "surrogateescape")
+        index += 2
+        if not status or not path:
+            continue
+        found.append((status[:1], path))
+    return found
+
+
+def _index_entry(repo: Path, env: dict[str, str], path: str) -> tuple[str, str] | None:
+    result = _git_bytes(repo, ["ls-files", "-s", "-z", "--", path], env=env)
+    if result.returncode != 0 or not result.stdout:
+        return None
+    meta = result.stdout.split(b"\t", 1)[0].decode("ascii", "replace")
+    parts = meta.split()
+    if len(parts) < 2 or not FULL_SHA.fullmatch(parts[1]):
+        return None
+    return parts[0], parts[1]
+
+
+def _stage(repo: Path, env: dict[str, str], path: str, mode: str, sha: str) -> None:
+    line = f"{mode} {sha} 0\t{path}\n".encode("utf-8", "surrogateescape")
+    result = _git_bytes(repo, ["update-index", "--index-info"], env=env, data=line)
+    if result.returncode != 0:
+        raise CombineError(f"The replay could not stage {path}.")
+
+
+def _unstage(repo: Path, env: dict[str, str], path: str) -> None:
+    result = _git_bytes(repo, ["update-index", "--force-remove", "--", path], env=env)
+    if result.returncode != 0:
+        raise CombineError(f"The replay could not stage {path}.")
+
+
+def _merge_file(current: bytes, ancestor: bytes, other: bytes) -> tuple[bytes, bool]:
+    with tempfile.TemporaryDirectory(prefix="nuvio-merge-") as temporary:
+        root = Path(temporary)
+        paths = []
+        for name, payload in (("current", current), ("base", ancestor), ("other", other)):
+            path = root / name
+            path.write_bytes(payload)
+            paths.append(str(path))
+        plain = subprocess.run(["git", "merge-file", "-p", *paths], check=False, capture_output=True, timeout=30)
+        if plain.returncode == 0:
+            return plain.stdout, False
+        if plain.returncode < 0:
+            raise CombineError("The file merge failed.")
+        for name, payload in (("current", current), ("base", ancestor), ("other", other)):
+            (root / name).write_bytes(payload)
+        union = subprocess.run(
+            ["git", "merge-file", "--union", "-p", *paths],
+            check=False,
+            capture_output=True,
+            timeout=30,
+        )
+        if union.returncode < 0:
+            raise CombineError("The file merge failed.")
+        return union.stdout, True
+
+
+def _merge_states(current: bytes | None, ancestor: bytes | None, other: bytes | None) -> tuple[bytes | None, bool]:
+    if current == other:
+        return current, False
+    if ancestor == current:
+        return other, False
+    if ancestor == other:
+        return current, False
+    if current is None or other is None or b"\0" in current or b"\0" in (other or b""):
+        survivor = current if current is not None else other
+        if current is not None and other is not None:
+            return current + b"\n" + other, True
+        return survivor, True
+    merged, conflict = _merge_file(current, ancestor if ancestor is not None else b"", other)
+    return merged, conflict
+
+
+def _parent_of(repo: Path, sha: str) -> str:
+    parent = git_commit(repo, f"{sha}^")
+    if parent:
+        return parent
+    return "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+
+def _public_git_error(text: str) -> str:
+    line = ""
+    for row in (text or "").splitlines():
+        if row.strip():
+            line = row.strip()
+    line = re.sub(r"://[^/\s]+@", "://", line)
+    return line[:200]
+
+
+def _commit_message(repo: Path, commits: list[str], kept: list[str]) -> str:
+    lines = ["Keep both edits from the selected commits", ""]
+    for sha in commits:
+        subject = run_git(repo, ["log", "-1", "--format=%s", "--end-of-options", sha]).stdout.strip()
+        lines.append(f"- {subject or sha}")
+    if kept:
+        lines.extend(["", "Both edits kept:"])
+        lines.extend(f"- {path}" for path in kept)
+    return "\n".join(lines) + "\n"
+
+
+def combine_commits(repo: Path, base: str, commits: list[str]) -> dict:
+    """Replay commits onto base, oldest first, keeping both edits of a shared file.
+
+    The ancestor of a shared file is the served package. A later commit's own
+    parent already contains the earlier edit, and replaying that patch would
+    drop it. A clean merge stays as the merge. An overlapping merge keeps both
+    texts and records the path. The branch refs are not moved.
+    """
+    if not repo.is_dir():
+        raise CombineError("The repository is not available.")
+    resolved_base = git_commit(repo, base)
+    if resolved_base is None:
+        raise CombineError("The served commit is not in this repository.")
+    resolved: list[str] = []
+    for item in commits:
+        sha = git_commit(repo, item.strip())
+        if sha is None:
+            raise CombineError("A selected commit is not in this repository.")
+        if sha != resolved_base:
+            resolved.append(sha)
+    if not resolved:
+        raise CombineError("The commit list is empty.")
+    newest = resolved[-1]
+    before = _branch_snapshot(repo)
+    index_path = Path(tempfile.mkdtemp(prefix="nuvio-combine-")) / "index"
+    env = os.environ.copy()
+    env["GIT_INDEX_FILE"] = str(index_path)
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    kept: set[str] = set()
+    seen: set[str] = set()
+    try:
+        seeded = _git_bytes(repo, ["read-tree", "--end-of-options", resolved_base], env=env)
+        if seeded.returncode != 0:
+            raise CombineError("The served tree could not be read.")
+        for sha in resolved:
+            for _status, path in _changed_paths(repo, _parent_of(repo, sha), sha):
+                other = _lookup_blob(repo, sha, path)
+                if path not in seen:
+                    seen.add(path)
+                    if other is None:
+                        _unstage(repo, env, path)
+                    else:
+                        _stage(repo, env, path, other[0], other[1])
+                    continue
+                # Merge against the served file so an earlier edit stays in the file.
+                current = _index_entry(repo, env, path)
+                ancestor = _lookup_blob(repo, resolved_base, path)
+                current_bytes = _cat_blob(repo, current[1]) if current else None
+                ancestor_bytes = _cat_blob(repo, ancestor[1]) if ancestor else None
+                other_bytes = _cat_blob(repo, other[1]) if other else None
+                merged, conflict = _merge_states(current_bytes, ancestor_bytes, other_bytes)
+                if conflict:
+                    kept.add(path)
+                if merged is None:
+                    _unstage(repo, env, path)
+                    continue
+                if other is not None and merged == other_bytes:
+                    _stage(repo, env, path, other[0], other[1])
+                elif current is not None and merged == current_bytes:
+                    _stage(repo, env, path, current[0], current[1])
+                else:
+                    mode = (other[0] if other else None) or (current[0] if current else None) or "100644"
+                    _stage(repo, env, path, mode, _write_blob(repo, merged))
+        if _branch_snapshot(repo) != before:
+            raise CombineError("The combine moved a branch.")
+        written = _git_bytes(repo, ["write-tree"], env=env)
+        if written.returncode != 0:
+            raise CombineError("The replay tree could not be written.")
+        tree = written.stdout.decode("ascii", "replace").strip().lower()
+        if not FULL_SHA.fullmatch(tree):
+            raise CombineError("The replay tree could not be written.")
+        tip_tree = run_git(repo, ["rev-parse", "--verify", "--end-of-options", f"{newest}^{{tree}}"])
+        same = tip_tree.returncode == 0 and tip_tree.stdout.strip().lower() == tree
+        kept_both = sorted(kept)
+        if same:
+            return {"commit": newest, "keptBoth": kept_both, "ref": None, "sameAsTip": True}
+        commit_env = env.copy()
+        commit_env.update(
+            {
+                "GIT_AUTHOR_NAME": "Nuvio Builds",
+                "GIT_AUTHOR_EMAIL": "builds@nuvio.local",
+                "GIT_COMMITTER_NAME": "Nuvio Builds",
+                "GIT_COMMITTER_EMAIL": "builds@nuvio.local",
+            }
+        )
+        created = subprocess.run(
+            ["git", "-C", str(repo), "commit-tree", tree, "-p", resolved_base, "-m", _commit_message(repo, resolved, kept_both)],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=commit_env,
+        )
+        if created.returncode != 0:
+            raise CombineError("The replay commit could not be written.")
+        commit = created.stdout.strip().lower()
+        if not FULL_SHA.fullmatch(commit):
+            raise CombineError("The replay commit could not be written.")
+        if _branch_snapshot(repo) != before:
+            raise CombineError("The combine moved a branch.")
+        ref = f"refs/cuts/{commit}"
+        pushed = subprocess.run(
+            ["git", "-C", str(repo), "push", "origin", f"{commit}:{ref}"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=commit_env,
+        )
+        if pushed.returncode != 0:
+            detail = _public_git_error(pushed.stderr or pushed.stdout)
+            message = "The cuts ref could not be pushed."
+            if detail:
+                message = f"{message} {detail}"
+            raise CombineError(message)
+        if _branch_snapshot(repo) != before:
+            raise CombineError("The combine moved a branch.")
+        return {"commit": commit, "keptBoth": kept_both, "ref": ref, "sameAsTip": False}
+    finally:
+        index_path.unlink(missing_ok=True)
+        try:
+            index_path.parent.rmdir()
+        except OSError:
+            pass
 
 
 def request_path(directory: Path) -> Path:
@@ -473,7 +784,13 @@ def is_cancelled(platform: str, commit: object, now: float, force: bool = False)
     return commit.lower() in (cache.get("cancelled") or {}).get(platform, [])
 
 
-def ledger_body(platform: str, branch: str, commit: str, subjects: list[str]) -> str:
+def ledger_body(
+    platform: str,
+    branch: str,
+    commit: str,
+    subjects: list[str],
+    kept_both: list[str] | None = None,
+) -> str:
     surface = "iPhone" if platform == "ipa" else "Mac"
     lines = [
         "The builds page requested this cut. This is not a test.",
@@ -487,6 +804,9 @@ def ledger_body(platform: str, branch: str, commit: str, subjects: list[str]) ->
         lines.extend(f"- {subject}" for subject in subjects)
     else:
         lines.append("- (none)")
+    if kept_both:
+        lines.append("Both edits kept:")
+        lines.extend(f"- {path}" for path in kept_both)
     return "\n".join(lines) + "\n"
 
 
@@ -518,3 +838,27 @@ def post_ledger_comment(body: str) -> None:
         raise LedgerError("ledger comment was not json") from exc
     if not isinstance(saved, dict) or not saved.get("id"):
         raise LedgerError("ledger comment was not saved")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Build request cuts")
+    sub = parser.add_subparsers(dest="command", required=True)
+    combine = sub.add_parser("combine")
+    combine.add_argument("--repo", required=True)
+    combine.add_argument("--base", required=True)
+    combine.add_argument("--commits", required=True)
+    args = parser.parse_args(argv)
+    if args.command != "combine":
+        return 2
+    selected = [item.strip() for item in str(args.commits).split(",") if item.strip()]
+    try:
+        result = combine_commits(Path(args.repo), str(args.base), selected)
+    except CombineError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    sys.stdout.write(json.dumps(result, sort_keys=True) + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

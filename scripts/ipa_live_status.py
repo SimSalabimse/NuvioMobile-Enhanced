@@ -2491,6 +2491,7 @@ def self_test() -> int:
             "Checking a commit includes that commit and everything before it." in page_js,
             "prefix sentence missing",
         )
+        check("both land in the package." in page_js, "same-file sentence missing")
         check(body["logTail"] and "[redacted]" in body["logTail"], "api logTail missing")
         check("supersecretvalue" not in body["logTail"], "api logTail leaked")
         check(body["recentBuilds"] and body["recentBuilds"][0]["status"] == "failed", "api recentBuilds")
@@ -3156,9 +3157,13 @@ def self_test() -> int:
             subprocess.run(["git", "-C", str(repo), "config", "user.name", "Nuvio Test"], check=True, capture_output=True)
             subprocess.run(["git", "-C", str(repo), "config", "core.hooksPath", str(hooks)], check=True, capture_output=True)
 
+            file_count = {"n": 0}
+
             def git_commit_file(subject: str, body: str = "") -> str:
-                (repo / "f.txt").write_text(subject + "\n", encoding="utf-8")
-                subprocess.run(["git", "-C", str(repo), "add", "f.txt"], check=True, capture_output=True)
+                file_count["n"] += 1
+                name = f"line-{file_count['n']}.txt"
+                (repo / name).write_text(subject + "\n", encoding="utf-8")
+                subprocess.run(["git", "-C", str(repo), "add", "--", name], check=True, capture_output=True)
                 command = ["git", "-C", str(repo), "commit", "-m", subject]
                 if body:
                     command.extend(["-m", body])
@@ -3387,6 +3392,7 @@ context.renderCut("ipa", {
 const ipaText = textOf(ipa);
 if (ipaText.indexOf("Request this iPhone build") < 0) fail(4, ipaText);
 if (ipaText.indexOf("Checking a commit includes that commit") < 0) fail(5, ipaText);
+if (ipaText.indexOf("both land in the package") < 0) fail(11, ipaText);
 if (ipaText.indexOf("SIM-11 tip cut") < 0) fail(6, ipaText);
 const boxes = walk(ipa, []).filter((node) => node.tagName === "INPUT");
 if (boxes.length !== 1 || !boxes[0].checked) fail(7, "default checkbox");
@@ -3403,6 +3409,15 @@ const pendingText = textOf(ipa);
 if (pendingText.indexOf("Requested · aaaaaaaa") < 0) fail(9, pendingText);
 const pendingButton = walk(ipa, []).find((node) => node.className === "request-button");
 if (!pendingButton || !pendingButton.disabled) fail(10, "pending button");
+context.renderCut("ipa", {
+  branch: "enhanced",
+  commits: [{ commit: tip, issues: ["SIM-11"], short: "aaaaaaaa", subject: "SIM-11 tip cut" }],
+  error: null,
+  pending: true,
+  request: { commit: tip, keptBoth: ["same.txt", "parts.txt"] }
+}, true);
+const keptText = textOf(ipa);
+if (keptText.indexOf("Both edits kept in same.txt, parts.txt.") < 0) fail(12, keptText);
 """
             cut_path = repo / "cut.js"
             cut_path.write_text(cut_script, encoding="utf-8")
@@ -3493,7 +3508,10 @@ if (!pendingButton || !pendingButton.disabled) fail(10, "pending button");
             check(stored["ipa"]["commit"] == tip and stored["ipa"]["hosted"] is False, f"request file {stored}")
             check(stored["ipa"]["branch"] == "enhanced" and stored["ipa"]["platform"] == "ipa", "request identity")
             check(stored["ipa"]["subjects"] == ["SIM-10 first cut", "SIM-11 tip cut"], f"subjects {stored['ipa'].get('subjects')}")
+            check(stored["ipa"].get("keptBoth") == [], f"clean request kept both {stored['ipa'].get('keptBoth')}")
             check(stored["dmg"] is None, "mac request was written")
+            local_refs = subprocess.run(["git", "-C", str(repo), "show-ref"], capture_output=True, text=True)
+            check("refs/cuts/" not in local_refs.stdout, f"clean request created a cuts ref {local_refs.stdout}")
             check(len(comments) == 1, f"comment count {len(comments)}")
             ledger = comments[0]
             check("This is not a test." in ledger, "ledger phrase missing")
@@ -3521,6 +3539,176 @@ if (!pendingButton || !pendingButton.disabled) fail(10, "pending button");
             status, body = post_json(token, {"commit": mid, "platform": "ipa"})
             check(status == 404, f"unshipped button returned {status}")
             check(len(comments) == 1, "credential failure commented")
+
+            bare = Path(tempfile.mkdtemp(prefix="nuvio-cuts-origin-"))
+            try:
+                subprocess.run(["git", "init", "--bare", str(bare)], check=True, capture_output=True)
+                subprocess.run(["git", "-C", str(repo), "remote", "add", "origin", str(bare)], check=True, capture_output=True)
+                enhanced_before = subprocess.check_output(
+                    ["git", "-C", str(repo), "rev-parse", "refs/heads/enhanced"],
+                    text=True,
+                ).strip().lower()
+                dev_before = subprocess.check_output(
+                    ["git", "-C", str(repo), "rev-parse", "refs/heads/Dev"],
+                    text=True,
+                ).strip().lower()
+
+                def show_file(sha: str, path: str) -> str:
+                    return subprocess.check_output(["git", "-C", str(repo), "show", f"{sha}:{path}"], text=True)
+
+                def run_combine(base_sha: str, shas: list[str]) -> tuple[int, dict, str]:
+                    proc = subprocess.run(
+                        [
+                            sys.executable,
+                            str(Path(builds_request.__file__)),
+                            "combine",
+                            "--repo",
+                            str(repo),
+                            "--base",
+                            base_sha,
+                            "--commits",
+                            ",".join(shas),
+                        ],
+                        capture_output=True,
+                        text=True,
+                    )
+                    payload: dict = {}
+                    if proc.returncode == 0 and proc.stdout.strip():
+                        payload = json.loads(proc.stdout)
+                    return proc.returncode, payload, proc.stderr
+
+                def commit_detached(parent: str, subject: str, files: dict[str, str]) -> str:
+                    subprocess.run(
+                        ["git", "-C", str(repo), "checkout", "--detach", parent],
+                        check=True,
+                        capture_output=True,
+                    )
+                    for name, text in files.items():
+                        path = repo / name
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        path.write_text(text, encoding="utf-8")
+                        subprocess.run(["git", "-C", str(repo), "add", "--", name], check=True, capture_output=True)
+                    subprocess.run(["git", "-C", str(repo), "commit", "-m", subject], check=True, capture_output=True)
+                    return subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip().lower()
+
+                code, payload, err = run_combine(base, [mid, tip])
+                check(code == 0, f"clean combine {code} {err}")
+                check(
+                    payload.get("commit") == tip and payload.get("sameAsTip") is True and payload.get("ref") is None,
+                    f"clean combine payload {payload}",
+                )
+                check(payload.get("keptBoth") == [], f"clean combine kept {payload.get('keptBoth')}")
+                remote = subprocess.run(
+                    ["git", "-C", str(repo), "ls-remote", "origin", "refs/cuts/*"],
+                    capture_output=True,
+                    text=True,
+                )
+                check(remote.returncode == 0 and remote.stdout.strip() == "", f"clean combine pushed {remote.stdout} {remote.stderr}")
+
+                parts_base = commit_detached(base, "parts base", {"parts.txt": "alpha\nmiddle\nomega\n"})
+                part_a = commit_detached(parts_base, "part a", {"parts.txt": "ALPHA\nmiddle\nomega\n"})
+                part_b = commit_detached(parts_base, "part b", {"parts.txt": "alpha\nmiddle\nOMEGA\n"})
+                subprocess.run(["git", "-C", str(repo), "checkout", "enhanced"], check=True, capture_output=True)
+                code, payload, err = run_combine(parts_base, [part_a, part_b])
+                check(code == 0, f"parts combine {code} {err}")
+                merged = show_file(payload.get("commit", ""), "parts.txt") if payload.get("commit") else ""
+                check("ALPHA" in merged and "OMEGA" in merged, f"parts text {merged!r}")
+                check(
+                    merged != show_file(part_a, "parts.txt") and merged != show_file(part_b, "parts.txt"),
+                    "parts file matched one side",
+                )
+                check(payload.get("sameAsTip") is False, "parts replay matched the newer commit")
+                check(payload.get("ref") == f"refs/cuts/{payload.get('commit')}", f"parts ref {payload}")
+                remote = subprocess.run(
+                    ["git", "-C", str(repo), "ls-remote", "origin", str(payload.get("ref") or "")],
+                    capture_output=True,
+                    text=True,
+                )
+                check(str(payload.get("commit") or "missing") in remote.stdout, f"parts cuts ref missing {remote.stdout} {remote.stderr}")
+
+                same_base = commit_detached(base, "same base", {"same.txt": "one\ntwo\n"})
+                same_a = commit_detached(same_base, "same a", {"same.txt": "FROM-A\ntwo\n"})
+                same_b = commit_detached(same_base, "same b", {"same.txt": "FROM-B\ntwo\n"})
+                subprocess.run(["git", "-C", str(repo), "checkout", "enhanced"], check=True, capture_output=True)
+                code, payload, err = run_combine(same_base, [same_a, same_b])
+                check(code == 0, f"same combine {code} {err}")
+                merged = show_file(payload.get("commit", ""), "same.txt") if payload.get("commit") else ""
+                check("FROM-A" in merged and "FROM-B" in merged, f"same text {merged!r}")
+                check(
+                    merged != show_file(same_a, "same.txt") and merged != show_file(same_b, "same.txt"),
+                    "same file matched one side",
+                )
+                check(payload.get("keptBoth") == ["same.txt"], f"same keptBoth {payload.get('keptBoth')}")
+                check(
+                    payload.get("sameAsTip") is False and payload.get("ref") == f"refs/cuts/{payload.get('commit')}",
+                    f"same payload {payload}",
+                )
+                remote = subprocess.run(
+                    ["git", "-C", str(repo), "ls-remote", "origin", str(payload.get("ref") or "")],
+                    capture_output=True,
+                    text=True,
+                )
+                check(str(payload.get("commit") or "missing") in remote.stdout, f"same cuts ref missing {remote.stdout} {remote.stderr}")
+                check(
+                    subprocess.check_output(["git", "-C", str(repo), "rev-parse", "refs/heads/enhanced"], text=True).strip().lower()
+                    == enhanced_before,
+                    "enhanced moved",
+                )
+                check(
+                    subprocess.check_output(["git", "-C", str(repo), "rev-parse", "refs/heads/Dev"], text=True).strip().lower()
+                    == dev_before,
+                    "Dev moved",
+                )
+                origin_heads = subprocess.run(["git", "-C", str(bare), "show-ref"], capture_output=True, text=True)
+                check("refs/heads/" not in origin_heads.stdout, f"origin branch moved {origin_heads.stdout}")
+
+                builds_request._requests_enabled = True
+                builds_request.post_ledger_comment = record_comment
+                subprocess.run(["git", "-C", str(repo), "checkout", "enhanced"], check=True, capture_output=True)
+                (repo / "overlap.txt").write_text("FROM-A\nrest\n", encoding="utf-8")
+                subprocess.run(["git", "-C", str(repo), "add", "--", "overlap.txt"], check=True, capture_output=True)
+                subprocess.run(["git", "-C", str(repo), "commit", "-m", "SIM-20 overlap first"], check=True, capture_output=True)
+                overlap_a = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip().lower()
+                (repo / "overlap.txt").write_text("FROM-B\nrest\n", encoding="utf-8")
+                subprocess.run(["git", "-C", str(repo), "add", "--", "overlap.txt"], check=True, capture_output=True)
+                subprocess.run(["git", "-C", str(repo), "commit", "-m", "SIM-21 overlap second"], check=True, capture_output=True)
+                overlap_b = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip().lower()
+                status, saved = post_json(token, {"commit": overlap_b, "platform": "ipa"})
+                check(status == 201, f"overlap request {status} {saved}")
+                stored = builds_request.read_requests(directory)
+                overlap_commit = stored["ipa"]["commit"]
+                check(overlap_commit not in (overlap_a, overlap_b), f"overlap stored a side {stored['ipa']}")
+                check(stored["ipa"].get("keptBoth") == ["overlap.txt"], f"overlap kept {stored['ipa'].get('keptBoth')}")
+                overlap_text = show_file(overlap_commit, "overlap.txt")
+                check("FROM-A" in overlap_text and "FROM-B" in overlap_text, f"overlap file {overlap_text!r}")
+                check(
+                    overlap_text != show_file(overlap_a, "overlap.txt") and overlap_text != show_file(overlap_b, "overlap.txt"),
+                    "overlap file matched one side",
+                )
+                check(
+                    subprocess.check_output(["git", "-C", str(repo), "rev-parse", "refs/heads/enhanced"], text=True).strip().lower()
+                    == overlap_b,
+                    "request moved enhanced",
+                )
+                check(
+                    subprocess.check_output(["git", "-C", str(repo), "rev-parse", "refs/heads/Dev"], text=True).strip().lower()
+                    == dev_before,
+                    "request moved Dev",
+                )
+                check(len(comments) == 2, f"overlap comment count {len(comments)}")
+                overlap_ledger = comments[-1]
+                check("This is not a test." in overlap_ledger, "overlap ledger phrase")
+                check("Surface: iPhone" in overlap_ledger and "Branch: enhanced" in overlap_ledger, "overlap ledger surface")
+                check(f"Commit: {overlap_commit}" in overlap_ledger, "overlap ledger commit")
+                check("overlap.txt" in overlap_ledger and "Both edits kept:" in overlap_ledger, "overlap ledger path")
+                remote = subprocess.run(
+                    ["git", "-C", str(repo), "ls-remote", "origin", f"refs/cuts/{overlap_commit}"],
+                    capture_output=True,
+                    text=True,
+                )
+                check(overlap_commit in remote.stdout, f"request cuts ref missing {remote.stdout} {remote.stderr}")
+            finally:
+                shutil.rmtree(bare, ignore_errors=True)
         except Exception as exc:
             check(False, f"request route setup failed: {exc}")
         finally:
@@ -3822,11 +4010,13 @@ def cut_view(directory: Path, platform: str, now: float, status_payload: dict) -
     request_public = None
     if isinstance(current, dict):
         subjects = current.get("subjects") if isinstance(current.get("subjects"), list) else []
+        kept_both = current.get("keptBoth") if isinstance(current.get("keptBoth"), list) else []
         request_public = {
             "branch": current.get("branch"),
             "cancelled": cancelled,
             "commit": current.get("commit"),
             "hosted": current.get("hosted") is True,
+            "keptBoth": [item for item in kept_both if isinstance(item, str)],
             "platform": platform,
             "requestedAt": current.get("requestedAt"),
             "subjects": subjects,
@@ -3896,14 +4086,26 @@ def submit_build_request(directory: Path, platform: str, commit: str) -> tuple[i
     if served_full and commit == served_full:
         return 409, {"error": f"That commit is already the served {spec['name']} package."}
     subjects = builds_request.subjects_through(listing["commits"], commit)
-    if subjects is None:
+    selected = builds_request.commits_through(listing["commits"], commit)
+    if subjects is None or not selected:
         return 409, {"error": "That commit is not on the branch since the served package."}
     now = time.time()
     status_payload = current_public(directory, now) if platform == "ipa" else desktop_public(directory, now)
     if status_payload.get("status") in ("building", "queued"):
         return 409, {"error": f"{spec['name']} is compiling."}
-    body = builds_request.ledger_body(platform, spec["branch"], commit, subjects)
     path = builds_request.request_path(directory)
+    existing = builds_request.read_requests(directory)
+    current = existing.get(platform)
+    if isinstance(current, dict) and current.get("hosted") is not True:
+        if not builds_request.is_cancelled(platform, current.get("commit"), time.time(), force=True):
+            return 409, {"error": f"An unhosted {spec['name']} request is already on the ledger."}
+    try:
+        combined = builds_request.combine_commits(repo, served_full, selected)
+    except builds_request.CombineError as exc:
+        return 409, {"error": str(exc)}
+    result_commit = str(combined["commit"])
+    kept_both = [item for item in combined.get("keptBoth") or [] if isinstance(item, str)]
+    body = builds_request.ledger_body(platform, spec["branch"], result_commit, subjects, kept_both)
     with locked(directory):
         doc = builds_request.read_requests(directory)
         if builds_request.mark_hosted(doc, platform, served_full, repo):
@@ -3915,8 +4117,9 @@ def submit_build_request(directory: Path, platform: str, commit: str) -> tuple[i
         previous = path.read_text(encoding="utf-8") if path.exists() else None
         doc[platform] = {
             "branch": spec["branch"],
-            "commit": commit,
+            "commit": result_commit,
             "hosted": False,
+            "keptBoth": kept_both,
             "platform": platform,
             "requestedAt": iso(time.time()),
             "subjects": subjects,

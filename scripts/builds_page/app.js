@@ -1,7 +1,7 @@
 var COMMIT_LINE = /^- ([0-9a-fA-F]{7,40}) (.+) @(\S+)\s*$/;
 var ISSUE_LINK = /^SIM-\d+$/;
 var ISSUE_ORIGIN = "https://simsalabim-paperclip.steelyx.org/SIM/issues/";
-var PREFIX_HELP = "Checking a commit includes that commit and everything before it. The newest checked commit is the package.";
+var PREFIX_HELP = "Checking a commit includes that commit and everything before it. Two commits that change the same file both land in the package.";
 var REQUEST_LABEL = {
   ipa: "Request this iPhone build",
   dmg: "Request this Mac build"
@@ -217,6 +217,11 @@ function requestedText(cut) {
   if (!/^[0-9a-fA-F]{7,40}$/.test(String(commit || ""))) return "Requested";
   return "Requested · " + shortHash(commit);
 }
+function keptBothNote(cut) {
+  var paths = cut && cut.request && cut.request.keptBoth ? cut.request.keptBoth : [];
+  if (!paths.length) return "";
+  return "Both edits kept in " + paths.join(", ") + ".";
+}
 function issueAnchor(identifier) {
   var text = String(identifier || "");
   if (!ISSUE_LINK.test(text)) return el("span", "issue-link", text);
@@ -256,12 +261,16 @@ function renderCut(platform, cut, enabled) {
     var branch = (cut && cut.branch) || "this branch";
     if (cut && cut.pending) {
       root.appendChild(el("p", "request-state", requestedText(cut)));
+      var pendingKept = keptBothNote(cut);
+      if (pendingKept) root.appendChild(el("p", "cut-help", pendingKept));
       return;
     }
     root.appendChild(el("p", "latest", "This download is already the latest on " + branch + "."));
     return;
   }
   root.appendChild(el("p", "cut-help", PREFIX_HELP));
+  var keptNote = keptBothNote(cut);
+  if (keptNote) root.appendChild(el("p", "cut-help", keptNote));
   var list = el("div", "cut-list");
   for (var i = 0; i < commits.length; i++) {
     var row = commits[i];
