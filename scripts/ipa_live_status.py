@@ -2432,6 +2432,12 @@ def self_test() -> int:
             "full commit sha is not forced to wrap inside the column",
         )
         check("viewport-fit=cover" in html, "missing viewport-fit=cover")
+        check("theme-color" in page_html and "#1a1430" in page_html, "theme-color missing")
+        check(
+            "radial-gradient" in page_html and "#07080d" in page_html,
+            "served backdrop missing",
+        )
+        check("overflow-x: hidden" not in html, "overflow-x hidden still clips the backdrop")
         check(
             "safe-area-inset-top" in html and "safe-area-inset-bottom" in html,
             "missing safe-area insets",
