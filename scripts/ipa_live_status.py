@@ -2498,8 +2498,32 @@ def self_test() -> int:
             "full commit sha is not forced to wrap inside the column",
         )
         check("viewport-fit=cover" in html, "missing viewport-fit=cover")
-        check("theme-color" in page_html and "#221b4a" in page_html, "theme-color missing")
-        check("background-color: #221b4a" in page_html, "html background is not #221b4a")
+        theme_metas = re.findall(
+            r"<meta\b[^>]*\bname=[\"']theme-color[\"'][^>]*>",
+            page_html,
+            flags=re.IGNORECASE,
+        )
+
+        def theme_declares(scheme: str) -> bool:
+            needle = f"(prefers-color-scheme: {scheme})"
+            return any("media=" in tag and needle in tag and 'content="#221b4a"' in tag for tag in theme_metas)
+
+        check(
+            theme_declares("dark") and theme_declares("light"),
+            "theme-color media missing",
+        )
+        check(
+            bool(theme_metas) and all(re.search(r"\bmedia\s*=", tag) for tag in theme_metas),
+            "bare theme-color still served",
+        )
+
+        def css_rule(selector: str) -> str:
+            match = re.search(rf"(?:^|\n){selector}\s*\{{([^}}]*)\}}", page_css)
+            return match.group(1) if match else ""
+
+        check("background-color: #221b4a" in css_rule("html"), "html background is not #221b4a")
+        check("background-image" not in page_css, "stylesheet still has a background-image")
+        check("background-color: #221b4a" in css_rule("body"), "body background is not #221b4a")
         check(
             'content="#07080d"' not in page_html
             and 'content="#1a1430"' not in page_html
