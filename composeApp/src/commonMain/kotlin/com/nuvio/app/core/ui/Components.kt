@@ -10,6 +10,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,6 +56,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
@@ -312,13 +315,17 @@ fun NuvioPrimaryButton(
 ) {
     val tokens = MaterialTheme.nuvio
     val palette = MaterialTheme.themePalette
+    val dismissKeyboard = rememberDismissSoftwareKeyboard()
     val containerBrush = if (enabled) {
         palette.accentBrush()
     } else {
         palette.accentBrush(alpha = tokens.opacity.disabled)
     }
     Button(
-        onClick = onClick,
+        onClick = {
+            dismissKeyboard()
+            onClick()
+        },
         modifier = modifier
             .fillMaxWidth()
             .height(NuvioTokens.Space.s48 + NuvioTokens.Space.s4)
@@ -356,11 +363,14 @@ fun NuvioInputField(
     trailingContent: (@Composable (() -> Unit))? = null,
 ) {
     val tokens = MaterialTheme.nuvio
+    val dismissKeyboard = rememberDismissSoftwareKeyboard()
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier.fillMaxWidth(),
         singleLine = true,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { dismissKeyboard() }),
         shape = RoundedCornerShape(NuvioTokens.Radius.lg),
         placeholder = {
             Text(
@@ -443,6 +453,11 @@ fun NuvioStatusModal(
     onDismiss: (() -> Unit)? = null,
 ) {
     if (!isVisible) return
+
+    val dismissKeyboard = rememberDismissSoftwareKeyboard()
+    LaunchedEffect(Unit) {
+        dismissKeyboard()
+    }
 
     DialogSurface(
         onDismissRequest = {

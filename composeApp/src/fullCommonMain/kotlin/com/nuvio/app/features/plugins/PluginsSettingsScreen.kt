@@ -38,6 +38,7 @@ import com.nuvio.app.core.ui.NuvioIconActionButton
 import com.nuvio.app.core.ui.NuvioInfoBadge
 import com.nuvio.app.core.ui.NuvioInputField
 import com.nuvio.app.core.ui.NuvioPrimaryButton
+import com.nuvio.app.core.ui.rememberDismissSoftwareKeyboard
 import com.nuvio.app.core.ui.NuvioSectionLabel
 import com.nuvio.app.core.ui.NuvioSurfaceCard
 import com.nuvio.app.features.plugins.runtime.PluginRuntime
@@ -88,6 +89,7 @@ fun PluginsSettingsPageContent(
 
     val uiState by PluginRepository.uiState.collectAsStateWithLifecycle()
     val coroutineScope = rememberCoroutineScope()
+    val dismissKeyboard = rememberDismissSoftwareKeyboard()
 
     var repositoryUrl by rememberSaveable { mutableStateOf("") }
     var message by rememberSaveable { mutableStateOf<String?>(null) }
@@ -216,6 +218,7 @@ fun PluginsSettingsPageContent(
                 enabled = repositoryUrl.isNotBlank() && !isAdding,
                 onClick = {
                     val requested = repositoryUrl.trim()
+                    dismissKeyboard()
                     if (requested.isBlank()) {
                         message = enterRepoUrlError
                         return@NuvioPrimaryButton
@@ -233,6 +236,7 @@ fun PluginsSettingsPageContent(
                             }
                         }
                         isAdding = false
+                        dismissKeyboard()
                     }
                 },
             )

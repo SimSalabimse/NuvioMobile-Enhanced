@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
+import com.nuvio.app.core.ui.rememberDismissSoftwareKeyboard
 import com.nuvio.app.features.player.skip.TheIntroDb
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
@@ -39,6 +40,7 @@ internal fun TheIntroDbApiKeyDialog(
     onDismiss: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val dismissKeyboard = rememberDismissSoftwareKeyboard()
     var value by remember { mutableStateOf(initialValue) }
     var isVerifying by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
@@ -92,6 +94,7 @@ internal fun TheIntroDbApiKeyDialog(
                     }
                     TextButton(
                         onClick = {
+                            dismissKeyboard()
                             val trimmed = value.trim()
                             if (trimmed.isEmpty()) {
                                 onSave(trimmed)

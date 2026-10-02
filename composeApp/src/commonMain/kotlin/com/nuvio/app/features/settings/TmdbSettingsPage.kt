@@ -19,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.nuvio.app.core.ui.rememberDismissSoftwareKeyboard
 import com.nuvio.app.features.tmdb.TmdbSettings
 import com.nuvio.app.features.tmdb.TmdbSettingsRepository
 import com.nuvio.app.features.tmdb.normalizeLanguage
@@ -230,6 +231,7 @@ private fun TmdbApiKeyRow(
     value: String,
     onApiKeyCommitted: (String) -> Unit,
 ) {
+    val dismissKeyboard = rememberDismissSoftwareKeyboard()
     var draft by rememberSaveable(value) { mutableStateOf(value) }
     val normalizedDraft = draft.trim()
 
@@ -260,6 +262,7 @@ private fun TmdbApiKeyRow(
         )
         Button(
             onClick = {
+                dismissKeyboard()
                 draft = normalizedDraft
                 onApiKeyCommitted(normalizedDraft)
             },
@@ -277,6 +280,7 @@ private fun TmdbLanguageRow(
     enabled: Boolean,
     onLanguageCommitted: (String) -> Unit,
 ) {
+    val dismissKeyboard = rememberDismissSoftwareKeyboard()
     val horizontalPadding = if (isTablet) 20.dp else 16.dp
     val verticalPadding = if (isTablet) 16.dp else 14.dp
     var draft by rememberSaveable(value) { mutableStateOf(value) }
@@ -323,6 +327,7 @@ private fun TmdbLanguageRow(
         Row(modifier = Modifier.fillMaxWidth()) {
             Button(
                 onClick = {
+                    dismissKeyboard()
                     draft = normalizedDraft
                     onLanguageCommitted(normalizedDraft)
                 },

@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,17 +15,20 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.nuvio.app.core.ui.rememberDismissSoftwareKeyboard
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -144,45 +149,7 @@ internal fun SkipTimestampEditor(
     val endLabel = stringResource(Res.string.submit_intro_use_end)
     val endDescription = stringResource(Res.string.submit_intro_use_end_hint)
 
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Text(
-            text = label,
-            modifier = Modifier.width(44.dp),
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = Modifier
-                .weight(1f)
-                .height(30.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
-            textStyle = MaterialTheme.typography.bodyMedium.copy(
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center,
-            ),
-            keyboardOptions = KeyboardOptions.Default,
-            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-            singleLine = true,
-            decorationBox = { inner ->
-                Box(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    inner()
-                }
-            },
-        )
+    val chips: @Composable () -> Unit = {
         TimeChip(text = "−", contentDescription = backDescription, onClick = {
             onValueChange(stepSkipTimestamp(value, -1))
         })
@@ -194,6 +161,88 @@ internal fun SkipTimestampEditor(
             TimeChip(text = endLabel, contentDescription = endDescription, onClick = onUseDuration)
         }
     }
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        if (maxWidth < 260.dp) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    SkipTimeLabel(label)
+                    SkipTimeField(
+                        value = value,
+                        onValueChange = onValueChange,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    chips()
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                SkipTimeLabel(label)
+                SkipTimeField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    modifier = Modifier.weight(1f),
+                )
+                chips()
+            }
+        }
+    }
+}
+
+@Composable
+private fun SkipTimeLabel(label: String) {
+    Text(
+        text = label,
+        modifier = Modifier.width(44.dp),
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurface,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
+@Composable
+private fun SkipTimeField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val dismissKeyboard = rememberDismissSoftwareKeyboard()
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier
+            .height(30.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f)),
+        textStyle = MaterialTheme.typography.bodyMedium.copy(
+            color = MaterialTheme.colorScheme.onSurface,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
+        ),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        keyboardActions = KeyboardActions(onDone = { dismissKeyboard() }),
+        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+        singleLine = true,
+        decorationBox = { inner ->
+            Box(
+                modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                inner()
+            }
+        },
+    )
 }
 
 @Composable
@@ -207,7 +256,7 @@ private fun TimeChip(
             .height(30.dp)
             .widthIn(min = 30.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f))
             .semantics { this.contentDescription = contentDescription }
             .clickable(onClick = onClick)
             .padding(horizontal = 7.dp),

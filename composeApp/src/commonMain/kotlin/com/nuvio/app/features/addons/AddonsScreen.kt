@@ -47,6 +47,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.build.AppFeaturePolicy
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.ui.NuvioIconActionButton
+import com.nuvio.app.core.ui.rememberDismissSoftwareKeyboard
 import com.nuvio.app.core.ui.NuvioInfoBadge
 import com.nuvio.app.core.ui.NuvioInputField
 import com.nuvio.app.core.ui.NuvioPrimaryButton
@@ -90,6 +91,7 @@ internal fun AddonsSettingsPageContent(
     val uiState by AddonRepository.uiState.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
     val coroutineScope = rememberCoroutineScope()
+    val dismissKeyboard = rememberDismissSoftwareKeyboard()
     var addonUrl by rememberSaveable { mutableStateOf("") }
     var formMessage by rememberSaveable { mutableStateOf<String?>(null) }
     var installModalState by remember { mutableStateOf<AddonInstallModalState?>(null) }
@@ -117,6 +119,7 @@ internal fun AddonsSettingsPageContent(
             },
             onAddClick = {
                 val requestedUrl = addonUrl.trim()
+                dismissKeyboard()
                 if (requestedUrl.isBlank()) {
                     formMessage = enterAddonUrlMessage
                     return@AddAddonCard
@@ -136,6 +139,7 @@ internal fun AddonsSettingsPageContent(
                             AddonInstallModalState.Error(result.message)
                         }
                     }
+                    dismissKeyboard()
                 }
             },
         )

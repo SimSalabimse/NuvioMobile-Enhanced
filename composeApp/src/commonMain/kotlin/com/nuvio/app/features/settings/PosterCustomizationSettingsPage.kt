@@ -61,6 +61,7 @@ import kotlin.math.roundToInt
 import com.nuvio.app.core.ui.CardDepthStyleRepository
 import com.nuvio.app.core.ui.CardDepthStyleUiState
 import com.nuvio.app.core.poster.CustomPosterUrlRepository
+import com.nuvio.app.core.ui.rememberDismissSoftwareKeyboard
 import com.nuvio.app.core.ui.DefaultCardDepthEdgeCoverage
 import com.nuvio.app.core.ui.DefaultCardDepthEdgeStrength
 import com.nuvio.app.core.ui.DefaultCardDepthSheenStrength
@@ -177,6 +178,7 @@ internal fun LazyListScope.posterCustomizationSettingsContent(
     item {
         CustomPosterUrlRepository.ensureLoaded()
         val currentPattern by CustomPosterUrlRepository.pattern.collectAsState()
+        val dismissKeyboard = rememberDismissSoftwareKeyboard()
         var editingPattern by rememberSaveable(currentPattern) { mutableStateOf(currentPattern) }
         val isActive = currentPattern.isNotBlank()
 
@@ -226,6 +228,7 @@ internal fun LazyListScope.posterCustomizationSettingsContent(
                     ) {
                         Button(
                             onClick = {
+                                dismissKeyboard()
                                 CustomPosterUrlRepository.setPattern(editingPattern)
                             },
                             enabled = editingPattern.trim() != currentPattern,

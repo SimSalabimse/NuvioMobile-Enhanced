@@ -82,7 +82,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
-import androidx.compose.ui.platform.LocalFocusManager
+import com.nuvio.app.core.ui.rememberDismissSoftwareKeyboard
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -202,7 +202,7 @@ fun AuthScreen(
     val deviceLinkAuthState by DeviceLinkAuthRepository.state.collectAsStateWithLifecycle()
     val serverConnectionState by ServerConnectionController.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    val focusManager = LocalFocusManager.current
+    val dismissKeyboard = rememberDismissSoftwareKeyboard()
     var isSignUp by rememberSaveable { mutableStateOf(false) }
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
@@ -217,7 +217,7 @@ fun AuthScreen(
         if (email.isBlank() || password.length < 6 || isLoading) return
         DeviceLinkAuthRepository.cancel()
         isLoading = true
-        focusManager.clearFocus(force = true)
+        dismissKeyboard()
         scope.launch {
             if (isSignUp) AuthRepository.signUpWithEmail(email, password)
             else AuthRepository.signInWithEmail(email, password)
@@ -233,7 +233,7 @@ fun AuthScreen(
 
     fun startDeviceLink() {
         if (isLoading) return
-        focusManager.clearFocus(force = true)
+        dismissKeyboard()
         AuthRepository.clearError()
         DeviceLinkAuthRepository.start()
     }
@@ -264,7 +264,7 @@ fun AuthScreen(
                     val tappedTextField = listOfNotNull(emailFieldBounds, passwordFieldBounds)
                         .any { bounds -> bounds.contains(down.position) }
                     if (!tappedTextField) {
-                        focusManager.clearFocus(force = true)
+                        dismissKeyboard()
                     }
                 }
             },
@@ -315,7 +315,7 @@ fun AuthScreen(
                         onSubmit = ::submitAuth,
                         onToggleAuthMode = ::toggleAuthMode,
                         onContinueWithoutAccount = {
-                            focusManager.clearFocus(force = true)
+                            dismissKeyboard()
                             DeviceLinkAuthRepository.cancel()
                             AuthRepository.signInAnonymously()
                         },
@@ -347,7 +347,7 @@ fun AuthScreen(
                         onSubmit = ::submitAuth,
                         onToggleAuthMode = ::toggleAuthMode,
                         onContinueWithoutAccount = {
-                            focusManager.clearFocus(force = true)
+                            dismissKeyboard()
                             DeviceLinkAuthRepository.cancel()
                             AuthRepository.signInAnonymously()
                         },

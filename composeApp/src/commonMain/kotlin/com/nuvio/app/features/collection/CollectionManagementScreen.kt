@@ -53,6 +53,7 @@ import com.nuvio.app.core.ui.DialogButtons
 import com.nuvio.app.core.ui.DialogButtonStyle
 import com.nuvio.app.core.ui.DialogSurface
 import com.nuvio.app.core.ui.NuvioPrimaryButton
+import com.nuvio.app.core.ui.rememberDismissSoftwareKeyboard
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioSectionLabel
@@ -369,6 +370,7 @@ private fun ImportDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val dismissKeyboard = rememberDismissSoftwareKeyboard()
     DialogSurface(
         onDismissRequest = onDismiss,
         title = stringResource(Res.string.collections_import_header),
@@ -391,7 +393,10 @@ private fun ImportDialog(
                 { Text(it, color = MaterialTheme.colorScheme.error) }
             },
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            keyboardActions = KeyboardActions(onDone = { onConfirm() }),
+            keyboardActions = KeyboardActions(onDone = {
+                dismissKeyboard()
+                onConfirm()
+            }),
             maxLines = 10,
             shape = RoundedCornerShape(14.dp),
             textStyle = MaterialTheme.typography.bodyLarge.copy(

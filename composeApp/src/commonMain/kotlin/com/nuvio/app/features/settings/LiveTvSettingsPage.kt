@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.nuvio.app.core.ui.rememberDismissSoftwareKeyboard
 import com.nuvio.app.features.livetv.LiveTvPlaylist
 import com.nuvio.app.features.livetv.LiveTvPlaylistType
 import com.nuvio.app.features.livetv.LiveTvRepository
@@ -127,6 +128,7 @@ internal fun LazyListScope.liveTvSettingsContent(
 
 @Composable
 private fun LiveTvProviderSettingsRow(isTablet: Boolean, uiState: LiveTvUiState) {
+    val dismissKeyboard = rememberDismissSoftwareKeyboard()
     val padding = if (isTablet) 20.dp else 16.dp
     var xtreamServer by rememberSaveable(uiState.xtreamSettings.serverUrl) { mutableStateOf(uiState.xtreamSettings.serverUrl) }
     var xtreamUser by rememberSaveable(uiState.xtreamSettings.username) { mutableStateOf(uiState.xtreamSettings.username) }
@@ -144,7 +146,10 @@ private fun LiveTvProviderSettingsRow(isTablet: Boolean, uiState: LiveTvUiState)
         OutlinedTextField(xtreamPassword, { xtreamPassword = it }, Modifier.fillMaxWidth(), singleLine = true, visualTransformation = PasswordVisualTransformation(), label = { Text(stringResource(Res.string.live_tv_password)) })
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
-                onClick = { LiveTvRepository.saveXtreamSettings(LiveTvXtreamSettings(xtreamServer, xtreamUser, xtreamPassword)) },
+                onClick = {
+                    dismissKeyboard()
+                    LiveTvRepository.saveXtreamSettings(LiveTvXtreamSettings(xtreamServer, xtreamUser, xtreamPassword))
+                },
                 enabled = xtreamServer.isNotBlank() && xtreamUser.isNotBlank() && xtreamPassword.isNotBlank(),
             ) { Text(stringResource(Res.string.live_tv_connect)) }
             if (uiState.xtreamSettings.isConfigured) OutlinedButton(onClick = LiveTvRepository::removeXtream) { Text(stringResource(Res.string.live_tv_disconnect)) }
@@ -159,7 +164,10 @@ private fun LiveTvProviderSettingsRow(isTablet: Boolean, uiState: LiveTvUiState)
         OutlinedTextField(stalkerPassword, { stalkerPassword = it }, Modifier.fillMaxWidth(), singleLine = true, visualTransformation = PasswordVisualTransformation(), label = { Text(stringResource(Res.string.live_tv_password)) })
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
-                onClick = { LiveTvRepository.saveStalkerSettings(LiveTvStalkerSettings(stalkerPortal, stalkerMac, stalkerUser, stalkerPassword)) },
+                onClick = {
+                    dismissKeyboard()
+                    LiveTvRepository.saveStalkerSettings(LiveTvStalkerSettings(stalkerPortal, stalkerMac, stalkerUser, stalkerPassword))
+                },
                 enabled = stalkerPortal.isNotBlank() && stalkerMac.isNotBlank(),
             ) { Text(stringResource(Res.string.live_tv_connect)) }
             if (uiState.stalkerSettings.isConfigured) OutlinedButton(onClick = LiveTvRepository::removeStalker) { Text(stringResource(Res.string.live_tv_disconnect)) }
@@ -216,6 +224,7 @@ private fun LiveTvPlaylistSourcesRow(
     onPlaylistEnabledChanged: (playlistId: String, isEnabled: Boolean) -> Unit,
     onPlaylistRemoved: (String) -> Unit,
 ) {
+    val dismissKeyboard = rememberDismissSoftwareKeyboard()
     val horizontalPadding = if (isTablet) 20.dp else 16.dp
     val verticalPadding = if (isTablet) 16.dp else 14.dp
     var draftName by rememberSaveable { mutableStateOf("") }
@@ -279,6 +288,7 @@ private fun LiveTvPlaylistSourcesRow(
         ) {
             Button(
                 onClick = {
+                    dismissKeyboard()
                     onUrlAdded(normalizedName.takeIf(String::isNotBlank), normalizedUrl)
                     draftName = ""
                     draftUrl = ""
@@ -340,6 +350,7 @@ private fun LiveTvPlaylistRow(
     onEnabledChanged: (Boolean) -> Unit,
     onRemove: () -> Unit,
 ) {
+    val dismissKeyboard = rememberDismissSoftwareKeyboard()
     var isEditing by rememberSaveable(playlist.id) { mutableStateOf(false) }
     var draftName by rememberSaveable(playlist.id) { mutableStateOf(playlist.name) }
     var draftSource by rememberSaveable(playlist.id) { mutableStateOf(playlist.source) }
@@ -387,6 +398,7 @@ private fun LiveTvPlaylistRow(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = {
+                        dismissKeyboard()
                         onUpdate(draftName, draftSource)
                         isEditing = false
                     },
@@ -396,6 +408,7 @@ private fun LiveTvPlaylistRow(
                 }
                 OutlinedButton(
                     onClick = {
+                        dismissKeyboard()
                         draftName = playlist.name
                         draftSource = playlist.source
                         isEditing = false

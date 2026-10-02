@@ -17,6 +17,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.nuvio.app.core.ui.rememberDismissSoftwareKeyboard
 import com.nuvio.app.features.details.OmdbSettingsRepository
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_save
@@ -52,6 +53,7 @@ private fun OmdbApiKeyRow(
     value: String,
     onApiKeyCommitted: (String) -> Unit,
 ) {
+    val dismissKeyboard = rememberDismissSoftwareKeyboard()
     val horizontalPadding = if (isTablet) 20.dp else 16.dp
     val verticalPadding = if (isTablet) 16.dp else 14.dp
     var draft by rememberSaveable(value) { mutableStateOf(value) }
@@ -89,6 +91,7 @@ private fun OmdbApiKeyRow(
         Row(modifier = Modifier.fillMaxWidth()) {
             Button(
                 onClick = {
+                    dismissKeyboard()
                     draft = normalizedDraft
                     onApiKeyCommitted(normalizedDraft)
                 },

@@ -132,6 +132,7 @@ fun DialogButton(
     loading: Boolean = false,
 ) {
     val tokens = MaterialTheme.nuvio
+    val dismissKeyboard = rememberDismissSoftwareKeyboard()
     val containerColor = when (style) {
         DialogButtonStyle.Primary -> tokens.colors.accent
         DialogButtonStyle.Secondary -> tokens.colors.textPrimary.copy(alpha = tokens.opacity.hover)
@@ -139,7 +140,10 @@ fun DialogButton(
     }
     val contentColor = if (style == DialogButtonStyle.Secondary) tokens.colors.textPrimary else tokens.colors.onAccent
     Button(
-        onClick = onClick,
+        onClick = {
+            dismissKeyboard()
+            onClick()
+        },
         modifier = modifier.heightIn(min = NuvioTokens.Space.s48),
         enabled = enabled && !loading,
         shape = tokens.shapes.button,

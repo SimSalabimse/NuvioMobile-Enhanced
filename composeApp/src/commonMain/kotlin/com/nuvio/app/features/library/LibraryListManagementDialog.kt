@@ -26,7 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import com.nuvio.app.core.ui.rememberDismissSoftwareKeyboard
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -65,12 +65,12 @@ fun LibraryListManagementDialog(
     val creating = state.mode == LibraryListDialogMode.EDIT && state.key == null
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     NuvioModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        val keyboard = LocalSoftwareKeyboardController.current
+        val dismissKeyboard = rememberDismissSoftwareKeyboard()
         val scope = rememberCoroutineScope()
-        val submit = { keyboard?.hide(); onSubmit() }
-        val back = { keyboard?.hide(); onBack() }
+        val submit = { dismissKeyboard(); onSubmit() }
+        val back = { dismissKeyboard(); onBack() }
         val dismiss: () -> Unit = {
-            keyboard?.hide()
+            dismissKeyboard()
             scope.launch { dismissNuvioBottomSheet(sheetState, onDismiss) }
         }
         Column(
@@ -150,7 +150,7 @@ fun LibraryListManagementDialog(
                                 Text(stringResource(Res.string.library_manage_lists))
                             }
                         } else if (editing != null) {
-                            TextButton(onClick = { keyboard?.hide(); onDelete(editing) }, enabled = !state.isPending) {
+                            TextButton(onClick = { dismissKeyboard(); onDelete(editing) }, enabled = !state.isPending) {
                                 Icon(Icons.Rounded.DeleteOutline, contentDescription = null, tint = tokens.colors.danger)
                                 Text(stringResource(Res.string.library_list_delete_action), color = tokens.colors.danger,
                                     modifier = Modifier.padding(start = 6.dp))

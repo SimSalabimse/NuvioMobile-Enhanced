@@ -43,6 +43,7 @@ import com.nuvio.app.core.ui.DialogButton
 import com.nuvio.app.core.ui.DialogButtons
 import com.nuvio.app.core.ui.DialogButtonStyle
 import com.nuvio.app.core.ui.DialogSurface
+import com.nuvio.app.core.ui.rememberDismissSoftwareKeyboard
 import com.nuvio.app.core.ui.Menu
 import com.nuvio.app.core.ui.MenuItem
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
@@ -148,6 +149,7 @@ internal fun ServerConnectionSheet(
     val tokens = MaterialTheme.nuvio
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var url by rememberSaveable { mutableStateOf("") }
+    val dismissKeyboard = rememberDismissSoftwareKeyboard()
     val error = serverDiscoveryError(state)
 
     NuvioModalBottomSheet(
@@ -190,7 +192,10 @@ internal fun ServerConnectionSheet(
                     imeAction = ImeAction.Done,
                 ),
                 keyboardActions = KeyboardActions(
-                    onDone = { if (url.isNotBlank()) onDiscover(url) },
+                    onDone = {
+                        dismissKeyboard()
+                        if (url.isNotBlank()) onDiscover(url)
+                    },
                 ),
                 shape = tokens.shapes.button,
                 colors = OutlinedTextFieldDefaults.colors(
@@ -213,7 +218,10 @@ internal fun ServerConnectionSheet(
             }
             Spacer(modifier = Modifier.height(NuvioTokens.Space.s20))
             Button(
-                onClick = { onDiscover(url) },
+                onClick = {
+                    dismissKeyboard()
+                    onDiscover(url)
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(NuvioTokens.Space.s56),
