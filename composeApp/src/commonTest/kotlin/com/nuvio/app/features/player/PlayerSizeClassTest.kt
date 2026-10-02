@@ -1,5 +1,6 @@
 package com.nuvio.app.features.player
 
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -90,10 +91,48 @@ class PlayerSizeClassTest {
         assertPhoneMetrics(metrics)
     }
 
+    @Test
+    fun `phone frames fit four legacy actions plus more inside the content width`() {
+        assertLegacyChromeFits(667.dp, 375.dp)
+        assertLegacyChromeFits(360.dp, 360.dp)
+    }
+
+    @Test
+    fun `live category menu uses the trailing panel width under 400dp`() {
+        listOf(667.dp to 375.dp, 360.dp to 360.dp).forEach { (width, _) ->
+            val panel = playerTrailingPanelWidth(width, 0.dp)
+            assertTrue(panel < 400.dp, "panel $panel on $width should stay under 400dp")
+            assertTrue(width - panel >= 48.dp, "panel $panel should leave the leading video strip")
+            assertEquals(panel, playerLiveCategoryMenuWidth(panel))
+        }
+    }
+
+    @Test
+    fun `chrome shows the first four actions until more expands the row`() {
+        val actions = (1..8).toList()
+        assertEquals(listOf(1, 2, 3, 4), playerChromeShownActions(actions, expanded = false))
+        assertEquals(actions, playerChromeShownActions(actions, expanded = true))
+        assertEquals(listOf(1, 2, 3, 4), playerChromeShownActions(listOf(1, 2, 3, 4), expanded = false))
+        assertEquals(listOf(1, 2, 3), playerChromeShownActions(listOf(1, 2, 3), expanded = true))
+    }
+
     private fun assertPhoneMetrics(metrics: PlayerLayoutMetrics) {
         assertEquals(18f, metrics.titleSize.value)
         assertEquals(26.dp, metrics.sideIconSize)
         assertEquals(34.dp, metrics.playIconSize)
         assertEquals(56.dp, metrics.centerGap)
+    }
+
+    private fun assertLegacyChromeFits(width: Dp, height: Dp) {
+        val metrics = PlayerLayoutMetrics.fromSize(width, height)
+        val contentWidth = width - metrics.horizontalPadding * 2
+        val slot = playerChromeCollapsedSlot(
+            contentWidth = contentWidth,
+            shownActionCount = PlayerChromeVisibleActionCount,
+            reservesMore = true,
+        )
+        val row = slot * PlayerChromeVisibleActionCount + PlayerChromeMoreSlot + PlayerChromeRowChrome
+        assertTrue(slot > 0.dp, "slot on $width should stay visible")
+        assertTrue(row <= contentWidth, "legacy row $row exceeds content $contentWidth on $width")
     }
 }

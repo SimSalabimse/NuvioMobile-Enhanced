@@ -315,7 +315,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
             p2pDownloadSpeed = p2pDownloadSpeed,
         )
         SubtitleSyncByEarCard(
-            visible = showSubtitleSyncByEar && !showSubtitleModal && !isTrailingPanelOpen,
+            visible = showSubtitleSyncByEar && !showSubtitleModal && !isTrailingPanelOpen && !blockingPlayerCardOpen(),
             subtitleDelayMs = subtitleDelayMs,
             heardCaptured = subtitleSyncHeardPositionMs != null,
             sawCaptured = subtitleSyncSawPositionMs != null,
@@ -404,13 +404,11 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
             } else null,
             onSubtitleClick = if (!isLiveTvPlayback) {
                 {
-                    refreshTracks()
-                    showSubtitleModal = true
+                    if (beginPlayerMenu(PlayerMenu.Subtitles)) refreshTracks()
                 }
             } else null,
             onAudioClick = {
-                refreshTracks()
-                showAudioModal = true
+                if (beginPlayerMenu(PlayerMenu.Audio)) refreshTracks()
             },
             onPictureInPictureClick = if (pipAvailable) {
                 {
@@ -428,16 +426,15 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
                         "mediaInfoChars=${playbackSnapshot.mediaInfoJson.length} " +
                         "source=${InAppLogger.redactUrl(activePlaybackSourceUrl ?: activeSourceUrl)}",
                 )
-                showStreamInfoModal = true
+                beginPlayerMenu(PlayerMenu.PlaybackInfo)
             },
             onRateClick = if (canRate) {
-                { showUserRatingSheet = true }
+                { beginPlayerMenu(PlayerMenu.Rate) }
             } else null,
             userRating = userRating,
             onVideoSettingsClick = if (isIos) {
                 {
-                    showVideoSettingsModal = true
-                    controlsVisible = true
+                    if (beginPlayerMenu(PlayerMenu.VideoSettings)) controlsVisible = true
                 }
             } else {
                 null
@@ -454,7 +451,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
             } else null,
             onLiveChannelsClick = if (isLiveTvPlayback) {
                 {
-                    showLiveChannelsPanel = true
+                    beginPlayerMenu(PlayerMenu.LiveChannels)
                 }
             } else null,
             qualityLabel = playerQualityControlLabel(),
@@ -500,7 +497,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
                         "isSeries=$isSeries s=${activeSeasonNumber ?: 0} e=${activeEpisodeNumber ?: 0} " +
                         "positionMs=${playbackClock.positionMs}",
                 )
-                showSubmitIntroModal = true
+                beginPlayerMenu(PlayerMenu.SubmitIntro)
             },
             parentalWarnings = parentalWarnings,
             showParentalGuide = showParentalGuide && !isTrailingPanelOpen,
@@ -653,9 +650,7 @@ private fun PlayerScreenRuntime.openQualityPanel() {
             "variants=${playerQualityState.variants.size} loading=${playerQualityState.isLoading} " +
             "actual=${playbackSnapshot.videoWidth ?: 0}x${playbackSnapshot.videoHeight ?: 0}",
     )
-    showQualityPanel = true
-    showSourcesPanel = false
-    showEpisodesPanel = false
+    if (!beginPlayerMenu(PlayerMenu.Quality)) return
     controlsVisible = false
 }
 
@@ -686,6 +681,10 @@ private fun PlayerScreenRuntime.playbackResolutionLabel(forButton: Boolean): Str
 
 @Composable
 private fun PlayerScreenRuntime.RenderPlayerModals() {
+    val playerMenusBlocked = blockingPlayerCardOpen()
+    LaunchedEffect(playerMenusBlocked) {
+        if (playerMenusBlocked) dismissPlayerMenus()
+    }
     PlayerScreenModalHosts(
         pendingP2pSwitch = pendingP2pSwitch,
         onPendingP2pSwitchChanged = { pendingP2pSwitch = it },
@@ -696,7 +695,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
         onNextEpisodeAutoPlaySearchingChanged = { nextEpisodeAutoPlaySearching = it },
         onNextEpisodeAutoPlayCountdownChanged = { nextEpisodeAutoPlayCountdown = it },
         onNextEpisodeAutoPlaySourceNameChanged = { nextEpisodeAutoPlaySourceName = it },
-        showAudioModal = showAudioModal,
+        showAudioModal = showAudioModal && !playerMenusBlocked,
         audioTracks = audioTracks,
         selectedAudioIndex = selectedAudioIndex,
         onAudioTrackSelected = { index ->
@@ -709,7 +708,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
             }
         },
         onAudioModalDismissed = { showAudioModal = false },
-        showSubtitleModal = showSubtitleModal,
+        showSubtitleModal = showSubtitleModal && !playerMenusBlocked,
         subtitleTracks = subtitleTracks,
         selectedSubtitleIndex = selectedSubtitleIndex,
         addonSubtitles = visibleAddonSubtitles,
@@ -754,19 +753,19 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
         onAutoSyncCueSelected = { cue -> applySubtitleAutoSyncCue(cue) },
         onAutoSyncReload = { loadSubtitleAutoSyncCues(force = true) },
         onSubtitleModalDismissed = { showSubtitleModal = false },
-        showVideoSettingsModal = showVideoSettingsModal,
+        showVideoSettingsModal = showVideoSettingsModal && !playerMenusBlocked,
         playerSettings = playerSettingsUiState,
         onVideoSettingsChanged = {
             playerController?.configureIosVideoOutput(PlayerSettingsRepository.uiState.value)
         },
         onVideoSettingsModalDismissed = { showVideoSettingsModal = false },
-        showSourcesPanel = showSourcesPanel,
+        showSourcesPanel = showSourcesPanel && !playerMenusBlocked,
         sourceStreamsState = sourceStreamsState,
         contentTitle = title,
         activeEpisodeTitle = activeEpisodeTitle,
         activeSourceUrl = activeSourceUrl,
         activeStreamTitle = activeStreamTitle,
-        showQualityPanel = showQualityPanel,
+        showQualityPanel = showQualityPanel && !playerMenusBlocked,
         playerQualityState = playerQualityState,
         selectedPlayerQualityId = selectedPlayerQualityId,
         currentQualityLabel = currentQualityPanelResolutionLabel(),
@@ -796,7 +795,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
             PlayerStreamsRepository.stopSourcesLoading()
             controlsVisible = true
         },
-        showLiveChannelsPanel = showLiveChannelsPanel,
+        showLiveChannelsPanel = showLiveChannelsPanel && !playerMenusBlocked,
         liveTvChannels = liveTvUiState.channels,
         activeLiveChannelId = activeVideoId,
         onLiveChannelSelected = { channel -> switchToLiveChannel(channel) },
@@ -805,7 +804,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
             controlsVisible = true
         },
         isSeries = isSeries,
-        showEpisodesPanel = showEpisodesPanel,
+        showEpisodesPanel = showEpisodesPanel && !playerMenusBlocked,
         allEpisodes = playerMetaVideos,
         parentMetaType = parentMetaType,
         parentMetaId = parentMetaId,
@@ -856,7 +855,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
             PlayerStreamsRepository.clearEpisodeStreams()
             controlsVisible = true
         },
-        showSubmitIntroModal = showSubmitIntroModal,
+        showSubmitIntroModal = showSubmitIntroModal && !playerMenusBlocked,
         activeVideoId = activeVideoId,
         metaUiState = metaUiState,
         playbackClock = playbackClock,
@@ -887,12 +886,12 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
         },
         skipIntervals = skipIntervals,
         submittedSegmentTypesInSession = submittedSegmentTypesByVideoId[activeVideoId.orEmpty()] ?: emptySet(),
-        showStreamInfoModal = showStreamInfoModal,
+        showStreamInfoModal = showStreamInfoModal && !playerMenusBlocked,
         mediaInfoJson = playbackSnapshot.mediaInfoJson,
         onStreamInfoModalDismissed = { showStreamInfoModal = false },
     )
 
-    if (showUserRatingSheet) {
+    if (showUserRatingSheet && !playerMenusBlocked) {
         currentUserRatingTarget()?.let { target ->
             UserRatingPlayerOverlay(
                 target = target,

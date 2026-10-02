@@ -26,10 +26,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Flag
@@ -55,6 +58,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -236,8 +240,17 @@ internal fun PlayerControlsShell(
                     warnings = parentalWarnings,
                     isVisible = showParentalGuide,
                     onAnimationComplete = onParentalGuideAnimationComplete,
-                    contentPadding = PaddingValues(horizontal = metrics.horizontalPadding, vertical = metrics.verticalPadding),
-                    modifier = Modifier.align(Alignment.TopStart),
+                    contentPadding = PaddingValues(
+                        start = metrics.horizontalPadding,
+                        end = metrics.horizontalPadding,
+                        top = metrics.verticalPadding,
+                        bottom = metrics.verticalPadding,
+                    ),
+                    topSafeInset = true,
+                    endClearance = PlayerToolbarButtonSize * (2 + if (onSubmitIntroClick != null) 1 else 0) + 8.dp,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .fillMaxWidth(),
                 )
             }
 
@@ -288,8 +301,8 @@ internal fun PlayerControlsShell(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .padding(horizontal = metrics.horizontalPadding)
-                        .padding(bottom = metrics.sliderBottomOffset),
+                        .windowInsetsPadding(playerTimelineBottomInsets(metrics))
+                        .padding(horizontal = metrics.horizontalPadding),
                 )
             }
             if (showPlaybackControls && !useLegacyLayout) {
@@ -730,6 +743,68 @@ private fun ProgressControls(
     val aspectRatioPainter = appIconPainter(AppIconResource.PlayerAspectRatio)
     val subtitlesPainter = appIconPainter(AppIconResource.PlayerSubtitles)
     val audioPainter = appIconPainter(AppIconResource.PlayerAudioFilled)
+    val actions = listOfNotNull(
+        LegacyPlayerAction(
+            label = stringResource(resizeMode.labelRes),
+            painter = aspectRatioPainter,
+            onClick = onResizeModeClick,
+        ),
+        onSpeedClick?.let { onClick ->
+            LegacyPlayerAction(
+                label = formatPlaybackSpeedLabel(playbackSnapshot.playbackSpeed),
+                icon = Icons.Rounded.Speed,
+                onClick = onClick,
+            )
+        },
+        onSubtitleClick?.let { onClick ->
+            LegacyPlayerAction(
+                label = stringResource(Res.string.compose_player_subs),
+                painter = subtitlesPainter,
+                onClick = onClick,
+            )
+        },
+        onAudioClick?.let { onClick ->
+            LegacyPlayerAction(
+                label = stringResource(Res.string.compose_player_audio),
+                painter = audioPainter,
+                onClick = onClick,
+            )
+        },
+        onSourcesClick?.let { onClick ->
+            LegacyPlayerAction(
+                label = stringResource(Res.string.compose_player_sources),
+                icon = Icons.Rounded.SwapHoriz,
+                onClick = onClick,
+            )
+        },
+        onEpisodesClick?.let { onClick ->
+            LegacyPlayerAction(
+                label = stringResource(Res.string.compose_player_episodes),
+                icon = Icons.Rounded.VideoLibrary,
+                onClick = onClick,
+            )
+        },
+        onLiveChannelsClick?.let { onClick ->
+            LegacyPlayerAction(
+                label = stringResource(Res.string.compose_player_channels),
+                icon = Icons.Rounded.Tv,
+                onClick = onClick,
+            )
+        },
+        onQualityClick?.let { onClick ->
+            LegacyPlayerAction(
+                label = qualityLabel?.takeIf { it.isNotBlank() } ?: "Quality",
+                onClick = onClick,
+            )
+        },
+    )
+    val hasOverflow = actions.size > PlayerChromeVisibleActionCount
+    var expanded by remember(hasOverflow) { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
+    val shown = playerChromeShownActions(actions, expanded)
+    LaunchedEffect(expanded, scrollState.maxValue) {
+        if (expanded) scrollState.animateScrollTo(scrollState.maxValue) else scrollState.scrollTo(0)
+    }
 
     Column(modifier = modifier) {
         PlayerSeekBar(
@@ -740,80 +815,62 @@ private fun ProgressControls(
             onScrubChange = onScrubChange,
             onScrubFinished = onScrubFinished,
         )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-        ) {
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(24.dp))
-                    .border(
-                        width = 1.dp,
-                        color = Color.White.copy(alpha = 0.2f),
-                        shape = RoundedCornerShape(24.dp),
-                    ),
-            ) {
-                PlayerChromeBackdrop(
-                    modifier = Modifier.matchParentSize(),
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .border(
+                    width = 1.dp,
+                    color = Color.White.copy(alpha = 0.2f),
                     shape = RoundedCornerShape(24.dp),
-                    fallbackColor = Color.Black.copy(alpha = 0.5f),
+                ),
+        ) {
+            PlayerChromeBackdrop(
+                modifier = Modifier.matchParentSize(),
+                shape = RoundedCornerShape(24.dp),
+                fallbackColor = Color.Black.copy(alpha = 0.5f),
+            )
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val collapsed = hasOverflow && !expanded
+                val slot = playerChromeCollapsedSlot(
+                    contentWidth = maxWidth,
+                    shownActionCount = shown.size,
+                    reservesMore = collapsed,
                 )
                 Row(
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(scrollState, enabled = expanded)
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    PlayerActionPillButton(
-                        label = stringResource(resizeMode.labelRes),
-                        painter = aspectRatioPainter,
-                        onClick = onResizeModeClick,
-                    )
-                    if (onSpeedClick != null) {
+                    shown.forEach { action ->
                         PlayerActionPillButton(
-                            label = formatPlaybackSpeedLabel(playbackSnapshot.playbackSpeed),
-                            icon = Icons.Rounded.Speed,
-                            onClick = onSpeedClick,
+                            label = action.label,
+                            painter = action.painter,
+                            icon = action.icon,
+                            onClick = action.onClick,
+                            modifier = if (collapsed) Modifier.widthIn(max = slot) else Modifier,
                         )
                     }
-                    if (onSubtitleClick != null) {
+                    if (hasOverflow) {
                         PlayerActionPillButton(
-                            label = stringResource(Res.string.compose_player_subs),
-                            painter = subtitlesPainter,
-                            onClick = onSubtitleClick,
-                        )
-                    }
-                    if (onAudioClick != null) {
-                        PlayerActionPillButton(
-                            label = stringResource(Res.string.compose_player_audio),
-                            painter = audioPainter,
-                            onClick = onAudioClick,
-                        )
-                    }
-                    if (onSourcesClick != null) {
-                        PlayerActionPillButton(
-                            label = stringResource(Res.string.compose_player_sources),
-                            icon = Icons.Rounded.SwapHoriz,
-                            onClick = onSourcesClick,
-                        )
-                    }
-                    if (onEpisodesClick != null) {
-                        PlayerActionPillButton(
-                            label = stringResource(Res.string.compose_player_episodes),
-                            icon = Icons.Rounded.VideoLibrary,
-                            onClick = onEpisodesClick,
-                        )
-                    }
-                    if (onLiveChannelsClick != null) {
-                        PlayerActionPillButton(
-                            label = stringResource(Res.string.compose_player_channels),
-                            icon = Icons.Rounded.Tv,
-                            onClick = onLiveChannelsClick,
-                        )
-                    }
-                    if (onQualityClick != null) {
-                        PlayerActionPillButton(
-                            label = qualityLabel?.takeIf { it.isNotBlank() } ?: "Quality",
-                            onClick = onQualityClick,
+                            label = stringResource(
+                                if (expanded) {
+                                    Res.string.compose_player_fewer_actions
+                                } else {
+                                    Res.string.compose_player_more_actions
+                                },
+                            ),
+                            icon = if (expanded) {
+                                Icons.AutoMirrored.Rounded.KeyboardArrowLeft
+                            } else {
+                                Icons.AutoMirrored.Rounded.KeyboardArrowRight
+                            },
+                            showLabel = false,
+                            onClick = { expanded = !expanded },
+                            modifier = Modifier.widthIn(max = PlayerChromeMoreSlot),
                         )
                     }
                 }
@@ -821,6 +878,13 @@ private fun ProgressControls(
         }
     }
 }
+
+private data class LegacyPlayerAction(
+    val label: String,
+    val onClick: () -> Unit,
+    val icon: ImageVector? = null,
+    val painter: Painter? = null,
+)
 
 private val PlayerTimelineThumbInset = 2.dp
 
@@ -1135,19 +1199,23 @@ private fun TimePill(
     }
 }
 
+private val PlayerToolbarButtonSize = 48.dp
+
 @Composable
 private fun PlayerActionPillButton(
     label: String,
     onClick: () -> Unit,
     icon: ImageVector? = null,
     painter: Painter? = null,
+    showLabel: Boolean = true,
+    modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .heightIn(min = 0.dp.atLeastIosHitTarget())
             .clip(RoundedCornerShape(22.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 12.dp),
+            .padding(horizontal = if (showLabel) 12.dp else 10.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1166,14 +1234,16 @@ private fun PlayerActionPillButton(
                 modifier = Modifier.size(18.dp),
             )
         }
-        Text(
-            text = label,
-            style = MaterialTheme.nuvioTypeScale.labelSm,
-            color = Color.White,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            softWrap = false,
-        )
+        if (showLabel) {
+            Text(
+                text = label,
+                style = MaterialTheme.nuvioTypeScale.labelSm,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                softWrap = false,
+            )
+        }
     }
 }
 

@@ -359,7 +359,7 @@ fun SubmitIntroDialog(
     val phonePanel = LocalPlayerSizeClass.current != PlayerSizeClass.T
     val formContent: @Composable (Modifier) -> Unit = { formModifier ->
         Column(
-            modifier = if (phonePanel) formModifier else formModifier.verticalScroll(scrollState),
+            modifier = if (phonePanel) formModifier.fillMaxSize() else formModifier.verticalScroll(scrollState),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Row(
@@ -389,14 +389,7 @@ fun SubmitIntroDialog(
                     )
                 }
             }
-            Column(
-                modifier = if (phonePanel) {
-                    Modifier.weight(1f).verticalScroll(scrollState)
-                } else {
-                    Modifier
-                },
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
+            val submitIntroBody: @Composable () -> Unit = {
                 if (showServiceSection) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
@@ -677,7 +670,20 @@ fun SubmitIntroDialog(
                         color = MaterialTheme.colorScheme.error,
                     )
                 }
-
+            }
+            if (phonePanel) {
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(scrollState),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        submitIntroBody()
+                    }
+                }
+            } else {
+                submitIntroBody()
             }
                 Row(
                     modifier = Modifier.fillMaxWidth(),

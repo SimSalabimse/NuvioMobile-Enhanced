@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -65,6 +64,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -183,6 +183,11 @@ fun PlayerLiveChannelsPanel(
             val leadingInset = WindowInsets.safeContent
                 .asPaddingValues()
                 .calculateStartPadding(LocalLayoutDirection.current)
+            val panelWidth = if (phonePanel) {
+                playerTrailingPanelWidth(maxWidth, leadingInset).coerceAtMost(maxWidth)
+            } else {
+                minOf(520.dp, maxWidth * 0.92f)
+            }
             val panelShape = if (phonePanel) {
                 RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)
             } else {
@@ -197,14 +202,13 @@ fun PlayerLiveChannelsPanel(
                 Box(
                     modifier = if (phonePanel) {
                         Modifier
-                            .width(playerTrailingPanelWidth(maxWidth, leadingInset).coerceAtMost(maxWidth))
+                            .width(panelWidth)
                             .fillMaxHeight()
                             .windowInsetsPadding(playerPanelSafeInsets())
                             .padding(16.dp)
                     } else {
                         Modifier
-                            .widthIn(max = 520.dp)
-                            .fillMaxWidth(0.92f)
+                            .width(panelWidth)
                             .heightIn(max = 640.dp)
                     }
                         .clip(panelShape)
@@ -272,6 +276,7 @@ fun PlayerLiveChannelsPanel(
                                 filterMode = PlayerLiveChannelFilterMode.Category
                                 selectedCategoryName = option.categoryName
                             },
+                            categoryMenuWidth = panelWidth,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                         )
 
@@ -366,6 +371,7 @@ private fun PlayerLiveChannelFilterRow(
     onAllChannelsClick: () -> Unit,
     onFavoritesClick: () -> Unit,
     onCategoryOptionClick: (PlayerLiveChannelCategoryFilterOption) -> Unit,
+    categoryMenuWidth: Dp,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -389,6 +395,7 @@ private fun PlayerLiveChannelFilterRow(
             selected = filterMode == PlayerLiveChannelFilterMode.Category,
             label = selectedCategoryName ?: chooseCategoryLabel,
             options = categoryOptions,
+            menuWidth = categoryMenuWidth,
             onOptionClick = onCategoryOptionClick,
         )
     }
@@ -429,6 +436,7 @@ private fun PlayerLiveChannelCategoryFilterChip(
     selected: Boolean,
     label: String,
     options: List<PlayerLiveChannelCategoryFilterOption>,
+    menuWidth: Dp,
     onOptionClick: (PlayerLiveChannelCategoryFilterOption) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -467,7 +475,7 @@ private fun PlayerLiveChannelCategoryFilterChip(
             expanded = expanded,
             onDismissRequest = { expanded = false },
             modifier = Modifier
-                .widthIn(max = 400.dp)
+                .width(playerLiveCategoryMenuWidth(menuWidth))
                 .heightIn(max = 560.dp),
         ) {
             options.forEach { option ->

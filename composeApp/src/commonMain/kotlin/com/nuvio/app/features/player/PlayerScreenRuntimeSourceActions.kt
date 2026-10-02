@@ -547,11 +547,12 @@ internal fun PlayerScreenRuntime.playNextEpisode(automatic: Boolean = false) {
         onManualSelectionRequired = { nextVideo ->
             if (isCurrentRequest()) {
                 nextEpisodeCardDismissed = true
-                episodeStreamsPanelState = EpisodeStreamsPanelState(
-                    showStreams = true,
-                    selectedEpisode = nextVideo,
-                )
-                showEpisodesPanel = true
+                if (beginPlayerMenu(PlayerMenu.Episodes)) {
+                    episodeStreamsPanelState = EpisodeStreamsPanelState(
+                        showStreams = true,
+                        selectedEpisode = nextVideo,
+                    )
+                }
             }
         },
         onSearchingChanged = {
@@ -573,6 +574,7 @@ internal fun PlayerScreenRuntime.playNextEpisode(automatic: Boolean = false) {
 
 internal fun PlayerScreenRuntime.openSourcesPanel() {
     val vid = activeVideoId ?: return
+    if (!beginPlayerMenu(PlayerMenu.Sources)) return
     InAppLogger.info(
         "Player/Source",
         "open sources panel videoId=$vid type=${contentType ?: parentMetaType} s=${activeSeasonNumber ?: -1} e=${activeEpisodeNumber ?: -1}",
@@ -583,13 +585,11 @@ internal fun PlayerScreenRuntime.openSourcesPanel() {
         season = activeSeasonNumber,
         episode = activeEpisodeNumber,
     )
-    showSourcesPanel = true
-    showEpisodesPanel = false
-    showLiveChannelsPanel = false
     controlsVisible = false
 }
 
 internal fun PlayerScreenRuntime.openEpisodesPanel() {
+    if (!beginPlayerMenu(PlayerMenu.Episodes)) return
     InAppLogger.info(
         "Player/Episodes",
         "open episodes panel parentType=$parentMetaType parentId=$parentMetaId cachedVideos=${playerMetaVideos.size}",
@@ -603,9 +603,6 @@ internal fun PlayerScreenRuntime.openEpisodesPanel() {
             )
         }
     }
-    showEpisodesPanel = true
-    showSourcesPanel = false
-    showLiveChannelsPanel = false
     controlsVisible = false
 }
 

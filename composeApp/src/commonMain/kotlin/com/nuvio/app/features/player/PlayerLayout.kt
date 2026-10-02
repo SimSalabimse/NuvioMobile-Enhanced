@@ -51,6 +51,8 @@ internal fun playerTrailingPanelWidth(screenWidth: Dp, leadingInset: Dp): Dp {
     return preferred.coerceAtMost(maxLeavingVideo)
 }
 
+internal fun playerLiveCategoryMenuWidth(panelWidth: Dp): Dp = panelWidth
+
 internal fun playerCenteredCardWidth(safeWidth: Dp): Dp =
     (safeWidth * 0.9f).coerceAtMost(400.dp).coerceAtLeast(0.dp)
 

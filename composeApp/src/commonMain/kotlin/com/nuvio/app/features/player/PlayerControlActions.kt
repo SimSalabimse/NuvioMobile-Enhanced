@@ -193,8 +193,7 @@ internal fun PlayerControlActions(
             )
         },
     )
-    val visibleActionCount = 4
-    val hasOverflow = actions.size > visibleActionCount
+    val hasOverflow = actions.size > PlayerChromeVisibleActionCount
     var expanded by remember(hasOverflow) { mutableStateOf(false) }
     val scrollState = rememberScrollState()
     val startOffset = if (onNextEpisodeClick != null) (-13).dp else (-12).dp
@@ -211,7 +210,7 @@ internal fun PlayerControlActions(
                 modifier = Modifier.weight(1f).offset(x = startOffset).horizontalScroll(scrollState),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                actions.take(if (expanded) actions.size else visibleActionCount).forEach { action ->
+                playerChromeShownActions(actions, expanded).forEach { action ->
                     PlayerAction(
                         description = action.description,
                         onClick = {
@@ -299,6 +298,29 @@ private fun PlayerAction(
             Icon(icon, description, tint = Color.White, modifier = Modifier.size(iconSize))
         }
     }
+}
+
+internal const val PlayerChromeVisibleActionCount = 4
+internal val PlayerChromeMoreSlot = 52.dp
+internal val PlayerChromeRowChrome = 8.dp
+internal val PlayerChromeSlotCap = 132.dp
+
+internal fun <T> playerChromeShownActions(actions: List<T>, expanded: Boolean): List<T> =
+    if (expanded || actions.size <= PlayerChromeVisibleActionCount) {
+        actions
+    } else {
+        actions.take(PlayerChromeVisibleActionCount)
+    }
+
+internal fun playerChromeCollapsedSlot(
+    contentWidth: Dp,
+    shownActionCount: Int,
+    reservesMore: Boolean,
+): Dp {
+    val moreSlot = if (reservesMore) PlayerChromeMoreSlot else 0.dp
+    val available = (contentWidth - PlayerChromeRowChrome - moreSlot).coerceAtLeast(0.dp)
+    if (shownActionCount <= 0) return available
+    return (available / shownActionCount).coerceAtMost(PlayerChromeSlotCap)
 }
 
 private data class PlayerControlAction(
