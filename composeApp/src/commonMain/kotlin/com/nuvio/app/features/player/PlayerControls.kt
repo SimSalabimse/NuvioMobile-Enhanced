@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContent
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
@@ -385,14 +387,15 @@ private fun PlayerHeader(
         animationSpec = tween(durationMillis = if (!showParentalGuide && showActions) 260 else 160),
         label = "playerHeaderMetadataAlpha",
     )
+    val phoneHeader = metrics.usesPhoneChrome()
     Column(modifier = modifier) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = if (phoneHeader) Arrangement.Start else Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Top,
         ) {
             Box(
-                modifier = Modifier.weight(1f),
+                modifier = if (phoneHeader) Modifier.fillMaxWidth(0.5f) else Modifier.weight(1f),
             ) {
                 Column(
                     modifier = Modifier.graphicsLayer { alpha = metadataAlpha },
@@ -406,7 +409,7 @@ private fun PlayerHeader(
                             fontWeight = FontWeight.Bold,
                         ),
                         color = Color.White,
-                        maxLines = 2,
+                        maxLines = if (phoneHeader) 1 else 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                     RunningVersionLine(
@@ -471,10 +474,18 @@ private fun PlayerHeader(
             }
 
             if (showActions) {
+                val headerScroll = rememberScrollState()
                 Row(
+                    modifier = if (phoneHeader) Modifier.weight(1f) else Modifier,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    Row(
+                        modifier = Modifier
+                            .then(if (phoneHeader) Modifier.weight(1f).horizontalScroll(headerScroll) else Modifier),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                     if (onOpenInExternalPlayer != null) {
                         PlayerHeaderIconButton(
                             icon = Icons.AutoMirrored.Rounded.OpenInNew,
@@ -542,8 +553,9 @@ private fun PlayerHeader(
                             onClick = onInfoClick,
                         )
                     }
+                    }
                     Box(contentAlignment = Alignment.Center) {
-                        val closeSize = (metrics.headerIconSize + 16.dp).atLeastIosHitTarget()
+                        val closeSize = (metrics.headerIconSize + 16.dp).coerceAtLeast(44.dp)
                         PlayerChromeBackdrop(
                             modifier = Modifier.size(closeSize),
                             shape = CircleShape,
@@ -553,7 +565,7 @@ private fun PlayerHeader(
                             onClick = onBack,
                             containerColor = Color.Transparent,
                             contentColor = Color.White,
-                            buttonSize = metrics.headerIconSize + 16.dp,
+                            buttonSize = closeSize,
                             iconSize = metrics.headerIconSize,
                             contentDescription = stringResource(Res.string.compose_player_close),
                         )
@@ -575,7 +587,7 @@ internal fun PlayerHeaderIconButton(
 ) {
     Box(
         modifier = Modifier
-            .size(buttonSize.atLeastIosHitTarget())
+            .size(buttonSize.coerceAtLeast(44.dp))
             .clip(CircleShape)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
@@ -605,27 +617,31 @@ private fun CenterControls(
 ) {
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(metrics.centerGap),
+        horizontalArrangement = Arrangement.spacedBy(metrics.transportSeekGap()),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        SideControlButton(
-            icon = Icons.Rounded.Replay10,
-            contentDescription = stringResource(Res.string.compose_player_seek_back_10),
-            metrics = metrics,
-            onClick = onSeekBack,
-        )
+        if (metrics.showsTransportSeekButtons()) {
+            SideControlButton(
+                icon = Icons.Rounded.Replay10,
+                contentDescription = stringResource(Res.string.compose_player_seek_back_10),
+                metrics = metrics,
+                onClick = onSeekBack,
+            )
+        }
         PlayPauseControlButton(
             isPlaying = snapshot.isPlaying,
             isBuffering = snapshot.isLoading,
             metrics = metrics,
             onClick = onTogglePlayback,
         )
-        SideControlButton(
-            icon = Icons.Rounded.Forward10,
-            contentDescription = stringResource(Res.string.compose_player_seek_forward_10),
-            metrics = metrics,
-            onClick = onSeekForward,
-        )
+        if (metrics.showsTransportSeekButtons()) {
+            SideControlButton(
+                icon = Icons.Rounded.Forward10,
+                contentDescription = stringResource(Res.string.compose_player_seek_forward_10),
+                metrics = metrics,
+                onClick = onSeekForward,
+            )
+        }
     }
 }
 
@@ -636,18 +652,20 @@ private fun SideControlButton(
     metrics: PlayerLayoutMetrics,
     onClick: () -> Unit,
 ) {
+    val phoneSeek = metrics.usesPhoneChrome()
     Box(
         modifier = Modifier
+            .then(if (phoneSeek) Modifier.size(PlayerPhoneSeekTarget) else Modifier)
             .clip(CircleShape)
             .clickable(onClick = onClick)
-            .padding(metrics.sideButtonPadding),
+            .then(if (phoneSeek) Modifier else Modifier.padding(metrics.sideButtonPadding)),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
             tint = Color.White,
-            modifier = Modifier.size(metrics.playIconSize),
+            modifier = Modifier.size(if (phoneSeek) 28.dp else metrics.playIconSize),
         )
     }
 }
@@ -974,7 +992,7 @@ internal fun LockedPlayerOverlay(
         ) {
             Box(
                 modifier = Modifier
-                    .size(78.dp.atLeastIosHitTarget())
+                    .size(78.dp)
                     .clip(CircleShape)
                     .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape)
                     .clickable(onClick = onUnlock),
@@ -1011,8 +1029,8 @@ internal fun LockedPlayerOverlay(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(horizontal = horizontalSafePadding + metrics.horizontalPadding)
-                .padding(bottom = metrics.sliderBottomOffset),
+                .windowInsetsPadding(playerTimelineBottomInsets(metrics))
+                .padding(horizontal = horizontalSafePadding + metrics.horizontalPadding),
         )
     }
 }

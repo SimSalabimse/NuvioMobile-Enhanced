@@ -50,6 +50,29 @@ internal fun PlayerQualityPanel(
     modifier: Modifier = Modifier,
 ) {
     val tokens = MaterialTheme.nuvio
+    if (LocalPlayerSizeClass.current != PlayerSizeClass.T) {
+        PlayerSidePanel(
+            visible = visible,
+            onDismiss = onDismiss,
+            modifier = modifier,
+        ) {
+            PlayerPanelHeader(title = "Quality") {
+                PlayerDialogButton(
+                    label = stringResource(Res.string.action_close),
+                    onClick = onDismiss,
+                )
+            }
+            QualitySelectionBody(
+                state = state,
+                selectedQualityId = selectedQualityId,
+                currentResolutionLabel = currentResolutionLabel,
+                onQualitySelected = onQualitySelected,
+                modifier = Modifier.weight(1f),
+                fillRemaining = true,
+            )
+        }
+        return
+    }
 
     AnimatedVisibility(
         visible = visible,
@@ -108,8 +131,32 @@ internal fun PlayerQualityPanel(
                             )
                         }
 
-                        when {
-                            state.isLoading -> {
+                        QualitySelectionBody(
+                            state = state,
+                            selectedQualityId = selectedQualityId,
+                            currentResolutionLabel = currentResolutionLabel,
+                            onQualitySelected = onQualitySelected,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QualitySelectionBody(
+    state: PlayerQualitySelectionState,
+    selectedQualityId: String?,
+    currentResolutionLabel: String?,
+    onQualitySelected: (String?) -> Unit,
+    modifier: Modifier = Modifier,
+    fillRemaining: Boolean = false,
+) {
+    val tokens = MaterialTheme.nuvio
+    Column(modifier = modifier.fillMaxWidth()) {
+        when {
+            state.isLoading -> {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -154,7 +201,9 @@ internal fun PlayerQualityPanel(
 
                             else -> {
                                 LazyColumn(
-                                    modifier = Modifier.padding(horizontal = tokens.spacing.cardPadding),
+                                    modifier = Modifier
+                                        .then(if (fillRemaining) Modifier.weight(1f) else Modifier)
+                                        .padding(horizontal = tokens.spacing.cardPadding),
                                     verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
                                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
                                         bottom = tokens.spacing.cardPadding,
@@ -183,10 +232,6 @@ internal fun PlayerQualityPanel(
                                     }
                                 }
                             }
-                        }
-                    }
-                }
-            }
         }
     }
 }

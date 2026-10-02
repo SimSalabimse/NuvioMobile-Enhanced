@@ -114,7 +114,12 @@ private fun PlayerGestureFeedback(
                     Column(
                         modifier = Modifier
                             .align(if (isBrightness) Alignment.CenterStart else Alignment.CenterEnd)
-                            .padding(horizontal = horizontalSafePadding + 8.dp)
+                            .windowInsetsPadding(
+                                WindowInsets.safeContent.only(
+                                    WindowInsetsSides.Start + WindowInsetsSides.End + WindowInsetsSides.Bottom,
+                                ),
+                            )
+                            .padding(bottom = 72.dp)
                             .width(6.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
@@ -153,43 +158,62 @@ private fun PlayerGestureFeedback(
                         }
                     }
                 }
-                GestureFeedbackIcon.Speed, GestureFeedbackIcon.SeekForward, GestureFeedbackIcon.SeekBackward -> {
-                    val message = feedback.messageRes?.let { stringResource(it, *feedback.messageArgs.toTypedArray()) }
-                        ?: feedback.message.orEmpty()
-                    val secondaryMessage = feedback.secondaryMessageRes?.let {
-                        stringResource(it, *feedback.secondaryMessageArgs.toTypedArray())
-                    } ?: feedback.secondaryMessage
-                    val shadow = Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 8f)
-                    Row(
+                GestureFeedbackIcon.SeekForward, GestureFeedbackIcon.SeekBackward -> {
+                    GestureReadout(
+                        feedback = feedback,
+                        modifier = Modifier.align(Alignment.Center),
+                    )
+                }
+                GestureFeedbackIcon.Speed -> {
+                    GestureReadout(
+                        feedback = feedback,
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .windowInsetsPadding(WindowInsets.safeContent.only(WindowInsetsSides.Top))
                             .padding(horizontal = horizontalSafePadding + horizontalPadding)
-                            .padding(top = 40.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = message,
-                            color = Color.White,
-                            style = MaterialTheme.nuvioTypeScale.bodyLg.copy(
-                                fontWeight = FontWeight.SemiBold,
-                                shadow = shadow,
-                            ),
-                        )
-                        secondaryMessage?.let {
-                            Text(
-                                text = it,
-                                color = feedback.secondaryMessageColor ?: Color.White,
-                                style = MaterialTheme.nuvioTypeScale.bodyMd.copy(
-                                    fontWeight = FontWeight.SemiBold,
-                                    shadow = shadow,
-                                ),
-                            )
-                        }
-                    }
+                            .padding(top = 8.dp),
+                    )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun GestureReadout(
+    feedback: GestureFeedbackState,
+    modifier: Modifier = Modifier,
+) {
+    val message = feedback.messageRes?.let { stringResource(it, *feedback.messageArgs.toTypedArray()) }
+        ?: feedback.message.orEmpty()
+    val secondaryMessage = feedback.secondaryMessageRes?.let {
+        stringResource(it, *feedback.secondaryMessageArgs.toTypedArray())
+    } ?: feedback.secondaryMessage
+    val shadow = Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 8f)
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = message,
+            color = Color.White,
+            maxLines = 1,
+            style = MaterialTheme.nuvioTypeScale.bodyLg.copy(
+                fontWeight = FontWeight.SemiBold,
+                shadow = shadow,
+            ),
+        )
+        secondaryMessage?.let {
+            Text(
+                text = it,
+                color = feedback.secondaryMessageColor ?: Color.White,
+                maxLines = 1,
+                style = MaterialTheme.nuvioTypeScale.bodyMd.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    shadow = shadow,
+                ),
+            )
         }
     }
 }

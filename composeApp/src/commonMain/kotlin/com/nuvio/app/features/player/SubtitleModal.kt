@@ -14,10 +14,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeContent
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -49,6 +52,8 @@ import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.withDuplicateSafeLazyKeys
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.action_back
+import nuvio.composeapp.generated.resources.action_close
 import nuvio.composeapp.generated.resources.addon_title
 import nuvio.composeapp.generated.resources.compose_player_built_in
 import nuvio.composeapp.generated.resources.compose_player_fetch_subtitles
@@ -165,13 +170,52 @@ fun SubtitleModal(
         }
     }
 
+    if (LocalPlayerSizeClass.current != PlayerSizeClass.T) {
+        PhoneSubtitlePanel(
+            visible = visible,
+            languageItems = languageItems,
+            options = options,
+            activeLanguageKey = activeLanguageKey,
+            selectedOptionId = selectedOptionId,
+            styleVisible = styleVisible,
+            isLoadingAddonSubtitles = isLoadingAddonSubtitles,
+            subtitleTracks = subtitleTracks,
+            addonSubtitles = addonSubtitles,
+            subtitleStyle = subtitleStyle,
+            subtitleDelayMs = subtitleDelayMs,
+            selectedAddonSubtitle = effectiveSelectedAddonSubtitle,
+            subtitleAutoSyncState = subtitleAutoSyncState,
+            playbackOptionId = playbackOptionId,
+            onActiveLanguageKey = { activeLanguageKey = it },
+            onPendingOptionId = { pendingOptionId = it },
+            onBuiltInTrackSelected = onBuiltInTrackSelected,
+            onAddonSubtitleSelected = onAddonSubtitleSelected,
+            onFetchAddonSubtitles = onFetchAddonSubtitles,
+            onStyleChanged = onStyleChanged,
+            onSubtitleDelayChanged = onSubtitleDelayChanged,
+            onSubtitleDelayReset = onSubtitleDelayReset,
+            onSyncByEarClick = onSyncByEarClick,
+            onAutoSyncCapture = onAutoSyncCapture,
+            onAutoSyncAutomatic = onAutoSyncAutomatic,
+            onAutoSyncCueSelected = onAutoSyncCueSelected,
+            onAutoSyncReload = onAutoSyncReload,
+            onDismiss = onDismiss,
+            modifier = modifier,
+        )
+        return
+    }
+
     PlayerOverlayScaffold(
         visible = visible,
         onDismiss = onDismiss,
         modifier = modifier,
-        contentPadding = PaddingValues(start = 52.dp, end = 52.dp, top = 36.dp, bottom = 76.dp),
+        contentPadding = PaddingValues(0.dp),
     ) {
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeContent),
+        ) {
             val railMaxHeight = (maxHeight - 72.dp).coerceAtLeast(120.dp)
 
             Column(
@@ -325,6 +369,184 @@ fun SubtitleModal(
     }
 }
 
+private enum class PhoneSubtitleStep { Languages, Tracks, Style }
+
+@Composable
+private fun PhoneSubtitlePanel(
+    visible: Boolean,
+    languageItems: List<SubtitleLanguageItem>,
+    options: List<SubtitleSelectionOption>,
+    activeLanguageKey: String,
+    selectedOptionId: String?,
+    styleVisible: Boolean,
+    isLoadingAddonSubtitles: Boolean,
+    subtitleTracks: List<SubtitleTrack>,
+    addonSubtitles: List<AddonSubtitle>,
+    subtitleStyle: SubtitleStyleState,
+    subtitleDelayMs: Int,
+    selectedAddonSubtitle: AddonSubtitle?,
+    subtitleAutoSyncState: SubtitleAutoSyncUiState,
+    playbackOptionId: String?,
+    onActiveLanguageKey: (String) -> Unit,
+    onPendingOptionId: (String?) -> Unit,
+    onBuiltInTrackSelected: (Int) -> Unit,
+    onAddonSubtitleSelected: (AddonSubtitle) -> Unit,
+    onFetchAddonSubtitles: () -> Unit,
+    onStyleChanged: (SubtitleStyleState) -> Unit,
+    onSubtitleDelayChanged: (Int) -> Unit,
+    onSubtitleDelayReset: () -> Unit,
+    onSyncByEarClick: () -> Unit,
+    onAutoSyncCapture: () -> Unit,
+    onAutoSyncAutomatic: () -> Unit,
+    onAutoSyncCueSelected: (SubtitleSyncCue) -> Unit,
+    onAutoSyncReload: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var step by remember(visible) { mutableStateOf(PhoneSubtitleStep.Languages) }
+    val keyedOptions = remember(options) { options.withDuplicateSafeLazyKeys { it.id } }
+    PlayerSidePanel(
+        visible = visible,
+        onDismiss = onDismiss,
+        modifier = modifier,
+    ) {
+        when (step) {
+            PhoneSubtitleStep.Languages -> {
+                PlayerPanelHeader(title = stringResource(Res.string.compose_player_languages)) {
+                    PlayerDialogButton(
+                        label = stringResource(Res.string.action_close),
+                        onClick = onDismiss,
+                    )
+                }
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    items(languageItems, key = { it.key }) { item ->
+                        SubtitleLanguageRow(
+                            item = item,
+                            selected = item.key == activeLanguageKey,
+                            onClick = {
+                                onActiveLanguageKey(item.key)
+                                val availableOptions = buildSubtitleSelectionOptions(
+                                    item.key,
+                                    subtitleTracks,
+                                    addonSubtitles,
+                                )
+                                onPendingOptionId(
+                                    playbackOptionId?.takeIf { id -> availableOptions.any { it.id == id } },
+                                )
+                                if (item.key == SubtitleOffLanguageKey) {
+                                    onBuiltInTrackSelected(-1)
+                                } else {
+                                    step = PhoneSubtitleStep.Tracks
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+            PhoneSubtitleStep.Tracks -> {
+                PlayerPanelHeader(title = stringResource(Res.string.compose_player_subtitles)) {
+                    PlayerDialogButton(
+                        label = stringResource(Res.string.action_back),
+                        onClick = { step = PhoneSubtitleStep.Languages },
+                    )
+                    if (styleVisible) {
+                        PlayerDialogButton(
+                            label = stringResource(Res.string.compose_player_style),
+                            onClick = { step = PhoneSubtitleStep.Style },
+                        )
+                    }
+                    PlayerDialogButton(
+                        label = stringResource(Res.string.action_close),
+                        onClick = onDismiss,
+                    )
+                }
+                when {
+                    options.isEmpty() -> {
+                        when (
+                            subtitleOptionsRailEmptyContent(
+                                selectedLanguageKey = activeLanguageKey,
+                                hasAvailableLanguages = languageItems.size > 1,
+                                isLoadingAddonSubtitles = isLoadingAddonSubtitles,
+                            )
+                        ) {
+                            SubtitleOptionsRailEmptyContent.NONE -> {
+                                SubtitleRailEmptyState(text = stringResource(Res.string.compose_player_none))
+                            }
+                            SubtitleOptionsRailEmptyContent.LOADING -> {
+                                PlayerModalLoading(modifier = Modifier.padding(vertical = 24.dp))
+                            }
+                            SubtitleOptionsRailEmptyContent.FETCH -> {
+                                SubtitleRailEmptyState(
+                                    text = stringResource(Res.string.compose_player_fetch_subtitles),
+                                    onClick = onFetchAddonSubtitles,
+                                )
+                            }
+                        }
+                    }
+                    else -> {
+                        LazyColumn(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            items(keyedOptions, key = { it.lazyKey }) { keyedOption ->
+                                val option = keyedOption.value
+                                SubtitleOptionRow(
+                                    option = option,
+                                    selected = option.id == selectedOptionId,
+                                    onClick = {
+                                        onPendingOptionId(option.id)
+                                        when (option) {
+                                            is SubtitleSelectionOption.BuiltIn -> onBuiltInTrackSelected(option.track.index)
+                                            is SubtitleSelectionOption.Addon -> onAddonSubtitleSelected(option.subtitle)
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            PhoneSubtitleStep.Style -> {
+                PlayerPanelHeader(title = stringResource(Res.string.compose_player_style)) {
+                    PlayerDialogButton(
+                        label = stringResource(Res.string.action_back),
+                        onClick = { step = PhoneSubtitleStep.Tracks },
+                    )
+                    PlayerDialogButton(
+                        label = stringResource(Res.string.action_close),
+                        onClick = onDismiss,
+                    )
+                }
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    SubtitleStylePanel(
+                        style = subtitleStyle,
+                        subtitleDelayMs = subtitleDelayMs,
+                        selectedAddonSubtitle = selectedAddonSubtitle,
+                        subtitleAutoSyncState = subtitleAutoSyncState,
+                        isCompact = true,
+                        showHeader = false,
+                        onStyleChanged = onStyleChanged,
+                        onSubtitleDelayChanged = onSubtitleDelayChanged,
+                        onSubtitleDelayReset = onSubtitleDelayReset,
+                        onSyncByEarClick = onSyncByEarClick,
+                        onAutoSyncAutomatic = onAutoSyncAutomatic,
+                        onAutoSyncCapture = onAutoSyncCapture,
+                        onAutoSyncCueSelected = onAutoSyncCueSelected,
+                        onAutoSyncReload = onAutoSyncReload,
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun SubtitleRail(
     title: String,
@@ -366,6 +588,7 @@ private fun SubtitleLanguageRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(if (selected) tokens.colors.accent else Color.Transparent)
+            .heightIn(min = 44.dp)
             .clickableIncludingFlingStop(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -435,6 +658,7 @@ private fun SubtitleOptionRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(if (selected) tokens.colors.accent else Color.Transparent)
+            .heightIn(min = 44.dp)
             .clickableIncludingFlingStop(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 9.dp),
         horizontalArrangement = Arrangement.SpaceBetween,

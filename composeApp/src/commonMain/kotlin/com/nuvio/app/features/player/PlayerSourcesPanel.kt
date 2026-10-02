@@ -59,7 +59,7 @@ fun PlayerSourcesPanel(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp),
+                .padding(playerPanelInnerPadding()),
         ) {
             PlayerPanelHeader(
                 title = stringResource(Res.string.compose_player_panel_sources),

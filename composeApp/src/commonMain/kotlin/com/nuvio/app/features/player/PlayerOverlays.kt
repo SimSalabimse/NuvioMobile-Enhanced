@@ -8,12 +8,18 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.VolumeOff
@@ -134,6 +140,8 @@ internal fun GestureFeedbackPill(
             text = messageText,
             style = MaterialTheme.nuvioTypeScale.bodyLg.copy(fontWeight = FontWeight.SemiBold),
             color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         secondaryMessageText?.let { secondaryMessage ->
             Text(
@@ -164,6 +172,7 @@ internal fun PauseMetadataOverlay(
 
     BoxWithConstraints(
         modifier = modifier
+            .windowInsetsPadding(WindowInsets.safeContent)
             .background(
                 Brush.horizontalGradient(
                     colors = listOf(
@@ -193,7 +202,13 @@ internal fun PauseMetadataOverlay(
         } else {
             MaterialTheme.nuvioTypeScale.bodyLg.copy(lineHeight = 24.sp)
         }
-        val descriptionMaxLines = if (compactHeight) 2 else 3
+        val descriptionMaxLines = if (
+            metrics.sizeClass == PlayerSizeClass.S || metrics.sizeClass == PlayerSizeClass.M || compactHeight
+        ) {
+            2
+        } else {
+            3
+        }
         val descriptionWidthFraction = if (compactHeight) 0.82f else 0.62f
 
         Column(
@@ -283,49 +298,46 @@ internal fun ErrorModal(
     message: String,
     onDismiss: () -> Unit,
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.9f)),
-        contentAlignment = Alignment.Center,
+    PlayerCenteredCard(
+        onDismiss = onDismiss,
+        scrimColor = Color.Black.copy(alpha = 0.9f),
     ) {
-        Column(
+        Text(
+            text = stringResource(Res.string.compose_player_playback_error),
+            style = MaterialTheme.nuvioTypeScale.titleLg.copy(fontWeight = FontWeight.Bold),
+            color = Color.White,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            text = message,
+            style = MaterialTheme.nuvioTypeScale.bodyLg.copy(lineHeight = 24.sp),
+            color = Color.White.copy(alpha = 0.72f),
+            textAlign = TextAlign.Center,
             modifier = Modifier
+                .padding(top = 12.dp)
+                .weight(1f, fill = false)
+                .verticalScroll(rememberScrollState()),
+        )
+        Surface(
+            modifier = Modifier
+                .padding(top = 12.dp)
                 .fillMaxWidth()
-                .padding(horizontal = 32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .heightIn(min = 44.dp)
+                .clickable(onClick = onDismiss),
+            color = MaterialTheme.colorScheme.primary,
+            shape = RoundedCornerShape(12.dp),
         ) {
-            Text(
-                text = stringResource(Res.string.compose_player_playback_error),
-                style = MaterialTheme.nuvioTypeScale.displaySm.copy(fontWeight = FontWeight.Bold),
-                color = Color.White,
-                textAlign = TextAlign.Center,
-            )
-            Text(
-                text = message,
-                style = MaterialTheme.nuvioTypeScale.bodyLg.copy(lineHeight = 24.sp),
-                color = Color.White.copy(alpha = 0.72f),
-                textAlign = TextAlign.Center,
-                maxLines = 4,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Surface(
-                modifier = Modifier
-                    .padding(top = 4.dp)
-                    .widthIn(min = 180.dp, max = 260.dp)
-                    .clickable(onClick = onDismiss),
-                color = MaterialTheme.colorScheme.primary,
-                shape = RoundedCornerShape(12.dp),
-            ) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.heightIn(min = 44.dp)) {
                 Text(
                     text = stringResource(Res.string.compose_player_go_back),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 12.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                     style = MaterialTheme.nuvioTypeScale.bodyLg.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onPrimary,
                     textAlign = TextAlign.Center,
+                    maxLines = 1,
                 )
             }
         }

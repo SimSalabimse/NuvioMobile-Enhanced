@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -61,7 +62,7 @@ internal fun IosVideoSettingsModal(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp),
+                .padding(playerPanelInnerPadding()),
         ) {
             PlayerPanelHeader(
                 title = stringResource(Res.string.player_video_settings_title),
@@ -201,7 +202,7 @@ private fun PictureSlider(
     value: Int,
     onValueChanged: (Int) -> Unit,
 ) {
-    Column {
+    Column(modifier = Modifier.heightIn(min = 44.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,

@@ -8,8 +8,13 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeContent
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -279,7 +284,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
         }
 
         AnimatedVisibility(
-            visible = playerSettingsUiState.pauseOverlayEnabled && pausedOverlayVisible && !controlsVisible && !playerControlsLocked,
+            visible = playerSettingsUiState.pauseOverlayEnabled && pausedOverlayVisible && !controlsVisible && !playerControlsLocked && !isTrailingPanelOpen,
             enter = fadeIn(animationSpec = tween(durationMillis = 220)),
             exit = fadeOut(animationSpec = tween(durationMillis = 180)),
         ) {
@@ -310,7 +315,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
             p2pDownloadSpeed = p2pDownloadSpeed,
         )
         SubtitleSyncByEarCard(
-            visible = showSubtitleSyncByEar,
+            visible = showSubtitleSyncByEar && !showSubtitleModal && !isTrailingPanelOpen,
             subtitleDelayMs = subtitleDelayMs,
             heardCaptured = subtitleSyncHeardPositionMs != null,
             sawCaptured = subtitleSyncSawPositionMs != null,
@@ -319,7 +324,8 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
             onClose = { closeSubtitleSyncByEar() },
             modifier = Modifier
                 .align(Alignment.TopCenter)
-                .padding(top = 16.dp, start = horizontalSafePadding, end = horizontalSafePadding),
+                .windowInsetsPadding(WindowInsets.safeContent.only(WindowInsetsSides.Top))
+                .padding(top = 8.dp, start = horizontalSafePadding + 16.dp, end = horizontalSafePadding + 16.dp),
         )
         RenderPlayerModals()
     }
@@ -497,7 +503,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
                 showSubmitIntroModal = true
             },
             parentalWarnings = parentalWarnings,
-            showParentalGuide = showParentalGuide,
+            showParentalGuide = showParentalGuide && !isTrailingPanelOpen,
             onParentalGuideAnimationComplete = { showParentalGuide = false },
             onScrubChange = { positionMs ->
                 isScrubbingTimeline = true
@@ -631,6 +637,7 @@ private fun BoxScope.RenderPlaybackOverlays(
             showMovieRecommendationCard = false
         },
         errorMessage = errorMessage,
+        suppressOnVideoOverlays = isTrailingPanelOpen,
             onDismissError = {
                 flushWatchProgress()
                 args.onBack()

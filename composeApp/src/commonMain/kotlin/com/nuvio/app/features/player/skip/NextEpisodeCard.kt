@@ -51,6 +51,7 @@ import androidx.compose.ui.semantics.dismiss
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
@@ -73,6 +74,8 @@ fun NextEpisodeCard(
     autoPlaySourceName: String?,
     autoPlayCountdownSec: Int?,
     blurred: Boolean,
+    maxCardWidth: Dp = 292.dp,
+    showThumbnail: Boolean = true,
     onPlayNext: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
@@ -109,7 +112,7 @@ fun NextEpisodeCard(
         val shape = RoundedCornerShape(16.dp)
         Row(
             modifier = Modifier
-                .widthIn(max = 292.dp)
+                .widthIn(max = maxCardWidth)
                 .graphicsLayer { translationX = animatedOffsetX }
                 .clip(shape)
                 .background(Color(0xFF191919).copy(alpha = 0.89f))
@@ -146,8 +149,7 @@ fun NextEpisodeCard(
                 .padding(horizontal = 9.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Thumbnail
-            Box(
+            if (showThumbnail) Box(
                 modifier = Modifier
                     .size(width = 78.dp, height = 44.dp)
                     .clip(RoundedCornerShape(9.dp)),
@@ -174,7 +176,9 @@ fun NextEpisodeCard(
                 )
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            if (showThumbnail) {
+                Spacer(modifier = Modifier.width(8.dp))
+            }
 
             // Info
             Column(

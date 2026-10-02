@@ -13,15 +13,23 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -50,6 +58,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -159,7 +168,7 @@ fun PlayerLiveChannelsPanel(
         enter = fadeIn(tween(200)),
         exit = fadeOut(tween(200)),
     ) {
-        Box(
+        BoxWithConstraints(
             modifier = modifier
                 .fillMaxSize()
                 .clickable(
@@ -170,19 +179,37 @@ fun PlayerLiveChannelsPanel(
                 .background(colorScheme.scrim.copy(alpha = 0.52f)),
             contentAlignment = Alignment.Center,
         ) {
+            val phonePanel = LocalPlayerSizeClass.current != PlayerSizeClass.T
+            val leadingInset = WindowInsets.safeContent
+                .asPaddingValues()
+                .calculateStartPadding(LocalLayoutDirection.current)
+            val panelShape = if (phonePanel) {
+                RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)
+            } else {
+                RoundedCornerShape(24.dp)
+            }
             AnimatedVisibility(
                 visible = visible,
                 enter = slideInVertically(tween(300)) { it / 3 } + fadeIn(tween(300)),
                 exit = slideOutVertically(tween(250)) { it / 3 } + fadeOut(tween(250)),
+                modifier = if (phonePanel) Modifier.align(Alignment.CenterEnd) else Modifier,
             ) {
                 Box(
-                    modifier = Modifier
-                        .widthIn(max = 520.dp)
-                        .fillMaxWidth(0.92f)
-                        .heightIn(max = 640.dp)
-                        .clip(RoundedCornerShape(24.dp))
+                    modifier = if (phonePanel) {
+                        Modifier
+                            .width(playerTrailingPanelWidth(maxWidth, leadingInset).coerceAtMost(maxWidth))
+                            .fillMaxHeight()
+                            .windowInsetsPadding(playerPanelSafeInsets())
+                            .padding(16.dp)
+                    } else {
+                        Modifier
+                            .widthIn(max = 520.dp)
+                            .fillMaxWidth(0.92f)
+                            .heightIn(max = 640.dp)
+                    }
+                        .clip(panelShape)
                         .background(colorScheme.surface)
-                        .border(1.dp, colorScheme.outlineVariant.copy(alpha = 0.8f), RoundedCornerShape(24.dp))
+                        .border(1.dp, colorScheme.outlineVariant.copy(alpha = 0.8f), panelShape)
                         .clickable(
                             indication = null,
                             interactionSource = remember { MutableInteractionSource() },
@@ -440,7 +467,7 @@ private fun PlayerLiveChannelCategoryFilterChip(
             expanded = expanded,
             onDismissRequest = { expanded = false },
             modifier = Modifier
-                .widthIn(min = 360.dp, max = 480.dp)
+                .widthIn(max = 400.dp)
                 .heightIn(max = 560.dp),
         ) {
             options.forEach { option ->
@@ -542,7 +569,7 @@ private fun LiveChannelRow(
     ) {
         Box(
             modifier = Modifier
-                .size(width = 72.dp, height = 44.dp)
+                .size(width = 72.dp, height = 40.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(colorScheme.surfaceVariant.copy(alpha = 0.6f)),
             contentAlignment = Alignment.Center,

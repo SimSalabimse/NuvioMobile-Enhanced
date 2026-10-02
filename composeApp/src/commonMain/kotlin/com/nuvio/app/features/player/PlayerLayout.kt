@@ -5,9 +5,11 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.add
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.union
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -19,7 +21,52 @@ import nuvio.composeapp.generated.resources.compose_player_resize_fill
 import nuvio.composeapp.generated.resources.compose_player_resize_fit
 import nuvio.composeapp.generated.resources.compose_player_resize_zoom
 import org.jetbrains.compose.resources.StringResource
-import kotlin.math.max
+
+internal enum class PlayerSizeClass {
+    S,
+    M,
+    L,
+    T,
+}
+
+internal val LocalPlayerSizeClass = staticCompositionLocalOf { PlayerSizeClass.T }
+
+internal val PlayerTabletSidePanelWidth = 520.dp
+internal val PlayerPhoneCenterControlGap = 16.dp
+internal val PlayerPhoneSeekTarget = 44.dp
+
+internal fun playerSizeClass(width: Dp, height: Dp): PlayerSizeClass {
+    val shorter = if (width < height) width else height
+    return when {
+        shorter >= 500.dp || width >= 1024.dp -> PlayerSizeClass.T
+        shorter >= 430.dp -> PlayerSizeClass.L
+        shorter >= 380.dp -> PlayerSizeClass.M
+        else -> PlayerSizeClass.S
+    }
+}
+
+internal fun playerTrailingPanelWidth(screenWidth: Dp, leadingInset: Dp): Dp {
+    val preferred = (screenWidth * 0.58f).coerceIn(300.dp, 400.dp)
+    val maxLeavingVideo = (screenWidth - leadingInset - 48.dp).coerceAtLeast(0.dp)
+    return preferred.coerceAtMost(maxLeavingVideo)
+}
+
+internal fun playerCenteredCardWidth(safeWidth: Dp): Dp =
+    (safeWidth * 0.9f).coerceAtMost(400.dp).coerceAtLeast(0.dp)
+
+internal fun playerCenteredCardMaxHeight(safeHeight: Dp): Dp =
+    (safeHeight - 32.dp).coerceAtLeast(0.dp)
+
+internal fun PlayerLayoutMetrics.usesPhoneChrome(): Boolean = sizeClass != PlayerSizeClass.T
+
+internal fun PlayerLayoutMetrics.transportSeekGap(): Dp =
+    if (usesPhoneChrome()) PlayerPhoneCenterControlGap else centerGap
+
+internal fun PlayerLayoutMetrics.showsTransportSeekButtons(): Boolean = sizeClass != PlayerSizeClass.S
+
+@Composable
+internal fun playerPanelInnerPadding(): Dp =
+    if (LocalPlayerSizeClass.current == PlayerSizeClass.T) 24.dp else 0.dp
 
 internal data class PlayerLayoutMetrics(
     val horizontalPadding: Dp,
@@ -38,9 +85,37 @@ internal data class PlayerLayoutMetrics(
     val sideIconSize: Dp,
     val playButtonPadding: Dp,
     val playIconSize: Dp,
+    val sizeClass: PlayerSizeClass = PlayerSizeClass.S,
 ) {
     companion object {
-        fun fromWidth(width: Dp): PlayerLayoutMetrics =
+        fun fromWidth(width: Dp): PlayerLayoutMetrics = fromSize(width, width)
+
+        fun fromSize(width: Dp, height: Dp): PlayerLayoutMetrics {
+            val sizeClass = playerSizeClass(width, height)
+            val metrics = if (sizeClass == PlayerSizeClass.T) metricsForTabletWidth(width) else phoneMetrics()
+            return metrics.copy(sizeClass = sizeClass)
+        }
+
+        private fun phoneMetrics(): PlayerLayoutMetrics = PlayerLayoutMetrics(
+            horizontalPadding = 20.dp,
+            verticalPadding = 16.dp,
+            titleSize = 18.dp.value.sp,
+            episodeInfoSize = 14.dp.value.sp,
+            metadataSize = 12.dp.value.sp,
+            centerGap = 56.dp,
+            centerLift = 10.dp,
+            sliderBottomOffset = 16.dp,
+            sliderTouchHeight = 22.dp,
+            sliderScaleY = 0.82f,
+            timeSize = 12.dp.value.sp,
+            headerIconSize = 20.dp,
+            sideButtonPadding = 10.dp,
+            sideIconSize = 26.dp,
+            playButtonPadding = 13.dp,
+            playIconSize = 34.dp,
+        )
+
+        private fun metricsForTabletWidth(width: Dp): PlayerLayoutMetrics =
             when {
                 width >= 1440.dp -> PlayerLayoutMetrics(
                     horizontalPadding = 28.dp,
@@ -96,26 +171,18 @@ internal data class PlayerLayoutMetrics(
                     playButtonPadding = 15.dp,
                     playIconSize = 38.dp,
                 )
-                else -> PlayerLayoutMetrics(
-                    horizontalPadding = 20.dp,
-                    verticalPadding = 16.dp,
-                    titleSize = 18.dp.value.sp,
-                    episodeInfoSize = 14.dp.value.sp,
-                    metadataSize = 12.dp.value.sp,
-                    centerGap = 56.dp,
-                    centerLift = 10.dp,
-                    sliderBottomOffset = 16.dp,
-                    sliderTouchHeight = 22.dp,
-                    sliderScaleY = 0.82f,
-                    timeSize = 12.dp.value.sp,
-                    headerIconSize = 20.dp,
-                    sideButtonPadding = 10.dp,
-                    sideIconSize = 26.dp,
-                    playButtonPadding = 13.dp,
-                    playIconSize = 34.dp,
-                )
+                else -> phoneMetrics()
             }
     }
+}
+
+@Composable
+internal fun playerPanelSafeInsets(): WindowInsets {
+    val safe = WindowInsets.safeContent.only(
+        WindowInsetsSides.Top + WindowInsetsSides.Bottom + WindowInsetsSides.End,
+    )
+    val keyboard = WindowInsets.ime.only(WindowInsetsSides.Bottom)
+    return safe.union(keyboard)
 }
 
 @Composable

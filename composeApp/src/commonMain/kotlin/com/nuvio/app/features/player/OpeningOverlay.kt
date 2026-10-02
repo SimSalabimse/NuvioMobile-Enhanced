@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -88,9 +89,11 @@ internal fun OpeningOverlay(
             .fillMaxSize()
             .background(Color.Black),
     ) {
-        val logoWidth = minOf(320.dp, maxWidth - 48.dp)
-        val logoHeight = minOf(180.dp, maxHeight * 0.4f)
-        val titleFontSize = if (maxWidth < 600.dp) 30.sp else 42.sp
+        val openingSize = playerSizeClass(maxWidth, maxHeight)
+        val compactOpening = openingSize == PlayerSizeClass.S || openingSize == PlayerSizeClass.M
+        val logoWidth = minOf(if (compactOpening) 160.dp else 320.dp, maxWidth - 48.dp)
+        val logoHeight = if (compactOpening) minOf(48.dp, maxHeight * 0.4f) else minOf(180.dp, maxHeight * 0.4f)
+        val titleFontSize = if (compactOpening) 22.sp else 42.sp
         if (artwork != null) {
             AsyncImage(
                 model = artwork,
@@ -138,6 +141,7 @@ internal fun OpeningOverlay(
             label = "openingOverlayP2pProgress",
         )
         val progressActive = targetProgress != null
+        val bottomInset = WindowInsets.safeContent.getBottom(LocalDensity.current)
         Layout(
             modifier = Modifier
                 .fillMaxSize()
@@ -258,10 +262,9 @@ internal fun OpeningOverlay(
             val looseConstraints = constraints.copy(minWidth = 0, minHeight = 0)
             val artworkContent = measurables[0].measure(looseConstraints)
             val artworkTop = (constraints.maxHeight - artworkContent.height) / 2
-            val statusTop = artworkTop + artworkContent.height
-            val statusContent = measurables[1].measure(
-                looseConstraints.copy(maxHeight = constraints.maxHeight - statusTop),
-            )
+            val statusContent = measurables[1].measure(looseConstraints)
+            val maxStatusTop = (constraints.maxHeight - bottomInset - statusContent.height).coerceAtLeast(0)
+            val statusTop = (artworkTop + artworkContent.height).coerceAtMost(maxStatusTop)
             layout(constraints.maxWidth, constraints.maxHeight) {
                 artworkContent.placeRelative((constraints.maxWidth - artworkContent.width) / 2, artworkTop)
                 statusContent.placeRelative((constraints.maxWidth - statusContent.width) / 2, statusTop)

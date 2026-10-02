@@ -7,11 +7,14 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeContent
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -31,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.nuvio
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.action_close
 import nuvio.composeapp.generated.resources.compose_player_audio_tracks
 import nuvio.composeapp.generated.resources.compose_player_no_audio_tracks_available
 import org.jetbrains.compose.resources.stringResource
@@ -44,13 +48,56 @@ fun AudioTrackModal(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    if (LocalPlayerSizeClass.current != PlayerSizeClass.T) {
+        PlayerSidePanel(
+            visible = visible,
+            onDismiss = onDismiss,
+            modifier = modifier,
+        ) {
+            PlayerPanelHeader(title = stringResource(Res.string.compose_player_audio_tracks)) {
+                PlayerDialogButton(
+                    label = stringResource(Res.string.action_close),
+                    onClick = onDismiss,
+                )
+            }
+            if (audioTracks.isEmpty()) {
+                Text(
+                    text = stringResource(Res.string.compose_player_no_audio_tracks_available),
+                    color = MaterialTheme.nuvio.colors.textMuted,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 12.dp),
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    items(audioTracks, key = { "${it.index}:${it.id}" }) { track ->
+                        AudioTrackRow(
+                            track = track,
+                            isSelected = track.index == selectedIndex,
+                            onClick = { onTrackSelected(track.index) },
+                        )
+                    }
+                }
+            }
+        }
+        return
+    }
+
     PlayerOverlayScaffold(
         visible = visible,
         onDismiss = onDismiss,
         modifier = modifier,
-        contentPadding = PaddingValues(start = 44.dp, end = 44.dp, top = 28.dp, bottom = 64.dp),
+        contentPadding = PaddingValues(0.dp),
     ) {
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeContent),
+        ) {
             val railWidth = minOf(maxWidth, 444.dp)
             val railMaxHeight = (maxHeight - 64.dp).coerceAtLeast(120.dp).coerceAtMost(620.dp)
 
@@ -116,6 +163,7 @@ private fun AudioTrackRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(if (isSelected) tokens.colors.accent else Color.Transparent)
+            .heightIn(min = 44.dp)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,

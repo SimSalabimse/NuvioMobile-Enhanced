@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -67,10 +68,10 @@ fun SubtitleSyncByEarCard(
         enter = fadeIn() + slideInVertically { -it / 4 },
         exit = fadeOut() + slideOutVertically { -it / 4 },
     ) {
+        val compactCard = LocalPlayerSizeClass.current == PlayerSizeClass.S
         Column(
             modifier = Modifier
-                .widthIn(max = 340.dp)
-                .fillMaxWidth()
+                .then(if (compactCard) Modifier.fillMaxWidth() else Modifier.widthIn(max = 340.dp).fillMaxWidth())
                 .clip(RoundedCornerShape(20.dp))
                 .background(Color(0xFF17171A).copy(alpha = 0.94f))
                 .border(
@@ -95,7 +96,7 @@ fun SubtitleSyncByEarCard(
                 )
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
+                        .size(44.dp)
                         .clip(CircleShape)
                         .background(Color.White.copy(alpha = 0.08f))
                         .clickable(onClick = onClose),
@@ -179,6 +180,7 @@ private fun SyncByEarButton(
                 color = if (captured) Color.Transparent else Color.White.copy(alpha = 0.08f),
                 shape = shape,
             )
+            .heightIn(min = 44.dp)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),

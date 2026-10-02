@@ -44,9 +44,10 @@ internal fun ParentalGuideOverlay(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(start = 32.dp, top = 24.dp),
 ) {
-    if (warnings.isEmpty()) return
+    val visibleWarnings = warnings.take(2)
+    if (visibleWarnings.isEmpty()) return
 
-    val count = warnings.size
+    val count = visibleWarnings.size
     val totalLineHeight = (ParentalGuideRowHeight.value * count) +
         (ParentalGuideRowGap.value * (count - 1))
     val guideAccentBrush = MaterialTheme.themePalette.accentBrush()
@@ -114,7 +115,7 @@ internal fun ParentalGuideOverlay(
             modifier = Modifier.padding(start = 10.dp),
             verticalArrangement = Arrangement.spacedBy(ParentalGuideRowGap),
         ) {
-            warnings.forEachIndexed { index, warning ->
+            visibleWarnings.forEachIndexed { index, warning ->
                 Row(
                     modifier = Modifier
                         .height(ParentalGuideRowHeight)

@@ -114,6 +114,7 @@ internal fun PlayerScreenModalHosts(
 ) {
     if (pendingP2pSwitch != null) {
         P2pConsentDialog(
+            usePlayerCard = true,
             onEnableP2p = {
                 val pending = pendingP2pSwitch
                 onPendingP2pSwitchChanged(null)

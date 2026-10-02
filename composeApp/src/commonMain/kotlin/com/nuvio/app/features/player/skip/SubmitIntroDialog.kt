@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -61,7 +62,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.atLeastIosHitTarget
+import com.nuvio.app.features.player.LocalPlayerSizeClass
 import com.nuvio.app.features.player.PlayerSettingsRepository
+import com.nuvio.app.features.player.PlayerSidePanel
+import com.nuvio.app.features.player.PlayerSizeClass
 import com.nuvio.app.features.tmdb.TmdbService
 import com.nuvio.app.isIos
 import kotlinx.coroutines.CancellationException
@@ -352,38 +356,47 @@ fun SubmitIntroDialog(
         }
     }
 
+    val phonePanel = LocalPlayerSizeClass.current != PlayerSizeClass.T
     val formContent: @Composable (Modifier) -> Unit = { formModifier ->
         Column(
-            modifier = formModifier.verticalScroll(scrollState),
+            modifier = if (phonePanel) formModifier else formModifier.verticalScroll(scrollState),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(Res.string.submit_intro_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(onClick = onDismiss),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Text(
-                        text = stringResource(Res.string.submit_intro_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontWeight = FontWeight.Bold,
+                    Icon(
+                        Icons.Rounded.Close,
+                        contentDescription = stringResource(Res.string.action_close),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
                     )
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable(onClick = onDismiss),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            Icons.Rounded.Close,
-                            contentDescription = stringResource(Res.string.action_close),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp),
-                        )
-                    }
                 }
-
+            }
+            Column(
+                modifier = if (phonePanel) {
+                    Modifier.weight(1f).verticalScroll(scrollState)
+                } else {
+                    Modifier
+                },
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 if (showServiceSection) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
@@ -665,6 +678,7 @@ fun SubmitIntroDialog(
                     )
                 }
 
+            }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -672,7 +686,7 @@ fun SubmitIntroDialog(
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .height(34.dp)
+                            .heightIn(min = 44.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f))
                             .clickable(enabled = !busy, onClick = onDismiss),
@@ -687,7 +701,7 @@ fun SubmitIntroDialog(
                     Box(
                         modifier = Modifier
                             .weight(2f)
-                            .height(34.dp)
+                            .heightIn(min = 44.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(MaterialTheme.colorScheme.primary)
                             .clickable(enabled = !busy) {
@@ -718,7 +732,11 @@ fun SubmitIntroDialog(
             }
         }
 
-    if (isIos) {
+    if (phonePanel) {
+        PlayerSidePanel(visible = true, onDismiss = onDismiss) {
+            formContent(Modifier.fillMaxSize())
+        }
+    } else if (isIos) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         NuvioModalBottomSheet(
             onDismissRequest = onDismiss,

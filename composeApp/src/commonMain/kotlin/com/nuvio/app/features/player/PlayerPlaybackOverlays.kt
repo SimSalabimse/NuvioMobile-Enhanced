@@ -4,8 +4,14 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeContent
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,7 +79,17 @@ internal fun BoxScope.PlayerPlaybackOverlays(
     onDismissMovieRecommendations: () -> Unit = {},
     errorMessage: String?,
     onDismissError: () -> Unit,
+    suppressOnVideoOverlays: Boolean = false,
 ) {
+    if (suppressOnVideoOverlays) {
+        if (errorMessage != null) {
+            ErrorModal(
+                message = errorMessage,
+                onDismiss = onDismissError,
+            )
+        }
+        return
+    }
     AnimatedVisibility(
         visible = playerControlsLocked && lockedOverlayVisible,
         enter = fadeIn(),
@@ -123,8 +139,9 @@ internal fun BoxScope.PlayerPlaybackOverlays(
             fallbackMessage = p2pRebufferMessage,
             fallbackProgress = p2pRebufferProgress,
             modifier = Modifier
-                .align(Alignment.Center)
-                .padding(top = 58.dp),
+                .align(Alignment.TopCenter)
+                .windowInsetsPadding(WindowInsets.safeContent.only(WindowInsetsSides.Top))
+                .padding(top = 12.dp),
         )
     }
 
@@ -136,48 +153,71 @@ internal fun BoxScope.PlayerPlaybackOverlays(
         horizontalPadding = metrics.horizontalPadding,
     )
 
-    if (!playerControlsLocked) {
-        SkipIntroButton(
-            interval = if (!initialLoadCompleted || pausedOverlayVisible) null else activeSkipInterval,
-            skipsToPostCredits = skipsToPostCredits,
-            dismissed = skipIntervalDismissed,
-            controlsVisible = controlsVisible,
-            onSkip = {
-                activeSkipInterval?.let(onSkipInterval)
-            },
-            onDismiss = onDismissSkipInterval,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = sliderEdgePadding, bottom = overlayBottomPadding),
-        )
-    }
-
-    if (isSeries && !playerControlsLocked) {
-        NextEpisodeCard(
-            nextEpisode = nextEpisodeInfo,
-            visible = showNextEpisodeCard || nextEpisodeAutoPlaySearching || nextEpisodeAutoPlayCountdown != null,
-            isAutoPlaySearching = nextEpisodeAutoPlaySearching,
-            autoPlaySourceName = nextEpisodeAutoPlaySourceName,
-            autoPlayCountdownSec = nextEpisodeAutoPlayCountdown,
-            blurred = blurUnwatchedEpisodes && nextEpisodeInfo?.isWatched == false,
-            onPlayNext = onPlayNextEpisode,
-            onDismiss = onDismissNextEpisode,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = sliderEdgePadding, bottom = overlayBottomPadding),
-        )
-    }
-
-    if (!isSeries && !playerControlsLocked) {
-        MovieRecommendationCard(
-            recommendations = movieRecommendations,
-            visible = showMovieRecommendationCard,
-            onOpen = onOpenMovieRecommendation,
-            onDismiss = onDismissMovieRecommendations,
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = sliderEdgePadding, bottom = overlayBottomPadding),
-        )
+    val skipVisible = !playerControlsLocked &&
+        initialLoadCompleted &&
+        !pausedOverlayVisible &&
+        activeSkipInterval != null &&
+        !skipIntervalDismissed
+    val nextVisible = isSeries && !playerControlsLocked &&
+        (showNextEpisodeCard || nextEpisodeAutoPlaySearching || nextEpisodeAutoPlayCountdown != null)
+    val recommendationsVisible = !isSeries && !playerControlsLocked && showMovieRecommendationCard
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val safeWidth = (maxWidth - sliderEdgePadding * 2).coerceAtLeast(0.dp)
+        val cardMaxWidth = when {
+            metrics.sizeClass == PlayerSizeClass.S -> 240.dp
+            recommendationsVisible -> 320.dp
+            else -> 292.dp
+        }
+        val cardCrossesCenter = cardMaxWidth > safeWidth / 2
+        val stackCardAboveSkip = skipVisible &&
+            (nextVisible || recommendationsVisible) &&
+            (140.dp + cardMaxWidth + 12.dp > safeWidth)
+        val cardBottom = if (stackCardAboveSkip) overlayBottomPadding + 56.dp else overlayBottomPadding
+        if (!playerControlsLocked) {
+            SkipIntroButton(
+                interval = if (!initialLoadCompleted || pausedOverlayVisible) null else activeSkipInterval,
+                skipsToPostCredits = skipsToPostCredits,
+                dismissed = skipIntervalDismissed,
+                controlsVisible = controlsVisible,
+                onSkip = {
+                    activeSkipInterval?.let(onSkipInterval)
+                },
+                onDismiss = onDismissSkipInterval,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = sliderEdgePadding, bottom = overlayBottomPadding),
+            )
+        }
+        if (isSeries && !playerControlsLocked) {
+            NextEpisodeCard(
+                nextEpisode = nextEpisodeInfo,
+                visible = nextVisible,
+                isAutoPlaySearching = nextEpisodeAutoPlaySearching,
+                autoPlaySourceName = nextEpisodeAutoPlaySourceName,
+                autoPlayCountdownSec = nextEpisodeAutoPlayCountdown,
+                blurred = blurUnwatchedEpisodes && nextEpisodeInfo?.isWatched == false,
+                maxCardWidth = if (metrics.sizeClass == PlayerSizeClass.S) 240.dp else 292.dp,
+                showThumbnail = !(metrics.sizeClass == PlayerSizeClass.S && cardCrossesCenter),
+                onPlayNext = onPlayNextEpisode,
+                onDismiss = onDismissNextEpisode,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = sliderEdgePadding, bottom = cardBottom),
+            )
+        }
+        if (!isSeries && !playerControlsLocked) {
+            MovieRecommendationCard(
+                recommendations = movieRecommendations,
+                visible = recommendationsVisible,
+                maxCardWidth = if (metrics.sizeClass == PlayerSizeClass.S) 240.dp else 320.dp,
+                showPosters = !(metrics.sizeClass == PlayerSizeClass.S && cardCrossesCenter),
+                onOpen = onOpenMovieRecommendation,
+                onDismiss = onDismissMovieRecommendations,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = sliderEdgePadding, bottom = cardBottom),
+            )
+        }
     }
 
     if (errorMessage != null) {

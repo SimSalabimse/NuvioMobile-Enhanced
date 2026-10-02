@@ -23,10 +23,11 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.size
@@ -36,19 +37,22 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import com.nuvio.app.core.ui.PlatformBackHandler
-import com.nuvio.app.core.ui.atLeastIosHitTarget
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.shimmer
 import com.nuvio.app.features.streams.ProviderFilterRow
@@ -97,7 +101,15 @@ internal fun PlayerSidePanel(
                     onClick = onDismiss,
                 ),
         ) {
-            val resolvedWidth = minOf(maxWidth, width)
+            val sizeClass = playerSizeClass(maxWidth, maxHeight)
+            val leadingInset = WindowInsets.safeContent
+                .asPaddingValues()
+                .calculateStartPadding(LocalLayoutDirection.current)
+            val resolvedWidth = if (sizeClass == PlayerSizeClass.T) {
+                minOf(maxWidth, width)
+            } else {
+                playerTrailingPanelWidth(maxWidth, leadingInset).coerceAtMost(maxWidth)
+            }
             val shape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)
 
             AnimatedVisibility(
@@ -122,22 +134,21 @@ internal fun PlayerSidePanel(
                         shape = shape,
                         fallbackColor = tokens.colors.surfaceElevated,
                     )
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .then(
-                                if (isIos) {
-                                    Modifier.windowInsetsPadding(
-                                        WindowInsets.safeContent.only(
-                                            WindowInsetsSides.Top + WindowInsetsSides.Bottom + WindowInsetsSides.End,
-                                        ),
-                                    )
-                                } else {
-                                    Modifier
-                                },
-                            ),
-                        content = content,
-                    )
+                    CompositionLocalProvider(LocalPlayerSizeClass provides sizeClass) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .windowInsetsPadding(playerPanelSafeInsets())
+                                .then(
+                                    if (sizeClass == PlayerSizeClass.T) {
+                                        Modifier
+                                    } else {
+                                        Modifier.padding(16.dp)
+                                    },
+                                ),
+                            content = content,
+                        )
+                    }
                 }
             }
         }
@@ -151,26 +162,104 @@ internal fun PlayerPanelHeader(
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     val tokens = MaterialTheme.nuvio
+    val phone = LocalPlayerSizeClass.current != PlayerSizeClass.T
 
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = title,
-            modifier = Modifier
-                .weight(1f)
-                .padding(end = 12.dp),
-            color = tokens.colors.textPrimary,
-            style = MaterialTheme.typography.headlineSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+    val titleColor = tokens.colors.textPrimary
+    val titleStyle = if (phone) {
+        MaterialTheme.typography.titleMedium.copy(
+            fontSize = 17.sp,
+            fontWeight = FontWeight.SemiBold,
         )
+    } else {
+        MaterialTheme.typography.headlineSmall
+    }
+
+    if (!phone) {
         Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            content = actions,
-        )
+            modifier = modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = title,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 12.dp),
+                color = titleColor,
+                style = titleStyle,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                content = actions,
+            )
+        }
+        return
+    }
+
+    // Keep Reload, Reset, and Style beside the title. Move that whole group
+    // to a second line only when it would leave the title with no room.
+    SubcomposeLayout(modifier = modifier.fillMaxWidth()) { constraints ->
+        val gap = 12.dp.roundToPx()
+        val lineGap = 8.dp.roundToPx()
+        val minTitleWidth = 48.dp.roundToPx()
+        val actionPlaceables = subcompose("actions") {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                content = actions,
+            )
+        }.map { measurable ->
+            measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
+        }
+        val actionsWidth = actionPlaceables.maxOfOrNull { it.width } ?: 0
+        val actionsHeight = actionPlaceables.maxOfOrNull { it.height } ?: 0
+        val fitsBesideTitle = actionsWidth == 0 ||
+            actionsWidth + gap + minTitleWidth <= constraints.maxWidth
+        val titleMaxWidth = if (fitsBesideTitle) {
+            (constraints.maxWidth - actionsWidth - gap).coerceAtLeast(0)
+        } else {
+            constraints.maxWidth
+        }
+        val titlePlaceables = subcompose("title") {
+            Text(
+                text = title,
+                color = titleColor,
+                style = titleStyle,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }.map { measurable ->
+            measurable.measure(
+                constraints.copy(minWidth = 0, minHeight = 0, maxWidth = titleMaxWidth),
+            )
+        }
+        val titleHeight = titlePlaceables.maxOfOrNull { it.height } ?: 0
+        val height = if (fitsBesideTitle) {
+            maxOf(titleHeight, actionsHeight)
+        } else {
+            titleHeight + if (actionsHeight > 0) lineGap + actionsHeight else 0
+        }
+        layout(constraints.maxWidth, height) {
+            if (fitsBesideTitle) {
+                titlePlaceables.forEach { placeable ->
+                    placeable.placeRelative(0, (height - placeable.height) / 2)
+                }
+                actionPlaceables.forEach { placeable ->
+                    placeable.placeRelative(
+                        constraints.maxWidth - placeable.width,
+                        (height - placeable.height) / 2,
+                    )
+                }
+            } else {
+                titlePlaceables.forEach { placeable -> placeable.placeRelative(0, 0) }
+                val actionsTop = titleHeight + lineGap
+                actionPlaceables.forEach { placeable ->
+                    placeable.placeRelative(constraints.maxWidth - placeable.width, actionsTop)
+                }
+            }
+        }
     }
 }
 
@@ -186,7 +275,7 @@ internal fun PlayerDialogButton(
     Box(
         modifier = modifier
             .alpha(if (enabled) 1f else tokens.opacity.disabled)
-            .heightIn(min = 0.dp.atLeastIosHitTarget())
+            .heightIn(min = 44.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(tokens.colors.surfaceCard)
             .clickable(enabled = enabled, onClick = onClick)
@@ -264,7 +353,7 @@ private fun AddonFilterChip(
 
     Box(
         modifier = modifier
-            .heightIn(min = 0.dp.atLeastIosHitTarget())
+            .height(32.dp)
             .clip(RoundedCornerShape(20.dp))
             .background(containerColor)
             .border(
@@ -273,7 +362,8 @@ private fun AddonFilterChip(
                 RoundedCornerShape(20.dp),
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.Center,
     ) {
         Text(
             text = label,

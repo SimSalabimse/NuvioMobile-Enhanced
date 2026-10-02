@@ -49,6 +49,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.action_close
 import nuvio.composeapp.generated.resources.compose_player_playback_info
 import org.jetbrains.compose.resources.stringResource
 
@@ -67,6 +68,48 @@ internal fun PlaybackInfoModal(
             ?.takeIf { it.isNotEmpty() }
     }
     val hasSelectedQuality = selectedQualityVariant != null
+
+    if (LocalPlayerSizeClass.current != PlayerSizeClass.T) {
+        PlayerSidePanel(
+            visible = visible,
+            onDismiss = onDismiss,
+            modifier = modifier,
+        ) {
+            PlayerPanelHeader(title = stringResource(Res.string.compose_player_playback_info)) {
+                PlayerDialogButton(
+                    label = stringResource(Res.string.action_close),
+                    onClick = onDismiss,
+                )
+            }
+            if (parsed == null && !hasSelectedQuality) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "No playback information available yet.",
+                        color = Color.White.copy(alpha = 0.55f),
+                        fontSize = 15.sp,
+                        textAlign = TextAlign.Center,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            } else {
+                PlaybackInfoContent(
+                    parsed = parsed,
+                    selectedQualityVariant = selectedQualityVariant,
+                    selectedQualityIsAuto = selectedQualityIsAuto,
+                    modifier = Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                )
+            }
+        }
+        return
+    }
 
     AnimatedVisibility(
         visible = visible,

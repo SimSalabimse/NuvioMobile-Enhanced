@@ -12,18 +12,25 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -68,7 +75,10 @@ import com.nuvio.app.features.tracking.TrackingProviderRegistry
 import com.nuvio.app.features.tracking.TrackingRatingTarget
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.nuvio.app.features.player.playerCenteredCardMaxHeight
+import com.nuvio.app.features.player.playerCenteredCardWidth
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.action_done
 import nuvio.composeapp.generated.resources.user_rating_last_failed
 import nuvio.composeapp.generated.resources.user_rating_loading
 import nuvio.composeapp.generated.resources.user_rating_no_provider
@@ -153,26 +163,46 @@ fun UserRatingPlayerOverlay(
             ),
         contentAlignment = Alignment.Center,
     ) {
-        Surface(
+        BoxWithConstraints(
             modifier = Modifier
-                .widthIn(max = 520.dp)
-                .fillMaxWidth(0.9f)
-                .clickable(
-                    indication = null,
-                    interactionSource = remember { MutableInteractionSource() },
-                    onClick = {},
-                ),
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeContent)
+                .padding(16.dp),
         ) {
-            UserRatingContent(
-                target = target,
-                title = title,
-                subtitle = subtitle,
-                onDone = onDismiss,
-                modifier = Modifier.padding(20.dp),
-            )
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .width(playerCenteredCardWidth(maxWidth))
+                    .heightIn(max = playerCenteredCardMaxHeight(maxHeight))
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() },
+                        onClick = {},
+                    ),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 6.dp,
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    UserRatingContent(
+                        target = target,
+                        title = title,
+                        subtitle = subtitle,
+                        onDone = onDismiss,
+                        modifier = Modifier
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState()),
+                    )
+                    TextButton(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 44.dp),
+                    ) {
+                        Text(text = stringResource(Res.string.action_done), maxLines = 1)
+                    }
+                }
+            }
         }
     }
 }
@@ -291,9 +321,9 @@ fun UserRatingContent(
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     providers.forEach { providerId ->
                         ProviderChip(
