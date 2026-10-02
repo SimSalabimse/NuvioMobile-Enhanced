@@ -497,7 +497,61 @@ def render(session: dict, baselines: dict[str, float], now: float) -> dict:
         "releaseNotes": notes,
         "stage": stage,
         "error": error,
+        "startedAt": started_at_text(session, now),
         "updatedAt": updated,
+    }
+
+
+def started_at_text(raw: dict, now: float | None = None) -> str | None:
+    started = raw.get("startedAt")
+    if isinstance(started, str) and started:
+        return started
+    build_started = raw.get("buildStartedAt")
+    if isinstance(build_started, str) and build_started:
+        return build_started
+    if _finite_number(build_started) is not None:
+        return iso(float(build_started))
+    if now is None:
+        return None
+    return iso(now)
+
+
+def failure_view(raw: dict) -> dict | None:
+    """Closed failed compile. The idle header stays idle; this is the stats row."""
+    if raw.get("status") != "failed":
+        return None
+    percent = _finite_number(raw.get("frozenPercent"))
+    if percent is None:
+        percent = _finite_number(raw.get("percent"))
+    if percent is None:
+        percent = 0.0
+    remaining = raw.get("frozenRemainingSeconds")
+    if _finite_number(remaining) is None:
+        remaining = raw.get("remainingSeconds")
+    if _finite_number(remaining) is None:
+        remaining_out = None
+        label = "none"
+    else:
+        remaining_out = int(round(float(remaining)))
+        stored = raw.get("remainingLabel")
+        if isinstance(stored, str) and stored not in ("", "none"):
+            label = stored
+        else:
+            label = format_remaining(float(remaining))
+    stage = raw.get("stage")
+    if not isinstance(stage, str) or stage in ("", "none"):
+        stage = None
+    error = raw.get("error") if isinstance(raw.get("error"), str) and raw.get("error") else None
+    commit = raw.get("commit") if isinstance(raw.get("commit"), str) else "none"
+    return {
+        "commit": commit,
+        "error": error,
+        "percent": round(float(percent), 2),
+        "remainingLabel": label,
+        "remainingSeconds": remaining_out,
+        "stage": stage,
+        "startedAt": started_at_text(raw),
+        "status": "failed",
     }
 
 
@@ -669,6 +723,10 @@ def current_public(directory: Path, now: float) -> dict:
         else:
             baselines = load_baselines(directory)
             payload = render(session, baselines, now)
+            failure = failure_view(session)
+            if failure:
+                payload = dict(payload)
+                payload["failure"] = failure
         return attach_platform_logs(payload, directory, "ipa")
 
 
@@ -743,6 +801,9 @@ def desktop_public(directory: Path, now: float) -> dict:
                     "error": None,
                     "updatedAt": updated,
                 }
+                failure = failure_view(raw)
+                if failure:
+                    payload["failure"] = failure
             else:
                 status = raw.get("status") or "idle"
                 if status not in ("idle", "queued", "building"):
@@ -765,6 +826,7 @@ def desktop_public(directory: Path, now: float) -> dict:
                     "releaseNotes": notes,
                     "stage": stage,
                     "error": error,
+                    "startedAt": started_at_text(raw) if status in ("building", "queued") else None,
                     "updatedAt": updated,
                 }
         return attach_platform_logs(payload, directory, "desktop")
@@ -2327,6 +2389,7 @@ def self_test() -> int:
         time.sleep(0.05)
         first_live = current_public(directory, time.time())
         check(first_live["status"] == "queued", f"expected queued, got {first_live['status']}")
+        check(isinstance(first_live.get("startedAt"), str) and first_live["startedAt"].endswith("Z"), "queued start time")
         check(first_live["releaseNotes"] == "hello notes", "live notes missing")
         check(command_stage(namespace) == 0, "stage failed")
         time.sleep(1.2)
@@ -2349,6 +2412,9 @@ def self_test() -> int:
         check(done["error"] is None, "idle status kept the last error")
         check(done["percent"] == 0, "idle status kept a percent")
         check(done["stage"] is None, "idle status kept a stage")
+        check(done.get("failure", {}).get("status") == "failed", "failure status missing")
+        check(done.get("failure", {}).get("error") == "build script exited 65", "failure error missing")
+        check(isinstance(done.get("failure", {}).get("startedAt"), str), "failure start missing")
         stored_session = read_json(session_path(directory)) or {}
         check(stored_session.get("error") == "build script exited 65", "session dropped the failure")
         check(command_active(namespace) == 1, "closed session still active")
@@ -2492,6 +2558,13 @@ def self_test() -> int:
         check("prefers-reduced-motion" in html, "reduced motion missing")
         check('id="log-view"' not in page_html and 'id="desktop-log-view"' not in page_html, "log is on the idle page")
         check("Show log" in page_js, "log disclosure missing")
+        check("Update everything" in page_js and "Choose commits" in page_html, "update control missing")
+        check("Replace the running build" in page_js, "replace control missing")
+        check(
+            "This stops the compile that is running and requests the latest instead." in page_js,
+            "override confirmation missing",
+        )
+        check("flex: 0 0 auto" in page_css, "percent can leave the card")
         check("This download is already the latest on " in page_js, "latest line missing")
         check(
             "Checking a commit includes that commit and everything before it." in page_js,
@@ -2573,6 +2646,8 @@ def self_test() -> int:
         check(closed_desktop["error"] is None, "closed desktop kept the error in the header")
         check(closed_desktop["percent"] == 0, "closed desktop kept a percent")
         check(closed_desktop["stage"] is None, "closed desktop kept a stage")
+        check(closed_desktop.get("failure", {}).get("error") == "disk full", "desktop failure error")
+        check(closed_desktop.get("failure", {}).get("stage") == "package", "desktop failure stage")
         (directory / "desktop-session.json").unlink()
 
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/downloads", timeout=5) as response:
@@ -3348,7 +3423,14 @@ Element.prototype.getAttribute = function (name) {
   return Object.prototype.hasOwnProperty.call(this.attributes, name) ? this.attributes[name] : null;
 };
 Element.prototype.removeAttribute = function (name) { delete this.attributes[name]; };
-Element.prototype.addEventListener = function () {};
+Element.prototype.addEventListener = function (type, fn) {
+  this.listeners = this.listeners || {};
+  this.listeners[type] = this.listeners[type] || [];
+  this.listeners[type].push(fn);
+};
+Element.prototype.click = function () {
+  (this.listeners && this.listeners.click || []).forEach((fn) => fn({ target: this }));
+};
 Element.prototype.querySelector = function () { return null; };
 Element.prototype.querySelectorAll = function (selector) {
   const found = [];
@@ -3371,9 +3453,27 @@ function textOf(node) {
   });
   return parts.join("\n");
 }
+function findId(node, id) {
+  if (!node) return null;
+  if (node.id === id) return node;
+  const kids = node.childNodes || [];
+  for (let i = 0; i < kids.length; i++) {
+    const found = findId(kids[i], id);
+    if (found) return found;
+  }
+  return null;
+}
 const documentStub = {
   createElement(tag) { return new Element(tag); },
-  getElementById(id) { return nodes[id] || null; }
+  getElementById(id) {
+    if (nodes[id]) return nodes[id];
+    const roots = Object.keys(nodes);
+    for (let i = 0; i < roots.length; i++) {
+      const found = findId(nodes[roots[i]], id);
+      if (found) return found;
+    }
+    return null;
+  }
 };
 context.document = documentStub;
 function mount(id) {
@@ -3384,18 +3484,35 @@ function mount(id) {
 }
 const ipa = mount("ipa-cut");
 const dmg = mount("dmg-cut");
+const ipaUpdate = mount("ipa-update");
+const dmgUpdate = mount("dmg-update");
+const ipaChoose = mount("ipa-choose");
+const dmgChoose = mount("dmg-choose");
+mount("ipa-compile");
+mount("dmg-compile");
 const tip = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 function fail(code, detail) { console.error(detail); process.exit(code); }
-context.renderCut("dmg", { branch: "Dev", commits: [], error: null, pending: false }, true);
-if (textOf(dmg).indexOf("This download is already the latest on Dev.") < 0) fail(2, textOf(dmg));
-if (walk(dmg, []).some((node) => node.className === "request-button")) fail(3, "mac request button");
-context.renderCut("ipa", {
+context.renderSurface("dmg", { branch: "Dev", commits: [], error: null, pending: false }, true);
+if (textOf(dmgUpdate).indexOf("This download is already the latest on Dev.") < 0) fail(2, textOf(dmgUpdate));
+if (walk(dmgUpdate, []).some((node) => node.className === "update-button" || node.className === "request-button")) fail(3, "mac request button");
+if (!dmgChoose.hidden) fail(13, "mac chooser open");
+context.renderSurface("dmg", { branch: "Dev", commits: [], error: "No served commit is recorded.", pending: false }, true);
+if (textOf(dmgUpdate).indexOf("No served commit is recorded.") < 0) fail(14, textOf(dmgUpdate));
+if (walk(dmgUpdate, []).some((node) => node.className === "update-button")) fail(15, "update without a served commit");
+const idleCut = {
   branch: "enhanced",
   commits: [{ commit: tip, issues: ["SIM-11"], short: "aaaaaaaa", subject: "SIM-11 tip cut" }],
   error: null,
-  pending: false
-}, true);
+  pending: false,
+  tip: tip
+};
+context.renderSurface("ipa", idleCut, true);
 const ipaText = textOf(ipa);
+const updateText = textOf(ipaUpdate);
+if (updateText.indexOf("Update everything") < 0) fail(16, updateText);
+if (updateText.indexOf("1 commit, through aaaaaaaa.") < 0) fail(17, updateText);
+if (ipaChoose.hidden) fail(18, "chooser hidden");
+if (ipaChoose.open) fail(19, "chooser starts open");
 if (ipaText.indexOf("Request this iPhone build") < 0) fail(4, ipaText);
 if (ipaText.indexOf("Checking a commit includes that commit") < 0) fail(5, ipaText);
 if (ipaText.indexOf("both land in the package") < 0) fail(11, ipaText);
@@ -3404,26 +3521,78 @@ const boxes = walk(ipa, []).filter((node) => node.tagName === "INPUT");
 if (boxes.length !== 1 || !boxes[0].checked) fail(7, "default checkbox");
 const link = walk(ipa, []).find((node) => node.tagName === "A" && node.textContent === "SIM-11");
 if (!link || link.href.indexOf("/SIM/issues/SIM-11") < 0) fail(8, "issue link");
-context.renderCut("ipa", {
+const updateButton = walk(ipaUpdate, []).find((node) => node.className === "update-button");
+if (!updateButton || updateButton.disabled) fail(20, "idle update button");
+context.renderSurface("ipa", {
+  branch: "enhanced",
+  busy: "iPhone is compiling.",
+  commits: [{ commit: tip, issues: ["SIM-11"], short: "aaaaaaaa", subject: "SIM-11 tip cut" }],
+  error: null,
+  pending: false,
+  tip: tip
+}, true);
+const grayButton = walk(ipaUpdate, []).find((node) => node.className === "update-button");
+const replaceButton = walk(ipaUpdate, []).find((node) => node.className === "text-button");
+if (!grayButton || !grayButton.disabled) fail(21, "gray update button");
+if (textOf(ipaUpdate).indexOf("iPhone is compiling.") < 0) fail(22, textOf(ipaUpdate));
+if (!replaceButton || replaceButton.textContent !== "Replace the running build") fail(23, "replace control");
+let posted = null;
+context.fetch = function (url, options) {
+  posted = { url: url, body: options && options.body };
+  return Promise.resolve({
+    ok: false,
+    status: 409,
+    json: function () { return Promise.resolve({ error: "refused in the test" }); }
+  });
+};
+replaceButton.click();
+if (posted) fail(24, "first press sent a request");
+if (replaceButton.textContent !== "Replace it") fail(25, replaceButton.textContent);
+if (textOf(ipaUpdate).indexOf("This stops the compile that is running and requests the latest instead.") < 0) fail(26, textOf(ipaUpdate));
+replaceButton.click();
+if (!posted || posted.url !== "/api/build-request") fail(27, "second press did not post");
+const sent = JSON.parse(posted.body);
+if (sent.override !== true || sent.commit !== tip || sent.platform !== "ipa") fail(28, posted.body);
+context.renderSurface("ipa", {
   branch: "enhanced",
   commits: [{ commit: tip, issues: ["SIM-11"], short: "aaaaaaaa", subject: "SIM-11 tip cut" }],
   error: null,
   pending: true,
-  request: { commit: tip }
+  request: { commit: tip },
+  tip: tip
 }, true);
-const pendingText = textOf(ipa);
+const pendingText = textOf(ipa) + "\n" + textOf(ipaUpdate);
 if (pendingText.indexOf("Requested · aaaaaaaa") < 0) fail(9, pendingText);
 const pendingButton = walk(ipa, []).find((node) => node.className === "request-button");
+const pendingUpdate = walk(ipaUpdate, []).find((node) => node.className === "update-button");
 if (!pendingButton || !pendingButton.disabled) fail(10, "pending button");
-context.renderCut("ipa", {
+if (!pendingUpdate || !pendingUpdate.disabled) fail(29, "pending update button");
+context.renderSurface("ipa", {
   branch: "enhanced",
   commits: [{ commit: tip, issues: ["SIM-11"], short: "aaaaaaaa", subject: "SIM-11 tip cut" }],
   error: null,
   pending: true,
-  request: { commit: tip, keptBoth: ["same.txt", "parts.txt"] }
+  request: { commit: tip, keptBoth: ["same.txt", "parts.txt"] },
+  tip: tip
 }, true);
 const keptText = textOf(ipa);
 if (keptText.indexOf("Both edits kept in same.txt, parts.txt.") < 0) fail(12, keptText);
+context.renderCompile("", {
+  status: "building",
+  stage: "xcodebuild",
+  percent: 39.5,
+  remainingLabel: "8m 02s",
+  remainingSeconds: 482,
+  commit: tip,
+  startedAt: "2026-10-02T09:16:00Z",
+  error: null,
+  logTail: "compile line"
+});
+const stats = textOf(nodes["ipa-compile"]);
+if (stats.indexOf("Building") < 0 || stats.indexOf("xcodebuild") < 0 || stats.indexOf("39.5%") < 0) fail(30, stats);
+if (stats.indexOf("8m 02s left") < 0 || stats.indexOf("aaaaaaaa") < 0 || stats.indexOf("started ") < 0) fail(31, stats);
+const logDetails = walk(nodes["ipa-compile"], []).find((node) => node.tagName === "DETAILS");
+if (!logDetails || logDetails.open) fail(32, "log opened during the compile");
 """
             cut_path = repo / "cut.js"
             cut_path.write_text(cut_script, encoding="utf-8")
@@ -3504,6 +3673,26 @@ if (keptText.indexOf("Both edits kept in same.txt, parts.txt.") < 0) fail(12, ke
             status, body = post_json(token, {"commit": tip, "platform": "ipa"})
             check(status == 409 and "compiling" in str(body.get("error")), f"compiling request {status} {body}")
             check(comments == [], "compiling request commented")
+            session_text = session_path(directory).read_text(encoding="utf-8")
+            status, body = post_json(token, {"commit": tip, "platform": "dmg", "override": True})
+            check(status == 409, f"mac override while the mac repo is missing returned {status} {body}")
+            check(session_path(directory).read_text(encoding="utf-8") == session_text, "mac override touched the iphone session")
+            check(not builds_request.request_path(directory).exists(), "refused override wrote a request")
+            status, saved = post_json(token, {"commit": tip, "platform": "ipa", "override": True})
+            check(status == 201, f"override request {status} {saved}")
+            overridden = builds_request.read_requests(directory)
+            check(
+                overridden["ipa"]["commit"] == tip and overridden["ipa"].get("override") is True,
+                f"override file {overridden}",
+            )
+            check(overridden["dmg"] is None, "ipa override wrote mac")
+            check(session_path(directory).read_text(encoding="utf-8") == session_text, "override stopped the compile session")
+            check(
+                len(comments) == 1 and "Override:" in comments[0] and "Do not stop the Mac" in comments[0],
+                f"override comment {comments}",
+            )
+            builds_request.request_path(directory).unlink(missing_ok=True)
+            comments.clear()
             if saved_session is None:
                 session_path(directory).unlink(missing_ok=True)
             else:
@@ -4074,7 +4263,7 @@ def read_json_body(handler: BaseHTTPRequestHandler) -> tuple[dict | None, str | 
     return payload, None
 
 
-def submit_build_request(directory: Path, platform: str, commit: str) -> tuple[int, dict]:
+def submit_build_request(directory: Path, platform: str, commit: str, override: bool = False) -> tuple[int, dict]:
     if platform not in SURFACES:
         return 400, {"error": "Pick iPhone or Mac."}
     if not re.fullmatch(r"[0-9a-fA-F]{40}", commit or ""):
@@ -4097,12 +4286,12 @@ def submit_build_request(directory: Path, platform: str, commit: str) -> tuple[i
         return 409, {"error": "That commit is not on the branch since the served package."}
     now = time.time()
     status_payload = current_public(directory, now) if platform == "ipa" else desktop_public(directory, now)
-    if status_payload.get("status") in ("building", "queued"):
+    if status_payload.get("status") in ("building", "queued") and not override:
         return 409, {"error": f"{spec['name']} is compiling."}
     path = builds_request.request_path(directory)
     existing = builds_request.read_requests(directory)
     current = existing.get(platform)
-    if isinstance(current, dict) and current.get("hosted") is not True:
+    if isinstance(current, dict) and current.get("hosted") is not True and not override:
         if not builds_request.is_cancelled(platform, current.get("commit"), time.time(), force=True):
             return 409, {"error": f"An unhosted {spec['name']} request is already on the ledger."}
     try:
@@ -4111,17 +4300,17 @@ def submit_build_request(directory: Path, platform: str, commit: str) -> tuple[i
         return 409, {"error": str(exc)}
     result_commit = str(combined["commit"])
     kept_both = [item for item in combined.get("keptBoth") or [] if isinstance(item, str)]
-    body = builds_request.ledger_body(platform, spec["branch"], result_commit, subjects, kept_both)
+    body = builds_request.ledger_body(platform, spec["branch"], result_commit, subjects, kept_both, override=override)
     with locked(directory):
         doc = builds_request.read_requests(directory)
         if builds_request.mark_hosted(doc, platform, served_full, repo):
             builds_request.write_requests(directory, doc)
         current = doc.get(platform)
-        if isinstance(current, dict) and current.get("hosted") is not True:
+        if isinstance(current, dict) and current.get("hosted") is not True and not override:
             if not builds_request.is_cancelled(platform, current.get("commit"), time.time(), force=True):
                 return 409, {"error": f"An unhosted {spec['name']} request is already on the ledger."}
         previous = path.read_text(encoding="utf-8") if path.exists() else None
-        doc[platform] = {
+        saved_request = {
             "branch": spec["branch"],
             "commit": result_commit,
             "hosted": False,
@@ -4130,6 +4319,9 @@ def submit_build_request(directory: Path, platform: str, commit: str) -> tuple[i
             "requestedAt": iso(time.time()),
             "subjects": subjects,
         }
+        if override:
+            saved_request["override"] = True
+        doc[platform] = saved_request
         builds_request.write_requests(directory, doc)
         try:
             builds_request.post_ledger_comment(body)
@@ -4162,6 +4354,7 @@ def handle_build_request(handler: BaseHTTPRequestHandler, directory: Path) -> No
         directory,
         str(payload.get("platform") or ""),
         str(payload.get("commit") or ""),
+        override=payload.get("override") is True,
     )
     body = (json.dumps(result, sort_keys=True) + "\n").encode("utf-8")
     send_bytes(handler, status, "application/json; charset=utf-8", body)

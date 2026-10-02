@@ -790,6 +790,7 @@ def ledger_body(
     commit: str,
     subjects: list[str],
     kept_both: list[str] | None = None,
+    override: bool = False,
 ) -> str:
     surface = "iPhone" if platform == "ipa" else "Mac"
     lines = [
@@ -807,6 +808,12 @@ def ledger_body(
     if kept_both:
         lines.append("Both edits kept:")
         lines.extend(f"- {path}" for path in kept_both)
+    if override:
+        other = "Mac" if platform == "ipa" else "iPhone"
+        lines.append(
+            f"Override: stop the running {surface} compile and replace its unhosted request. "
+            f"Do not stop the {other} compile."
+        )
     return "\n".join(lines) + "\n"
 
 

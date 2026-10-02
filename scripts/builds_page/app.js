@@ -11,9 +11,10 @@ var ACTIVE_POLL_MS = 2000;
 var pollTimer = 0;
 var refreshRunning = false;
 var lastActive = false;
+var STOP_LATEST = "This stops the compile that is running and requests the latest instead.";
 var cutState = {
-  ipa: { idStamp: "", domStamp: "", selected: {} },
-  dmg: { idStamp: "", domStamp: "", selected: {} }
+  ipa: { idStamp: "", domStamp: "", updateStamp: "", selected: {}, armUpdate: false, armChoose: false },
+  dmg: { idStamp: "", domStamp: "", updateStamp: "", selected: {}, armUpdate: false, armChoose: false }
 };
 var logFollow = { "": true, "desktop-": true };
 
@@ -231,6 +232,145 @@ function issueAnchor(identifier) {
   link.textContent = text;
   return link;
 }
+function updateSentence(count, short) {
+  var noun = count === 1 ? "commit" : "commits";
+  return "Includes every commit since this download. " + count + " " + noun + ", through " + short + ".";
+}
+function confirmCopy(kind, short, busy) {
+  if (busy) {
+    if (kind === "update") return STOP_LATEST;
+    return "This stops the compile that is running and requests " + short + " instead.";
+  }
+  if (kind === "update") return "This replaces the waiting request and requests the latest instead.";
+  return "This replaces the waiting request and requests " + short + " instead.";
+}
+function replaceLabel(busy) {
+  return busy ? "Replace the running build" : "Replace the request";
+}
+function tipCommit(cut, commits) {
+  var tip = cut && cut.tip ? String(cut.tip) : "";
+  if (tip && commits.some(function (row) { return row.commit === tip; })) return tip;
+  return commits.length ? commits[0].commit : "";
+}
+function commitShort(commits, commit) {
+  for (var i = 0; i < commits.length; i++) {
+    if (commits[i].commit === commit) return commits[i].short || shortHash(commit);
+  }
+  return shortHash(commit);
+}
+function postBuildRequest(platform, commit, override, stateNode, button) {
+  button.disabled = true;
+  stateNode.textContent = "Requesting…";
+  var body = { platform: platform, commit: commit };
+  if (override) body.override = true;
+  fetch("/api/build-request", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    cache: "no-store"
+  }).then(function (response) {
+    return response.json().then(function (payload) {
+      return { ok: response.ok, status: response.status, body: payload };
+    });
+  }).then(function (result) {
+    if (!result.ok) {
+      stateNode.textContent = (result.body && result.body.error) || "The request was refused.";
+      button.disabled = result.status === 503;
+      return;
+    }
+    cutState[platform].domStamp = "";
+    cutState[platform].updateStamp = "";
+    refresh();
+  }).catch(function () {
+    stateNode.textContent = "The request did not reach the builds page.";
+    button.disabled = false;
+  });
+}
+function grayLine(cut) {
+  if (cut && cut.busy) return cut.busy;
+  if (cut && cut.pending) return requestedText(cut);
+  return "";
+}
+function chooseNode(platform) {
+  return document.getElementById(platform + "-choose");
+}
+function renderUpdate(platform, cut, enabled) {
+  var root = document.getElementById(platform + "-update");
+  var choose = chooseNode(platform);
+  var state = cutState[platform];
+  if (!root) return;
+  if (!enabled) {
+    root.hidden = true;
+    clearNode(root);
+    state.updateStamp = "";
+    state.armUpdate = false;
+    if (choose) choose.hidden = true;
+    return;
+  }
+  var commits = cut && cut.commits ? cut.commits : [];
+  var stamp = JSON.stringify(cut || {});
+  var blocked = !!(cut && (cut.busy || cut.pending));
+  var target = tipCommit(cut, commits);
+  var showChoose = !!(commits.length && !(cut && cut.error));
+  if (choose) choose.hidden = !showChoose;
+  if (!showChoose) state.armChoose = false;
+  if (state.updateStamp === stamp) return;
+  state.updateStamp = stamp;
+  state.armUpdate = false;
+  clearNode(root);
+  root.hidden = false;
+  if (cut && cut.error) {
+    root.appendChild(el("p", "latest", cut.error));
+    return;
+  }
+  if (!commits.length) {
+    var branch = (cut && cut.branch) || "this branch";
+    if (cut && cut.pending) root.appendChild(el("p", "request-state", requestedText(cut)));
+    else root.appendChild(el("p", "latest", "This download is already the latest on " + branch + "."));
+    return;
+  }
+  var short = commitShort(commits, target);
+  root.appendChild(el("p", "update-line", updateSentence(commits.length, short)));
+  var button = document.createElement("button");
+  button.type = "button";
+  button.className = "update-button";
+  button.id = platform + "-update-button";
+  button.textContent = "Update everything";
+  button.disabled = blocked || !target;
+  var stateNode = el("p", "request-state");
+  stateNode.id = platform + "-update-state";
+  stateNode.setAttribute("aria-live", "polite");
+  var line = grayLine(cut);
+  if (line) stateNode.textContent = line;
+  else stateNode.hidden = true;
+  root.appendChild(button);
+  root.appendChild(stateNode);
+  if (!blocked) {
+    button.addEventListener("click", function () {
+      if (!target || button.disabled) return;
+      postBuildRequest(platform, target, false, stateNode, button);
+    });
+    return;
+  }
+  var replace = document.createElement("button");
+  replace.type = "button";
+  replace.className = "text-button";
+  replace.id = platform + "-replace-button";
+  replace.textContent = replaceLabel(!!(cut && cut.busy));
+  replace.addEventListener("click", function () {
+    if (!target) return;
+    if (!state.armUpdate) {
+      state.armUpdate = true;
+      stateNode.hidden = false;
+      stateNode.textContent = confirmCopy("update", short, !!(cut && cut.busy));
+      replace.textContent = "Replace it";
+      return;
+    }
+    state.armUpdate = false;
+    postBuildRequest(platform, target, true, stateNode, replace);
+  });
+  root.appendChild(replace);
+}
 function renderCut(platform, cut, enabled) {
   var root = document.getElementById(platform === "ipa" ? "ipa-cut" : "dmg-cut");
   if (!root) return;
@@ -252,22 +392,9 @@ function renderCut(platform, cut, enabled) {
   }
   if (state.domStamp === stamp) return;
   state.domStamp = stamp;
+  state.armChoose = false;
   clearNode(root);
-  if (cut && cut.error) {
-    root.appendChild(el("p", "latest", cut.error));
-    return;
-  }
-  if (!commits.length) {
-    var branch = (cut && cut.branch) || "this branch";
-    if (cut && cut.pending) {
-      root.appendChild(el("p", "request-state", requestedText(cut)));
-      var pendingKept = keptBothNote(cut);
-      if (pendingKept) root.appendChild(el("p", "cut-help", pendingKept));
-      return;
-    }
-    root.appendChild(el("p", "latest", "This download is already the latest on " + branch + "."));
-    return;
-  }
+  if ((cut && cut.error) || !commits.length) return;
   root.appendChild(el("p", "cut-help", PREFIX_HELP));
   var keptNote = keptBothNote(cut);
   if (keptNote) root.appendChild(el("p", "cut-help", keptNote));
@@ -304,10 +431,17 @@ function renderCut(platform, cut, enabled) {
   function paint() {
     var chosen = newestChecked(commits, state.selected);
     var count = checkedCount(commits, state.selected);
+    if (state.armChoose) {
+      stateNode.hidden = false;
+      stateNode.textContent = confirmCopy("choose", chosen ? commitShort(commits, chosen) : "", !!(cut && cut.busy));
+      button.disabled = true;
+      return;
+    }
     if (cut && cut.pending) stateNode.textContent = requestedText(cut);
     else if (cut && cut.busy) stateNode.textContent = cut.busy;
     else if (!chosen) stateNode.textContent = "Choose a commit.";
     else stateNode.textContent = "Includes " + count + (count === 1 ? " commit." : " commits.");
+    stateNode.hidden = false;
     button.disabled = !!(cut && (cut.pending || cut.busy)) || !chosen;
   }
   root.onchange = function (event) {
@@ -317,38 +451,49 @@ function renderCut(platform, cut, enabled) {
     if (!isFinite(index)) return;
     state.selected = applyPrefixToggle(commits, state.selected, index, target.checked);
     syncCutChecks(root, commits, state.selected);
+    if (state.armChoose) state.armChoose = false;
     paint();
   };
   button.addEventListener("click", function () {
     var chosen = newestChecked(commits, state.selected);
     if (!chosen || button.disabled) return;
-    button.disabled = true;
-    stateNode.textContent = "Requesting…";
-    fetch("/api/build-request", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ platform: platform, commit: chosen }),
-      cache: "no-store"
-    }).then(function (response) {
-      return response.json().then(function (body) {
-        return { ok: response.ok, status: response.status, body: body };
-      });
-    }).then(function (result) {
-      if (!result.ok) {
-        stateNode.textContent = (result.body && result.body.error) || "The request was refused.";
-        button.disabled = result.status === 503;
-        return;
-      }
-      state.domStamp = "";
-      refresh();
-    }).catch(function () {
-      stateNode.textContent = "The request did not reach the builds page.";
-      button.disabled = false;
-    });
+    postBuildRequest(platform, chosen, false, stateNode, button);
   });
   paint();
-  root.appendChild(stateNode);
   root.appendChild(button);
+  root.appendChild(stateNode);
+  if (cut && (cut.busy || cut.pending)) {
+    var replace = document.createElement("button");
+    replace.type = "button";
+    replace.className = "text-button";
+    replace.textContent = replaceLabel(!!cut.busy);
+    replace.addEventListener("click", function () {
+      var chosen = newestChecked(commits, state.selected);
+      if (!chosen) return;
+      if (!state.armChoose) {
+        state.armChoose = true;
+        replace.textContent = "Replace it";
+        paint();
+        return;
+      }
+      state.armChoose = false;
+      postBuildRequest(platform, chosen, true, stateNode, replace);
+    });
+    root.appendChild(replace);
+  }
+}
+function renderSurface(platform, cut, enabled) {
+  renderUpdate(platform, cut, enabled);
+  var commits = cut && cut.commits ? cut.commits : [];
+  var showChoose = !!(enabled && commits.length && !(cut && cut.error));
+  if (!showChoose) {
+    var idle = document.getElementById(platform + "-cut");
+    if (idle) clearNode(idle);
+    cutState[platform].domStamp = "";
+    cutState[platform].armChoose = false;
+    return;
+  }
+  renderCut(platform, cut, true);
 }
 function compileRoot(prefix) {
   return document.getElementById(prefix === "desktop-" ? "dmg-compile" : "ipa-compile");
@@ -359,6 +504,35 @@ function logElementId(prefix) {
 function nearBottom(node) {
   return node.scrollHeight - node.scrollTop - node.clientHeight < 12;
 }
+function compileSource(payload) {
+  if (!payload) return null;
+  var state = payload.status;
+  if (state === "building" || state === "queued" || state === "failed") return payload;
+  var failure = payload.failure;
+  if (!failure || failure.status !== "failed") return null;
+  return {
+    status: "failed",
+    stage: failure.stage,
+    percent: failure.percent,
+    remainingLabel: failure.remainingLabel,
+    remainingSeconds: failure.remainingSeconds,
+    commit: failure.commit,
+    startedAt: failure.startedAt,
+    error: failure.error,
+    logTail: payload.logTail
+  };
+}
+function compileFacts(payload) {
+  var parts = [];
+  var label = payload.remainingLabel;
+  if (payload.status !== "failed" && label && label !== "none" && payload.remainingSeconds != null) {
+    parts.push(label + " left");
+  }
+  var commit = shortHash(payload.commit);
+  if (commit && commit !== "none") parts.push(commit);
+  if (payload.startedAt) parts.push("started " + shortWhen(payload.startedAt));
+  return parts.join(" · ");
+}
 function compileMode(payload) {
   var state = payload && payload.status ? payload.status : "idle";
   if (state === "building" || state === "queued") return "run";
@@ -368,7 +542,8 @@ function compileMode(payload) {
 function renderCompile(prefix, payload) {
   var root = compileRoot(prefix);
   if (!root) return;
-  var mode = compileMode(payload);
+  var view = compileSource(payload);
+  var mode = compileMode(view);
   if (!mode) {
     if (!root.hidden) {
       root.hidden = true;
@@ -385,23 +560,27 @@ function renderCompile(prefix, payload) {
     var row = el("div", "compile-row");
     var word = el("p", "status-word");
     word.id = prefix + "status-word";
+    var stage = el("p", "stage");
+    stage.id = prefix + "stage";
     var percent = el("p", "percent");
     percent.id = prefix + "percent";
     row.appendChild(word);
-    if (!failed) row.appendChild(percent);
+    row.appendChild(stage);
+    row.appendChild(percent);
     root.appendChild(row);
-    if (!failed) {
-      var track = el("div", "track");
-      track.id = prefix + "track";
-      track.setAttribute("role", "progressbar");
-      track.setAttribute("aria-valuemin", "0");
-      track.setAttribute("aria-valuemax", "100");
-      track.setAttribute("aria-label", prefix === "desktop-" ? "Mac build progress" : "iPhone build progress");
-      var bar = el("span", "bar");
-      bar.id = prefix + "bar";
-      track.appendChild(bar);
-      root.appendChild(track);
-    }
+    var track = el("div", "track");
+    track.id = prefix + "track";
+    track.setAttribute("role", "progressbar");
+    track.setAttribute("aria-valuemin", "0");
+    track.setAttribute("aria-valuemax", "100");
+    track.setAttribute("aria-label", prefix === "desktop-" ? "Mac build progress" : "iPhone build progress");
+    var bar = el("span", "bar");
+    bar.id = prefix + "bar";
+    track.appendChild(bar);
+    root.appendChild(track);
+    var facts = el("p", "compile-note");
+    facts.id = prefix + "facts";
+    root.appendChild(facts);
     var error = el("p", "alert");
     error.id = prefix + "error";
     error.setAttribute("role", "alert");
@@ -414,32 +593,44 @@ function renderCompile(prefix, payload) {
     var summary = document.createElement("summary");
     summary.textContent = "Show log";
     details.appendChild(summary);
-    var view = el("pre", "log-view");
-    view.id = logElementId(prefix);
-    details.appendChild(view);
-    view.addEventListener("scroll", function () {
-      logFollow[prefix] = nearBottom(view);
+    var logView = el("pre", "log-view");
+    logView.id = logElementId(prefix);
+    details.appendChild(logView);
+    logView.addEventListener("scroll", function () {
+      logFollow[prefix] = nearBottom(logView);
     });
     root.appendChild(details);
   }
-  var state = payload.status;
+  var state = view.status;
   var statusNode = document.getElementById(prefix + "status-word");
   if (statusNode) {
     statusNode.textContent = statusWord(state);
     statusNode.setAttribute("data-state", state);
   }
-  var width = Math.max(0, Math.min(100, Number(payload.percent) || 0));
+  var stageNode = document.getElementById(prefix + "stage");
+  if (stageNode) {
+    var stageName = view.stage && view.stage !== "none" ? String(view.stage) : "";
+    stageNode.textContent = stageName;
+    stageNode.hidden = !stageName;
+  }
+  var width = Math.max(0, Math.min(100, Number(view.percent) || 0));
   var percentNode = document.getElementById(prefix + "percent");
-  if (percentNode) percentNode.textContent = percentText(payload.percent);
+  if (percentNode) percentNode.textContent = percentText(view.percent);
   var barNode = document.getElementById(prefix + "bar");
   if (barNode) barNode.style.width = width + "%";
   var trackNode = document.getElementById(prefix + "track");
   if (trackNode) trackNode.setAttribute("aria-valuenow", String(Math.round(width)));
+  var factsNode = document.getElementById(prefix + "facts");
+  if (factsNode) {
+    var factsText = compileFacts(view);
+    factsNode.textContent = factsText;
+    factsNode.hidden = !factsText;
+  }
   var errorNode = document.getElementById(prefix + "error");
   if (errorNode) {
-    if (payload.error) {
+    if (view.error) {
       errorNode.hidden = false;
-      errorNode.textContent = payload.error;
+      errorNode.textContent = view.error;
     } else {
       errorNode.hidden = true;
       errorNode.textContent = "";
@@ -447,7 +638,7 @@ function renderCompile(prefix, payload) {
   }
   var logNode = document.getElementById(logElementId(prefix));
   if (logNode) {
-    var next = String(payload.logTail == null ? "" : payload.logTail);
+    var next = String(view.logTail == null ? "" : view.logTail);
     var stick = logFollow[prefix] !== false && nearBottom(logNode);
     if (logNode.textContent !== next) logNode.textContent = next;
     if (stick) logNode.scrollTop = logNode.scrollHeight;
@@ -497,8 +688,8 @@ function applyDashboard(payload) {
   renderOlder(downloads.older || []);
   var cuts = payload.cuts || {};
   var enabled = payload.requestEnabled !== false;
-  renderCut("ipa", cuts.ipa || {}, enabled);
-  renderCut("dmg", cuts.dmg || {}, enabled);
+  renderSurface("ipa", cuts.ipa || {}, enabled);
+  renderSurface("dmg", cuts.dmg || {}, enabled);
   if (payload.poll) return !!payload.poll.active;
   var iphoneState = iphone.status;
   var desktopState = desktop.status;
