@@ -48,20 +48,29 @@ ipa_live_status_record_ipa() {
 }
 
 # Serialize line writes from the stdout and stderr tees. PIPE_BUF is 512 on
-# this Mac, and a build line can be longer than that.
+# this Mac, and a build line can be longer than that. The mux reader waits for
+# a newline, and one printf larger than the pipe buffer (Gradle progress uses
+# a single carriage-return line) blocks forever. Send short pieces.
 ipa_log_write() {
   local lock="${IPA_STATUS_LOG_MUX}.lockdir"
-  local tries=0
-  while ! mkdir "${lock}" 2>/dev/null; do
-    tries=$((tries + 1))
-    if [[ "${tries}" -gt 200 ]]; then
-      rm -rf "${lock}"
-      tries=0
-    fi
-    sleep 0.01
+  local rest="$1"
+  local chunk tries
+  while true; do
+    chunk="${rest:0:4000}"
+    rest="${rest:4000}"
+    tries=0
+    while ! mkdir "${lock}" 2>/dev/null; do
+      tries=$((tries + 1))
+      if [[ "${tries}" -gt 200 ]]; then
+        rm -rf "${lock}"
+        tries=0
+      fi
+      sleep 0.01
+    done
+    printf '%s\n' "${chunk}" >&7
+    rmdir "${lock}" 2>/dev/null || rm -rf "${lock}"
+    [[ -n "${rest}" ]] || break
   done
-  printf '%s\n' "$1" >&7
-  rmdir "${lock}" 2>/dev/null || rm -rf "${lock}"
 }
 
 # The session owner tees its own stdout and stderr into the build log.
