@@ -1,6 +1,6 @@
 :root {
   color-scheme: dark;
-  --bg: #07080d;
+  --bg: #221b4a;
   --text: #f7f8fb;
   --muted: #c5ceda;
   --line: rgba(255, 255, 255, 0.16);
@@ -25,7 +25,7 @@ html, body {
   color: var(--text);
 }
 html {
-  background-color: #07080d;
+  background-color: #221b4a;
   background-image:
     radial-gradient(circle, rgba(108, 84, 230, 0.45) 0%, rgba(64, 42, 170, 0.2) 46%, rgba(64, 42, 170, 0) 72%),
     radial-gradient(circle, rgba(28, 176, 162, 0.38) 0%, rgba(12, 110, 108, 0.16) 48%, rgba(12, 110, 108, 0) 74%);

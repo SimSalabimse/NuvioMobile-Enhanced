@@ -2498,11 +2498,18 @@ def self_test() -> int:
             "full commit sha is not forced to wrap inside the column",
         )
         check("viewport-fit=cover" in html, "missing viewport-fit=cover")
-        check("theme-color" in page_html and "#1a1430" in page_html, "theme-color missing")
+        check("theme-color" in page_html and "#221b4a" in page_html, "theme-color missing")
+        check("background-color: #221b4a" in page_html, "html background is not #221b4a")
         check(
-            "radial-gradient" in page_html and "#07080d" in page_html,
-            "served backdrop missing",
+            'content="#07080d"' not in page_html
+            and 'content="#1a1430"' not in page_html
+            and "background-color: #07080d" not in page_html
+            and "background-color: #1a1430" not in page_html
+            and "--bg: #07080d" not in page_html
+            and "--bg: #1a1430" not in page_html,
+            "old canvas or theme color still served",
         )
+        check("radial-gradient" in page_html, "served backdrop missing")
         check("overflow-x: hidden" not in html, "overflow-x hidden still clips the backdrop")
         check(
             "safe-area-inset-top" in html and "safe-area-inset-bottom" in html,
@@ -2510,7 +2517,13 @@ def self_test() -> int:
         )
         check("color-scheme: dark" in html, "page is not dark-first")
         check("@media (prefers-color-scheme: light)" not in html, "light theme still overrides night glass")
-        check("#07080d" in page_css, "night background missing")
+        check(
+            "#221b4a" in page_css
+            and "background-color: #221b4a" in page_css
+            and "#07080d" not in page_css
+            and "#1a1430" not in page_css,
+            "night background missing",
+        )
         check("rgba(16, 18, 28, 0.72)" in page_css, "frosted card fill missing")
         check("backdrop-filter: blur(18px)" in page_css, "card blur missing")
         check("radial-gradient" in page_css, "drifting light missing")
