@@ -316,6 +316,7 @@ class PlayerScreenRuntimeStateTest {
     @Test
     fun openingOnePlayerMenuClosesTheOthers() {
         val runtime = PlayerScreenRuntime(testPlayerScreenArgs())
+        runtime.playerSettingsUiState = PlayerSettingsUiState(useExperimentalPlayerOverlay = true)
         PlayerMenu.entries.forEach { menu ->
             runtime.openEveryPlayerMenuFlag()
             assertTrue(runtime.beginPlayerMenu(menu))

@@ -63,6 +63,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.atLeastIosHitTarget
+import com.nuvio.app.features.player.LocalExperimentalPlayerOverlay
 import com.nuvio.app.features.player.LocalPlayerSizeClass
 import com.nuvio.app.features.player.PlayerMenuBackdrop
 import com.nuvio.app.features.player.playerMenuRowFill
@@ -70,6 +71,7 @@ import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.PlayerSidePanel
 import com.nuvio.app.features.player.PlayerSizeClass
 import com.nuvio.app.features.player.resolvedPlayerMenuSelectedColor
+import com.nuvio.app.features.player.submitIntroCloseControlSize
 import com.nuvio.app.features.tmdb.TmdbService
 import com.nuvio.app.isIos
 import kotlinx.coroutines.CancellationException
@@ -380,7 +382,7 @@ fun SubmitIntroDialog(
                 )
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(submitIntroCloseControlSize(LocalExperimentalPlayerOverlay.current))
                         .clip(RoundedCornerShape(8.dp))
                         .clickable(onClick = onDismiss),
                     contentAlignment = Alignment.Center,

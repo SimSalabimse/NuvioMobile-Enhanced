@@ -111,15 +111,25 @@ private fun PlayerGestureFeedback(
                     val percent = (level * 100f).roundToInt()
                     // Fork: gestures can supply their own reading (e.g. a custom label) via messageArgs.
                     val reading = feedback.messageArgs.firstOrNull()?.toString() ?: percent.toString()
+                    val experimentalOverlay = LocalExperimentalPlayerOverlay.current
                     Column(
                         modifier = Modifier
                             .align(if (isBrightness) Alignment.CenterStart else Alignment.CenterEnd)
-                            .windowInsetsPadding(
-                                WindowInsets.safeContent.only(
-                                    WindowInsetsSides.Start + WindowInsetsSides.End + WindowInsetsSides.Bottom,
-                                ),
+                            .then(
+                                if (gestureLevelBarsUseSafeInsets(experimentalOverlay)) {
+                                    Modifier
+                                        .windowInsetsPadding(
+                                            WindowInsets.safeContent.only(
+                                                WindowInsetsSides.Start +
+                                                    WindowInsetsSides.End +
+                                                    WindowInsetsSides.Bottom,
+                                            ),
+                                        )
+                                        .padding(bottom = GestureLevelBarBottomOffset)
+                                } else {
+                                    Modifier.padding(horizontal = horizontalSafePadding + 8.dp)
+                                },
                             )
-                            .padding(bottom = 72.dp)
                             .width(6.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
@@ -171,7 +181,7 @@ private fun PlayerGestureFeedback(
                             .align(Alignment.TopCenter)
                             .windowInsetsPadding(WindowInsets.safeContent.only(WindowInsetsSides.Top))
                             .padding(horizontal = horizontalSafePadding + horizontalPadding)
-                            .padding(top = 8.dp),
+                            .padding(top = speedReadoutTopOffset(LocalExperimentalPlayerOverlay.current)),
                     )
                 }
             }

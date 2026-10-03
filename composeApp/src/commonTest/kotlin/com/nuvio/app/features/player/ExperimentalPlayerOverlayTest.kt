@@ -1,9 +1,12 @@
 package com.nuvio.app.features.player
 
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ExperimentalPlayerOverlayTest {
@@ -108,4 +111,133 @@ class ExperimentalPlayerOverlayTest {
         assertFalse(playerMenuAppliesFrost(false))
         assertTrue(playerMenuAppliesFrost(true))
     }
+
+    @Test
+    fun `off keeps the developer overlay details and on keeps the experiment`() {
+        val warnings = listOf(
+            ParentalWarning("Violence", "Severe"),
+            ParentalWarning("Profanity", "Moderate"),
+            ParentalWarning("Nudity", "Mild"),
+        )
+        val shown = { experimental: Boolean ->
+            if (parentalGuideShowsEveryWarning(experimental)) warnings else warnings.take(2)
+        }
+        assertEquals(listOf("Violence", "Profanity", "Nudity"), shown(false).map { it.label })
+        assertEquals(listOf("Violence", "Profanity"), shown(true).map { it.label })
+        assertFalse(parentalGuideEllipsizes(false))
+        assertTrue(parentalGuideEllipsizes(true))
+        assertFalse(parentalGuideUsesTopSafeInset(false))
+        assertTrue(parentalGuideUsesTopSafeInset(true))
+        assertEquals(0.dp, parentalGuideEndClearance(false, 48.dp, includeSubmitIntro = true))
+        assertEquals(152.dp, parentalGuideEndClearance(true, 48.dp, includeSubmitIntro = true))
+
+        assertEquals(LegacyProgressBottom.SliderOffset, legacyProgressBottom(false))
+        assertEquals(LegacyProgressBottom.TimelineInsets, legacyProgressBottom(true))
+
+        assertFalse(liveCategoryMenuUsesPanelWidth(false))
+        assertTrue(liveCategoryMenuUsesPanelWidth(true))
+        assertEquals(360.dp, DeveloperLiveCategoryMenuMinWidth)
+        assertEquals(480.dp, DeveloperLiveCategoryMenuMaxWidth)
+
+        assertFalse(pauseOverlayPadsSafeContent(false))
+        assertTrue(pauseOverlayPadsSafeContent(true))
+        assertFalse(gestureLevelBarsUseSafeInsets(false))
+        assertTrue(gestureLevelBarsUseSafeInsets(true))
+        assertEquals(72.dp, GestureLevelBarBottomOffset)
+        assertEquals(40.dp, speedReadoutTopOffset(false))
+        assertEquals(8.dp, speedReadoutTopOffset(true))
+
+        assertEquals(30.sp, openingTitleFontSize(599.dp, 320.dp, experimental = false))
+        assertEquals(42.sp, openingTitleFontSize(600.dp, 320.dp, experimental = false))
+        assertEquals(22.sp, openingTitleFontSize(599.dp, 320.dp, experimental = true))
+        assertEquals(42.sp, openingTitleFontSize(1024.dp, 320.dp, experimental = true))
+
+        val developerCard = centeredCardFrame(false)
+        assertEquals(520.dp, developerCard.maxWidth)
+        assertEquals(0.9f, developerCard.widthFraction)
+        assertFalse(developerCard.capsHeight)
+        assertFalse(developerCard.usesSafeInsets)
+        assertEquals(0.65f, developerCard.veilAlpha)
+        assertTrue(developerCard.usesSurfaceFill)
+        val experimentalCard = centeredCardFrame(true)
+        assertEquals(400.dp, experimentalCard.maxWidth)
+        assertEquals(0.9f, experimentalCard.widthFraction)
+        assertTrue(experimentalCard.capsHeight)
+        assertTrue(experimentalCard.usesSafeInsets)
+        assertEquals(PlayerCenteredCardVeilAlpha, experimentalCard.veilAlpha)
+        assertFalse(experimentalCard.usesSurfaceFill)
+
+        val developerAudio = developerAudioCardPadding(false)
+        assertEquals(44.dp, developerAudio.start)
+        assertEquals(44.dp, developerAudio.end)
+        assertEquals(28.dp, developerAudio.top)
+        assertEquals(64.dp, developerAudio.bottom)
+        assertFalse(developerAudio.usesSafeContent)
+        val experimentalAudio = developerAudioCardPadding(true)
+        assertEquals(0.dp, experimentalAudio.start)
+        assertTrue(experimentalAudio.usesSafeContent)
+
+        assertNull(playerStreamNameMaxLines(false))
+        assertEquals(2, playerStreamNameMaxLines(true))
+
+        assertTrue(menuFillUsesSurfaceVariant(false))
+        assertFalse(menuFillUsesSurfaceVariant(true))
+        assertEquals(0.35f, DeveloperVideoOptionFillAlpha)
+        assertEquals(0.32f, DeveloperTimeFieldFillAlpha)
+        assertEquals(28.dp, submitIntroCloseControlSize(false))
+        assertEquals(44.dp, submitIntroCloseControlSize(true))
+
+        assertFalse(playerMenuDismissesSiblings(false))
+        assertTrue(playerMenuDismissesSiblings(true))
+        val runtime = PlayerScreenRuntime(overlayTestArgs())
+        runtime.showAudioModal = true
+        runtime.showStreamInfoModal = true
+        assertTrue(runtime.beginPlayerMenu(PlayerMenu.Subtitles))
+        assertTrue(runtime.showSubtitleModal)
+        assertTrue(runtime.showAudioModal)
+        assertTrue(runtime.showStreamInfoModal)
+
+        runtime.playerSettingsUiState = PlayerSettingsUiState(useExperimentalPlayerOverlay = true)
+        assertTrue(runtime.beginPlayerMenu(PlayerMenu.Subtitles))
+        assertTrue(runtime.showSubtitleModal)
+        assertFalse(runtime.showAudioModal)
+        assertFalse(runtime.showStreamInfoModal)
+    }
+
+    private fun overlayTestArgs() = PlayerScreenArgs(
+        profileId = 1,
+        title = "Title",
+        sourceUrl = "https://example.com/video.mp4",
+        sourceAudioUrl = null,
+        sourceHeaders = emptyMap(),
+        sourceResponseHeaders = emptyMap(),
+        streamType = null,
+        providerName = "Provider",
+        streamTitle = "Source",
+        streamSubtitle = null,
+        initialBingeGroup = null,
+        pauseDescription = null,
+        onBack = {},
+        onOpenInExternalPlayer = null,
+        onOpenExternalUrl = null,
+        modifier = Modifier,
+        logo = null,
+        poster = null,
+        background = null,
+        seasonNumber = null,
+        episodeNumber = null,
+        episodeTitle = null,
+        episodeThumbnail = null,
+        contentType = "movie",
+        videoId = "tt1234567",
+        parentMetaId = "tt1234567",
+        parentMetaType = "movie",
+        providerAddonId = null,
+        torrentInfoHash = null,
+        torrentFileIdx = null,
+        torrentFilename = null,
+        torrentTrackers = emptyList(),
+        initialPositionMs = 0L,
+        initialProgressFraction = null,
+    )
 }

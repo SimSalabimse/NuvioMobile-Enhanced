@@ -57,7 +57,8 @@ internal fun ParentalGuideOverlay(
     topSafeInset: Boolean = false,
     endClearance: Dp = 0.dp,
 ) {
-    val visibleWarnings = warnings.take(2)
+    val experimental = LocalExperimentalPlayerOverlay.current
+    val visibleWarnings = if (parentalGuideShowsEveryWarning(experimental)) warnings else warnings.take(2)
     if (visibleWarnings.isEmpty()) return
 
     val count = visibleWarnings.size
@@ -163,9 +164,13 @@ internal fun ParentalGuideOverlay(
                         .alpha(itemAlphas.getOrNull(index)?.value ?: 0f),
                     fontSize = 11.sp,
                     lineHeight = 14.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    softWrap = false,
+                    maxLines = if (parentalGuideEllipsizes(experimental)) 1 else Int.MAX_VALUE,
+                    overflow = if (parentalGuideEllipsizes(experimental)) {
+                        TextOverflow.Ellipsis
+                    } else {
+                        TextOverflow.Clip
+                    },
+                    softWrap = !parentalGuideEllipsizes(experimental),
                 )
             }
         }

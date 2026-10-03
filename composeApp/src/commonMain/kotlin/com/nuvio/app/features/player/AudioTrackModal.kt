@@ -87,16 +87,28 @@ fun AudioTrackModal(
         return
     }
 
+    val audioPadding = developerAudioCardPadding(LocalExperimentalPlayerOverlay.current)
     PlayerOverlayScaffold(
         visible = visible,
         onDismiss = onDismiss,
         modifier = modifier,
-        contentPadding = PaddingValues(0.dp),
+        contentPadding = PaddingValues(
+            start = audioPadding.start,
+            end = audioPadding.end,
+            top = audioPadding.top,
+            bottom = audioPadding.bottom,
+        ),
     ) {
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.safeContent),
+                .then(
+                    if (audioPadding.usesSafeContent) {
+                        Modifier.windowInsetsPadding(WindowInsets.safeContent)
+                    } else {
+                        Modifier
+                    },
+                ),
         ) {
             val railWidth = minOf(maxWidth, 444.dp)
             val railMaxHeight = (maxHeight - 64.dp).coerceAtLeast(120.dp).coerceAtMost(620.dp)

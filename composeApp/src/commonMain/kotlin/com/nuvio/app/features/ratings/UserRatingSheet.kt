@@ -15,20 +15,15 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -75,11 +70,9 @@ import com.nuvio.app.features.tracking.TrackingRatingTarget
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.nuvio.app.features.player.LocalExperimentalPlayerOverlay
-import com.nuvio.app.features.player.PlayerMenuBackdrop
+import com.nuvio.app.features.player.PlayerCenteredCard
 import com.nuvio.app.features.player.PlayerMenuRowFill
-import com.nuvio.app.features.player.playerCenteredCardScrim
-import com.nuvio.app.features.player.playerCenteredCardMaxHeight
-import com.nuvio.app.features.player.playerCenteredCardWidth
+import com.nuvio.app.features.player.centeredCardFrame
 import com.nuvio.app.features.player.playerMenuSelectedColor
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_done
@@ -156,57 +149,30 @@ fun UserRatingPlayerOverlay(
     subtitle: String?,
     onDismiss: () -> Unit,
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(playerCenteredCardScrim())
-            .clickable(
-                indication = null,
-                interactionSource = remember { MutableInteractionSource() },
+    val capsHeight = centeredCardFrame(LocalExperimentalPlayerOverlay.current).capsHeight
+    PlayerCenteredCard(onDismiss = onDismiss) {
+        UserRatingContent(
+            target = target,
+            title = title,
+            subtitle = subtitle,
+            onDone = onDismiss,
+            frostMenu = LocalExperimentalPlayerOverlay.current,
+            modifier = if (capsHeight) {
+                Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
+            } else {
+                Modifier
+            },
+        )
+        if (capsHeight) {
+            TextButton(
                 onClick = onDismiss,
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.safeContent)
-                .padding(16.dp),
-        ) {
-            val cardShape = RoundedCornerShape(16.dp)
-            Box(
                 modifier = Modifier
-                    .align(Alignment.Center)
-                    .width(playerCenteredCardWidth(maxWidth))
-                    .heightIn(max = playerCenteredCardMaxHeight(maxHeight))
-                    .clip(cardShape)
-                    .clickable(
-                        indication = null,
-                        interactionSource = remember { MutableInteractionSource() },
-                        onClick = {},
-                    ),
+                    .fillMaxWidth()
+                    .heightIn(min = 44.dp),
             ) {
-                PlayerMenuBackdrop(Modifier.matchParentSize(), cardShape)
-                Column(modifier = Modifier.padding(16.dp)) {
-                    UserRatingContent(
-                        target = target,
-                        title = title,
-                        subtitle = subtitle,
-                        onDone = onDismiss,
-                        frostMenu = LocalExperimentalPlayerOverlay.current,
-                        modifier = Modifier
-                            .weight(1f, fill = false)
-                            .verticalScroll(rememberScrollState()),
-                    )
-                    TextButton(
-                        onClick = onDismiss,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 44.dp),
-                    ) {
-                        Text(text = stringResource(Res.string.action_done), maxLines = 1)
-                    }
-                }
+                Text(text = stringResource(Res.string.action_done), maxLines = 1)
             }
         }
     }

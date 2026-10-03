@@ -97,7 +97,11 @@ internal fun OpeningOverlay(
         val compactOpening = openingSize == PlayerSizeClass.S || openingSize == PlayerSizeClass.M
         val logoWidth = minOf(if (compactOpening) 160.dp else 320.dp, maxWidth - 48.dp)
         val logoHeight = if (compactOpening) minOf(48.dp, maxHeight * 0.4f) else minOf(180.dp, maxHeight * 0.4f)
-        val titleFontSize = if (compactOpening) 22.sp else 42.sp
+        val titleFontSize = openingTitleFontSize(
+            maxWidth,
+            maxHeight,
+            LocalExperimentalPlayerOverlay.current,
+        )
         if (artwork != null) {
             AsyncImage(
                 model = artwork,

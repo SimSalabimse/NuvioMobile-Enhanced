@@ -17,8 +17,10 @@ import com.nuvio.app.core.ui.DialogButtonStyle
 import com.nuvio.app.core.ui.DialogButtons
 import com.nuvio.app.core.ui.DialogSurface
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.features.player.LocalExperimentalPlayerOverlay
 import com.nuvio.app.features.player.PlayerCenteredCard
 import com.nuvio.app.features.player.PlayerDialogButton
+import com.nuvio.app.features.player.centeredCardFrame
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.p2p_consent_body
 import nuvio.composeapp.generated.resources.p2p_consent_cancel
@@ -45,9 +47,15 @@ fun P2pConsentDialog(
                 text = stringResource(Res.string.p2p_consent_body),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.nuvio.colors.textSecondary,
-                modifier = Modifier
-                    .weight(1f, fill = false)
-                    .verticalScroll(rememberScrollState()),
+                modifier = if (centeredCardFrame(LocalExperimentalPlayerOverlay.current).capsHeight) {
+                    Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState())
+                } else {
+                    Modifier
+                        .heightIn(max = 360.dp)
+                        .verticalScroll(rememberScrollState())
+                },
             )
             Row(
                 modifier = Modifier.fillMaxWidth(),

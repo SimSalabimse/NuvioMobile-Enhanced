@@ -117,12 +117,31 @@ internal fun PlayerScreenRuntime.dismissPlayerMenus(keep: PlayerMenu? = null) {
     }
 }
 
+internal fun PlayerScreenRuntime.showPlayerMenu(menu: PlayerMenu) {
+    when (menu) {
+        PlayerMenu.Subtitles -> showSubtitleModal = true
+        PlayerMenu.Audio -> showAudioModal = true
+        PlayerMenu.PlaybackInfo -> showStreamInfoModal = true
+        PlayerMenu.LiveChannels -> showLiveChannelsPanel = true
+        PlayerMenu.SubmitIntro -> showSubmitIntroModal = true
+        PlayerMenu.Rate -> showUserRatingSheet = true
+        PlayerMenu.Sources -> showSourcesPanel = true
+        PlayerMenu.Episodes -> showEpisodesPanel = true
+        PlayerMenu.Quality -> showQualityPanel = true
+        PlayerMenu.VideoSettings -> showVideoSettingsModal = true
+    }
+}
+
 internal fun PlayerScreenRuntime.beginPlayerMenu(menu: PlayerMenu): Boolean {
     if (blockingPlayerCardOpen()) {
         dismissPlayerMenus()
         return false
     }
-    dismissPlayerMenus(keep = menu)
+    if (playerMenuDismissesSiblings(playerSettingsUiState.useExperimentalPlayerOverlay)) {
+        dismissPlayerMenus(keep = menu)
+    } else {
+        showPlayerMenu(menu)
+    }
     return true
 }
 

@@ -172,7 +172,13 @@ internal fun PauseMetadataOverlay(
 
     BoxWithConstraints(
         modifier = modifier
-            .windowInsetsPadding(WindowInsets.safeContent)
+            .then(
+                if (pauseOverlayPadsSafeContent(LocalExperimentalPlayerOverlay.current)) {
+                    Modifier.windowInsetsPadding(WindowInsets.safeContent)
+                } else {
+                    Modifier
+                },
+            )
             .background(
                 Brush.horizontalGradient(
                     colors = listOf(
@@ -317,8 +323,13 @@ internal fun ErrorModal(
             textAlign = TextAlign.Center,
             modifier = Modifier
                 .padding(top = 12.dp)
-                .weight(1f, fill = false)
-                .verticalScroll(rememberScrollState()),
+                .then(
+                    if (centeredCardFrame(LocalExperimentalPlayerOverlay.current).capsHeight) {
+                        Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
+                    } else {
+                        Modifier
+                    },
+                ),
         )
         Surface(
             modifier = Modifier

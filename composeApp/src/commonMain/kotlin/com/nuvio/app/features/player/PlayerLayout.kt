@@ -72,11 +72,128 @@ internal fun playerTrailingPanelWidth(screenWidth: Dp, leadingInset: Dp): Dp {
 
 internal fun playerLiveCategoryMenuWidth(panelWidth: Dp): Dp = panelWidth
 
+/** Developer dropdown. The panel width is the experimental menu. */
+internal val DeveloperLiveCategoryMenuMinWidth = 360.dp
+internal val DeveloperLiveCategoryMenuMaxWidth = 480.dp
+
+internal fun liveCategoryMenuUsesPanelWidth(experimental: Boolean): Boolean = experimental
+
 internal fun playerCenteredCardWidth(safeWidth: Dp): Dp =
     (safeWidth * 0.9f).coerceAtMost(400.dp).coerceAtLeast(0.dp)
 
 internal fun playerCenteredCardMaxHeight(safeHeight: Dp): Dp =
     (safeHeight - 32.dp).coerceAtLeast(0.dp)
+
+/**
+ * Experimental cards are 90% wide, at most 400dp, capped to the safe height
+ * minus 32dp, and inset by safe content. Off is the developer rate card:
+ * at most 520dp, 90% wide, no height cap, and no safe-content padding.
+ */
+internal data class CenteredCardFrame(
+    val maxWidth: Dp,
+    val widthFraction: Float,
+    val capsHeight: Boolean,
+    val usesSafeInsets: Boolean,
+    val veilAlpha: Float,
+    val usesSurfaceFill: Boolean,
+)
+
+internal fun centeredCardFrame(experimental: Boolean): CenteredCardFrame =
+    if (experimental) {
+        CenteredCardFrame(
+            maxWidth = 400.dp,
+            widthFraction = 0.9f,
+            capsHeight = true,
+            usesSafeInsets = true,
+            veilAlpha = PlayerCenteredCardVeilAlpha,
+            usesSurfaceFill = false,
+        )
+    } else {
+        CenteredCardFrame(
+            maxWidth = 520.dp,
+            widthFraction = 0.9f,
+            capsHeight = false,
+            usesSafeInsets = false,
+            veilAlpha = DeveloperCenteredCardVeilAlpha,
+            usesSurfaceFill = true,
+        )
+    }
+
+internal const val DeveloperVideoOptionFillAlpha = 0.35f
+internal const val DeveloperTimeFieldFillAlpha = 0.32f
+
+internal fun menuFillUsesSurfaceVariant(experimental: Boolean): Boolean = !experimental
+
+/** Developer audio rail. On keeps the safe-content inset and no extra padding. */
+internal data class DeveloperAudioCardPadding(
+    val start: Dp,
+    val end: Dp,
+    val top: Dp,
+    val bottom: Dp,
+    val usesSafeContent: Boolean,
+)
+
+internal fun developerAudioCardPadding(experimental: Boolean): DeveloperAudioCardPadding =
+    if (experimental) {
+        DeveloperAudioCardPadding(0.dp, 0.dp, 0.dp, 0.dp, usesSafeContent = true)
+    } else {
+        DeveloperAudioCardPadding(44.dp, 44.dp, 28.dp, 64.dp, usesSafeContent = false)
+    }
+
+/** Two lines is the experimental list. Off leaves the name uncapped. */
+internal fun playerStreamNameMaxLines(experimental: Boolean): Int? =
+    if (experimental) 2 else null
+
+internal fun submitIntroCloseControlSize(experimental: Boolean): Dp =
+    if (experimental) 44.dp else 28.dp
+
+internal enum class LegacyProgressBottom {
+    SliderOffset,
+    TimelineInsets,
+}
+
+internal fun legacyProgressBottom(experimental: Boolean): LegacyProgressBottom =
+    if (experimental) LegacyProgressBottom.TimelineInsets else LegacyProgressBottom.SliderOffset
+
+internal fun pauseOverlayPadsSafeContent(experimental: Boolean): Boolean = experimental
+
+internal fun gestureLevelBarsUseSafeInsets(experimental: Boolean): Boolean = experimental
+
+internal val GestureLevelBarBottomOffset = 72.dp
+
+/** Off sits 40dp under the top safe inset that the developer readout already used. */
+internal fun speedReadoutTopOffset(experimental: Boolean): Dp =
+    if (experimental) 8.dp else 40.dp
+
+internal fun parentalGuideShowsEveryWarning(experimental: Boolean): Boolean = !experimental
+
+internal fun parentalGuideEllipsizes(experimental: Boolean): Boolean = experimental
+
+internal fun parentalGuideUsesTopSafeInset(experimental: Boolean): Boolean = experimental
+
+internal fun parentalGuideEndClearance(
+    experimental: Boolean,
+    toolbarButtonSize: Dp,
+    includeSubmitIntro: Boolean,
+): Dp = if (experimental) {
+    toolbarButtonSize * (2 + if (includeSubmitIntro) 1 else 0) + 8.dp
+} else {
+    0.dp
+}
+
+/**
+ * Off uses the developer width step. On uses the shorter-edge compact sizes.
+ */
+internal fun openingTitleFontSize(width: Dp, height: Dp, experimental: Boolean): TextUnit {
+    if (!experimental) {
+        return if (width < 600.dp) 30.sp else 42.sp
+    }
+    val size = playerSizeClass(width, height)
+    val compact = size == PlayerSizeClass.S || size == PlayerSizeClass.M
+    return if (compact) 22.sp else 42.sp
+}
+
+internal fun playerMenuDismissesSiblings(experimental: Boolean): Boolean = experimental
 
 internal val PlayerTransportTopButtonSize = 48.dp
 internal const val PlayerPanelHeaderGapDp = 12

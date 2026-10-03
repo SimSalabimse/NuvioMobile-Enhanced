@@ -280,8 +280,12 @@ internal fun PlayerControlsShell(
                         top = metrics.verticalPadding,
                         bottom = metrics.verticalPadding,
                     ),
-                    topSafeInset = true,
-                    endClearance = PlayerToolbarButtonSize * (2 + if (onSubmitIntroClick != null) 1 else 0) + 8.dp,
+                    topSafeInset = parentalGuideUsesTopSafeInset(experimentalOverlay),
+                    endClearance = parentalGuideEndClearance(
+                        experimental = experimentalOverlay,
+                        toolbarButtonSize = PlayerToolbarButtonSize,
+                        includeSubmitIntro = onSubmitIntroClick != null,
+                    ),
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .fillMaxWidth(),
@@ -335,7 +339,13 @@ internal fun PlayerControlsShell(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .windowInsetsPadding(playerTimelineBottomInsets(metrics))
+                        .then(
+                            if (legacyProgressBottom(experimentalOverlay) == LegacyProgressBottom.TimelineInsets) {
+                                Modifier.windowInsetsPadding(playerTimelineBottomInsets(metrics))
+                            } else {
+                                Modifier.padding(bottom = metrics.sliderBottomOffset)
+                            },
+                        )
                         .padding(horizontal = metrics.horizontalPadding),
                 )
             }

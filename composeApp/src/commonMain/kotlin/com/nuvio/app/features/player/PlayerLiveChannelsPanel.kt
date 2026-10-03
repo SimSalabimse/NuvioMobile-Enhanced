@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -498,7 +499,16 @@ private fun PlayerLiveChannelCategoryFilterChip(
             expanded = expanded,
             onDismissRequest = { expanded = false },
             modifier = Modifier
-                .width(playerLiveCategoryMenuWidth(menuWidth))
+                .then(
+                    if (liveCategoryMenuUsesPanelWidth(LocalExperimentalPlayerOverlay.current)) {
+                        Modifier.width(playerLiveCategoryMenuWidth(menuWidth))
+                    } else {
+                        Modifier.widthIn(
+                            min = DeveloperLiveCategoryMenuMinWidth,
+                            max = DeveloperLiveCategoryMenuMaxWidth,
+                        )
+                    },
+                )
                 .heightIn(max = 560.dp),
         ) {
             options.forEach { option ->

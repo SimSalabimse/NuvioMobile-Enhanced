@@ -49,6 +49,9 @@ internal const val PlayerMenuMaterialTintAlpha = 0.28f
 /** Veil around a centered card. The card body uses the menu frost. */
 internal const val PlayerCenteredCardVeilAlpha = 0.28f
 
+/** Developer rate card veil. */
+internal const val DeveloperCenteredCardVeilAlpha = 0.65f
+
 internal const val PlayerMenuRowAlpha = 0.08f
 internal const val PlayerMenuHeaderPillAlpha = 0.12f
 internal const val PlayerMenuSelectedAccentAlpha = 0.45f
@@ -97,13 +100,18 @@ internal fun playerMenuHeaderPillFill(): Color =
 internal fun resolvedPlayerMenuSelectedColor(accent: Color): Color =
     if (LocalExperimentalPlayerOverlay.current) playerMenuSelectedColor(accent) else accent
 
-/** Developer centered cards used a 72% black veil. The lighter veil is the frost. */
+/** Developer centered cards use the original 65% veil. The lighter veil is the frost. */
 @Composable
 internal fun playerCenteredCardScrim(): Color =
+    Color.Black.copy(alpha = centeredCardFrame(LocalExperimentalPlayerOverlay.current).veilAlpha)
+
+/** Video-settings options and submit-intro time fields. Off is surfaceVariant. */
+@Composable
+internal fun playerDeveloperVariantFill(alpha: Float): Color =
     if (LocalExperimentalPlayerOverlay.current) {
-        PlayerCenteredCardVeil
+        playerMenuRowFill()
     } else {
-        Color.Black.copy(alpha = 0.72f)
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha)
     }
 
 @Composable
