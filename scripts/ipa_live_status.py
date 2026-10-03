@@ -2532,6 +2532,18 @@ def self_test() -> int:
             "height: 100svh" in css_rule("body") and "overflow: hidden" in css_rule("body"),
             "body is not capped at the small viewport",
         )
+        grouped = css_rule("html, body")
+        check(bool(grouped), "grouped html, body rule missing")
+        check("min-height" not in grouped, "grouped html, body still sets min-height")
+        for selector in ("html", "body"):
+            rule = css_rule(selector)
+            check(bool(rule), f"{selector} rule missing")
+            check(
+                "min-height: 100%" not in rule
+                and "min-height: 100vh" not in rule
+                and "min-height: 100lvh" not in rule,
+                f"{selector} min-height still covers the toolbar",
+            )
         check("min-height: 100lvh" not in page_css, "large viewport minimum still covers the toolbar")
         check(
             "height: 100%" in css_rule("main") and "overflow-y: auto" in css_rule("main"),

@@ -20,7 +20,6 @@
 html, body {
   margin: 0;
   max-width: 100%;
-  min-height: 100%;
   color: var(--text);
 }
 html {
