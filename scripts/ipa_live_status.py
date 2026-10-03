@@ -2522,16 +2522,23 @@ def self_test() -> int:
             return match.group(1) if match else ""
 
         check("background-color: #221b4a" in css_rule("html"), "html background is not #221b4a")
+        html_rule = css_rule("html")
         check(
-            "height: 100svh" in css_rule("html") and "overflow: hidden" in css_rule("html"),
-            "html is not capped at the small viewport",
+            "height: 100lvh" in html_rule
+            and "overflow: hidden" in html_rule
+            and "height: 100svh" not in html_rule,
+            "html is not the large viewport",
         )
         check("background-image" not in page_css, "stylesheet still has a background-image")
         check("background-color: #221b4a" in css_rule("body"), "body background is not #221b4a")
+        body_rule = css_rule("body")
         check(
-            "height: 100svh" in css_rule("body") and "overflow: hidden" in css_rule("body"),
-            "body is not capped at the small viewport",
+            "height: 100lvh" in body_rule
+            and "overflow: hidden" in body_rule
+            and "height: 100svh" not in body_rule,
+            "body is not the large viewport",
         )
+        check("position: relative" in body_rule, "body is not the teal positioning box")
         grouped = css_rule("html, body")
         check(bool(grouped), "grouped html, body rule missing")
         check("min-height" not in grouped, "grouped html, body still sets min-height")
@@ -2545,9 +2552,18 @@ def self_test() -> int:
                 f"{selector} min-height still covers the toolbar",
             )
         check("min-height: 100lvh" not in page_css, "large viewport minimum still covers the toolbar")
+        after_rule = css_rule("body::after")
         check(
-            "height: 100%" in css_rule("main") and "overflow-y: auto" in css_rule("main"),
-            "main does not scroll inside the small viewport",
+            "position: absolute" in after_rule and "position: fixed" not in after_rule,
+            "teal light is still fixed to the visual viewport",
+        )
+        check("position: fixed" in css_rule("body::before"), "violet light is no longer fixed")
+        main_rule = css_rule("main")
+        check(
+            "height: 100svh" in main_rule
+            and "overflow-y: auto" in main_rule
+            and "height: 100%" not in main_rule,
+            "main still fills the strip behind the pill",
         )
         check(
             'content="#07080d"' not in page_html
