@@ -119,6 +119,46 @@ internal fun centeredCardFrame(experimental: Boolean): CenteredCardFrame =
         )
     }
 
+/**
+ * Playback error at a98ba3f6. Full-frame black at 90%, and the scrim does not
+ * dismiss. On keeps the experimental centered card instead of this frame.
+ */
+internal data class DeveloperErrorFrameSpec(
+    val scrimAlpha: Float,
+    val horizontalPadding: Dp,
+    val itemSpacing: Dp,
+    val messageMaxLines: Int,
+    val messageLineHeight: TextUnit,
+    val buttonMinWidth: Dp,
+    val buttonMaxWidth: Dp,
+    val buttonCorner: Dp,
+    val buttonVerticalPadding: Dp,
+    val buttonTopPadding: Dp,
+)
+
+internal val DeveloperErrorFrame = DeveloperErrorFrameSpec(
+    scrimAlpha = 0.9f,
+    horizontalPadding = 32.dp,
+    itemSpacing = 16.dp,
+    messageMaxLines = 4,
+    messageLineHeight = 24.sp,
+    buttonMinWidth = 180.dp,
+    buttonMaxWidth = 260.dp,
+    buttonCorner = 12.dp,
+    buttonVerticalPadding = 12.dp,
+    buttonTopPadding = 4.dp,
+)
+
+internal fun playerErrorUsesDeveloperFrame(experimental: Boolean): Boolean = !experimental
+
+/** Scrim dismiss belongs to the experimental card. The developer frame ignores it. */
+internal fun playerErrorScrimDismisses(experimental: Boolean): Boolean = experimental
+
+/** In-player consent. Off is DialogSurface. On is the centered card. Settings stays DialogSurface. */
+internal fun inPlayerP2pUsesCenteredCard(experimental: Boolean): Boolean = experimental
+
+internal val DeveloperP2pBodyMaxHeight = 360.dp
+
 internal const val DeveloperVideoOptionFillAlpha = 0.35f
 internal const val DeveloperTimeFieldFillAlpha = 0.32f
 

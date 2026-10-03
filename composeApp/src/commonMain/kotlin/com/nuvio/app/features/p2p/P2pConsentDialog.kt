@@ -17,6 +17,7 @@ import com.nuvio.app.core.ui.DialogButtonStyle
 import com.nuvio.app.core.ui.DialogButtons
 import com.nuvio.app.core.ui.DialogSurface
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.features.player.DeveloperP2pBodyMaxHeight
 import com.nuvio.app.features.player.LocalExperimentalPlayerOverlay
 import com.nuvio.app.features.player.PlayerCenteredCard
 import com.nuvio.app.features.player.PlayerDialogButton
@@ -53,7 +54,7 @@ fun P2pConsentDialog(
                         .verticalScroll(rememberScrollState())
                 } else {
                     Modifier
-                        .heightIn(max = 360.dp)
+                        .heightIn(max = DeveloperP2pBodyMaxHeight)
                         .verticalScroll(rememberScrollState())
                 },
             )
@@ -84,7 +85,7 @@ fun P2pConsentDialog(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.nuvio.colors.textSecondary,
             modifier = Modifier
-                .heightIn(max = 360.dp)
+                .heightIn(max = DeveloperP2pBodyMaxHeight)
                 .verticalScroll(rememberScrollState()),
         )
         DialogButtons {

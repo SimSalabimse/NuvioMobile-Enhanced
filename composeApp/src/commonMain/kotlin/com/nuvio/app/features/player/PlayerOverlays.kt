@@ -304,6 +304,10 @@ internal fun ErrorModal(
     message: String,
     onDismiss: () -> Unit,
 ) {
+    if (playerErrorUsesDeveloperFrame(LocalExperimentalPlayerOverlay.current)) {
+        DeveloperErrorModal(message = message, onDismiss = onDismiss)
+        return
+    }
     PlayerCenteredCard(
         onDismiss = onDismiss,
     ) {
@@ -348,6 +352,69 @@ internal fun ErrorModal(
                     color = MaterialTheme.colorScheme.onPrimary,
                     textAlign = TextAlign.Center,
                     maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeveloperErrorModal(
+    message: String,
+    onDismiss: () -> Unit,
+) {
+    val frame = DeveloperErrorFrame
+    val scrimDismisses = playerErrorScrimDismisses(LocalExperimentalPlayerOverlay.current)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = frame.scrimAlpha))
+            .then(
+                if (scrimDismisses) {
+                    Modifier.clickable(onClick = onDismiss)
+                } else {
+                    Modifier
+                },
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = frame.horizontalPadding),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(frame.itemSpacing),
+        ) {
+            Text(
+                text = stringResource(Res.string.compose_player_playback_error),
+                style = MaterialTheme.nuvioTypeScale.displaySm.copy(fontWeight = FontWeight.Bold),
+                color = Color.White,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                text = message,
+                style = MaterialTheme.nuvioTypeScale.bodyLg.copy(lineHeight = frame.messageLineHeight),
+                color = Color.White.copy(alpha = 0.72f),
+                textAlign = TextAlign.Center,
+                maxLines = frame.messageMaxLines,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Surface(
+                modifier = Modifier
+                    .padding(top = frame.buttonTopPadding)
+                    .widthIn(min = frame.buttonMinWidth, max = frame.buttonMaxWidth)
+                    .clickable(onClick = onDismiss),
+                color = MaterialTheme.colorScheme.primary,
+                shape = RoundedCornerShape(frame.buttonCorner),
+            ) {
+                Text(
+                    text = stringResource(Res.string.compose_player_go_back),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = frame.buttonVerticalPadding),
+                    style = MaterialTheme.nuvioTypeScale.bodyLg.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    textAlign = TextAlign.Center,
                 )
             }
         }
