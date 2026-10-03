@@ -10,7 +10,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -23,10 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.player.EnterImmersivePlayerMode
-import com.nuvio.app.features.player.LocalExperimentalPlayerOverlay
-import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.PlatformPlayerSurface
 import com.nuvio.app.features.player.PlayerEngineController
 import com.nuvio.app.features.player.PlayerPlaybackSnapshot
@@ -83,17 +79,12 @@ internal fun TrailerPlayer(
                 }
             }
         }
-        val experimentalOverlay = PlayerSettingsRepository.uiState.collectAsStateWithLifecycle()
-            .value
-            .useExperimentalPlayerOverlay
-        CompositionLocalProvider(LocalExperimentalPlayerOverlay provides experimentalOverlay) {
-            TrailerPlayerControls(
-                state = state,
-                canControlPlayback = source != null && !isLoading && error == null,
-                title = title,
-                onExitFullscreen = onExitFullscreen,
-            )
-        }
+        TrailerPlayerControls(
+            state = state,
+            canControlPlayback = source != null && !isLoading && error == null,
+            title = title,
+            onExitFullscreen = onExitFullscreen,
+        )
     }
 }
 

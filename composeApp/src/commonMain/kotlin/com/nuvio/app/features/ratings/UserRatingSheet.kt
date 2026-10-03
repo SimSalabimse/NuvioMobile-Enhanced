@@ -12,20 +12,18 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -51,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -69,13 +68,7 @@ import com.nuvio.app.features.tracking.TrackingProviderRegistry
 import com.nuvio.app.features.tracking.TrackingRatingTarget
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import com.nuvio.app.features.player.LocalExperimentalPlayerOverlay
-import com.nuvio.app.features.player.PlayerCenteredCard
-import com.nuvio.app.features.player.PlayerMenuRowFill
-import com.nuvio.app.features.player.centeredCardFrame
-import com.nuvio.app.features.player.playerMenuSelectedColor
 import nuvio.composeapp.generated.resources.Res
-import nuvio.composeapp.generated.resources.action_done
 import nuvio.composeapp.generated.resources.user_rating_last_failed
 import nuvio.composeapp.generated.resources.user_rating_loading
 import nuvio.composeapp.generated.resources.user_rating_no_provider
@@ -149,31 +142,37 @@ fun UserRatingPlayerOverlay(
     subtitle: String?,
     onDismiss: () -> Unit,
 ) {
-    val capsHeight = centeredCardFrame(LocalExperimentalPlayerOverlay.current).capsHeight
-    PlayerCenteredCard(onDismiss = onDismiss) {
-        UserRatingContent(
-            target = target,
-            title = title,
-            subtitle = subtitle,
-            onDone = onDismiss,
-            frostMenu = LocalExperimentalPlayerOverlay.current,
-            modifier = if (capsHeight) {
-                Modifier
-                    .weight(1f, fill = false)
-                    .verticalScroll(rememberScrollState())
-            } else {
-                Modifier
-            },
-        )
-        if (capsHeight) {
-            TextButton(
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.65f))
+            .clickable(
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() },
                 onClick = onDismiss,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 44.dp),
-            ) {
-                Text(text = stringResource(Res.string.action_done), maxLines = 1)
-            }
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            modifier = Modifier
+                .widthIn(max = 520.dp)
+                .fillMaxWidth(0.9f)
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                    onClick = {},
+                ),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+        ) {
+            UserRatingContent(
+                target = target,
+                title = title,
+                subtitle = subtitle,
+                onDone = onDismiss,
+                modifier = Modifier.padding(20.dp),
+            )
         }
     }
 }
@@ -184,7 +183,6 @@ fun UserRatingContent(
     title: String,
     subtitle: String?,
     onDone: () -> Unit,
-    frostMenu: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val state by UserRatingsRepository.uiState.collectAsState()
@@ -283,7 +281,6 @@ fun UserRatingContent(
         UserRatingScale(
             selected = displayed,
             enabled = canEdit,
-            frostMenu = frostMenu,
             onSelect = ::commitRating,
         )
 
@@ -294,16 +291,15 @@ fun UserRatingContent(
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                FlowRow(
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     providers.forEach { providerId ->
                         ProviderChip(
                             providerId = providerId,
                             rating = entry.byProvider[providerId],
                             selected = providerId in enabled,
-                            frostMenu = frostMenu,
                             onToggle = {
                                 UserRatingsRepository.setProviderEnabled(providerId, providerId !in enabled)
                             },
@@ -359,7 +355,6 @@ private fun UserRatingScale(
     selected: Int?,
     enabled: Boolean,
     onSelect: (Int) -> Unit,
-    frostMenu: Boolean = false,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().widthIn(max = 520.dp),
@@ -385,13 +380,8 @@ private fun UserRatingScale(
                     .clip(CircleShape)
                     .background(
                         when {
-                            isSelected -> if (frostMenu) {
-                                playerMenuSelectedColor(MaterialTheme.colorScheme.primary)
-                            } else {
-                                MaterialTheme.colorScheme.primary
-                            }
+                            isSelected -> MaterialTheme.colorScheme.primary
                             filled -> MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
-                            frostMenu -> PlayerMenuRowFill
                             else -> MaterialTheme.colorScheme.surfaceVariant
                         },
                     )
@@ -420,15 +410,14 @@ private fun ProviderChip(
     rating: Int?,
     selected: Boolean,
     onToggle: () -> Unit,
-    frostMenu: Boolean = false,
 ) {
     Surface(
         onClick = onToggle,
         shape = RoundedCornerShape(50),
-        color = when {
-            selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
-            frostMenu -> PlayerMenuRowFill
-            else -> MaterialTheme.colorScheme.surfaceVariant
+        color = if (selected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
         },
         contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
     ) {

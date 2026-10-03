@@ -193,8 +193,7 @@ internal fun PlayerControlActions(
             )
         },
     )
-    val visibleCount = playerChromeVisibleActionCount(LocalExperimentalPlayerOverlay.current)
-    val hasOverflow = actions.size > visibleCount
+    val hasOverflow = actions.size > 5
     var expanded by remember(hasOverflow) { mutableStateOf(false) }
     val scrollState = rememberScrollState()
     val startOffset = if (onNextEpisodeClick != null) (-13).dp else (-12).dp
@@ -211,7 +210,7 @@ internal fun PlayerControlActions(
                 modifier = Modifier.weight(1f).offset(x = startOffset).horizontalScroll(scrollState),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                playerChromeShownActions(actions, expanded, visibleCount).forEach { action ->
+                actions.take(if (expanded) actions.size else 5).forEach { action ->
                     PlayerAction(
                         description = action.description,
                         onClick = {
@@ -299,48 +298,6 @@ private fun PlayerAction(
             Icon(icon, description, tint = Color.White, modifier = Modifier.size(iconSize))
         }
     }
-}
-
-internal const val PlayerChromeVisibleActionCount = 4
-
-/** Developer current-skin row kept five actions before the overflow control. */
-internal const val DeveloperPlayerChromeVisibleActionCount = 5
-
-internal fun playerChromeVisibleActionCount(experimental: Boolean): Int =
-    if (experimental) PlayerChromeVisibleActionCount else DeveloperPlayerChromeVisibleActionCount
-
-/** Off shows every legacy action. On fits four, then More, into the row width. */
-internal fun <T> legacyProgressShownActions(
-    actions: List<T>,
-    expanded: Boolean,
-    experimental: Boolean,
-): List<T> = if (experimental) playerChromeShownActions(actions, expanded) else actions
-
-internal fun legacyProgressRowFitsToWidth(experimental: Boolean): Boolean = experimental
-internal val PlayerChromeMoreSlot = 52.dp
-internal val PlayerChromeRowChrome = 8.dp
-internal val PlayerChromeSlotCap = 132.dp
-
-internal fun <T> playerChromeShownActions(
-    actions: List<T>,
-    expanded: Boolean,
-    visibleCount: Int = PlayerChromeVisibleActionCount,
-): List<T> =
-    if (expanded || actions.size <= visibleCount) {
-        actions
-    } else {
-        actions.take(visibleCount)
-    }
-
-internal fun playerChromeCollapsedSlot(
-    contentWidth: Dp,
-    shownActionCount: Int,
-    reservesMore: Boolean,
-): Dp {
-    val moreSlot = if (reservesMore) PlayerChromeMoreSlot else 0.dp
-    val available = (contentWidth - PlayerChromeRowChrome - moreSlot).coerceAtLeast(0.dp)
-    if (shownActionCount <= 0) return available
-    return (available / shownActionCount).coerceAtMost(PlayerChromeSlotCap)
 }
 
 private data class PlayerControlAction(

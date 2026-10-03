@@ -37,7 +37,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
@@ -54,8 +53,6 @@ fun MovieRecommendationCard(
     visible: Boolean,
     onOpen: (MetaPreview) -> Unit,
     onDismiss: () -> Unit,
-    maxCardWidth: Dp = 320.dp,
-    showPosters: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     if (recommendations.isEmpty()) return
@@ -73,7 +70,7 @@ fun MovieRecommendationCard(
         val shape = RoundedCornerShape(16.dp)
         Column(
             modifier = Modifier
-                .widthIn(max = maxCardWidth)
+                .widthIn(max = 320.dp)
                 .clip(shape)
                 .background(Color(0xFF191919).copy(alpha = 0.89f))
                 .border(1.dp, Color.White.copy(alpha = 0.12f), shape)
@@ -94,7 +91,7 @@ fun MovieRecommendationCard(
                 )
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(24.dp)
                         .clip(CircleShape)
                         .clickable(enabled = visible, onClick = onDismiss),
                     contentAlignment = Alignment.Center,
@@ -108,7 +105,7 @@ fun MovieRecommendationCard(
                 }
             }
             Spacer(modifier = Modifier.height(6.dp))
-            if (showPosters) LazyRow(
+            LazyRow(
                 contentPadding = PaddingValues(horizontal = 9.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {

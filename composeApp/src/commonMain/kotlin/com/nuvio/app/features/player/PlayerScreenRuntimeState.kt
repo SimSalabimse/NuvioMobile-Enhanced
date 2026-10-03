@@ -244,18 +244,6 @@ internal class PlayerScreenRuntime(
     var wasAutoSubtitleVolumeMuted by mutableStateOf(false)
     var autoSubtitleMuteActivationJob by mutableStateOf<Job?>(null)
 
-    val isTrailingPanelOpen: Boolean
-        get() = showAudioModal ||
-            showSubtitleModal ||
-            showVideoSettingsModal ||
-            showStreamInfoModal ||
-            showSourcesPanel ||
-            showQualityPanel ||
-            showEpisodesPanel ||
-            showLiveChannelsPanel ||
-            showSubmitIntroModal ||
-            episodeStreamsPanelState.showStreams
-
     val isAnyOverlayVisible: Boolean
         get() = showAudioModal ||
             showSubtitleModal ||

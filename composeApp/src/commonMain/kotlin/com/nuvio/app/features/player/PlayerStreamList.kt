@@ -110,7 +110,6 @@ internal fun PlayerStreamList(
                         isCurrent = stream.isCurrentPlayerStream(currentStreamUrl, currentStreamName),
                         currentLabel = currentLabel,
                         onClick = { onStreamSelected(stream) },
-                        nameMaxLines = playerStreamNameMaxLines(LocalExperimentalPlayerOverlay.current),
                     )
                 }
                 if (streamsUiState.isAnyLoading) {

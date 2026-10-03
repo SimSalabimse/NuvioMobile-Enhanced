@@ -50,73 +50,45 @@ internal fun PlayerQualityPanel(
     modifier: Modifier = Modifier,
 ) {
     val tokens = MaterialTheme.nuvio
-    if (LocalPlayerSizeClass.current != PlayerSizeClass.T) {
-        PlayerSidePanel(
-            visible = visible,
-            onDismiss = onDismiss,
-            modifier = modifier,
-        ) {
-            PlayerPanelHeader(title = "Quality") {
-                PlayerDialogButton(
-                    label = stringResource(Res.string.action_close),
+
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(NuvioTokens.Motion.normalMillis)),
+        exit = fadeOut(tween(NuvioTokens.Motion.normalMillis)),
+    ) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
                     onClick = onDismiss,
                 )
-            }
-            QualitySelectionBody(
-                state = state,
-                selectedQualityId = selectedQualityId,
-                currentResolutionLabel = currentResolutionLabel,
-                onQualitySelected = onQualitySelected,
-                modifier = Modifier.weight(1f),
-                fillRemaining = true,
-            )
-        }
-        return
-    }
-
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        val scrimInteraction = remember { MutableInteractionSource() }
-        val cardInteraction = remember { MutableInteractionSource() }
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(tween(NuvioTokens.Motion.normalMillis)),
-            exit = fadeOut(tween(NuvioTokens.Motion.normalMillis)),
-            modifier = Modifier.fillMaxSize(),
+                .background(tokens.colors.overlayScrim.copy(alpha = tokens.opacity.medium)),
+            contentAlignment = Alignment.Center,
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(playerCenteredCardScrim())
-                    .clickable(
-                        indication = null,
-                        interactionSource = scrimInteraction,
-                        onClick = onDismiss,
-                    ),
-            )
-        }
-        AnimatedVisibility(
-            visible = visible,
-            enter = slideInVertically(tween(NuvioTokens.Motion.sheetEnterMillis)) { it / 3 },
-            exit = slideOutVertically(tween(NuvioTokens.Motion.sheetExitMillis)) { it / 3 },
-        ) {
-            Box(
-                modifier = Modifier
-                    .widthIn(max = tokens.components.playerPanelMaxWidth)
-                    .fillMaxWidth(0.92f)
-                    .heightIn(max = tokens.components.dialogMaxWidth)
-                    .clip(tokens.shapes.playerPanel)
-                    .border(tokens.borders.thin, tokens.colors.borderDefault, tokens.shapes.playerPanel)
-                    .clickable(
-                        indication = null,
-                        interactionSource = cardInteraction,
-                        onClick = {},
-                    ),
+            AnimatedVisibility(
+                visible = visible,
+                enter = slideInVertically(tween(NuvioTokens.Motion.sheetEnterMillis)) { it / 3 } +
+                    fadeIn(tween(NuvioTokens.Motion.sheetEnterMillis)),
+                exit = slideOutVertically(tween(NuvioTokens.Motion.sheetExitMillis)) { it / 3 } +
+                    fadeOut(tween(NuvioTokens.Motion.sheetExitMillis)),
             ) {
-                PlayerMenuBackdrop(
-                    modifier = Modifier.matchParentSize(),
-                    shape = tokens.shapes.playerPanel,
-                )
-                Column {
+                Box(
+                    modifier = Modifier
+                        .widthIn(max = tokens.components.playerPanelMaxWidth)
+                        .fillMaxWidth(0.92f)
+                        .heightIn(max = tokens.components.dialogMaxWidth)
+                        .clip(tokens.shapes.playerPanel)
+                        .background(tokens.colors.surfaceSheet)
+                        .border(tokens.borders.thin, tokens.colors.borderDefault, tokens.shapes.playerPanel)
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() },
+                            onClick = {},
+                        ),
+                ) {
+                    Column {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -136,31 +108,8 @@ internal fun PlayerQualityPanel(
                             )
                         }
 
-                        QualitySelectionBody(
-                            state = state,
-                            selectedQualityId = selectedQualityId,
-                            currentResolutionLabel = currentResolutionLabel,
-                            onQualitySelected = onQualitySelected,
-                        )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun QualitySelectionBody(
-    state: PlayerQualitySelectionState,
-    selectedQualityId: String?,
-    currentResolutionLabel: String?,
-    onQualitySelected: (String?) -> Unit,
-    modifier: Modifier = Modifier,
-    fillRemaining: Boolean = false,
-) {
-    val tokens = MaterialTheme.nuvio
-    Column(modifier = modifier.fillMaxWidth()) {
-        when {
-            state.isLoading -> {
+                        when {
+                            state.isLoading -> {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -205,9 +154,7 @@ private fun QualitySelectionBody(
 
                             else -> {
                                 LazyColumn(
-                                    modifier = Modifier
-                                        .then(if (fillRemaining) Modifier.weight(1f) else Modifier)
-                                        .padding(horizontal = tokens.spacing.cardPadding),
+                                    modifier = Modifier.padding(horizontal = tokens.spacing.cardPadding),
                                     verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
                                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
                                         bottom = tokens.spacing.cardPadding,
@@ -236,6 +183,10 @@ private fun QualitySelectionBody(
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -255,7 +206,7 @@ private fun QualityOptionRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(tokens.shapes.compactCard)
-            .background(if (isSelected) tokens.colors.overlaySelected else playerMenuRowFill())
+            .background(if (isSelected) tokens.colors.overlaySelected else tokens.colors.surfacePopover)
             .border(
                 tokens.borders.thin,
                 if (isSelected) tokens.colors.borderSelected else tokens.colors.borderSubtle,

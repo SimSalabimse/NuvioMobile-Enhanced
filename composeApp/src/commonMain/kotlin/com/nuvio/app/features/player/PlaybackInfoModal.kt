@@ -34,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -48,7 +49,6 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import nuvio.composeapp.generated.resources.Res
-import nuvio.composeapp.generated.resources.action_close
 import nuvio.composeapp.generated.resources.compose_player_playback_info
 import org.jetbrains.compose.resources.stringResource
 
@@ -68,89 +68,49 @@ internal fun PlaybackInfoModal(
     }
     val hasSelectedQuality = selectedQualityVariant != null
 
-    if (LocalPlayerSizeClass.current != PlayerSizeClass.T) {
-        PlayerSidePanel(
-            visible = visible,
-            onDismiss = onDismiss,
-            modifier = modifier,
-        ) {
-            PlayerPanelHeader(title = stringResource(Res.string.compose_player_playback_info)) {
-                PlayerDialogButton(
-                    label = stringResource(Res.string.action_close),
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(200)),
+        exit = fadeOut(tween(200)),
+    ) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
                     onClick = onDismiss,
                 )
-            }
-            if (parsed == null && !hasSelectedQuality) {
+                .background(Color.Black.copy(alpha = 0.65f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            AnimatedVisibility(
+                visible = visible,
+                enter = slideInVertically(tween(300)) { it / 3 } + fadeIn(tween(300)),
+                exit = slideOutVertically(tween(250)) { it / 3 } + fadeOut(tween(250)),
+            ) {
                 Box(
                     modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    contentAlignment = Alignment.Center,
+                        .widthIn(max = 520.dp)
+                        .fillMaxWidth(0.9f)
+                        .heightIn(max = 560.dp)
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color(0xFF1E1E24),
+                                    Color(0xFF0F0F12),
+                                ),
+                            ),
+                        )
+                        .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(24.dp))
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() },
+                            onClick = {},
+                        ),
                 ) {
-                    Text(
-                        text = "No playback information available yet.",
-                        color = Color.White.copy(alpha = 0.55f),
-                        fontSize = 15.sp,
-                        textAlign = TextAlign.Center,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            } else {
-                PlaybackInfoContent(
-                    parsed = parsed,
-                    selectedQualityVariant = selectedQualityVariant,
-                    selectedQualityIsAuto = selectedQualityIsAuto,
-                    modifier = Modifier
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState()),
-                )
-            }
-        }
-        return
-    }
-
-    val cardShape = RoundedCornerShape(24.dp)
-    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        val scrimInteraction = remember { MutableInteractionSource() }
-        val cardInteraction = remember { MutableInteractionSource() }
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(tween(200)),
-            exit = fadeOut(tween(200)),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(playerCenteredCardScrim())
-                    .clickable(
-                        indication = null,
-                        interactionSource = scrimInteraction,
-                        onClick = onDismiss,
-                    ),
-            )
-        }
-        AnimatedVisibility(
-            visible = visible,
-            enter = slideInVertically(tween(300)) { it / 3 },
-            exit = slideOutVertically(tween(250)) { it / 3 },
-        ) {
-            Box(
-                modifier = Modifier
-                    .widthIn(max = 520.dp)
-                    .fillMaxWidth(0.9f)
-                    .heightIn(max = 560.dp)
-                    .clip(cardShape)
-                    .border(1.dp, Color.White.copy(alpha = 0.12f), cardShape)
-                    .clickable(
-                        indication = null,
-                        interactionSource = cardInteraction,
-                        onClick = {},
-                    ),
-            ) {
-                PlayerMenuBackdrop(modifier = Modifier.matchParentSize(), shape = cardShape)
-                Column(modifier = Modifier.padding(24.dp)) {
+                    Column(modifier = Modifier.padding(24.dp)) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -205,6 +165,7 @@ internal fun PlaybackInfoModal(
                                     .verticalScroll(rememberScrollState()),
                             )
                         }
+                    }
                 }
             }
         }

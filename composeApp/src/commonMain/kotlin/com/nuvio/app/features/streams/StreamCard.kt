@@ -56,7 +56,6 @@ internal fun StreamCard(
     modifier: Modifier = Modifier,
     isCurrent: Boolean = false,
     currentLabel: String? = null,
-    nameMaxLines: Int? = null,
 ) {
     val cardShape = RoundedCornerShape(12.dp)
     val badgeImages = stream.badges.filter { it.imageURL.isNotBlank() }
@@ -111,7 +110,6 @@ internal fun StreamCard(
             StreamNameWithInstantService(
                 stream = stream,
                 appendInstantServiceToDefaultName = appendInstantServiceToDefaultName,
-                nameMaxLines = nameMaxLines,
             ) {
                 if (isCurrent && !currentLabel.isNullOrBlank()) {
                     Spacer(modifier = Modifier.width(8.dp))
@@ -129,8 +127,6 @@ internal fun StreamCard(
                         lineHeight = 18.sp,
                     ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = nameMaxLines ?: Int.MAX_VALUE,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
 
@@ -213,7 +209,6 @@ private fun StreamCardBadgeRow(
 private fun StreamNameWithInstantService(
     stream: StreamItem,
     appendInstantServiceToDefaultName: Boolean,
-    nameMaxLines: Int? = null,
     trailingContent: @Composable RowScope.() -> Unit = {},
 ) {
     val nameStyle = MaterialTheme.typography.bodyMedium.copy(
@@ -242,8 +237,6 @@ private fun StreamNameWithInstantService(
             modifier = Modifier.weight(1f, fill = false),
             style = nameStyle,
             color = MaterialTheme.colorScheme.onSurface,
-            maxLines = nameMaxLines ?: Int.MAX_VALUE,
-            overflow = TextOverflow.Ellipsis,
         )
         AnimatedVisibility(
             visibleState = visibleState,

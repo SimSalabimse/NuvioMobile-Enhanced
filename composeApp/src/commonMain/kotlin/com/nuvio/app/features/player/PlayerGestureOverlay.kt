@@ -111,25 +111,10 @@ private fun PlayerGestureFeedback(
                     val percent = (level * 100f).roundToInt()
                     // Fork: gestures can supply their own reading (e.g. a custom label) via messageArgs.
                     val reading = feedback.messageArgs.firstOrNull()?.toString() ?: percent.toString()
-                    val experimentalOverlay = LocalExperimentalPlayerOverlay.current
                     Column(
                         modifier = Modifier
                             .align(if (isBrightness) Alignment.CenterStart else Alignment.CenterEnd)
-                            .then(
-                                if (gestureLevelBarsUseSafeInsets(experimentalOverlay)) {
-                                    Modifier
-                                        .windowInsetsPadding(
-                                            WindowInsets.safeContent.only(
-                                                WindowInsetsSides.Start +
-                                                    WindowInsetsSides.End +
-                                                    WindowInsetsSides.Bottom,
-                                            ),
-                                        )
-                                        .padding(bottom = GestureLevelBarBottomOffset)
-                                } else {
-                                    Modifier.padding(horizontal = horizontalSafePadding + 8.dp)
-                                },
-                            )
+                            .padding(horizontal = horizontalSafePadding + 8.dp)
                             .width(6.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
@@ -168,62 +153,43 @@ private fun PlayerGestureFeedback(
                         }
                     }
                 }
-                GestureFeedbackIcon.SeekForward, GestureFeedbackIcon.SeekBackward -> {
-                    GestureReadout(
-                        feedback = feedback,
-                        modifier = Modifier.align(Alignment.Center),
-                    )
-                }
-                GestureFeedbackIcon.Speed -> {
-                    GestureReadout(
-                        feedback = feedback,
+                GestureFeedbackIcon.Speed, GestureFeedbackIcon.SeekForward, GestureFeedbackIcon.SeekBackward -> {
+                    val message = feedback.messageRes?.let { stringResource(it, *feedback.messageArgs.toTypedArray()) }
+                        ?: feedback.message.orEmpty()
+                    val secondaryMessage = feedback.secondaryMessageRes?.let {
+                        stringResource(it, *feedback.secondaryMessageArgs.toTypedArray())
+                    } ?: feedback.secondaryMessage
+                    val shadow = Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 8f)
+                    Row(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .windowInsetsPadding(WindowInsets.safeContent.only(WindowInsetsSides.Top))
                             .padding(horizontal = horizontalSafePadding + horizontalPadding)
-                            .padding(top = speedReadoutTopOffset(LocalExperimentalPlayerOverlay.current)),
-                    )
+                            .padding(top = 40.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = message,
+                            color = Color.White,
+                            style = MaterialTheme.nuvioTypeScale.bodyLg.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                shadow = shadow,
+                            ),
+                        )
+                        secondaryMessage?.let {
+                            Text(
+                                text = it,
+                                color = feedback.secondaryMessageColor ?: Color.White,
+                                style = MaterialTheme.nuvioTypeScale.bodyMd.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    shadow = shadow,
+                                ),
+                            )
+                        }
+                    }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun GestureReadout(
-    feedback: GestureFeedbackState,
-    modifier: Modifier = Modifier,
-) {
-    val message = feedback.messageRes?.let { stringResource(it, *feedback.messageArgs.toTypedArray()) }
-        ?: feedback.message.orEmpty()
-    val secondaryMessage = feedback.secondaryMessageRes?.let {
-        stringResource(it, *feedback.secondaryMessageArgs.toTypedArray())
-    } ?: feedback.secondaryMessage
-    val shadow = Shadow(Color.Black.copy(alpha = 0.8f), blurRadius = 8f)
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = message,
-            color = Color.White,
-            maxLines = 1,
-            style = MaterialTheme.nuvioTypeScale.bodyLg.copy(
-                fontWeight = FontWeight.SemiBold,
-                shadow = shadow,
-            ),
-        )
-        secondaryMessage?.let {
-            Text(
-                text = it,
-                color = feedback.secondaryMessageColor ?: Color.White,
-                maxLines = 1,
-                style = MaterialTheme.nuvioTypeScale.bodyMd.copy(
-                    fontWeight = FontWeight.SemiBold,
-                    shadow = shadow,
-                ),
-            )
         }
     }
 }

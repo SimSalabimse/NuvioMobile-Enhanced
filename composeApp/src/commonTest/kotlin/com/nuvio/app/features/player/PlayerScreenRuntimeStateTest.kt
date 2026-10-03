@@ -2,7 +2,6 @@ package com.nuvio.app.features.player
 
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.Modifier
-import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamsUiState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.test.runTest
@@ -314,39 +313,6 @@ class PlayerScreenRuntimeStateTest {
     }
 
     @Test
-    fun openingOnePlayerMenuClosesTheOthers() {
-        val runtime = PlayerScreenRuntime(testPlayerScreenArgs())
-        runtime.playerSettingsUiState = PlayerSettingsUiState(useExperimentalPlayerOverlay = true)
-        PlayerMenu.entries.forEach { menu ->
-            runtime.openEveryPlayerMenuFlag()
-            assertTrue(runtime.beginPlayerMenu(menu))
-            runtime.assertOnlyPlayerMenu(menu)
-        }
-    }
-
-    @Test
-    fun errorAndP2pCardsReplaceEveryPlayerMenu() {
-        val runtime = PlayerScreenRuntime(testPlayerScreenArgs())
-        runtime.openEveryPlayerMenuFlag()
-        runtime.errorMessage = "Playback failed"
-        assertTrue(runtime.blockingPlayerCardOpen())
-        assertFalse(runtime.beginPlayerMenu(PlayerMenu.Audio))
-        runtime.assertOnlyPlayerMenu(null)
-
-        runtime.errorMessage = null
-        runtime.openEveryPlayerMenuFlag()
-        runtime.pendingP2pSwitch = PendingPlayerP2pSwitch(
-            stream = StreamItem(addonName = "Addon", addonId = "addon"),
-            episode = null,
-            isAutoPlay = false,
-        )
-        assertTrue(runtime.blockingPlayerCardOpen())
-        assertFalse(runtime.beginPlayerMenu(PlayerMenu.Quality))
-        runtime.assertOnlyPlayerMenu(null)
-        assertFalse(runtime.episodeStreamsPanelState.showStreams)
-    }
-
-    @Test
     fun stopScrobble_allowsCompletionWithoutActiveSession() {
         assertTrue(
             shouldSendStopScrobble(
@@ -360,34 +326,6 @@ class PlayerScreenRuntimeStateTest {
                 progressPercent = 100f,
             ),
         )
-    }
-
-    private fun PlayerScreenRuntime.openEveryPlayerMenuFlag() {
-        showSubtitleModal = true
-        showAudioModal = true
-        showStreamInfoModal = true
-        showLiveChannelsPanel = true
-        showSubmitIntroModal = true
-        showUserRatingSheet = true
-        showSourcesPanel = true
-        showEpisodesPanel = true
-        showQualityPanel = true
-        showVideoSettingsModal = true
-        showSubtitleSyncByEar = true
-    }
-
-    private fun PlayerScreenRuntime.assertOnlyPlayerMenu(menu: PlayerMenu?) {
-        assertEquals(menu == PlayerMenu.Subtitles, showSubtitleModal)
-        assertEquals(menu == PlayerMenu.Audio, showAudioModal)
-        assertEquals(menu == PlayerMenu.PlaybackInfo, showStreamInfoModal)
-        assertEquals(menu == PlayerMenu.LiveChannels, showLiveChannelsPanel)
-        assertEquals(menu == PlayerMenu.SubmitIntro, showSubmitIntroModal)
-        assertEquals(menu == PlayerMenu.Rate, showUserRatingSheet)
-        assertEquals(menu == PlayerMenu.Sources, showSourcesPanel)
-        assertEquals(menu == PlayerMenu.Episodes, showEpisodesPanel)
-        assertEquals(menu == PlayerMenu.Quality, showQualityPanel)
-        assertEquals(menu == PlayerMenu.VideoSettings, showVideoSettingsModal)
-        assertFalse(showSubtitleSyncByEar)
     }
 
     private fun testPlayerScreenArgs() = PlayerScreenArgs(

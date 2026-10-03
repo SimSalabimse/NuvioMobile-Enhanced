@@ -20,7 +20,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -94,7 +93,7 @@ fun PlayerEpisodesPanel(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(playerPanelInnerPadding()),
+                .padding(24.dp),
         ) {
             PlayerPanelHeader(
                 title = if (episodeStreamsState.showStreams) {
@@ -280,9 +279,6 @@ private fun EpisodesListPanelContent(
                         isCurrent = isCurrent,
                         isWatched = isWatched,
                         blurUnwatchedEpisodes = blurUnwatchedEpisodes,
-                        progressFraction = progressByVideoId[episodeVideoId]
-                            ?.normalizedProgressPercent
-                            ?.div(100f),
                         onClick = { onEpisodeSelected(episode) },
                     )
                 }
@@ -302,17 +298,15 @@ private fun EpisodeSeasonChip(
 
     Box(
         modifier = Modifier
-            .height(32.dp)
             .clip(shape)
-            .background(if (isSelected) Color(0xFFF5F5F5) else playerMenuRowFill())
+            .background(if (isSelected) Color(0xFFF5F5F5) else tokens.colors.surfaceCard)
             .border(
                 1.dp,
                 if (isSelected) Color.Transparent else tokens.colors.borderDefault,
                 shape,
             )
             .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp),
-        contentAlignment = Alignment.Center,
+            .padding(horizontal = 20.dp, vertical = 10.dp),
     ) {
         Text(
             text = label,
@@ -328,13 +322,10 @@ private fun EpisodeRow(
     isCurrent: Boolean,
     isWatched: Boolean,
     blurUnwatchedEpisodes: Boolean,
-    progressFraction: Float?,
     onClick: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
     val cardShape = RoundedCornerShape(16.dp)
-    val compactRow = LocalPlayerSizeClass.current == PlayerSizeClass.S ||
-        LocalPlayerSizeClass.current == PlayerSizeClass.M
     val shouldBlurArtwork = blurUnwatchedEpisodes && !isWatched
     val playingDescription = stringResource(Res.string.compose_player_playing)
     val episodeCode = when {
@@ -354,7 +345,7 @@ private fun EpisodeRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(cardShape)
-            .background(playerMenuRowFill())
+            .background(tokens.colors.surfaceCard)
             .then(
                 if (isCurrent) {
                     Modifier.border(width = 2.dp, color = tokens.colors.focusRing, shape = cardShape)
@@ -372,10 +363,10 @@ private fun EpisodeRow(
     ) {
         Box(
             modifier = Modifier
-                .width(if (compactRow) 96.dp else 130.dp)
-                .height(if (compactRow) 54.dp else 90.dp)
+                .width(130.dp)
+                .height(90.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(playerMenuRowFill()),
+                .background(tokens.colors.surfacePopover),
         ) {
             episode.thumbnail?.let { thumbnail ->
                 AsyncImage(
@@ -419,28 +410,20 @@ private fun EpisodeRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (!compactRow) {
-                episode.released?.takeIf { it.isNotBlank() }?.let { released ->
-                    Text(
-                        text = formatReleaseDateForDisplay(released),
-                        color = tokens.colors.textMuted,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-                episode.overview?.takeIf { it.isNotBlank() }?.let { overview ->
-                    Text(
-                        text = overview,
-                        color = tokens.colors.textSecondary,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
+            episode.released?.takeIf { it.isNotBlank() }?.let { released ->
+                Text(
+                    text = formatReleaseDateForDisplay(released),
+                    color = tokens.colors.textMuted,
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
-            progressFraction?.takeIf { compactRow }?.let { fraction ->
-                LinearProgressIndicator(
-                    progress = fraction.coerceIn(0f, 1f),
-                    modifier = Modifier.fillMaxWidth().height(4.dp),
+            episode.overview?.takeIf { it.isNotBlank() }?.let { overview ->
+                Text(
+                    text = overview,
+                    color = tokens.colors.textSecondary,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }

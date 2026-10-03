@@ -9,15 +9,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -32,12 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nuvio.app.core.ui.themePalette
@@ -54,14 +43,10 @@ internal fun ParentalGuideOverlay(
     onAnimationComplete: () -> Unit,
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(start = 32.dp, top = 24.dp),
-    topSafeInset: Boolean = false,
-    endClearance: Dp = 0.dp,
 ) {
-    val experimental = LocalExperimentalPlayerOverlay.current
-    val visibleWarnings = if (parentalGuideShowsEveryWarning(experimental)) warnings else warnings.take(2)
-    if (visibleWarnings.isEmpty()) return
+    if (warnings.isEmpty()) return
 
-    val count = visibleWarnings.size
+    val count = warnings.size
     val totalLineHeight = (ParentalGuideRowHeight.value * count) +
         (ParentalGuideRowGap.value * (count - 1))
     val guideAccentBrush = MaterialTheme.themePalette.accentBrush()
@@ -113,15 +98,6 @@ internal fun ParentalGuideOverlay(
 
     Row(
         modifier = modifier
-            .fillMaxWidth()
-            .then(
-                if (topSafeInset) {
-                    Modifier.windowInsetsPadding(WindowInsets.safeContent.only(WindowInsetsSides.Top))
-                } else {
-                    Modifier
-                },
-            )
-            .padding(end = endClearance)
             .alpha(containerAlpha.value)
             .padding(contentPadding),
         verticalAlignment = Alignment.Top,
@@ -135,43 +111,33 @@ internal fun ParentalGuideOverlay(
         )
 
         Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = 10.dp),
+            modifier = Modifier.padding(start = 10.dp),
             verticalArrangement = Arrangement.spacedBy(ParentalGuideRowGap),
         ) {
-            visibleWarnings.forEachIndexed { index, warning ->
-                Text(
-                    text = buildAnnotatedString {
-                        withStyle(
-                            SpanStyle(
-                                color = Color.White.copy(alpha = 0.85f),
-                                fontWeight = FontWeight.SemiBold,
-                            ),
-                        ) {
-                            append(warning.label)
-                        }
-                        withStyle(SpanStyle(color = Color.White.copy(alpha = 0.4f))) {
-                            append(" · ")
-                        }
-                        withStyle(SpanStyle(color = Color.White.copy(alpha = 0.5f))) {
-                            append(warning.severity)
-                        }
-                    },
+            warnings.forEachIndexed { index, warning ->
+                Row(
                     modifier = Modifier
-                        .fillMaxWidth()
                         .height(ParentalGuideRowHeight)
                         .alpha(itemAlphas.getOrNull(index)?.value ?: 0f),
-                    fontSize = 11.sp,
-                    lineHeight = 14.sp,
-                    maxLines = if (parentalGuideEllipsizes(experimental)) 1 else Int.MAX_VALUE,
-                    overflow = if (parentalGuideEllipsizes(experimental)) {
-                        TextOverflow.Ellipsis
-                    } else {
-                        TextOverflow.Clip
-                    },
-                    softWrap = !parentalGuideEllipsizes(experimental),
-                )
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = warning.label,
+                        fontSize = 11.sp,
+                        color = Color.White.copy(alpha = 0.85f),
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = " · ",
+                        fontSize = 11.sp,
+                        color = Color.White.copy(alpha = 0.4f),
+                    )
+                    Text(
+                        text = warning.severity,
+                        fontSize = 11.sp,
+                        color = Color.White.copy(alpha = 0.5f),
+                    )
+                }
             }
         }
     }

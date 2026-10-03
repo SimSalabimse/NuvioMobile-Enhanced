@@ -1,6 +1,8 @@
 package com.nuvio.app.features.player
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -12,7 +14,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -63,27 +64,24 @@ fun SubtitleSyncByEarCard(
     AnimatedVisibility(
         visible = visible,
         modifier = modifier,
-        enter = slideInVertically { -it / 4 },
-        exit = slideOutVertically { -it / 4 },
+        enter = fadeIn() + slideInVertically { -it / 4 },
+        exit = fadeOut() + slideOutVertically { -it / 4 },
     ) {
-        val compactCard = LocalPlayerSizeClass.current == PlayerSizeClass.S
-        val cardShape = RoundedCornerShape(20.dp)
-        Box(
+        Column(
             modifier = Modifier
-                .then(if (compactCard) Modifier.fillMaxWidth() else Modifier.widthIn(max = 340.dp).fillMaxWidth())
-                .clip(cardShape)
+                .widthIn(max = 340.dp)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color(0xFF17171A).copy(alpha = 0.94f))
                 .border(
                     width = 1.dp,
                     color = Color.White.copy(alpha = 0.1f),
-                    shape = cardShape,
+                    shape = RoundedCornerShape(20.dp),
                 )
-                .pointerInput(Unit) { detectTapGestures { } },
+                .pointerInput(Unit) { detectTapGestures { } }
+                .padding(start = 18.dp, end = 12.dp, top = 12.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            PlayerMenuBackdrop(Modifier.matchParentSize(), cardShape)
-            Column(
-                modifier = Modifier.padding(start = 18.dp, end = 12.dp, top = 12.dp, bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -97,7 +95,7 @@ fun SubtitleSyncByEarCard(
                 )
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(32.dp)
                         .clip(CircleShape)
                         .background(Color.White.copy(alpha = 0.08f))
                         .clickable(onClick = onClose),
@@ -156,7 +154,6 @@ fun SubtitleSyncByEarCard(
                 color = if (heardCaptured || sawCaptured) tokens.colors.accent else Color.White.copy(alpha = 0.6f),
                 style = MaterialTheme.typography.labelMedium,
             )
-            }
         }
     }
 }
@@ -176,15 +173,12 @@ private fun SyncByEarButton(
     Row(
         modifier = modifier
             .clip(shape)
-            .background(
-                if (captured) resolvedPlayerMenuSelectedColor(tokens.colors.accent) else Color.White.copy(alpha = 0.1f),
-            )
+            .background(if (captured) tokens.colors.accent else Color.White.copy(alpha = 0.1f))
             .border(
                 width = 1.dp,
                 color = if (captured) Color.Transparent else Color.White.copy(alpha = 0.08f),
                 shape = shape,
             )
-            .heightIn(min = 44.dp)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),

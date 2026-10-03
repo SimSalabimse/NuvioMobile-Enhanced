@@ -2,7 +2,6 @@ package com.nuvio.app.features.player.skip
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -63,15 +62,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.atLeastIosHitTarget
-import com.nuvio.app.features.player.LocalExperimentalPlayerOverlay
-import com.nuvio.app.features.player.LocalPlayerSizeClass
-import com.nuvio.app.features.player.PlayerMenuBackdrop
-import com.nuvio.app.features.player.playerMenuRowFill
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.PlayerSidePanel
-import com.nuvio.app.features.player.PlayerSizeClass
-import com.nuvio.app.features.player.resolvedPlayerMenuSelectedColor
-import com.nuvio.app.features.player.submitIntroCloseControlSize
 import com.nuvio.app.features.tmdb.TmdbService
 import com.nuvio.app.isIos
 import kotlinx.coroutines.CancellationException
@@ -362,7 +354,9 @@ fun SubmitIntroDialog(
         }
     }
 
-    val phonePanel = LocalPlayerSizeClass.current != PlayerSizeClass.T
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val phonePanel = flagPanelIsPhone(maxWidth, maxHeight)
+    val flagPanelWidth = (maxWidth * 0.58f).coerceIn(300.dp, 400.dp)
     val formContent: @Composable (Modifier) -> Unit = { formModifier ->
         Column(
             modifier = if (phonePanel) formModifier.fillMaxSize() else formModifier.verticalScroll(scrollState),
@@ -382,7 +376,7 @@ fun SubmitIntroDialog(
                 )
                 Box(
                     modifier = Modifier
-                        .size(submitIntroCloseControlSize(LocalExperimentalPlayerOverlay.current))
+                        .size(if (phonePanel) 44.dp else 28.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .clickable(onClick = onDismiss),
                     contentAlignment = Alignment.Center,
@@ -446,7 +440,7 @@ fun SubmitIntroDialog(
                                     .weight(1f)
                                     .heightIn(min = 0.dp.atLeastIosHitTarget()),
                                 shape = RoundedCornerShape(12.dp),
-                                color = playerMenuRowFill(),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
                             ) {
                                 BasicTextField(
@@ -627,11 +621,9 @@ fun SubmitIntroDialog(
                             .height(30.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(
-                                if (noneDisabled) {
-                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
-                                } else {
-                                    playerMenuRowFill()
-                                },
+                                MaterialTheme.colorScheme.surfaceVariant.copy(
+                                    alpha = if (noneDisabled) 0.22f else 0.32f,
+                                ),
                             )
                             .clickable(enabled = !busy && !noneDisabled) {
                                 beginSubmit(absentSegment = true)
@@ -702,7 +694,7 @@ fun SubmitIntroDialog(
                             .weight(1f)
                             .heightIn(min = 44.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(playerMenuRowFill())
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f))
                             .clickable(enabled = !busy, onClick = onDismiss),
                         contentAlignment = Alignment.Center
                     ) {
@@ -747,7 +739,7 @@ fun SubmitIntroDialog(
         }
 
     if (phonePanel) {
-        PlayerSidePanel(visible = true, onDismiss = onDismiss) {
+        PlayerSidePanel(visible = true, onDismiss = onDismiss, width = flagPanelWidth) {
             formContent(Modifier.fillMaxSize())
         }
     } else if (isIos) {
@@ -771,16 +763,17 @@ fun SubmitIntroDialog(
         BasicAlertDialog(onDismissRequest = onDismiss) {
             BoxWithConstraints {
                 val sheetHeight = minOf(640.dp, maxHeight * 0.86f)
-                val cardShape = RoundedCornerShape(28.dp)
-                Box(
+                Surface(
                     modifier = Modifier
                         .padding(horizontal = 16.dp, vertical = 24.dp)
                         .widthIn(max = 420.dp)
-                        .heightIn(max = sheetHeight)
-                        .clip(cardShape)
-                        .border(1.dp, Color.White.copy(alpha = 0.22f), cardShape),
+                        .heightIn(max = sheetHeight),
+                    shape = RoundedCornerShape(28.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.42f),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.22f)),
+                    tonalElevation = 0.dp,
+                    shadowElevation = 16.dp,
                 ) {
-                    PlayerMenuBackdrop(Modifier.matchParentSize(), cardShape)
                     formContent(
                         Modifier
                             .padding(24.dp)
@@ -790,6 +783,12 @@ fun SubmitIntroDialog(
             }
         }
     }
+    }
+}
+
+private fun flagPanelIsPhone(width: androidx.compose.ui.unit.Dp, height: androidx.compose.ui.unit.Dp): Boolean {
+    val shorter = if (width < height) width else height
+    return shorter < 500.dp && width < 1024.dp
 }
 
 internal sealed interface IntroSubmitKeyPrepareResult {
@@ -918,8 +917,8 @@ private fun SegmentTypeButton(
 ) {
     val backgroundColor = when {
         disabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
-        selected -> resolvedPlayerMenuSelectedColor(MaterialTheme.colorScheme.primary)
-        else -> playerMenuRowFill()
+        selected -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f)
     }
     val contentColor = when {
         disabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)

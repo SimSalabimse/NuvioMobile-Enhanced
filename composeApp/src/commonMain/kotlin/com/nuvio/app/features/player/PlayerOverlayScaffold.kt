@@ -4,36 +4,19 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeContent
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.PlatformBackHandler
 
 @Composable
@@ -88,85 +71,6 @@ internal fun PlayerOverlayScaffold(
                     .padding(contentPadding),
                 content = content,
             )
-        }
-    }
-}
-
-@Composable
-internal fun PlayerCenteredCard(
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier,
-    scrimColor: Color? = null,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    val dismissInteraction = remember { MutableInteractionSource() }
-    val cardInteraction = remember { MutableInteractionSource() }
-    val frame = centeredCardFrame(LocalExperimentalPlayerOverlay.current)
-    val cardShape = RoundedCornerShape(if (frame.usesSurfaceFill) 24.dp else 16.dp)
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(scrimColor ?: Color.Black.copy(alpha = frame.veilAlpha))
-            .clickable(
-                interactionSource = dismissInteraction,
-                indication = null,
-                onClick = onDismiss,
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(
-                    if (frame.usesSafeInsets) {
-                        Modifier.windowInsetsPadding(WindowInsets.safeContent).padding(16.dp)
-                    } else {
-                        Modifier
-                    },
-                ),
-        ) {
-            val cardModifier = Modifier
-                .align(Alignment.Center)
-                .then(
-                    if (frame.capsHeight) {
-                        Modifier
-                            .width(playerCenteredCardWidth(maxWidth))
-                            .heightIn(max = playerCenteredCardMaxHeight(maxHeight))
-                    } else {
-                        Modifier
-                            .widthIn(max = frame.maxWidth)
-                            .fillMaxWidth(frame.widthFraction)
-                    },
-                )
-                .clickable(
-                    interactionSource = cardInteraction,
-                    indication = null,
-                    onClick = {},
-                )
-            if (frame.usesSurfaceFill) {
-                Surface(
-                    modifier = cardModifier,
-                    shape = cardShape,
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 6.dp,
-                ) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        content = content,
-                    )
-                }
-            } else {
-                Box(modifier = cardModifier.clip(cardShape)) {
-                    PlayerMenuBackdrop(
-                        modifier = Modifier.matchParentSize(),
-                        shape = cardShape,
-                    )
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        content = content,
-                    )
-                }
-            }
         }
     }
 }

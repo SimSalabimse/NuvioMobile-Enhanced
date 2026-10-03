@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -62,7 +61,7 @@ internal fun IosVideoSettingsModal(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(playerPanelInnerPadding()),
+                .padding(24.dp),
         ) {
             PlayerPanelHeader(
                 title = stringResource(Res.string.player_video_settings_title),
@@ -202,7 +201,7 @@ private fun PictureSlider(
     value: Int,
     onValueChanged: (Int) -> Unit,
 ) {
-    Column(modifier = Modifier.heightIn(min = 44.dp)) {
+    Column {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -249,7 +248,7 @@ private fun <T> OptionGroup(
                     color = if (isSelected) {
                         MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
                     } else {
-                        playerDeveloperVariantFill(DeveloperVideoOptionFillAlpha)
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                     },
                     shape = RoundedCornerShape(12.dp),
                 ) {

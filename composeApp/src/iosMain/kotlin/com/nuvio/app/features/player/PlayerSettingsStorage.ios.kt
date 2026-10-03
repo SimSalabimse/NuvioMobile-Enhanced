@@ -20,7 +20,6 @@ actual object PlayerSettingsStorage {
     private const val pendingExternalPlaybackKey = "pending_external_playback"
     private const val playbackBrightnessKey = "playback_brightness"
     private const val useLegacyPlayerLayoutKey = "use_legacy_player_layout"
-    private const val useExperimentalPlayerOverlayKey = "use_experimental_player_overlay"
     private const val showLoadingOverlayKey = "show_loading_overlay"
     private const val showPlayerLoadingStatusKey = "show_player_loading_status"
     private const val pauseOverlayEnabledKey = "pause_overlay_enabled"
@@ -260,20 +259,6 @@ actual object PlayerSettingsStorage {
 
     actual fun saveUseLegacyPlayerLayout(enabled: Boolean) {
         NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(useLegacyPlayerLayoutKey))
-    }
-
-    actual fun loadUseExperimentalPlayerOverlay(): Boolean? {
-        val defaults = NSUserDefaults.standardUserDefaults
-        val key = ProfileScopedKey.of(useExperimentalPlayerOverlayKey)
-        return if (defaults.objectForKey(key) != null) {
-            defaults.boolForKey(key)
-        } else {
-            null
-        }
-    }
-
-    actual fun saveUseExperimentalPlayerOverlay(enabled: Boolean) {
-        NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(useExperimentalPlayerOverlayKey))
     }
 
     actual fun loadShowParentalGuide(): Boolean? {

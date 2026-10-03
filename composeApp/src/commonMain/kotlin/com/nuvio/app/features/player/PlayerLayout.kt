@@ -5,11 +5,9 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.add
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.union
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -21,367 +19,7 @@ import nuvio.composeapp.generated.resources.compose_player_resize_fill
 import nuvio.composeapp.generated.resources.compose_player_resize_fit
 import nuvio.composeapp.generated.resources.compose_player_resize_zoom
 import org.jetbrains.compose.resources.StringResource
-
-internal enum class PlayerSizeClass {
-    S,
-    M,
-    L,
-    T,
-}
-
-internal val LocalPlayerSizeClass = staticCompositionLocalOf { PlayerSizeClass.T }
-
-/** Off keeps the developer overlay. On selects the experimental overlay. */
-internal enum class PlayerOverlayPath {
-    Developer,
-    Experimental,
-}
-
-internal fun playerOverlayPath(useExperimentalPlayerOverlay: Boolean): PlayerOverlayPath =
-    if (useExperimentalPlayerOverlay) PlayerOverlayPath.Experimental else PlayerOverlayPath.Developer
-
-internal val LocalExperimentalPlayerOverlay = staticCompositionLocalOf { false }
-
-/**
- * Developer chrome does not use the shorter-edge classes. [PlayerSizeClass.T]
- * keeps the pre-experiment panels, headers, and transport on every width.
- * Numeric metrics still follow the width steps.
- */
-internal fun playerSizeClassForOverlay(width: Dp, height: Dp, experimental: Boolean): PlayerSizeClass =
-    if (experimental) playerSizeClass(width, height) else PlayerSizeClass.T
-
-internal val PlayerTabletSidePanelWidth = 520.dp
-internal val PlayerPhoneCenterControlGap = 16.dp
-internal val PlayerPhoneSeekTarget = 44.dp
-
-internal fun playerSizeClass(width: Dp, height: Dp): PlayerSizeClass {
-    val shorter = if (width < height) width else height
-    return when {
-        shorter >= 500.dp || width >= 1024.dp -> PlayerSizeClass.T
-        shorter >= 430.dp -> PlayerSizeClass.L
-        shorter >= 380.dp -> PlayerSizeClass.M
-        else -> PlayerSizeClass.S
-    }
-}
-
-internal fun playerTrailingPanelWidth(screenWidth: Dp, leadingInset: Dp): Dp {
-    val preferred = (screenWidth * 0.58f).coerceIn(300.dp, 400.dp)
-    val maxLeavingVideo = (screenWidth - leadingInset - 48.dp).coerceAtLeast(0.dp)
-    return preferred.coerceAtMost(maxLeavingVideo)
-}
-
-internal fun playerLiveCategoryMenuWidth(panelWidth: Dp): Dp = panelWidth
-
-/** Developer dropdown. The panel width is the experimental menu. */
-internal val DeveloperLiveCategoryMenuMinWidth = 360.dp
-internal val DeveloperLiveCategoryMenuMaxWidth = 480.dp
-
-internal fun liveCategoryMenuUsesPanelWidth(experimental: Boolean): Boolean = experimental
-
-internal fun playerCenteredCardWidth(safeWidth: Dp): Dp =
-    (safeWidth * 0.9f).coerceAtMost(400.dp).coerceAtLeast(0.dp)
-
-internal fun playerCenteredCardMaxHeight(safeHeight: Dp): Dp =
-    (safeHeight - 32.dp).coerceAtLeast(0.dp)
-
-/**
- * Experimental cards are 90% wide, at most 400dp, capped to the safe height
- * minus 32dp, and inset by safe content. Off is the developer rate card:
- * at most 520dp, 90% wide, no height cap, and no safe-content padding.
- */
-internal data class CenteredCardFrame(
-    val maxWidth: Dp,
-    val widthFraction: Float,
-    val capsHeight: Boolean,
-    val usesSafeInsets: Boolean,
-    val veilAlpha: Float,
-    val usesSurfaceFill: Boolean,
-)
-
-internal fun centeredCardFrame(experimental: Boolean): CenteredCardFrame =
-    if (experimental) {
-        CenteredCardFrame(
-            maxWidth = 400.dp,
-            widthFraction = 0.9f,
-            capsHeight = true,
-            usesSafeInsets = true,
-            veilAlpha = PlayerCenteredCardVeilAlpha,
-            usesSurfaceFill = false,
-        )
-    } else {
-        CenteredCardFrame(
-            maxWidth = 520.dp,
-            widthFraction = 0.9f,
-            capsHeight = false,
-            usesSafeInsets = false,
-            veilAlpha = DeveloperCenteredCardVeilAlpha,
-            usesSurfaceFill = true,
-        )
-    }
-
-/**
- * Playback error at a98ba3f6. Full-frame black at 90%, and the scrim does not
- * dismiss. On keeps the experimental centered card instead of this frame.
- */
-internal data class DeveloperErrorFrameSpec(
-    val scrimAlpha: Float,
-    val horizontalPadding: Dp,
-    val itemSpacing: Dp,
-    val messageMaxLines: Int,
-    val messageLineHeight: TextUnit,
-    val buttonMinWidth: Dp,
-    val buttonMaxWidth: Dp,
-    val buttonCorner: Dp,
-    val buttonVerticalPadding: Dp,
-    val buttonTopPadding: Dp,
-)
-
-internal val DeveloperErrorFrame = DeveloperErrorFrameSpec(
-    scrimAlpha = 0.9f,
-    horizontalPadding = 32.dp,
-    itemSpacing = 16.dp,
-    messageMaxLines = 4,
-    messageLineHeight = 24.sp,
-    buttonMinWidth = 180.dp,
-    buttonMaxWidth = 260.dp,
-    buttonCorner = 12.dp,
-    buttonVerticalPadding = 12.dp,
-    buttonTopPadding = 4.dp,
-)
-
-internal fun playerErrorUsesDeveloperFrame(experimental: Boolean): Boolean = !experimental
-
-/** Scrim dismiss belongs to the experimental card. The developer frame ignores it. */
-internal fun playerErrorScrimDismisses(experimental: Boolean): Boolean = experimental
-
-/** In-player consent. Off is DialogSurface. On is the centered card. Settings stays DialogSurface. */
-internal fun inPlayerP2pUsesCenteredCard(experimental: Boolean): Boolean = experimental
-
-internal val DeveloperP2pBodyMaxHeight = 360.dp
-
-internal const val DeveloperVideoOptionFillAlpha = 0.35f
-internal const val DeveloperTimeFieldFillAlpha = 0.32f
-
-internal fun menuFillUsesSurfaceVariant(experimental: Boolean): Boolean = !experimental
-
-/** Developer audio rail. On keeps the safe-content inset and no extra padding. */
-internal data class DeveloperAudioCardPadding(
-    val start: Dp,
-    val end: Dp,
-    val top: Dp,
-    val bottom: Dp,
-    val usesSafeContent: Boolean,
-)
-
-internal fun developerAudioCardPadding(experimental: Boolean): DeveloperAudioCardPadding =
-    if (experimental) {
-        DeveloperAudioCardPadding(0.dp, 0.dp, 0.dp, 0.dp, usesSafeContent = true)
-    } else {
-        DeveloperAudioCardPadding(44.dp, 44.dp, 28.dp, 64.dp, usesSafeContent = false)
-    }
-
-/** Two lines is the experimental list. Off leaves the name uncapped. */
-internal fun playerStreamNameMaxLines(experimental: Boolean): Int? =
-    if (experimental) 2 else null
-
-internal fun submitIntroCloseControlSize(experimental: Boolean): Dp =
-    if (experimental) 44.dp else 28.dp
-
-internal enum class LegacyProgressBottom {
-    SliderOffset,
-    TimelineInsets,
-}
-
-internal fun legacyProgressBottom(experimental: Boolean): LegacyProgressBottom =
-    if (experimental) LegacyProgressBottom.TimelineInsets else LegacyProgressBottom.SliderOffset
-
-internal fun pauseOverlayPadsSafeContent(experimental: Boolean): Boolean = experimental
-
-internal fun gestureLevelBarsUseSafeInsets(experimental: Boolean): Boolean = experimental
-
-internal val GestureLevelBarBottomOffset = 72.dp
-
-/** Off sits 40dp under the top safe inset that the developer readout already used. */
-internal fun speedReadoutTopOffset(experimental: Boolean): Dp =
-    if (experimental) 8.dp else 40.dp
-
-internal fun parentalGuideShowsEveryWarning(experimental: Boolean): Boolean = !experimental
-
-internal fun parentalGuideEllipsizes(experimental: Boolean): Boolean = experimental
-
-internal fun parentalGuideUsesTopSafeInset(experimental: Boolean): Boolean = experimental
-
-internal fun parentalGuideEndClearance(
-    experimental: Boolean,
-    toolbarButtonSize: Dp,
-    includeSubmitIntro: Boolean,
-): Dp = if (experimental) {
-    toolbarButtonSize * (2 + if (includeSubmitIntro) 1 else 0) + 8.dp
-} else {
-    0.dp
-}
-
-/**
- * Off uses the developer width step. On uses the shorter-edge compact sizes.
- */
-internal fun openingTitleFontSize(width: Dp, height: Dp, experimental: Boolean): TextUnit {
-    if (!experimental) {
-        return if (width < 600.dp) 30.sp else 42.sp
-    }
-    val size = playerSizeClass(width, height)
-    val compact = size == PlayerSizeClass.S || size == PlayerSizeClass.M
-    return if (compact) 22.sp else 42.sp
-}
-
-internal fun playerMenuDismissesSiblings(experimental: Boolean): Boolean = experimental
-
-internal val PlayerTransportTopButtonSize = 48.dp
-internal const val PlayerPanelHeaderGapDp = 12
-
-internal fun transportTopRowWidth(includeSubmitIntro: Boolean): Dp =
-    PlayerTransportTopButtonSize * (if (includeSubmitIntro) 3 else 2)
-
-/**
- * Phone panel headers keep the title's full one-line width. Pills move to the
- * next line when they and a 12dp gap would not leave that width.
- */
-internal fun phonePanelHeaderStacksActions(
-    titleWidthPx: Int,
-    actionsWidthPx: Int,
-    maxWidthPx: Int,
-    gapPx: Int,
-): Boolean = actionsWidthPx > 0 && titleWidthPx + gapPx + actionsWidthPx > maxWidthPx
-
-/** The full-title second line is experimental. Off keeps the single header row. */
-internal fun phonePanelHeaderStacksForOverlay(
-    titleWidthPx: Int,
-    actionsWidthPx: Int,
-    maxWidthPx: Int,
-    gapPx: Int,
-    experimental: Boolean,
-): Boolean = experimental && phonePanelHeaderStacksActions(
-    titleWidthPx = titleWidthPx,
-    actionsWidthPx = actionsWidthPx,
-    maxWidthPx = maxWidthPx,
-    gapPx = gapPx,
-)
-
-internal data class PictureMargins(
-    val leading: Dp,
-    val trailing: Dp,
-    val top: Dp,
-    val bottom: Dp,
-) {
-    companion object {
-        val None = PictureMargins(0.dp, 0.dp, 0.dp, 0.dp)
-    }
-}
-
-internal enum class TransportEdge {
-    OnPicture,
-    TrailingBar,
-    TopBar,
-}
-
-/**
- * Empty regions around a fitted picture. Fill, zoom, and an unknown size do
- * not invent a bar.
- */
-internal fun pictureMargins(
-    frameWidth: Dp,
-    frameHeight: Dp,
-    videoWidth: Int,
-    videoHeight: Int,
-    resizeMode: PlayerResizeMode,
-): PictureMargins {
-    if (
-        resizeMode != PlayerResizeMode.Fit ||
-        videoWidth <= 0 ||
-        videoHeight <= 0 ||
-        frameWidth <= 0.dp ||
-        frameHeight <= 0.dp
-    ) {
-        return PictureMargins.None
-    }
-    val frameAspect = frameWidth.value / frameHeight.value
-    val videoAspect = videoWidth.toFloat() / videoHeight.toFloat()
-    val epsilon = 0.001f
-    return when {
-        frameAspect > videoAspect + epsilon -> {
-            val pictureWidth = frameHeight * videoAspect
-            val bar = (frameWidth - pictureWidth) / 2
-            PictureMargins(leading = bar, trailing = bar, top = 0.dp, bottom = 0.dp)
-        }
-        videoAspect > frameAspect + epsilon -> {
-            val pictureHeight = frameWidth / videoAspect
-            val bar = (frameHeight - pictureHeight) / 2
-            PictureMargins(leading = 0.dp, trailing = 0.dp, top = bar, bottom = bar)
-        }
-        else -> PictureMargins.None
-    }
-}
-
-/**
- * Flag, lock, and close move into a black bar only when the whole row fits
- * there inside the inset already applied around the frame. A full-frame
- * picture keeps them on the picture.
- */
-internal fun flagLockCloseEdge(
-    margins: PictureMargins,
-    rowWidth: Dp,
-    rowHeight: Dp,
-    topInset: Dp,
-    trailingInset: Dp,
-): TransportEdge {
-    val trailingRoom = margins.trailing - trailingInset
-    if (margins.trailing > 0.dp && rowWidth > 0.dp && trailingRoom >= rowWidth) {
-        return TransportEdge.TrailingBar
-    }
-    val topRoom = margins.top - topInset
-    if (margins.top > 0.dp && rowHeight > 0.dp && topRoom >= rowHeight) {
-        return TransportEdge.TopBar
-    }
-    return TransportEdge.OnPicture
-}
-
-/** Flag, lock, and close stay on the picture unless the experimental overlay is on. */
-internal fun flagLockCloseEdgeForOverlay(
-    margins: PictureMargins,
-    rowWidth: Dp,
-    rowHeight: Dp,
-    topInset: Dp,
-    trailingInset: Dp,
-    experimental: Boolean,
-): TransportEdge = if (experimental) {
-    flagLockCloseEdge(margins, rowWidth, rowHeight, topInset, trailingInset)
-} else {
-    TransportEdge.OnPicture
-}
-
-/** Timeline and the bottom action row stay on the picture when the only empty region is a side bar. */
-internal fun bottomRowInBottomBar(
-    margins: PictureMargins,
-    rowHeight: Dp,
-    bottomInset: Dp,
-): Boolean = margins.bottom > 0.dp && rowHeight > 0.dp && margins.bottom - bottomInset >= rowHeight
-
-internal fun bottomRowInBottomBarForOverlay(
-    margins: PictureMargins,
-    rowHeight: Dp,
-    bottomInset: Dp,
-    experimental: Boolean,
-): Boolean = experimental && bottomRowInBottomBar(margins, rowHeight, bottomInset)
-
-internal fun PlayerLayoutMetrics.usesPhoneChrome(): Boolean = sizeClass != PlayerSizeClass.T
-
-internal fun PlayerLayoutMetrics.transportSeekGap(): Dp =
-    if (usesPhoneChrome()) PlayerPhoneCenterControlGap else centerGap
-
-internal fun PlayerLayoutMetrics.showsTransportSeekButtons(): Boolean = sizeClass != PlayerSizeClass.S
-
-@Composable
-internal fun playerPanelInnerPadding(): Dp =
-    if (LocalPlayerSizeClass.current == PlayerSizeClass.T) 24.dp else 0.dp
+import kotlin.math.max
 
 internal data class PlayerLayoutMetrics(
     val horizontalPadding: Dp,
@@ -400,49 +38,9 @@ internal data class PlayerLayoutMetrics(
     val sideIconSize: Dp,
     val playButtonPadding: Dp,
     val playIconSize: Dp,
-    val sizeClass: PlayerSizeClass = PlayerSizeClass.S,
 ) {
     companion object {
-        fun fromWidth(width: Dp): PlayerLayoutMetrics = fromSize(width, width)
-
-        /**
-         * Off uses the width steps from the developer overlay and reports
-         * [PlayerSizeClass.T] so shorter-edge phone chrome stays off.
-         * On uses the shorter-edge classes.
-         */
-        fun forOverlay(width: Dp, height: Dp, experimental: Boolean): PlayerLayoutMetrics {
-            if (!experimental) {
-                return metricsForTabletWidth(width).copy(sizeClass = PlayerSizeClass.T)
-            }
-            return fromSize(width, height)
-        }
-
-        fun fromSize(width: Dp, height: Dp): PlayerLayoutMetrics {
-            val sizeClass = playerSizeClass(width, height)
-            val metrics = if (sizeClass == PlayerSizeClass.T) metricsForTabletWidth(width) else phoneMetrics()
-            return metrics.copy(sizeClass = sizeClass)
-        }
-
-        private fun phoneMetrics(): PlayerLayoutMetrics = PlayerLayoutMetrics(
-            horizontalPadding = 20.dp,
-            verticalPadding = 16.dp,
-            titleSize = 18.dp.value.sp,
-            episodeInfoSize = 14.dp.value.sp,
-            metadataSize = 12.dp.value.sp,
-            centerGap = 56.dp,
-            centerLift = 10.dp,
-            sliderBottomOffset = 16.dp,
-            sliderTouchHeight = 22.dp,
-            sliderScaleY = 0.82f,
-            timeSize = 12.dp.value.sp,
-            headerIconSize = 20.dp,
-            sideButtonPadding = 10.dp,
-            sideIconSize = 26.dp,
-            playButtonPadding = 13.dp,
-            playIconSize = 34.dp,
-        )
-
-        private fun metricsForTabletWidth(width: Dp): PlayerLayoutMetrics =
+        fun fromWidth(width: Dp): PlayerLayoutMetrics =
             when {
                 width >= 1440.dp -> PlayerLayoutMetrics(
                     horizontalPadding = 28.dp,
@@ -498,18 +96,26 @@ internal data class PlayerLayoutMetrics(
                     playButtonPadding = 15.dp,
                     playIconSize = 38.dp,
                 )
-                else -> phoneMetrics()
+                else -> PlayerLayoutMetrics(
+                    horizontalPadding = 20.dp,
+                    verticalPadding = 16.dp,
+                    titleSize = 18.dp.value.sp,
+                    episodeInfoSize = 14.dp.value.sp,
+                    metadataSize = 12.dp.value.sp,
+                    centerGap = 56.dp,
+                    centerLift = 10.dp,
+                    sliderBottomOffset = 16.dp,
+                    sliderTouchHeight = 22.dp,
+                    sliderScaleY = 0.82f,
+                    timeSize = 12.dp.value.sp,
+                    headerIconSize = 20.dp,
+                    sideButtonPadding = 10.dp,
+                    sideIconSize = 26.dp,
+                    playButtonPadding = 13.dp,
+                    playIconSize = 34.dp,
+                )
             }
     }
-}
-
-@Composable
-internal fun playerPanelSafeInsets(): WindowInsets {
-    val safe = WindowInsets.safeContent.only(
-        WindowInsetsSides.Top + WindowInsetsSides.Bottom + WindowInsetsSides.End,
-    )
-    val keyboard = WindowInsets.ime.only(WindowInsetsSides.Bottom)
-    return safe.union(keyboard)
 }
 
 @Composable

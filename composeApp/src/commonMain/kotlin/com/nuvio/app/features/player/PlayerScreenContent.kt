@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -86,14 +85,7 @@ internal fun PlayerScreenContent(args: PlayerScreenArgs) {
     ) {
         val density = LocalDensity.current
         val horizontalSafePadding = playerHorizontalSafePadding()
-        val experimentalOverlay = playerSettingsUiState.useExperimentalPlayerOverlay
-        val metrics = remember(maxWidth, maxHeight, experimentalOverlay) {
-            PlayerLayoutMetrics.forOverlay(maxWidth, maxHeight, experimentalOverlay)
-        }
-        CompositionLocalProvider(
-            LocalPlayerSizeClass provides metrics.sizeClass,
-            LocalExperimentalPlayerOverlay provides experimentalOverlay,
-        ) {
+        val metrics = remember(maxWidth) { PlayerLayoutMetrics.fromWidth(maxWidth) }
 
         runtime.scope = rememberCoroutineScope()
         runtime.hapticFeedback = LocalHapticFeedback.current
@@ -165,6 +157,5 @@ internal fun PlayerScreenContent(args: PlayerScreenArgs) {
         )
         runtime.BindPlayerRuntimeEffects()
         runtime.RenderPlayerRuntimeUi()
-        }
     }
 }
