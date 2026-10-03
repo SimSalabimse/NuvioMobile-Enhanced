@@ -29,6 +29,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -86,7 +88,8 @@ internal fun PlayerSidePanel(
     PlatformBackHandler(enabled = visible, onBack = onDismiss)
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
-        val sizeClass = playerSizeClass(maxWidth, maxHeight)
+        val experimentalOverlay = LocalExperimentalPlayerOverlay.current
+        val sizeClass = playerSizeClassForOverlay(maxWidth, maxHeight, experimentalOverlay)
         val leadingInset = WindowInsets.safeContent
             .asPaddingValues()
             .calculateStartPadding(LocalLayoutDirection.current)
@@ -140,12 +143,25 @@ internal fun PlayerSidePanel(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .windowInsetsPadding(playerPanelSafeInsets())
                             .then(
-                                if (sizeClass == PlayerSizeClass.T) {
-                                    Modifier
+                                if (!experimentalOverlay) {
+                                    if (isIos) {
+                                        Modifier.windowInsetsPadding(
+                                            WindowInsets.safeContent.only(
+                                                WindowInsetsSides.Top +
+                                                    WindowInsetsSides.Bottom +
+                                                    WindowInsetsSides.End,
+                                            ),
+                                        )
+                                    } else {
+                                        Modifier
+                                    }
+                                } else if (sizeClass == PlayerSizeClass.T) {
+                                    Modifier.windowInsetsPadding(playerPanelSafeInsets())
                                 } else {
-                                    Modifier.padding(16.dp)
+                                    Modifier
+                                        .windowInsetsPadding(playerPanelSafeInsets())
+                                        .padding(16.dp)
                                 },
                             ),
                         content = content,
@@ -286,7 +302,7 @@ internal fun PlayerDialogButton(
             .alpha(if (enabled) 1f else tokens.opacity.disabled)
             .heightIn(min = 44.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(PlayerMenuHeaderPillFill)
+            .background(playerMenuHeaderPillFill())
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
@@ -351,8 +367,8 @@ private fun AddonFilterChip(
     val tokens = MaterialTheme.nuvio
     val containerColor = when {
         hasError -> tokens.colors.danger.copy(alpha = 0.06f)
-        isSelected -> playerMenuSelectedColor(tokens.colors.accent)
-        else -> PlayerMenuRowFill
+        isSelected -> resolvedPlayerMenuSelectedColor(tokens.colors.accent)
+        else -> playerMenuRowFill()
     }
     val contentColor = when {
         hasError -> tokens.colors.danger

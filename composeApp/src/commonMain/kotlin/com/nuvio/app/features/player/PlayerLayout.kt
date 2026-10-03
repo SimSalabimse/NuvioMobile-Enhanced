@@ -31,6 +31,25 @@ internal enum class PlayerSizeClass {
 
 internal val LocalPlayerSizeClass = staticCompositionLocalOf { PlayerSizeClass.T }
 
+/** Off keeps the developer overlay. On selects the experimental overlay. */
+internal enum class PlayerOverlayPath {
+    Developer,
+    Experimental,
+}
+
+internal fun playerOverlayPath(useExperimentalPlayerOverlay: Boolean): PlayerOverlayPath =
+    if (useExperimentalPlayerOverlay) PlayerOverlayPath.Experimental else PlayerOverlayPath.Developer
+
+internal val LocalExperimentalPlayerOverlay = staticCompositionLocalOf { false }
+
+/**
+ * Developer chrome does not use the shorter-edge classes. [PlayerSizeClass.T]
+ * keeps the pre-experiment panels, headers, and transport on every width.
+ * Numeric metrics still follow the width steps.
+ */
+internal fun playerSizeClassForOverlay(width: Dp, height: Dp, experimental: Boolean): PlayerSizeClass =
+    if (experimental) playerSizeClass(width, height) else PlayerSizeClass.T
+
 internal val PlayerTabletSidePanelWidth = 520.dp
 internal val PlayerPhoneCenterControlGap = 16.dp
 internal val PlayerPhoneSeekTarget = 44.dp
@@ -75,6 +94,20 @@ internal fun phonePanelHeaderStacksActions(
     maxWidthPx: Int,
     gapPx: Int,
 ): Boolean = actionsWidthPx > 0 && titleWidthPx + gapPx + actionsWidthPx > maxWidthPx
+
+/** The full-title second line is experimental. Off keeps the single header row. */
+internal fun phonePanelHeaderStacksForOverlay(
+    titleWidthPx: Int,
+    actionsWidthPx: Int,
+    maxWidthPx: Int,
+    gapPx: Int,
+    experimental: Boolean,
+): Boolean = experimental && phonePanelHeaderStacksActions(
+    titleWidthPx = titleWidthPx,
+    actionsWidthPx = actionsWidthPx,
+    maxWidthPx = maxWidthPx,
+    gapPx = gapPx,
+)
 
 internal data class PictureMargins(
     val leading: Dp,
@@ -154,12 +187,33 @@ internal fun flagLockCloseEdge(
     return TransportEdge.OnPicture
 }
 
+/** Flag, lock, and close stay on the picture unless the experimental overlay is on. */
+internal fun flagLockCloseEdgeForOverlay(
+    margins: PictureMargins,
+    rowWidth: Dp,
+    rowHeight: Dp,
+    topInset: Dp,
+    trailingInset: Dp,
+    experimental: Boolean,
+): TransportEdge = if (experimental) {
+    flagLockCloseEdge(margins, rowWidth, rowHeight, topInset, trailingInset)
+} else {
+    TransportEdge.OnPicture
+}
+
 /** Timeline and the bottom action row stay on the picture when the only empty region is a side bar. */
 internal fun bottomRowInBottomBar(
     margins: PictureMargins,
     rowHeight: Dp,
     bottomInset: Dp,
 ): Boolean = margins.bottom > 0.dp && rowHeight > 0.dp && margins.bottom - bottomInset >= rowHeight
+
+internal fun bottomRowInBottomBarForOverlay(
+    margins: PictureMargins,
+    rowHeight: Dp,
+    bottomInset: Dp,
+    experimental: Boolean,
+): Boolean = experimental && bottomRowInBottomBar(margins, rowHeight, bottomInset)
 
 internal fun PlayerLayoutMetrics.usesPhoneChrome(): Boolean = sizeClass != PlayerSizeClass.T
 
@@ -193,6 +247,18 @@ internal data class PlayerLayoutMetrics(
 ) {
     companion object {
         fun fromWidth(width: Dp): PlayerLayoutMetrics = fromSize(width, width)
+
+        /**
+         * Off uses the width steps from the developer overlay and reports
+         * [PlayerSizeClass.T] so shorter-edge phone chrome stays off.
+         * On uses the shorter-edge classes.
+         */
+        fun forOverlay(width: Dp, height: Dp, experimental: Boolean): PlayerLayoutMetrics {
+            if (!experimental) {
+                return metricsForTabletWidth(width).copy(sizeClass = PlayerSizeClass.T)
+            }
+            return fromSize(width, height)
+        }
 
         fun fromSize(width: Dp, height: Dp): PlayerLayoutMetrics {
             val sizeClass = playerSizeClass(width, height)

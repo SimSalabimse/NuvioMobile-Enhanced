@@ -587,7 +587,7 @@ private fun SubtitleLanguageRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) playerMenuSelectedColor(tokens.colors.accent) else Color.Transparent)
+            .background(if (selected) resolvedPlayerMenuSelectedColor(tokens.colors.accent) else Color.Transparent)
             .heightIn(min = 44.dp)
             .clickableIncludingFlingStop(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 8.dp),
@@ -657,7 +657,7 @@ private fun SubtitleOptionRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) playerMenuSelectedColor(tokens.colors.accent) else Color.Transparent)
+            .background(if (selected) resolvedPlayerMenuSelectedColor(tokens.colors.accent) else Color.Transparent)
             .heightIn(min = 44.dp)
             .clickableIncludingFlingStop(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 9.dp),

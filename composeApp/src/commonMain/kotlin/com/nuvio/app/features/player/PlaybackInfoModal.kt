@@ -123,7 +123,7 @@ internal fun PlaybackInfoModal(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(PlayerCenteredCardVeil)
+                    .background(playerCenteredCardScrim())
                     .clickable(
                         indication = null,
                         interactionSource = scrimInteraction,

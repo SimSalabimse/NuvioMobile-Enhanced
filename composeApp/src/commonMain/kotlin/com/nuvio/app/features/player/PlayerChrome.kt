@@ -2,6 +2,7 @@ package com.nuvio.app.features.player
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -9,6 +10,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
+import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.isIos
 
 /** Fully opaque fallback so labels stay readable when Reduce Transparency is on. */
@@ -72,6 +74,38 @@ internal fun playerMenuUsesSystemMaterial(reduceTransparency: Boolean, materialS
 internal fun playerMenuSelectedColor(accent: Color): Color =
     if (accent.alpha >= 0.999f) accent.copy(alpha = PlayerMenuSelectedAccentAlpha) else accent
 
+/** Revision 3 frost is the experimental menu surface. Off keeps the opaque developer fills. */
+internal fun playerMenuAppliesFrost(experimental: Boolean): Boolean = experimental
+
+@Composable
+internal fun playerMenuRowFill(): Color =
+    if (LocalExperimentalPlayerOverlay.current) {
+        PlayerMenuRowFill
+    } else {
+        MaterialTheme.nuvio.colors.surfaceCard
+    }
+
+@Composable
+internal fun playerMenuHeaderPillFill(): Color =
+    if (LocalExperimentalPlayerOverlay.current) {
+        PlayerMenuHeaderPillFill
+    } else {
+        MaterialTheme.nuvio.colors.surfaceCard
+    }
+
+@Composable
+internal fun resolvedPlayerMenuSelectedColor(accent: Color): Color =
+    if (LocalExperimentalPlayerOverlay.current) playerMenuSelectedColor(accent) else accent
+
+/** Developer centered cards used a 72% black veil. The lighter veil is the frost. */
+@Composable
+internal fun playerCenteredCardScrim(): Color =
+    if (LocalExperimentalPlayerOverlay.current) {
+        PlayerCenteredCardVeil
+    } else {
+        Color.Black.copy(alpha = 0.72f)
+    }
+
 @Composable
 internal fun PlayerChromeBackdrop(
     modifier: Modifier = Modifier,
@@ -108,6 +142,14 @@ internal fun PlayerMenuBackdrop(
     modifier: Modifier = Modifier,
     shape: Shape = RectangleShape,
 ) {
+    if (!LocalExperimentalPlayerOverlay.current) {
+        PlayerChromeBackdrop(
+            modifier = modifier,
+            shape = shape,
+            fallbackColor = MaterialTheme.nuvio.colors.surfaceElevated,
+        )
+        return
+    }
     val reduceTransparency = playerReduceTransparencyEnabled()
     val samplesPicture = playerMaterialSamplesPicture(isIos, reduceTransparency)
     val clipped = modifier.clip(shape)

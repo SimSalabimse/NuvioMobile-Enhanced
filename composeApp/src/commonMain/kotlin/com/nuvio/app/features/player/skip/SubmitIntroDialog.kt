@@ -65,11 +65,11 @@ import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.atLeastIosHitTarget
 import com.nuvio.app.features.player.LocalPlayerSizeClass
 import com.nuvio.app.features.player.PlayerMenuBackdrop
-import com.nuvio.app.features.player.PlayerMenuRowFill
+import com.nuvio.app.features.player.playerMenuRowFill
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.PlayerSidePanel
 import com.nuvio.app.features.player.PlayerSizeClass
-import com.nuvio.app.features.player.playerMenuSelectedColor
+import com.nuvio.app.features.player.resolvedPlayerMenuSelectedColor
 import com.nuvio.app.features.tmdb.TmdbService
 import com.nuvio.app.isIos
 import kotlinx.coroutines.CancellationException
@@ -444,7 +444,7 @@ fun SubmitIntroDialog(
                                     .weight(1f)
                                     .heightIn(min = 0.dp.atLeastIosHitTarget()),
                                 shape = RoundedCornerShape(12.dp),
-                                color = PlayerMenuRowFill,
+                                color = playerMenuRowFill(),
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
                             ) {
                                 BasicTextField(
@@ -628,7 +628,7 @@ fun SubmitIntroDialog(
                                 if (noneDisabled) {
                                     MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
                                 } else {
-                                    PlayerMenuRowFill
+                                    playerMenuRowFill()
                                 },
                             )
                             .clickable(enabled = !busy && !noneDisabled) {
@@ -700,7 +700,7 @@ fun SubmitIntroDialog(
                             .weight(1f)
                             .heightIn(min = 44.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(PlayerMenuRowFill)
+                            .background(playerMenuRowFill())
                             .clickable(enabled = !busy, onClick = onDismiss),
                         contentAlignment = Alignment.Center
                     ) {
@@ -916,8 +916,8 @@ private fun SegmentTypeButton(
 ) {
     val backgroundColor = when {
         disabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
-        selected -> playerMenuSelectedColor(MaterialTheme.colorScheme.primary)
-        else -> PlayerMenuRowFill
+        selected -> resolvedPlayerMenuSelectedColor(MaterialTheme.colorScheme.primary)
+        else -> playerMenuRowFill()
     }
     val contentColor = when {
         disabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)

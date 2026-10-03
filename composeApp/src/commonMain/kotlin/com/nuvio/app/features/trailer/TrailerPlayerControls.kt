@@ -41,6 +41,7 @@ import com.nuvio.app.core.ui.nuvioTypeScale
 import com.nuvio.app.features.player.PlayPauseControlButton
 import com.nuvio.app.features.player.PlayerHeaderIconButton
 import com.nuvio.app.features.player.playerHorizontalSafePadding
+import com.nuvio.app.features.player.LocalExperimentalPlayerOverlay
 import com.nuvio.app.features.player.PlayerLayoutMetrics
 import com.nuvio.app.features.player.PlayerSeekBar
 import kotlinx.coroutines.delay
@@ -71,7 +72,10 @@ internal fun TrailerPlayerControls(
             } else Modifier,
         ),
     ) {
-        val metrics = remember(maxWidth, maxHeight) { PlayerLayoutMetrics.fromSize(maxWidth, maxHeight) }
+        val experimentalOverlay = LocalExperimentalPlayerOverlay.current
+        val metrics = remember(maxWidth, maxHeight, experimentalOverlay) {
+            PlayerLayoutMetrics.forOverlay(maxWidth, maxHeight, experimentalOverlay)
+        }
         val horizontalPadding = if (fullscreen) {
             playerHorizontalSafePadding() + metrics.horizontalPadding
         } else {

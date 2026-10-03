@@ -371,6 +371,14 @@ private fun PlaybackSettingsSection(
         ) {
             SettingsGroup(isTablet = isTablet) {
                 SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_playback_experimental_overlay),
+                    description = stringResource(Res.string.settings_playback_experimental_overlay_description),
+                    checked = autoPlayPlayerSettings.useExperimentalPlayerOverlay,
+                    isTablet = isTablet,
+                    onCheckedChange = PlayerSettingsRepository::setUseExperimentalPlayerOverlay,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
                     title = stringResource(Res.string.settings_playback_legacy_layout),
                     description = stringResource(Res.string.settings_playback_legacy_layout_description),
                     checked = autoPlayPlayerSettings.useLegacyPlayerLayout,

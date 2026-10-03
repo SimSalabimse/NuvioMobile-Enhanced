@@ -32,7 +32,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.nuvio.app.features.player.PlayerMenuRowFill
+import com.nuvio.app.features.player.playerMenuRowFill
 import kotlin.math.abs
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.submit_intro_time_now
@@ -225,7 +225,7 @@ private fun SkipTimeField(
         modifier = modifier
             .height(30.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(PlayerMenuRowFill),
+            .background(playerMenuRowFill()),
         textStyle = MaterialTheme.typography.bodyMedium.copy(
             color = MaterialTheme.colorScheme.onSurface,
             fontWeight = FontWeight.SemiBold,
@@ -257,7 +257,7 @@ private fun TimeChip(
             .height(30.dp)
             .widthIn(min = 30.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(PlayerMenuRowFill)
+            .background(playerMenuRowFill())
             .semantics { this.contentDescription = contentDescription }
             .clickable(onClick = onClick)
             .padding(horizontal = 7.dp),

@@ -156,6 +156,7 @@ internal fun PlayerControlsShell(
     var timelineHeight by remember { mutableStateOf(0.dp) }
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val safePadding = WindowInsets.safeContent.asPaddingValues()
+        val experimentalOverlay = LocalExperimentalPlayerOverlay.current
         val pictureEdge = pictureMargins(
             frameWidth = maxWidth,
             frameHeight = maxHeight,
@@ -163,18 +164,20 @@ internal fun PlayerControlsShell(
             videoHeight = playbackSnapshot.videoHeight,
             resizeMode = resizeMode,
         )
-        val topRowEdge = flagLockCloseEdge(
+        val topRowEdge = flagLockCloseEdgeForOverlay(
             margins = pictureEdge,
             rowWidth = transportTopRowWidth(onSubmitIntroClick != null),
             rowHeight = PlayerTransportTopButtonSize,
             topInset = safePadding.calculateTopPadding(),
             trailingInset = horizontalSafePadding,
+            experimental = experimentalOverlay,
         )
         var bottomActionHeight by remember { mutableStateOf(0.dp) }
-        val bottomActionInBar = bottomRowInBottomBar(
+        val bottomActionInBar = bottomRowInBottomBarForOverlay(
             margins = pictureEdge,
             rowHeight = bottomActionHeight,
             bottomInset = safePadding.calculateBottomPadding(),
+            experimental = experimentalOverlay,
         )
         val centerControlHeight = metrics.playIconSize + maxOf(metrics.playButtonPadding, metrics.sideButtonPadding) * 2
         val centerBottomPadding = if (useLegacyLayout) metrics.centerLift else maxOf(
@@ -841,10 +844,11 @@ private fun ProgressControls(
             )
         },
     )
-    val hasOverflow = actions.size > PlayerChromeVisibleActionCount
+    val experimentalOverlay = LocalExperimentalPlayerOverlay.current
+    val hasOverflow = experimentalOverlay && actions.size > PlayerChromeVisibleActionCount
     var expanded by remember(hasOverflow) { mutableStateOf(false) }
     val scrollState = rememberScrollState()
-    val shown = playerChromeShownActions(actions, expanded)
+    val shown = legacyProgressShownActions(actions, expanded, experimentalOverlay)
     LaunchedEffect(expanded, scrollState.maxValue) {
         if (expanded) scrollState.animateScrollTo(scrollState.maxValue) else scrollState.scrollTo(0)
     }
@@ -874,7 +878,7 @@ private fun ProgressControls(
                 fallbackColor = Color.Black.copy(alpha = 0.5f),
             )
             BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                val collapsed = hasOverflow && !expanded
+                val collapsed = legacyProgressRowFitsToWidth(experimentalOverlay) && hasOverflow && !expanded
                 val slot = playerChromeCollapsedSlot(
                     contentWidth = maxWidth,
                     shownActionCount = shown.size,

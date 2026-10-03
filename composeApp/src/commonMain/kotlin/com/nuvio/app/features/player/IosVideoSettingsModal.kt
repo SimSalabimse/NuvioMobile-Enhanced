@@ -249,7 +249,7 @@ private fun <T> OptionGroup(
                     color = if (isSelected) {
                         MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
                     } else {
-                        PlayerMenuRowFill
+                        playerMenuRowFill()
                     },
                     shape = RoundedCornerShape(12.dp),
                 ) {

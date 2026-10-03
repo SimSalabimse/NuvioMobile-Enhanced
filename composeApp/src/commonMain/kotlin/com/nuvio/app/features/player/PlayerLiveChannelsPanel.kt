@@ -186,8 +186,10 @@ fun PlayerLiveChannelsPanel(
                     ios = isIos,
                     reduceTransparency = playerReduceTransparencyEnabled(),
                 )
-            } else {
+            } else if (LocalExperimentalPlayerOverlay.current) {
                 PlayerCenteredCardVeilAlpha
+            } else {
+                0.72f
             }
             val scrimInteraction = remember { MutableInteractionSource() }
             AnimatedVisibility(
@@ -432,7 +434,7 @@ private fun PlayerLiveChannelFilterChip(
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
-            .background(if (selected) playerMenuSelectedColor(colorScheme.primary) else PlayerMenuRowFill)
+            .background(if (selected) resolvedPlayerMenuSelectedColor(colorScheme.primary) else playerMenuRowFill())
             .border(
                 width = 1.dp,
                 color = if (selected) colorScheme.primary.copy(alpha = 0.45f) else colorScheme.outlineVariant.copy(alpha = 0.7f),
@@ -466,7 +468,7 @@ private fun PlayerLiveChannelCategoryFilterChip(
         Row(
             modifier = Modifier
                 .clip(RoundedCornerShape(999.dp))
-                .background(if (selected) playerMenuSelectedColor(colorScheme.primary) else PlayerMenuRowFill)
+                .background(if (selected) resolvedPlayerMenuSelectedColor(colorScheme.primary) else playerMenuRowFill())
                 .border(
                     width = 1.dp,
                     color = if (selected) colorScheme.primary.copy(alpha = 0.45f) else colorScheme.outlineVariant.copy(alpha = 0.7f),
@@ -548,7 +550,7 @@ private fun PlayerLiveChannelsEmptyState() {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(PlayerMenuRowFill)
+            .background(playerMenuRowFill())
             .border(1.dp, colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
             .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -600,7 +602,7 @@ private fun LiveChannelRow(
             modifier = Modifier
                 .size(width = 72.dp, height = 40.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(PlayerMenuRowFill),
+                .background(playerMenuRowFill()),
             contentAlignment = Alignment.Center,
         ) {
             if (!channel.logoUrl.isNullOrBlank()) {

@@ -162,7 +162,7 @@ private fun AudioTrackRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(if (isSelected) playerMenuSelectedColor(tokens.colors.accent) else Color.Transparent)
+            .background(if (isSelected) resolvedPlayerMenuSelectedColor(tokens.colors.accent) else Color.Transparent)
             .heightIn(min = 44.dp)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp),

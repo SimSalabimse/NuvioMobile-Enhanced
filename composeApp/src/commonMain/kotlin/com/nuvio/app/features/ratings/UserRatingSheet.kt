@@ -74,9 +74,10 @@ import com.nuvio.app.features.tracking.TrackingProviderRegistry
 import com.nuvio.app.features.tracking.TrackingRatingTarget
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import com.nuvio.app.features.player.PlayerCenteredCardVeil
+import com.nuvio.app.features.player.LocalExperimentalPlayerOverlay
 import com.nuvio.app.features.player.PlayerMenuBackdrop
 import com.nuvio.app.features.player.PlayerMenuRowFill
+import com.nuvio.app.features.player.playerCenteredCardScrim
 import com.nuvio.app.features.player.playerCenteredCardMaxHeight
 import com.nuvio.app.features.player.playerCenteredCardWidth
 import com.nuvio.app.features.player.playerMenuSelectedColor
@@ -158,7 +159,7 @@ fun UserRatingPlayerOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(PlayerCenteredCardVeil)
+            .background(playerCenteredCardScrim())
             .clickable(
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() },
@@ -192,7 +193,7 @@ fun UserRatingPlayerOverlay(
                         title = title,
                         subtitle = subtitle,
                         onDone = onDismiss,
-                        frostMenu = true,
+                        frostMenu = LocalExperimentalPlayerOverlay.current,
                         modifier = Modifier
                             .weight(1f, fill = false)
                             .verticalScroll(rememberScrollState()),

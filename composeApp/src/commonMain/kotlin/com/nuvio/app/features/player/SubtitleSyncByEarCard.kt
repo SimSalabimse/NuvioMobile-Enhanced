@@ -177,7 +177,7 @@ private fun SyncByEarButton(
         modifier = modifier
             .clip(shape)
             .background(
-                if (captured) playerMenuSelectedColor(tokens.colors.accent) else Color.White.copy(alpha = 0.1f),
+                if (captured) resolvedPlayerMenuSelectedColor(tokens.colors.accent) else Color.White.copy(alpha = 0.1f),
             )
             .border(
                 width = 1.dp,

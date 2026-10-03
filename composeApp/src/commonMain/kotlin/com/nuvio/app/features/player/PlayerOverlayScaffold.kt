@@ -92,7 +92,7 @@ internal fun PlayerOverlayScaffold(
 internal fun PlayerCenteredCard(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
-    scrimColor: Color = PlayerCenteredCardVeil,
+    scrimColor: Color? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val dismissInteraction = remember { MutableInteractionSource() }
@@ -101,7 +101,7 @@ internal fun PlayerCenteredCard(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(scrimColor)
+            .background(scrimColor ?: playerCenteredCardScrim())
             .clickable(
                 interactionSource = dismissInteraction,
                 indication = null,

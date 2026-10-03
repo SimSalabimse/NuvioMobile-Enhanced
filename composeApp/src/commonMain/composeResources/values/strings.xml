@@ -2601,6 +2601,8 @@
     <string name="layout_ratings_show">Show</string>
     <string name="layout_ratings_hide">Hide</string>
     <string name="layout_ratings_hide_unwatched">Hide Unwatched</string>
+    <string name="settings_playback_experimental_overlay">Experimental overlay</string>
+    <string name="settings_playback_experimental_overlay_description">Use the overlay we are working on. Off keeps the original overlay.</string>
     <string name="settings_playback_legacy_layout">Legacy layout</string>
     <string name="settings_playback_legacy_layout_description">Use the original player controls.</string>
     <string name="compose_player_via">Via %1$s</string>

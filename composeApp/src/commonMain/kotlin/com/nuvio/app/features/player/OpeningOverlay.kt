@@ -89,7 +89,11 @@ internal fun OpeningOverlay(
             .fillMaxSize()
             .background(Color.Black),
     ) {
-        val openingSize = playerSizeClass(maxWidth, maxHeight)
+        val openingSize = playerSizeClassForOverlay(
+            maxWidth,
+            maxHeight,
+            LocalExperimentalPlayerOverlay.current,
+        )
         val compactOpening = openingSize == PlayerSizeClass.S || openingSize == PlayerSizeClass.M
         val logoWidth = minOf(if (compactOpening) 160.dp else 320.dp, maxWidth - 48.dp)
         val logoHeight = if (compactOpening) minOf(48.dp, maxHeight * 0.4f) else minOf(180.dp, maxHeight * 0.4f)

@@ -86,7 +86,7 @@ internal fun PlayerQualityPanel(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(PlayerCenteredCardVeil)
+                    .background(playerCenteredCardScrim())
                     .clickable(
                         indication = null,
                         interactionSource = scrimInteraction,
@@ -255,7 +255,7 @@ private fun QualityOptionRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(tokens.shapes.compactCard)
-            .background(if (isSelected) tokens.colors.overlaySelected else PlayerMenuRowFill)
+            .background(if (isSelected) tokens.colors.overlaySelected else playerMenuRowFill())
             .border(
                 tokens.borders.thin,
                 if (isSelected) tokens.colors.borderSelected else tokens.colors.borderSubtle,

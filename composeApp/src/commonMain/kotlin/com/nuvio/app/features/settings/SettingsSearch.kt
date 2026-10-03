@@ -585,6 +585,11 @@ internal fun settingsSearchEntries(
         icon = Icons.Rounded.PlayArrow,
         rows = listOfNotNull(
             PlaybackSearchRow(
+                "experimental-player-overlay",
+                stringResource(Res.string.settings_playback_experimental_overlay),
+                stringResource(Res.string.settings_playback_experimental_overlay_description),
+            ),
+            PlaybackSearchRow(
                 "legacy-player-layout",
                 stringResource(Res.string.settings_playback_legacy_layout),
                 stringResource(Res.string.settings_playback_legacy_layout_description),
