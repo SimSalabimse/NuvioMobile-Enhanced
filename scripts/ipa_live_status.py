@@ -2522,8 +2522,21 @@ def self_test() -> int:
             return match.group(1) if match else ""
 
         check("background-color: #221b4a" in css_rule("html"), "html background is not #221b4a")
+        check(
+            "height: 100svh" in css_rule("html") and "overflow: hidden" in css_rule("html"),
+            "html is not capped at the small viewport",
+        )
         check("background-image" not in page_css, "stylesheet still has a background-image")
         check("background-color: #221b4a" in css_rule("body"), "body background is not #221b4a")
+        check(
+            "height: 100svh" in css_rule("body") and "overflow: hidden" in css_rule("body"),
+            "body is not capped at the small viewport",
+        )
+        check("min-height: 100lvh" not in page_css, "large viewport minimum still covers the toolbar")
+        check(
+            "height: 100%" in css_rule("main") and "overflow-y: auto" in css_rule("main"),
+            "main does not scroll inside the small viewport",
+        )
         check(
             'content="#07080d"' not in page_html
             and 'content="#1a1430"' not in page_html
