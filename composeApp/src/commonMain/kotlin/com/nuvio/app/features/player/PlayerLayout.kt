@@ -59,6 +59,108 @@ internal fun playerCenteredCardWidth(safeWidth: Dp): Dp =
 internal fun playerCenteredCardMaxHeight(safeHeight: Dp): Dp =
     (safeHeight - 32.dp).coerceAtLeast(0.dp)
 
+internal val PlayerTransportTopButtonSize = 48.dp
+internal const val PlayerPanelHeaderGapDp = 12
+
+internal fun transportTopRowWidth(includeSubmitIntro: Boolean): Dp =
+    PlayerTransportTopButtonSize * (if (includeSubmitIntro) 3 else 2)
+
+/**
+ * Phone panel headers keep the title's full one-line width. Pills move to the
+ * next line when they and a 12dp gap would not leave that width.
+ */
+internal fun phonePanelHeaderStacksActions(
+    titleWidthPx: Int,
+    actionsWidthPx: Int,
+    maxWidthPx: Int,
+    gapPx: Int,
+): Boolean = actionsWidthPx > 0 && titleWidthPx + gapPx + actionsWidthPx > maxWidthPx
+
+internal data class PictureMargins(
+    val leading: Dp,
+    val trailing: Dp,
+    val top: Dp,
+    val bottom: Dp,
+) {
+    companion object {
+        val None = PictureMargins(0.dp, 0.dp, 0.dp, 0.dp)
+    }
+}
+
+internal enum class TransportEdge {
+    OnPicture,
+    TrailingBar,
+    TopBar,
+}
+
+/**
+ * Empty regions around a fitted picture. Fill, zoom, and an unknown size do
+ * not invent a bar.
+ */
+internal fun pictureMargins(
+    frameWidth: Dp,
+    frameHeight: Dp,
+    videoWidth: Int,
+    videoHeight: Int,
+    resizeMode: PlayerResizeMode,
+): PictureMargins {
+    if (
+        resizeMode != PlayerResizeMode.Fit ||
+        videoWidth <= 0 ||
+        videoHeight <= 0 ||
+        frameWidth <= 0.dp ||
+        frameHeight <= 0.dp
+    ) {
+        return PictureMargins.None
+    }
+    val frameAspect = frameWidth.value / frameHeight.value
+    val videoAspect = videoWidth.toFloat() / videoHeight.toFloat()
+    val epsilon = 0.001f
+    return when {
+        frameAspect > videoAspect + epsilon -> {
+            val pictureWidth = frameHeight * videoAspect
+            val bar = (frameWidth - pictureWidth) / 2
+            PictureMargins(leading = bar, trailing = bar, top = 0.dp, bottom = 0.dp)
+        }
+        videoAspect > frameAspect + epsilon -> {
+            val pictureHeight = frameWidth / videoAspect
+            val bar = (frameHeight - pictureHeight) / 2
+            PictureMargins(leading = 0.dp, trailing = 0.dp, top = bar, bottom = bar)
+        }
+        else -> PictureMargins.None
+    }
+}
+
+/**
+ * Flag, lock, and close move into a black bar only when the whole row fits
+ * there inside the inset already applied around the frame. A full-frame
+ * picture keeps them on the picture.
+ */
+internal fun flagLockCloseEdge(
+    margins: PictureMargins,
+    rowWidth: Dp,
+    rowHeight: Dp,
+    topInset: Dp,
+    trailingInset: Dp,
+): TransportEdge {
+    val trailingRoom = margins.trailing - trailingInset
+    if (margins.trailing > 0.dp && rowWidth > 0.dp && trailingRoom >= rowWidth) {
+        return TransportEdge.TrailingBar
+    }
+    val topRoom = margins.top - topInset
+    if (margins.top > 0.dp && rowHeight > 0.dp && topRoom >= rowHeight) {
+        return TransportEdge.TopBar
+    }
+    return TransportEdge.OnPicture
+}
+
+/** Timeline and the bottom action row stay on the picture when the only empty region is a side bar. */
+internal fun bottomRowInBottomBar(
+    margins: PictureMargins,
+    rowHeight: Dp,
+    bottomInset: Dp,
+): Boolean = margins.bottom > 0.dp && rowHeight > 0.dp && margins.bottom - bottomInset >= rowHeight
+
 internal fun PlayerLayoutMetrics.usesPhoneChrome(): Boolean = sizeClass != PlayerSizeClass.T
 
 internal fun PlayerLayoutMetrics.transportSeekGap(): Dp =

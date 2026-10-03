@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
@@ -70,7 +71,6 @@ internal fun PlayerSidePanel(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val tokens = MaterialTheme.nuvio
     val backgroundInteraction = remember { MutableInteractionSource() }
     val panelInteraction = remember { MutableInteractionSource() }
     val reduceMotion = playerReduceMotionEnabled()
@@ -85,70 +85,71 @@ internal fun PlayerSidePanel(
 
     PlatformBackHandler(enabled = visible, onBack = onDismiss)
 
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeEnter,
-        exit = fadeExit,
-        modifier = modifier,
-    ) {
-        BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = scrimAlpha))
-                .clickable(
-                    interactionSource = backgroundInteraction,
-                    indication = null,
-                    onClick = onDismiss,
-                ),
-        ) {
-            val sizeClass = playerSizeClass(maxWidth, maxHeight)
-            val leadingInset = WindowInsets.safeContent
-                .asPaddingValues()
-                .calculateStartPadding(LocalLayoutDirection.current)
-            val resolvedWidth = if (sizeClass == PlayerSizeClass.T) {
-                minOf(maxWidth, width)
-            } else {
-                playerTrailingPanelWidth(maxWidth, leadingInset).coerceAtMost(maxWidth)
-            }
-            val shape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val sizeClass = playerSizeClass(maxWidth, maxHeight)
+        val leadingInset = WindowInsets.safeContent
+            .asPaddingValues()
+            .calculateStartPadding(LocalLayoutDirection.current)
+        val resolvedWidth = if (sizeClass == PlayerSizeClass.T) {
+            minOf(maxWidth, width)
+        } else {
+            playerTrailingPanelWidth(maxWidth, leadingInset).coerceAtMost(maxWidth)
+        }
+        val shape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)
 
-            AnimatedVisibility(
-                visible = visible,
-                enter = slideEnter,
-                exit = slideExit,
-                modifier = Modifier.align(Alignment.CenterEnd),
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeEnter,
+            exit = fadeExit,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = scrimAlpha))
+                    .clickable(
+                        interactionSource = backgroundInteraction,
+                        indication = null,
+                        onClick = onDismiss,
+                    ),
+            )
+        }
+
+        AnimatedVisibility(
+            visible = visible,
+            enter = slideEnter,
+            exit = slideExit,
+            modifier = Modifier.align(Alignment.CenterEnd),
+        ) {
+            Box(
+                modifier = Modifier
+                    .width(resolvedWidth)
+                    .fillMaxHeight()
+                    .clip(shape)
+                    .clickable(
+                        interactionSource = panelInteraction,
+                        indication = null,
+                        onClick = {},
+                    ),
             ) {
-                Box(
-                    modifier = Modifier
-                        .width(resolvedWidth)
-                        .fillMaxHeight()
-                        .clip(shape)
-                        .clickable(
-                            interactionSource = panelInteraction,
-                            indication = null,
-                            onClick = {},
-                        ),
-                ) {
-                    PlayerChromeBackdrop(
-                        modifier = Modifier.matchParentSize(),
-                        shape = shape,
-                        fallbackColor = tokens.colors.surfaceElevated,
+                PlayerMenuBackdrop(
+                    modifier = Modifier.matchParentSize(),
+                    shape = shape,
+                )
+                CompositionLocalProvider(LocalPlayerSizeClass provides sizeClass) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .windowInsetsPadding(playerPanelSafeInsets())
+                            .then(
+                                if (sizeClass == PlayerSizeClass.T) {
+                                    Modifier
+                                } else {
+                                    Modifier.padding(16.dp)
+                                },
+                            ),
+                        content = content,
                     )
-                    CompositionLocalProvider(LocalPlayerSizeClass provides sizeClass) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .windowInsetsPadding(playerPanelSafeInsets())
-                                .then(
-                                    if (sizeClass == PlayerSizeClass.T) {
-                                        Modifier
-                                    } else {
-                                        Modifier.padding(16.dp)
-                                    },
-                                ),
-                            content = content,
-                        )
-                    }
                 }
             }
         }
@@ -198,12 +199,12 @@ internal fun PlayerPanelHeader(
         return
     }
 
-    // Keep Reload, Reset, and Style beside the title. Move that whole group
-    // to a second line only when it would leave the title with no room.
+    // Measure the title at its full one-line width. Move the pills down when
+    // they and a 12dp gap would not leave that width. Do not ellipsize the
+    // title to keep the pills beside it.
     SubcomposeLayout(modifier = modifier.fillMaxWidth()) { constraints ->
-        val gap = 12.dp.roundToPx()
+        val gap = PlayerPanelHeaderGapDp.dp.roundToPx()
         val lineGap = 8.dp.roundToPx()
-        val minTitleWidth = 48.dp.roundToPx()
         val actionPlaceables = subcompose("actions") {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -215,24 +216,32 @@ internal fun PlayerPanelHeader(
         }
         val actionsWidth = actionPlaceables.maxOfOrNull { it.width } ?: 0
         val actionsHeight = actionPlaceables.maxOfOrNull { it.height } ?: 0
-        val fitsBesideTitle = actionsWidth == 0 ||
-            actionsWidth + gap + minTitleWidth <= constraints.maxWidth
-        val titleMaxWidth = if (fitsBesideTitle) {
-            (constraints.maxWidth - actionsWidth - gap).coerceAtLeast(0)
-        } else {
-            constraints.maxWidth
-        }
-        val titlePlaceables = subcompose("title") {
+        val titleMeasurables = subcompose("title") {
             Text(
                 text = title,
                 color = titleColor,
                 style = titleStyle,
                 maxLines = 1,
+                softWrap = false,
                 overflow = TextOverflow.Ellipsis,
             )
-        }.map { measurable ->
+        }
+        val titleWidth = titleMeasurables.maxOfOrNull { it.maxIntrinsicWidth(Constraints.Infinity) } ?: 0
+        val stacksActions = phonePanelHeaderStacksActions(
+            titleWidthPx = titleWidth,
+            actionsWidthPx = actionsWidth,
+            maxWidthPx = constraints.maxWidth,
+            gapPx = gap,
+        )
+        val fitsBesideTitle = !stacksActions
+        val titleMaxWidth = if (fitsBesideTitle) {
+            titleWidth.coerceAtMost(constraints.maxWidth)
+        } else {
+            constraints.maxWidth
+        }
+        val titlePlaceables = titleMeasurables.map { measurable ->
             measurable.measure(
-                constraints.copy(minWidth = 0, minHeight = 0, maxWidth = titleMaxWidth),
+                constraints.copy(minWidth = 0, minHeight = 0, maxWidth = titleMaxWidth.coerceAtLeast(0)),
             )
         }
         val titleHeight = titlePlaceables.maxOfOrNull { it.height } ?: 0
@@ -277,7 +286,7 @@ internal fun PlayerDialogButton(
             .alpha(if (enabled) 1f else tokens.opacity.disabled)
             .heightIn(min = 44.dp)
             .clip(RoundedCornerShape(12.dp))
-            .background(tokens.colors.surfaceCard)
+            .background(PlayerMenuHeaderPillFill)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
@@ -342,8 +351,8 @@ private fun AddonFilterChip(
     val tokens = MaterialTheme.nuvio
     val containerColor = when {
         hasError -> tokens.colors.danger.copy(alpha = 0.06f)
-        isSelected -> tokens.colors.accent
-        else -> tokens.colors.surfaceCard
+        isSelected -> playerMenuSelectedColor(tokens.colors.accent)
+        else -> PlayerMenuRowFill
     }
     val contentColor = when {
         hasError -> tokens.colors.danger

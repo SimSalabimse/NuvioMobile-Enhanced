@@ -74,44 +74,49 @@ internal fun PlayerQualityPanel(
         return
     }
 
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn(tween(NuvioTokens.Motion.normalMillis)),
-        exit = fadeOut(tween(NuvioTokens.Motion.normalMillis)),
-    ) {
-        Box(
-            modifier = modifier
-                .fillMaxSize()
-                .clickable(
-                    indication = null,
-                    interactionSource = remember { MutableInteractionSource() },
-                    onClick = onDismiss,
-                )
-                .background(tokens.colors.overlayScrim.copy(alpha = tokens.opacity.medium)),
-            contentAlignment = Alignment.Center,
+    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        val scrimInteraction = remember { MutableInteractionSource() }
+        val cardInteraction = remember { MutableInteractionSource() }
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(tween(NuvioTokens.Motion.normalMillis)),
+            exit = fadeOut(tween(NuvioTokens.Motion.normalMillis)),
+            modifier = Modifier.fillMaxSize(),
         ) {
-            AnimatedVisibility(
-                visible = visible,
-                enter = slideInVertically(tween(NuvioTokens.Motion.sheetEnterMillis)) { it / 3 } +
-                    fadeIn(tween(NuvioTokens.Motion.sheetEnterMillis)),
-                exit = slideOutVertically(tween(NuvioTokens.Motion.sheetExitMillis)) { it / 3 } +
-                    fadeOut(tween(NuvioTokens.Motion.sheetExitMillis)),
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(PlayerCenteredCardVeil)
+                    .clickable(
+                        indication = null,
+                        interactionSource = scrimInteraction,
+                        onClick = onDismiss,
+                    ),
+            )
+        }
+        AnimatedVisibility(
+            visible = visible,
+            enter = slideInVertically(tween(NuvioTokens.Motion.sheetEnterMillis)) { it / 3 },
+            exit = slideOutVertically(tween(NuvioTokens.Motion.sheetExitMillis)) { it / 3 },
+        ) {
+            Box(
+                modifier = Modifier
+                    .widthIn(max = tokens.components.playerPanelMaxWidth)
+                    .fillMaxWidth(0.92f)
+                    .heightIn(max = tokens.components.dialogMaxWidth)
+                    .clip(tokens.shapes.playerPanel)
+                    .border(tokens.borders.thin, tokens.colors.borderDefault, tokens.shapes.playerPanel)
+                    .clickable(
+                        indication = null,
+                        interactionSource = cardInteraction,
+                        onClick = {},
+                    ),
             ) {
-                Box(
-                    modifier = Modifier
-                        .widthIn(max = tokens.components.playerPanelMaxWidth)
-                        .fillMaxWidth(0.92f)
-                        .heightIn(max = tokens.components.dialogMaxWidth)
-                        .clip(tokens.shapes.playerPanel)
-                        .background(tokens.colors.surfaceSheet)
-                        .border(tokens.borders.thin, tokens.colors.borderDefault, tokens.shapes.playerPanel)
-                        .clickable(
-                            indication = null,
-                            interactionSource = remember { MutableInteractionSource() },
-                            onClick = {},
-                        ),
-                ) {
-                    Column {
+                PlayerMenuBackdrop(
+                    modifier = Modifier.matchParentSize(),
+                    shape = tokens.shapes.playerPanel,
+                )
+                Column {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -137,7 +142,6 @@ internal fun PlayerQualityPanel(
                             currentResolutionLabel = currentResolutionLabel,
                             onQualitySelected = onQualitySelected,
                         )
-                    }
                 }
             }
         }
@@ -251,7 +255,7 @@ private fun QualityOptionRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(tokens.shapes.compactCard)
-            .background(if (isSelected) tokens.colors.overlaySelected else tokens.colors.surfacePopover)
+            .background(if (isSelected) tokens.colors.overlaySelected else PlayerMenuRowFill)
             .border(
                 tokens.borders.thin,
                 if (isSelected) tokens.colors.borderSelected else tokens.colors.borderSubtle,

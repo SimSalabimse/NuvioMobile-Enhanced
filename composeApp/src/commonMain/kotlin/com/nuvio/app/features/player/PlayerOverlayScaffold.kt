@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -32,7 +31,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.PlatformBackHandler
-import com.nuvio.app.core.ui.nuvio
 
 @Composable
 internal fun PlayerOverlayScaffold(
@@ -94,11 +92,12 @@ internal fun PlayerOverlayScaffold(
 internal fun PlayerCenteredCard(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
-    scrimColor: Color = Color.Black.copy(alpha = 0.72f),
+    scrimColor: Color = PlayerCenteredCardVeil,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val dismissInteraction = remember { MutableInteractionSource() }
     val cardInteraction = remember { MutableInteractionSource() }
+    val cardShape = RoundedCornerShape(16.dp)
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -116,21 +115,27 @@ internal fun PlayerCenteredCard(
                 .windowInsetsPadding(WindowInsets.safeContent)
                 .padding(16.dp),
         ) {
-            Column(
+            Box(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .width(playerCenteredCardWidth(maxWidth))
                     .heightIn(max = playerCenteredCardMaxHeight(maxHeight))
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.nuvio.colors.surfaceElevated)
+                    .clip(cardShape)
                     .clickable(
                         interactionSource = cardInteraction,
                         indication = null,
                         onClick = {},
-                    )
-                    .padding(16.dp),
-                content = content,
-            )
+                    ),
+            ) {
+                PlayerMenuBackdrop(
+                    modifier = Modifier.matchParentSize(),
+                    shape = cardShape,
+                )
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    content = content,
+                )
+            }
         }
     }
 }

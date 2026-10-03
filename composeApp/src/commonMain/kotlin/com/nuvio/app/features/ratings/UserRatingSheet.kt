@@ -56,7 +56,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -75,8 +74,12 @@ import com.nuvio.app.features.tracking.TrackingProviderRegistry
 import com.nuvio.app.features.tracking.TrackingRatingTarget
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.nuvio.app.features.player.PlayerCenteredCardVeil
+import com.nuvio.app.features.player.PlayerMenuBackdrop
+import com.nuvio.app.features.player.PlayerMenuRowFill
 import com.nuvio.app.features.player.playerCenteredCardMaxHeight
 import com.nuvio.app.features.player.playerCenteredCardWidth
+import com.nuvio.app.features.player.playerMenuSelectedColor
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_done
 import nuvio.composeapp.generated.resources.user_rating_last_failed
@@ -155,7 +158,7 @@ fun UserRatingPlayerOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.65f))
+            .background(PlayerCenteredCardVeil)
             .clickable(
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() },
@@ -169,26 +172,27 @@ fun UserRatingPlayerOverlay(
                 .windowInsetsPadding(WindowInsets.safeContent)
                 .padding(16.dp),
         ) {
-            Surface(
+            val cardShape = RoundedCornerShape(16.dp)
+            Box(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .width(playerCenteredCardWidth(maxWidth))
                     .heightIn(max = playerCenteredCardMaxHeight(maxHeight))
+                    .clip(cardShape)
                     .clickable(
                         indication = null,
                         interactionSource = remember { MutableInteractionSource() },
                         onClick = {},
                     ),
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 6.dp,
             ) {
+                PlayerMenuBackdrop(Modifier.matchParentSize(), cardShape)
                 Column(modifier = Modifier.padding(16.dp)) {
                     UserRatingContent(
                         target = target,
                         title = title,
                         subtitle = subtitle,
                         onDone = onDismiss,
+                        frostMenu = true,
                         modifier = Modifier
                             .weight(1f, fill = false)
                             .verticalScroll(rememberScrollState()),
@@ -213,6 +217,7 @@ fun UserRatingContent(
     title: String,
     subtitle: String?,
     onDone: () -> Unit,
+    frostMenu: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val state by UserRatingsRepository.uiState.collectAsState()
@@ -311,6 +316,7 @@ fun UserRatingContent(
         UserRatingScale(
             selected = displayed,
             enabled = canEdit,
+            frostMenu = frostMenu,
             onSelect = ::commitRating,
         )
 
@@ -330,6 +336,7 @@ fun UserRatingContent(
                             providerId = providerId,
                             rating = entry.byProvider[providerId],
                             selected = providerId in enabled,
+                            frostMenu = frostMenu,
                             onToggle = {
                                 UserRatingsRepository.setProviderEnabled(providerId, providerId !in enabled)
                             },
@@ -385,6 +392,7 @@ private fun UserRatingScale(
     selected: Int?,
     enabled: Boolean,
     onSelect: (Int) -> Unit,
+    frostMenu: Boolean = false,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().widthIn(max = 520.dp),
@@ -410,8 +418,13 @@ private fun UserRatingScale(
                     .clip(CircleShape)
                     .background(
                         when {
-                            isSelected -> MaterialTheme.colorScheme.primary
+                            isSelected -> if (frostMenu) {
+                                playerMenuSelectedColor(MaterialTheme.colorScheme.primary)
+                            } else {
+                                MaterialTheme.colorScheme.primary
+                            }
                             filled -> MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                            frostMenu -> PlayerMenuRowFill
                             else -> MaterialTheme.colorScheme.surfaceVariant
                         },
                     )
@@ -440,14 +453,15 @@ private fun ProviderChip(
     rating: Int?,
     selected: Boolean,
     onToggle: () -> Unit,
+    frostMenu: Boolean = false,
 ) {
     Surface(
         onClick = onToggle,
         shape = RoundedCornerShape(50),
-        color = if (selected) {
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant
+        color = when {
+            selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+            frostMenu -> PlayerMenuRowFill
+            else -> MaterialTheme.colorScheme.surfaceVariant
         },
         contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
     ) {

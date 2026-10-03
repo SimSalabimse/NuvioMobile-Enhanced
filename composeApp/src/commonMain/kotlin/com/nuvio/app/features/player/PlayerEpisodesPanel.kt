@@ -304,7 +304,7 @@ private fun EpisodeSeasonChip(
         modifier = Modifier
             .height(32.dp)
             .clip(shape)
-            .background(if (isSelected) Color(0xFFF5F5F5) else tokens.colors.surfaceCard)
+            .background(if (isSelected) Color(0xFFF5F5F5) else PlayerMenuRowFill)
             .border(
                 1.dp,
                 if (isSelected) Color.Transparent else tokens.colors.borderDefault,
@@ -354,7 +354,7 @@ private fun EpisodeRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(cardShape)
-            .background(tokens.colors.surfaceCard)
+            .background(PlayerMenuRowFill)
             .then(
                 if (isCurrent) {
                     Modifier.border(width = 2.dp, color = tokens.colors.focusRing, shape = cardShape)
@@ -375,7 +375,7 @@ private fun EpisodeRow(
                 .width(if (compactRow) 96.dp else 130.dp)
                 .height(if (compactRow) 54.dp else 90.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(tokens.colors.surfacePopover),
+                .background(PlayerMenuRowFill),
         ) {
             episode.thumbnail?.let { thumbnail ->
                 AsyncImage(

@@ -4,7 +4,9 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -71,6 +73,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.ui.NuvioInputField
 import com.nuvio.app.features.livetv.LiveTvChannel
+import com.nuvio.app.isIos
 import com.nuvio.app.features.livetv.LiveTvRepository
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
@@ -163,22 +166,7 @@ fun PlayerLiveChannelsPanel(
         }
     }
 
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn(tween(200)),
-        exit = fadeOut(tween(200)),
-    ) {
-        BoxWithConstraints(
-            modifier = modifier
-                .fillMaxSize()
-                .clickable(
-                    indication = null,
-                    interactionSource = remember { MutableInteractionSource() },
-                    onClick = onDismiss,
-                )
-                .background(colorScheme.scrim.copy(alpha = 0.52f)),
-            contentAlignment = Alignment.Center,
-        ) {
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
             val phonePanel = LocalPlayerSizeClass.current != PlayerSizeClass.T
             val leadingInset = WindowInsets.safeContent
                 .asPaddingValues()
@@ -193,11 +181,45 @@ fun PlayerLiveChannelsPanel(
             } else {
                 RoundedCornerShape(24.dp)
             }
+            val scrimAlpha = if (phonePanel) {
+                playerSidePanelScrimAlpha(
+                    ios = isIos,
+                    reduceTransparency = playerReduceTransparencyEnabled(),
+                )
+            } else {
+                PlayerCenteredCardVeilAlpha
+            }
+            val scrimInteraction = remember { MutableInteractionSource() }
             AnimatedVisibility(
                 visible = visible,
-                enter = slideInVertically(tween(300)) { it / 3 } + fadeIn(tween(300)),
-                exit = slideOutVertically(tween(250)) { it / 3 } + fadeOut(tween(250)),
-                modifier = if (phonePanel) Modifier.align(Alignment.CenterEnd) else Modifier,
+                enter = fadeIn(tween(200)),
+                exit = fadeOut(tween(200)),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = scrimAlpha))
+                        .clickable(
+                            indication = null,
+                            interactionSource = scrimInteraction,
+                            onClick = onDismiss,
+                        ),
+                )
+            }
+            AnimatedVisibility(
+                visible = visible,
+                enter = if (phonePanel) {
+                    slideInHorizontally(tween(250)) { it }
+                } else {
+                    slideInVertically(tween(300)) { it / 3 }
+                },
+                exit = if (phonePanel) {
+                    slideOutHorizontally(tween(200)) { it }
+                } else {
+                    slideOutVertically(tween(250)) { it / 3 }
+                },
+                modifier = if (phonePanel) Modifier.align(Alignment.CenterEnd) else Modifier.align(Alignment.Center),
             ) {
                 Box(
                     modifier = if (phonePanel) {
@@ -212,7 +234,6 @@ fun PlayerLiveChannelsPanel(
                             .heightIn(max = 640.dp)
                     }
                         .clip(panelShape)
-                        .background(colorScheme.surface)
                         .border(1.dp, colorScheme.outlineVariant.copy(alpha = 0.8f), panelShape)
                         .clickable(
                             indication = null,
@@ -220,6 +241,7 @@ fun PlayerLiveChannelsPanel(
                             onClick = {},
                         ),
                 ) {
+                    PlayerMenuBackdrop(modifier = Modifier.matchParentSize(), shape = panelShape)
                     Column {
                         Row(
                             modifier = Modifier
@@ -324,7 +346,6 @@ fun PlayerLiveChannelsPanel(
                     }
                 }
             }
-        }
     }
 }
 
@@ -411,7 +432,7 @@ private fun PlayerLiveChannelFilterChip(
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(999.dp))
-            .background(if (selected) colorScheme.primaryContainer else colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .background(if (selected) playerMenuSelectedColor(colorScheme.primary) else PlayerMenuRowFill)
             .border(
                 width = 1.dp,
                 color = if (selected) colorScheme.primary.copy(alpha = 0.45f) else colorScheme.outlineVariant.copy(alpha = 0.7f),
@@ -422,7 +443,7 @@ private fun PlayerLiveChannelFilterChip(
     ) {
         Text(
             text = label,
-            color = if (selected) colorScheme.onPrimaryContainer else colorScheme.onSurface,
+            color = if (selected) Color.White else colorScheme.onSurface,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
             maxLines = 1,
@@ -445,7 +466,7 @@ private fun PlayerLiveChannelCategoryFilterChip(
         Row(
             modifier = Modifier
                 .clip(RoundedCornerShape(999.dp))
-                .background(if (selected) colorScheme.primaryContainer else colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                .background(if (selected) playerMenuSelectedColor(colorScheme.primary) else PlayerMenuRowFill)
                 .border(
                     width = 1.dp,
                     color = if (selected) colorScheme.primary.copy(alpha = 0.45f) else colorScheme.outlineVariant.copy(alpha = 0.7f),
@@ -458,7 +479,7 @@ private fun PlayerLiveChannelCategoryFilterChip(
         ) {
             Text(
                 text = label,
-                color = if (selected) colorScheme.onPrimaryContainer else colorScheme.onSurface,
+                color = if (selected) Color.White else colorScheme.onSurface,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -467,7 +488,7 @@ private fun PlayerLiveChannelCategoryFilterChip(
             Icon(
                 imageVector = Icons.Rounded.KeyboardArrowDown,
                 contentDescription = null,
-                tint = if (selected) colorScheme.onPrimaryContainer else colorScheme.onSurfaceVariant,
+                tint = if (selected) Color.White else colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(18.dp),
             )
         }
@@ -527,7 +548,7 @@ private fun PlayerLiveChannelsEmptyState() {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
-            .background(colorScheme.surfaceVariant.copy(alpha = 0.35f))
+            .background(PlayerMenuRowFill)
             .border(1.dp, colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
             .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -579,7 +600,7 @@ private fun LiveChannelRow(
             modifier = Modifier
                 .size(width = 72.dp, height = 40.dp)
                 .clip(RoundedCornerShape(8.dp))
-                .background(colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+                .background(PlayerMenuRowFill),
             contentAlignment = Alignment.Center,
         ) {
             if (!channel.logoUrl.isNullOrBlank()) {

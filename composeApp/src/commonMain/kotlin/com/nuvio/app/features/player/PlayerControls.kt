@@ -9,6 +9,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -154,6 +155,27 @@ internal fun PlayerControlsShell(
     val density = LocalDensity.current
     var timelineHeight by remember { mutableStateOf(0.dp) }
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val safePadding = WindowInsets.safeContent.asPaddingValues()
+        val pictureEdge = pictureMargins(
+            frameWidth = maxWidth,
+            frameHeight = maxHeight,
+            videoWidth = playbackSnapshot.videoWidth,
+            videoHeight = playbackSnapshot.videoHeight,
+            resizeMode = resizeMode,
+        )
+        val topRowEdge = flagLockCloseEdge(
+            margins = pictureEdge,
+            rowWidth = transportTopRowWidth(onSubmitIntroClick != null),
+            rowHeight = PlayerTransportTopButtonSize,
+            topInset = safePadding.calculateTopPadding(),
+            trailingInset = horizontalSafePadding,
+        )
+        var bottomActionHeight by remember { mutableStateOf(0.dp) }
+        val bottomActionInBar = bottomRowInBottomBar(
+            margins = pictureEdge,
+            rowHeight = bottomActionHeight,
+            bottomInset = safePadding.calculateBottomPadding(),
+        )
         val centerControlHeight = metrics.playIconSize + maxOf(metrics.playButtonPadding, metrics.sideButtonPadding) * 2
         val centerBottomPadding = if (useLegacyLayout) metrics.centerLift else maxOf(
             metrics.centerLift,
@@ -233,7 +255,16 @@ internal fun PlayerControlsShell(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .windowInsetsPadding(WindowInsets.safeContent.only(WindowInsetsSides.Top))
-                            .padding(horizontal = metrics.horizontalPadding, vertical = metrics.verticalPadding / 4),
+                            .then(
+                                when (topRowEdge) {
+                                    TransportEdge.TrailingBar -> Modifier.padding(top = metrics.verticalPadding / 4)
+                                    TransportEdge.TopBar -> Modifier.padding(horizontal = metrics.horizontalPadding)
+                                    TransportEdge.OnPicture -> Modifier.padding(
+                                        horizontal = metrics.horizontalPadding,
+                                        vertical = metrics.verticalPadding / 4,
+                                    )
+                                },
+                            ),
                     )
                 }
                 ParentalGuideOverlay(
@@ -311,7 +342,13 @@ internal fun PlayerControlsShell(
                         .onSizeChanged { size -> timelineHeight = with(density) { size.height.toDp() } }
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .windowInsetsPadding(playerTimelineBottomInsets(metrics))
+                        .windowInsetsPadding(
+                            if (bottomActionInBar) {
+                                WindowInsets.safeContent.only(WindowInsetsSides.Bottom)
+                            } else {
+                                playerTimelineBottomInsets(metrics)
+                            },
+                        )
                         .padding(horizontal = metrics.horizontalPadding),
                 ) {
                     if (!hideDetails) {
@@ -338,31 +375,37 @@ internal fun PlayerControlsShell(
                             onScrubFinished(it)
                         },
                     )
-                    PlayerControlActions(
-                        playbackSnapshot = playbackSnapshot,
-                        playbackClock = playbackClock,
-                        scrubbingPositionMs = scrubbingPositionMs,
-                        showRemainingTime = showRemainingTime,
-                        onRuntimeClick = onRuntimeClick,
-                        metrics = metrics,
-                        resizeMode = resizeMode,
-                        onSubtitleClick = { onSubtitleClick?.invoke() },
-                        onAudioClick = { onAudioClick?.invoke() },
-                        onSourcesClick = onSourcesClick,
-                        onEpisodesClick = onEpisodesClick,
-                        onNextEpisodeClick = onNextEpisodeClick,
-                        onSpeedClick = { onSpeedClick?.invoke() },
-                        onResizeModeClick = onResizeModeClick,
-                        onVideoSettingsClick = onVideoSettingsClick,
-                        onOpenInExternalPlayer = onOpenInExternalPlayer,
-                        qualityLabel = qualityLabel,
-                        onQualityClick = onQualityClick,
-                        onPictureInPictureClick = onPictureInPictureClick,
-                        onInfoClick = onInfoClick,
-                        onRateClick = onRateClick,
-                        userRating = userRating,
-                        onInteraction = onInteraction,
-                    )
+                    Box(
+                        modifier = Modifier.onSizeChanged { size ->
+                            bottomActionHeight = with(density) { size.height.toDp() }
+                        },
+                    ) {
+                        PlayerControlActions(
+                            playbackSnapshot = playbackSnapshot,
+                            playbackClock = playbackClock,
+                            scrubbingPositionMs = scrubbingPositionMs,
+                            showRemainingTime = showRemainingTime,
+                            onRuntimeClick = onRuntimeClick,
+                            metrics = metrics,
+                            resizeMode = resizeMode,
+                            onSubtitleClick = { onSubtitleClick?.invoke() },
+                            onAudioClick = { onAudioClick?.invoke() },
+                            onSourcesClick = onSourcesClick,
+                            onEpisodesClick = onEpisodesClick,
+                            onNextEpisodeClick = onNextEpisodeClick,
+                            onSpeedClick = { onSpeedClick?.invoke() },
+                            onResizeModeClick = onResizeModeClick,
+                            onVideoSettingsClick = onVideoSettingsClick,
+                            onOpenInExternalPlayer = onOpenInExternalPlayer,
+                            qualityLabel = qualityLabel,
+                            onQualityClick = onQualityClick,
+                            onPictureInPictureClick = onPictureInPictureClick,
+                            onInfoClick = onInfoClick,
+                            onRateClick = onRateClick,
+                            userRating = userRating,
+                            onInteraction = onInteraction,
+                        )
+                    }
                 }
             }
         }

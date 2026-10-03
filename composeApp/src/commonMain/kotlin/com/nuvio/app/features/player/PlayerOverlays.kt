@@ -300,7 +300,6 @@ internal fun ErrorModal(
 ) {
     PlayerCenteredCard(
         onDismiss = onDismiss,
-        scrimColor = Color.Black.copy(alpha = 0.9f),
     ) {
         Text(
             text = stringResource(Res.string.compose_player_playback_error),

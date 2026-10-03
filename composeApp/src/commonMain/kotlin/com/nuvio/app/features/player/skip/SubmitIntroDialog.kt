@@ -2,6 +2,7 @@ package com.nuvio.app.features.player.skip
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -63,9 +64,12 @@ import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.atLeastIosHitTarget
 import com.nuvio.app.features.player.LocalPlayerSizeClass
+import com.nuvio.app.features.player.PlayerMenuBackdrop
+import com.nuvio.app.features.player.PlayerMenuRowFill
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.PlayerSidePanel
 import com.nuvio.app.features.player.PlayerSizeClass
+import com.nuvio.app.features.player.playerMenuSelectedColor
 import com.nuvio.app.features.tmdb.TmdbService
 import com.nuvio.app.isIos
 import kotlinx.coroutines.CancellationException
@@ -440,7 +444,7 @@ fun SubmitIntroDialog(
                                     .weight(1f)
                                     .heightIn(min = 0.dp.atLeastIosHitTarget()),
                                 shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                color = PlayerMenuRowFill,
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
                             ) {
                                 BasicTextField(
@@ -621,9 +625,11 @@ fun SubmitIntroDialog(
                             .height(30.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .background(
-                                MaterialTheme.colorScheme.surfaceVariant.copy(
-                                    alpha = if (noneDisabled) 0.22f else 0.32f,
-                                ),
+                                if (noneDisabled) {
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+                                } else {
+                                    PlayerMenuRowFill
+                                },
                             )
                             .clickable(enabled = !busy && !noneDisabled) {
                                 beginSubmit(absentSegment = true)
@@ -694,7 +700,7 @@ fun SubmitIntroDialog(
                             .weight(1f)
                             .heightIn(min = 44.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f))
+                            .background(PlayerMenuRowFill)
                             .clickable(enabled = !busy, onClick = onDismiss),
                         contentAlignment = Alignment.Center
                     ) {
@@ -763,17 +769,16 @@ fun SubmitIntroDialog(
         BasicAlertDialog(onDismissRequest = onDismiss) {
             BoxWithConstraints {
                 val sheetHeight = minOf(640.dp, maxHeight * 0.86f)
-                Surface(
+                val cardShape = RoundedCornerShape(28.dp)
+                Box(
                     modifier = Modifier
                         .padding(horizontal = 16.dp, vertical = 24.dp)
                         .widthIn(max = 420.dp)
-                        .heightIn(max = sheetHeight),
-                    shape = RoundedCornerShape(28.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.42f),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.22f)),
-                    tonalElevation = 0.dp,
-                    shadowElevation = 16.dp,
+                        .heightIn(max = sheetHeight)
+                        .clip(cardShape)
+                        .border(1.dp, Color.White.copy(alpha = 0.22f), cardShape),
                 ) {
+                    PlayerMenuBackdrop(Modifier.matchParentSize(), cardShape)
                     formContent(
                         Modifier
                             .padding(24.dp)
@@ -911,8 +916,8 @@ private fun SegmentTypeButton(
 ) {
     val backgroundColor = when {
         disabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
-        selected -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f)
+        selected -> playerMenuSelectedColor(MaterialTheme.colorScheme.primary)
+        else -> PlayerMenuRowFill
     }
     val contentColor = when {
         disabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
