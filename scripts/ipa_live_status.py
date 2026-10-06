@@ -22,8 +22,9 @@ import urllib.error
 import urllib.request
 import zipfile
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -77,6 +78,10 @@ PRODUCT_IPHONE = "Nuvio for iPhone"
 PRODUCT_MAC = "Nuvio for Mac"
 PACKAGE_NOTICE = "The package was published and the debug-symbol step failed."
 PAPERCLIP_ORIGIN = "http://127.0.0.1:3100"
+UPSTREAM_ROUTINE_ID = "7ae6fd17-3a97-4ea7-8b45-c17d38224440"
+UPSTREAM_CACHE_SECONDS = 60.0
+UPSTREAM_REFUSED = "The merge and build could not be started."
+OSLO = ZoneInfo("Europe/Oslo")
 PAPERCLIP_COMPANY_ID = "cd341142-29fa-4c5e-91e5-a4ac0b86f3b2"
 NUVIO_PROJECT_ID = "5b2fd5e1-2635-4253-8f06-e289c17cc993"
 PAPERCLIP_POLL_SECONDS = 15.0
@@ -2285,6 +2290,7 @@ def command_next_package(args: argparse.Namespace) -> int:
 
 
 def self_test() -> int:
+    import subprocess
     import tempfile
 
     failures = []
@@ -2292,6 +2298,213 @@ def self_test() -> int:
     def check(condition: bool, message: str) -> None:
         if not condition:
             failures.append(message)
+
+    for raw, expected in (
+        ("2026-10-06T13:59:00Z", "2026-10-06T14:00:00Z"),
+        ("2026-10-06T14:00:00Z", "2026-10-07T14:00:00Z"),
+        ("2026-10-26T14:59:00Z", "2026-10-26T15:00:00Z"),
+        ("2026-10-26T15:00:00Z", "2026-10-27T15:00:00Z"),
+    ):
+        moment = datetime.strptime(raw, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        got = next_upstream_iso(moment)
+        check(got == expected, f"oslo schedule {raw} -> {got} expected {expected}")
+    check(
+        github_slug("https://github.com/SimSalabimse/NuvioMobile-Enhanced.git")
+        == "github.com/simsalabimse/nuviomobile-enhanced",
+        "github slug",
+    )
+    check(github_slug("git@github.com:NuvioMedia/NuvioDesktop.git") == "github.com/nuviomedia/nuviodesktop", "ssh slug")
+    iphone_ahead = {
+        "count": 2,
+        "name": "iPhone",
+        "short": "4d3346a7",
+        "status": "ahead",
+        "tip": "4d3346a7ff4817c183b5ed21ee9258f8f47a7226",
+    }
+    mac_current = {
+        "count": 0,
+        "name": "Mac",
+        "short": "ccd28802",
+        "status": "current",
+        "tip": "ccd288021dd6843a92942f98a52e4b97cef33e3e",
+    }
+    iphone_current = {
+        "count": 0,
+        "name": "iPhone",
+        "short": "0bae96d5",
+        "status": "current",
+        "tip": "0bae96d566240f4f18667044cd0230caf2c9d790",
+    }
+    iphone_unavailable = {"count": 0, "name": "iPhone", "short": "", "status": "unavailable", "tip": ""}
+    mac_unavailable = {"count": 0, "name": "Mac", "short": "", "status": "unavailable", "tip": ""}
+    check(
+        upstream_status_lines(False, [iphone_ahead, mac_current])
+        == ["iPhone upstream has 2 commits that are not merged, through 4d3346a7."],
+        "ahead line",
+    )
+    check(
+        upstream_status_lines(False, [iphone_current, mac_current]) == ["Upstream is already merged."],
+        "current line",
+    )
+    check(
+        upstream_status_lines(False, [iphone_unavailable, mac_unavailable]) == ["Upstream could not be checked."],
+        "unavailable line",
+    )
+    check(
+        upstream_status_lines(False, [iphone_unavailable, mac_current]) == ["iPhone upstream could not be checked."],
+        "one unavailable line",
+    )
+    check(
+        upstream_status_lines(False, [iphone_ahead, mac_unavailable])
+        == [
+            "iPhone upstream has 2 commits that are not merged, through 4d3346a7.",
+            "Mac upstream could not be checked.",
+        ],
+        "ahead and unavailable lines",
+    )
+    check(
+        upstream_status_lines(True, [iphone_ahead, mac_current]) == ["Merge and build is running."],
+        "running line",
+    )
+    check(
+        not routine_has_active_issue([{"linkedIssue": {"status": "done"}, "status": "completed"}]),
+        "finished routine run looked active",
+    )
+    check(
+        routine_has_active_issue([{"linkedIssue": {"status": "in_progress"}, "status": "queued"}]),
+        "active routine issue was missed",
+    )
+    check(routine_has_active_issue([{"status": "running"}]), "run without an issue yet was missed")
+    check(not routine_has_active_issue([{"status": "coalesced"}]), "coalesced run looked active")
+    routine_calls: list[tuple] = []
+
+    def record_exchange(method: str, path: str, body: dict | None = None, code: int = 202):
+        routine_calls.append((method, path, body))
+        return code, b"{}"
+
+    status, payload = start_upstream_run([iphone_ahead, mac_current], False, record_exchange)
+    check(status == 200 and payload == {"ok": True}, f"manual run {status} {payload}")
+    check(
+        routine_calls
+        and routine_calls[0][0] == "POST"
+        and routine_calls[0][1] == f"/api/routines/{UPSTREAM_ROUTINE_ID}/run"
+        and routine_calls[0][2]["source"] == "manual"
+        and routine_calls[0][2]["idempotencyKey"] == iphone_ahead["tip"] + "+" + mac_current["tip"],
+        f"routine body {routine_calls}",
+    )
+    status, payload = start_upstream_run([iphone_ahead, mac_current], True, record_exchange)
+    check(status == 409 and payload.get("error") == "Merge and build is running.", f"running press {status} {payload}")
+    check(len(routine_calls) == 1, "running press called the routine")
+    status, payload = start_upstream_run([iphone_current, mac_current], False, record_exchange)
+    check(status == 409 and payload.get("error") == "Upstream is already merged.", f"current press {status} {payload}")
+    check(len(routine_calls) == 1, "current press called the routine")
+    status, payload = start_upstream_run([iphone_ahead, mac_current], False, lambda *_args: (500, b""))
+    check(status == 502 and payload.get("error") == UPSTREAM_REFUSED, f"refused run {status} {payload}")
+    status, payload = start_upstream_run(
+        [iphone_ahead, mac_current],
+        False,
+        lambda *_args: (_ for _ in ()).throw(UpstreamDown("offline")),
+    )
+    check(status == 502 and payload.get("error") == UPSTREAM_REFUSED, f"offline run {status} {payload}")
+    for accepted in (200, 201):
+        status, payload = start_upstream_run([iphone_ahead, mac_current], False, lambda *_args, accepted=accepted: (accepted, b"{}"))
+        check(status == 200 and payload == {"ok": True}, f"paperclip {accepted} was not success")
+    try:
+        with tempfile.TemporaryDirectory() as raw_upstream:
+            root = Path(raw_upstream)
+            upstream_bare = root / "upstream.git"
+            origin_bare = root / "origin.git"
+            work = root / "work"
+            other = root / "other"
+            hooks = root / "hooks"
+            hooks.mkdir()
+            subprocess.run(["git", "init", "--bare", str(upstream_bare)], check=True, capture_output=True)
+            subprocess.run(["git", "init", "--bare", str(origin_bare)], check=True, capture_output=True)
+            subprocess.run(["git", "init", "-b", "enhanced", str(work)], check=True, capture_output=True)
+            for repo_path in (work,):
+                subprocess.run(["git", "-C", str(repo_path), "config", "user.email", "test@example.com"], check=True, capture_output=True)
+                subprocess.run(["git", "-C", str(repo_path), "config", "user.name", "Nuvio Test"], check=True, capture_output=True)
+                subprocess.run(["git", "-C", str(repo_path), "config", "commit.gpgsign", "false"], check=True, capture_output=True)
+                subprocess.run(["git", "-C", str(repo_path), "config", "core.hooksPath", str(hooks)], check=True, capture_output=True)
+            (work / "one.txt").write_text("one\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(work), "add", "one.txt"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(work), "commit", "-m", "one"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(work), "remote", "add", "origin", str(origin_bare)], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(work), "remote", "add", "enhanced", str(upstream_bare)], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(work), "push", "origin", "enhanced"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(work), "push", "enhanced", "enhanced"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(work), "fetch", "origin"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(work), "fetch", "enhanced"], check=True, capture_output=True)
+            (work / "local.txt").write_text("local\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(work), "add", "local.txt"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(work), "commit", "-m", "local only"], check=True, capture_output=True)
+            local_head = subprocess.check_output(["git", "-C", str(work), "rev-parse", "refs/heads/enhanced"], text=True).strip()
+            same = compare_refs(work, "iPhone", "origin", "enhanced", "enhanced")
+            check(same["status"] == "current" and same["count"] == 0, f"equal tips {same}")
+            check(
+                subprocess.check_output(["git", "-C", str(work), "rev-parse", "refs/heads/enhanced"], text=True).strip() == local_head,
+                "fetch moved enhanced",
+            )
+            subprocess.run(["git", "-C", str(upstream_bare), "symbolic-ref", "HEAD", "refs/heads/enhanced"], check=True, capture_output=True)
+            subprocess.run(["git", "clone", str(upstream_bare), str(other)], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(other), "config", "user.email", "test@example.com"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(other), "config", "user.name", "Nuvio Test"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(other), "config", "commit.gpgsign", "false"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(other), "config", "core.hooksPath", str(hooks)], check=True, capture_output=True)
+            (other / "two.txt").write_text("two\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(other), "add", "two.txt"], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(other), "commit", "-m", "two"], check=True, capture_output=True)
+            upstream_tip = subprocess.check_output(["git", "-C", str(other), "rev-parse", "HEAD"], text=True).strip().lower()
+            subprocess.run(["git", "-C", str(other), "push", "origin", "HEAD:refs/heads/enhanced"], check=True, capture_output=True)
+            ahead = compare_refs(work, "iPhone", "origin", "enhanced", "enhanced")
+            check(ahead["status"] == "ahead" and ahead["count"] == 1, f"ahead count {ahead}")
+            check(ahead["tip"] == upstream_tip and ahead["short"] == upstream_tip[:8], f"ahead tip {ahead}")
+            check(
+                subprocess.check_output(["git", "-C", str(work), "rev-parse", "refs/heads/enhanced"], text=True).strip() == local_head,
+                "second fetch moved enhanced",
+            )
+            subprocess.run(["git", "-C", str(work), "update-ref", "-d", "refs/remotes/enhanced/enhanced"], check=True, capture_output=True)
+            missing = compare_refs(work, "iPhone", "origin", "enhanced", "enhanced")
+            check(missing["status"] == "unavailable", f"missing tracking {missing}")
+            still_missing = subprocess.run(
+                ["git", "-C", str(work), "show-ref", "--verify", "--quiet", "refs/remotes/enhanced/enhanced"],
+                capture_output=True,
+            )
+            check(still_missing.returncode != 0, "fetch created a remote-tracking ref")
+            check(
+                subprocess.check_output(["git", "-C", str(work), "rev-parse", "refs/heads/enhanced"], text=True).strip() == local_head,
+                "missing fetch moved enhanced",
+            )
+    except Exception as exc:
+        check(False, f"upstream fetch fixture {exc}")
+
+    mobile_path = builds_request.mobile_repository()
+    desktop_path = builds_request.desktop_repository()
+    real_enhanced_before = builds_request.git_commit(mobile_path, "refs/heads/enhanced") if mobile_path else None
+    real_dev_before = builds_request.git_commit(desktop_path, "refs/heads/Dev") if desktop_path else None
+    live_exchange = _PAPERCLIP_EXCHANGE[0]
+    live_loader = _SURFACE_LOADER[0]
+
+    def guarded_exchange(method: str, path: str, body: dict | None = None) -> tuple[int, bytes]:
+        if method.upper() == "POST" and path.rstrip("/").endswith("/run"):
+            failures.append("self-test called the live routine run")
+            return 599, b""
+        if method.upper() == "GET" and path.endswith("/runs"):
+            return 200, b"[]"
+        failures.append(f"unexpected paperclip {method} {path}")
+        return 599, b""
+
+    def fixture_surfaces(_now: float) -> list[dict]:
+        return [dict(iphone_current), dict(mac_current)]
+
+    _PAPERCLIP_EXCHANGE[0] = guarded_exchange
+    _SURFACE_LOADER[0] = fixture_surfaces
+    with _upstream_lock:
+        _upstream_cache["running"] = None
+        _upstream_cache["running_at"] = 0.0
+        _upstream_cache["running_token"] = 0
+        _upstream_cache["surfaces"] = None
+        _upstream_cache["surfaces_at"] = 0.0
 
     with tempfile.TemporaryDirectory() as temporary:
         directory = Path(temporary)
@@ -2637,6 +2850,22 @@ def self_test() -> int:
         check('id="log-view"' not in page_html and 'id="desktop-log-view"' not in page_html, "log is on the idle page")
         check("Show log" in page_js, "log disclosure missing")
         check("Update everything" in page_js and "Choose commits" in page_html, "update control missing")
+        check('id="upstream-run"' in page_html and 'class="upstream"' in page_html, "upstream band missing")
+        check(page_html.find('id="upstream-run"') < page_html.find('class="products"'), "upstream band is not before the products")
+        check("Run merge and build" in page_html, "run button missing")
+        check('id="upstream-run-button" hidden' in page_html, "run button starts visible")
+        check("Next automatic merge and build in" in page_js, "countdown copy missing")
+        check("Merge and build is running." in page_js, "running line missing")
+        check("Upstream is already merged." in page_js, "current line missing")
+        check("upstream could not be checked" in page_js, "unavailable line missing")
+        check("commits that are not merged" in page_js, "ahead line missing")
+        check('fetch("/api/upstream-run"' in page_js, "upstream post missing")
+        check("setInterval(tickUpstream, 1000)" in page_js, "countdown is not every second")
+        check("clearInterval(upstreamTimer)" not in page_js, "poll clears the countdown")
+        check("127.0.0.1:3100" not in page_js and "/api/routines/" not in page_js, "page calls paperclip")
+        check("upstreamRun" in seed_payload and isinstance(seed_payload["upstreamRun"].get("nextAt"), str), "seed missing upstream run")
+        check(seed_payload["upstreamRun"].get("lines") == ["Upstream is already merged."], "seed lines")
+        check(seed_payload["upstreamRun"].get("running") is False, "seed running")
         check("Replace the running build" in page_js, "replace control missing")
         check(
             "This stops the compile that is running and requests the latest instead." in page_js,
@@ -3447,6 +3676,32 @@ selected = context.applyPrefixToggle(commits, selected, 0, true);
 assert(context.newestChecked(commits, selected) === "aaa", 7);
 selected = context.applyPrefixToggle(commits, selected, 0, false);
 assert(!selected.aaa && selected.bbb && context.newestChecked(commits, selected) === "bbb", 8);
+assert(context.countdownLabel("2026-10-06T14:00:00Z", Date.parse("2026-10-06T10:56:00Z")) === "Next automatic merge and build in 3h 04m", 20);
+assert(context.countdownLabel("2026-10-06T14:00:00Z", Date.parse("2026-10-06T13:47:55Z")) === "Next automatic merge and build in 12m 05s", 21);
+assert(context.countdownLabel("2026-10-06T14:00:00Z", Date.parse("2026-10-06T13:59:18Z")) === "Next automatic merge and build in 42s", 22);
+assert(context.countdownLabel("2026-10-06T14:00:00Z", Date.parse("2026-10-06T13:00:00Z")) === "Next automatic merge and build in 1h 00m", 23);
+const aheadLines = context.upstreamStatusLines(false, [
+  {name:"iPhone", status:"ahead", count:2, short:"4d3346a7"},
+  {name:"Mac", status:"current", count:0, short:"ccd28802"}
+]);
+assert(aheadLines.length === 1 && aheadLines[0] === "iPhone upstream has 2 commits that are not merged, through 4d3346a7.", 24);
+const currentLines = context.upstreamStatusLines(false, [
+  {name:"iPhone", status:"current", count:0, short:"0bae96d5"},
+  {name:"Mac", status:"current", count:0, short:"ccd28802"}
+]);
+assert(currentLines.length === 1 && currentLines[0] === "Upstream is already merged.", 25);
+const missingLines = context.upstreamStatusLines(false, [
+  {name:"iPhone", status:"unavailable"},
+  {name:"Mac", status:"unavailable"}
+]);
+assert(missingLines.length === 1 && missingLines[0] === "Upstream could not be checked.", 26);
+const oneMissing = context.upstreamStatusLines(false, [
+  {name:"iPhone", status:"unavailable"},
+  {name:"Mac", status:"current"}
+]);
+assert(oneMissing.length === 1 && oneMissing[0] === "iPhone upstream could not be checked.", 27);
+const runningLines = context.upstreamStatusLines(true, [{name:"iPhone", status:"ahead", count:2, short:"4d3346a7"}]);
+assert(runningLines.length === 1 && runningLines[0] === "Merge and build is running.", 28);
 """
             script_path = repo / "prefix.js"
             script_path.write_text(prefix_script, encoding="utf-8")
@@ -3671,6 +3926,63 @@ if (stats.indexOf("Building") < 0 || stats.indexOf("xcodebuild") < 0 || stats.in
 if (stats.indexOf("8m 02s left") < 0 || stats.indexOf("aaaaaaaa") < 0 || stats.indexOf("started ") < 0) fail(31, stats);
 const logDetails = walk(nodes["ipa-compile"], []).find((node) => node.tagName === "DETAILS");
 if (!logDetails || logDetails.open) fail(32, "log opened during the compile");
+mount("upstream-countdown");
+mount("upstream-lines");
+const runButton = mount("upstream-run-button");
+mount("upstream-state");
+context.renderUpstream({
+  nextAt: "2026-10-06T14:00:00Z",
+  running: false,
+  surfaces: [
+    {name:"iPhone", status:"ahead", count:2, short:"4d3346a7", tip:"4d3346a7ff4817c183b5ed21ee9258f8f47a7226"},
+    {name:"Mac", status:"current", count:0, short:"ccd28802", tip:"ccd288021dd6843a92942f98a52e4b97cef33e3e"}
+  ]
+});
+if (textOf(nodes["upstream-lines"]).indexOf("iPhone upstream has 2 commits that are not merged, through 4d3346a7.") < 0) fail(40, textOf(nodes["upstream-lines"]));
+if (textOf(nodes["upstream-countdown"]).indexOf("Next automatic merge and build in ") !== 0) fail(41, textOf(nodes["upstream-countdown"]));
+if (runButton.hidden) fail(42, "button hidden while ahead");
+let upstreamPosted = null;
+const previousFetch = context.fetch;
+context.fetch = function (url, options) {
+  upstreamPosted = { url: url, body: options && options.body };
+  return Promise.resolve({
+    ok: false,
+    status: 502,
+    json: function () { return Promise.resolve({ error: "The merge and build could not be started." }); }
+  });
+};
+runButton.click();
+if (!upstreamPosted || upstreamPosted.url !== "/api/upstream-run" || upstreamPosted.body !== "{}") fail(43, JSON.stringify(upstreamPosted));
+if (String(upstreamPosted.url).indexOf("3100") >= 0 || String(upstreamPosted.url).indexOf("routines") >= 0) fail(44, upstreamPosted.url);
+context.renderUpstream({
+  nextAt: "2026-10-06T14:00:00Z",
+  running: true,
+  lines: ["Merge and build is running."],
+  surfaces: [{name:"iPhone", status:"ahead", count:2, short:"4d3346a7", tip:"4d3346a7ff4817c183b5ed21ee9258f8f47a7226"}]
+});
+if (textOf(nodes["upstream-lines"]).indexOf("Merge and build is running.") < 0) fail(45, textOf(nodes["upstream-lines"]));
+if (!runButton.hidden) fail(46, "button shown while running");
+context.renderUpstream({
+  nextAt: "2026-10-07T14:00:00Z",
+  running: false,
+  surfaces: [
+    {name:"iPhone", status:"current", count:0, short:"0bae96d5", tip:"0bae96d566240f4f18667044cd0230caf2c9d790"},
+    {name:"Mac", status:"current", count:0, short:"ccd28802", tip:"ccd288021dd6843a92942f98a52e4b97cef33e3e"}
+  ]
+});
+if (textOf(nodes["upstream-lines"]).indexOf("Upstream is already merged.") < 0) fail(47, textOf(nodes["upstream-lines"]));
+if (!runButton.hidden) fail(48, "button shown when current");
+context.renderUpstream({
+  nextAt: "2026-10-07T14:00:00Z",
+  running: false,
+  surfaces: [
+    {name:"iPhone", status:"unavailable", count:0, short:"", tip:""},
+    {name:"Mac", status:"unavailable", count:0, short:"", tip:""}
+  ]
+});
+if (textOf(nodes["upstream-lines"]).indexOf("Upstream could not be checked.") < 0) fail(49, textOf(nodes["upstream-lines"]));
+if (!runButton.hidden) fail(50, "button shown when upstream cannot be checked");
+context.fetch = previousFetch;
 """
             cut_path = repo / "cut.js"
             cut_path.write_text(cut_script, encoding="utf-8")
@@ -3720,6 +4032,105 @@ if (!logDetails || logDetails.open) fail(32, "log opened during the compile");
             check(dashboard["requestEnabled"] is True, "request control hidden")
             check([row["commit"] for row in dashboard["cuts"]["ipa"]["commits"]] == [tip, mid], "dashboard commit list")
             check(dashboard["cuts"]["ipa"]["commits"][0]["subject"] == "SIM-11 tip cut", "dashboard tip subject")
+            check(dashboard["upstreamRun"]["lines"] == ["Upstream is already merged."], "dashboard upstream lines")
+            check(dashboard["upstreamRun"]["running"] is False, "dashboard upstream running")
+            store_path = repository_root() / "store.json"
+            store_before = store_path.read_bytes() if store_path.exists() else None
+            request_existed = builds_request.request_path(directory).exists()
+
+            def post_upstream(access_token: str | None, raw: bytes | None = None) -> tuple[int, dict]:
+                data = raw if raw is not None else b"{}"
+                headers = {"Content-Type": "application/json"}
+                if access_token:
+                    headers["Cf-Access-Jwt-Assertion"] = access_token
+                request = urllib.request.Request(
+                    f"http://127.0.0.1:{port}/api/upstream-run",
+                    data=data,
+                    headers=headers,
+                    method="POST",
+                )
+                try:
+                    with urllib.request.urlopen(request, timeout=15) as response:
+                        return response.status, json.loads(response.read().decode("utf-8"))
+                except urllib.error.HTTPError as exc:
+                    raw_body = exc.read().decode("utf-8", "replace")
+                    try:
+                        parsed = json.loads(raw_body)
+                    except json.JSONDecodeError:
+                        parsed = {"raw": raw_body}
+                    return exc.code, parsed
+
+            saved_exchange = _PAPERCLIP_EXCHANGE[0]
+            upstream_calls: list[tuple] = []
+
+            def upstream_fake(method: str, path: str, body: dict | None = None) -> tuple[int, bytes]:
+                upstream_calls.append((method.upper(), path, None if body is None else dict(body)))
+                if method.upper() == "GET":
+                    if any(item[0] == "POST" for item in upstream_calls):
+                        active = [{"linkedIssue": {"id": "run-issue", "status": "in_progress"}, "status": "queued"}]
+                        return 200, json.dumps(active).encode()
+                    return 200, b"[]"
+                if method.upper() == "POST" and path == f"/api/routines/{UPSTREAM_ROUTINE_ID}/run":
+                    return 202, b'{"id":"accepted"}'
+                return 500, b""
+
+            _PAPERCLIP_EXCHANGE[0] = upstream_fake
+            try:
+                status, body = post_upstream(None)
+                check(
+                    status == 401 and body.get("error") == "Sign in through Cloudflare Access to request a build.",
+                    f"upstream 401 {status} {body}",
+                )
+                check(upstream_calls == [], "unsigned upstream press called paperclip")
+                status, body = post_upstream(token)
+                check(status == 409 and body.get("error") == "Upstream is already merged.", f"current upstream {status} {body}")
+                check(not any(item[0] == "POST" for item in upstream_calls), "current upstream posted a run")
+                ahead_surfaces = [
+                    {
+                        "count": 2,
+                        "name": "iPhone",
+                        "short": "4d3346a7",
+                        "status": "ahead",
+                        "tip": "4d3346a7ff4817c183b5ed21ee9258f8f47a7226",
+                    },
+                    {
+                        "count": 0,
+                        "name": "Mac",
+                        "short": "ccd28802",
+                        "status": "current",
+                        "tip": "ccd288021dd6843a92942f98a52e4b97cef33e3e",
+                    },
+                ]
+                with _upstream_lock:
+                    _upstream_cache["surfaces"] = ahead_surfaces
+                    _upstream_cache["surfaces_at"] = time.time()
+                upstream_calls.clear()
+                status, body = post_upstream(token)
+                check(status == 200 and body.get("ok") is True, f"upstream run {status} {body}")
+                posts = [item for item in upstream_calls if item[0] == "POST"]
+                check(len(posts) == 1 and posts[0][1] == f"/api/routines/{UPSTREAM_ROUTINE_ID}/run", f"upstream posts {posts}")
+                check(posts[0][2]["source"] == "manual", f"upstream source {posts[0][2]}")
+                check(
+                    posts[0][2]["idempotencyKey"] == ahead_surfaces[0]["tip"] + "+" + ahead_surfaces[1]["tip"],
+                    f"upstream key {posts[0][2]}",
+                )
+                status, body = post_upstream(token)
+                check(status == 409 and body.get("error") == "Merge and build is running.", f"second upstream {status} {body}")
+                check(len([item for item in upstream_calls if item[0] == "POST"]) == 1, "second press started another run")
+                check(
+                    request_existed or not builds_request.request_path(directory).exists(),
+                    "upstream run wrote build-request.json",
+                )
+                if store_before is not None:
+                    check(store_path.read_bytes() == store_before, "upstream run changed store.json")
+            finally:
+                _PAPERCLIP_EXCHANGE[0] = saved_exchange
+                with _upstream_lock:
+                    _upstream_cache["surfaces"] = None
+                    _upstream_cache["surfaces_at"] = 0.0
+                    _upstream_cache["running"] = None
+                    _upstream_cache["running_at"] = 0.0
+                    _upstream_cache["running_token"] = 0
             status, body = post_json(None, {"commit": tip, "platform": "ipa"})
             check(status == 401, f"missing jwt returned {status}")
             check(not builds_request.request_path(directory).exists(), "missing jwt wrote a request")
@@ -4002,6 +4413,13 @@ if (!logDetails || logDetails.open) fail(32, "log opened during the compile");
 
         httpd.shutdown()
 
+    real_enhanced_after = builds_request.git_commit(mobile_path, "refs/heads/enhanced") if mobile_path else None
+    real_dev_after = builds_request.git_commit(desktop_path, "refs/heads/Dev") if desktop_path else None
+    check(real_enhanced_after == real_enhanced_before, f"enhanced moved {real_enhanced_before} {real_enhanced_after}")
+    check(real_dev_after == real_dev_before, f"Dev moved {real_dev_before} {real_dev_after}")
+    _PAPERCLIP_EXCHANGE[0] = live_exchange
+    _SURFACE_LOADER[0] = live_loader
+
     if failures:
         for message in failures:
             print(f"FAIL {message}", file=sys.stderr)
@@ -4052,8 +4470,12 @@ def send_bytes(
 
 
 def send_json(handler: BaseHTTPRequestHandler, payload: dict) -> None:
+    send_json_code(handler, 200, payload)
+
+
+def send_json_code(handler: BaseHTTPRequestHandler, code: int, payload: dict) -> None:
     body = (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")
-    send_bytes(handler, 200, "application/json; charset=utf-8", body)
+    send_bytes(handler, code, "application/json; charset=utf-8", body)
 
 
 def send_build_log(handler: BaseHTTPRequestHandler, directory: Path, build_id: str) -> None:
@@ -4306,6 +4728,353 @@ def cut_view(directory: Path, platform: str, now: float, status_payload: dict) -
     }
 
 
+class UpstreamDown(Exception):
+    pass
+
+
+def quiet_git_env() -> dict[str, str]:
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    return env
+
+
+def github_slug(url: str) -> str:
+    text = url.strip()
+    text = re.sub(r"\.git$", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"^git@github\.com:", "github.com/", text, flags=re.IGNORECASE)
+    text = re.sub(r"^ssh://git@github\.com/", "github.com/", text, flags=re.IGNORECASE)
+    text = re.sub(r"^https?://github\.com/", "github.com/", text, flags=re.IGNORECASE)
+    return text.lower().rstrip("/")
+
+
+def remote_for_slug(repo: Path, slug: str) -> str | None:
+    result = builds_request.run_git(repo, ["remote", "-v"], env=quiet_git_env())
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and github_slug(parts[1]) == slug:
+            return parts[0]
+    return None
+
+
+def next_upstream_moment(moment: datetime) -> datetime:
+    """Next 16:00 Europe/Oslo strictly after moment, as UTC."""
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    utc_moment = moment.astimezone(timezone.utc)
+    day = utc_moment.astimezone(OSLO).date()
+    for offset in range(4):
+        candidate_day = day + timedelta(days=offset)
+        local_sixteen = datetime(
+            candidate_day.year,
+            candidate_day.month,
+            candidate_day.day,
+            16,
+            0,
+            0,
+            tzinfo=OSLO,
+        )
+        as_utc = local_sixteen.astimezone(timezone.utc).replace(microsecond=0)
+        if as_utc > utc_moment:
+            return as_utc
+    raise RuntimeError("no upcoming Europe/Oslo 16:00")
+
+
+def next_upstream_iso(moment: datetime) -> str:
+    return next_upstream_moment(moment).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def ahead_sentence(name: str, count: int, short: str) -> str:
+    if count == 1:
+        return f"{name} upstream has 1 commit that is not merged, through {short}."
+    return f"{name} upstream has {count} commits that are not merged, through {short}."
+
+
+def upstream_status_lines(running: bool, surfaces: list[dict]) -> list[str]:
+    if running:
+        return ["Merge and build is running."]
+    readable = [item for item in surfaces if item.get("status") != "unavailable"]
+    if not readable:
+        return ["Upstream could not be checked."]
+    lines: list[str] = []
+    for item in surfaces:
+        status = item.get("status")
+        name = str(item.get("name") or "")
+        if status == "ahead":
+            lines.append(ahead_sentence(name, int(item.get("count") or 0), str(item.get("short") or "")))
+        elif status == "unavailable":
+            lines.append(f"{name} upstream could not be checked.")
+    if lines:
+        return lines
+    return ["Upstream is already merged."]
+
+
+def fetch_tracking(repo: Path, remote: str, branch: str) -> bool:
+    """Update one existing remote-tracking ref. Leave refs/heads alone."""
+    dest = f"refs/remotes/{remote}/{branch}"
+    if builds_request.git_commit(repo, dest) is None:
+        return False
+    head = f"refs/heads/{branch}"
+    before = builds_request.git_commit(repo, head)
+    result = builds_request.run_git(
+        repo,
+        [
+            "fetch",
+            "--no-tags",
+            "--no-prune",
+            "--no-recurse-submodules",
+            remote,
+            f"+refs/heads/{branch}:{dest}",
+        ],
+        env=quiet_git_env(),
+        timeout=30,
+    )
+    after = builds_request.git_commit(repo, head)
+    if before != after:
+        return False
+    return result.returncode == 0
+
+
+def compare_refs(repo: Path, name: str, ours_remote: str, upstream_remote: str, branch: str) -> dict:
+    empty = {"count": 0, "name": name, "short": "", "status": "unavailable", "tip": ""}
+    if not fetch_tracking(repo, ours_remote, branch) or not fetch_tracking(repo, upstream_remote, branch):
+        return empty
+    ours = builds_request.git_commit(repo, f"refs/remotes/{ours_remote}/{branch}")
+    tip = builds_request.git_commit(repo, f"refs/remotes/{upstream_remote}/{branch}")
+    if not ours or not tip:
+        return empty
+    if ours == tip:
+        count = 0
+    else:
+        result = builds_request.run_git(
+            repo,
+            ["rev-list", "--count", f"{ours}..{tip}"],
+            env=quiet_git_env(),
+            timeout=15,
+        )
+        if result.returncode != 0:
+            return empty
+        try:
+            count = int(result.stdout.strip())
+        except ValueError:
+            return empty
+    return {
+        "count": count,
+        "name": name,
+        "short": tip[:8],
+        "status": "ahead" if count else "current",
+        "tip": tip,
+    }
+
+
+UPSTREAM_SURFACE_SPECS = (
+    {
+        "branch": "enhanced",
+        "name": "iPhone",
+        "ours": "github.com/simsalabimse/nuviomobile-enhanced",
+        "repo": builds_request.mobile_repository,
+        "upstream": "github.com/luqmanfadlli/nuviomobile-enhanced",
+    },
+    {
+        "branch": "Dev",
+        "name": "Mac",
+        "ours": "github.com/simsalabimse/nuviodesktop",
+        "repo": builds_request.desktop_repository,
+        "upstream": "github.com/nuviomedia/nuviodesktop",
+    },
+)
+
+
+def compare_upstream_surface(spec: dict) -> dict:
+    empty = {"count": 0, "name": spec["name"], "short": "", "status": "unavailable", "tip": ""}
+    try:
+        repo = spec["repo"]()
+        if repo is None or not Path(repo).is_dir():
+            return empty
+        ours_remote = remote_for_slug(Path(repo), spec["ours"])
+        upstream_remote = remote_for_slug(Path(repo), spec["upstream"])
+        if not ours_remote or not upstream_remote or ours_remote == upstream_remote:
+            return empty
+        return compare_refs(Path(repo), spec["name"], ours_remote, upstream_remote, spec["branch"])
+    except Exception:
+        return empty
+
+
+def load_upstream_surfaces(now: float) -> list[dict]:
+    del now
+    return [compare_upstream_surface(spec) for spec in UPSTREAM_SURFACE_SPECS]
+
+
+_SURFACE_LOADER = [load_upstream_surfaces]
+_upstream_lock = threading.Lock()
+_upstream_cache: dict = {
+    "running": None,
+    "running_at": 0.0,
+    "running_token": 0,
+    "surfaces": None,
+    "surfaces_at": 0.0,
+}
+
+
+def upstream_surfaces(now: float, force: bool = False) -> list[dict]:
+    with _upstream_lock:
+        cached = _upstream_cache["surfaces"]
+        if isinstance(cached, list) and not force and now - float(_upstream_cache["surfaces_at"]) < UPSTREAM_CACHE_SECONDS:
+            return cached
+        loaded = _SURFACE_LOADER[0](now)
+        _upstream_cache["surfaces"] = loaded
+        _upstream_cache["surfaces_at"] = time.time()
+        return loaded
+
+
+TERMINAL_RUN_STATUSES = {"cancelled", "canceled", "coalesced", "completed", "failed", "skipped"}
+TERMINAL_ISSUE_STATUSES = {"cancelled", "canceled", "done"}
+
+
+def routine_has_active_issue(payload: object) -> bool:
+    runs: list = []
+    if isinstance(payload, list):
+        runs = payload
+    elif isinstance(payload, dict):
+        for key in ("runs", "items"):
+            if isinstance(payload.get(key), list):
+                runs = payload[key]
+                break
+    for run in runs:
+        if not isinstance(run, dict):
+            continue
+        issue = run.get("linkedIssue") if isinstance(run.get("linkedIssue"), dict) else None
+        issue_status = issue.get("status") if issue else None
+        if isinstance(issue_status, str) and issue_status and issue_status not in TERMINAL_ISSUE_STATUSES:
+            return True
+        run_status = run.get("status")
+        if isinstance(run_status, str) and run_status not in TERMINAL_RUN_STATUSES:
+            return True
+    return False
+
+
+def paperclip_exchange_live(method: str, path: str, body: dict | None = None) -> tuple[int, bytes]:
+    """Loopback board call. No Authorization header, same path as the ledger comment."""
+    headers = {"Accept": "application/json"}
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(PAPERCLIP_ORIGIN + path, data=data, headers=headers, method=method)
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            return getattr(response, "status", 200), response.read()
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.read()
+    except (OSError, urllib.error.URLError, TimeoutError) as exc:
+        raise UpstreamDown(str(exc)) from exc
+
+
+_PAPERCLIP_EXCHANGE = [paperclip_exchange_live]
+
+
+def paperclip_exchange(method: str, path: str, body: dict | None = None) -> tuple[int, bytes]:
+    return _PAPERCLIP_EXCHANGE[0](method, path, body)
+
+
+def read_routine_running() -> bool:
+    status, raw = paperclip_exchange("GET", f"/api/routines/{UPSTREAM_ROUTINE_ID}/runs")
+    if status != 200:
+        raise UpstreamDown(f"routine status {status}")
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise UpstreamDown("routine runs were not json") from exc
+    return routine_has_active_issue(payload)
+
+
+def _store_running(value: bool, token: int) -> bool:
+    with _upstream_lock:
+        if token != _upstream_cache["running_token"]:
+            return bool(_upstream_cache["running"])
+        _upstream_cache["running"] = value
+        _upstream_cache["running_at"] = time.time()
+        return value
+
+
+def upstream_running(now: float, force: bool = False) -> bool:
+    with _upstream_lock:
+        cached = _upstream_cache["running"]
+        if cached is not None and not force and now - float(_upstream_cache["running_at"]) < UPSTREAM_CACHE_SECONDS:
+            return bool(cached)
+        token = int(_upstream_cache["running_token"])
+    try:
+        value = read_routine_running()
+    except UpstreamDown:
+        with _upstream_lock:
+            if _upstream_cache["running"] is not None and token == _upstream_cache["running_token"]:
+                return bool(_upstream_cache["running"])
+        value = False
+    return _store_running(value, token)
+
+
+def mark_routine_running() -> None:
+    with _upstream_lock:
+        _upstream_cache["running_token"] = int(_upstream_cache["running_token"]) + 1
+        _upstream_cache["running"] = True
+        _upstream_cache["running_at"] = time.time()
+
+
+def upstream_idempotency_key(surfaces: list[dict]) -> str:
+    return "+".join(str(item.get("tip") or "") for item in surfaces)
+
+
+def start_upstream_run(
+    surfaces: list[dict],
+    running: bool,
+    exchange=None,
+) -> tuple[int, dict]:
+    """Ask Paperclip to run the routine. Does not merge, push, or package."""
+    caller = paperclip_exchange if exchange is None else exchange
+    if running:
+        return 409, {"error": "Merge and build is running."}
+    if not any(item.get("status") == "ahead" for item in surfaces):
+        lines = upstream_status_lines(False, surfaces)
+        return 409, {"error": lines[0]}
+    try:
+        status, _raw = caller(
+            "POST",
+            f"/api/routines/{UPSTREAM_ROUTINE_ID}/run",
+            {"idempotencyKey": upstream_idempotency_key(surfaces), "source": "manual"},
+        )
+    except UpstreamDown:
+        return 502, {"error": UPSTREAM_REFUSED}
+    if status in (200, 201, 202):
+        mark_routine_running()
+        return 200, {"ok": True}
+    return 502, {"error": UPSTREAM_REFUSED}
+
+
+def submit_upstream_run(now: float) -> tuple[int, dict]:
+    surfaces = upstream_surfaces(now)
+    try:
+        running = read_routine_running()
+    except UpstreamDown:
+        return 502, {"error": UPSTREAM_REFUSED}
+    with _upstream_lock:
+        _upstream_cache["running_token"] = int(_upstream_cache["running_token"]) + 1
+        _upstream_cache["running"] = running
+        _upstream_cache["running_at"] = time.time()
+    return start_upstream_run(surfaces, running)
+
+
+def upstream_run_payload(now: float) -> dict:
+    surfaces = upstream_surfaces(now)
+    running = upstream_running(now)
+    return {
+        "lines": upstream_status_lines(running, surfaces),
+        "nextAt": next_upstream_iso(datetime.fromtimestamp(now, timezone.utc)),
+        "running": running,
+        "surfaces": surfaces,
+    }
+
+
 def dashboard_payload(directory: Path, now: float) -> dict:
     iphone = current_public(directory, now)
     desktop = desktop_public(directory, now)
@@ -4321,6 +5090,7 @@ def dashboard_payload(directory: Path, now: float) -> dict:
         "poll": {"active": active, "activeMs": 2000, "idleMs": 30000},
         "requestEnabled": builds_request.requests_enabled(),
         "servedAt": iso(now),
+        "upstreamRun": upstream_run_payload(now),
         "work": public_work(directory, now),
     }
 
@@ -4438,6 +5208,20 @@ def handle_build_request(handler: BaseHTTPRequestHandler, directory: Path) -> No
     send_bytes(handler, status, "application/json; charset=utf-8", body)
 
 
+def handle_upstream_run(handler: BaseHTTPRequestHandler, directory: Path) -> None:
+    del directory
+    token = builds_request.token_from_headers(handler.headers)
+    if not token or builds_request.verify_access_jwt(token) is None:
+        send_json_code(handler, 401, {"error": "Sign in through Cloudflare Access to request a build."})
+        return
+    payload, error = read_json_body(handler)
+    if error or payload is None:
+        send_json_code(handler, 400, {"error": error or "The request body is not valid."})
+        return
+    status, result = submit_upstream_run(time.time())
+    send_json_code(handler, status, result)
+
+
 def _handler_for(directory: Path):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802
@@ -4486,6 +5270,9 @@ def _handler_for(directory: Path):
             path = urlparse(self.path).path
             if path == "/api/build-request":
                 handle_build_request(self, directory)
+                return
+            if path == "/api/upstream-run":
+                handle_upstream_run(self, directory)
                 return
             send_bytes(self, 404, "text/plain; charset=utf-8", b"not found\n")
 

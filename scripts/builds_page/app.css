@@ -137,6 +137,41 @@ button {
     gap: 28px;
   }
 }
+.upstream {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 18px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 22px;
+  background: var(--card);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+.upstream-clock {
+  color: #fff;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.upstream-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  max-width: 70ch;
+}
+.upstream-line {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.upstream .update-button {
+  align-self: flex-start;
+  width: auto;
+  min-width: 14rem;
+  margin-top: 4px;
+}
 .product, .package, .summary, .update, .choose, .cut, .compile, .cut-subject {
   min-width: 0;
 }

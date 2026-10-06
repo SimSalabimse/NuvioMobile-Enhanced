@@ -14,6 +14,12 @@
     <h1>Nuvio</h1>
     <p class="lede">Download the current app, or choose how far the next one goes.</p>
   </header>
+  <section class="upstream" id="upstream-run" aria-label="Upstream merge and build">
+    <p class="upstream-clock" id="upstream-countdown"></p>
+    <div class="upstream-lines" id="upstream-lines"></div>
+    <button type="button" class="update-button" id="upstream-run-button" hidden>Run merge and build</button>
+    <p class="request-state" id="upstream-state" aria-live="polite" hidden></p>
+  </section>
   <div class="products">
     <section class="product" id="ipa-section" aria-labelledby="ipa-heading">
       <h2 id="ipa-heading">iPhone</h2>

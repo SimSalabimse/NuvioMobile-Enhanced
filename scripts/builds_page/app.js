@@ -676,6 +676,131 @@ function renderOlder(rows) {
   group.hidden = false;
   for (var i = 0; i < list.length; i++) root.appendChild(olderRow(list[i]));
 }
+var upstreamNextAt = "";
+var upstreamTimer = 0;
+function twoDigits(number) {
+  return (number < 10 ? "0" : "") + number;
+}
+function countdownLabel(nextAt, nowMs) {
+  var target = Date.parse(nextAt);
+  var now = typeof nowMs === "number" ? nowMs : Date.now();
+  var remain = 0;
+  if (isFinite(target)) remain = Math.max(0, Math.floor((target - now) / 1000));
+  var hours = Math.floor(remain / 3600);
+  var minutes = Math.floor((remain % 3600) / 60);
+  var seconds = remain % 60;
+  var clock;
+  if (hours >= 1) clock = hours + "h " + twoDigits(minutes) + "m";
+  else if (minutes >= 1) clock = minutes + "m " + twoDigits(seconds) + "s";
+  else clock = seconds + "s";
+  return "Next automatic merge and build in " + clock;
+}
+function aheadLine(name, count, short) {
+  if (count === 1) return name + " upstream has 1 commit that is not merged, through " + short + ".";
+  return name + " upstream has " + count + " commits that are not merged, through " + short + ".";
+}
+function upstreamStatusLines(running, surfaces) {
+  if (running) return ["Merge and build is running."];
+  var list = surfaces || [];
+  var readable = 0;
+  var i;
+  for (i = 0; i < list.length; i++) if (list[i].status !== "unavailable") readable++;
+  if (!readable) return ["Upstream could not be checked."];
+  var lines = [];
+  for (i = 0; i < list.length; i++) {
+    var item = list[i];
+    if (item.status === "ahead") lines.push(aheadLine(item.name, Number(item.count) || 0, item.short || ""));
+    else if (item.status === "unavailable") lines.push(item.name + " upstream could not be checked.");
+  }
+  if (!lines.length) return ["Upstream is already merged."];
+  return lines;
+}
+function tickUpstream() {
+  var clock = document.getElementById("upstream-countdown");
+  if (!clock || !upstreamNextAt) return;
+  var next = countdownLabel(upstreamNextAt);
+  if (clock.textContent !== next) clock.textContent = next;
+}
+function bindUpstream() {
+  var button = document.getElementById("upstream-run-button");
+  if (!button || button.getAttribute("data-bound") === "1") return;
+  button.setAttribute("data-bound", "1");
+  button.addEventListener("click", function () {
+    if (button.hidden || button.disabled) return;
+    button.disabled = true;
+    button.setAttribute("data-pending", "1");
+    var state = document.getElementById("upstream-state");
+    if (state) {
+      state.hidden = false;
+      state.textContent = "Starting…";
+    }
+    fetch("/api/upstream-run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+      cache: "no-store"
+    }).then(function (response) {
+      return response.json().then(function (payload) {
+        return { ok: response.ok, status: response.status, body: payload };
+      });
+    }).then(function (result) {
+      button.removeAttribute("data-pending");
+      if (!result.ok) {
+        if (state) {
+          state.hidden = false;
+          state.textContent = (result.body && result.body.error) || "The merge and build could not be started.";
+        }
+        button.disabled = false;
+        return;
+      }
+      refresh();
+    }).catch(function () {
+      button.removeAttribute("data-pending");
+      button.disabled = false;
+      if (state) {
+        state.hidden = false;
+        state.textContent = "The merge and build could not be started.";
+      }
+    });
+  });
+}
+function renderUpstream(run) {
+  run = run || {};
+  var surfaces = run.surfaces || [];
+  upstreamNextAt = typeof run.nextAt === "string" ? run.nextAt : "";
+  var clock = document.getElementById("upstream-countdown");
+  if (clock && upstreamNextAt) clock.textContent = countdownLabel(upstreamNextAt);
+  var linesRoot = document.getElementById("upstream-lines");
+  var lines = run.lines;
+  if (!lines || !lines.length) lines = upstreamStatusLines(!!run.running, surfaces);
+  if (linesRoot) {
+    var stamp = lines.join("\n");
+    if (linesRoot.getAttribute("data-stamp") !== stamp) {
+      linesRoot.setAttribute("data-stamp", stamp);
+      clearNode(linesRoot);
+      for (var i = 0; i < lines.length; i++) linesRoot.appendChild(el("p", "upstream-line", lines[i]));
+    }
+  }
+  var ahead = false;
+  for (var s = 0; s < surfaces.length; s++) if (surfaces[s].status === "ahead") ahead = true;
+  var show = ahead && !run.running;
+  var button = document.getElementById("upstream-run-button");
+  if (button) {
+    button.hidden = !show;
+    if (!show) {
+      button.disabled = false;
+      button.removeAttribute("data-pending");
+      var idleState = document.getElementById("upstream-state");
+      if (idleState) {
+        idleState.hidden = true;
+        idleState.textContent = "";
+      }
+    } else if (button.getAttribute("data-pending") !== "1") {
+      button.disabled = false;
+    }
+  }
+  bindUpstream();
+}
 function applyDashboard(payload) {
   var downloads = payload.downloads || {};
   var desktopDownload = downloads.desktop || {};
@@ -690,6 +815,7 @@ function applyDashboard(payload) {
   var enabled = payload.requestEnabled !== false;
   renderSurface("ipa", cuts.ipa || {}, enabled);
   renderSurface("dmg", cuts.dmg || {}, enabled);
+  renderUpstream(payload.upstreamRun || {});
   if (payload.poll) return !!payload.poll.active;
   var iphoneState = iphone.status;
   var desktopState = desktop.status;
@@ -724,8 +850,11 @@ function refresh() {
   });
 }
 function boot() {
+  bindUpstream();
   var seed = readSeed();
   if (seed) lastActive = applyDashboard(seed);
+  tickUpstream();
+  if (!upstreamTimer) upstreamTimer = window.setInterval(tickUpstream, 1000);
   refresh();
 }
 if (typeof document !== "undefined") boot();
