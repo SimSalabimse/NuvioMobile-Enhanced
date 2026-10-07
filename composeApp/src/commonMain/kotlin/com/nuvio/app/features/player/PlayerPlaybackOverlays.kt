@@ -69,6 +69,7 @@ internal fun BoxScope.PlayerPlaybackOverlays(
     onDismissNextEpisode: () -> Unit,
     movieRecommendations: List<MetaPreview> = emptyList(),
     showMovieRecommendationCard: Boolean = false,
+    movieRecommendationStage: Int = 0,
     onOpenMovieRecommendation: (MetaPreview) -> Unit = {},
     onDismissMovieRecommendations: () -> Unit = {},
     errorMessage: String?,
@@ -171,7 +172,9 @@ internal fun BoxScope.PlayerPlaybackOverlays(
     if (!isSeries && !playerControlsLocked) {
         MovieRecommendationCard(
             recommendations = movieRecommendations,
-            visible = showMovieRecommendationCard,
+            stage = movieRecommendationStage,
+            dismissed = !showMovieRecommendationCard,
+            controlsVisible = controlsVisible,
             onOpen = onOpenMovieRecommendation,
             onDismiss = onDismissMovieRecommendations,
             modifier = Modifier

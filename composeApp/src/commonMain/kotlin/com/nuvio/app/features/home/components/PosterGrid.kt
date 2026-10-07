@@ -1,5 +1,8 @@
 package com.nuvio.app.features.home.components
 
+import com.nuvio.app.features.settings.ThemeSettingsRepository
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -139,12 +142,14 @@ private fun PosterGridTile(
         ) {
             if (item.poster != null) {
                 val platformContext = coil3.compose.LocalPlatformContext.current
+                val posterFadeEnabled by ThemeSettingsRepository.posterFadeEnabled.collectAsState()
                 val hasFallback = !item.rawPosterUrl.isNullOrBlank() && item.rawPosterUrl != item.poster
-                val imageModel = remember(item.poster, item.rawPosterUrl, platformContext) {
+                val imageModel = remember(item.poster, item.rawPosterUrl, platformContext, posterFadeEnabled) {
                     posterImageRequest(
                         context = platformContext,
                         data = item.poster,
                         fallbackUrl = item.rawPosterUrl.takeIf { hasFallback },
+                        crossfade = posterFadeEnabled,
                     )
                 }
                 AsyncImage(

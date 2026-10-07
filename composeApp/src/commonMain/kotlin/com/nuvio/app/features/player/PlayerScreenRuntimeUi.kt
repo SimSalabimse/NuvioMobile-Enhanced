@@ -24,12 +24,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.layout.onSizeChanged
 import com.nuvio.app.features.player.skip.EMPTY_SKIP_TIMESTAMP
+import com.nuvio.app.features.player.seekpreview.rememberSeekPreviewController
 import com.nuvio.app.features.player.skip.PlayerNextEpisodeRules
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.features.p2p.formatP2pMegabytes
 import com.nuvio.app.features.p2p.formatP2pSpeed
 import com.nuvio.app.features.player.skip.internalSkipAction
+import com.nuvio.app.features.streams.streamAddonInstanceId
 import com.nuvio.app.isIos
 import kotlinx.coroutines.launch
 import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
@@ -240,6 +242,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                     initialPositionMs = activeInitialPositionMs.takeIf { it > 0L },
                     initialPositionRequestKey = initialPositionRequestKey,
                     resizeMode = resizeMode,
+                    playbackEngine = playbackEngineOverride,
                     onInitialPositionHandled = { key, handled ->
                         if (active.value && playbackKey == activePlaybackKey && key == currentInitialPositionRequestKey()) {
                             initialSeekApplied = handled
@@ -338,6 +341,11 @@ private fun p2pConnectingPhaseLabel(phase: String): String = when (phase) {
     )
 }
 
+private val PlayerScreenRuntime.activeAddonLogo: String?
+    get() = addonsUiState.addons.firstNotNullOfOrNull { addon ->
+        addon.manifest?.takeIf { addon.streamAddonInstanceId(it.id) == activeProviderAddonId }?.logoUrl
+    }
+
 private fun PlayerScreenRuntime.currentInitialPositionRequestKey(): String? {
     val positionMs = activeInitialPositionMs.takeIf { it > 0L } ?: return null
     return "$activePlaybackIdentity:${activeVideoId.orEmpty()}:$positionMs"
@@ -346,6 +354,14 @@ private fun PlayerScreenRuntime.currentInitialPositionRequestKey(): String? {
 @Composable
 private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
     val isInPip = rememberIsInPictureInPicture()
+    val seekPreview = rememberSeekPreviewController(
+        url = activePlaybackSourceUrl?.takeIf {
+            playerSettingsUiState.seekPreviewEnabled &&
+                !isLiveTvPlayback &&
+                activeTorrentInfoHash == null
+        },
+        headers = activeSourceHeaders,
+    )
     val userRatingTarget = currentUserRatingTarget()
     val canRate = rememberCanRate(userRatingTarget)
     val userRating = rememberUserRating(userRatingTarget.takeIf { canRate })
@@ -446,6 +462,11 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
                     openEpisodesPanel()
                 }
             } else null,
+            onChaptersClick = if (playbackSnapshot.chapters.isNotEmpty()) {
+                {
+                    openChaptersPanel()
+                }
+            } else null,
             onLiveChannelsClick = if (isLiveTvPlayback) {
                 {
                     showLiveChannelsPanel = true
@@ -496,6 +517,12 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
                 )
                 showSubmitIntroModal = true
             },
+            onSwitchEngineClick = if (playerController?.playbackEngine != null) {
+                { switchPlaybackEngine() }
+            } else {
+                null
+            },
+            onStreamInfoClick = { openStreamInfo() },
             parentalWarnings = parentalWarnings,
             showParentalGuide = showParentalGuide,
             onParentalGuideAnimationComplete = { showParentalGuide = false },
@@ -510,6 +537,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
             },
             horizontalSafePadding = horizontalSafePadding,
             modifier = Modifier.fillMaxSize(),
+            seekPreview = seekPreview,
         )
     }
 }
@@ -618,6 +646,7 @@ private fun BoxScope.RenderPlaybackOverlays(
             emptyList()
         },
         showMovieRecommendationCard = showMovieRecommendationCard,
+        movieRecommendationStage = movieRecommendationStage,
         onOpenMovieRecommendation = { preview ->
             flushWatchProgress()
             args.onOpenMetaDetails?.invoke(preview)
@@ -637,6 +666,15 @@ private fun BoxScope.RenderPlaybackOverlays(
             },
         )
     }
+}
+
+private fun PlayerScreenRuntime.openChaptersPanel() {
+    showChaptersPanel = true
+    showSourcesPanel = false
+    showQualityPanel = false
+    showEpisodesPanel = false
+    showLiveChannelsPanel = false
+    controlsVisible = false
 }
 
 private fun PlayerScreenRuntime.openQualityPanel() {
@@ -849,6 +887,20 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
             PlayerStreamsRepository.clearEpisodeStreams()
             controlsVisible = true
         },
+        showChaptersPanel = showChaptersPanel,
+        chapters = playbackSnapshot.chapters,
+        onChapterSelected = { chapter ->
+            val targetMs = chapter.startMs.coerceAtLeast(0L)
+            finishTimelineScrub(targetMs)
+            playerController?.seekTo(targetMs)
+            scheduleProgressSyncAfterSeek()
+            showChaptersPanel = false
+            controlsVisible = true
+        },
+        onChaptersPanelDismissed = {
+            showChaptersPanel = false
+            controlsVisible = true
+        },
         showSubmitIntroModal = showSubmitIntroModal,
         activeVideoId = activeVideoId,
         metaUiState = metaUiState,
@@ -905,6 +957,19 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
             )
         }
     }
+    StreamInfoOverlay(
+        visible = showStreamInfo,
+        addonName = activeProviderName,
+        addonLogo = activeAddonLogo,
+        streamName = activeStreamTitle,
+        streamDescription = activeStreamSubtitle,
+        playbackEngine = playerController?.playbackEngine,
+        mediaInfo = streamMediaInfo,
+        audioTrack = audioTracks.firstOrNull { it.index == selectedAudioIndex },
+        subtitleTrack = subtitleTracks.firstOrNull { it.index == selectedSubtitleIndex }.takeIf { !useCustomSubtitles },
+        addonSubtitle = selectedAddonSubtitle.takeIf { useCustomSubtitles },
+        onDismiss = { showStreamInfo = false },
+    )
 }
 
 /** The movie or episode currently playing, for in-player rating. */

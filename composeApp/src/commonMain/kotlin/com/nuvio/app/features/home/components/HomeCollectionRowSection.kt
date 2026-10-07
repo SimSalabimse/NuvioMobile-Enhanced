@@ -1,5 +1,8 @@
 package com.nuvio.app.features.home.components
 
+import com.nuvio.app.features.settings.ThemeSettingsRepository
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -99,6 +102,7 @@ private fun CollectionFolderCard(
     onClick: (() -> Unit)? = null,
 ) {
     val posterCardStyle = rememberPosterCardStyleUiState()
+    val posterFadeEnabled by ThemeSettingsRepository.posterFadeEnabled.collectAsState()
     val isLandscapeMode = posterCardStyle.catalogLandscapeModeEnabled
     val shape = if (isLandscapeMode) PosterShape.Landscape else folder.posterShape
     val cardWidth: Dp
@@ -152,7 +156,7 @@ private fun CollectionFolderCard(
                             contentDescription = folder.title,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop,
-                            crossfade = false,
+                            crossfade = posterFadeEnabled,
                             animateIfPossible = animateGifs &&
                                 isAnimatedCollectionFolderImage(folder, imageUrl) &&
                                 LocalScreenActive.current,

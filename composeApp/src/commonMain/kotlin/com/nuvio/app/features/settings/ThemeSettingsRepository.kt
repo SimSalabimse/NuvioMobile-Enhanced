@@ -44,6 +44,9 @@ object ThemeSettingsRepository {
     private val _showCatalogAccentEnabled = MutableStateFlow(false)
     val showCatalogAccentEnabled: StateFlow<Boolean> = _showCatalogAccentEnabled.asStateFlow()
 
+    private val _posterFadeEnabled = MutableStateFlow(false)
+    val posterFadeEnabled: StateFlow<Boolean> = _posterFadeEnabled.asStateFlow()
+
     private val _selectedAppLanguage = MutableStateFlow(AppLanguage.DEVICE)
     val selectedAppLanguage: StateFlow<AppLanguage> = _selectedAppLanguage.asStateFlow()
 
@@ -80,6 +83,7 @@ object ThemeSettingsRepository {
         _liquidGlassNativeTabBarEnabled.value = NuvioTabBarBehavior.Default.isEnabled
         _dynamicArtworkBackgroundEnabled.value = false
         _showCatalogAccentEnabled.value = false
+        _posterFadeEnabled.value = false
         NativeTabBridge.publishAccentColor(
             hexColor = AppTheme.WHITE.nativeTabAccentHex(),
             gradientHexColors = ThemeColors.getColorPalette(AppTheme.WHITE).nativeAccentGradientHex(),
@@ -118,6 +122,8 @@ object ThemeSettingsRepository {
             ThemeSettingsStorage.loadDynamicArtworkBackgroundEnabled() ?: false
         _showCatalogAccentEnabled.value =
             ThemeSettingsStorage.loadShowCatalogAccentEnabled() ?: false
+        _posterFadeEnabled.value =
+            ThemeSettingsStorage.loadPosterFadeEnabled() ?: false
         val appLanguage = AppLanguage.fromCode(ThemeSettingsStorage.loadSelectedAppLanguage())
         ThemeSettingsStorage.applySelectedAppLanguage(appLanguage.code)
         _selectedAppLanguage.value = appLanguage
@@ -183,6 +189,13 @@ object ThemeSettingsRepository {
         if (_showCatalogAccentEnabled.value == enabled) return
         _showCatalogAccentEnabled.value = enabled
         ThemeSettingsStorage.saveShowCatalogAccentEnabled(enabled)
+    }
+
+    fun setPosterFade(enabled: Boolean) {
+        ensureLoaded()
+        if (_posterFadeEnabled.value == enabled) return
+        _posterFadeEnabled.value = enabled
+        ThemeSettingsStorage.savePosterFadeEnabled(enabled)
     }
 
     fun setAppLanguage(language: AppLanguage) {

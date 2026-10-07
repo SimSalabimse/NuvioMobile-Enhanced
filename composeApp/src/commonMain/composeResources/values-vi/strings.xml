@@ -2395,4 +2395,26 @@
     <string name="movie_status_in_production">Đang sản xuất</string>
     <string name="movie_status_post_production">Hậu kỳ</string>
     <string name="submit_intro_segment_preview">Preview</string>
+<string name="settings_poster_always_show_landscape_clearlogo">Luôn dùng phông nền kèm logo cho poster ngang</string>
+<string name="settings_playback_preload_next_episode">Tải trước nguồn tập tiếp theo</string>
+<string name="settings_playback_preload_next_episode_description">Bắt đầu tìm kiếm nguồn phát trong nền trước khi nút tập tiếp theo xuất hiện.</string>
+<string name="cd_switch_player_engine">Chuyển lõi trình phát</string>
+<string name="cd_stream_info">Thông tin luồng</string>
+<string name="player_engine_switching_manual_message">Đang chuyển sang %1$s...</string>
+<string name="stream_info_section_source">NGUỒN</string>
+<string name="stream_info_section_video">VIDEO</string>
+<string name="stream_info_section_audio">ÂM THANH</string>
+<string name="stream_info_section_subtitle">PHỤ ĐỀ</string>
+<string name="stream_info_codec">Codec</string>
+<string name="stream_info_resolution">Độ phân giải</string>
+<string name="stream_info_frame_rate">Tốc độ khung hình</string>
+<string name="stream_info_bitrate">Bitrate</string>
+<string name="stream_info_channels">Kênh</string>
+<string name="stream_info_sample_rate">Tần số lấy mẫu</string>
+<string name="stream_info_language">Ngôn ngữ</string>
+<string name="stream_info_name">Tên</string>
+<string name="stream_info_source">Nguồn</string>
+<string name="stream_info_subtitle_source_addon">Tiện ích</string>
+<string name="stream_info_subtitle_source_embedded">Nhúng</string>
+<string name="stream_info_player_engine">Lõi trình phát</string>
 </resources>

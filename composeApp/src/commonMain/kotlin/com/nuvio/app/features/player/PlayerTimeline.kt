@@ -40,10 +40,16 @@ import com.nuvio.app.core.ui.RunningVersionLine
 import com.nuvio.app.core.ui.accentBrush
 import com.nuvio.app.core.ui.themePalette
 import com.nuvio.app.core.ui.nuvioTypeScale
+import com.nuvio.app.features.player.seekpreview.SeekPreviewController
+import com.nuvio.app.features.player.seekpreview.SeekPreviewOverlay
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
 internal val PlayerTimelineContentInset = 2.dp
+
+internal val PlayerChapterMarkWidth = 2.dp
+
+internal val PlayerChapterMarkColor = Color.Black.copy(alpha = 0.6f)
 
 @Composable
 internal fun PlayerTimelineDetails(
@@ -119,6 +125,7 @@ internal fun PlayerTimeline(
     enabled: Boolean = true,
     playbackClock: PlayerPlaybackClock? = null,
     scrubbingPositionMs: Long? = null,
+    seekPreview: SeekPreviewController? = null,
 ) {
     val positionMs = if (playbackClock != null) {
         scrubbingPositionMs ?: playbackClock.positionMs
@@ -128,8 +135,10 @@ internal fun PlayerTimeline(
     val bufferedPositionMs = playbackClock?.bufferedPositionMs ?: snapshot.bufferedPositionMs
     val durationMs = snapshot.durationMs.coerceAtLeast(0L)
     val rangeEnd = durationMs.coerceAtLeast(1L).toFloat()
-    val bufferedFraction = (bufferedPositionMs.toFloat() / rangeEnd).coerceIn(0f, 1f)
-    val accent = MaterialTheme.colorScheme.primary
+    val bufferedFraction = playerBufferedFraction(bufferedPositionMs, durationMs)
+    val chapterMarks = remember(snapshot.chapters, durationMs) {
+        snapshot.chapters.chapterMarkFractions(durationMs)
+    }
     val accentBrush = MaterialTheme.themePalette.accentBrush()
     val description = stringResource(Res.string.player_seek_position)
     var scrubPosition by remember { mutableStateOf<Long?>(null) }
@@ -144,57 +153,74 @@ internal fun PlayerTimeline(
     )
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-        Slider(
-            value = positionMs.coerceIn(0L, durationMs).toFloat(),
-            onValueChange = { value ->
-                val position = value.toLong().coerceIn(0L, durationMs)
-                scrubPosition = position
-                onScrubChange(position)
-            },
-            onValueChangeFinished = {
-                onScrubFinished((scrubPosition ?: positionMs).coerceIn(0L, durationMs))
-                scrubPosition = null
-            },
-            valueRange = 0f..rangeEnd,
-            enabled = enabled && durationMs > 0L,
-            interactionSource = interactionSource,
-            thumb = {},
-            track = { state ->
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .drawBehind {
-                            val trackHeight = trackThickness.toPx()
-                            val trackOrigin = Offset(0f, 35.dp.toPx() - trackHeight / 2)
-                            val radius = CornerRadius(trackHeight / 2)
-                            drawRoundRect(
-                                color = Color.White.copy(alpha = 0.3f),
-                                topLeft = trackOrigin,
-                                size = Size(size.width, trackHeight),
-                                cornerRadius = radius,
-                            )
-                            drawRoundRect(
-                                color = accent.copy(alpha = 0.35f),
-                                topLeft = trackOrigin,
-                                size = Size(size.width * bufferedFraction, trackHeight),
-                                cornerRadius = radius,
-                            )
-                            drawRoundRect(
-                                brush = accentBrush,
-                                topLeft = trackOrigin,
-                                size = Size(size.width * (state.value / rangeEnd).coerceIn(0f, 1f), trackHeight),
-                                cornerRadius = radius,
-                            )
-                        },
-                )
-            },
-            modifier = modifier
-                .fillMaxWidth()
-                .height(24.dp)
-                .wrapContentHeight(Alignment.Bottom, unbounded = true)
-                .requiredHeight(48.dp)
-                .semantics { contentDescription = description },
-        )
+        Box {
+            Slider(
+                value = positionMs.coerceIn(0L, durationMs).toFloat(),
+                onValueChange = { value ->
+                    val position = value.toLong().coerceIn(0L, durationMs)
+                    scrubPosition = position
+                    onScrubChange(position)
+                },
+                onValueChangeFinished = {
+                    onScrubFinished((scrubPosition ?: positionMs).coerceIn(0L, durationMs))
+                    scrubPosition = null
+                },
+                valueRange = 0f..rangeEnd,
+                enabled = enabled && durationMs > 0L,
+                interactionSource = interactionSource,
+                thumb = {},
+                track = { state ->
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .drawBehind {
+                                val trackHeight = trackThickness.toPx()
+                                val trackOrigin = Offset(0f, 35.dp.toPx() - trackHeight / 2)
+                                val radius = CornerRadius(trackHeight / 2)
+                                drawRoundRect(
+                                    color = PlayerBaseTrackColor,
+                                    topLeft = trackOrigin,
+                                    size = Size(size.width, trackHeight),
+                                    cornerRadius = radius,
+                                )
+                                drawRoundRect(
+                                    color = PlayerBufferedTrackColor,
+                                    topLeft = trackOrigin,
+                                    size = Size(size.width * bufferedFraction, trackHeight),
+                                    cornerRadius = radius,
+                                )
+                                drawRoundRect(
+                                    brush = accentBrush,
+                                    topLeft = trackOrigin,
+                                    size = Size(size.width * (state.value / rangeEnd).coerceIn(0f, 1f), trackHeight),
+                                    cornerRadius = radius,
+                                )
+                                val markWidth = PlayerChapterMarkWidth.toPx()
+                                chapterMarks.forEach { fraction ->
+                                    drawRect(
+                                        color = PlayerChapterMarkColor,
+                                        topLeft = Offset(size.width * fraction - markWidth / 2f, trackOrigin.y),
+                                        size = Size(markWidth, trackHeight),
+                                    )
+                                }
+                            },
+                    )
+                },
+                modifier = modifier
+                    .fillMaxWidth()
+                    .height(24.dp)
+                    .wrapContentHeight(Alignment.Bottom, unbounded = true)
+                    .requiredHeight(48.dp)
+                    .semantics { contentDescription = description },
+            )
+            SeekPreviewOverlay(
+                controller = seekPreview,
+                active = isInteracting,
+                positionMs = positionMs.coerceIn(0L, durationMs),
+                durationMs = durationMs,
+                modifier = Modifier.matchParentSize(),
+            )
+        }
     }
 }

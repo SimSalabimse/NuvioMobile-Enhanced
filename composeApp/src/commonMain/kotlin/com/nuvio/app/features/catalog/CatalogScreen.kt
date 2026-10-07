@@ -27,6 +27,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -60,6 +61,7 @@ import com.nuvio.app.core.ui.posterImageRequest
 import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
 import com.nuvio.app.core.ui.withDuplicateSafeLazyKeys
 import com.nuvio.app.features.home.MetaPreview
+import com.nuvio.app.features.settings.ThemeSettingsRepository
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.PosterShape
 import com.nuvio.app.features.home.components.HomeEmptyStateCard
@@ -326,8 +328,15 @@ private fun CatalogPosterTile(
         ) {
             if (item.poster != null) {
                 val platformContext = coil3.compose.LocalPlatformContext.current
-                val imageModel = remember(item.poster, platformContext) {
-                    posterImageRequest(platformContext, item.poster)
+                val posterFadeEnabled by ThemeSettingsRepository.posterFadeEnabled.collectAsState()
+                val hasFallback = !item.rawPosterUrl.isNullOrBlank() && item.rawPosterUrl != item.poster
+                val imageModel = remember(item.poster, item.rawPosterUrl, platformContext, posterFadeEnabled) {
+                    posterImageRequest(
+                        context = platformContext,
+                        data = item.poster,
+                        fallbackUrl = item.rawPosterUrl.takeIf { hasFallback },
+                        crossfade = posterFadeEnabled,
+                    )
                 }
                 AsyncImage(
                     model = imageModel,

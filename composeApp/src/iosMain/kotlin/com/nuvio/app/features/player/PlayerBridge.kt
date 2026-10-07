@@ -98,6 +98,7 @@ interface NuvioPlayerBridge {
     fun getMediaInfoJson(): String
     fun setKeyboardShortcutsEnabled(enabled: Boolean)
     fun setKeyboardShortcutHandler(handler: ((String) -> Unit)?)
+    fun getProperty(name: String): String
     fun destroy()
 }
 

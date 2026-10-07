@@ -19,13 +19,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.floatingNavigationGlowSupported
+import com.nuvio.app.isIos
 import com.nuvio.app.core.ui.AppTheme
 import com.nuvio.app.core.ui.NuvioBottomSheetActionRow
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
+import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.dismissNuvioBottomSheet
 import com.nuvio.app.core.ui.labelRes
 import kotlinx.coroutines.launch
@@ -38,6 +42,8 @@ import nuvio.composeapp.generated.resources.compose_settings_page_meta_screen
 import nuvio.composeapp.generated.resources.compose_settings_page_poster_customization
 import nuvio.composeapp.generated.resources.compose_settings_page_streams
 import nuvio.composeapp.generated.resources.settings_appearance_app_language
+import nuvio.composeapp.generated.resources.settings_appearance_app_language_restart_message
+import nuvio.composeapp.generated.resources.settings_appearance_app_language_restart_title
 import nuvio.composeapp.generated.resources.settings_appearance_app_language_sheet_title
 import nuvio.composeapp.generated.resources.settings_appearance_app_icon
 import nuvio.composeapp.generated.resources.settings_appearance_tab_bar_behavior
@@ -52,6 +58,8 @@ import nuvio.composeapp.generated.resources.settings_appearance_dynamic_artwork_
 import nuvio.composeapp.generated.resources.settings_appearance_dynamic_artwork_background_description
 import nuvio.composeapp.generated.resources.settings_appearance_catalog_accent
 import nuvio.composeapp.generated.resources.settings_appearance_catalog_accent_description
+import nuvio.composeapp.generated.resources.settings_appearance_poster_fade
+import nuvio.composeapp.generated.resources.settings_appearance_poster_fade_description
 import nuvio.composeapp.generated.resources.settings_appearance_continue_watching_description
 import nuvio.composeapp.generated.resources.settings_appearance_poster_customization_description
 import nuvio.composeapp.generated.resources.settings_appearance_section_detail_page
@@ -80,6 +88,8 @@ internal fun LazyListScope.appearanceSettingsContent(
     onDynamicArtworkBackgroundToggle: (Boolean) -> Unit,
     showCatalogAccentEnabled: Boolean,
     onShowCatalogAccentToggle: (Boolean) -> Unit,
+    posterFadeEnabled: Boolean,
+    onPosterFadeToggle: (Boolean) -> Unit,
     liquidGlassNativeTabBarSupported: Boolean,
     tabBarBehavior: NuvioTabBarBehavior,
     onTabBarBehaviorSelected: (NuvioTabBarBehavior) -> Unit,
@@ -113,6 +123,8 @@ internal fun LazyListScope.appearanceSettingsContent(
     }
     item {
         var showLanguageSheet by remember { mutableStateOf(false) }
+        var showLanguageRestartDialog by remember { mutableStateOf(false) }
+        val layoutDirection = LocalLayoutDirection.current
         var showNavBarStyleSheet by remember { mutableStateOf(false) }
         var showTabBarBehaviorSheet by remember { mutableStateOf(false) }
         var showAppIconPicker by remember { mutableStateOf(false) }
@@ -150,6 +162,14 @@ internal fun LazyListScope.appearanceSettingsContent(
                     checked = showCatalogAccentEnabled,
                     isTablet = isTablet,
                     onCheckedChange = onShowCatalogAccentToggle,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_appearance_poster_fade),
+                    description = stringResource(Res.string.settings_appearance_poster_fade_description),
+                    checked = posterFadeEnabled,
+                    isTablet = isTablet,
+                    onCheckedChange = onPosterFadeToggle,
                 )
                 if (liquidGlassNativeTabBarSupported) {
                     SettingsGroupDivider(isTablet = isTablet)
@@ -214,6 +234,8 @@ internal fun LazyListScope.appearanceSettingsContent(
                 onLanguageSelected = {
                     onAppLanguageSelected(it)
                     showLanguageSheet = false
+                    val newLayoutDirection = if (it.isRightToLeft()) LayoutDirection.Rtl else LayoutDirection.Ltr
+                    if (isIos && newLayoutDirection != layoutDirection) showLanguageRestartDialog = true
                 },
                 onDismiss = { showLanguageSheet = false },
             )
@@ -229,6 +251,13 @@ internal fun LazyListScope.appearanceSettingsContent(
                 onDismiss = { showTabBarBehaviorSheet = false },
             )
         }
+
+        NuvioStatusModal(
+            title = stringResource(Res.string.settings_appearance_app_language_restart_title),
+            message = stringResource(Res.string.settings_appearance_app_language_restart_message),
+            isVisible = showLanguageRestartDialog,
+            onConfirm = { showLanguageRestartDialog = false },
+        )
 
         if (showAppIconPicker) {
             AppIconPicker(

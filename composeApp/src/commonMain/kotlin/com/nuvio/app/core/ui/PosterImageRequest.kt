@@ -5,15 +5,16 @@ import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.nuvio.app.core.poster.CustomPosterFallbackInterceptor
 
-/** Catalog and grid posters opt out of the loader crossfade so rows do not fade while scrolling. */
+/** Poster rows stay crisp unless Settings → Appearance → Fade posters in is on. */
 internal fun posterImageRequest(
     context: PlatformContext,
     data: Any?,
     fallbackUrl: String? = null,
+    crossfade: Boolean = false,
 ): ImageRequest {
     val builder = ImageRequest.Builder(context)
         .data(data)
-        .crossfade(false)
+        .crossfade(crossfade)
     val fallback = fallbackUrl?.takeIf { it.isNotBlank() && it != data }
     if (fallback != null) {
         builder.memoryCacheKeyExtras(

@@ -1,5 +1,7 @@
 package com.nuvio.app.features.home.components
 
+import com.nuvio.app.features.settings.ThemeSettingsRepository
+import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -238,8 +240,9 @@ private fun continuewatchingImageModel(
     imageUrl: String?,
     fallbackUrl: String?,
 ): Any? {
+    val posterFadeEnabled by ThemeSettingsRepository.posterFadeEnabled.collectAsState()
     val platformContext = coil3.compose.LocalPlatformContext.current
-    return remember(imageUrl, fallbackUrl, platformContext) {
+    return remember(imageUrl, fallbackUrl, platformContext, posterFadeEnabled) {
         if (imageUrl.isNullOrBlank()) {
             imageUrl
         } else {
@@ -247,6 +250,7 @@ private fun continuewatchingImageModel(
                 context = platformContext,
                 data = imageUrl,
                 fallbackUrl = fallbackUrl,
+                crossfade = posterFadeEnabled,
             )
         }
     }

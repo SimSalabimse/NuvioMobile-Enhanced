@@ -55,6 +55,7 @@ actual fun PlatformPlayerSurface(
     initialPositionMs: Long?,
     initialPositionRequestKey: String?,
     resizeMode: PlayerResizeMode,
+    playbackEngine: AndroidPlaybackEngine?,
     useNativeController: Boolean,
     onInitialPositionHandled: (key: String, handled: Boolean) -> Unit,
     onControllerReady: (PlayerEngineController) -> Unit,
@@ -253,6 +254,9 @@ actual fun PlatformPlayerSurface(
                 bridge.applyAudioLanguagePreferences(languages)
             }
 
+            override suspend fun getMediaInfo(): PlayerMediaInfo =
+                mpvMediaInfo { name -> bridge.getProperty(name).ifBlank { null } }
+
             override fun selectSubtitleTrack(index: Int) {
                 InAppLogger.info("Player/iOS", "select subtitle track index=$index")
                 if (index < 0) {
@@ -440,7 +444,14 @@ actual fun PlatformPlayerSurface(
     LaunchedEffect(bridge) {
         var lastReportedError: String? = null
         var cachedMediaInfoJson = "{}"
+        var chapters = emptyList<PlayerChapter>()
+        var chaptersDurationMs = 0L
         while (isActive) {
+            val durationMs = bridge.getDurationMs()
+            if (durationMs > 0L && durationMs != chaptersDurationMs) {
+                chaptersDurationMs = durationMs
+                chapters = mpvChapters { name -> bridge.getProperty(name).ifBlank { null } }
+            }
             if (latestIncludeMediaInfo.value) {
                 val refreshed = bridge.getMediaInfoJson()
                 // The bridge returns "{}" until the async walk finishes.
@@ -452,13 +463,14 @@ actual fun PlatformPlayerSurface(
                 isLoading = bridge.getIsLoading(),
                 isPlaying = bridge.getIsPlaying(),
                 isEnded = bridge.getIsEnded(),
-                durationMs = bridge.getDurationMs(),
+                durationMs = durationMs,
                 positionMs = bridge.getPositionMs(),
                 bufferedPositionMs = bridge.getBufferedMs(),
                 playbackSpeed = bridge.getPlaybackSpeed(),
                 videoWidth = bridge.getVideoWidth().coerceAtLeast(0),
                 videoHeight = bridge.getVideoHeight().coerceAtLeast(0),
                 mediaInfoJson = cachedMediaInfoJson,
+                chapters = chapters,
             )
             latestOnSnapshot.value(snapshot)
             val errorMessage = bridge.getErrorMessage().ifBlank { null }

@@ -1,5 +1,8 @@
 package com.nuvio.app.core.ui
 
+import com.nuvio.app.features.settings.ThemeSettingsRepository
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.runtime.Composable
@@ -19,8 +22,13 @@ internal actual fun NuvioAsyncImage(
     crossfade: Boolean,
 ) {
     val platformContext = LocalPlatformContext.current
-    val model = remember(imageUrl, platformContext, crossfade) {
-        if (crossfade) imageUrl else posterImageRequest(platformContext, imageUrl)
+    val posterFadeEnabled by ThemeSettingsRepository.posterFadeEnabled.collectAsState()
+    val model = remember(imageUrl, platformContext, crossfade, posterFadeEnabled) {
+        if (crossfade) {
+            imageUrl
+        } else {
+            posterImageRequest(platformContext, imageUrl, crossfade = posterFadeEnabled)
+        }
     }
     if (!animateIfPossible || !imageUrl.looksAnimated()) {
         AsyncImage(

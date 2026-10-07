@@ -1,5 +1,6 @@
 package com.nuvio.app.features.settings
 
+import com.nuvio.app.features.whatsnew.WhatsNewSettingsScreen
 import com.nuvio.app.navigation.LocalUseNativeNavigation
 import com.nuvio.app.core.build.AppFeaturePolicy
 
@@ -77,6 +78,7 @@ import com.nuvio.app.features.home.buildAddonCatalogRefreshSignature
 import com.nuvio.app.features.livetv.LiveTvRepository
 import com.nuvio.app.features.mdblist.MdbListSettings
 import com.nuvio.app.features.mdblist.MdbListSettingsRepository
+import com.nuvio.app.features.mdblist.MdbListTracker
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsRepository
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsUiState
 import com.nuvio.app.features.player.PlayerSettingsRepository
@@ -146,6 +148,7 @@ fun SettingsScreen(
     onAccountClick: () -> Unit = {},
     onSupportersContributorsClick: () -> Unit = {},
     onLicensesAttributionsClick: () -> Unit = {},
+    onWhatsNewClick: () -> Unit = {},
     onCheckForUpdatesClick: (() -> Unit)? = null,
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onCollectionsClick: () -> Unit = {},
@@ -170,6 +173,9 @@ fun SettingsScreen(
         }.collectAsStateWithLifecycle()
         val showCatalogAccentEnabled by remember {
             ThemeSettingsRepository.showCatalogAccentEnabled
+        }.collectAsStateWithLifecycle()
+        val posterFadeEnabled by remember {
+            ThemeSettingsRepository.posterFadeEnabled
         }.collectAsStateWithLifecycle()
         val tabBarBehavior by remember {
             ThemeSettingsRepository.tabBarBehavior
@@ -214,6 +220,10 @@ fun SettingsScreen(
         val traktCommentsEnabled by remember {
             TraktCommentsSettings.ensureLoaded()
             TraktCommentsSettings.enabled
+        }.collectAsStateWithLifecycle()
+        val mdbListConnected by remember {
+            MdbListTracker.ensureLoaded()
+            MdbListTracker.isAuthenticated
         }.collectAsStateWithLifecycle()
         val trackingSettingsUiState by remember {
             TrackingSettingsRepository.ensureLoaded()
@@ -355,6 +365,11 @@ fun SettingsScreen(
         } else {
             onLicensesAttributionsClick
         }
+        val openWhatsNew = if (onNavigatePage != null) {
+            { openPage(SettingsPage.WhatsNew) }
+        } else {
+            onWhatsNewClick
+        }
 
         LaunchedEffect(page, currentPage) {
             if (page.name != currentPage) {
@@ -428,6 +443,8 @@ fun SettingsScreen(
                         onDynamicArtworkBackgroundToggle = ThemeSettingsRepository::setDynamicArtworkBackground,
                         showCatalogAccentEnabled = showCatalogAccentEnabled,
                         onShowCatalogAccentToggle = ThemeSettingsRepository::setShowCatalogAccent,
+                        posterFadeEnabled = posterFadeEnabled,
+                        onPosterFadeToggle = ThemeSettingsRepository::setPosterFade,
                         liquidGlassNativeTabBarSupported = liquidGlassNativeTabBarSupported,
                         tabBarBehavior = tabBarBehavior,
                         onTabBarBehaviorSelected = ThemeSettingsRepository::setTabBarBehavior,
@@ -447,6 +464,7 @@ fun SettingsScreen(
                         traktAuthUiState = traktAuthUiState,
                         simklAuthUiState = simklAuthUiState,
                         traktCommentsEnabled = traktCommentsEnabled,
+                        mdbListConnected = mdbListConnected,
                         trackingSettingsUiState = trackingSettingsUiState,
                         homescreenHeroEnabled = homescreenSettingsUiState.heroEnabled,
                         homescreenHeroTrailerPlaybackEnabled = homescreenSettingsUiState.heroTrailerPlaybackEnabled,
@@ -465,6 +483,7 @@ fun SettingsScreen(
                         onPosterClick = onPosterClick,
                         onSupportersContributorsClick = openSupportersContributors,
                         onLicensesAttributionsClick = openLicensesAttributions,
+                        onWhatsNewClick = openWhatsNew,
                         onCheckForUpdatesClick = onCheckForUpdatesClick,
                         onTestUpdateBannerClick = onTestUpdateBannerClick,
                         onCollectionsClick = onCollectionsClick,
@@ -504,6 +523,8 @@ fun SettingsScreen(
                         onDynamicArtworkBackgroundToggle = ThemeSettingsRepository::setDynamicArtworkBackground,
                         showCatalogAccentEnabled = showCatalogAccentEnabled,
                         onShowCatalogAccentToggle = ThemeSettingsRepository::setShowCatalogAccent,
+                        posterFadeEnabled = posterFadeEnabled,
+                        onPosterFadeToggle = ThemeSettingsRepository::setPosterFade,
                         liquidGlassNativeTabBarSupported = liquidGlassNativeTabBarSupported,
                         tabBarBehavior = tabBarBehavior,
                         onTabBarBehaviorSelected = ThemeSettingsRepository::setTabBarBehavior,
@@ -523,6 +544,7 @@ fun SettingsScreen(
                         traktAuthUiState = traktAuthUiState,
                         simklAuthUiState = simklAuthUiState,
                         traktCommentsEnabled = traktCommentsEnabled,
+                        mdbListConnected = mdbListConnected,
                         trackingSettingsUiState = trackingSettingsUiState,
                         homescreenHeroEnabled = homescreenSettingsUiState.heroEnabled,
                         homescreenHeroTrailerPlaybackEnabled = homescreenSettingsUiState.heroTrailerPlaybackEnabled,
@@ -547,6 +569,7 @@ fun SettingsScreen(
                         onAccountClick = openAccount,
                         onSupportersContributorsClick = openSupportersContributors,
                         onLicensesAttributionsClick = openLicensesAttributions,
+                        onWhatsNewClick = openWhatsNew,
                         onCheckForUpdatesClick = onCheckForUpdatesClick,
                         onTestUpdateBannerClick = onTestUpdateBannerClick,
                         onCollectionsClick = onCollectionsClick,
@@ -592,6 +615,8 @@ private fun MobileSettingsScreen(
     onDynamicArtworkBackgroundToggle: (Boolean) -> Unit,
     showCatalogAccentEnabled: Boolean,
     onShowCatalogAccentToggle: (Boolean) -> Unit,
+    posterFadeEnabled: Boolean,
+    onPosterFadeToggle: (Boolean) -> Unit,
     liquidGlassNativeTabBarSupported: Boolean,
     tabBarBehavior: NuvioTabBarBehavior,
     onTabBarBehaviorSelected: (NuvioTabBarBehavior) -> Unit,
@@ -611,6 +636,7 @@ private fun MobileSettingsScreen(
     traktAuthUiState: TraktAuthUiState,
     simklAuthUiState: SimklAuthUiState,
     traktCommentsEnabled: Boolean,
+    mdbListConnected: Boolean,
     trackingSettingsUiState: TrackingSettingsUiState,
     homescreenHeroEnabled: Boolean,
     homescreenHeroTrailerPlaybackEnabled: Boolean,
@@ -635,12 +661,16 @@ private fun MobileSettingsScreen(
     onAccountClick: () -> Unit = {},
     onSupportersContributorsClick: () -> Unit = {},
     onLicensesAttributionsClick: () -> Unit = {},
+    onWhatsNewClick: () -> Unit = {},
     onCheckForUpdatesClick: (() -> Unit)? = null,
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onCollectionsClick: () -> Unit = {},
 ) {
     val saveableStateHolder = rememberSaveableStateHolder()
     saveableStateHolder.SaveableStateProvider(page.name) {
+        if (page == SettingsPage.WhatsNew) {
+            WhatsNewSettingsScreen(onBack = onNavigateBack)
+        } else {
         var settingsSearchQuery by rememberSaveable { mutableStateOf("") }
         var rootSearchVisible by rememberSaveable { mutableStateOf(false) }
         var rootSearchRevealAnimating by rememberSaveable { mutableStateOf(false) }
@@ -673,6 +703,7 @@ private fun MobileSettingsScreen(
                         }
                     }
                     SettingsPage.LicensesAttributions -> onLicensesAttributionsClick()
+                    SettingsPage.WhatsNew -> onWhatsNewClick()
                     SettingsPage.ContinueWatching -> onContinueWatchingClick()
                     SettingsPage.Addons -> onAddonsClick()
                     SettingsPage.Plugins -> {
@@ -770,6 +801,7 @@ private fun MobileSettingsScreen(
                             onTrackingClick = { onPageChange(SettingsPage.TraktAuthentication) },
                             onSupportersContributorsClick = onSupportersContributorsClick,
                             onLicensesAttributionsClick = onLicensesAttributionsClick,
+                            onWhatsNewClick = onWhatsNewClick,
                             onCheckForUpdatesClick = onCheckForUpdatesClick,
                             onTestUpdateBannerClick = onTestUpdateBannerClick,
                             onAccountClick = onAccountClick,
@@ -800,6 +832,7 @@ private fun MobileSettingsScreen(
                 SettingsPage.LicensesAttributions -> licensesAttributionsContent(
                     isTablet = false,
                 )
+                SettingsPage.WhatsNew -> Unit
                 SettingsPage.Playback -> playbackSettingsContent(
                     isTablet = false,
                     showLoadingOverlay = showLoadingOverlay,
@@ -837,6 +870,8 @@ private fun MobileSettingsScreen(
                     onDynamicArtworkBackgroundToggle = onDynamicArtworkBackgroundToggle,
                     showCatalogAccentEnabled = showCatalogAccentEnabled,
                     onShowCatalogAccentToggle = onShowCatalogAccentToggle,
+                    posterFadeEnabled = posterFadeEnabled,
+                    onPosterFadeToggle = onPosterFadeToggle,
                     liquidGlassNativeTabBarSupported = liquidGlassNativeTabBarSupported,
                     tabBarBehavior = tabBarBehavior,
                     onTabBarBehaviorSelected = onTabBarBehaviorSelected,
@@ -926,6 +961,7 @@ private fun MobileSettingsScreen(
                     simklUiState = simklAuthUiState,
                     settingsUiState = trackingSettingsUiState,
                     commentsEnabled = traktCommentsEnabled,
+                    mdbListConnected = mdbListConnected,
                     onCommentsEnabledChange = TraktCommentsSettings::setEnabled,
                 )
                 SettingsPage.TmdbEnrichment -> tmdbSettingsContent(
@@ -947,6 +983,7 @@ private fun MobileSettingsScreen(
             }
         }
         }
+    }
     }
 }
 
@@ -1027,6 +1064,8 @@ private fun TabletSettingsScreen(
     onDynamicArtworkBackgroundToggle: (Boolean) -> Unit,
     showCatalogAccentEnabled: Boolean,
     onShowCatalogAccentToggle: (Boolean) -> Unit,
+    posterFadeEnabled: Boolean,
+    onPosterFadeToggle: (Boolean) -> Unit,
     liquidGlassNativeTabBarSupported: Boolean,
     tabBarBehavior: NuvioTabBarBehavior,
     onTabBarBehaviorSelected: (NuvioTabBarBehavior) -> Unit,
@@ -1046,6 +1085,7 @@ private fun TabletSettingsScreen(
     traktAuthUiState: TraktAuthUiState,
     simklAuthUiState: SimklAuthUiState,
     traktCommentsEnabled: Boolean,
+    mdbListConnected: Boolean,
     trackingSettingsUiState: TrackingSettingsUiState,
     homescreenHeroEnabled: Boolean,
     homescreenHeroTrailerPlaybackEnabled: Boolean,
@@ -1064,6 +1104,7 @@ private fun TabletSettingsScreen(
     onPosterClick: ((MetaPreview) -> Unit)? = null,
     onSupportersContributorsClick: () -> Unit = {},
     onLicensesAttributionsClick: () -> Unit = {},
+    onWhatsNewClick: () -> Unit = {},
     onCheckForUpdatesClick: (() -> Unit)? = null,
     onTestUpdateBannerClick: (() -> Unit)? = null,
     onCollectionsClick: () -> Unit = {},
@@ -1135,6 +1176,9 @@ private fun TabletSettingsScreen(
         }
 
         saveableStateHolder.SaveableStateProvider(page.name) {
+            if (page == SettingsPage.WhatsNew) {
+                WhatsNewSettingsScreen(onBack = onNavigateBack)
+            } else {
             var settingsSearchQuery by rememberSaveable { mutableStateOf("") }
             var rootSearchVisible by rememberSaveable { mutableStateOf(false) }
             var rootSearchRevealAnimating by rememberSaveable { mutableStateOf(false) }
@@ -1248,6 +1292,7 @@ private fun TabletSettingsScreen(
                                 onTrackingClick = { openInlinePage(SettingsPage.TraktAuthentication) },
                                 onSupportersContributorsClick = { openInlinePage(SettingsPage.SupportersContributors) },
                                 onLicensesAttributionsClick = { openInlinePage(SettingsPage.LicensesAttributions) },
+                                onWhatsNewClick = { openInlinePage(SettingsPage.WhatsNew) },
                                 onCheckForUpdatesClick = onCheckForUpdatesClick,
                                 onTestUpdateBannerClick = onTestUpdateBannerClick,
                                 onAccountClick = { openInlinePage(SettingsPage.Account) },
@@ -1281,6 +1326,7 @@ private fun TabletSettingsScreen(
                     SettingsPage.LicensesAttributions -> licensesAttributionsContent(
                         isTablet = true,
                     )
+                    SettingsPage.WhatsNew -> Unit
                     SettingsPage.Playback -> playbackSettingsContent(
                         isTablet = true,
                         showLoadingOverlay = showLoadingOverlay,
@@ -1318,6 +1364,8 @@ private fun TabletSettingsScreen(
                         onDynamicArtworkBackgroundToggle = onDynamicArtworkBackgroundToggle,
                         showCatalogAccentEnabled = showCatalogAccentEnabled,
                         onShowCatalogAccentToggle = onShowCatalogAccentToggle,
+                        posterFadeEnabled = posterFadeEnabled,
+                        onPosterFadeToggle = onPosterFadeToggle,
                         liquidGlassNativeTabBarSupported = liquidGlassNativeTabBarSupported,
                         tabBarBehavior = tabBarBehavior,
                         onTabBarBehaviorSelected = onTabBarBehaviorSelected,
@@ -1407,6 +1455,7 @@ private fun TabletSettingsScreen(
                         simklUiState = simklAuthUiState,
                         settingsUiState = trackingSettingsUiState,
                         commentsEnabled = traktCommentsEnabled,
+                        mdbListConnected = mdbListConnected,
                         onCommentsEnabledChange = TraktCommentsSettings::setEnabled,
                     )
                     SettingsPage.TmdbEnrichment -> tmdbSettingsContent(
@@ -1428,6 +1477,7 @@ private fun TabletSettingsScreen(
                 }
             }
             }
+        }
         }
     }
 }

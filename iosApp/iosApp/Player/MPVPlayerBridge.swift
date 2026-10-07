@@ -242,6 +242,7 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
     func getVideoHeight() -> Int32 { Int32(playerVC?.currentVideoHeight ?? 0) }
     func getErrorMessage() -> String { playerVC?.currentErrorMessage ?? "" }
     func getMediaInfoJson() -> String { playerVC?.getMediaInfoJson() ?? "{}" }
+    func getProperty(name: String) -> String { playerVC?.getString(name) ?? "" }
 
     func destroy() {
         playerVC?.destroyPlayer()
@@ -2555,9 +2556,9 @@ final class MPVPlayerViewController: UIViewController {
         return data
     }
 
-    private func getString(_ name: String) -> String? {
-        guard let ctx = mpv else { return nil }
-        let cstr = mpv_get_property_string(ctx, name)
+    fileprivate func getString(_ name: String) -> String? {
+        guard mpv != nil else { return nil }
+        let cstr = mpv_get_property_string(mpv, name)
         let str: String? = cstr == nil ? nil : String(cString: cstr!)
         mpv_free(cstr)
         return str
@@ -2773,5 +2774,6 @@ final class MPVPlayerBridgeCreator: NSObject, NuvioPlayerBridgeCreator {
 enum NuvioPlayerRegistration {
     static func register() {
         NuvioPlayerBridgeFactory.shared.registerFactory(creator: MPVPlayerBridgeCreator())
+        NuvioSeekPreviewRegistry.shared.registerCreator(creator: FFmpegSeekPreviewGeneratorCreator())
     }
 }
