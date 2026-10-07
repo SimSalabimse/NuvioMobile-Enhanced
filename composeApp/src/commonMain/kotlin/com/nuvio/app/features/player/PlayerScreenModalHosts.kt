@@ -102,6 +102,7 @@ internal fun PlayerScreenModalHosts(
     metaUiState: MetaDetailsUiState,
     playbackClock: PlayerPlaybackClock? = null,
     durationMs: Long = 0L,
+    displayedPositionMs: Long,
     submitIntroSegmentType: String,
     onSubmitIntroSegmentTypeChanged: (String) -> Unit,
     submitIntroStartTimeStr: String,
