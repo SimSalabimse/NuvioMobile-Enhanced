@@ -67,6 +67,7 @@ actual fun PlatformPlayerSurface(
     val latestOnSnapshot = rememberUpdatedState(onSnapshot)
     val latestOnError = rememberUpdatedState(onError)
     val latestIncludeMediaInfo = rememberUpdatedState(includeMediaInfo)
+    val latestSourceUrl = rememberUpdatedState(sourceUrl)
     val density = LocalDensity.current
     PlayerSettingsRepository.ensureLoaded()
     val playerSettings by PlayerSettingsRepository.uiState.collectAsStateWithLifecycle()
@@ -448,6 +449,8 @@ actual fun PlatformPlayerSurface(
                     cachedMediaInfoJson = refreshed
                 }
             }
+            val incomingBytesPerSec = bridge.getIncomingBytesPerSec()
+            val mediaBitrateBps = bridge.getMediaBitrateBps()
             val snapshot = PlayerPlaybackSnapshot(
                 isLoading = bridge.getIsLoading(),
                 isPlaying = bridge.getIsPlaying(),
@@ -459,6 +462,10 @@ actual fun PlatformPlayerSurface(
                 videoWidth = bridge.getVideoWidth().coerceAtLeast(0),
                 videoHeight = bridge.getVideoHeight().coerceAtLeast(0),
                 mediaInfoJson = cachedMediaInfoJson,
+                incomingBytesPerSec = incomingBytesPerSec.takeIf { it >= 0L },
+                mediaBitrateBps = mediaBitrateBps.takeIf { it > 0L },
+                streamHost = streamHostFromUrl(latestSourceUrl.value),
+                stallFailure = PlaybackStallFailure.None,
             )
             latestOnSnapshot.value(snapshot)
             val errorMessage = bridge.getErrorMessage().ifBlank { null }

@@ -1,5 +1,7 @@
 package com.nuvio.app.features.player
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.features.watching.application.WatchingState
 import com.nuvio.app.features.home.MetaPreview
 import androidx.compose.animation.AnimatedVisibility
@@ -14,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -526,6 +529,25 @@ private fun BoxScope.RenderPlaybackOverlays(
     p2pDownloadSpeed: String?,
 ) {
     runtime.run {
+        val showStallCause = playerSettingsUiState.showPlayerLoadingStatus && activeTorrentInfoHash == null
+        val networkStatus by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
+        val stallClockRunning = showStallCause && errorMessage == null && playbackSnapshot.isLoading
+        val stalledForMs = rememberPlaybackStallElapsedMs(stallClockRunning)
+        val playbackUrl = activePlaybackSourceUrl?.takeIf { it.isNotBlank() } ?: activeSourceUrl
+        val stallCopy = if (stallClockRunning) {
+            playbackStallCopy(
+                sourceUrl = playbackUrl,
+                network = networkStatus.condition,
+                stalledForMs = stalledForMs,
+                snapshot = playbackSnapshot,
+                bufferAheadMs = (playbackClock.bufferedPositionMs - playbackClock.positionMs).coerceAtLeast(0L),
+                hlsBandwidthBps = playerQualityState.selectedVariantFor(selectedPlayerQualityId)?.bandwidth,
+            )
+        } else {
+            null
+        }
+        val openingStallText = if (!initialLoadCompleted && playerController != null) stallCopy?.overlayText else null
+        val openingUsesStallCause = p2pInitialLoadingMessage == null && openingStallText != null
         PlayerPlaybackOverlays(
             playerControlsLocked = playerControlsLocked,
             useLegacyLayout = playerSettingsUiState.useLegacyPlayerLayout,
@@ -547,12 +569,13 @@ private fun BoxScope.RenderPlaybackOverlays(
             args.onBack()
         },
         openingLoadingMessage = if (playerSettingsUiState.showPlayerLoadingStatus) {
-            p2pInitialLoadingMessage ?: playerLoadingStatusMessage(
+            p2pInitialLoadingMessage ?: openingStallText ?: playerLoadingStatusMessage(
                 showStatus = true,
                 controllerReady = playerController != null,
                 buffering = playbackSnapshot.isLoading,
             )
         } else null,
+        openingMessageMaxLines = if (openingUsesStallCause) 4 else 2,
         p2pInitialLoadingProgress = null,
         showP2pRebufferStats = showP2pRebufferStats,
         p2pRebufferMessage = null,
@@ -635,6 +658,8 @@ private fun BoxScope.RenderPlaybackOverlays(
                 flushWatchProgress()
                 args.onBack()
             },
+            httpRebufferHeadline = if (initialLoadCompleted) stallCopy?.headline else null,
+            httpRebufferDetail = if (initialLoadCompleted) stallCopy?.detail else null,
         )
     }
 }

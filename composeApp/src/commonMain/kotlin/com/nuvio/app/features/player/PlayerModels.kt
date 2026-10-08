@@ -235,6 +235,10 @@ data class PlayerPlaybackSnapshot(
     val videoWidth: Int = 0,
     val videoHeight: Int = 0,
     val mediaInfoJson: String = "{}",
+    val incomingBytesPerSec: Long? = null,
+    val mediaBitrateBps: Long? = null,
+    val streamHost: String? = null,
+    val stallFailure: PlaybackStallFailure = PlaybackStallFailure.None,
 )
 
 /**
