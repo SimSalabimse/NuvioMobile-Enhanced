@@ -1623,16 +1623,12 @@ final class MPVPlayerViewController: UIViewController {
     /// Absolute end of the cached media. `demuxer-cache-time` is an end timestamp.
     /// `demuxer-cache-duration` is seconds ahead of the playhead, not an end time.
     private func cachedRangeEnd(playhead: Double) -> Double {
-        let seekableEnd = finiteProperty("demuxer-cache-state/seekable-ranges/0/end")
-        let cacheTime = finiteProperty("demuxer-cache-time")
-        let absoluteEnds = [seekableEnd, cacheTime].compactMap { $0 }.filter { $0 > playhead + 0.4 }
-        if let end = absoluteEnds.max() {
-            return end
-        }
-        if let ahead = finiteProperty("demuxer-cache-duration"), ahead > 0.5, ahead < 180 {
-            return playhead + ahead
-        }
-        return playhead
+        demuxerCachedRangeEnd(
+            playhead: playhead,
+            seekableRangeEnd: finiteProperty("demuxer-cache-state/seekable-ranges/0/end"),
+            cacheTime: finiteProperty("demuxer-cache-time"),
+            cacheDuration: finiteProperty("demuxer-cache-duration")
+        )
     }
 
     private func finiteProperty(_ name: String) -> Double? {
@@ -2069,7 +2065,13 @@ final class MPVPlayerViewController: UIViewController {
         guard mpv != nil else { return nil }
         let duration = getDouble("duration")
         let position = getDouble("time-pos")
-        let cached = getDouble("demuxer-cache-time")
+        let playhead = position.isFinite ? position : 0
+        let bufferedEnd = demuxerCachedRangeEnd(
+            playhead: playhead,
+            seekableRangeEnd: finiteProperty("demuxer-cache-state/seekable-ranges/0/end"),
+            cacheTime: finiteProperty("demuxer-cache-time"),
+            cacheDuration: finiteProperty("demuxer-cache-duration")
+        )
         let speed = getDouble("speed")
         let paused = getFlag("pause")
         let eofReached = getFlag("eof-reached")
@@ -2087,7 +2089,7 @@ final class MPVPlayerViewController: UIViewController {
             isEnded: eofReached,
             durationMs: Int64(duration * 1000),
             positionMs: Int64(max(position, 0) * 1000),
-            bufferedMs: Int64(max(position + cached, 0) * 1000),
+            bufferedMs: Int64(max(bufferedEnd, 0) * 1000),
             speed: Float(speed > 0 ? speed : 1.0),
             incomingBytesPerSec: cacheSpeed.map { Int64(max($0, 0)) } ?? -1,
             mediaBitrateBps: bitrateSum > 0 ? Int64(bitrateSum) : 0
