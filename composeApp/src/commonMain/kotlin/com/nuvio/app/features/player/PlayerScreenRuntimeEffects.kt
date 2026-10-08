@@ -409,17 +409,21 @@ private fun PlayerScreenRuntime.BindPlayerUiVisibilityEffects() {
         controlsVisible,
         controlsActivityTick,
         isScrubbingTimeline,
+        isTouchingTimeline,
         playbackSnapshot.isPlaying,
         playbackSnapshot.isLoading,
         showParentalGuide,
+        showSpeedPanel,
         errorMessage,
     ) {
         if (
             !controlsVisible ||
             isScrubbingTimeline ||
+            isTouchingTimeline ||
             !playbackSnapshot.isPlaying ||
             playbackSnapshot.isLoading ||
             showParentalGuide ||
+            showSpeedPanel ||
             errorMessage != null
         ) {
             return@LaunchedEffect

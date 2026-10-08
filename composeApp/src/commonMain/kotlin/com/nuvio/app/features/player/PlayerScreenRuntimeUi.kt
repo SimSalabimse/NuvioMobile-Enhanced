@@ -409,9 +409,20 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
             onResizeModeClick = { cycleResizeMode() },
             onSpeedClick = if (!isLiveTvPlayback) {
                 {
-                    cyclePlaybackSpeed()
+                    showSpeedPanel = !showSpeedPanel
+                    controlsActivityTick += 1
                 }
             } else null,
+            speedPickerVisible = showSpeedPanel,
+            onSpeedSelected = { speed ->
+                setPlaybackSpeedFromPicker(speed)
+                showSpeedPanel = false
+                controlsActivityTick += 1
+            },
+            onSpeedPickerDismiss = {
+                showSpeedPanel = false
+                controlsActivityTick += 1
+            },
             onSubtitleClick = if (!isLiveTvPlayback) {
                 {
                     refreshTracks()
@@ -538,6 +549,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
             horizontalSafePadding = horizontalSafePadding,
             modifier = Modifier.fillMaxSize(),
             seekPreview = seekPreview,
+            onTimelineTouchChange = { touching -> isTouchingTimeline = touching },
         )
     }
 }
@@ -672,6 +684,7 @@ private fun PlayerScreenRuntime.openChaptersPanel() {
     showChaptersPanel = true
     showSourcesPanel = false
     showQualityPanel = false
+    showSpeedPanel = false
     showEpisodesPanel = false
     showLiveChannelsPanel = false
     controlsVisible = false

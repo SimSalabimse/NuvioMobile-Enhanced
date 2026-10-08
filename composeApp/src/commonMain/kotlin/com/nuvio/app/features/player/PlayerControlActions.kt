@@ -94,6 +94,8 @@ internal fun PlayerToolbar(
     }
 }
 
+private const val ShowUpstreamStreamInfoAction = false
+
 @Composable
 internal fun PlayerControlActions(
     playbackSnapshot: PlayerPlaybackSnapshot,
@@ -112,6 +114,9 @@ internal fun PlayerControlActions(
     onNextEpisodeClick: (() -> Unit)?,
     onSwitchEngineClick: (() -> Unit)?,
     onSpeedClick: () -> Unit,
+    speedPickerVisible: Boolean = false,
+    onSpeedSelected: (Float) -> Unit = {},
+    onSpeedPickerDismiss: () -> Unit = {},
     onResizeModeClick: () -> Unit,
     onVideoSettingsClick: (() -> Unit)?,
     onOpenInExternalPlayer: (() -> Unit)?,
@@ -181,6 +186,14 @@ internal fun PlayerControlActions(
         PlayerControlAction(
             "${stringResource(Res.string.compose_player_speed)} ${formatPlaybackSpeedLabel(playbackSnapshot.playbackSpeed)}",
             onSpeedClick, icon = Icons.Rounded.Speed,
+            popup = {
+                PlayerSpeedPopup(
+                    visible = speedPickerVisible,
+                    currentSpeed = playbackSnapshot.playbackSpeed,
+                    onSpeedSelected = onSpeedSelected,
+                    onDismiss = onSpeedPickerDismiss,
+                )
+            },
         ),
         PlayerControlAction(
             stringResource(resizeMode.labelRes), onResizeModeClick,
@@ -192,10 +205,12 @@ internal fun PlayerControlActions(
                 icon = Icons.AutoMirrored.Rounded.OpenInNew,
             )
         },
+        onStreamInfoClick.takeIf { ShowUpstreamStreamInfoAction }?.let {
         PlayerControlAction(
             stringResource(Res.string.cd_stream_info), onStreamInfoClick,
             icon = Icons.Rounded.Info,
-        ),
+        )
+        },
         onVideoSettingsClick?.let {
             PlayerControlAction(
                 stringResource(Res.string.player_action_video_settings), it,
@@ -233,16 +248,19 @@ internal fun PlayerControlActions(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 actions.take(if (expanded) actions.size else 5).forEach { action ->
-                    PlayerAction(
-                        description = action.description,
-                        onClick = {
-                            onInteraction()
-                            action.onClick()
-                        },
-                        icon = action.icon,
-                        painter = action.painter,
-                        iconSize = action.iconSize,
-                    )
+                    Box {
+                        PlayerAction(
+                            description = action.description,
+                            onClick = {
+                                onInteraction()
+                                action.onClick()
+                            },
+                            icon = action.icon,
+                            painter = action.painter,
+                            iconSize = action.iconSize,
+                        )
+                        action.popup?.invoke()
+                    }
                 }
                 if (hasOverflow) {
                     PlayerAction(
@@ -328,4 +346,5 @@ private data class PlayerControlAction(
     val icon: ImageVector? = null,
     val painter: Painter? = null,
     val iconSize: Dp = 24.dp,
+    val popup: (@Composable () -> Unit)? = null,
 )

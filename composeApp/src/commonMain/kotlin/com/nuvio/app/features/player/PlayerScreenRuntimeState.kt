@@ -154,6 +154,7 @@ internal class PlayerScreenRuntime(
     var playerControllerSourceUrl by mutableStateOf<String?>(null)
     var errorMessage by mutableStateOf<String?>(null)
     var isScrubbingTimeline by mutableStateOf(false)
+    var isTouchingTimeline by mutableStateOf(false)
     var scrubbingPositionMs by mutableStateOf<Long?>(null)
     var pausedOverlayVisible by mutableStateOf(false)
     var gestureFeedback by mutableStateOf<GestureFeedbackState?>(null)
@@ -180,6 +181,7 @@ internal class PlayerScreenRuntime(
 
     var showSourcesPanel by mutableStateOf(false)
     var showQualityPanel by mutableStateOf(false)
+    var showSpeedPanel by mutableStateOf(false)
     var showEpisodesPanel by mutableStateOf(false)
     var showChaptersPanel by mutableStateOf(false)
     var showLiveChannelsPanel by mutableStateOf(false)
@@ -260,6 +262,7 @@ internal class PlayerScreenRuntime(
             showUserRatingSheet ||
             showSourcesPanel ||
             showQualityPanel ||
+            showSpeedPanel ||
             showEpisodesPanel ||
             showChaptersPanel ||
             showLiveChannelsPanel ||
