@@ -27,6 +27,8 @@ import com.nuvio.app.features.player.skip.SkipInterval
 import com.nuvio.app.features.player.skip.shouldAutoSkip
 import com.nuvio.app.features.player.skip.internalSkipAction
 import com.nuvio.app.features.player.skip.intervalsAtSeekPositions
+import com.nuvio.app.features.servers.ServerPlayback
+import com.nuvio.app.features.servers.ServerStreams
 import com.nuvio.app.features.streams.BingeGroupCacheRepository
 import com.nuvio.app.features.streams.StreamLinkCacheRepository
 import com.nuvio.app.features.streams.StreamItem
@@ -301,6 +303,11 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         }
     }
 
+    LaunchedEffect(activeSourceUrl, preferredAudioLanguageTargets) {
+        refreshServerTracks()
+        applyPreferredServerAudioTrack()
+    }
+
     LaunchedEffect(playbackSnapshot.isLoading, playerController, preferredAudioLanguageTargets) {
         if (!playbackSnapshot.isLoading && playerController != null) {
             refreshTracks()
@@ -375,6 +382,11 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
 
     BindPlayerUiVisibilityEffects()
     BindPlayerMetadataAndSkipEffects()
+
+    DisposableEffect(activeSourceUrl) {
+        val effectSourceUrl = activeSourceUrl
+        onDispose { ServerPlayback.stop(effectSourceUrl) }
+    }
 
     DisposableEffect(playbackSession.videoId, activeSourceUrl, activeSourceAudioUrl) {
         val effectVideoId = playbackSession.videoId
@@ -461,6 +473,13 @@ private fun PlayerScreenRuntime.BindPlayerUiVisibilityEffects() {
         playbackSnapshot.durationMs,
     ) {
         snapshotFlow { playbackClock.positionMs }.collect {
+            ServerPlayback.onPlaybackSnapshot(
+                url = activeSourceUrl,
+                positionMs = playbackClock.positionMs,
+                isPlaying = playbackSnapshot.isPlaying,
+                isLoading = playbackSnapshot.isLoading,
+                isEnded = playbackSnapshot.isEnded,
+            )
             if (playbackSnapshot.isEnded) {
                 flushWatchProgress(TrackingScrobbleAction.STOP)
                 previousIsPlaying = false
@@ -814,6 +833,7 @@ internal fun PlayerScreenRuntime.removeFailedStreamFromCache() {
 }
 
 internal fun PlayerScreenRuntime.tryRefreshCredentialedSourceAfterError(message: String?): Boolean {
+    if (ServerStreams.isServerSourceId(activeProviderAddonId)) return retryServerSourceAfterError(message)
     val failedUrl = activeSourceUrl
     if (!failedUrl.hasLikelyExpiringPlaybackCredentials()) return false
     if (credentialRefreshJob?.isActive == true) return true
@@ -901,6 +921,29 @@ internal fun PlayerScreenRuntime.tryRefreshCredentialedSourceAfterError(message:
         } finally {
             PlayerStreamsRepository.stopSourcesLoading()
         }
+    }
+    return true
+}
+
+private fun PlayerScreenRuntime.retryServerSourceAfterError(message: String?): Boolean {
+    if (credentialRefreshJob?.isActive == true) return true
+    val failedUrl = activeSourceUrl
+    if (credentialRefreshAttemptedSourceUrl == failedUrl) return false
+    credentialRefreshAttemptedSourceUrl = failedUrl
+    val savedPositionMs = playbackSnapshot.positionMs.coerceAtLeast(0L)
+    errorMessage = null
+    credentialRefreshJob = scope.launch {
+        val playback = ServerPlayback.fallback(failedUrl)
+        if (playback == null) {
+            errorMessage = message
+            controlsVisible = !playerControlsLocked
+            return@launch
+        }
+        externalSubtitles = playback.subtitles
+        activeSourceUrl = playback.url
+        activeSourceHeaders = playback.headers
+        activeInitialPositionMs = savedPositionMs
+        activeInitialProgressFraction = null
     }
     return true
 }
