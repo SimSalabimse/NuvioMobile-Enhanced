@@ -399,6 +399,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
             P2pStreamingEngine.shutdown()
             cancelNextEpisodePreload()
             PlayerStreamsRepository.clearAll()
+            SkipIntroRepository.clearCache()
         }
     }
 }

@@ -53,6 +53,22 @@ internal fun submittedFlagTypesForTitle(
     }
 }
 
+/**
+ * One episode's saved types become [remoteTypes].
+ * An empty remote set removes that key. Other keys stay.
+ */
+internal fun replaceFlagSubmitLedgerTypes(
+    entries: Map<String, Set<String>>,
+    contentKey: String,
+    remoteTypes: Set<String>,
+): Map<String, Set<String>> {
+    if (contentKey.isEmpty()) return entries
+    val canonical = remoteTypes.mapNotNullTo(linkedSetOf()) { canonicalFlagSegmentType(it) }
+    val next = entries.toMutableMap()
+    if (canonical.isEmpty()) next.remove(contentKey) else next[contentKey] = canonical
+    return next
+}
+
 internal fun encodeFlagSubmitLedger(entries: Map<String, Set<String>>): String {
     return entries.entries
         .sortedBy { it.key }

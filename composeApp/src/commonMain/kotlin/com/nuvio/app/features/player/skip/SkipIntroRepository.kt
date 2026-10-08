@@ -8,9 +8,27 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeoutOrNull
 
+/**
+ * Process-lifetime skip intervals.
+ * [lookup] returns null on a miss. A stored list, including an empty one, is a hit.
+ */
+internal class SkipIntervalLookupCache {
+    private val entries = HashMap<String, List<SkipInterval>>()
+
+    fun lookup(key: String): List<SkipInterval>? = entries[key]
+
+    fun store(key: String, intervals: List<SkipInterval>) {
+        entries[key] = intervals
+    }
+
+    fun clear() {
+        entries.clear()
+    }
+}
+
 object SkipIntroRepository {
 
-    private val cache = HashMap<String, List<SkipInterval>>()
+    internal val skipIntervalCache = SkipIntervalLookupCache()
     private val imdbEntriesCache = HashMap<String, List<ArmEntry>>()
     private val animeSkipShowIdCache = HashMap<String, String>()
     private const val NO_ID = "__none__"
@@ -39,7 +57,7 @@ object SkipIntroRepository {
         )
         if (imdbId == null) return@coroutineScope emptyList()
         val cacheKey = "movie:$imdbId"
-        cache[cacheKey]?.let { return@coroutineScope it }
+        skipIntervalCache.lookup(cacheKey)?.let { return@coroutineScope it }
 
         val theIntroDbDeferred = async { fetchMovieFromTheIntroDb(imdbId) }
         val introDbDeferred = async {
@@ -48,7 +66,7 @@ object SkipIntroRepository {
             } else emptyList()
         }
         mergeByPriority(theIntroDbDeferred.await(), introDbDeferred.await()).also {
-            cache[cacheKey] = it
+            skipIntervalCache.store(cacheKey, it)
         }
     }
 
@@ -69,7 +87,7 @@ object SkipIntroRepository {
         }
 
         val cacheKey = "$imdbId:$season:$episode"
-        cache[cacheKey]?.let { cached ->
+        skipIntervalCache.lookup(cacheKey)?.let { cached ->
             InAppLogger.debug("Player/SkipIntro", "skip lookup cache hit imdb=$imdbId s=$season e=$episode count=${cached.size}")
             return@coroutineScope cached
         }
@@ -95,7 +113,7 @@ object SkipIntroRepository {
                 "skip lookup fast result imdb=$imdbId s=$season e=$episode count=${primary.size} " +
                     "theintrodb=${theIntroDb.size} introdb=${introDb.size}",
             )
-            cache[cacheKey] = primary
+            skipIntervalCache.store(cacheKey, primary)
             return@coroutineScope primary
         }
 
@@ -131,7 +149,7 @@ object SkipIntroRepository {
                     "theintrodb=${theIntroDb.size} introdb=${introDb.size} " +
                     "animeskip=${animeSkip.size} aniskip=${aniSkip.size}",
             )
-            cache[cacheKey] = merged
+            skipIntervalCache.store(cacheKey, merged)
         }
     }
 
@@ -150,7 +168,7 @@ object SkipIntroRepository {
         }
 
         val cacheKey = "mal:$malId:$episode"
-        cache[cacheKey]?.let { cached ->
+        skipIntervalCache.lookup(cacheKey)?.let { cached ->
             InAppLogger.debug("Player/SkipIntro", "skip lookup cache hit mal=$malId e=$episode count=${cached.size}")
             return@coroutineScope cached
         }
@@ -191,7 +209,7 @@ object SkipIntroRepository {
                 "skip lookup result mal=$malId e=$episode count=${merged.size} " +
                     "introdb=${introDb.size} animeskip=${animeSkip.size} aniskip=${aniSkip.size}",
             )
-            cache[cacheKey] = merged
+            skipIntervalCache.store(cacheKey, merged)
         }
     }
 
@@ -210,7 +228,7 @@ object SkipIntroRepository {
         }
 
         val cacheKey = "kitsu:$kitsuId:$episode"
-        cache[cacheKey]?.let { cached ->
+        skipIntervalCache.lookup(cacheKey)?.let { cached ->
             InAppLogger.debug("Player/SkipIntro", "skip lookup cache hit kitsu=$kitsuId e=$episode count=${cached.size}")
             return@coroutineScope cached
         }
@@ -257,7 +275,7 @@ object SkipIntroRepository {
                 "skip lookup result kitsu=$kitsuId e=$episode count=${merged.size} " +
                     "introdb=${introDb.size} animeskip=${animeSkip.size} aniskip=${aniSkip.size}",
             )
-            cache[cacheKey] = merged
+            skipIntervalCache.store(cacheKey, merged)
         }
     }
 
@@ -511,7 +529,7 @@ object SkipIntroRepository {
     }
 
     fun clearCache() {
-        cache.clear()
+        skipIntervalCache.clear()
         imdbEntriesCache.clear()
         animeSkipShowIdCache.clear()
     }

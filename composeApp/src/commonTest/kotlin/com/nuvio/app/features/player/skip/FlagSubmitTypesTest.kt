@@ -67,6 +67,25 @@ class FlagSubmitTypesTest {
         assertEquals(emptyMap(), decodeFlagSubmitLedger("   "))
     }
 
+    @Test
+    fun remoteSetReplacesOneLedgerEntryAndEmptyDropsTheKey() {
+        val ledger = mapOf(
+            "tt1:1:2" to setOf("intro", "outro"),
+            "tt9:movie" to setOf("preview"),
+        )
+        assertEquals(
+            mapOf(
+                "tt1:1:2" to setOf("outro"),
+                "tt9:movie" to setOf("preview"),
+            ),
+            replaceFlagSubmitLedgerTypes(ledger, "tt1:1:2", setOf("outro")),
+        )
+        assertEquals(
+            mapOf("tt9:movie" to setOf("preview")),
+            replaceFlagSubmitLedgerTypes(ledger, "tt1:1:2", emptySet()),
+        )
+    }
+
     private fun record(
         tmdbId: Int = 42,
         type: String = "tv",

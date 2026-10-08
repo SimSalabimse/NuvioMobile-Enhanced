@@ -47,6 +47,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -196,10 +197,9 @@ fun SubmitIntroDialog(
     }
     
     val contentKey = flagSubmitContentKey(imdbId, season, episode, isMovie)
-    val localTypes = remember(contentKey, submittedTypesInSession) {
-        (FlagSubmitLedger.loadTypes(contentKey) + submittedTypesInSession)
-            .mapNotNull { canonicalFlagSegmentType(it) }
-            .toSet()
+    val latestSubmittedTypes by rememberUpdatedState(submittedTypesInSession)
+    var localTypes by remember(contentKey, submittedTypesInSession) {
+        mutableStateOf(flagTypesShownForContent(contentKey, submittedTypesInSession))
     }
     var remoteTypes by remember(contentKey) {
         mutableStateOf(remoteFlagTypesByContentKey[contentKey].orEmpty())
@@ -232,22 +232,25 @@ fun SubmitIntroDialog(
         } catch (_: Exception) {
             null
         } ?: return@LaunchedEffect
-        val types = try {
-            submittedFlagTypesForTitle(
-                records = TheIntroDb.listMySubmissions(apiKey, tmdbId, mediaType).mapNotNull { it.toFlagRecord() },
-                tmdbId = tmdbId,
-                isMovie = isMovie,
-                season = season,
-                episode = episode,
-            )
+        val records = try {
+            TheIntroDb.listMySubmissions(apiKey, tmdbId, mediaType).mapNotNull { it.toFlagRecord() }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
-            emptySet()
+            return@LaunchedEffect
         }
+        val types = submittedFlagTypesForTitle(
+            records = records,
+            tmdbId = tmdbId,
+            isMovie = isMovie,
+            season = season,
+            episode = episode,
+        )
         if (contentKey.isNotEmpty()) {
             remoteFlagTypesByContentKey[contentKey] = types
-            types.forEach { FlagSubmitLedger.rememberType(contentKey, it) }
+            FlagSubmitLedger.replaceTypes(contentKey, types)
+            latestSubmittedTypes.forEach { FlagSubmitLedger.rememberType(contentKey, it) }
+            localTypes = flagTypesShownForContent(contentKey, latestSubmittedTypes)
         }
         remoteTypes = types
     }
@@ -340,6 +343,7 @@ fun SubmitIntroDialog(
                                 remoteFlagTypesByContentKey[submittedKey].orEmpty() + type
                         }
                     }
+                    SkipIntroRepository.clearCache()
                     onSuccess()
                 } else {
                     errorMessage = if (keyWasNew) {
@@ -959,6 +963,12 @@ private fun SegmentTypeButton(
 }
 
 private val remoteFlagTypesByContentKey = mutableMapOf<String, Set<String>>()
+
+private fun flagTypesShownForContent(contentKey: String, sessionTypes: Set<String>): Set<String> {
+    return (FlagSubmitLedger.loadTypes(contentKey) + sessionTypes)
+        .mapNotNull { canonicalFlagSegmentType(it) }
+        .toSet()
+}
 
 private fun normalizeSegmentTypeForSubmit(type: String): String? {
     return when (type.trim().lowercase()) {
