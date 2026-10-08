@@ -38,6 +38,7 @@ internal fun BoxScope.PlayerPlaybackOverlays(
     title: String,
     onBackWithProgress: () -> Unit,
     openingLoadingMessage: String?,
+    openingMessageMaxLines: Int = 2,
     p2pInitialLoadingProgress: Float?,
     showP2pRebufferStats: Boolean,
     p2pRebufferMessage: String?,
@@ -74,6 +75,8 @@ internal fun BoxScope.PlayerPlaybackOverlays(
     onDismissMovieRecommendations: () -> Unit = {},
     errorMessage: String?,
     onDismissError: () -> Unit,
+    httpRebufferHeadline: String? = null,
+    httpRebufferDetail: String? = null,
 ) {
     AnimatedVisibility(
         visible = playerControlsLocked && lockedOverlayVisible,
@@ -107,6 +110,7 @@ internal fun BoxScope.PlayerPlaybackOverlays(
             horizontalSafePadding = horizontalSafePadding,
             modifier = Modifier.fillMaxSize(),
             message = openingLoadingMessage,
+            messageMaxLines = openingMessageMaxLines,
             progress = p2pOpeningProgress(
                 playbackClock = playbackClock,
                 downloadedBytes = p2pDownloadedBytes,
@@ -123,6 +127,16 @@ internal fun BoxScope.PlayerPlaybackOverlays(
             downloadSpeed = p2pDownloadSpeed,
             fallbackMessage = p2pRebufferMessage,
             fallbackProgress = p2pRebufferProgress,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(top = 58.dp),
+        )
+    }
+
+    if (!showP2pRebufferStats && errorMessage == null && !httpRebufferHeadline.isNullOrBlank()) {
+        PlaybackStallRebufferStatus(
+            headline = httpRebufferHeadline,
+            detail = httpRebufferDetail,
             modifier = Modifier
                 .align(Alignment.Center)
                 .padding(top = 58.dp),

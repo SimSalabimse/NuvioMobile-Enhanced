@@ -92,6 +92,8 @@ interface NuvioPlayerBridge {
     fun getPositionMs(): Long
     fun getBufferedMs(): Long
     fun getPlaybackSpeed(): Float
+    fun getIncomingBytesPerSec(): Long
+    fun getMediaBitrateBps(): Long
     fun getVideoWidth(): Int
     fun getVideoHeight(): Int
     fun getErrorMessage(): String

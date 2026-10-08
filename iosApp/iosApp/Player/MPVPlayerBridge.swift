@@ -238,6 +238,8 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
     func getPositionMs() -> Int64 { return playerVC?.positionMs ?? 0 }
     func getBufferedMs() -> Int64 { return playerVC?.bufferedMs ?? 0 }
     func getPlaybackSpeed() -> Float { playerVC?.currentSpeed ?? 1.0 }
+    func getIncomingBytesPerSec() -> Int64 { playerVC?.incomingBytesPerSec ?? -1 }
+    func getMediaBitrateBps() -> Int64 { playerVC?.mediaBitrateBps ?? 0 }
     func getVideoWidth() -> Int32 { Int32(playerVC?.currentVideoWidth ?? 0) }
     func getVideoHeight() -> Int32 { Int32(playerVC?.currentVideoHeight ?? 0) }
     func getErrorMessage() -> String { playerVC?.currentErrorMessage ?? "" }
@@ -507,6 +509,8 @@ final class MPVPlayerViewController: UIViewController {
     var positionMs: Int64 = 0
     var bufferedMs: Int64 = 0
     var currentSpeed: Float = 1.0
+    var incomingBytesPerSec: Int64 = -1
+    var mediaBitrateBps: Int64 = 0
     var currentErrorMessage: String {
         errorStateLock.lock()
         defer { errorStateLock.unlock() }
@@ -2029,6 +2033,8 @@ final class MPVPlayerViewController: UIViewController {
         let positionMs: Int64
         let bufferedMs: Int64
         let speed: Float
+        let incomingBytesPerSec: Int64
+        let mediaBitrateBps: Int64
     }
 
     func refreshPlaybackState() {
@@ -2071,6 +2077,10 @@ final class MPVPlayerViewController: UIViewController {
         let idle = getFlag("core-idle")
         let seeking = getFlag("seeking")
         let bufferingCache = getFlag("paused-for-cache")
+        let cacheSpeed = finiteProperty("cache-speed")
+        let videoBitrate = finiteProperty("video-bitrate")
+        let audioBitrate = finiteProperty("audio-bitrate")
+        let bitrateSum = [videoBitrate, audioBitrate].compactMap { $0 }.filter { $0 > 0 }.reduce(0, +)
 
         return PlaybackStateSnapshot(
             isLoading: (idle && !paused && !eofReached) || seeking || bufferingCache,
@@ -2079,7 +2089,9 @@ final class MPVPlayerViewController: UIViewController {
             durationMs: Int64(duration * 1000),
             positionMs: Int64(max(position, 0) * 1000),
             bufferedMs: Int64(max(position + cached, 0) * 1000),
-            speed: Float(speed > 0 ? speed : 1.0)
+            speed: Float(speed > 0 ? speed : 1.0),
+            incomingBytesPerSec: cacheSpeed.map { Int64(max($0, 0)) } ?? -1,
+            mediaBitrateBps: bitrateSum > 0 ? Int64(bitrateSum) : 0
         )
     }
 
@@ -2101,6 +2113,8 @@ final class MPVPlayerViewController: UIViewController {
         positionMs = snapshot.positionMs
         bufferedMs = snapshot.bufferedMs
         currentSpeed = snapshot.speed
+        incomingBytesPerSec = snapshot.incomingBytesPerSec
+        mediaBitrateBps = snapshot.mediaBitrateBps
 
         positionSampleLock.lock()
         positionSampleMs = snapshot.positionMs

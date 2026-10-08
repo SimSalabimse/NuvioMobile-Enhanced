@@ -49,6 +49,7 @@ import androidx.media3.common.audio.BaseAudioProcessor
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.TransferListener
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
@@ -96,6 +97,7 @@ import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.io.File
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
 import java.net.URI
 import java.net.URL
 import java.nio.ByteBuffer
@@ -303,6 +305,8 @@ private fun ExoPlayerSurface(
     var initializedAudioDecoderName by remember(playerSourceKey) { mutableStateOf<String?>(null) }
     var playerChapters by remember(playerSourceKey) { mutableStateOf<List<PlayerChapter>>(emptyList()) }
     var chaptersProbeDone by remember(playerSourceKey) { mutableStateOf(false) }
+    var latestIncomingBytesPerSec by remember(playerSourceKey) { mutableStateOf<Long?>(null) }
+    var latestStallFailure by remember(playerSourceKey) { mutableStateOf(PlaybackStallFailure.None) }
     val effectiveDecoderPriority = decoderPriorityOverride ?: playerSettings.decoderPriority
     val volumeBoostAudioProcessor = remember(playerSourceKey) {
         PlayerOutputAudioProcessor(stereoDownmixEnabled = !playerSettings.androidAudioPassthroughEnabled)
@@ -510,7 +514,14 @@ private fun ExoPlayerSurface(
     }
 
     fun dispatchExoPlayerSnapshot() {
-        val snapshot = exoPlayer.snapshot(initializedVideoDecoderName, initializedAudioDecoderName, playerChapters)
+        val snapshot = exoPlayer.snapshot(
+            videoDecoder = initializedVideoDecoderName,
+            audioDecoder = initializedAudioDecoderName,
+            chapters = playerChapters,
+            incomingBytesPerSec = latestIncomingBytesPerSec,
+            streamHost = streamHostFromUrl(sourceUrl),
+            stallFailure = latestStallFailure,
+        )
         latestOnSnapshot.value(snapshot)
         nowPlayingController.syncPlayback(snapshot)
     }
@@ -828,6 +839,12 @@ private fun ExoPlayerSurface(
                 error: IOException,
                 wasCanceled: Boolean,
             ) {
+                if (!wasCanceled && mediaLoadData.dataType.isPlaybackStallLoadType()) {
+                    val failure = error.toPlaybackStallFailure()
+                    if (failure != PlaybackStallFailure.None) {
+                        latestStallFailure = failure
+                    }
+                }
                 InAppLogger.warn(
                     "Network/Playback",
                     "loadError url=${InAppLogger.redactUrl(loadEventInfo.uri.toString())} " +
@@ -836,12 +853,23 @@ private fun ExoPlayerSurface(
                 )
             }
 
+            override fun onLoadCompleted(
+                eventTime: AnalyticsListener.EventTime,
+                loadEventInfo: LoadEventInfo,
+                mediaLoadData: MediaLoadData,
+            ) {
+                if (mediaLoadData.dataType.isPlaybackStallLoadType()) {
+                    latestStallFailure = PlaybackStallFailure.None
+                }
+            }
+
             override fun onBandwidthEstimate(
                 eventTime: AnalyticsListener.EventTime,
                 totalLoadTimeMs: Int,
                 totalBytesLoaded: Long,
                 bitrateEstimate: Long,
             ) {
+                latestIncomingBytesPerSec = bitrateEstimate.takeIf { it >= 0L }?.div(8L)
                 val now = SystemClock.uptimeMillis()
                 if (now - lastBandwidthLogUptimeMs < 5_000L) return
                 lastBandwidthLogUptimeMs = now
@@ -1584,6 +1612,7 @@ private class NuvioLibmpvView(
     private var latestAudioTracks: List<LibmpvTrack> = emptyList()
     @Volatile
     private var latestSubtitleTracks: List<LibmpvTrack> = emptyList()
+    private val audioEnergyCaptureProcessor = AudioEnergyCaptureProcessor()
 
     override fun initOptions() {
         InAppLogger.info(
@@ -1763,6 +1792,10 @@ private class NuvioLibmpvView(
         val videoHeight = mpv.getPropertyInt("video-out-params/dh")
             ?: mpv.getPropertyInt("video-params/dh")
             ?: 0
+        val cacheSpeed = mpv.getPropertyDouble("cache-speed")
+        val videoBitrate = mpv.getPropertyDouble("video-bitrate").positiveFiniteOrNull()
+        val audioBitrate = mpv.getPropertyDouble("audio-bitrate").positiveFiniteOrNull()
+        val mediaBitrate = (videoBitrate ?: 0.0) + (audioBitrate ?: 0.0)
         return PlayerPlaybackSnapshot(
             isLoading = isLoading,
             isPlaying = !paused && !isLoading && !idle && !ended,
@@ -1775,6 +1808,10 @@ private class NuvioLibmpvView(
             videoHeight = videoHeight,
             mediaInfoJson = buildLibmpvMediaInfoJson(),
             chapters = chaptersFor(durationMs),
+            incomingBytesPerSec = cacheSpeed?.takeIf { it.isFinite() && it >= 0.0 }?.toLong(),
+            mediaBitrateBps = mediaBitrate.takeIf { it > 0.0 }?.toLong(),
+            streamHost = streamHostFromUrl(currentSourceUrl),
+            stallFailure = PlaybackStallFailure.None,
         )
     }
 
@@ -2470,6 +2507,9 @@ private const val MPV_SUBTITLE_OUTLINE_SIZE_SCALE = 1.5
 private fun ExoPlayer.snapshot(
     videoDecoder: String?,
     audioDecoder: String?,
+    incomingBytesPerSec: Long?,
+    streamHost: String?,
+    stallFailure: PlaybackStallFailure,
     chapters: List<PlayerChapter> = emptyList(),
 ): PlayerPlaybackSnapshot {
     val (videoWidth, videoHeight) = videoDimensions()
@@ -2485,8 +2525,66 @@ private fun ExoPlayer.snapshot(
         videoHeight = videoHeight,
         mediaInfoJson = buildExoPlayerMediaInfoJson(videoDecoder, audioDecoder),
         chapters = chapters,
+        incomingBytesPerSec = incomingBytesPerSec,
+        mediaBitrateBps = selectedMediaBitrateBps(),
+        streamHost = streamHost,
+        stallFailure = stallFailure,
     )
 }
+
+private fun ExoPlayer.selectedMediaBitrateBps(): Long? {
+    val video = selectedPlaybackInfoFormat(C.TRACK_TYPE_VIDEO)?.bitrate?.takeIf { it > 0 }?.toLong() ?: 0L
+    val audio = selectedPlaybackInfoFormat(C.TRACK_TYPE_AUDIO)?.bitrate?.takeIf { it > 0 }?.toLong() ?: 0L
+    return (video + audio).takeIf { it > 0L }
+}
+
+@androidx.annotation.OptIn(UnstableApi::class)
+private fun Int.isPlaybackStallLoadType(): Boolean =
+    this == C.DATA_TYPE_MEDIA ||
+        this == C.DATA_TYPE_MEDIA_INITIALIZATION ||
+        this == C.DATA_TYPE_MANIFEST ||
+        this == C.DATA_TYPE_MEDIA_PROGRESSIVE_LIVE
+
+private fun IOException.toPlaybackStallFailure(): PlaybackStallFailure {
+    var httpCode: Int? = null
+    var timeout = false
+    var reset = false
+    var current: Throwable? = this
+    while (current != null) {
+        val invalidResponse = current as? HttpDataSource.InvalidResponseCodeException
+        if (invalidResponse != null) {
+            httpCode = invalidResponse.responseCode
+        }
+        if (current.looksLikeTimeout()) timeout = true
+        if (current.looksLikeConnectionReset()) reset = true
+        current = current.cause
+    }
+    val httpFailure = httpCode?.let(::playbackStallFailureForHttpStatus) ?: PlaybackStallFailure.None
+    return when {
+        httpFailure != PlaybackStallFailure.None -> httpFailure
+        timeout -> PlaybackStallFailure.Timeout
+        reset -> PlaybackStallFailure.ConnectionReset
+        else -> PlaybackStallFailure.None
+    }
+}
+
+private fun Throwable.looksLikeTimeout(): Boolean {
+    if (this is SocketTimeoutException) return true
+    val name = this::class.simpleName.orEmpty()
+    if (name.contains("Timeout", ignoreCase = true)) return true
+    val message = message.orEmpty()
+    return message.contains("timed out", ignoreCase = true) || message.contains("timeout", ignoreCase = true)
+}
+
+private fun Throwable.looksLikeConnectionReset(): Boolean {
+    val name = this::class.simpleName.orEmpty()
+    if (name.contains("ConnectionReset", ignoreCase = true)) return true
+    val message = message.orEmpty()
+    return message.contains("connection reset", ignoreCase = true) || message.contains("ECONNRESET", ignoreCase = true)
+}
+
+private fun Double?.positiveFiniteOrNull(): Double? =
+    this?.takeIf { it.isFinite() && it > 0.0 }
 
 private fun ExoPlayer.videoDimensions(): Pair<Int, Int> {
     val format = videoFormat ?: return videoSize.width to videoSize.height

@@ -18,7 +18,9 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.size
@@ -63,6 +65,7 @@ internal fun OpeningOverlay(
     horizontalSafePadding: Dp,
     modifier: Modifier = Modifier,
     message: String? = null,
+    messageMaxLines: Int = 2,
     progress: Float? = null,
 ) {
     val contentAlpha by animateFloatAsState(
@@ -213,15 +216,22 @@ internal fun OpeningOverlay(
                         label = "openingLoadingMessage",
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(40.dp),
+                            .wrapContentHeight()
+                            .heightIn(min = 40.dp, max = 112.dp),
                     ) { loadingMessage ->
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .wrapContentHeight()
+                                .heightIn(min = 40.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
                             if (loadingMessage != null) {
                                 Text(
                                     text = loadingMessage,
                                     color = Color.White.copy(alpha = 0.72f),
                                     textAlign = TextAlign.Center,
-                                    maxLines = 2,
+                                    maxLines = messageMaxLines.coerceIn(2, 4),
                                     style = MaterialTheme.typography.labelMedium,
                                     modifier = Modifier
                                         .fillMaxWidth()
