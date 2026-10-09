@@ -277,6 +277,119 @@ def desktop_repository() -> Path | None:
     return None
 
 
+_FILE_STATUS = {"A": "added", "D": "removed", "M": "changed", "T": "changed"}
+
+
+def without_trailers(body: str, trailers: str) -> str:
+    """Commit body with the trailing git trailer block removed."""
+    trailer_text = trailers.strip("\n")
+    if trailer_text:
+        stripped = body.rstrip("\n")
+        if stripped.endswith(trailer_text):
+            return stripped[: -len(trailer_text)].rstrip()
+        probed = _trailer_block(body)
+        if probed and stripped.endswith(probed):
+            return stripped[: -len(probed)].rstrip()
+    return body.rstrip()
+
+
+def _trailer_block(body: str) -> str:
+    if not body.strip():
+        return ""
+    probe = body if body.startswith("\n") else "\n" + body
+    result = subprocess.run(
+        ["git", "interpret-trailers", "--only-trailers"],
+        check=False,
+        capture_output=True,
+        text=True,
+        input=probe,
+        timeout=15,
+    )
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip("\n")
+
+
+def _decode_path(raw: bytes) -> str:
+    return raw.decode("utf-8", "replace")
+
+
+def _parse_name_status(blob: bytes) -> dict[str, list[dict]]:
+    """First parent only. A repeated commit id is a later parent and is ignored."""
+    parts = [part for part in blob.split(b"\0") if part]
+    found: dict[str, list[dict]] = {}
+    index = 0
+    total = len(parts)
+    while index < total:
+        sha_text = parts[index].decode("ascii", "replace").lower()
+        if not FULL_SHA.fullmatch(sha_text):
+            index += 1
+            continue
+        index += 1
+        rows = found.get(sha_text)
+        recording = rows is None
+        if recording:
+            rows = []
+            found[sha_text] = rows
+        while index < total:
+            head = parts[index].decode("ascii", "replace").lower()
+            if FULL_SHA.fullmatch(head):
+                break
+            code = parts[index].decode("utf-8", "replace")[:1]
+            index += 1
+            if code in ("C", "R"):
+                if index + 1 >= total:
+                    index = total
+                    break
+                old = _decode_path(parts[index])
+                new = _decode_path(parts[index + 1])
+                index += 2
+                if not recording:
+                    continue
+                if code == "R":
+                    rows.append({"from": old, "path": new, "status": "renamed"})
+                else:
+                    rows.append({"path": new, "status": "added"})
+                continue
+            if index >= total:
+                break
+            path = _decode_path(parts[index])
+            index += 1
+            word = _FILE_STATUS.get(code)
+            if recording and word and path:
+                rows.append({"path": path, "status": word})
+    return found
+
+
+def commit_changes(repo: Path, shas: list[str]) -> dict[str, list[dict]]:
+    """Paths each commit changes against its first parent. No patch text."""
+    ordered = [sha for sha in shas if FULL_SHA.fullmatch(sha)]
+    if not ordered:
+        return {}
+    result = _git_bytes(
+        repo,
+        ["diff-tree", "-m", "-r", "--find-renames", "--name-status", "-z", "--stdin"],
+        data=("\n".join(ordered) + "\n").encode("ascii"),
+    )
+    found = _parse_name_status(result.stdout) if result.returncode == 0 else {}
+    if result.returncode != 0:
+        return {sha: [] for sha in ordered}
+    for sha in ordered:
+        if sha in found:
+            continue
+        parent = run_git(repo, ["rev-parse", "--verify", "--end-of-options", f"{sha}^"])
+        if parent.returncode == 0:
+            found[sha] = []
+            continue
+        root = _git_bytes(
+            repo,
+            ["diff-tree", "-r", "--find-renames", "--root", "--name-status", "-z", "--end-of-options", sha],
+        )
+        parsed = _parse_name_status(root.stdout) if root.returncode == 0 else {}
+        found[sha] = parsed.get(sha, [])
+    return found
+
+
 def list_commits(repo: Path, branch_ref: str, served: str) -> dict:
     """Commits on branch_ref that the served package does not already contain."""
     now = time.time()
@@ -317,7 +430,13 @@ def list_commits(repo: Path, branch_ref: str, served: str) -> dict:
         return payload
     result = run_git(
         repo,
-        ["log", "--reverse", "--format=%H%x1f%s%x1f%b%x1e", "--end-of-options", f"{served_full}..{branch_ref}"],
+        [
+            "log",
+            "--reverse",
+            "--format=%H%x1f%s%x1f%b%x1f%(trailers)%x1e",
+            "--end-of-options",
+            f"{served_full}..{branch_ref}",
+        ],
     )
     if result.returncode != 0:
         payload = {"commits": [], "error": "The commit list could not be read.", "ok": False, "served": served_full, "tip": tip}
@@ -335,15 +454,21 @@ def list_commits(repo: Path, branch_ref: str, served: str) -> dict:
         if not FULL_SHA.fullmatch(sha):
             continue
         subject = parts[1].strip() or "(no subject)"
-        body = parts[2] if len(parts) > 2 else ""
+        raw_body = parts[2] if len(parts) > 2 else ""
+        trailers = parts[3] if len(parts) > 3 else ""
         oldest.append(
             {
+                "body": without_trailers(raw_body, trailers),
                 "commit": sha,
-                "issues": issue_ids(subject, body),
+                "files": [],
+                "issues": issue_ids(subject, raw_body),
                 "short": sha[:8],
                 "subject": subject,
             }
         )
+    changes = commit_changes(repo, [str(row["commit"]) for row in oldest])
+    for row in oldest:
+        row["files"] = changes.get(str(row["commit"]), [])
     newest = list(reversed(oldest))
     payload = {"commits": newest, "error": None, "ok": True, "served": served_full, "tip": tip}
     _commit_cache[cache_key] = (now, payload)

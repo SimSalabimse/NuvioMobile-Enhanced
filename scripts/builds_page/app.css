@@ -297,6 +297,32 @@ summary {
   grid-row: 1;
   color: var(--muted);
 }
+.cut-row .commit-detail {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-width: 0;
+  padding-left: 44px;
+}
+.cut-row .commit-detail.after-issues { grid-row: 3; }
+.commit-detail summary {
+  color: var(--muted);
+  font-weight: 650;
+}
+.commit-body {
+  margin: 4px 0 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.file-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.file-list li {
+  padding: 2px 0;
+  overflow-wrap: anywhere;
+}
+.file-more, .commit-empty { margin: 4px 0 0; }
 .issue-links {
   display: flex;
   flex-wrap: wrap;

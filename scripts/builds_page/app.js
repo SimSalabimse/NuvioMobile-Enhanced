@@ -2,6 +2,7 @@ var COMMIT_LINE = /^- ([0-9a-fA-F]{7,40}) (.+) @(\S+)\s*$/;
 var ISSUE_LINK = /^SIM-\d+$/;
 var ISSUE_ORIGIN = "https://simsalabim-paperclip.steelyx.org/SIM/issues/";
 var PREFIX_HELP = "Checking a commit includes that commit and everything before it. Two commits that change the same file both land in the package.";
+var FILE_LINE_CAP = 40;
 var REQUEST_LABEL = {
   ipa: "Request this iPhone build",
   dmg: "Request this Mac build"
@@ -371,6 +372,58 @@ function renderUpdate(platform, cut, enabled) {
   });
   root.appendChild(replace);
 }
+function fileChangeLine(file) {
+  if (!file) return "";
+  var path = file.path == null ? "" : String(file.path);
+  if (file.status === "added") return "Added " + path;
+  if (file.status === "changed") return "Changed " + path;
+  if (file.status === "removed") return "Removed " + path;
+  if (file.status === "renamed") return "Renamed " + (file.from == null ? "" : String(file.from)) + " to " + path;
+  return "";
+}
+function openCommitIds(root) {
+  var open = {};
+  var stack = [root];
+  while (stack.length) {
+    var node = stack.pop();
+    if (!node) continue;
+    if (node.tagName === "DETAILS" && node.open && node.getAttribute) {
+      var commit = node.getAttribute("data-commit");
+      if (commit) open[commit] = true;
+    }
+    var kids = node.childNodes || [];
+    for (var i = 0; i < kids.length; i++) stack.push(kids[i]);
+  }
+  return open;
+}
+function commitDetail(row, open) {
+  var details = document.createElement("details");
+  var issues = row.issues || [];
+  details.className = issues.length ? "commit-detail after-issues" : "commit-detail";
+  details.setAttribute("data-commit", row.commit || "");
+  if (open) details.open = true;
+  var summary = document.createElement("summary");
+  summary.textContent = "What's in it";
+  details.appendChild(summary);
+  var body = trimText(row.body);
+  if (body) details.appendChild(el("p", "commit-body", body));
+  var files = row.files || [];
+  if (!files.length) {
+    details.appendChild(el("p", "commit-empty", "This commit does not change a file."));
+    return details;
+  }
+  var list = el("ul", "file-list");
+  var shown = files.length > FILE_LINE_CAP ? FILE_LINE_CAP : files.length;
+  for (var n = 0; n < shown; n++) {
+    var line = fileChangeLine(files[n]);
+    if (line) list.appendChild(el("li", "", line));
+  }
+  details.appendChild(list);
+  if (files.length > FILE_LINE_CAP) {
+    details.appendChild(el("p", "file-more", "and " + (files.length - FILE_LINE_CAP) + " more files"));
+  }
+  return details;
+}
 function renderCut(platform, cut, enabled) {
   var root = document.getElementById(platform === "ipa" ? "ipa-cut" : "dmg-cut");
   if (!root) return;
@@ -391,6 +444,7 @@ function renderCut(platform, cut, enabled) {
     state.domStamp = "";
   }
   if (state.domStamp === stamp) return;
+  var openCommits = openCommitIds(root);
   state.domStamp = stamp;
   state.armChoose = false;
   clearNode(root);
@@ -417,6 +471,7 @@ function renderCut(platform, cut, enabled) {
       line.appendChild(issueRow);
     }
     line.appendChild(el("span", "cut-meta", shortHash(row.commit)));
+    line.appendChild(commitDetail(row, !!openCommits[row.commit]));
     list.appendChild(line);
   }
   root.appendChild(list);

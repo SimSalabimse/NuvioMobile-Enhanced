@@ -3560,7 +3560,10 @@ def self_test() -> int:
 
             base = git_commit_file("served package")
             mid = git_commit_file("SIM-10 first cut")
-            tip = git_commit_file("SIM-11 tip cut", "Also SIM-12")
+            tip = git_commit_file(
+                "SIM-11 tip cut",
+                "Also SIM-12\n\nCo-Authored-By: Nuvio Test <test@example.com>",
+            )
             subprocess.run(["git", "-C", str(repo), "checkout", "-b", "side"], check=True, capture_output=True)
             side = git_commit_file("side only SIM-99")
             subprocess.run(["git", "-C", str(repo), "checkout", "enhanced"], check=True, capture_output=True)
@@ -3572,6 +3575,13 @@ def self_test() -> int:
             check(listed_ids == [tip, mid], f"commit order {listed_ids}")
             check(side not in listed_ids, "side branch commit was listed")
             check(listed["commits"][0]["issues"] == ["SIM-11", "SIM-12"], f"tip issues {listed['commits'][0].get('issues')}")
+            check(listed["commits"][0].get("body") == "Also SIM-12", f"tip body {listed['commits'][0].get('body')!r}")
+            check(
+                listed["commits"][0].get("files") == [{"path": "line-3.txt", "status": "added"}],
+                f"tip files {listed['commits'][0].get('files')}",
+            )
+            check("Co-Authored-By" not in json.dumps(listed["commits"][0]), "commit trailer was published")
+            check("What's in it" in page_html, "commit disclosure missing from the page")
             check(
                 builds_request.subjects_through(listed["commits"], mid) == ["SIM-10 first cut"],
                 "mid prefix subjects",
@@ -3850,6 +3860,65 @@ if (ipaText.indexOf("Request this iPhone build") < 0) fail(4, ipaText);
 if (ipaText.indexOf("Checking a commit includes that commit") < 0) fail(5, ipaText);
 if (ipaText.indexOf("both land in the package") < 0) fail(11, ipaText);
 if (ipaText.indexOf("SIM-11 tip cut") < 0) fail(6, ipaText);
+if (ipaText.indexOf("What's in it") < 0) fail(51, ipaText);
+if (walk(ipa, []).some((node) => node.className === "commit-body")) fail(62, "empty body was shown");
+const opened = walk(ipa, []).find((node) => node.tagName === "DETAILS" && node.getAttribute("data-commit") === tip);
+if (!opened || opened.open) fail(52, "disclosure starts open");
+if (textOf(opened).indexOf("This commit does not change a file.") < 0) fail(55, textOf(opened));
+opened.open = true;
+context.renderSurface("ipa", idleCut, true);
+if (!opened.open) fail(53, "same poll closed the disclosure");
+context.renderSurface("ipa", Object.assign({}, idleCut, { servedCommit: "kept" }), true);
+const still = walk(ipa, []).find((node) => node.tagName === "DETAILS" && node.getAttribute("data-commit") === tip);
+if (!still || !still.open) fail(54, "changed poll closed the disclosure");
+context.renderSurface("ipa", {
+  branch: "enhanced",
+  commits: [{
+    commit: tip,
+    issues: ["SIM-11"],
+    short: "aaaaaaaa",
+    subject: "SIM-11 tip cut",
+    body: "Also SIM-12",
+    files: [
+      { status: "added", path: "line-3.txt" },
+      { status: "changed", path: "keep.txt" },
+      { status: "removed", path: "gone.txt" },
+      { status: "renamed", from: "old.txt", path: "new.txt" }
+    ]
+  }],
+  error: null,
+  pending: false,
+  tip: tip
+}, true);
+const rich = textOf(ipa);
+if (rich.indexOf("Also SIM-12") < 0) fail(56, rich);
+if (rich.indexOf("Added line-3.txt") < 0) fail(57, rich);
+if (rich.indexOf("Changed keep.txt") < 0) fail(58, rich);
+if (rich.indexOf("Removed gone.txt") < 0) fail(59, rich);
+if (rich.indexOf("Renamed old.txt to new.txt") < 0) fail(60, rich);
+const richDetail = walk(ipa, []).find((node) => node.tagName === "DETAILS" && node.getAttribute("data-commit") === tip);
+if (!richDetail || !richDetail.open) fail(61, "content poll closed the disclosure");
+const many = [];
+for (let n = 0; n < 41; n++) many.push({ status: "added", path: "f" + n + ".txt" });
+context.renderSurface("ipa", {
+  branch: "enhanced",
+  commits: [{
+    commit: tip,
+    issues: ["SIM-11"],
+    short: "aaaaaaaa",
+    subject: "SIM-11 tip cut",
+    body: "",
+    files: many
+  }],
+  error: null,
+  pending: false,
+  tip: tip
+}, true);
+const capped = textOf(ipa);
+if (capped.indexOf("Added f0.txt") < 0 || capped.indexOf("Added f39.txt") < 0) fail(63, capped);
+if (capped.indexOf("Added f40.txt") >= 0) fail(64, "file cap did not stop at 40");
+if (capped.indexOf("and 1 more files") < 0) fail(65, capped);
+if (walk(ipa, []).some((node) => node.className === "commit-body")) fail(66, "empty body was shown after the cap");
 const boxes = walk(ipa, []).filter((node) => node.tagName === "INPUT");
 if (boxes.length !== 1 || !boxes[0].checked) fail(7, "default checkbox");
 const link = walk(ipa, []).find((node) => node.tagName === "A" && node.textContent === "SIM-11");
@@ -4032,6 +4101,15 @@ context.fetch = previousFetch;
             check(dashboard["requestEnabled"] is True, "request control hidden")
             check([row["commit"] for row in dashboard["cuts"]["ipa"]["commits"]] == [tip, mid], "dashboard commit list")
             check(dashboard["cuts"]["ipa"]["commits"][0]["subject"] == "SIM-11 tip cut", "dashboard tip subject")
+            public_tip = dashboard["cuts"]["ipa"]["commits"][0]
+            check(public_tip.get("body") == "Also SIM-12", f"public tip body {public_tip.get('body')!r}")
+            check(
+                public_tip.get("files") == [{"path": "line-3.txt", "status": "added"}],
+                f"public tip files {public_tip.get('files')}",
+            )
+            public_tip_json = json.dumps(public_tip)
+            check("Co-Authored-By" not in public_tip_json, "public commit trailer was published")
+            check("@@" not in public_tip_json, "public commit published a hunk")
             check(dashboard["upstreamRun"]["lines"] == ["Upstream is already merged."], "dashboard upstream lines")
             check(dashboard["upstreamRun"]["running"] is False, "dashboard upstream running")
             store_path = repository_root() / "store.json"
