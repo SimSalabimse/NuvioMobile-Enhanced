@@ -18,6 +18,8 @@ var cutState = {
   dmg: { idStamp: "", domStamp: "", updateStamp: "", selected: {}, armUpdate: false, armChoose: false }
 };
 var logFollow = { "": true, "desktop-": true };
+var barWidths = { "": null, "desktop-": null };
+var homePlaced = false;
 
 function statusWord(value) {
   if (value === "queued") return "Queued";
@@ -70,6 +72,140 @@ function el(tag, className, text) {
 }
 function clearNode(node) {
   while (node.firstChild) node.removeChild(node.firstChild);
+}
+function classNames(node) {
+  return String(node && node.className || "").split(/\s+/).filter(Boolean);
+}
+function hasClass(node, name) {
+  return classNames(node).indexOf(name) >= 0;
+}
+function setClass(node, name, on) {
+  if (!node) return;
+  if (node.classList && node.classList.toggle) {
+    node.classList.toggle(name, !!on);
+    return;
+  }
+  var names = classNames(node);
+  var has = names.indexOf(name) >= 0;
+  if (on && !has) names.push(name);
+  if (!on && has) names = names.filter(function (part) { return part !== name; });
+  node.className = names.join(" ");
+}
+function foldNodes(nodes) {
+  var fold = document.createElement("div");
+  fold.className = "fold";
+  var inner = document.createElement("div");
+  for (var i = 0; i < nodes.length; i++) if (nodes[i]) inner.appendChild(nodes[i]);
+  fold.appendChild(inner);
+  return fold;
+}
+function currentMark() {
+  if (!document.createElementNS) return null;
+  var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("class", "current-check");
+  svg.setAttribute("width", "16");
+  svg.setAttribute("height", "16");
+  var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "M3.5 8.2 L6.4 11.2 L12.5 4.6");
+  svg.appendChild(path);
+  return svg;
+}
+function latestSentence(text) {
+  var row = el("p", "latest");
+  var mark = currentMark();
+  if (mark) row.appendChild(mark);
+  row.appendChild(el("span", "", text));
+  return row;
+}
+function clearRefusal(node) {
+  if (node && node.removeAttribute) node.removeAttribute("data-refused");
+}
+function refuseState(node, text) {
+  if (!node) return;
+  node.hidden = false;
+  node.textContent = text;
+  node.setAttribute("data-refused", "true");
+}
+function rowOf(node) {
+  var current = node;
+  while (current) {
+    if (hasClass(current, "cut-row")) return current;
+    current = current.parentNode;
+  }
+  return null;
+}
+function listOf(node) {
+  var current = node;
+  while (current) {
+    if (hasClass(current, "cut-list")) return current;
+    current = current.parentNode;
+  }
+  return null;
+}
+function measureRibbon(list) {
+  if (!list || !list.style || !list.style.setProperty) return;
+  var rows = [];
+  var kids = list.childNodes || [];
+  var i;
+  for (i = 0; i < kids.length; i++) if (hasClass(kids[i], "cut-row")) rows.push(kids[i]);
+  var first = null;
+  var last = null;
+  for (i = 0; i < rows.length; i++) {
+    if (!hasClass(rows[i], "is-in")) continue;
+    if (!first) first = rows[i];
+    last = rows[i];
+  }
+  if (!first || typeof first.offsetTop !== "number" || typeof last.offsetHeight !== "number") {
+    list.style.setProperty("--ribbon", "0px");
+    return;
+  }
+  // Newest commit is first, so the included prefix sits at the bottom of the list.
+  var span = (last.offsetTop + last.offsetHeight) - first.offsetTop;
+  if (!(span >= 0)) span = 0;
+  list.style.setProperty("--ribbon", span + "px");
+}
+function macPlatform(nav) {
+  var platform = String(nav.platform || "");
+  var ua = String(nav.userAgent || "");
+  return /Mac/i.test(platform) || /Macintosh/.test(ua);
+}
+function deviceHome() {
+  if (typeof navigator === "undefined") return "";
+  var ua = String(navigator.userAgent || "");
+  var touch = Number(navigator.maxTouchPoints);
+  if (!isFinite(touch)) touch = 0;
+  if (/iPhone|iPad|iPod/.test(ua) || (macPlatform(navigator) && touch > 1)) return "ipa";
+  if (macPlatform(navigator) && touch <= 1) return "dmg";
+  return "";
+}
+function placeHome() {
+  if (homePlaced || typeof document === "undefined") return;
+  homePlaced = true;
+  var ipa = document.getElementById("ipa-section");
+  var dmg = document.getElementById("dmg-section");
+  if (!ipa || !dmg || !ipa.parentNode) return;
+  var home = deviceHome();
+  var parent = ipa.parentNode;
+  if (home === "ipa") {
+    parent.insertBefore(ipa, parent.firstChild);
+    setClass(ipa, "is-home", true);
+  } else if (home === "dmg") {
+    parent.insertBefore(dmg, parent.firstChild);
+    setClass(dmg, "is-home", true);
+  }
+}
+function bindMotion() {
+  if (!document.documentElement || document.documentElement.getAttribute("data-motion") === "1") return;
+  document.documentElement.setAttribute("data-motion", "1");
+  document.addEventListener("animationend", function (event) {
+    var target = event.target;
+    if (!target) return;
+    var name = event.animationName || "";
+    if (name === "rise" && hasClass(target, "just-arrived")) setClass(target, "just-arrived", false);
+    if (name === "sheen" && hasClass(target, "download-link")) setClass(target, "glinted", true);
+  });
 }
 function shortWhen(value) {
   if (!value) return "";
@@ -146,12 +282,14 @@ function renderSummary(node, text) {
   var summary = document.createElement("summary");
   summary.textContent = "Show all";
   details.appendChild(summary);
+  var folded = [];
   if (hiddenLines.length) {
     var rest = el("ul", "summary-list");
     for (var h = 0; h < hiddenLines.length; h++) rest.appendChild(el("li", "", hiddenLines[h]));
-    details.appendChild(rest);
+    folded.push(rest);
   }
-  if (extras.length) details.appendChild(el("p", "summary-extra", extras.join("\n")));
+  if (extras.length) folded.push(el("p", "summary-extra", extras.join("\n")));
+  details.appendChild(foldNodes(folded));
   node.appendChild(details);
 }
 function renderPackage(packageId, summaryId, entry, href, notes, platformName) {
@@ -165,7 +303,7 @@ function renderPackage(packageId, summaryId, entry, href, notes, platformName) {
       node.appendChild(el("p", "latest", "No package is available."));
     } else {
       var version = versionText(entry);
-      if (version) node.appendChild(el("p", "version", version));
+      if (version) node.appendChild(el("p", "version just-arrived", version));
       var facts = packageFacts(entry);
       if (facts) node.appendChild(el("p", "meta", facts));
       if (entry.notice) node.appendChild(el("p", "notice", entry.notice));
@@ -209,10 +347,17 @@ function checkedCount(commits, selected) {
 }
 function syncCutChecks(root, commits, selected) {
   var boxes = root.querySelectorAll("input[data-index]");
+  var list = null;
   for (var i = 0; i < boxes.length; i++) {
     var index = Number(boxes[i].getAttribute("data-index"));
-    boxes[i].checked = !!selected[commits[index].commit];
+    var on = !!(commits[index] && selected[commits[index].commit]);
+    boxes[i].checked = on;
+    var row = rowOf(boxes[i]);
+    if (!row) continue;
+    setClass(row, "is-in", on);
+    if (!list) list = listOf(row);
   }
+  measureRibbon(list);
 }
 function requestedText(cut) {
   var commit = cut && cut.request ? cut.request.commit : "";
@@ -261,6 +406,8 @@ function commitShort(commits, commit) {
 }
 function postBuildRequest(platform, commit, override, stateNode, button) {
   button.disabled = true;
+  clearRefusal(stateNode);
+  stateNode.hidden = false;
   stateNode.textContent = "Requesting…";
   var body = { platform: platform, commit: commit };
   if (override) body.override = true;
@@ -275,7 +422,7 @@ function postBuildRequest(platform, commit, override, stateNode, button) {
     });
   }).then(function (result) {
     if (!result.ok) {
-      stateNode.textContent = (result.body && result.body.error) || "The request was refused.";
+      refuseState(stateNode, (result.body && result.body.error) || "The request was refused.");
       button.disabled = result.status === 503;
       return;
     }
@@ -283,7 +430,7 @@ function postBuildRequest(platform, commit, override, stateNode, button) {
     cutState[platform].updateStamp = "";
     refresh();
   }).catch(function () {
-    stateNode.textContent = "The request did not reach the builds page.";
+    refuseState(stateNode, "The request did not reach the builds page.");
     button.disabled = false;
   });
 }
@@ -327,7 +474,7 @@ function renderUpdate(platform, cut, enabled) {
   if (!commits.length) {
     var branch = (cut && cut.branch) || "this branch";
     if (cut && cut.pending) root.appendChild(el("p", "request-state", requestedText(cut)));
-    else root.appendChild(el("p", "latest", "This download is already the latest on " + branch + "."));
+    else root.appendChild(latestSentence("This download is already the latest on " + branch + "."));
     return;
   }
   var short = commitShort(commits, target);
@@ -405,11 +552,14 @@ function commitDetail(row, open) {
   var summary = document.createElement("summary");
   summary.textContent = "What's in it";
   details.appendChild(summary);
+  var folded = [];
   var body = trimText(row.body);
-  if (body) details.appendChild(el("p", "commit-body", body));
+  if (body) folded.push(el("p", "commit-body", body));
   var files = row.files || [];
   if (!files.length) {
-    details.appendChild(el("p", "commit-empty", "This commit does not change a file."));
+    folded.push(el("p", "commit-empty", "This commit does not change a file."));
+    details.appendChild(foldNodes(folded));
+    watchCommitFold(details);
     return details;
   }
   var list = el("ul", "file-list");
@@ -418,11 +568,22 @@ function commitDetail(row, open) {
     var line = fileChangeLine(files[n]);
     if (line) list.appendChild(el("li", "", line));
   }
-  details.appendChild(list);
+  folded.push(list);
   if (files.length > FILE_LINE_CAP) {
-    details.appendChild(el("p", "file-more", "and " + (files.length - FILE_LINE_CAP) + " more files"));
+    folded.push(el("p", "file-more", "and " + (files.length - FILE_LINE_CAP) + " more files"));
   }
+  details.appendChild(foldNodes(folded));
+  watchCommitFold(details);
   return details;
+}
+function watchCommitFold(details) {
+  details.addEventListener("toggle", function () {
+    measureRibbon(listOf(details));
+  });
+  details.addEventListener("transitionend", function (event) {
+    if (!event || event.propertyName !== "grid-template-rows") return;
+    measureRibbon(listOf(details));
+  });
 }
 function renderCut(platform, cut, enabled) {
   var root = document.getElementById(platform === "ipa" ? "ipa-cut" : "dmg-cut");
@@ -486,6 +647,7 @@ function renderCut(platform, cut, enabled) {
   function paint() {
     var chosen = newestChecked(commits, state.selected);
     var count = checkedCount(commits, state.selected);
+    clearRefusal(stateNode);
     if (state.armChoose) {
       stateNode.hidden = false;
       stateNode.textContent = confirmCopy("choose", chosen ? commitShort(commits, chosen) : "", !!(cut && cut.busy));
@@ -536,6 +698,7 @@ function renderCut(platform, cut, enabled) {
     });
     root.appendChild(replace);
   }
+  syncCutChecks(root, commits, state.selected);
 }
 function renderSurface(platform, cut, enabled) {
   renderUpdate(platform, cut, enabled);
@@ -594,6 +757,22 @@ function compileMode(payload) {
   if (state === "failed") return "fail";
   return "";
 }
+function writeBar(prefix, barNode, width, failed) {
+  var last = barWidths[prefix];
+  var seen = barNode.getAttribute("data-set") === "1";
+  var lower = typeof last === "number" && width < last - 0.05;
+  if (lower || (failed && !seen)) {
+    setClass(barNode, "snap", true);
+    barNode.style.width = width + "%";
+    if (typeof barNode.offsetWidth === "number") void barNode.offsetWidth;
+    setClass(barNode, "snap", false);
+  } else {
+    setClass(barNode, "snap", false);
+    barNode.style.width = width + "%";
+  }
+  barNode.setAttribute("data-set", "1");
+  barWidths[prefix] = width;
+}
 function renderCompile(prefix, payload) {
   var root = compileRoot(prefix);
   if (!root) return;
@@ -604,14 +783,15 @@ function renderCompile(prefix, payload) {
       root.hidden = true;
       clearNode(root);
       root.removeAttribute("data-shell");
+      barWidths[prefix] = null;
     }
     return;
   }
   root.hidden = false;
   var failed = mode === "fail";
-  if (root.getAttribute("data-shell") !== mode) {
+  if (!root.getAttribute("data-shell")) {
     clearNode(root);
-    root.setAttribute("data-shell", mode);
+    root.setAttribute("data-shell", "on");
     var row = el("div", "compile-row");
     var word = el("p", "status-word");
     word.id = prefix + "status-word";
@@ -650,12 +830,14 @@ function renderCompile(prefix, payload) {
     details.appendChild(summary);
     var logView = el("pre", "log-view");
     logView.id = logElementId(prefix);
-    details.appendChild(logView);
+    details.appendChild(foldNodes([logView]));
     logView.addEventListener("scroll", function () {
       logFollow[prefix] = nearBottom(logView);
     });
     root.appendChild(details);
   }
+  var logDetails = document.getElementById(prefix + "log-details");
+  if (failed && logDetails) logDetails.open = true;
   var state = view.status;
   var statusNode = document.getElementById(prefix + "status-word");
   if (statusNode) {
@@ -672,9 +854,13 @@ function renderCompile(prefix, payload) {
   var percentNode = document.getElementById(prefix + "percent");
   if (percentNode) percentNode.textContent = percentText(view.percent);
   var barNode = document.getElementById(prefix + "bar");
-  if (barNode) barNode.style.width = width + "%";
+  if (barNode) writeBar(prefix, barNode, width, failed);
   var trackNode = document.getElementById(prefix + "track");
-  if (trackNode) trackNode.setAttribute("aria-valuenow", String(Math.round(width)));
+  if (trackNode) {
+    trackNode.setAttribute("aria-valuenow", String(Math.round(width)));
+    setClass(trackNode, "is-running", state === "building");
+    setClass(trackNode, "is-queued", state === "queued");
+  }
   var factsNode = document.getElementById(prefix + "facts");
   if (factsNode) {
     var factsText = compileFacts(view);
@@ -786,6 +972,7 @@ function bindUpstream() {
     button.setAttribute("data-pending", "1");
     var state = document.getElementById("upstream-state");
     if (state) {
+      clearRefusal(state);
       state.hidden = false;
       state.textContent = "Starting…";
     }
@@ -801,10 +988,7 @@ function bindUpstream() {
     }).then(function (result) {
       button.removeAttribute("data-pending");
       if (!result.ok) {
-        if (state) {
-          state.hidden = false;
-          state.textContent = (result.body && result.body.error) || "The merge and build could not be started.";
-        }
+        refuseState(state, (result.body && result.body.error) || "The merge and build could not be started.");
         button.disabled = false;
         return;
       }
@@ -812,15 +996,14 @@ function bindUpstream() {
     }).catch(function () {
       button.removeAttribute("data-pending");
       button.disabled = false;
-      if (state) {
-        state.hidden = false;
-        state.textContent = "The merge and build could not be started.";
-      }
+      refuseState(state, "The merge and build could not be started.");
     });
   });
 }
 function renderUpstream(run) {
   run = run || {};
+  var band = document.getElementById("upstream-run");
+  if (band) setClass(band, "is-running", !!run.running);
   var surfaces = run.surfaces || [];
   upstreamNextAt = typeof run.nextAt === "string" ? run.nextAt : "";
   var clock = document.getElementById("upstream-countdown");
@@ -849,6 +1032,7 @@ function renderUpstream(run) {
       if (idleState) {
         idleState.hidden = true;
         idleState.textContent = "";
+        clearRefusal(idleState);
       }
     } else if (button.getAttribute("data-pending") !== "1") {
       button.disabled = false;
@@ -905,6 +1089,8 @@ function refresh() {
   });
 }
 function boot() {
+  placeHome();
+  bindMotion();
   bindUpstream();
   var seed = readSeed();
   if (seed) lastActive = applyDashboard(seed);
