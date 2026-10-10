@@ -15,6 +15,7 @@ import org.jetbrains.compose.resources.getString
 @Serializable
 enum class DownloadStatus {
     Downloading,
+    Queued,
     Paused,
     Completed,
     Failed,
@@ -63,6 +64,7 @@ data class DownloadItem(
             DownloadStatus.Completed -> !localFileUri.isNullOrBlank()
             DownloadStatus.Downloading,
             DownloadStatus.Paused,
+            DownloadStatus.Queued,
             -> earlyPlayReady
             DownloadStatus.Failed -> false
         }

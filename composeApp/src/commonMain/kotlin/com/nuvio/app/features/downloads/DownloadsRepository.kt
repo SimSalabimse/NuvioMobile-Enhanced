@@ -23,10 +23,14 @@ object DownloadsRepository {
 
     private val activeHandles = mutableMapOf<String, DownloadsTaskHandle>()
     private val partialPrefixCache = mutableMapOf<String, ByteArray>()
+    private val startQueue = DownloadStartQueue()
+    private val persistGate = DownloadPersistGate()
+    private var thermalObserverStarted = false
     private var hasLoaded = false
     private var nextDownloadOrdinal = 0L
 
     fun ensureLoaded() {
+        ensureThermalObserver()
         if (hasLoaded) return
         loadFromDisk()
     }
@@ -43,6 +47,8 @@ object DownloadsRepository {
         activeHandles.values.forEach(DownloadsTaskHandle::cancel)
         activeHandles.clear()
         partialPrefixCache.clear()
+        startQueue.clear()
+        persistGate.reset()
         hasLoaded = false
         _hasUnseenCompleted.value = false
         _uiState.value = DownloadsUiState()
@@ -175,12 +181,14 @@ object DownloadsRepository {
             replacedExisting = true
             activeHandles.remove(existing.id)?.cancel()
             partialPrefixCache.remove(existing.id)
+            startQueue.discard(existing.id)
             DownloadsPlatformDownloader.removeFile(playableLocalFileUri(existing) ?: existing.localFileUri)
             DownloadsPlatformDownloader.removePartialFile(existing.fileName)
             currentItems.removeAll { it.id == existing.id }
         }
 
         val downloadId = nextDownloadId(now)
+        val toStart = startQueue.request(downloadId, DownloadThermalGate.blocksNextFile())
         val fileName = buildFileName(
             title = title,
             seasonNumber = seasonNumber,
@@ -216,7 +224,7 @@ object DownloadsRepository {
             sourceSubtitles = stream.externalSubtitles,
             localFileUri = null,
             fileName = fileName,
-            status = DownloadStatus.Downloading,
+            status = if (downloadId in toStart) DownloadStatus.Downloading else DownloadStatus.Queued,
             downloadedBytes = 0L,
             totalBytes = null,
             errorMessage = null,
@@ -226,8 +234,8 @@ object DownloadsRepository {
 
         currentItems.add(0, item)
         publish(currentItems)
-        persist()
-        startDownload(item)
+        persistStatus()
+        applyStarts(toStart)
 
         return if (replacedExisting) {
             DownloadEnqueueResult.Replaced
@@ -271,16 +279,21 @@ object DownloadsRepository {
         val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
         if (item.status != DownloadStatus.Paused && item.status != DownloadStatus.Failed) return
 
+        val toStart = startQueue.request(
+            item.id,
+            DownloadThermalGate.blocksNextFile(),
+            atFront = true,
+        )
         val reset = item.copy(
-            status = DownloadStatus.Downloading,
+            status = if (item.id in toStart) DownloadStatus.Downloading else DownloadStatus.Queued,
             errorMessage = null,
             localFileUri = null,
             updatedAtEpochMs = DownloadsClock.nowEpochMs(),
         )
 
         replaceItem(reset)
-        persist()
-        startDownload(reset)
+        persistStatus()
+        applyStarts(toStart)
     }
 
     fun retryDownload(downloadId: String) {
@@ -291,10 +304,26 @@ object DownloadsRepository {
         if (!hasLoaded) return
         val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
         activeHandles.remove(downloadId)?.cancel()
+        startQueue.discard(downloadId)
         val restored = DownloadsPlatformDownloader.restoreItem(item)
-        replaceItem(restored)
-        persist()
-        if (restored.status == DownloadStatus.Downloading) startDownload(restored)
+        if (restored.status != DownloadStatus.Downloading) {
+            replaceItem(restored)
+            persistStatus()
+            return
+        }
+        val toStart = startQueue.request(
+            downloadId,
+            DownloadThermalGate.blocksNextFile(),
+            atFront = true,
+        )
+        val published = if (downloadId in toStart) {
+            restored
+        } else {
+            restored.copy(status = DownloadStatus.Queued, updatedAtEpochMs = DownloadsClock.nowEpochMs())
+        }
+        replaceItem(published)
+        persistStatus()
+        applyStarts(toStart)
     }
 
     fun cancelDownload(downloadId: String) {
@@ -307,12 +336,15 @@ object DownloadsRepository {
         DownloadsPlatformDownloader.removePartialFile(item.fileName)
 
         publish(_uiState.value.items.filterNot { it.id == downloadId })
-        persist()
+        persistStatus()
+        applyStarts(startQueue.release(downloadId, DownloadThermalGate.blocksNextFile()))
     }
 
     private fun loadFromDisk() {
+        ensureThermalObserver()
         _hasUnseenCompleted.value = false
         hasLoaded = true
+        startQueue.clear()
         val payload = DownloadsStorage.loadPayload().orEmpty().trim()
         if (payload.isEmpty()) {
             _uiState.value = DownloadsUiState()
@@ -336,10 +368,9 @@ object DownloadsRepository {
         _uiState.value = DownloadsUiState(normalized)
         notifyLiveStatusPlatform()
         if (shouldPersistNormalized) {
-            persist()
+            persistStatus()
         }
-        normalized.filter { it.status == DownloadStatus.Downloading && it.id !in activeHandles }
-            .forEach(::startDownload)
+        adoptLoadedItems()
     }
 
     private fun startDownload(item: DownloadItem) {
@@ -437,19 +468,32 @@ object DownloadsRepository {
     }
 
     private fun mutateItem(downloadId: String, transform: (DownloadItem) -> DownloadItem) {
+        val before = _uiState.value.items.firstOrNull { it.id == downloadId }
         var changed = false
         val updated = _uiState.value.items.map { item ->
-            if (item.id == downloadId) {
-                changed = true
-                transform(item)
-            } else {
+            if (item.id != downloadId) {
                 item
+            } else {
+                val next = transform(item)
+                if (next != item) changed = true
+                next
             }
         }
 
-        if (changed) {
-            publish(updated)
-            persist()
+        if (!changed) return
+        publish(updated)
+        val after = updated.firstOrNull { it.id == downloadId }
+        val statusChanged = before?.status != after?.status
+        val progressTick = before != null && after != null &&
+            before.status == DownloadStatus.Downloading &&
+            after.status == DownloadStatus.Downloading
+        if (statusChanged || !progressTick) {
+            persistStatus()
+        } else {
+            persistProgressIfDue()
+        }
+        if (statusChanged && before?.status == DownloadStatus.Downloading && after?.status != DownloadStatus.Downloading) {
+            applyStarts(startQueue.release(downloadId, DownloadThermalGate.blocksNextFile()))
         }
     }
 
@@ -483,6 +527,117 @@ object DownloadsRepository {
         )
     }
 
+    private fun persistStatus() {
+        persistGate.recordStatusWrite(DownloadsClock.nowEpochMs())
+        persist()
+    }
+
+    private fun persistProgressIfDue() {
+        if (persistGate.allowProgressWrite(DownloadsClock.nowEpochMs())) persist()
+    }
+
+    private fun ensureThermalObserver() {
+        if (thermalObserverStarted) return
+        thermalObserverStarted = true
+        DownloadThermalGate.startObserving {
+            if (!hasLoaded) return@startObserving
+            applyStarts(startQueue.promote(DownloadThermalGate.blocksNextFile()))
+        }
+    }
+
+    private fun adoptLoadedItems() {
+        val items = _uiState.value.items
+        val running = items
+            .filter { it.status == DownloadStatus.Downloading && it.id in activeHandles }
+            .sortedBy { it.createdAtEpochMs }
+            .map { it.id }
+        val pending = items
+            .filter { (it.status == DownloadStatus.Downloading || it.status == DownloadStatus.Queued) && it.id !in activeHandles }
+            .sortedBy { it.createdAtEpochMs }
+            .map { it.id }
+        val started = startQueue.restore(running, pending, DownloadThermalGate.blocksNextFile())
+        alignQueuedStatuses()
+        applyStarts(started)
+    }
+
+    private fun alignQueuedStatuses() {
+        val activeIds = startQueue.activeIds()
+        val waitingIds = startQueue.waitingIds().toSet()
+        val now = DownloadsClock.nowEpochMs()
+        val demoted = mutableListOf<DownloadItem>()
+        var changed = false
+        val updated = _uiState.value.items.map { item ->
+            when {
+                item.id in waitingIds && item.status != DownloadStatus.Queued -> {
+                    changed = true
+                    if (item.status == DownloadStatus.Downloading) demoted.add(item)
+                    item.copy(status = DownloadStatus.Queued, errorMessage = null, updatedAtEpochMs = now)
+                }
+                item.id in activeIds && item.status == DownloadStatus.Queued -> {
+                    changed = true
+                    item.copy(status = DownloadStatus.Downloading, errorMessage = null, updatedAtEpochMs = now)
+                }
+                else -> item
+            }
+        }
+        if (!changed) return
+        publish(updated)
+        persistStatus()
+        demoted.forEach { item ->
+            DownloadsPlatformDownloader.pauseRunningTransfer(item)
+            DownloadsPlatformDownloader.updatePartialTarget(
+                downloadId = item.id,
+                fileName = item.fileName,
+                totalBytes = item.totalBytes,
+                downloadRunning = false,
+            )
+        }
+    }
+
+    private fun applyStarts(startedIds: List<String>) {
+        if (startedIds.isEmpty()) return
+        val now = DownloadsClock.nowEpochMs()
+        val accepted = mutableListOf<String>()
+        val deferred = mutableListOf<String>()
+        startedIds.forEach { id ->
+            if (id !in activeHandles && activeHandles.size + accepted.size >= MAX_ACTIVE_DOWNLOADS) {
+                startQueue.demoteToFront(id)
+                deferred.add(id)
+            } else {
+                accepted.add(id)
+            }
+        }
+        val acceptedSet = accepted.toSet()
+        val deferredSet = deferred.toSet()
+        var changed = false
+        val updated = _uiState.value.items.map { item ->
+            when {
+                item.id in deferredSet && item.status != DownloadStatus.Queued -> {
+                    changed = true
+                    item.copy(status = DownloadStatus.Queued, updatedAtEpochMs = now)
+                }
+                item.id in acceptedSet && item.status != DownloadStatus.Downloading -> {
+                    changed = true
+                    item.copy(
+                        status = DownloadStatus.Downloading,
+                        errorMessage = null,
+                        updatedAtEpochMs = now,
+                    )
+                }
+                else -> item
+            }
+        }
+        if (changed) {
+            publish(updated)
+            persistStatus()
+        }
+        accepted.forEach { id ->
+            if (id in activeHandles) return@forEach
+            val item = _uiState.value.items.firstOrNull { it.id == id } ?: return@forEach
+            if (item.status == DownloadStatus.Downloading) startDownload(item)
+        }
+    }
+
     private fun nextDownloadId(nowEpochMs: Long): String {
         nextDownloadOrdinal += 1L
         return buildString {
@@ -506,7 +661,11 @@ object DownloadsRepository {
     }
 
     private fun refreshStoredEarlyPlay(item: DownloadItem): DownloadItem {
-        if (item.status != DownloadStatus.Downloading && item.status != DownloadStatus.Paused) {
+        if (
+            item.status != DownloadStatus.Downloading &&
+            item.status != DownloadStatus.Paused &&
+            item.status != DownloadStatus.Queued
+        ) {
             return if (item.earlyPlayReady || item.playsWhenDownloadFinishes) {
                 item.copy(earlyPlayReady = false, playsWhenDownloadFinishes = false)
             } else {
@@ -560,6 +719,7 @@ object DownloadsRepository {
             ) != null || PartialPlaybackLease.isHeld(id)
         DownloadStatus.Downloading,
         DownloadStatus.Paused,
+        DownloadStatus.Queued,
         -> earlyPlayReady
         DownloadStatus.Failed -> false
     }

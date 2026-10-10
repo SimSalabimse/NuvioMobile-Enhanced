@@ -43,4 +43,6 @@ internal expect object DownloadsPlatformDownloader {
     fun partialPlaybackUrl(downloadId: String): String?
 
     fun finishPartialPlayback(downloadId: String): String?
+
+    fun pauseRunningTransfer(item: DownloadItem)
 }

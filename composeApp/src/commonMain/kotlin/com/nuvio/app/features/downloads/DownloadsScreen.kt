@@ -475,6 +475,7 @@ private fun DownloadRow(
                                 )
                             }
                         }
+                        DownloadStatus.Queued -> Unit
                     }
                     IconButton(onClick = onDelete) {
                         Icon(
@@ -553,6 +554,7 @@ private fun statusText(item: DownloadItem): String {
     return when (item.status) {
         DownloadStatus.Downloading -> stringResource(Res.string.downloads_status_downloading, size)
         DownloadStatus.Paused -> stringResource(Res.string.downloads_status_paused, size)
+        DownloadStatus.Queued -> stringResource(Res.string.downloads_status_queued)
         DownloadStatus.Completed -> stringResource(
             Res.string.downloads_status_completed,
             formatBytes(item.totalBytes ?: item.downloadedBytes),

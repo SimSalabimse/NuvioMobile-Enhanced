@@ -33,6 +33,10 @@ internal actual object DownloadsPlatformDownloader {
     internal fun managedTransfers(): List<AndroidDownloadTransfer> =
         downloadScheduler?.store?.transfers?.value?.values?.toList().orEmpty()
 
+    actual fun pauseRunningTransfer(item: DownloadItem) {
+        downloadScheduler?.pause(item.fileName)
+    }
+
     actual fun restoreItem(item: DownloadItem): DownloadItem {
         val scheduler = downloadScheduler
         val restored = scheduler?.restore(item)
@@ -69,6 +73,7 @@ internal actual object DownloadsPlatformDownloader {
                         DownloadStatus.Completed -> onSuccess(checkNotNull(item.localFileUri), item.totalBytes)
                         DownloadStatus.Failed -> onFailure(item.errorMessage ?: "Download failed")
                         DownloadStatus.Paused -> onPaused()
+                        DownloadStatus.Queued -> Unit
                     }
                     item.status == DownloadStatus.Downloading
                 }.collect()

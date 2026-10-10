@@ -15,11 +15,18 @@ class DownloadsNotificationActionReceiver : BroadcastReceiver() {
         val fileName = intent.getStringExtra(AndroidDownloadScheduler.FILE_NAME)
         val transfer = fileName?.let(scheduler.store::get)?.takeIf { it.item.id == downloadId }
         if (transfer != null) {
+            DownloadsStorage.initialize(context.applicationContext)
+            DownloadsRepository.ensureLoaded()
             when (action) {
-                actionPause -> scheduler.pause(transfer.item.fileName)
-                actionResume -> if (transfer.item.status == DownloadStatus.Paused || transfer.item.status == DownloadStatus.Failed) {
-                    scheduler.enqueue(transfer.item)
-                    DownloadsRepository.reattachBackgroundDownload(downloadId)
+                actionPause -> {
+                    scheduler.pause(transfer.item.fileName)
+                    DownloadsRepository.pauseDownload(downloadId)
+                }
+                actionResume -> if (
+                    transfer.item.status == DownloadStatus.Paused ||
+                    transfer.item.status == DownloadStatus.Failed
+                ) {
+                    DownloadsRepository.resumeDownload(downloadId)
                 }
             }
             return

@@ -67,6 +67,7 @@ internal actual object DownloadsLiveStatusPlatform {
         DownloadStatus.Paused -> 1
         DownloadStatus.Failed -> 2
         DownloadStatus.Completed -> 3
+        DownloadStatus.Queued -> 4
     }
 }
 

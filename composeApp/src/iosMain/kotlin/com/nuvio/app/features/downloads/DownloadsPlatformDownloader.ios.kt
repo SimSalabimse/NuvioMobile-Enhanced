@@ -142,6 +142,11 @@ internal actual object DownloadsPlatformDownloader {
         return IosDownloadsTaskHandle(request.item.id)
     }
 
+    actual fun pauseRunningTransfer(item: DownloadItem) {
+        IosForegroundDownloads.cancel(item.id)
+        IosBackgroundDownloadCoordinator.cancelDownload(item.id)
+    }
+
     actual fun restoreItem(item: DownloadItem): DownloadItem =
         if (item.status == DownloadStatus.Downloading) {
             item.copy(status = DownloadStatus.Paused, errorMessage = null)
@@ -310,9 +315,11 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         val configuration = NSURLSessionConfiguration.backgroundSessionConfigurationWithIdentifier(
             BACKGROUND_SESSION_IDENTIFIER,
         ).apply {
+            val policy = speedFirstBackgroundSessionPolicy
             timeoutIntervalForResource = DOWNLOAD_RESOURCE_TIMEOUT_SECONDS
-            allowsCellularAccess = true
-            sessionSendsLaunchEvents = true
+            discretionary = policy.discretionary
+            allowsCellularAccess = policy.allowsCellularAccess
+            sessionSendsLaunchEvents = policy.sendsLaunchEvents
         }
         val created = NSURLSession.sessionWithConfiguration(
             configuration = configuration,

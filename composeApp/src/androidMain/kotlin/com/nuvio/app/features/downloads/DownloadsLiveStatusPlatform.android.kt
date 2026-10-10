@@ -154,6 +154,7 @@ internal actual object DownloadsLiveStatusPlatform {
             DownloadStatus.Paused,
             DownloadStatus.Failed,
             DownloadStatus.Completed,
+            DownloadStatus.Queued,
             -> {
                 notificationBuilder
                     .setOngoing(false)
@@ -196,6 +197,7 @@ internal actual object DownloadsLiveStatusPlatform {
             }
 
             DownloadStatus.Paused -> runBlocking { getString(Res.string.downloads_live_paused, detail) }
+            DownloadStatus.Queued -> runBlocking { getString(Res.string.downloads_status_queued) }
             DownloadStatus.Failed -> item.errorMessage?.takeIf { it.isNotBlank() } ?: runBlocking { getString(Res.string.downloads_live_failed) }
             DownloadStatus.Completed -> runBlocking { getString(Res.string.downloads_live_completed) }
         }
