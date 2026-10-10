@@ -56,6 +56,7 @@ import com.nuvio.app.core.ui.accentBrush
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.themePalette
 import com.nuvio.app.core.ui.appIconPainter
+import com.nuvio.app.features.downloads.DetailsDownloadProgress
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_play
 import nuvio.composeapp.generated.resources.details_download_action
@@ -85,6 +86,7 @@ data class DetailSecondaryAction(
     val isActive: Boolean = false,
     val onClick: () -> Unit = {},
     val onLongClick: (() -> Unit)? = null,
+    val downloadProgress: DetailsDownloadProgress = DetailsDownloadProgress.None,
 )
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -100,12 +102,14 @@ fun DetailActionButtons(
     onPlayClick: () -> Unit = {},
     onPlayLongClick: (() -> Unit)? = null,
     onDownloadClick: (() -> Unit)? = null,
+    downloadContentKey: String? = null,
     iconActionRow: Boolean = false,
     iconActions: List<DetailSecondaryAction> = emptyList(),
     userRating: Int? = null,
     onRateClick: (() -> Unit)? = null,
 ) {
     val playPainter = appIconPainter(AppIconResource.PlayerPlay)
+    val downloadProgress = rememberDetailsDownloadProgress(downloadContentKey)
     val buttonHeight = if (isTablet) 56.dp else 52.dp
     val iconButtonSize = buttonHeight
     val playShape = RoundedCornerShape(40.dp)
@@ -282,29 +286,16 @@ fun DetailActionButtons(
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 contentColor = MaterialTheme.colorScheme.onSurface,
             ) {
-                Row(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable(role = Role.Button, onClick = onDownloadClick)
                         .height(buttonHeight),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Download,
-                        contentDescription = null,
-                        modifier = Modifier.size(if (isTablet) 20.dp else 18.dp),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = stringResource(Res.string.details_download_action),
-                        style = if (isTablet) {
-                            MaterialTheme.typography.titleMedium
-                        } else {
-                            MaterialTheme.typography.titleSmall
-                        },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    DetailsDownloadWideContent(
+                        progress = downloadProgress,
+                        isTablet = isTablet,
                     )
                 }
             }
@@ -337,6 +328,7 @@ fun DetailActions(
     onSaveClick: () -> Unit,
     onSaveLongClick: (() -> Unit)?,
     onDownloadClick: (() -> Unit)? = null,
+    downloadContentKey: String? = null,
     onPlayFromStartClick: (() -> Unit)? = null,
     onPlayExternallyClick: (() -> Unit)? = null,
     iconActionRow: Boolean = false,
@@ -352,6 +344,7 @@ fun DetailActions(
         onSaveClick = onSaveClick,
         onSaveLongClick = onSaveLongClick,
         onDownloadClick = onDownloadClick,
+        downloadContentKey = downloadContentKey,
         onPlayFromStartClick = onPlayFromStartClick,
         onPlayExternallyClick = onPlayExternallyClick,
     )
@@ -373,6 +366,7 @@ fun DetailActions(
         isTablet = isTablet,
         onPlayClick = onPlayClick,
         onDownloadClick = onDownloadClick.takeIf { !iconActionRow },
+        downloadContentKey = downloadContentKey.takeIf { !iconActionRow },
         onPlayLongClick = onPlayLongClick,
         userRating = userRating,
         onRateClick = onRateClick,
@@ -396,9 +390,11 @@ private fun detailActionSet(
     onSaveClick: () -> Unit,
     onSaveLongClick: (() -> Unit)?,
     onDownloadClick: (() -> Unit)?,
+    downloadContentKey: String? = null,
     onPlayFromStartClick: (() -> Unit)?,
     onPlayExternallyClick: (() -> Unit)?,
 ): DetailActionSet {
+    val downloadProgress = rememberDetailsDownloadProgress(downloadContentKey)
     val shuffleAction = onShuffleClick?.let { onClick ->
         DetailSecondaryAction(
             label = stringResource(if (shuffleEnabled) Res.string.shuffle_stop else Res.string.random_episode_title),
@@ -421,12 +417,19 @@ private fun detailActionSet(
         onClick = onSaveClick,
         onLongClick = onSaveLongClick,
     )
-    val downloadLabel = stringResource(Res.string.details_download_action)
+    val downloadLabel = downloadProgressLabel(downloadProgress)
     val playFromStartLabel = stringResource(Res.string.details_action_start_from_beginning)
     val externalLabel = stringResource(Res.string.streams_open_external_player)
     val iconActions = buildList {
         onDownloadClick?.let { download ->
-            add(DetailSecondaryAction(label = downloadLabel, icon = Icons.Rounded.Download, onClick = download))
+            add(
+                DetailSecondaryAction(
+                    label = downloadLabel,
+                    icon = Icons.Rounded.Download,
+                    onClick = download,
+                    downloadProgress = downloadProgress,
+                ),
+            )
         }
         onPlayFromStartClick?.let { playFromStart ->
             add(DetailSecondaryAction(label = playFromStartLabel, icon = Icons.Rounded.Replay, onClick = playFromStart))
@@ -463,6 +466,7 @@ fun TabletDetailHeroActions(
     onSaveLongClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
     onDownloadClick: (() -> Unit)? = null,
+    downloadContentKey: String? = null,
     onPlayFromStartClick: (() -> Unit)? = null,
     onPlayExternallyClick: (() -> Unit)? = null,
     userRating: Int? = null,
@@ -477,6 +481,7 @@ fun TabletDetailHeroActions(
         onSaveClick = onSaveClick,
         onSaveLongClick = onSaveLongClick,
         onDownloadClick = onDownloadClick,
+        downloadContentKey = downloadContentKey,
         onPlayFromStartClick = onPlayFromStartClick,
         onPlayExternallyClick = onPlayExternallyClick,
     )
@@ -602,6 +607,7 @@ private fun DetailIconActionRow(
                     size = layout.size,
                     onClick = action.onClick,
                     onLongClick = action.onLongClick,
+                    downloadProgress = action.downloadProgress,
                 )
             }
         }
@@ -620,6 +626,7 @@ internal fun DetailIconAction(
     size: Dp,
     drawable: DrawableResource? = null,
     onLongClick: (() -> Unit)? = null,
+    downloadProgress: DetailsDownloadProgress = DetailsDownloadProgress.None,
 ) {
     Surface(
         modifier = modifier.graphicsLayer {
@@ -650,7 +657,12 @@ internal fun DetailIconAction(
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            if (drawable != null) {
+            if (downloadProgress.showsMark) {
+                DetailsDownloadIconMark(
+                    progress = downloadProgress,
+                    contentDescription = label,
+                )
+            } else if (drawable != null) {
                 Icon(
                     painter = painterResource(drawable),
                     contentDescription = label,

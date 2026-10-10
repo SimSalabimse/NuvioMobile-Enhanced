@@ -82,6 +82,7 @@ import com.nuvio.app.features.tracking.TrackingRatingTarget
 import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
 import com.nuvio.app.core.ui.posterCardClickable
 import com.nuvio.app.features.downloads.SeasonDownloadSheet
+import com.nuvio.app.features.downloads.downloadLogicalContentKey
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.EpisodeRatingsVisibility
 import com.nuvio.app.features.details.MetaEpisodeCardStyle
@@ -276,6 +277,7 @@ fun DetailSeriesContent(
                                 )
                                 val userRatingTarget = remember(meta, episode) { meta.episodeUserRatingTarget(episode) }
                                 EpisodeListCard(
+                                    parentMetaId = meta.id,
                                     video = episode,
                                     userRating = rememberUserRating(userRatingTarget),
                                     fallbackImage = meta.background ?: meta.poster,
@@ -428,6 +430,7 @@ internal fun DetailSeriesListEpisode(
         )
         val userRatingTarget = remember(meta, episode) { meta.episodeUserRatingTarget(episode) }
         EpisodeListCard(
+            parentMetaId = meta.id,
             video = episode,
             userRating = rememberUserRating(userRatingTarget),
             fallbackImage = meta.background ?: meta.poster,
@@ -863,6 +866,7 @@ private fun EpisodeHorizontalRow(
             )
             val userRatingTarget = remember(episode) { userRatingTargetFor(episode) }
             EpisodeHorizontalCard(
+                parentMetaId = parentMetaId,
                 video = episode,
                 userRating = rememberUserRating(userRatingTarget),
                 fallbackImage = fallbackImage,
@@ -889,6 +893,7 @@ private fun EpisodeHorizontalRow(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun EpisodeHorizontalCard(
+    parentMetaId: String,
     video: MetaVideo,
     userRating: Int? = null,
     fallbackImage: String?,
@@ -916,6 +921,9 @@ private fun EpisodeHorizontalCard(
     val formattedDate = remember(video.released) { video.released?.let { formatReleaseDateForDisplay(it) } }
     val runtimeLabel = remember(video.runtime) { video.runtime?.takeIf { it > 0 }?.let(::formatEpisodeRuntime) }
     val imageUrl = video.thumbnail ?: fallbackImage
+    val downloadProgress = rememberDetailsDownloadProgress(
+        downloadLogicalContentKey(parentMetaId, video.season, video.episode),
+    )
     val visibleProgressEntry = progressEntry?.takeIf { it.durationMs > 0L && !it.isCompleted }
     val progressBarHeight = 4.dp
     val progressBarContentSpacing = 6.dp
@@ -1073,6 +1081,17 @@ private fun EpisodeHorizontalCard(
                 height = progressBarHeight,
                 trackColor = Color.White.copy(alpha = 0.22f),
                 fillColor = MaterialTheme.colorScheme.primary,
+            )
+        }
+
+        if (downloadProgress.showsMark) {
+            DetailsDownloadEpisodeMark(
+                progress = downloadProgress,
+                onDark = true,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .fillMaxWidth()
+                    .padding(metrics.contentPadding),
             )
         }
     }
@@ -1343,6 +1362,7 @@ private fun TmdbEpisodeRatingBadge(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun EpisodeListCard(
+    parentMetaId: String,
     video: MetaVideo,
     userRating: Int? = null,
     fallbackImage: String?,
@@ -1370,6 +1390,9 @@ private fun EpisodeListCard(
     }
     val hasAnyRating = tmdbRatingLabel != null || imdbRatingLabel != null || userRating != null
     val formattedDate = remember(video.released) { video.released?.let { formatReleaseDateForDisplay(it) } }
+    val downloadProgress = rememberDetailsDownloadProgress(
+        downloadLogicalContentKey(parentMetaId, video.season, video.episode),
+    )
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -1459,6 +1482,14 @@ private fun EpisodeListCard(
                     maxLines = sizing.titleMaxLines,
                     overflow = TextOverflow.Ellipsis,
                 )
+
+                if (downloadProgress.showsMark) {
+                    DetailsDownloadEpisodeMark(
+                        progress = downloadProgress,
+                        onDark = false,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
 
                 if (formattedDate != null || hasAnyRating) {
                     Row(

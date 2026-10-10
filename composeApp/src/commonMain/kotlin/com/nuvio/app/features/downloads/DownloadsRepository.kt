@@ -71,26 +71,14 @@ object DownloadsRepository {
         videoId: String? = null,
     ): DownloadItem? {
         ensureLoaded()
-        val items = _uiState.value.items
-        val normalizedParentMetaId = parentMetaId.trim()
-
-        findPlayableDownloadByVideoId(videoId)?.let { return it }
-
-        return if (seasonNumber != null && episodeNumber != null) {
-            items.firstOrNull { item ->
-                item.parentMetaId == normalizedParentMetaId &&
-                    item.seasonNumber == seasonNumber &&
-                    item.episodeNumber == episodeNumber &&
-                    item.hasPlayableLocalFile()
-            }
-        } else {
-            items.firstOrNull { item ->
-                item.parentMetaId == normalizedParentMetaId &&
-                    item.seasonNumber == null &&
-                    item.episodeNumber == null &&
-                    item.hasPlayableLocalFile()
-            }
-        }
+        return matchingPlayableDownload(
+            items = _uiState.value.items,
+            parentMetaId = parentMetaId,
+            seasonNumber = seasonNumber,
+            episodeNumber = episodeNumber,
+            videoId = videoId,
+            playable = { it.hasPlayableLocalFile() },
+        )
     }
 
     fun playableLocalFileUri(item: DownloadItem): String? {

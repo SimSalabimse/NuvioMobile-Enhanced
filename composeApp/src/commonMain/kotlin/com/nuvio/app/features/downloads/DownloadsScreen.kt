@@ -552,7 +552,11 @@ private fun statusText(item: DownloadItem): String {
     }
 
     return when (item.status) {
-        DownloadStatus.Downloading -> stringResource(Res.string.downloads_status_downloading, size)
+        DownloadStatus.Downloading -> {
+            val label = stringResource(Res.string.downloads_status_downloading, size)
+            val percent = item.downloadsScreenProgressPercent()
+            if (percent != null) "$label • $percent%" else label
+        }
         DownloadStatus.Paused -> stringResource(Res.string.downloads_status_paused, size)
         DownloadStatus.Queued -> stringResource(Res.string.downloads_status_queued)
         DownloadStatus.Completed -> stringResource(

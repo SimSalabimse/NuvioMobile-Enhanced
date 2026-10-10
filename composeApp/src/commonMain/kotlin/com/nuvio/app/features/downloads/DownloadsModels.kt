@@ -81,11 +81,7 @@ data class DownloadItem(
         }
 
     val logicalContentKey: String
-        get() = if (isEpisode) {
-            "${parentMetaId.trim()}|${seasonNumber ?: -1}|${episodeNumber ?: -1}"
-        } else {
-            "${parentMetaId.trim()}|movie"
-        }
+        get() = downloadLogicalContentKey(parentMetaId, seasonNumber, episodeNumber)
 }
 
 data class DownloadsUiState(

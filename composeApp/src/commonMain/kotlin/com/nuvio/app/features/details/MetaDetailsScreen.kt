@@ -98,7 +98,9 @@ import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.core.ui.rememberHeroStretchState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
+import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.DownloadsSettingsRepository
+import com.nuvio.app.features.downloads.downloadLogicalContentKey
 import com.nuvio.app.features.details.components.DetailActions
 import com.nuvio.app.features.details.components.CommentDetailSheet
 import com.nuvio.app.features.details.components.DetailAdditionalInfoSection
@@ -914,6 +916,7 @@ fun MetaDetailsScreen(
                     ?.let { handler -> { runPlayAction(handler, activeResumePositionMs) } }
 
                 val showDownloadButton by remember {
+                    DownloadsRepository.ensureLoaded()
                     DownloadsSettingsRepository.ensureLoaded()
                     DownloadsSettingsRepository.showDownloadButton
                 }.collectAsStateWithLifecycle()
@@ -960,6 +963,15 @@ fun MetaDetailsScreen(
                     }
                 } else {
                     null
+                }
+                val downloadContentKey = if ((meta.type == "series" || hasEpisodes) && seriesAction != null) {
+                    downloadLogicalContentKey(
+                        parentMetaId = meta.id,
+                        seasonNumber = seriesAction.seasonNumber,
+                        episodeNumber = seriesAction.episodeNumber,
+                    )
+                } else {
+                    downloadLogicalContentKey(meta.id, null, null)
                 }
                 val onEpisodeDownloadClick: ((MetaVideo) -> Unit)? = if (showDownloadButton && downloadHandler != null) {
                     { video ->
@@ -1327,6 +1339,7 @@ fun MetaDetailsScreen(
                                                         onSaveClick = toggleSaved,
                                                         onSaveLongClick = openLibraryListPicker,
                                                         onDownloadClick = onDownloadClick,
+                                                        downloadContentKey = downloadContentKey,
                                                         onPlayFromStartClick = onPlayFromStartClick,
                                                         onPlayExternallyClick = onPlayExternallyClick,
                                                         userRating = titleUserRating,
@@ -1379,6 +1392,7 @@ fun MetaDetailsScreen(
                                     isWatched = isWatched,
                                     onPrimaryPlayClick = onPrimaryPlayClick,
                                     onDownloadClick = onDownloadClick,
+                                    downloadContentKey = downloadContentKey,
                                     onPlayFromStartClick = onPlayFromStartClick,
                                     onPlayExternallyClick = onPlayExternallyClick,
                                     onShuffleClick = onShuffleClick,
@@ -2130,6 +2144,7 @@ private fun LazyListScope.configuredMetaSectionItems(
     isWatched: Boolean,
     onPrimaryPlayClick: () -> Unit,
     onDownloadClick: (() -> Unit)?,
+    downloadContentKey: String,
     onPlayFromStartClick: (() -> Unit)?,
     onPlayExternallyClick: (() -> Unit)?,
     onShuffleClick: (() -> Unit)?,
@@ -2217,6 +2232,7 @@ private fun LazyListScope.configuredMetaSectionItems(
                     isWatched = isWatched,
                     onPrimaryPlayClick = onPrimaryPlayClick,
                     onDownloadClick = onDownloadClick,
+                    downloadContentKey = downloadContentKey,
                     onPlayFromStartClick = onPlayFromStartClick,
                     onPlayExternallyClick = onPlayExternallyClick,
                     onShuffleClick = onShuffleClick,
@@ -2377,6 +2393,7 @@ private fun ConfiguredMetaSections(
     isWatched: Boolean,
     onPrimaryPlayClick: () -> Unit,
     onDownloadClick: (() -> Unit)?,
+    downloadContentKey: String,
     onPlayFromStartClick: (() -> Unit)?,
     onPlayExternallyClick: (() -> Unit)?,
     onShuffleClick: (() -> Unit)?,
@@ -2452,6 +2469,7 @@ private fun ConfiguredMetaSections(
                     shuffleEnabled = shuffleEnabled,
                     onPlayClick = onPrimaryPlayClick,
                     onDownloadClick = onDownloadClick,
+                    downloadContentKey = downloadContentKey,
                     onPlayLongClick = if (showManualPlayOption) onPrimaryPlayLongClick else null,
                     onShuffleClick = onShuffleClick,
                     onWatchedClick = onWatchedClick,
