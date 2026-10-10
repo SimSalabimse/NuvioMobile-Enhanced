@@ -1716,6 +1716,17 @@
     <string name="catalog_empty_title">No titles found</string>
     <string name="catalog_load_failed_title">Couldn’t load this catalog</string>
     <string name="details_download_action">Download</string>
+    <string name="season_download_action">Download season</string>
+    <string name="season_download_title">Download %1$s</string>
+    <string name="season_download_pick_source">Choose a source</string>
+    <string name="season_download_no_sources">No downloadable sources for the first episode.</string>
+    <string name="season_download_size_unknown">Size unknown</string>
+    <string name="season_download_no_streams">No streams found</string>
+    <string name="season_download_no_match">No matching source</string>
+    <string name="season_download_unsupported">Unsupported format</string>
+    <string name="season_download_choose_streams">Choose streams</string>
+    <string name="season_download_queued">Queued %1$d episodes</string>
+    <string name="season_download_none_queued">Nothing queued</string>
     <string name="details_actions_menu_label">More actions</string>
     <string name="details_check_connection">Check your Wi-Fi or mobile data connection and try again.</string>
     <string name="details_director">Director</string>

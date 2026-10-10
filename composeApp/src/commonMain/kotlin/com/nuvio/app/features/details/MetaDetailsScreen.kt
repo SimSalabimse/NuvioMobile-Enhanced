@@ -961,6 +961,36 @@ fun MetaDetailsScreen(
                 } else {
                     null
                 }
+                val onEpisodeDownloadClick: ((MetaVideo) -> Unit)? = if (showDownloadButton && downloadHandler != null) {
+                    { video ->
+                        stopHeroTrailerForNavigation()
+                        val playbackVideoId = buildPlaybackVideoId(
+                            parentMetaId = meta.id,
+                            seasonNumber = video.season,
+                            episodeNumber = video.episode,
+                            fallbackVideoId = video.id,
+                        )
+                        val streamVideoId = video.id.takeIf { it.isNotBlank() } ?: playbackVideoId
+                        downloadHandler(
+                            meta.type,
+                            streamVideoId,
+                            meta.id,
+                            meta.type,
+                            meta.name,
+                            meta.logo,
+                            meta.poster,
+                            meta.background,
+                            video.season,
+                            video.episode,
+                            video.title,
+                            video.thumbnail,
+                            video.overview,
+                            null,
+                        )
+                    }
+                } else {
+                    null
+                }
                 val manualPlayHandler = onPlayManually
                 val showManualPlayOption = manualPlayHandler != null && StreamAutoPlayPolicy.isEffectivelyEnabled(playerSettingsUiState)
                 val onPrimaryPlayLongClick: (() -> Unit)? = manualPlayHandler
@@ -1417,6 +1447,7 @@ fun MetaDetailsScreen(
                                         selectedEpisodeForActions = video
                                     },
                                     onSeasonLongPress = { season -> selectedSeasonForActions = season },
+                                    onDownloadEpisode = onEpisodeDownloadClick,
                                     onOpenMeta = onOpenMeta,
                                     onOpenMoreLikeThis = onOpenMoreLikeThis,
                                     onCastClick = onCastClick,
@@ -1542,6 +1573,9 @@ fun MetaDetailsScreen(
                                 showPlayManually = showManualPlayOption,
                                 onPlayManually = {
                                     onEpisodeManualPlayClick(selectedEpisode)
+                                },
+                                onDownload = onEpisodeDownloadClick?.let { download ->
+                                    { download(selectedEpisode) }
                                 },
                                 userRating = episodeUserRating,
                                 onRate = if (canRateEpisode && episodeRatingTarget != null) {
@@ -2133,6 +2167,7 @@ private fun LazyListScope.configuredMetaSectionItems(
     onEpisodeClick: (MetaVideo) -> Unit,
     onEpisodeLongPress: (MetaVideo) -> Unit,
     onSeasonLongPress: (Int) -> Unit,
+    onDownloadEpisode: ((MetaVideo) -> Unit)?,
     onOpenMeta: ((MetaPreview) -> Unit)?,
     onOpenMoreLikeThis: ((MetaDetails) -> Unit)?,
     onCastClick: ((MetaPerson, String?) -> Unit)?,
@@ -2219,6 +2254,7 @@ private fun LazyListScope.configuredMetaSectionItems(
                     onEpisodeClick = onEpisodeClick,
                     onEpisodeLongPress = onEpisodeLongPress,
                     onSeasonLongPress = onSeasonLongPress,
+                    onDownloadEpisode = onDownloadEpisode,
                     onOpenMeta = onOpenMeta,
                     onOpenMoreLikeThis = onOpenMoreLikeThis,
                     onCastClick = onCastClick,
@@ -2378,6 +2414,7 @@ private fun ConfiguredMetaSections(
     onEpisodeClick: (MetaVideo) -> Unit,
     onEpisodeLongPress: (MetaVideo) -> Unit,
     onSeasonLongPress: (Int) -> Unit,
+    onDownloadEpisode: ((MetaVideo) -> Unit)?,
     onOpenMeta: ((MetaPreview) -> Unit)?,
     onOpenMoreLikeThis: ((MetaDetails) -> Unit)?,
     onCastClick: ((MetaPerson, String?) -> Unit)?,
@@ -2493,6 +2530,7 @@ private fun ConfiguredMetaSections(
                         onEpisodeClick = onEpisodeClick,
                         onEpisodeLongPress = onEpisodeLongPress,
                         onSeasonLongPress = onSeasonLongPress,
+                        onDownloadEpisode = onDownloadEpisode,
                     )
                 }
             }

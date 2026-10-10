@@ -38,8 +38,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -79,6 +81,7 @@ import com.nuvio.app.features.ratings.rememberUserRating
 import com.nuvio.app.features.tracking.TrackingRatingTarget
 import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
 import com.nuvio.app.core.ui.posterCardClickable
+import com.nuvio.app.features.downloads.SeasonDownloadSheet
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.EpisodeRatingsVisibility
 import com.nuvio.app.features.details.MetaEpisodeCardStyle
@@ -121,6 +124,7 @@ fun DetailSeriesContent(
     onEpisodeClick: ((MetaVideo) -> Unit)? = null,
     onEpisodeLongPress: ((MetaVideo) -> Unit)? = null,
     onSeasonLongPress: ((Int) -> Unit)? = null,
+    onDownloadEpisode: ((MetaVideo) -> Unit)? = null,
 ) {
     val hasVideos = meta.videos.isNotEmpty()
     if (meta.type != "series" && !hasVideos) return
@@ -177,9 +181,11 @@ fun DetailSeriesContent(
         ?.takeIf { it in groupedEpisodes }
         ?: seasons.first()
     var selectedSeasonOverride by rememberSaveable(meta.id) { mutableStateOf<Int?>(null) }
+    var seasonDownload by remember(meta.id) { mutableStateOf<Int?>(null) }
     val currentSeason = selectedSeasonOverride
         ?.takeIf { it in groupedEpisodes }
         ?: defaultSeason
+    val openSeasonDownload: ((Int) -> Unit)? = onDownloadEpisode?.let { { season -> seasonDownload = season } }
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val sizing = seriesContentSizing(maxWidth.value)
@@ -197,6 +203,7 @@ fun DetailSeriesContent(
                 horizontalScrollPadding = horizontalScrollPadding,
                 onSelect = { selectedSeasonOverride = it },
                 onLongPress = onSeasonLongPress,
+                onDownloadSeason = openSeasonDownload?.let { open -> { open(currentSeason) } },
             )
 
             AnimatedContent(
@@ -216,12 +223,13 @@ fun DetailSeriesContent(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     if (seasons.size == 1) {
-                        DetailSectionTitle(
+                        SeasonHeaderTitle(
                             title = if (meta.type != "series" && seasonForContent <= 0) {
                                 stringResource(Res.string.details_videos)
                             } else {
                                 seasonForContent.label()
                             },
+                            onDownload = openSeasonDownload?.let { open -> { open(seasonForContent) } },
                         )
                     }
                     val seasonEpisodes = groupedEpisodes.getValue(seasonForContent)
@@ -307,7 +315,55 @@ fun DetailSeriesContent(
                     }
                 }
             }
+            val downloadSeason = seasonDownload
+            val downloadEpisodes = downloadSeason?.let { groupedEpisodes[it] }.orEmpty()
+            if (downloadSeason != null && downloadEpisodes.isNotEmpty() && onDownloadEpisode != null) {
+                SeasonDownloadSheet(
+                    meta = meta,
+                    seasonLabel = downloadSeason.label(),
+                    episodes = downloadEpisodes,
+                    onOpenEpisode = { video ->
+                        seasonDownload = null
+                        onDownloadEpisode(video)
+                    },
+                    onDismiss = { seasonDownload = null },
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun SeasonHeaderTitle(
+    title: String,
+    onDownload: (() -> Unit)?,
+) {
+    if (onDownload == null) {
+        DetailSectionTitle(title = title)
+        return
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        DetailSectionTitle(
+            title = title,
+            fullWidth = false,
+            modifier = Modifier.weight(1f),
+        )
+        SeasonDownloadIconButton(onClick = onDownload)
+    }
+}
+
+@Composable
+private fun SeasonDownloadIconButton(onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        Icon(
+            imageVector = Icons.Rounded.Download,
+            contentDescription = stringResource(Res.string.season_download_action),
+            tint = MaterialTheme.colorScheme.onBackground,
+        )
     }
 }
 
@@ -336,12 +392,13 @@ internal fun DetailSeriesListHeader(
                 onLongPress = onSeasonLongPress,
             )
             if (seasons.size == 1) {
-                DetailSectionTitle(
+                SeasonHeaderTitle(
                     title = if (meta.type != "series" && currentSeason <= 0) {
                         stringResource(Res.string.details_videos)
                     } else {
                         currentSeason.label()
                     },
+                    onDownload = null,
                 )
             }
         }
@@ -403,6 +460,7 @@ private fun SeriesSeasonSelector(
     horizontalScrollPadding: Dp,
     onSelect: (Int) -> Unit,
     onLongPress: ((Int) -> Unit)?,
+    onDownloadSeason: (() -> Unit)? = null,
 ) {
     if (seasons.size <= 1) return
 
@@ -433,16 +491,24 @@ private fun SeriesSeasonSelector(
                 ),
                 color = MaterialTheme.colorScheme.onBackground,
             )
-            if (hasSeasonPosters) {
-                SeasonViewModeToggle(
-                    mode = seasonViewMode,
-                    sizing = sizing,
-                    onClick = {
-                        val next = seasonViewMode.toggled()
-                        seasonViewMode = next
-                        SeasonViewModeStorage.save(next)
-                    },
-                )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (hasSeasonPosters) {
+                    SeasonViewModeToggle(
+                        mode = seasonViewMode,
+                        sizing = sizing,
+                        onClick = {
+                            val next = seasonViewMode.toggled()
+                            seasonViewMode = next
+                            SeasonViewModeStorage.save(next)
+                        },
+                    )
+                }
+                if (onDownloadSeason != null) {
+                    SeasonDownloadIconButton(onClick = onDownloadSeason)
+                }
             }
         }
 
