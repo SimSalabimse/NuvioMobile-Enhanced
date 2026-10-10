@@ -63,7 +63,8 @@ internal object PlayerPlaybackNetworking {
             .addInterceptor { chain ->
                 val request = chain.request()
                 val requestChain = if (isLoopbackHost(request.url.host)) {
-                    chain.withReadTimeout(65, TimeUnit.SECONDS)
+                    // The partial reader blocks until the sequential download reaches that byte.
+                    chain.withReadTimeout(0, TimeUnit.MILLISECONDS)
                 } else {
                     chain
                 }

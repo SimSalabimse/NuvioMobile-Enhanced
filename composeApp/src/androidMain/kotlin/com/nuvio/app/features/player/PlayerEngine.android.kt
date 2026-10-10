@@ -1704,6 +1704,9 @@ private class NuvioLibmpvView(
         applyRequestHeadersNow(currentRequestHeaders)
         setPausedNow(!playWhenReady)
         mpv.setPropertyString("aid", "auto")
+        // 0 waits on the loopback reader instead of ending at the length that was on disk at open.
+        val networkTimeout = if (isLoopbackPlaybackSource(sourceUrl)) "0" else "60"
+        mpv.setPropertyString("network-timeout", networkTimeout)
         mpv.command("loadfile", sourceUrl.toMpvSource(), "replace")
         currentSourceAudioUrl?.takeIf { it.isNotBlank() }?.let { sourceAudioUrl ->
             mpv.command("audio-add", sourceAudioUrl.toMpvSource(), "auto")

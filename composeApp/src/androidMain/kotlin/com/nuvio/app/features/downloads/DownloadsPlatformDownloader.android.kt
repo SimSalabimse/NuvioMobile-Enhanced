@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.takeWhile
+import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.net.URI
 
@@ -32,8 +33,21 @@ internal actual object DownloadsPlatformDownloader {
     internal fun managedTransfers(): List<AndroidDownloadTransfer> =
         downloadScheduler?.store?.transfers?.value?.values?.toList().orEmpty()
 
-    actual fun restoreItem(item: DownloadItem): DownloadItem = downloadScheduler?.restore(item)
-        ?: if (item.status == DownloadStatus.Downloading) item.copy(status = DownloadStatus.Paused) else item
+    actual fun restoreItem(item: DownloadItem): DownloadItem {
+        val scheduler = downloadScheduler
+        val restored = scheduler?.restore(item)
+            ?: if (item.status == DownloadStatus.Downloading) item.copy(status = DownloadStatus.Paused) else item
+        if (scheduler == null || restored.status != DownloadStatus.Completed) return restored
+        val renamed = AndroidDeferredPartialRename.recoverIfUnwatched(
+            downloadId = restored.id,
+            directory = scheduler.directory,
+            fileName = restored.fileName,
+        )
+        if (!renamed) return restored
+        return restored.copy(
+            localFileUri = File(scheduler.directory, restored.fileName).toURI().toString(),
+        )
+    }
 
     actual fun start(
         request: DownloadPlatformRequest,
@@ -80,6 +94,7 @@ internal actual object DownloadsPlatformDownloader {
     }
 
     actual fun removePartialFile(destinationFileName: String): Boolean {
+        AndroidDeferredPartialRename.clearFileName(destinationFileName)
         val scheduler = downloadScheduler ?: return false
         scheduler.remove(destinationFileName)
         return true
@@ -149,18 +164,45 @@ internal actual object DownloadsPlatformDownloader {
         }
     }
 
-    actual fun readPartialPrefix(destinationFileName: String, maxBytes: Int): ByteArray = ByteArray(0)
+    actual fun readPartialPrefix(destinationFileName: String, maxBytes: Int): ByteArray {
+        val directory = downloadScheduler?.directory ?: return ByteArray(0)
+        return readDownloadPrefix(directory, destinationFileName, maxBytes)
+    }
 
     actual fun updatePartialTarget(
         downloadId: String,
         fileName: String,
         totalBytes: Long?,
         downloadRunning: Boolean,
-    ) = Unit
+    ) {
+        val directory = downloadScheduler?.directory ?: return
+        AndroidPartialPlaybackServer.update(
+            downloadId = downloadId,
+            fileName = fileName,
+            directory = directory,
+            totalBytes = totalBytes,
+            running = downloadRunning,
+        )
+    }
 
-    actual fun partialPlaybackUrl(downloadId: String): String? = null
+    actual fun partialPlaybackUrl(downloadId: String): String? =
+        AndroidPartialPlaybackServer.url(downloadId)
 
-    actual fun finishPartialPlayback(downloadId: String): String? = null
+    actual fun finishPartialPlayback(downloadId: String): String? {
+        val finished = finishAndroidPartialFile(downloadId) ?: return null
+        val tree = finished.exportTreeUri?.takeIf { it.isNotBlank() }
+            ?: return finished.file.toURI().toString()
+        val folder = runCatching { AndroidDownloadExport.writableFolder(tree) }.getOrNull()
+            ?: return finished.file.toURI().toString()
+        return runCatching {
+            runBlocking(Dispatchers.IO) {
+                val exported = AndroidDownloadExport.copyInto(folder, finished.file).toString()
+                AndroidDownloadExport.moveSubtitles(finished.file, exported)
+                finished.file.delete()
+                exported
+            }
+        }.getOrElse { finished.file.toURI().toString() }
+    }
 }
 
 private fun String.toLocalFileOrNull(): File? {

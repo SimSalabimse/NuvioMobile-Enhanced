@@ -241,11 +241,18 @@ internal class AndroidDownloadScheduler(val context: Context) {
             currentCoroutineContext().ensureActive()
             if (!isActive(transfer)) return@withLock false
             subtitles.join()
-            if (!destination.isFile && !partialFile.renameTo(destination)) {
-                throw IOException("Could not finalize the downloaded file")
+            val settled = settleAndroidPartialFile(
+                downloadId = transfer.item.id,
+                partialFile = partialFile,
+                destination = destination,
+                exportTreeUri = exportFolder?.let { transfer.exportTreeUri },
+            ) ?: throw IOException("Could not finalize the downloaded file")
+            val bytes = settled.file.length()
+            val exportedUri = if (settled.deferred) {
+                null
+            } else {
+                exportFolder?.let { AndroidDownloadExport.copyInto(it, destination).toString() }
             }
-            val bytes = destination.length()
-            val exportedUri = exportFolder?.let { AndroidDownloadExport.copyInto(it, destination).toString() }
             val completed = updateActive(transfer) { current ->
                 if (exportedUri != null) {
                     AndroidDownloadExport.moveSubtitles(destination, exportedUri)
