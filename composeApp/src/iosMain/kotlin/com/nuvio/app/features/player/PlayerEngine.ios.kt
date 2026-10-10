@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.logging.InAppLogger
+import com.nuvio.app.features.downloads.noteInAppPlaybackPlaying
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.useContents
 import kotlinx.coroutines.delay
@@ -411,17 +412,25 @@ actual fun PlatformPlayerSurface(
         )
         if (playWhenReady) {
             InAppLogger.debug("Player/iOS", "initial play requested")
+            noteInAppPlaybackPlaying(true)
             bridge.play()
         } else {
             InAppLogger.debug("Player/iOS", "initial pause requested")
             bridge.pause()
+            noteInAppPlaybackPlaying(false)
         }
     }
 
     // Update playWhenReady
     LaunchedEffect(bridge, playWhenReady) {
         InAppLogger.debug("Player/iOS", "playWhenReady changed=$playWhenReady")
-        if (playWhenReady) bridge.play() else bridge.pause()
+        if (playWhenReady) {
+            noteInAppPlaybackPlaying(true)
+            bridge.play()
+        } else {
+            bridge.pause()
+            noteInAppPlaybackPlaying(bridge.getIsPlaying())
+        }
     }
 
     // Update resize mode
@@ -479,6 +488,7 @@ actual fun PlatformPlayerSurface(
                 streamHost = streamHostFromUrl(latestSourceUrl.value),
                 stallFailure = PlaybackStallFailure.None,
             )
+            noteInAppPlaybackPlaying(snapshot.isPlaying && !snapshot.isEnded)
             latestOnSnapshot.value(snapshot)
             val errorMessage = bridge.getErrorMessage().ifBlank { null }
             if (errorMessage != lastReportedError) {
@@ -496,6 +506,7 @@ actual fun PlatformPlayerSurface(
     DisposableEffect(bridge) {
         onDispose {
             InAppLogger.info("Player/iOS", "destroy bridge positionMs=${bridge.getPositionMs()} durationMs=${bridge.getDurationMs()}")
+            noteInAppPlaybackPlaying(false)
             bridge.destroy()
         }
     }

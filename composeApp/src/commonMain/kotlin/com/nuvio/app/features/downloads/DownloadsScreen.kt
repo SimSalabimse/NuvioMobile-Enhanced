@@ -17,6 +17,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.PlayCircleOutline
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.HorizontalDivider
@@ -423,9 +424,24 @@ private fun DownloadRow(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (item.playsWhenDownloadFinishes && item.status != DownloadStatus.Completed) {
+                        Text(
+                            text = stringResource(Res.string.downloads_plays_when_finished),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (item.earlyPlayReady && item.status != DownloadStatus.Completed) {
+                        IconButton(onClick = onOpen) {
+                            Icon(
+                                imageVector = Icons.Rounded.PlayCircleOutline,
+                                contentDescription = stringResource(Res.string.action_watch),
+                            )
+                        }
+                    }
                     when (item.status) {
                         DownloadStatus.Downloading -> {
                             IconButton(onClick = onPause) {

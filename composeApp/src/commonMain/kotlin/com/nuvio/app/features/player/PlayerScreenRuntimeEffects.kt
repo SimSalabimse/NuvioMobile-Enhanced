@@ -27,6 +27,9 @@ import com.nuvio.app.features.player.skip.SkipInterval
 import com.nuvio.app.features.player.skip.shouldAutoSkip
 import com.nuvio.app.features.player.skip.internalSkipAction
 import com.nuvio.app.features.player.skip.intervalsAtSeekPositions
+import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.PartialPlaybackLease
+import com.nuvio.app.features.downloads.partialPlaybackDownloadId
 import com.nuvio.app.features.servers.ServerPlayback
 import com.nuvio.app.features.servers.ServerStreams
 import com.nuvio.app.features.streams.BingeGroupCacheRepository
@@ -385,7 +388,15 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
 
     DisposableEffect(activeSourceUrl) {
         val effectSourceUrl = activeSourceUrl
-        onDispose { ServerPlayback.stop(effectSourceUrl) }
+        val partialDownloadId = effectSourceUrl?.let(::partialPlaybackDownloadId)
+        if (partialDownloadId != null) PartialPlaybackLease.acquire(partialDownloadId)
+        onDispose {
+            ServerPlayback.stop(effectSourceUrl)
+            if (partialDownloadId != null) {
+                PartialPlaybackLease.release(partialDownloadId)
+                DownloadsRepository.onPartialPlaybackClosed(partialDownloadId)
+            }
+        }
     }
 
     DisposableEffect(playbackSession.videoId, activeSourceUrl, activeSourceAudioUrl) {

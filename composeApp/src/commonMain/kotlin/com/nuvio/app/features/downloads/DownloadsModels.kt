@@ -52,12 +52,20 @@ data class DownloadItem(
     val errorMessage: String? = null,
     val createdAtEpochMs: Long,
     val updatedAtEpochMs: Long,
+    val earlyPlayReady: Boolean = false,
+    val playsWhenDownloadFinishes: Boolean = false,
 ) {
     val isEpisode: Boolean
         get() = seasonNumber != null && episodeNumber != null
 
     val isPlayable: Boolean
-        get() = status == DownloadStatus.Completed && !localFileUri.isNullOrBlank()
+        get() = when (status) {
+            DownloadStatus.Completed -> !localFileUri.isNullOrBlank()
+            DownloadStatus.Downloading,
+            DownloadStatus.Paused,
+            -> earlyPlayReady
+            DownloadStatus.Failed -> false
+        }
 
     val displaySubtitle: String
         get() = episodeTitle.orEmpty()

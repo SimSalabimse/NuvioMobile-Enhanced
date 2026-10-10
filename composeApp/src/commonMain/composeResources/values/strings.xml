@@ -28,6 +28,7 @@
     <string name="action_next">Next</string>
     <string name="action_ok">OK</string>
     <string name="action_play">Play</string>
+    <string name="action_watch">Watch</string>
     <string name="action_watch_again">Watch Again</string>
     <string name="action_previous">Previous</string>
     <string name="action_remove">Remove</string>
@@ -680,6 +681,7 @@
     <string name="downloads_status_downloading">Downloading • %1$s</string>
     <string name="downloads_status_failed">Failed</string>
     <string name="downloads_status_paused">Paused • %1$s</string>
+    <string name="downloads_plays_when_finished">Plays when the download finishes.</string>
     <string name="episodes_cd_watched">Watched</string>
     <string name="episodes_season">Season %1$d</string>
     <string name="episodes_specials">Specials</string>

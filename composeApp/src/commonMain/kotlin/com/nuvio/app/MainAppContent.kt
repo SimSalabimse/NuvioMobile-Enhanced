@@ -105,6 +105,7 @@ import com.nuvio.app.features.details.MetaScreenSettingsRepository
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadSubtitles
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.isLoopbackPartialPlaybackUrl
 import com.nuvio.app.features.home.HomeCatalogSection
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.HomeRepository
@@ -714,6 +715,7 @@ internal fun MainAppContent(
         offlineLaunchRouteHandled,
         networkStatusUiState.condition,
         downloadsUiState.completedItems,
+        downloadsUiState.items.count { it.isPlayable },
     ) {
         if (!ownsAppRuntime) return@LaunchedEffect
         if (!initialHomeReady || offlineLaunchRouteHandled) return@LaunchedEffect
@@ -731,8 +733,8 @@ internal fun MainAppContent(
             NetworkCondition.ServersUnreachable,
             -> {
                 offlineLaunchRouteHandled = true
-                val hasPlayableDownload = downloadsUiState.completedItems.any {
-                    DownloadsRepository.playableLocalFileUri(it) != null
+                val hasPlayableDownload = downloadsUiState.items.any { item ->
+                    item.isPlayable && DownloadsRepository.playableLocalFileUri(item) != null
                 }
                 if (hasPlayableDownload) {
                     activateTab(AppScreenTab.Library)
@@ -966,7 +968,7 @@ internal fun MainAppContent(
                 initialPositionMs = resumeEntry?.lastPositionMs?.takeIf { it > 0L } ?: 0L,
                 initialProgressFraction = resumeEntry?.progressFraction?.takeIf { it > 0f },
             )
-            if (playerSettingsUiState.externalPlayerEnabled) {
+            if (playerSettingsUiState.externalPlayerEnabled && !isLoopbackPartialPlaybackUrl(sourceUrl)) {
                 coroutineScope.launch { openExternalPlayback(playerLaunch) }
                 return
             }
@@ -1090,7 +1092,10 @@ internal fun MainAppContent(
                         initialPositionMs = targetResumePositionMs,
                         initialProgressFraction = targetResumeProgressFraction,
                     )
-                    if (forceExternalPlayer || playerSettingsUiState.externalPlayerEnabled) {
+                    if (
+                        (forceExternalPlayer || playerSettingsUiState.externalPlayerEnabled) &&
+                        !isLoopbackPartialPlaybackUrl(localSourceUrl)
+                    ) {
                         coroutineScope.launch { openExternalPlayback(playerLaunch) }
                         return
                     }

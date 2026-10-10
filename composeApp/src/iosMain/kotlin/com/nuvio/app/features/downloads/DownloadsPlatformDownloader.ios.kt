@@ -49,7 +49,7 @@ import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_main_queue
 
 private const val BACKGROUND_SESSION_IDENTIFIER = "com.nuvio.app.downloads"
-private const val DOWNLOAD_RESOURCE_TIMEOUT_SECONDS = 24.0 * 60.0 * 60.0
+internal const val DOWNLOAD_RESOURCE_TIMEOUT_SECONDS = 24.0 * 60.0 * 60.0
 private const val PROGRESS_MIN_INTERVAL_SECONDS = 0.5
 private const val PROGRESS_MIN_BYTE_DELTA = 512L * 1024L
 
@@ -94,7 +94,9 @@ fun handleDownloadsBackgroundEvents(
     IosBackgroundDownloadCoordinator.ensureSessionCreated()
 }
 
-fun pauseDownloadsForAppBackground() = Unit
+fun pauseDownloadsForAppBackground() {
+    IosForegroundDownloads.onAppEnteredBackground()
+}
 
 @OptIn(ExperimentalForeignApi::class)
 internal actual object DownloadsPlatformDownloader {
@@ -106,12 +108,37 @@ internal actual object DownloadsPlatformDownloader {
         onPaused: () -> Unit,
     ): DownloadsTaskHandle {
         prepareDownloadSubtitles(request.item.id, request)
-        IosBackgroundDownloadCoordinator.startOrResume(
-            downloadId = request.item.id,
-            request = request,
-            rangeStart = null,
-            callbacks = DownloadCallbacks(onProgress, onSuccess, onFailure),
-        )
+        IosForegroundDownloads.ensureObserver()
+        IosTransferControl.allow(request.item.id)
+        val callbacks = DownloadCallbacks(onProgress, onSuccess, onFailure)
+        if (IosForegroundDownloads.shouldUseForeground()) {
+            IosBackgroundDownloadCoordinator.stopKeepingPartial(request.item.id) {
+                if (IosTransferControl.isSuppressed(request.item.id)) return@stopKeepingPartial
+                if (!IosForegroundDownloads.start(request, callbacks)) {
+                    callbacks.onFailure(
+                        runBlocking { getString(Res.string.downloads_error_finalize_file_failed) },
+                    )
+                }
+            }
+        } else {
+            val handedOff = IosForegroundDownloads.handoffToBackground(request.item.id) { size ->
+                if (IosTransferControl.isSuppressed(request.item.id)) return@handoffToBackground
+                IosBackgroundDownloadCoordinator.startOrResume(
+                    downloadId = request.item.id,
+                    request = request,
+                    rangeStart = size,
+                    callbacks = callbacks,
+                )
+            }
+            if (!handedOff) {
+                IosBackgroundDownloadCoordinator.startOrResume(
+                    downloadId = request.item.id,
+                    request = request,
+                    rangeStart = null,
+                    callbacks = callbacks,
+                )
+            }
+        }
         return IosDownloadsTaskHandle(request.item.id)
     }
 
@@ -142,6 +169,7 @@ internal actual object DownloadsPlatformDownloader {
                 DownloadSubtitleStorage(uri).remove()
             }
             IosBackgroundDownloadCoordinator.discardResumeData(destinationFileName)
+            IosDeferredPartialRename.clearFileName(destinationFileName)
             removePathIfExists("$destinationPath.part")
         }
 
@@ -180,6 +208,53 @@ internal actual object DownloadsPlatformDownloader {
             )
             true
         }
+
+    actual fun readPartialPrefix(destinationFileName: String, maxBytes: Int): ByteArray {
+        if (maxBytes <= 0 || destinationFileName.isBlank()) return ByteArray(0)
+        return resolveDownloadsBaseDirectory().withAccess { directory ->
+            val partial = "$directory/$destinationFileName.part"
+            val finished = "$directory/$destinationFileName"
+            val path = when {
+                NSFileManager.defaultManager.fileExistsAtPath(partial) -> partial
+                NSFileManager.defaultManager.fileExistsAtPath(finished) -> finished
+                else -> return@withAccess ByteArray(0)
+            }
+            readFilePrefix(path, maxBytes)
+        }
+    }
+
+    actual fun updatePartialTarget(
+        downloadId: String,
+        fileName: String,
+        totalBytes: Long?,
+        downloadRunning: Boolean,
+    ) {
+        IosPartialPlaybackServer.update(
+            downloadId = downloadId,
+            fileName = fileName,
+            totalBytes = totalBytes,
+            running = downloadRunning,
+        )
+    }
+
+    actual fun partialPlaybackUrl(downloadId: String): String? = IosPartialPlaybackServer.url(downloadId)
+
+    actual fun finishPartialPlayback(downloadId: String): String? = finishIosPartialPlayback(downloadId)
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private fun readFilePrefix(path: String, maxBytes: Int): ByteArray {
+    if (maxBytes <= 0) return ByteArray(0)
+    val file = fopen(path, "rb") ?: return ByteArray(0)
+    return try {
+        val buffer = ByteArray(maxBytes)
+        val read = buffer.usePinned { pinned ->
+            fread(pinned.addressOf(0), 1uL, maxBytes.convert(), file).toInt()
+        }
+        if (read <= 0) ByteArray(0) else buffer.copyOf(read)
+    } finally {
+        fclose(file)
+    }
 }
 
 private class IosDownloadsTaskHandle(
@@ -187,11 +262,13 @@ private class IosDownloadsTaskHandle(
 ) : DownloadsTaskHandle {
     override fun cancel() {
         cancelDownloadSubtitles(downloadId)
+        IosTransferControl.suppress(downloadId)
+        IosForegroundDownloads.cancel(downloadId)
         IosBackgroundDownloadCoordinator.cancelDownload(downloadId)
     }
 }
 
-private class DownloadCallbacks(
+internal class DownloadCallbacks(
     val onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit,
     val onSuccess: (localFileUri: String, totalBytes: Long?) -> Unit,
     val onFailure: (message: String) -> Unit,
@@ -205,17 +282,18 @@ private class ActiveDownload(
     val resumedFromData: Boolean = false,
     var retriedWithoutRange: Boolean = false,
     var deliberatelyCancelled: Boolean = false,
+    var afterStop: (() -> Unit)? = null,
     var lastProgressBytes: Long = -1L,
     var lastProgressTimestampSeconds: Double = 0.0,
 )
 
 @OptIn(ExperimentalForeignApi::class)
-private val IosBackgroundDownloadCoordinator: IosBackgroundDownloadCoordinatorImpl by lazy {
+internal val IosBackgroundDownloadCoordinator: IosBackgroundDownloadCoordinatorImpl by lazy {
     IosBackgroundDownloadCoordinatorImpl()
 }
 
 @OptIn(ExperimentalForeignApi::class)
-private class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDownloadDelegateProtocol {
+internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDownloadDelegateProtocol {
     private var session: NSURLSession? = null
     private val activeDownloads = mutableMapOf<String, ActiveDownload>()
     private val tasksByDownloadId = mutableMapOf<String, NSURLSessionDownloadTask>()
@@ -245,23 +323,75 @@ private class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDow
         return created
     }
 
+    fun activeDownloadIds(): List<String> = activeDownloads.keys.toList()
+
+    fun peek(downloadId: String): Pair<DownloadPlatformRequest, DownloadCallbacks?>? {
+        val active = activeDownloads[downloadId] ?: return null
+        return active.request to active.callbacks
+    }
+
+    /**
+     * Cancels the background task without appending its temp file.
+     * [afterStop] runs once the task is gone and this writer has released the file.
+     */
+    fun stopKeepingPartial(downloadId: String, afterStop: () -> Unit) {
+        val active = activeDownloads[downloadId]
+        if (active == null) {
+            afterStop()
+            return
+        }
+        active.deliberatelyCancelled = true
+        active.afterStop = afterStop
+        discardResumeData(active.request.destinationFileName)
+        val task = tasksByDownloadId[downloadId]
+        if (task == null) {
+            activeDownloads.remove(downloadId)
+            IosWriterOwnership.release(downloadId, DownloadWriterKind.Background)
+            active.afterStop = null
+            afterStop()
+            return
+        }
+        task.cancel()
+    }
+
     fun startOrResume(
         downloadId: String,
         request: DownloadPlatformRequest,
         rangeStart: Long?,
         callbacks: DownloadCallbacks?,
-    ) {
+    ): Boolean {
         val existing = activeDownloads[downloadId]
         if (existing != null) {
             existing.callbacks = callbacks ?: existing.callbacks
-            return
+            return true
         }
 
         pendingPauses[downloadId]?.let { pending ->
             pending.deferredStart = { startOrResume(downloadId, request, rangeStart, callbacks) }
-            return
+            return true
         }
+        if (IosTransferControl.isSuppressed(downloadId)) return false
+        if (!IosWriterOwnership.acquire(downloadId, DownloadWriterKind.Background)) return false
 
+        var startedTask = false
+        try {
+            startedTask = startTask(downloadId, request, rangeStart, callbacks)
+        } finally {
+            if (!startedTask) {
+                activeDownloads.remove(downloadId)
+                tasksByDownloadId.remove(downloadId)
+                IosWriterOwnership.release(downloadId, DownloadWriterKind.Background)
+            }
+        }
+        return startedTask
+    }
+
+    private fun startTask(
+        downloadId: String,
+        request: DownloadPlatformRequest,
+        rangeStart: Long?,
+        callbacks: DownloadCallbacks?,
+    ): Boolean {
         if (rangeStart == null) {
             val resumeData = takeResumeData(request.destinationFileName)
             if (resumeData != null) {
@@ -274,8 +404,13 @@ private class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDow
                     resumedFromData = true,
                 )
                 tasksByDownloadId[downloadId] = task
+                if (IosTransferControl.isSuppressed(downloadId)) {
+                    activeDownloads[downloadId]?.deliberatelyCancelled = true
+                    task.cancel()
+                    return false
+                }
                 task.resume()
-                return
+                return true
             }
         } else {
             removePathIfExists(resumeDataPath(request.destinationFileName))
@@ -298,7 +433,13 @@ private class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDow
             )
             tasksByDownloadId[downloadId] = task
             callbacks?.onProgress?.invoke(resumeFromBytes, null)
+            if (IosTransferControl.isSuppressed(downloadId)) {
+                activeDownloads[downloadId]?.deliberatelyCancelled = true
+                task.cancel()
+                return false
+            }
             task.resume()
+            return true
         } finally {
             if (started) base.scopedUrl?.stopAccessingSecurityScopedResource()
         }
@@ -307,6 +448,9 @@ private class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDow
     fun cancelDownload(downloadId: String) {
         val active = activeDownloads.remove(downloadId)
         active?.deliberatelyCancelled = true
+        if (active != null) {
+            IosWriterOwnership.release(downloadId, DownloadWriterKind.Background)
+        }
         val task = tasksByDownloadId.remove(downloadId) ?: return
         val fileName = active?.request?.destinationFileName
         if (fileName == null) {
@@ -378,31 +522,38 @@ private class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDow
     ) {
         val downloadId = downloadTask.taskDescription ?: return
         val active = activeFor(downloadTask)?.second
-        val request = active?.request
-        if (request == null) {
+        if (active == null || active.deliberatelyCancelled) {
             runCatching { NSFileManager.defaultManager.removeItemAtPath(didFinishDownloadingToURL.path.orEmpty(), null) }
             return
         }
+        val request = active.request
 
         val statusCode = (downloadTask.response as? NSHTTPURLResponse)?.statusCode?.toInt() ?: 200
         val base = resolveDownloadsBaseDirectory()
         val scopedStarted = base.scopedUrl?.startAccessingSecurityScopedResource() ?: false
+        var readyToFinalize = false
+        var finalizeCallbacks: DownloadCallbacks? = null
         try {
             val tempPath = "${base.path}/${request.destinationFileName}.part"
-            val destinationPath = "${base.path}/${request.destinationFileName}"
             val requestedRange = resumeOffset(downloadTask)
 
-            if (statusCode == 416 && !( active?.retriedWithoutRange ?: false)) {
-                removePathIfExists(tempPath)
+            if (statusCode == 416 && active.retriedWithoutRange != true) {
+                val callbacks = active.callbacks
                 activeDownloads.remove(downloadId)
                 tasksByDownloadId.remove(downloadId)
-                startOrResume(
+                val restarted = startOrResume(
                     downloadId = downloadId,
                     request = request,
                     rangeStart = 0L,
-                    callbacks = active?.callbacks,
-                ).also {
+                    callbacks = callbacks,
+                )
+                if (restarted) {
                     activeDownloads[downloadId]?.retriedWithoutRange = true
+                } else {
+                    IosWriterOwnership.release(downloadId, DownloadWriterKind.Background)
+                    callbacks?.onFailure(
+                        runBlocking { getString(Res.string.network_request_failed_http, statusCode) },
+                    )
                 }
                 return
             }
@@ -432,25 +583,14 @@ private class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDow
                 return
             }
 
-            removePathIfExists(destinationPath)
-            val moved = NSFileManager.defaultManager.moveItemAtPath(tempPath, destinationPath, null)
-            if (!moved) {
-                finishWithFailure(
-                    downloadId,
-                    runBlocking { getString(Res.string.downloads_error_finalize_file_failed) },
-                )
-                return
-            }
-
-            val localFileUri = NSURL.fileURLWithPath(destinationPath).absoluteString ?: "file://$destinationPath"
-            val finalSize = fileSizeOrNull(destinationPath)
-            val callbacks = activeDownloads.remove(downloadId)?.callbacks
+            finalizeCallbacks = activeDownloads.remove(downloadId)?.callbacks
             tasksByDownloadId.remove(downloadId)
-            if (callbacks != null) {
-                callbacks.onSuccess(localFileUri, finalSize)
-            }
+            readyToFinalize = true
         } finally {
             if (scopedStarted) base.scopedUrl?.stopAccessingSecurityScopedResource()
+        }
+        if (readyToFinalize) {
+            finalizeIosPartialFile(downloadId, request.destinationFileName, finalizeCallbacks)
         }
     }
 
@@ -460,17 +600,35 @@ private class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDow
         didCompleteWithError: NSError?,
     ) {
         val (downloadId, active) = activeFor(task) ?: return
-        tasksByDownloadId.remove(downloadId)
-        if (didCompleteWithError == null) return
+        if (tasksByDownloadId[downloadId]?.taskIdentifier == task.taskIdentifier) {
+            tasksByDownloadId.remove(downloadId)
+        }
         if (active.deliberatelyCancelled) {
-            activeDownloads.remove(downloadId)
+            val afterStop = active.afterStop
+            active.afterStop = null
+            if (activeDownloads[downloadId] === active) {
+                activeDownloads.remove(downloadId)
+                IosWriterOwnership.release(downloadId, DownloadWriterKind.Background)
+            }
+            afterStop?.invoke()
             return
         }
+        if (didCompleteWithError == null) return
         val isCancelled = didCompleteWithError.domain == NSURLErrorDomain &&
             didCompleteWithError.code == NSURLErrorCancelled
         if (active.resumedFromData && !isCancelled) {
             activeDownloads.remove(downloadId)
-            startOrResume(downloadId, active.request, rangeStart = 0L, callbacks = active.callbacks)
+            val callbacks = active.callbacks
+            val restarted = startOrResume(
+                downloadId,
+                active.request,
+                rangeStart = 0L,
+                callbacks = callbacks,
+            )
+            if (!restarted) {
+                IosWriterOwnership.release(downloadId, DownloadWriterKind.Background)
+                callbacks?.onFailure(didCompleteWithError.localizedDescription)
+            }
             return
         }
         (didCompleteWithError.userInfo[NSURLSessionDownloadTaskResumeData] as? NSData)?.let { data ->
@@ -486,9 +644,9 @@ private class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDow
 
     private fun finishWithFailure(downloadId: String, message: String) {
         val callbacks = activeDownloads.remove(downloadId)?.callbacks
-        if (callbacks != null) {
-            callbacks.onFailure(message)
-        }
+        tasksByDownloadId.remove(downloadId)
+        IosWriterOwnership.release(downloadId, DownloadWriterKind.Background)
+        callbacks?.onFailure(message)
     }
 
     private fun reportProgress(downloadId: String, downloadedBytes: Long, totalBytes: Long?) {
@@ -572,7 +730,7 @@ private fun copyByAppending(fromPath: String, toPath: String): Boolean {
     return ok
 }
 
-private data class DownloadsBaseDirectory(val path: String, val scopedUrl: NSURL?)
+internal data class DownloadsBaseDirectory(val path: String, val scopedUrl: NSURL?)
 
 @OptIn(ExperimentalForeignApi::class)
 private fun downloadsDirectoryPath(): String {
@@ -588,7 +746,7 @@ private fun downloadsDirectoryPath(): String {
 }
 
 @OptIn(ExperimentalForeignApi::class)
-private fun resolveDownloadsBaseDirectory(): DownloadsBaseDirectory {
+internal fun resolveDownloadsBaseDirectory(): DownloadsBaseDirectory {
     val bookmarkBase64 = DownloadsSettingsRepository.downloadLocationUri.value
     val resolvedUrl = bookmarkBase64?.let(::resolveDownloadLocationBookmark)
     val resolvedPath = resolvedUrl?.path
@@ -599,7 +757,7 @@ private fun resolveDownloadsBaseDirectory(): DownloadsBaseDirectory {
     }
 }
 
-private fun <T> DownloadsBaseDirectory.withAccess(block: (String) -> T): T {
+internal fun <T> DownloadsBaseDirectory.withAccess(block: (String) -> T): T {
     val started = scopedUrl?.startAccessingSecurityScopedResource() ?: false
     try {
         return block(path)
@@ -609,13 +767,13 @@ private fun <T> DownloadsBaseDirectory.withAccess(block: (String) -> T): T {
 }
 
 @OptIn(ExperimentalForeignApi::class)
-private fun removePathIfExists(path: String): Boolean {
+internal fun removePathIfExists(path: String): Boolean {
     if (!NSFileManager.defaultManager.fileExistsAtPath(path)) return true
     return NSFileManager.defaultManager.removeItemAtPath(path, null)
 }
 
 @OptIn(ExperimentalForeignApi::class)
-private fun fileSizeOrNull(path: String): Long? {
+internal fun fileSizeOrNull(path: String): Long? {
     val attrs = NSFileManager.defaultManager.attributesOfItemAtPath(path, error = null)
     val value = attrs?.get("NSFileSize")
     return when (value) {

@@ -22,6 +22,7 @@ object DownloadsRepository {
     val hasUnseenCompleted: StateFlow<Boolean> = _hasUnseenCompleted.asStateFlow()
 
     private val activeHandles = mutableMapOf<String, DownloadsTaskHandle>()
+    private val partialPrefixCache = mutableMapOf<String, ByteArray>()
     private var hasLoaded = false
     private var nextDownloadOrdinal = 0L
 
@@ -41,6 +42,7 @@ object DownloadsRepository {
     fun clearLocalState() {
         activeHandles.values.forEach(DownloadsTaskHandle::cancel)
         activeHandles.clear()
+        partialPrefixCache.clear()
         hasLoaded = false
         _hasUnseenCompleted.value = false
         _uiState.value = DownloadsUiState()
@@ -87,26 +89,50 @@ object DownloadsRepository {
 
     fun playableLocalFileUri(item: DownloadItem): String? {
         ensureLoaded()
-        if (item.status != DownloadStatus.Completed) return null
-        val resolvedUri = DownloadsPlatformDownloader.resolveLocalFileUri(
-            localFileUri = item.localFileUri,
-            destinationFileName = item.fileName,
-        ) ?: return null
-
-        if (resolvedUri != item.localFileUri) {
-            mutateItem(item.id) { current ->
-                if (current.fileName == item.fileName) {
-                    current.copy(
-                        localFileUri = resolvedUri,
-                        updatedAtEpochMs = DownloadsClock.nowEpochMs(),
-                    )
-                } else {
-                    current
+        if (item.status == DownloadStatus.Completed) {
+            val resolvedUri = DownloadsPlatformDownloader.resolveLocalFileUri(
+                localFileUri = item.localFileUri,
+                destinationFileName = item.fileName,
+            )
+            if (resolvedUri != null) {
+                if (resolvedUri != item.localFileUri) {
+                    mutateItem(item.id) { current ->
+                        if (current.fileName == item.fileName) {
+                            current.copy(
+                                localFileUri = resolvedUri,
+                                updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                            )
+                        } else {
+                            current
+                        }
+                    }
                 }
+                return resolvedUri
             }
         }
+        if (item.status != DownloadStatus.Completed && !item.earlyPlayReady) return null
+        if (item.status == DownloadStatus.Failed) return null
+        DownloadsPlatformDownloader.updatePartialTarget(
+            downloadId = item.id,
+            fileName = item.fileName,
+            totalBytes = item.totalBytes,
+            downloadRunning = item.status == DownloadStatus.Downloading,
+        )
+        return DownloadsPlatformDownloader.partialPlaybackUrl(item.id)
+    }
 
-        return resolvedUri
+    fun onPartialPlaybackClosed(downloadId: String) {
+        ensureLoaded()
+        val renamedUri = DownloadsPlatformDownloader.finishPartialPlayback(downloadId) ?: return
+        mutateItem(downloadId) { current ->
+            current.copy(
+                status = DownloadStatus.Completed,
+                localFileUri = renamedUri,
+                earlyPlayReady = false,
+                playsWhenDownloadFinishes = false,
+                updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+            )
+        }
     }
 
     fun enqueueFromStream(
@@ -148,6 +174,7 @@ object DownloadsRepository {
         if (existing != null) {
             replacedExisting = true
             activeHandles.remove(existing.id)?.cancel()
+            partialPrefixCache.remove(existing.id)
             DownloadsPlatformDownloader.removeFile(playableLocalFileUri(existing) ?: existing.localFileUri)
             DownloadsPlatformDownloader.removePartialFile(existing.fileName)
             currentItems.removeAll { it.id == existing.id }
@@ -222,6 +249,13 @@ object DownloadsRepository {
                 errorMessage = null,
             )
         }
+        val paused = _uiState.value.items.firstOrNull { it.id == downloadId } ?: item
+        DownloadsPlatformDownloader.updatePartialTarget(
+            downloadId = downloadId,
+            fileName = paused.fileName,
+            totalBytes = paused.totalBytes,
+            downloadRunning = false,
+        )
     }
 
     fun pauseActiveDownloads() {
@@ -268,6 +302,7 @@ object DownloadsRepository {
         val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
 
         activeHandles.remove(downloadId)?.cancel()
+        partialPrefixCache.remove(downloadId)
         DownloadsPlatformDownloader.removeFile(playableLocalFileUri(item) ?: item.localFileUri)
         DownloadsPlatformDownloader.removePartialFile(item.fileName)
 
@@ -291,10 +326,11 @@ object DownloadsRepository {
                 val statusNormalized = DownloadsPlatformDownloader.restoreItem(item)
 
                 val localUriNormalized = normalizeCompletedLocalFileUri(statusNormalized)
-                if (localUriNormalized != item) {
+                val earlyPlayNormalized = refreshStoredEarlyPlay(localUriNormalized)
+                if (earlyPlayNormalized != item) {
                     shouldPersistNormalized = true
                 }
-                localUriNormalized
+                earlyPlayNormalized
             }
 
         _uiState.value = DownloadsUiState(normalized)
@@ -311,14 +347,27 @@ object DownloadsRepository {
 
         val handle = DownloadsPlatformDownloader.start(
             request = request,
-            onProgress = { downloadedBytes, totalBytes ->
-                mutateItem(item.id) { current ->
-                    if (current.status != DownloadStatus.Downloading) {
-                        current
+            onProgress = onProgress@{ downloadedBytes, totalBytes ->
+                val current = _uiState.value.items.firstOrNull { it.id == item.id } ?: return@onProgress
+                if (current.status != DownloadStatus.Downloading) return@onProgress
+                val safeBytes = downloadedBytes.coerceAtLeast(0L)
+                val resolvedTotal = totalBytes?.takeIf { it > 0L } ?: current.totalBytes
+                val decision = decideEarlyPlay(current.id, current.fileName, safeBytes)
+                DownloadsPlatformDownloader.updatePartialTarget(
+                    downloadId = current.id,
+                    fileName = current.fileName,
+                    totalBytes = resolvedTotal,
+                    downloadRunning = true,
+                )
+                mutateItem(item.id) { latest ->
+                    if (latest.status != DownloadStatus.Downloading) {
+                        latest
                     } else {
-                        current.copy(
-                            downloadedBytes = downloadedBytes.coerceAtLeast(0L),
-                            totalBytes = totalBytes?.takeIf { it > 0L },
+                        latest.copy(
+                            downloadedBytes = safeBytes,
+                            totalBytes = resolvedTotal,
+                            earlyPlayReady = decision.playable,
+                            playsWhenDownloadFinishes = decision.playsWhenDownloadFinishes,
                             updatedAtEpochMs = DownloadsClock.nowEpochMs(),
                             errorMessage = null,
                         )
@@ -327,17 +376,29 @@ object DownloadsRepository {
             },
             onSuccess = { localFileUri, totalBytes ->
                 activeHandles.remove(item.id)
-                mutateItem(item.id) { current ->
-                    if (current.status != DownloadStatus.Downloading) return@mutateItem current
-                    current.copy(
+                partialPrefixCache.remove(item.id)
+                val current = _uiState.value.items.firstOrNull { it.id == item.id }
+                if (current != null) {
+                    DownloadsPlatformDownloader.updatePartialTarget(
+                        downloadId = current.id,
+                        fileName = current.fileName,
+                        totalBytes = totalBytes?.takeIf { it > 0L } ?: current.totalBytes,
+                        downloadRunning = false,
+                    )
+                }
+                mutateItem(item.id) { latest ->
+                    if (latest.status != DownloadStatus.Downloading) return@mutateItem latest
+                    latest.copy(
                         status = DownloadStatus.Completed,
                         localFileUri = localFileUri,
                         downloadedBytes = if (totalBytes != null && totalBytes > 0L) {
                             totalBytes
                         } else {
-                            current.downloadedBytes
+                            latest.downloadedBytes
                         },
-                        totalBytes = totalBytes?.takeIf { it > 0L } ?: current.totalBytes,
+                        totalBytes = totalBytes?.takeIf { it > 0L } ?: latest.totalBytes,
+                        earlyPlayReady = false,
+                        playsWhenDownloadFinishes = false,
                         errorMessage = null,
                         updatedAtEpochMs = DownloadsClock.nowEpochMs(),
                     )
@@ -356,6 +417,12 @@ object DownloadsRepository {
                         )
                     }
                 }
+                DownloadsPlatformDownloader.updatePartialTarget(
+                    downloadId = item.id,
+                    fileName = item.fileName,
+                    totalBytes = item.totalBytes,
+                    downloadRunning = false,
+                )
             },
             onPaused = {
                 activeHandles.remove(item.id)
@@ -438,12 +505,64 @@ object DownloadsRepository {
         }
     }
 
-    private fun DownloadItem.hasPlayableLocalFile(): Boolean =
-        status == DownloadStatus.Completed &&
+    private fun refreshStoredEarlyPlay(item: DownloadItem): DownloadItem {
+        if (item.status != DownloadStatus.Downloading && item.status != DownloadStatus.Paused) {
+            return if (item.earlyPlayReady || item.playsWhenDownloadFinishes) {
+                item.copy(earlyPlayReady = false, playsWhenDownloadFinishes = false)
+            } else {
+                item
+            }
+        }
+        val decision = decideEarlyPlay(item.id, item.fileName, item.downloadedBytes)
+        return if (
+            decision.playable == item.earlyPlayReady &&
+            decision.playsWhenDownloadFinishes == item.playsWhenDownloadFinishes
+        ) {
+            item
+        } else {
+            item.copy(
+                earlyPlayReady = decision.playable,
+                playsWhenDownloadFinishes = decision.playsWhenDownloadFinishes,
+            )
+        }
+    }
+
+    private fun decideEarlyPlay(downloadId: String, fileName: String, bytesOnDisk: Long): EarlyPlayDecision {
+        val cached = partialPrefixCache[downloadId]
+        val prefix = if (cached != null && !shouldRereadPrefix(fileName, cached, bytesOnDisk)) {
+            cached
+        } else {
+            val read = DownloadsPlatformDownloader.readPartialPrefix(fileName, PARTIAL_CLASSIFY_PREFIX_BYTES)
+            if (read.isNotEmpty()) partialPrefixCache[downloadId] = read
+            read
+        }
+        return earlyPlayDecision(
+            bytesOnDisk = bytesOnDisk,
+            fileName = fileName,
+            prefix = prefix,
+            downloadComplete = false,
+        )
+    }
+
+    private fun shouldRereadPrefix(fileName: String, prefix: ByteArray, bytesOnDisk: Long): Boolean {
+        if (prefix.isEmpty()) return true
+        if (prefix.size >= PARTIAL_CLASSIFY_PREFIX_BYTES) return false
+        if (bytesOnDisk <= prefix.size.toLong()) return false
+        val kind = classifyPartialContainer(fileName, prefix)
+        return partialPrefixStart(kind, prefix) == PrefixStart.NotYet
+    }
+
+    private fun DownloadItem.hasPlayableLocalFile(): Boolean = when (status) {
+        DownloadStatus.Completed ->
             DownloadsPlatformDownloader.resolveLocalFileUri(
                 localFileUri = localFileUri,
                 destinationFileName = fileName,
-            ) != null
+            ) != null || PartialPlaybackLease.isHeld(id)
+        DownloadStatus.Downloading,
+        DownloadStatus.Paused,
+        -> earlyPlayReady
+        DownloadStatus.Failed -> false
+    }
 }
 
 @Serializable

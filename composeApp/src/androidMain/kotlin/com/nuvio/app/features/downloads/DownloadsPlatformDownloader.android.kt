@@ -148,6 +148,19 @@ internal actual object DownloadsPlatformDownloader {
             }.getOrDefault(false)
         }
     }
+
+    actual fun readPartialPrefix(destinationFileName: String, maxBytes: Int): ByteArray = ByteArray(0)
+
+    actual fun updatePartialTarget(
+        downloadId: String,
+        fileName: String,
+        totalBytes: Long?,
+        downloadRunning: Boolean,
+    ) = Unit
+
+    actual fun partialPlaybackUrl(downloadId: String): String? = null
+
+    actual fun finishPartialPlayback(downloadId: String): String? = null
 }
 
 private fun String.toLocalFileOrNull(): File? {
