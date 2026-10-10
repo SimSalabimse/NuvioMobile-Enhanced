@@ -28,6 +28,7 @@ import com.nuvio.app.features.player.skip.shouldAutoSkip
 import com.nuvio.app.features.player.skip.internalSkipAction
 import com.nuvio.app.features.player.skip.intervalsAtSeekPositions
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.FinishedDownloadDeletion
 import com.nuvio.app.features.downloads.PartialPlaybackLease
 import com.nuvio.app.features.downloads.partialPlaybackDownloadId
 import com.nuvio.app.features.servers.ServerPlayback
@@ -403,13 +404,18 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         val effectVideoId = playbackSession.videoId
         val effectSourceUrl = activeSourceUrl
         val effectSourceAudioUrl = activeSourceAudioUrl
+        FinishedDownloadDeletion.playbackOpened(effectVideoId, effectSourceUrl)
         onDispose {
-            if (
-                playbackSession.videoId == effectVideoId &&
-                activeSourceUrl == effectSourceUrl &&
+            val sameVideo = playbackSession.videoId == effectVideoId
+            val sameSource = activeSourceUrl == effectSourceUrl &&
                 activeSourceAudioUrl == effectSourceAudioUrl
-            ) {
+            if (sameVideo && sameSource) {
                 flushWatchProgress()
+                FinishedDownloadDeletion.playbackEnded(effectVideoId)
+            } else if (!sameVideo) {
+                FinishedDownloadDeletion.playbackEnded(effectVideoId)
+            } else {
+                FinishedDownloadDeletion.playbackSourceChanged(effectVideoId, activeSourceUrl)
             }
         }
     }

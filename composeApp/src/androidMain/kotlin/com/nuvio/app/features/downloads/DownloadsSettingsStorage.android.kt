@@ -7,6 +7,7 @@ actual object DownloadsSettingsStorage {
     private const val preferencesName = "nuvio_downloads_settings"
     private const val allowMobileDataDownloadsKey = "allow_mobile_data_downloads"
     private const val showDownloadButtonKey = "show_download_button"
+    private const val deleteWhenFinishedKey = "delete_when_finished"
 
     private var preferences: SharedPreferences? = null
 
@@ -43,6 +44,22 @@ actual object DownloadsSettingsStorage {
         preferences
             ?.edit()
             ?.putBoolean(showDownloadButtonKey, enabled)
+            ?.apply()
+    }
+
+    actual fun loadDeleteWhenFinished(): Boolean? =
+        preferences?.let { prefs ->
+            if (prefs.contains(deleteWhenFinishedKey)) {
+                prefs.getBoolean(deleteWhenFinishedKey, false)
+            } else {
+                null
+            }
+        }
+
+    actual fun saveDeleteWhenFinished(enabled: Boolean) {
+        preferences
+            ?.edit()
+            ?.putBoolean(deleteWhenFinishedKey, enabled)
             ?.apply()
     }
 }

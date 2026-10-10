@@ -5,4 +5,6 @@ internal expect object DownloadsSettingsStorage {
     fun saveAllowMobileDataDownloads(enabled: Boolean)
     fun loadShowDownloadButton(): Boolean?
     fun saveShowDownloadButton(enabled: Boolean)
+    fun loadDeleteWhenFinished(): Boolean?
+    fun saveDeleteWhenFinished(enabled: Boolean)
 }

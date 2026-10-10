@@ -14,6 +14,8 @@ import nuvio.composeapp.generated.resources.settings_downloads_location_private
 import nuvio.composeapp.generated.resources.settings_downloads_location_reset
 import nuvio.composeapp.generated.resources.downloads_allow_mobile_data_description
 import nuvio.composeapp.generated.resources.downloads_allow_mobile_data_title
+import nuvio.composeapp.generated.resources.downloads_delete_when_finished_description
+import nuvio.composeapp.generated.resources.downloads_delete_when_finished_title
 import nuvio.composeapp.generated.resources.downloads_show_download_button_description
 import nuvio.composeapp.generated.resources.downloads_show_download_button_title
 import nuvio.composeapp.generated.resources.settings_downloads_location_title
@@ -26,6 +28,7 @@ internal fun LazyListScope.downloadsSettingsContent(
         val downloadLocationUri by DownloadsSettingsRepository.downloadLocationUri.collectAsStateWithLifecycle()
         val allowMobileData by DownloadsSettingsRepository.allowMobileDataDownloads.collectAsStateWithLifecycle()
         val showDownloadButton by DownloadsSettingsRepository.showDownloadButton.collectAsStateWithLifecycle()
+        val deleteWhenFinished by DownloadsSettingsRepository.deleteWhenFinished.collectAsStateWithLifecycle()
         var showPicker by remember { mutableStateOf(false) }
 
         SettingsSection(
@@ -47,6 +50,14 @@ internal fun LazyListScope.downloadsSettingsContent(
                     checked = showDownloadButton,
                     isTablet = isTablet,
                     onCheckedChange = DownloadsSettingsRepository::setShowDownloadButton,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.downloads_delete_when_finished_title),
+                    description = stringResource(Res.string.downloads_delete_when_finished_description),
+                    checked = deleteWhenFinished,
+                    isTablet = isTablet,
+                    onCheckedChange = DownloadsSettingsRepository::setDeleteWhenFinished,
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsNavigationRow(

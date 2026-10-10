@@ -2125,6 +2125,8 @@
     <string name="downloads_allow_mobile_data_title">Allow mobile data</string>
     <string name="downloads_show_download_button_title">Show download button</string>
     <string name="downloads_show_download_button_description">Adds a download button under Play on a title's details page.</string>
+    <string name="downloads_delete_when_finished_title">Delete when finished</string>
+    <string name="downloads_delete_when_finished_description">Remove the downloaded file after you finish the episode or movie.</string>
     <string name="downloads_allow_mobile_data_description">By default, downloads only start on Wi-Fi. Enable this to also allow them on mobile data.</string>
     <string name="downloads_error_empty_body">Empty response body</string>
     <string name="downloads_error_finalize_failed">Failed to finalize download file</string>

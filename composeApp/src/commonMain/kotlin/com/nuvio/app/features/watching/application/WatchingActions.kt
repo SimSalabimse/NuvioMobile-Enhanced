@@ -3,6 +3,7 @@ package com.nuvio.app.features.watching.application
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.details.MetaVideo
+import com.nuvio.app.features.downloads.FinishedDownloadDeletion
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.watched.WatchedItem
 import com.nuvio.app.features.watched.WatchedRepository
@@ -167,6 +168,7 @@ object WatchingActions {
             markedAtEpochMs = entry.lastUpdatedEpochMs,
         )
         WatchedRepository.markWatchedFromPlaybackCompletion(watchedItem, syncRemote = syncRemote)
+        FinishedDownloadDeletion.onPlaybackCompleted(entry)
 
         if (!syncRemote || !entry.isEpisode) return
         actionScope.launch {

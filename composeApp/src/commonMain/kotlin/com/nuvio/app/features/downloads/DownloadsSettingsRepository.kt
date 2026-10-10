@@ -16,6 +16,9 @@ object DownloadsSettingsRepository {
     private val _showDownloadButton = MutableStateFlow(true)
     val showDownloadButton: StateFlow<Boolean> = _showDownloadButton.asStateFlow()
 
+    private val _deleteWhenFinished = MutableStateFlow(false)
+    val deleteWhenFinished: StateFlow<Boolean> = _deleteWhenFinished.asStateFlow()
+
     private val _downloadLocationUri = MutableStateFlow<String?>(null)
     val downloadLocationUri: StateFlow<String?> = _downloadLocationUri.asStateFlow()
 
@@ -26,6 +29,7 @@ object DownloadsSettingsRepository {
         hasLoaded = true
         _allowMobileDataDownloads.value = DownloadsSettingsStorage.loadAllowMobileDataDownloads() ?: false
         _showDownloadButton.value = DownloadsSettingsStorage.loadShowDownloadButton() ?: true
+        _deleteWhenFinished.value = DownloadsSettingsStorage.loadDeleteWhenFinished() ?: false
         _downloadLocationUri.value = DownloadsStorage.getDownloadLocationUri()
     }
 
@@ -41,6 +45,21 @@ object DownloadsSettingsRepository {
         if (_showDownloadButton.value == enabled) return
         _showDownloadButton.value = enabled
         DownloadsSettingsStorage.saveShowDownloadButton(enabled)
+    }
+
+    fun setDeleteWhenFinished(enabled: Boolean) {
+        ensureLoaded()
+        if (_deleteWhenFinished.value == enabled) return
+        _deleteWhenFinished.value = enabled
+        DownloadsSettingsStorage.saveDeleteWhenFinished(enabled)
+    }
+
+    internal fun clearLocalState() {
+        hasLoaded = false
+        _allowMobileDataDownloads.value = false
+        _showDownloadButton.value = true
+        _deleteWhenFinished.value = false
+        _downloadLocationUri.value = null
     }
 
     fun setDownloadLocationUri(uri: String?) {

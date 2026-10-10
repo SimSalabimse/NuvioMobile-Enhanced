@@ -26,8 +26,14 @@ internal actual object DownloadsPlatformDownloader {
 
     @Synchronized
     internal fun scheduler(context: Context): AndroidDownloadScheduler {
-        appContext = context.applicationContext
-        return downloadScheduler ?: AndroidDownloadScheduler(context.applicationContext).also { downloadScheduler = it }
+        val applicationContext = context.applicationContext
+        appContext = applicationContext
+        val existing = downloadScheduler
+        // A new files directory means the previous scheduler would delete the wrong folder.
+        if (existing != null && existing.context.filesDir.absolutePath == applicationContext.filesDir.absolutePath) {
+            return existing
+        }
+        return AndroidDownloadScheduler(applicationContext).also { downloadScheduler = it }
     }
 
     internal fun managedTransfers(): List<AndroidDownloadTransfer> =

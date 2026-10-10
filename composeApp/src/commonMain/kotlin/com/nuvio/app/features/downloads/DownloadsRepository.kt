@@ -43,6 +43,16 @@ object DownloadsRepository {
         _hasUnseenCompleted.value = false
     }
 
+    internal fun replaceItems(items: List<DownloadItem>) {
+        activeHandles.values.forEach(DownloadsTaskHandle::cancel)
+        activeHandles.clear()
+        partialPrefixCache.clear()
+        startQueue.clear()
+        hasLoaded = true
+        publish(items)
+        persistStatus()
+    }
+
     fun clearLocalState() {
         activeHandles.values.forEach(DownloadsTaskHandle::cancel)
         activeHandles.clear()
