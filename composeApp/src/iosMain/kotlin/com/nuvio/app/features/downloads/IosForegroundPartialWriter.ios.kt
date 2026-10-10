@@ -85,8 +85,15 @@ internal object IosForegroundDownloads {
             `object` = null,
             queue = null,
         ) { _ ->
-            takeBackFromBackground()
+            // Opening the app reattaches a live background task. It does not start another request.
+            IosBackgroundDownloadCoordinator.reconcileAfterOpen()
         }
+    }
+
+    fun isRunning(downloadId: String): Boolean = delegate.isRunning(downloadId)
+
+    fun replaceCallbacks(downloadId: String, callbacks: DownloadCallbacks) {
+        delegate.replaceCallbacks(downloadId, callbacks)
     }
 
     fun shouldUseForeground(): Boolean =
@@ -208,6 +215,20 @@ internal fun iosPartialBytesOnDisk(fileName: String): Long =
             fileSizeOrNull("$directory/$fileName") ?: 0L
         }
     }
+
+/** Length of the `.part` file only. A finished file is not a resume prefix. */
+@OptIn(ExperimentalForeignApi::class)
+internal fun iosPartFileLength(fileName: String): Long {
+    if (fileName.isBlank()) return 0L
+    return resolveDownloadsBaseDirectory().withAccess { directory ->
+        val partial = "$directory/$fileName.part"
+        if (!NSFileManager.defaultManager.fileExistsAtPath(partial)) {
+            0L
+        } else {
+            fileSizeOrNull(partial) ?: 0L
+        }
+    }
+}
 
 @OptIn(ExperimentalForeignApi::class)
 internal fun finalizeIosPartialFile(
@@ -392,6 +413,20 @@ private class IosForegroundSessionDelegate : NSObject(), NSURLSessionDataDelegat
         return true
     }
 
+    fun isRunning(downloadId: String): Boolean {
+        lock.lock()
+        val running = jobs[downloadId]?.mode == ForegroundMode.Running
+        lock.unlock()
+        return running
+    }
+
+    fun replaceCallbacks(downloadId: String, callbacks: DownloadCallbacks) {
+        lock.lock()
+        val job = jobs[downloadId]
+        if (job != null) job.callbacks = callbacks
+        lock.unlock()
+    }
+
     fun handoffAll() {
         lock.lock()
         val ids = jobs.keys.toList()
@@ -447,15 +482,30 @@ private class IosForegroundSessionDelegate : NSObject(), NSURLSessionDataDelegat
             }
             else -> {
                 if (status == 200 && job.rangedRequest) {
-                    job.buffered = 0
-                    job.flushedBytes = 0L
-                    job.rangedRequest = false
-                    if (!reopenTruncated(job)) {
+                    val disposition = partialPrefixDisposition(
+                        statusCode = status,
+                        requestedRange = job.flushedBytes,
+                        prefixLength = job.flushedBytes,
+                    )
+                    if (disposition == PartialPrefixDisposition.Keep) {
                         job.ignoreBody = true
-                        job.failMessage = runBlocking {
-                            getString(Res.string.downloads_error_finalize_file_failed)
+                        job.failMessage = httpFailure(status)
+                    } else {
+                        job.buffered = 0
+                        job.flushedBytes = 0L
+                        job.rangedRequest = false
+                        if (!reopenTruncated(job)) {
+                            job.ignoreBody = true
+                            job.failMessage = runBlocking {
+                                getString(Res.string.downloads_error_finalize_file_failed)
+                            }
                         }
                     }
+                }
+                if (job.failMessage != null) {
+                    lock.unlock()
+                    completionHandler(NSURLSessionResponseAllow)
+                    return
                 }
                 job.totalBytes = when (status) {
                     206 -> contentRangeTotal(http?.let { headerValue(it, "Content-Range") })
