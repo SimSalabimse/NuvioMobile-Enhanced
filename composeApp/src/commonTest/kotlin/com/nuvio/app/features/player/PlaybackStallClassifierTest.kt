@@ -204,6 +204,20 @@ class PlaybackStallClassifierTest {
         assertEquals(PlaybackStallSource.Remote, playbackStallSource("https://cdn.example.com/a.mkv"))
         assertEquals(PlaybackStallSource.Remote, playbackStallSource("magnet:?xt=urn:btih:abc"))
         assertEquals(PlaybackStallSource.Remote, playbackStallSource(null))
+        val partial = "http://127.0.0.1:49211/partial/neagley_s1e2"
+        assertEquals(PlaybackStallSource.LocalFile, playbackStallSource(partial))
+        assertEquals(PlaybackStallSource.Remote, playbackStallSource("http://127.0.0.1:8080/stream"))
+        assertEquals(
+            PlaybackStallCause.ReadingLocalFile,
+            classifyPlaybackStall(
+                sample(
+                    source = playbackStallSource(partial),
+                    network = NetworkCondition.Online,
+                    stalledForMs = 5_000,
+                ),
+            ),
+        )
+        assertNull(streamHostFromUrl(partial))
         assertEquals(
             PlaybackStallCause.ReadingLocalFile,
             classifyPlaybackStall(

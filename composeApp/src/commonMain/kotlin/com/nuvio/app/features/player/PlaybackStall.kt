@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.network.NetworkCondition
+import com.nuvio.app.features.downloads.isLoopbackPartialPlaybackUrl
 import com.nuvio.app.features.p2p.formatP2pSpeed
 import kotlin.time.TimeSource
 import kotlinx.coroutines.delay
@@ -144,6 +145,9 @@ internal fun resolveStallMediaBitrateBps(reportedBps: Long?, hlsBandwidthBps: Lo
 internal fun playbackStallSource(url: String?): PlaybackStallSource {
     val value = url?.trim().orEmpty()
     if (value.isEmpty()) return PlaybackStallSource.Remote
+    // The partial-file player is a loopback read of bytes already on disk.
+    // It must not be described as a remote stream host.
+    if (isLoopbackPartialPlaybackUrl(value)) return PlaybackStallSource.LocalFile
     val lower = value.lowercase()
     if (lower.startsWith("file:") || lower.startsWith("content:")) {
         return PlaybackStallSource.LocalFile

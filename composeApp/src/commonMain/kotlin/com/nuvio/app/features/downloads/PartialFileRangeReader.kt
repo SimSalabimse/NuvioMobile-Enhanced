@@ -58,8 +58,13 @@ internal fun partialIdFromTarget(target: String): String? {
 /**
  * Plans one HTTP/1.1 response for a growing file.
  * When [advertisedTotal] is known the response advertises that full size.
- * A range that starts past the bytes on disk waits only while the download is still running.
- * Otherwise the satisfiable end snaps back to the bytes already on disk.
+ * A range whose first byte is not on disk returns 416 immediately, including
+ * while the download is still running. A suffix range names the tail of that
+ * advertised size, so it is 416 until those bytes exist. Holding it would keep
+ * a Matroska or WebM open waiting on cues that live at the end of the file.
+ * A body that starts inside the bytes on disk still names its range. The reader
+ * waits at that frontier for the next bytes, and a paused download snaps the
+ * satisfiable end back to the bytes already on disk.
  */
 internal fun planPartialRangeResponse(
     method: String,
@@ -83,8 +88,9 @@ internal fun planPartialRangeResponse(
     if (requested.start < 0L) return unsatisfiable(total, contentType)
     if (total != null && requested.start >= total) return unsatisfiable(total, contentType)
 
-    val pastAvailable = requested.start >= safeAvailable
-    if (pastAvailable && !downloadRunning) return unsatisfiable(total, contentType)
+    // The first missing byte is not a reason to hold the socket. Cue and suffix
+    // reads start at the advertised tail, far past a partial file.
+    if (requested.start >= safeAvailable) return unsatisfiable(total, contentType)
 
     val requestedEnd = requested.endInclusive
     val end = when {

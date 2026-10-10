@@ -42,16 +42,21 @@ class AndroidPartialPlaybackTest {
             socket.tcpNoDelay = true
             socket.soTimeout = 3_000
             val output = socket.getOutputStream()
+            // Starts inside the 64 bytes on disk and ends past that frontier.
             output.write(
-                "GET /partial/$downloadId HTTP/1.1\r\nHost: 127.0.0.1\r\nRange: bytes=100-109\r\n\r\n"
+                "GET /partial/$downloadId HTTP/1.1\r\nHost: 127.0.0.1\r\nRange: bytes=50-69\r\n\r\n"
                     .encodeToByteArray(),
             )
             output.flush()
             val input = socket.getInputStream()
             val headers = readHeaders(input)
             assertTrue(headers.startsWith("HTTP/1.1 206"))
-            assertTrue(headers.contains("Content-Range: bytes 100-109/1000"))
-            assertTrue(headers.contains("Content-Length: 10"))
+            assertTrue(headers.contains("Content-Range: bytes 50-69/1000"))
+            assertTrue(headers.contains("Content-Length: 20"))
+
+            val alreadyOnDisk = ByteArray(14)
+            readFully(input, alreadyOnDisk)
+            assertTrue(prefix.copyOfRange(50, 64).contentEquals(alreadyOnDisk))
 
             socket.soTimeout = 400
             val early = runCatching { input.read() }
@@ -62,15 +67,34 @@ class AndroidPartialPlaybackTest {
             val extra = ByteArray(50) { (100 + it).toByte() }
             FileOutputStream(partial, true).use { it.write(extra) }
             socket.soTimeout = 3_000
-            val body = ByteArray(10)
-            readFully(input, body)
+            val rest = ByteArray(6)
+            readFully(input, rest)
             val file = partial.readBytes()
             assertTrue(prefix.contentEquals(file.copyOfRange(0, prefix.size)))
             assertTrue(extra.contentEquals(file.copyOfRange(prefix.size, file.size)))
-            assertTrue(file.copyOfRange(100, 110).contentEquals(body))
+            assertTrue(file.copyOfRange(64, 70).contentEquals(rest))
         } finally {
             AndroidPartialPlaybackServer.update(downloadId, "movie.mkv", directory, 1_000L, running = false)
             socket.close()
+        }
+    }
+
+    @Test
+    fun runningDownloadRejectsATailRangeWithoutWaiting() {
+        val directory = temporary.newFolder()
+        val partial = File(directory, "movie.mkv.part")
+        val original = ByteArray(64) { it.toByte() }
+        partial.writeBytes(original)
+        val downloadId = "tail416"
+        val total = 4_700_000_000L
+        AndroidPartialPlaybackServer.update(downloadId, "movie.mkv", directory, total, running = true)
+        val url = checkNotNull(AndroidPartialPlaybackServer.url(downloadId))
+        try {
+            assertUnsatisfiable(url, downloadId, "bytes=-1048576")
+            assertUnsatisfiable(url, downloadId, "bytes=4000000000-4000004095")
+            assertTrue(original.contentEquals(partial.readBytes()))
+        } finally {
+            AndroidPartialPlaybackServer.update(downloadId, "movie.mkv", directory, total, running = false)
         }
     }
 
@@ -190,6 +214,27 @@ class AndroidPartialPlaybackTest {
 
     private fun writePrefix(directory: File, name: String, bytes: ByteArray) {
         File(directory, name).writeBytes(bytes)
+    }
+
+    private fun assertUnsatisfiable(url: String, downloadId: String, range: String) {
+        val socket = Socket("127.0.0.1", URI(url).port)
+        try {
+            socket.soTimeout = 1_000
+            socket.getOutputStream().apply {
+                write(
+                    "GET /partial/$downloadId HTTP/1.1\r\nHost: 127.0.0.1\r\nRange: $range\r\n\r\n"
+                        .encodeToByteArray(),
+                )
+                flush()
+            }
+            val input = socket.getInputStream()
+            val headers = readHeaders(input)
+            assertTrue(headers.startsWith("HTTP/1.1 416"))
+            assertTrue(headers.contains("Content-Length: 0"))
+            assertEquals(-1, input.read())
+        } finally {
+            socket.close()
+        }
     }
 
     private fun readHeaders(input: InputStream): String {

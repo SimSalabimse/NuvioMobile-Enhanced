@@ -46,6 +46,39 @@ class PartialFileRangeReaderTest {
     }
 
     @Test
+    fun rangePastTheGrowingPrefixReturns416WithoutWaiting() {
+        val total = 4_700_000_000L
+        val available = 549L * 1_000_000L
+        val suffix = planPartialRangeResponse(
+            method = "GET",
+            rangeHeader = "bytes=-1048576",
+            advertisedTotal = total,
+            available = available,
+            downloadRunning = true,
+            contentType = "video/x-matroska",
+        )
+        assertEquals(416, suffix.status)
+        assertFalse(suffix.includeBody)
+        assertEquals("0", header(suffix, "Content-Length"))
+        assertEquals("bytes */$total", header(suffix, "Content-Range"))
+        assertEquals(0L, suffix.bodyStart)
+
+        val start = available + 1_000_000L
+        val bounded = planPartialRangeResponse(
+            method = "GET",
+            rangeHeader = "bytes=$start-${start + 4095}",
+            advertisedTotal = total,
+            available = available,
+            downloadRunning = true,
+            contentType = "video/x-matroska",
+        )
+        assertEquals(416, bounded.status)
+        assertFalse(bounded.includeBody)
+        assertEquals("0", header(bounded, "Content-Length"))
+        assertEquals("bytes */$total", header(bounded, "Content-Range"))
+    }
+
+    @Test
     fun readPastThePausedPrefixSnapsBackInsteadOfWaiting() {
         val head = planPartialRangeResponse(
             method = "GET",
