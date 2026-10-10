@@ -241,6 +241,8 @@ data class PlayerPlaybackSnapshot(
     val mediaBitrateBps: Long? = null,
     val streamHost: String? = null,
     val stallFailure: PlaybackStallFailure = PlaybackStallFailure.None,
+    val castAvailable: Boolean = false,
+    val castDeviceName: String? = null,
 )
 
 data class PlayerChapter(

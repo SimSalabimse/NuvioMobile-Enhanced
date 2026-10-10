@@ -39,6 +39,8 @@ import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.Cast
+import androidx.compose.material.icons.rounded.CastConnected
 import androidx.compose.material.icons.rounded.PictureInPictureAlt
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
@@ -138,6 +140,8 @@ internal fun PlayerControlsShell(
     onSubtitleClick: (() -> Unit)? = null,
     onAudioClick: (() -> Unit)? = null,
     onVideoSettingsClick: (() -> Unit)? = null,
+    onCastClick: (() -> Unit)? = null,
+    isCasting: Boolean = false,
     onPictureInPictureClick: (() -> Unit)? = null,
     onInfoClick: (() -> Unit)? = null,
     onRateClick: (() -> Unit)? = null,
@@ -219,6 +223,8 @@ internal fun PlayerControlsShell(
                     onParentalGuideAnimationComplete = onParentalGuideAnimationComplete,
                     onLockToggle = onLockToggle,
                     onVideoSettingsClick = onVideoSettingsClick,
+                    onCastClick = onCastClick,
+                    isCasting = isCasting,
                     onPictureInPictureClick = onPictureInPictureClick,
                     onInfoClick = onInfoClick,
                     onRateClick = onRateClick,
@@ -242,6 +248,8 @@ internal fun PlayerControlsShell(
                         onLockToggle = onLockToggle,
                         onBack = onBack,
                         onSubmitIntroClick = onSubmitIntroClick,
+                        onCastClick = onCastClick,
+                        isCasting = isCasting,
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .windowInsetsPadding(WindowInsets.safeContent.only(WindowInsetsSides.Top))
@@ -415,6 +423,8 @@ private fun PlayerHeader(
     onParentalGuideAnimationComplete: () -> Unit,
     onLockToggle: () -> Unit,
     onVideoSettingsClick: (() -> Unit)?,
+    onCastClick: (() -> Unit)?,
+    isCasting: Boolean,
     onPictureInPictureClick: (() -> Unit)?,
     onInfoClick: (() -> Unit)?,
     onRateClick: (() -> Unit)? = null,
@@ -555,6 +565,15 @@ private fun PlayerHeader(
                             buttonSize = metrics.headerIconSize + 16.dp,
                             iconSize = metrics.headerIconSize,
                             onClick = onVideoSettingsClick,
+                        )
+                    }
+                    if (onCastClick != null) {
+                        PlayerHeaderIconButton(
+                            icon = if (isCasting) Icons.Rounded.CastConnected else Icons.Rounded.Cast,
+                            contentDescription = stringResource(Res.string.player_cast),
+                            buttonSize = metrics.headerIconSize + 16.dp,
+                            iconSize = metrics.headerIconSize,
+                            onClick = onCastClick,
                         )
                     }
                     if (onPictureInPictureClick != null) {
