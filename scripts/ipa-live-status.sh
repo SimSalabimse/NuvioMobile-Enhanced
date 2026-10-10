@@ -51,25 +51,60 @@ ipa_live_status_record_ipa() {
 # this Mac, and a build line can be longer than that. The mux reader waits for
 # a newline, and one printf larger than the pipe buffer (Gradle progress uses
 # a single carriage-return line) blocks forever. Send short pieces.
+#
+# The lock sits next to the mux fifo. A run scratch used as TMPDIR can be
+# removed while xcodebuild still holds the fifo. Recreate that parent.
+# Sleeping forever on the mkdir stops this reader, the fifo fills, and
+# xcodebuild blocks in write().
 ipa_log_write() {
   local lock="${IPA_STATUS_LOG_MUX}.lockdir"
   local rest="$1"
-  local chunk tries
+  local chunk tries held parent
+  parent="$(dirname "${lock}")"
   while true; do
     chunk="${rest:0:4000}"
     rest="${rest:4000}"
     tries=0
-    while ! mkdir "${lock}" 2>/dev/null; do
+    held=0
+    while true; do
+      if [[ ! -d "${parent}" ]]; then
+        mkdir -p "${parent}" 2>/dev/null || true
+      fi
+      if mkdir "${lock}" 2>/dev/null; then
+        held=1
+        break
+      fi
+      if [[ ! -d "${parent}" ]]; then
+        break
+      fi
       tries=$((tries + 1))
       if [[ "${tries}" -gt 200 ]]; then
         rm -rf "${lock}"
-        tries=0
+        if mkdir "${lock}" 2>/dev/null; then
+          held=1
+        fi
+        break
       fi
       sleep 0.01
     done
     printf '%s\n' "${chunk}" >&7
-    rmdir "${lock}" 2>/dev/null || rm -rf "${lock}"
+    if [[ "${held}" -eq 1 ]]; then
+      rmdir "${lock}" 2>/dev/null || rm -rf "${lock}"
+    fi
     [[ -n "${rest}" ]] || break
+  done
+}
+
+# Drain a build fifo without waiting for a newline. read -n returns after
+# 4000 characters, under the 64KiB macOS pipe capacity, so a carriage-return
+# progress line larger than the pipe still unblocks the writer. A larger read
+# would wait for more than the fifo can hold.
+ipa_log_read_tee() {
+  local mirror_fd="$1"
+  local line
+  while IFS= read -r -n 4000 line || [[ -n "${line}" ]]; do
+    printf '%s\n' "${line}" >&"${mirror_fd}"
+    ipa_log_write "${line}"
   done
 }
 
@@ -103,17 +138,11 @@ ipa_live_status_attach_log() {
   IPA_STATUS_LOG_OUT_FIFO="${out_fifo}"
   IPA_STATUS_LOG_ERR_FIFO="${err_fifo}"
   (
-    while IFS= read -r line || [[ -n "${line}" ]]; do
-      printf '%s\n' "${line}" >&8
-      ipa_log_write "${line}"
-    done < "${out_fifo}"
+    ipa_log_read_tee 8 < "${out_fifo}"
   ) &
   IPA_STATUS_LOG_OUT_PID=$!
   (
-    while IFS= read -r line || [[ -n "${line}" ]]; do
-      printf '%s\n' "${line}" >&9
-      ipa_log_write "${line}"
-    done < "${err_fifo}"
+    ipa_log_read_tee 9 < "${err_fifo}"
   ) &
   IPA_STATUS_LOG_ERR_PID=$!
   IPA_STATUS_LOG_ATTACHED=1
@@ -235,8 +264,179 @@ ipa_live_status_close() {
   return 0
 }
 
+# Prove a newline-free progress line cannot fill the fifo, and that removing
+# the lock's parent does not stall the writer. No listener and no xcodebuild.
+ipa_live_status_wait_file() {
+  python3 -c 'import os, sys, time
+path, want, timeout = sys.argv[1], int(sys.argv[2]), float(sys.argv[3])
+deadline = time.time() + timeout
+while time.time() < deadline:
+    if os.path.exists(path) and os.path.getsize(path) >= want:
+        sys.exit(0)
+    time.sleep(0.05)
+sys.exit(1)' "$1" "$2" "$3"
+}
+
+ipa_live_status_smoke_tee() {
+  local tmp mux outfifo errfifo captured block_dir block_fifo
+  local drain_pid out_pid err_pid writer_pid dummy_pid fail
+  local blocked_root blocked_file
+  fail=""
+  block_dir="$(mktemp -d "${TMPDIR:-/tmp}/nuvio-ipa-block.XXXXXX")"
+  block_fifo="${block_dir}/fifo"
+  mkfifo "${block_fifo}"
+  sleep 30 <"${block_fifo}" &
+  dummy_pid=$!
+  python3 -c 'import os, sys
+payload = b"B" * 200000
+fd = os.open(sys.argv[1], os.O_WRONLY)
+view = payload
+while view:
+    wrote = os.write(fd, view)
+    if wrote <= 0:
+        raise SystemExit("short write")
+    view = view[wrote:]
+os.close(fd)' "${block_fifo}" &
+  writer_pid=$!
+  sleep 0.4
+  if ! kill -0 "${writer_pid}" 2>/dev/null; then
+    fail="writer was not blocked by a full fifo"
+  fi
+  kill "${dummy_pid}" "${writer_pid}" 2>/dev/null || true
+  wait "${dummy_pid}" 2>/dev/null || true
+  wait "${writer_pid}" 2>/dev/null || true
+  rm -rf "${block_dir}"
+  if [[ -n "${fail}" ]]; then
+    echo "ipa-status: ${fail}" >&2
+    return 1
+  fi
+
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/nuvio-ipa-tee.XXXXXX")"
+  captured="$(mktemp "${TMPDIR:-/tmp}/nuvio-ipa-tee-cap.XXXXXX")"
+  mux="${tmp}/mux"
+  outfifo="${tmp}/out"
+  errfifo="${tmp}/err"
+  mkfifo "${mux}" "${outfifo}" "${errfifo}"
+  # os.read returns whatever is already in the fifo. A buffered
+  # read(4096) would wait to fill that size and hide a finished chunk.
+  python3 -c 'import os, sys
+fd = sys.stdin.fileno()
+out = os.open(sys.argv[1], os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+while True:
+    chunk = os.read(fd, 4096)
+    if not chunk:
+        break
+    os.write(out, chunk)
+os.close(out)
+' "${captured}" <"${mux}" &
+  drain_pid=$!
+  exec 7>"${mux}"
+  IPA_STATUS_LOG_MUX="${mux}"
+  exec 8>/dev/null 9>/dev/null
+  (
+    ipa_log_read_tee 8 <"${outfifo}"
+  ) &
+  out_pid=$!
+  (
+    ipa_log_read_tee 9 <"${errfifo}"
+  ) &
+  err_pid=$!
+  exec 3>"${outfifo}" 4>"${errfifo}"
+  # The open fifos survive. The lock parent is gone on purpose.
+  rm -rf "${tmp}"
+  python3 -c 'import os
+def write_all(fd, payload):
+    view = payload
+    while view:
+        wrote = os.write(fd, view)
+        if wrote <= 0:
+            raise SystemExit("short write")
+        view = view[wrote:]
+write_all(3, b"P"*79999 + b"\r")' &
+  writer_pid=$!
+  if ! ipa_live_status_wait_file "${captured}" 80000 5; then
+    fail="stdout reader held a carriage-return line"
+  fi
+  if [[ -z "${fail}" ]]; then
+    wait "${writer_pid}" || fail="stdout writer failed"
+  else
+    kill "${writer_pid}" 2>/dev/null || true
+    wait "${writer_pid}" 2>/dev/null || true
+  fi
+  if [[ -z "${fail}" && ! -d "${tmp}" ]]; then
+    fail="lock parent was not recreated"
+  fi
+  if [[ -z "${fail}" ]]; then
+    python3 -c 'import os
+def write_all(fd, payload):
+    view = payload
+    while view:
+        wrote = os.write(fd, view)
+        if wrote <= 0:
+            raise SystemExit("short write")
+        view = view[wrote:]
+write_all(4, b"E"*40000)' &
+    writer_pid=$!
+    if ! ipa_live_status_wait_file "${captured}" 120000 5; then
+      fail="stderr reader held a carriage-return line"
+    fi
+    if [[ -z "${fail}" ]]; then
+      wait "${writer_pid}" || fail="stderr writer failed"
+    else
+      kill "${writer_pid}" 2>/dev/null || true
+      wait "${writer_pid}" 2>/dev/null || true
+    fi
+  fi
+  exec 3>&- 4>&-
+  if [[ -z "${fail}" ]]; then
+    local spins
+    spins=0
+    while kill -0 "${out_pid}" 2>/dev/null || kill -0 "${err_pid}" 2>/dev/null; do
+      spins=$((spins + 1))
+      if [[ "${spins}" -gt 50 ]]; then
+        fail="tee did not finish after the writer closed"
+        break
+      fi
+      sleep 0.1
+    done
+  fi
+  kill "${out_pid}" "${err_pid}" 2>/dev/null || true
+  wait "${out_pid}" 2>/dev/null || true
+  wait "${err_pid}" 2>/dev/null || true
+  # Parent is a file, so mkdir -p cannot recreate it. The write must return.
+  if [[ -z "${fail}" ]]; then
+    blocked_root="$(mktemp -d "${TMPDIR:-/tmp}/nuvio-ipa-lock.XXXXXX")"
+    blocked_file="${blocked_root}/not-a-directory"
+    : >"${blocked_file}"
+    IPA_STATUS_LOG_MUX="${blocked_file}/mux"
+    ipa_log_write "lock-fallback" || fail="lock fallback write failed"
+    IPA_STATUS_LOG_MUX="${mux}"
+    rm -rf "${blocked_root}"
+  fi
+  exec 7>&- 8>&- 9>&-
+  unset IPA_STATUS_LOG_MUX
+  wait "${drain_pid}" 2>/dev/null || true
+  if [[ -z "${fail}" ]]; then
+    python3 -c '
+import pathlib, sys
+data = pathlib.Path(sys.argv[1]).read_bytes().replace(b"\n", b"")
+want = (b"P" * 79999 + b"\r") + (b"E" * 40000) + b"lock-fallback"
+if data != want:
+    print("captured mismatch bytes=%s" % len(data), file=sys.stderr)
+    sys.exit(1)
+' "${captured}" || fail="captured log missed the progress line"
+  fi
+  rm -f "${captured}"
+  rm -rf "${tmp}"
+  if [[ -n "${fail}" ]]; then
+    echo "ipa-status: ${fail}" >&2
+    return 1
+  fi
+}
+
 # Prove the log path without xcodebuild and without record-download.
 ipa_live_status_smoke() {
+  ipa_live_status_smoke_tee
   if [[ -z "${IPA_STATUS_REPO:-}" ]]; then
     if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
       IPA_STATUS_REPO="$(pwd -P)"
