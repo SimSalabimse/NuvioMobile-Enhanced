@@ -6,9 +6,13 @@ import com.nuvio.app.features.watchprogress.WatchProgressEntry
  * Queues removal of a finished download when in-app playback completes, and
  * runs [DownloadsRepository.cancelDownload] only after that playback leaves the file.
  *
- * A transfer that is still running when completion first fires is not removed,
- * including an early-play session that crosses the threshold before the bytes finish.
+ * A transfer that is still running when completion fires is not removed while it runs.
+ * An early-play session that crosses the threshold before the bytes finish is removed when
+ * the player leaves it only if the download has finished by then (it used to be kept for good).
  * Scrubbing back inside the same video keeps the file until the player leaves it.
+ *
+ * Completion is reported from the watch-progress upsert for every completed in-app playback,
+ * also when Trakt or MDBList owns watched history (that path used to skip this entirely).
  */
 internal object FinishedDownloadDeletion {
     private var session: OpenPlayback? = null
@@ -38,13 +42,16 @@ internal object FinishedDownloadDeletion {
     fun onPlaybackCompleted(entry: WatchProgressEntry) {
         val current = session ?: return
         if (!entry.isCompleted || entry.videoId != current.videoId) return
-        if (current.queuedDownloadId != null || current.blockedIncomplete) return
+        if (current.queuedDownloadId != null) return
         if (!DownloadsSettingsRepository.deleteWhenFinished.value) return
-        val item = downloadOpenedBySource(current.sourceUrl, DownloadsRepository.uiState.value.items) ?: return
+        val items = DownloadsRepository.uiState.value.items
+        val item = current.incompleteDownloadId?.let { id -> items.firstOrNull { it.id == id } }
+            ?: downloadOpenedBySource(current.sourceUrl, items)
+            ?: return
         session = if (item.status == DownloadStatus.Completed) {
-            current.copy(queuedDownloadId = item.id)
+            current.copy(queuedDownloadId = item.id, incompleteDownloadId = null)
         } else {
-            current.copy(blockedIncomplete = true)
+            current.copy(incompleteDownloadId = item.id)
         }
     }
 
@@ -54,8 +61,12 @@ internal object FinishedDownloadDeletion {
 
     private fun release(current: OpenPlayback) {
         session = null
-        val downloadId = current.queuedDownloadId ?: return
         if (!DownloadsSettingsRepository.deleteWhenFinished.value) return
+        val downloadId = current.queuedDownloadId
+            ?: current.incompleteDownloadId?.takeIf { id ->
+                DownloadsRepository.uiState.value.items.any { it.id == id && it.status == DownloadStatus.Completed }
+            }
+            ?: return
         DownloadsRepository.cancelDownload(downloadId)
     }
 }
@@ -64,7 +75,8 @@ private data class OpenPlayback(
     val videoId: String,
     val sourceUrl: String,
     val queuedDownloadId: String? = null,
-    val blockedIncomplete: Boolean = false,
+    /** Watched to the end while still downloading: removed on leave only if it finished by then. */
+    val incompleteDownloadId: String? = null,
 )
 
 internal fun downloadOpenedBySource(sourceUrl: String, items: List<DownloadItem>): DownloadItem? {
