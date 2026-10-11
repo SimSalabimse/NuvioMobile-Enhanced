@@ -1748,6 +1748,11 @@
     <string name="downloads_season_resume">Resume season</string>
     <string name="downloads_in_progress_count">%1$d in progress</string>
     <string name="downloads_cancel_season_hint">Long-press an episode to cancel its whole season.</string>
+    <string name="download_mark_waiting">Waiting to download</string>
+    <string name="download_mark_paused">Paused</string>
+    <string name="download_mark_resume">Resume</string>
+    <string name="download_mark_failed">Download failed</string>
+    <string name="download_mark_retry">Retry</string>
     <string name="details_actions_menu_label">More actions</string>
     <string name="details_check_connection">Check your Wi-Fi or mobile data connection and try again.</string>
     <string name="details_director">Director</string>

@@ -4,6 +4,9 @@ enum class DetailsDownloadProgressKind {
     None,
     Determinate,
     Indeterminate,
+    Queued,
+    Paused,
+    Failed,
     Completed,
 }
 
@@ -11,6 +14,8 @@ data class DetailsDownloadProgress(
     val kind: DetailsDownloadProgressKind,
     val percent: Int? = null,
     val fraction: Float? = null,
+    /** The row behind a Paused or Failed mark, so the mark can resume or retry it. */
+    val downloadId: String? = null,
 ) {
     companion object {
         val None = DetailsDownloadProgress(DetailsDownloadProgressKind.None)
@@ -57,10 +62,45 @@ fun detailsDownloadProgress(
             )
         }
     }
+    // Waiting, paused and failed rows used to fall through to None, so a paused episode showed
+    // nothing outside Downloads.
+    matches.firstOrNull { it.status == DownloadStatus.Queued }?.let { queued ->
+        return DetailsDownloadProgress(kind = DetailsDownloadProgressKind.Queued, downloadId = queued.id)
+    }
+    matches.firstOrNull { it.status == DownloadStatus.Paused }?.let { paused ->
+        return DetailsDownloadProgress(
+            kind = DetailsDownloadProgressKind.Paused,
+            percent = paused.downloadsScreenProgressPercent(),
+            fraction = paused.downloadsScreenProgressPercent()?.let { paused.progressFraction },
+            downloadId = paused.id,
+        )
+    }
     if (matches.any { it.status == DownloadStatus.Completed }) {
         return DetailsDownloadProgress(kind = DetailsDownloadProgressKind.Completed)
     }
+    matches.firstOrNull { it.status == DownloadStatus.Failed }?.let { failed ->
+        return DetailsDownloadProgress(kind = DetailsDownloadProgressKind.Failed, downloadId = failed.id)
+    }
     return DetailsDownloadProgress.None
+}
+
+/**
+ * A tap on a Paused mark resumes that download and a tap on a Failed mark retries it.
+ * Returns false for any other state, so the caller does its normal action.
+ */
+fun resumeDownloadFromMark(progress: DetailsDownloadProgress): Boolean {
+    val id = progress.downloadId ?: return false
+    return when (progress.kind) {
+        DetailsDownloadProgressKind.Paused -> {
+            DownloadsRepository.resumeDownload(id)
+            true
+        }
+        DetailsDownloadProgressKind.Failed -> {
+            DownloadsRepository.retryDownload(id)
+            true
+        }
+        else -> false
+    }
 }
 
 /**

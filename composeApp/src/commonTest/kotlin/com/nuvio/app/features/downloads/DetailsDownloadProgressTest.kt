@@ -80,17 +80,26 @@ class DetailsDownloadProgressTest {
     }
 
     @Test
-    fun pausedQueuedAndFailedRowsDoNotShowADownloadingBar() {
+    fun pausedQueuedAndFailedRowsShowTheirOwnStateOutsideDownloads() {
         val parent = "tt4"
-        val items = listOf(
-            item(id = "paused", parentMetaId = parent, status = DownloadStatus.Paused, downloadedBytes = 10L, totalBytes = 40L),
-            item(id = "queued", parentMetaId = "tt5", status = DownloadStatus.Queued, totalBytes = 40L),
-            item(id = "failed", parentMetaId = "tt6", status = DownloadStatus.Failed, totalBytes = 40L),
-        )
+        val paused = item(id = "paused", parentMetaId = parent, status = DownloadStatus.Paused, downloadedBytes = 10L, totalBytes = 40L)
+        val queued = item(id = "queued", parentMetaId = "tt5", status = DownloadStatus.Queued, totalBytes = 40L)
+        val failed = item(id = "failed", parentMetaId = "tt6", status = DownloadStatus.Failed, totalBytes = 40L)
+        val items = listOf(paused, queued, failed)
 
-        items.forEach { item ->
-            assertEquals(DetailsDownloadProgress.None, detailsDownloadProgress(items, item.logicalContentKey))
-        }
+        val pausedProgress = detailsDownloadProgress(items, paused.logicalContentKey)
+        assertEquals(DetailsDownloadProgressKind.Paused, pausedProgress.kind)
+        assertEquals(25, pausedProgress.percent)
+        assertEquals("paused", pausedProgress.downloadId)
+
+        val queuedProgress = detailsDownloadProgress(items, queued.logicalContentKey)
+        assertEquals(DetailsDownloadProgressKind.Queued, queuedProgress.kind)
+
+        val failedProgress = detailsDownloadProgress(items, failed.logicalContentKey)
+        assertEquals(DetailsDownloadProgressKind.Failed, failedProgress.kind)
+        assertEquals("failed", failedProgress.downloadId)
+
+        items.forEach { assertTrue(detailsDownloadProgress(items, it.logicalContentKey).showsMark) }
     }
 
     @Test
