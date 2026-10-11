@@ -11,11 +11,18 @@ final class DownloadsLiveActivityManager {
     static let shared = DownloadsLiveActivityManager()
 
     private var observer: NSObjectProtocol?
+    /// Applies run one at a time. Two overlapping applies could end an activity and then
+    /// request a new one from an older payload, leaving an activity nothing updates.
+    private var applyChain: Task<Void, Never>?
 
     private init() {}
 
     func start() {
         guard observer == nil else { return }
+
+        // An activity from an earlier process has no transfer behind it any more.
+        // A download that is still running is published again once the downloads list loads.
+        endStaleActivitiesFromEarlierLaunch()
 
         observer = NotificationCenter.default.addObserver(
             forName: downloadsLiveStatusUpdatedNotification,
@@ -32,16 +39,17 @@ final class DownloadsLiveActivityManager {
 #if canImport(ActivityKit) && os(iOS) && !targetEnvironment(macCatalyst)
         guard #available(iOS 16.1, *) else { return }
 
-        let payload = loadPayload()
-
         var backgroundTaskId: UIBackgroundTaskIdentifier = .invalid
         backgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "DownloadsLiveActivitySync") {
             UIApplication.shared.endBackgroundTask(backgroundTaskId)
             backgroundTaskId = .invalid
         }
 
-        Task { @MainActor in
-            await apply(payload)
+        let previous = applyChain
+        applyChain = Task { @MainActor in
+            await previous?.value
+            // Read the payload now, not when the notification arrived, so the last state wins.
+            await self.apply(self.loadPayload())
             if backgroundTaskId != .invalid {
                 UIApplication.shared.endBackgroundTask(backgroundTaskId)
                 backgroundTaskId = .invalid
@@ -61,14 +69,19 @@ final class DownloadsLiveActivityManager {
 #if canImport(ActivityKit) && os(iOS) && !targetEnvironment(macCatalyst)
     @available(iOS 16.1, *)
     private func apply(_ payload: DownloadsLiveStatusPayload?) async {
-        let existing = Activity<DownloadsLiveActivityAttributes>.activities.first
+        let activities = Activity<DownloadsLiveActivityAttributes>.activities
 
-        guard let payload else {
-            if let existing {
-                await existing.end(dismissalPolicy: .immediate)
+        // End every activity that is not the running download, not just the first one.
+        for activity in activities where activity.attributes.downloadId != payload?.id {
+            await activity.end(dismissalPolicy: .immediate)
+        }
+        guard let payload, payload.status == "Downloading" else {
+            for activity in activities where activity.attributes.downloadId == payload?.id {
+                await activity.end(dismissalPolicy: .immediate)
             }
             return
         }
+        let existing = activities.first { $0.attributes.downloadId == payload.id }
 
         let state = DownloadsLiveActivityAttributes.ContentState(
             status: payload.status,
@@ -76,13 +89,9 @@ final class DownloadsLiveActivityManager {
             transferredText: transferredText(payload)
         )
 
-        if let existing, existing.attributes.downloadId == payload.id {
+        if let existing {
             await existing.update(using: state)
             return
-        }
-
-        if let existing {
-            await existing.end(dismissalPolicy: .immediate)
         }
 
         let attributes = DownloadsLiveActivityAttributes(
@@ -98,6 +107,21 @@ final class DownloadsLiveActivityManager {
         )
     }
 #endif
+
+    private func endStaleActivitiesFromEarlierLaunch() {
+#if canImport(ActivityKit) && os(iOS) && !targetEnvironment(macCatalyst)
+        guard #available(iOS 16.1, *) else { return }
+        let stale = Activity<DownloadsLiveActivityAttributes>.activities
+        guard !stale.isEmpty else { return }
+        let previous = applyChain
+        applyChain = Task { @MainActor in
+            await previous?.value
+            for activity in stale {
+                await activity.end(dismissalPolicy: .immediate)
+            }
+        }
+#endif
+    }
 
     private func transferredText(_ payload: DownloadsLiveStatusPayload) -> String {
         let downloaded = formatBytes(payload.downloadedBytes)

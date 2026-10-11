@@ -15,19 +15,17 @@ internal actual object DownloadsLiveStatusPlatform {
     }
 
     private var lastPayload: String? = null
+    private var published = false
 
     actual fun onItemsChanged(items: List<DownloadItem>) {
+        // Only a running transfer has a Live Activity. A paused or failed row left in the list used to
+        // become the "primary" item after a cancel and got an activity that nothing ever updated or
+        // ended, which is what showed up stuck on the Lock Screen once the app was left.
+        // The oldest running transfer is the one shown, so two parallel downloads do not swap the
+        // activity on every progress tick.
         val primary = items
-            .filter { item ->
-                item.status == DownloadStatus.Downloading ||
-                    item.status == DownloadStatus.Paused ||
-                    item.status == DownloadStatus.Failed
-            }
-            .sortedWith(
-                compareBy<DownloadItem> { statusPriority(it.status) }
-                    .thenByDescending { it.updatedAtEpochMs },
-            )
-            .firstOrNull()
+            .filter { item -> item.status == DownloadStatus.Downloading }
+            .minByOrNull { it.createdAtEpochMs }
 
         val payload = primary?.let { item ->
             json.encodeToString(
@@ -49,7 +47,9 @@ internal actual object DownloadsLiveStatusPlatform {
             )
         }
 
-        if (payload == lastPayload) return
+        // The first call always writes: the stored payload may be left over from an earlier launch.
+        if (published && payload == lastPayload) return
+        published = true
         lastPayload = payload
 
         val defaults = NSUserDefaults.standardUserDefaults
@@ -60,14 +60,6 @@ internal actual object DownloadsLiveStatusPlatform {
         }
 
         NSNotificationCenter.defaultCenter.postNotificationName(notificationName, null)
-    }
-
-    private fun statusPriority(status: DownloadStatus): Int = when (status) {
-        DownloadStatus.Downloading -> 0
-        DownloadStatus.Paused -> 1
-        DownloadStatus.Failed -> 2
-        DownloadStatus.Completed -> 3
-        DownloadStatus.Queued -> 4
     }
 }
 
