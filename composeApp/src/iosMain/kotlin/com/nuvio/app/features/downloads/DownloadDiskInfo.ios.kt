@@ -13,10 +13,10 @@ import platform.Foundation.NSURLVolumeAvailableCapacityForImportantUsageKey
 import platform.Foundation.NSURLVolumeTotalCapacityKey
 import platform.Foundation.NSUserDefaults
 
+@OptIn(ExperimentalForeignApi::class)
 internal actual object DownloadDiskInfo {
     private const val PAYLOAD_KEY_PREFIX = "downloads_payload_"
 
-    @OptIn(ExperimentalForeignApi::class)
     actual fun volumeSpace(): VolumeSpace? = resolveDownloadsBaseDirectory().withAccess { path ->
         val values = NSURL.fileURLWithPath(path).resourceValuesForKeys(
             listOf(NSURLVolumeAvailableCapacityForImportantUsageKey, NSURLVolumeTotalCapacityKey),
@@ -51,7 +51,6 @@ internal actual object DownloadDiskInfo {
             .mapNotNull { defaults.stringForKey(it) }
     }
 
-    @OptIn(ExperimentalForeignApi::class)
     private fun entrySize(path: String, depth: Int = 0): Long {
         val attrs = NSFileManager.defaultManager.attributesOfItemAtPath(path, null) ?: return 0L
         if (attrs[NSFileType] == NSFileTypeDirectory) {
