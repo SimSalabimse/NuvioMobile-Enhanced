@@ -62,3 +62,28 @@ internal fun activeDownloadEntries(active: List<DownloadItem>): List<ActiveDownl
 }
 
 private fun seasonGroupKey(item: DownloadItem): String = "${item.parentMetaId.trim()}|${item.seasonNumber}"
+
+/**
+ * Every unfinished episode (waiting, downloading, paused or failed) of [item]'s show and season,
+ * lowest first. Null for a movie or when nothing of that season is left to stop.
+ * Finished episodes are never part of it, so stopping a season never deletes a finished file.
+ */
+internal fun unfinishedSeasonGroup(items: List<DownloadItem>, item: DownloadItem): ActiveSeasonGroup? {
+    if (!item.isEpisode) return null
+    val key = seasonGroupKey(item)
+    val members = items
+        .filter { it.isEpisode && it.status != DownloadStatus.Completed && seasonGroupKey(it) == key }
+        .sortedBy { it.episodeNumber ?: 0 }
+    if (members.isEmpty()) return null
+    return ActiveSeasonGroup(key = key, label = "${item.title} · S${item.seasonNumber}", items = members)
+}
+
+/** Unfinished season groups of one show, lowest season first. */
+internal fun unfinishedSeasonGroupsOfShow(items: List<DownloadItem>, showId: String): List<ActiveSeasonGroup> =
+    items
+        .filter { it.isEpisode && it.status != DownloadStatus.Completed && it.parentMetaId == showId }
+        .groupBy { it.seasonNumber ?: 0 }
+        .toList()
+        .sortedBy { (season, _) -> season }
+        .map { (_, members) -> members }
+        .mapNotNull { members -> unfinishedSeasonGroup(items, members.first()) }

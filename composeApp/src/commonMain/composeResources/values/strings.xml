@@ -1743,6 +1743,11 @@
     <string name="downloads_group_cancel_all">Cancel all</string>
     <string name="downloads_group_cancel_title">Cancel %1$d downloads?</string>
     <string name="downloads_group_cancel_message">This stops every download of %1$s and deletes their partial files.</string>
+    <string name="downloads_season_cancel">Cancel season</string>
+    <string name="downloads_season_pause">Pause season</string>
+    <string name="downloads_season_resume">Resume season</string>
+    <string name="downloads_in_progress_count">%1$d in progress</string>
+    <string name="downloads_cancel_season_hint">Long-press an episode to cancel its whole season.</string>
     <string name="details_actions_menu_label">More actions</string>
     <string name="details_check_connection">Check your Wi-Fi or mobile data connection and try again.</string>
     <string name="details_director">Director</string>

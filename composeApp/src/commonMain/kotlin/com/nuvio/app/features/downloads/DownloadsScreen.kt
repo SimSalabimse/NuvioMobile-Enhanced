@@ -1,6 +1,8 @@
 package com.nuvio.app.features.downloads
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +31,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -77,15 +80,17 @@ fun DownloadsScreen(
     val openDownloadsDirectoryFailedText = stringResource(Res.string.downloads_open_directory_failed)
     var showSettings by rememberSaveable { mutableStateOf(false) }
 
-    val completedEpisodes = remember(uiState.items) {
-        uiState.completedItems
+    // Finished and unfinished episodes: a show with only waiting or paused episodes still has a
+    // Shows entry, so its season can be stopped from there.
+    val allEpisodes = remember(uiState.items) {
+        uiState.items
             .filter { it.isEpisode }
             .sortedForSeriesDownloads()
     }
 
-    val selectedShowTitle = remember(selectedShowId, completedEpisodes) {
+    val selectedShowTitle = remember(selectedShowId, allEpisodes) {
         selectedShowId?.let { showId ->
-            completedEpisodes.firstOrNull { it.parentMetaId == showId }?.title
+            allEpisodes.firstOrNull { it.parentMetaId == showId }?.title
         }
     }
 
@@ -164,9 +169,11 @@ fun DownloadsScreen(
         } else {
             downloadsShowContent(
                 showId = selectedShowId.orEmpty(),
-                episodes = completedEpisodes,
+                episodes = allEpisodes,
+                allItems = uiState.items,
                 onOpenDownload = onOpenDownload,
                 onDeleteDownload = { downloadPendingDeletionId = it },
+                onCancelSeasonGroup = { groupPendingCancel = it },
             )
         }
     }
@@ -217,7 +224,7 @@ private fun LazyListScope.downloadsRootContent(
 ) {
     val activeItems = uiState.activeItems
     val completedMovies = uiState.completedItems.filterNot(DownloadItem::isEpisode)
-    val completedShows = uiState.completedItems
+    val completedShows = uiState.items
         .filter(DownloadItem::isEpisode)
         .groupBy { it.parentMetaId }
         .mapNotNull { (_, episodes) ->
@@ -231,6 +238,16 @@ private fun LazyListScope.downloadsRootContent(
         item {
             SectionTitle(stringResource(Res.string.downloads_section_active))
         }
+        if (activeItems.any(DownloadItem::isEpisode)) {
+            item {
+                Text(
+                    text = stringResource(Res.string.downloads_cancel_season_hint),
+                    modifier = Modifier.padding(horizontal = 14.dp).padding(bottom = 4.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         activeDownloadEntries(activeItems).forEach { entry ->
             when (entry) {
                 is ActiveDownloadEntry.Single -> item(key = entry.item.id) {
@@ -241,6 +258,9 @@ private fun LazyListScope.downloadsRootContent(
                         onResume = { DownloadsRepository.resumeDownload(entry.item.id) },
                         onRetry = { DownloadsRepository.retryDownload(entry.item.id) },
                         onDelete = { onDeleteDownload(entry.item.id) },
+                        onLongPress = unfinishedSeasonGroup(uiState.items, entry.item)?.let { group ->
+                            { onCancelSeasonGroup(group) }
+                        },
                     )
                 }
                 is ActiveDownloadEntry.Season -> {
@@ -265,6 +285,7 @@ private fun LazyListScope.downloadsRootContent(
                                 onResume = { DownloadsRepository.resumeDownload(item.id) },
                                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                                 onDelete = { onDeleteDownload(item.id) },
+                                onLongPress = { onCancelSeasonGroup(group) },
                             )
                         }
                     }
@@ -326,11 +347,32 @@ private fun LazyListScope.downloadsRootContent(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                        val doneCount = episodes.count { it.status == DownloadStatus.Completed }
+                        val unfinishedCount = episodes.size - doneCount
                         Text(
-                            text = stringResource(Res.string.downloads_episode_count, episodes.size),
+                            text = listOfNotNull(
+                                stringResource(Res.string.downloads_episode_count, doneCount),
+                                if (unfinishedCount > 0) {
+                                    stringResource(Res.string.downloads_in_progress_count, unfinishedCount)
+                                } else {
+                                    null
+                                },
+                            ).joinToString(" · "),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    }
+                    // One season in progress: stop it right here. Several: each season has its own
+                    // Cancel season inside the show.
+                    val unfinishedSeasons = unfinishedSeasonGroupsOfShow(uiState.items, item.parentMetaId)
+                    if (unfinishedSeasons.size == 1) {
+                        val group = unfinishedSeasons.first()
+                        TextButton(onClick = { onCancelSeasonGroup(group) }) {
+                            Text(
+                                text = stringResource(Res.string.downloads_season_cancel),
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
                     }
                     Icon(
                         imageVector = Icons.Rounded.PlayArrow,
@@ -363,8 +405,10 @@ private fun LazyListScope.downloadsRootContent(
 private fun LazyListScope.downloadsShowContent(
     showId: String,
     episodes: List<DownloadItem>,
+    allItems: List<DownloadItem>,
     onOpenDownload: (DownloadItem) -> Unit,
     onDeleteDownload: (String) -> Unit,
+    onCancelSeasonGroup: (ActiveSeasonGroup) -> Unit,
 ) {
     val showEpisodes = episodes
         .filter { it.parentMetaId == showId }
@@ -398,14 +442,28 @@ private fun LazyListScope.downloadsShowContent(
     }
 
     seasons.forEach { (seasonNumber, entries) ->
-        item {
-            SectionTitle(
-                if (seasonNumber == 0) {
-                    stringResource(Res.string.episodes_specials)
-                } else {
-                    stringResource(Res.string.episodes_season, seasonNumber)
-                },
-            )
+        val unfinished = unfinishedSeasonGroup(allItems, entries.first())
+        item(key = "show-season:$seasonNumber") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(modifier = Modifier.weight(1f)) {
+                    SectionTitle(
+                        if (seasonNumber == 0) {
+                            stringResource(Res.string.episodes_specials)
+                        } else {
+                            stringResource(Res.string.episodes_season, seasonNumber)
+                        },
+                    )
+                }
+                if (unfinished != null) {
+                    SeasonGroupActions(
+                        group = unfinished,
+                        onCancel = { onCancelSeasonGroup(unfinished) },
+                    )
+                }
+            }
         }
 
         val sortedEpisodes = entries.sortedForSeriesDownloads()
@@ -421,11 +479,17 @@ private fun LazyListScope.downloadsShowContent(
                 onResume = { DownloadsRepository.resumeDownload(item.id) },
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                 onDelete = { onDeleteDownload(item.id) },
+                onLongPress = if (item.status != DownloadStatus.Completed && unfinished != null) {
+                    { onCancelSeasonGroup(unfinished) }
+                } else {
+                    null
+                },
             )
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DownloadRow(
     item: DownloadItem,
@@ -434,6 +498,7 @@ private fun DownloadRow(
     onResume: () -> Unit,
     onRetry: () -> Unit,
     onDelete: () -> Unit,
+    onLongPress: (() -> Unit)? = null,
 ) {
     val displayTitle = item.displayTitle()
     val displaySubtitle = downloadDisplaySubtitle(
@@ -445,7 +510,16 @@ private fun DownloadRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 6.dp)
-            .clickable(enabled = item.isPlayable, onClick = onOpen),
+            .then(
+                if (onLongPress != null) {
+                    Modifier.combinedClickable(
+                        onClick = { if (item.isPlayable) onOpen() },
+                        onLongClick = onLongPress,
+                    )
+                } else {
+                    Modifier.clickable(enabled = item.isPlayable, onClick = onOpen)
+                },
+            ),
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
@@ -592,6 +666,10 @@ private fun downloadDisplaySubtitle(
     ).filterNotNull().joinToString(" • ")
 }
 
+/**
+ * The season's own card at the top of Active: name, count and progress, and labelled
+ * Pause/Resume season and Cancel season buttons. Tapping the card lists its episodes.
+ */
 @Composable
 private fun ActiveSeasonGroupHeader(
     group: ActiveSeasonGroup,
@@ -602,52 +680,102 @@ private fun ActiveSeasonGroupHeader(
     onCancelAll: () -> Unit,
 ) {
     val percent = group.progressPercent
-    Column(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onToggle)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .clickable(onClick = onToggle),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
-                Text(
-                    text = group.label,
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = listOfNotNull(
-                        stringResource(Res.string.downloads_group_count, group.items.size),
-                        percent?.let { "$it%" },
-                    ).joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = group.label,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = listOfNotNull(
+                            stringResource(Res.string.downloads_group_count, group.items.size),
+                            percent?.let { "$it%" },
+                        ).joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Icon(
+                    imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (group.anyRunning) {
-                IconButton(onClick = onPauseAll) {
-                    Icon(Icons.Rounded.Pause, contentDescription = stringResource(Res.string.downloads_group_pause_all))
-                }
-            } else if (group.anyPaused) {
-                IconButton(onClick = onResumeAll) {
-                    Icon(Icons.Rounded.PlayArrow, contentDescription = stringResource(Res.string.downloads_group_resume_all))
-                }
+            if (percent != null) {
+                LinearProgressIndicator(
+                    progress = percent / 100f,
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                )
             }
-            IconButton(onClick = onCancelAll) {
-                Icon(Icons.Rounded.Delete, contentDescription = stringResource(Res.string.downloads_group_cancel_all))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (group.anyRunning) {
+                    TextButton(onClick = onPauseAll) {
+                        Icon(Icons.Rounded.Pause, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.size(4.dp))
+                        Text(stringResource(Res.string.downloads_season_pause))
+                    }
+                } else if (group.anyPaused) {
+                    TextButton(onClick = onResumeAll) {
+                        Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.size(4.dp))
+                        Text(stringResource(Res.string.downloads_season_resume))
+                    }
+                }
+                TextButton(onClick = onCancelAll) {
+                    Icon(
+                        Icons.Rounded.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(modifier = Modifier.size(4.dp))
+                    Text(
+                        text = stringResource(Res.string.downloads_season_cancel),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
             }
         }
-        if (percent != null) {
-            LinearProgressIndicator(
-                progress = percent / 100f,
-                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+    }
+}
+
+/** Pause/Resume season and Cancel season next to a season title in a show's downloads. */
+@Composable
+private fun SeasonGroupActions(
+    group: ActiveSeasonGroup,
+    onCancel: () -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (group.anyRunning) {
+            TextButton(onClick = { DownloadsRepository.pauseDownloads(group.items.map { it.id }) }) {
+                Text(stringResource(Res.string.downloads_season_pause))
+            }
+        } else if (group.anyPaused) {
+            TextButton(onClick = { DownloadsRepository.resumeDownloads(group.items.map { it.id }) }) {
+                Text(stringResource(Res.string.downloads_season_resume))
+            }
+        }
+        TextButton(onClick = onCancel) {
+            Text(
+                text = stringResource(Res.string.downloads_season_cancel),
+                color = MaterialTheme.colorScheme.error,
             )
         }
     }
