@@ -324,6 +324,22 @@ fun DetailSeriesContent(
                     meta = meta,
                     seasonLabel = downloadSeason.label(),
                     episodes = downloadEpisodes,
+                    // Same watched rule as the episode cards above.
+                    isEpisodeWatched = { episode ->
+                        val episodeVideoId = buildPlaybackVideoId(
+                            parentMetaId = meta.id,
+                            seasonNumber = episode.season,
+                            episodeNumber = episode.episode,
+                            fallbackVideoId = episode.id,
+                        )
+                        progressByVideoId[episodeVideoId]?.isEffectivelyCompleted == true ||
+                            WatchingState.isEpisodeWatched(
+                                watchedKeys = watchedKeys,
+                                metaType = meta.type,
+                                metaId = meta.id,
+                                episode = episode,
+                            )
+                    },
                     onOpenEpisode = { video ->
                         seasonDownload = null
                         onDownloadEpisode(video)

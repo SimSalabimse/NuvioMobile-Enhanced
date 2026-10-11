@@ -1734,6 +1734,9 @@
     <string name="season_download_auto_picked">Picked by your auto-play settings</string>
     <string name="season_download_sources_pending">Still loading %1$d sources…</string>
     <string name="season_download_nothing_left">Every episode is already downloaded.</string>
+    <string name="season_download_watched">Watched</string>
+    <string name="season_download_episode_source">Source for %1$s</string>
+    <string name="season_download_back">Back</string>
     <string name="details_actions_menu_label">More actions</string>
     <string name="details_check_connection">Check your Wi-Fi or mobile data connection and try again.</string>
     <string name="details_director">Director</string>
