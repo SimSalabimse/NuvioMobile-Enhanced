@@ -24,9 +24,16 @@ internal suspend fun enqueueSeasonDownloads(
 ): SeasonEnqueueResult {
     var queued = 0
     var failureMessage: String? = null
+    DownloadsRepository.ensureLoaded()
     for (row in rows) {
         val season = row.video.season
         val episode = row.video.episode
+        // Queuing replaces an existing row for the episode and deletes its file. Leave one the user has.
+        val existingKey = downloadLogicalContentKey(meta.id, season, episode)
+        val existingStatus = DownloadsRepository.uiState.value.items
+            .firstOrNull { it.logicalContentKey == existingKey }
+            ?.status
+        if (seasonExistingDownload(existingStatus) != null) continue
         val resolved = if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(row.stream)) {
             when (val result = DirectDebridPlaybackResolver.resolveToPlayableStream(row.stream, season, episode)) {
                 is DirectDebridPlayableResult.Success -> result.stream
