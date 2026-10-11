@@ -79,6 +79,7 @@ fun DownloadsScreen(
     var groupPendingCancel by remember { mutableStateOf<ActiveSeasonGroup?>(null) }
     val openDownloadsDirectoryFailedText = stringResource(Res.string.downloads_open_directory_failed)
     var showSettings by rememberSaveable { mutableStateOf(false) }
+    var showStorage by rememberSaveable { mutableStateOf(false) }
 
     // Finished and unfinished episodes: a show with only waiting or paused episodes still has a
     // Shows entry, so its season can be stopped from there.
@@ -102,6 +103,13 @@ fun DownloadsScreen(
         return
     }
 
+    if (showStorage) {
+        PlatformBackHandler(enabled = true) { showStorage = false }
+        DownloadStorageScreen(items = uiState.items, onBack = { showStorage = false })
+        return
+    }
+
+    val storageSummary = rememberDownloadStorageSummary(uiState.items)
     val tokens = MaterialTheme.nuvio
 
     NuvioScreen {
@@ -149,6 +157,11 @@ fun DownloadsScreen(
         }
 
         if (selectedShowId == null) {
+            storageSummary?.let { summary ->
+                item(key = "storage-card") {
+                    DownloadStorageCard(summary = summary, onClick = { showStorage = true })
+                }
+            }
             downloadsRootContent(
                 uiState = uiState,
                 onOpenDownload = onOpenDownload,
@@ -816,7 +829,9 @@ private fun statusText(item: DownloadItem): String {
     }
 }
 
-private fun formatBytes(bytes: Long): String {
+private fun formatBytes(bytes: Long): String = formatDownloadBytes(bytes)
+
+internal fun formatDownloadBytes(bytes: Long): String {
     if (bytes <= 0L) return "0 ${localizedByteUnit("B")}"
     val kib = 1024.0
     val mib = kib * 1024.0

@@ -516,6 +516,10 @@ object DownloadsRepository {
             onProgress = onProgress@{ downloadedBytes, totalBytes ->
                 val current = _uiState.value.items.firstOrNull { it.id == item.id } ?: return@onProgress
                 if (current.status != DownloadStatus.Downloading) return@onProgress
+                if (outOfSpaceWhileDownloading(current)) {
+                    failForSpace(current.id)
+                    return@onProgress
+                }
                 val safeBytes = downloadedBytes.coerceAtLeast(0L)
                 val resolvedTotal = totalBytes?.takeIf { it > 0L } ?: current.totalBytes
                 val decision = decideEarlyPlay(current.id, current.fileName, safeBytes)
@@ -769,8 +773,75 @@ object DownloadsRepository {
         accepted.forEach { id ->
             if (id in activeHandles) return@forEach
             val item = _uiState.value.items.firstOrNull { it.id == id } ?: return@forEach
-            if (item.status == DownloadStatus.Downloading) startDownload(item)
+            if (item.status != DownloadStatus.Downloading) return@forEach
+            if (lacksSpaceFor(item.remainingBytes(), DownloadDiskInfo.volumeSpace())) {
+                failForSpace(id)
+            } else {
+                startDownload(item)
+            }
         }
+    }
+
+    private fun DownloadItem.remainingBytes(): Long? =
+        totalBytes?.takeIf { it > 0L }?.let { (it - downloadedBytes).coerceAtLeast(0L) }
+
+    private val lastSpaceCheckAt = mutableMapOf<String, Long>()
+
+    /** Checked every so often while a file downloads, so it stops before the disk is full. */
+    private fun outOfSpaceWhileDownloading(item: DownloadItem): Boolean {
+        val now = DownloadsClock.nowEpochMs()
+        val last = lastSpaceCheckAt[item.id] ?: 0L
+        if (now - last < SPACE_CHECK_INTERVAL_MS) return false
+        lastSpaceCheckAt[item.id] = now
+        return lacksSpaceFor(null, DownloadDiskInfo.volumeSpace())
+    }
+
+    /**
+     * Not enough free space: the download stops with what it has (Failed, "Not enough space")
+     * instead of filling the disk. Its slot goes to the next one, which then hits the same check,
+     * so the waiting episodes stop too. Retry continues from the bytes on disk.
+     */
+    private fun failForSpace(downloadId: String) {
+        activeHandles.remove(downloadId)?.cancel()
+        lastSpaceCheckAt.remove(downloadId)
+        val message = runBlocking { getString(Res.string.downloads_not_enough_space) }
+        mutateItem(downloadId) { current ->
+            current.copy(
+                status = DownloadStatus.Failed,
+                errorMessage = message,
+                updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+            )
+        }
+        val failed = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
+        DownloadsPlatformDownloader.updatePartialTarget(
+            downloadId = downloadId,
+            fileName = failed.fileName,
+            totalBytes = failed.totalBytes,
+            downloadRunning = false,
+        )
+    }
+
+    /** Storage view: what is on disk, per title and season, and leftovers no download owns. */
+    internal fun storageSummary(): DownloadStorageSummary {
+        ensureLoaded()
+        val items = _uiState.value.items
+        val mine = items.map { it.fileName }.toSet()
+        val others = storedFileNames(DownloadDiskInfo.allProfilePayloads()) - mine
+        return summarizeDownloadStorage(
+            items = items,
+            files = DownloadDiskInfo.listDownloadFiles(),
+            otherProfileFileNames = others,
+            volume = DownloadDiskInfo.volumeSpace(),
+        )
+    }
+
+    /** Deletes leftover files; re-checks each against the current rows first. */
+    internal fun clearOrphans(orphans: List<DiskFile>) {
+        val owned = _uiState.value.items.map { it.fileName } +
+            storedFileNames(DownloadDiskInfo.allProfilePayloads())
+        orphans
+            .filter { file -> owned.none { ownsDiskFile(it, file.name) } }
+            .forEach { DownloadDiskInfo.deleteDownloadFile(it.name) }
     }
 
     private fun nextDownloadId(nowEpochMs: Long): String {
@@ -926,6 +997,8 @@ private fun buildLogicalKey(
 } else {
     "${parentMetaId.trim()}|movie"
 }
+
+private const val SPACE_CHECK_INTERVAL_MS = 10_000L
 
 private fun buildFileName(
     title: String,

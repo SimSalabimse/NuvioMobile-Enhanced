@@ -304,6 +304,9 @@ internal fun SeasonDownloadSheet(
     val selectedBytes = rows.filter { it.selectedForTotal() }.map { it.knownBytes() }
     val summary = summarizeSeasonSizes(selectedBytes)
     val totalText = seasonSelectionTotalText(summary, ::formatSeasonBytes)
+    val volume = remember { DownloadDiskInfo.volumeSpace() }
+    val usableFree = usableFreeBytes(volume)
+    val lowSpace = usableFree != null && summary.knownBytes > 0L && summary.knownBytes > usableFree
     val stillMatching = rows.any { it.matching && it.userChecked }
     val canQueue = !queuing && !stillMatching &&
         rows.any { it.selectedForTotal() && it.match is SeasonStreamMatch.Matched }
@@ -435,6 +438,19 @@ internal fun SeasonDownloadSheet(
                     },
                 )
             }
+        }
+        if (lowSpace && volume != null) {
+            Text(
+                text = stringResource(
+                    Res.string.downloads_season_sheet_low_space,
+                    formatSeasonBytes(summary.knownBytes),
+                    formatSeasonBytes(volume.availableBytes),
+                    formatSeasonBytes(DOWNLOAD_FREE_SPACE_MARGIN_BYTES),
+                ),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
         Row(
             modifier = Modifier
