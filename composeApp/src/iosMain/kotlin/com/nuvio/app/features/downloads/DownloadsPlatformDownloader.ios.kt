@@ -30,6 +30,7 @@ import platform.Foundation.NSURLSessionTaskStateCanceling
 import platform.Foundation.NSURLSessionTaskStateCompleted
 import platform.Foundation.NSURLSessionTaskStateSuspended
 import platform.Foundation.dataWithContentsOfFile
+import platform.Foundation.dateWithTimeIntervalSinceNow
 import platform.Foundation.writeToFile
 import platform.Foundation.NSOperationQueue
 import platform.Foundation.NSURL
@@ -605,6 +606,7 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         request: DownloadPlatformRequest,
         rangeStart: Long?,
         callbacks: DownloadCallbacks?,
+        notBeforeSeconds: Long = 0L,
     ): Boolean {
         val existing = activeDownloads[downloadId]
         if (existing != null) {
@@ -613,7 +615,7 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         }
 
         pendingPauses[downloadId]?.let { pending ->
-            pending.deferredStart = { startOrResume(downloadId, request, rangeStart, callbacks) }
+            pending.deferredStart = { startOrResume(downloadId, request, rangeStart, callbacks, notBeforeSeconds) }
             return true
         }
         if (IosTransferControl.isSuppressed(downloadId)) return false
@@ -621,7 +623,7 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
 
         var startedTask = false
         try {
-            startedTask = startTask(downloadId, request, rangeStart, callbacks)
+            startedTask = startTask(downloadId, request, rangeStart, callbacks, notBeforeSeconds)
         } finally {
             if (!startedTask) {
                 activeDownloads.remove(downloadId)
@@ -637,12 +639,14 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         request: DownloadPlatformRequest,
         rangeStart: Long?,
         callbacks: DownloadCallbacks?,
+        notBeforeSeconds: Long = 0L,
     ): Boolean {
         if (rangeStart == null) {
             val resumeData = takeResumeData(request.destinationFileName)
             if (resumeData != null) {
                 val task = ensureSessionCreated().downloadTaskWithResumeData(resumeData)
                 task.taskDescription = downloadId
+                applyRetryDelay(task, notBeforeSeconds)
                 activeDownloads[downloadId] = ActiveDownload(
                     request = request,
                     taskIdentifier = task.taskIdentifier,
@@ -671,6 +675,7 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
             val nativeRequest = buildRequest(request, rangeStart = resumeFromBytes.takeIf { it > 0L })
             val task = ensureSessionCreated().downloadTaskWithRequest(nativeRequest)
             task.taskDescription = downloadId
+            applyRetryDelay(task, notBeforeSeconds)
 
             activeDownloads[downloadId] = ActiveDownload(
                 request = request,
@@ -689,6 +694,44 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         } finally {
             if (started) base.scopedUrl?.stopAccessingSecurityScopedResource()
         }
+    }
+
+    /** A retry waits out its backoff inside the session, which also works while the app is suspended. */
+    private fun applyRetryDelay(task: NSURLSessionTask, notBeforeSeconds: Long) {
+        if (notBeforeSeconds <= 0L) return
+        task.earliestBeginDate = NSDate.dateWithTimeIntervalSinceNow(notBeforeSeconds.toDouble())
+    }
+
+    /**
+     * A dropped connection, timeout or lost network. Start a new task after the backoff from
+     * the system's resume data, or from `.part` with a Range. Returns false when the retries
+     * are used up or the row no longer wants to download, so the caller marks it Failed.
+     */
+    private fun retryAfterTransientError(
+        downloadId: String,
+        active: ActiveDownload,
+        task: NSURLSessionTask,
+        error: NSError,
+    ): Boolean {
+        if (!IosDownloadRetries.stillWanted(downloadId)) return false
+        val fileName = active.request.destinationFileName
+        val partLength = iosPartFileLength(fileName)
+        val delay = IosDownloadRetries.backgroundRetryDelay(
+            downloadId,
+            partLength + task.countOfBytesReceived.coerceAtLeast(0L),
+        ) ?: return false
+        val resumeData = error.userInfo[NSURLSessionDownloadTaskResumeData] as? NSData
+        if (activeDownloads[downloadId] === active) activeDownloads.remove(downloadId)
+        tasksByDownloadId.remove(downloadId)
+        IosWriterOwnership.release(downloadId, DownloadWriterKind.Background)
+        if (resumeData != null) writeResumeData(fileName, resumeData)
+        return startOrResume(
+            downloadId = downloadId,
+            request = active.request,
+            rangeStart = if (resumeData != null) null else partLength,
+            callbacks = active.callbacks,
+            notBeforeSeconds = delay,
+        )
     }
 
     fun cancelDownload(downloadId: String) {
@@ -849,6 +892,7 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
             if (scopedStarted) base.scopedUrl?.stopAccessingSecurityScopedResource()
         }
         if (readyToFinalize) {
+            IosDownloadRetries.forget(downloadId)
             finalizeIosPartialFile(downloadId, request.destinationFileName, finalizeCallbacks)
         }
     }
@@ -875,6 +919,13 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         if (didCompleteWithError == null) return
         val isCancelled = didCompleteWithError.domain == NSURLErrorDomain &&
             didCompleteWithError.code == NSURLErrorCancelled
+        if (
+            !isCancelled &&
+            DownloadRetryPolicy.isTransient(didCompleteWithError.domain, didCompleteWithError.code) &&
+            retryAfterTransientError(downloadId, active, task, didCompleteWithError)
+        ) {
+            return
+        }
         if (active.resumedFromData && !isCancelled) {
             val partLength = iosPartFileLength(active.request.destinationFileName)
             val action = chooseIosResume(
@@ -908,6 +959,7 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         (didCompleteWithError.userInfo[NSURLSessionDownloadTaskResumeData] as? NSData)?.let { data ->
             writeResumeData(active.request.destinationFileName, data)
         }
+        IosDownloadRetries.forget(downloadId)
         finishWithFailure(downloadId, didCompleteWithError.localizedDescription)
     }
 

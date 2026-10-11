@@ -41,6 +41,7 @@ import platform.UIKit.UIApplicationState
 import platform.UIKit.UIBackgroundTaskInvalid
 import platform.darwin.DISPATCH_TIME_NOW
 import platform.darwin.dispatch_after
+import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_main_queue
 import platform.darwin.dispatch_time
 import platform.darwin.NSObject
@@ -273,6 +274,83 @@ internal object IosTransferControl {
         lock.unlock()
         return value
     }
+}
+
+/**
+ * Retries after a dropped connection, timeout or lost network (see [DownloadRetryPolicy]),
+ * resuming from the bytes already on disk instead of marking the download Failed.
+ */
+internal object IosDownloadRetries {
+    private val lock = NSLock()
+    private val tracker = DownloadRetryTracker()
+
+    private fun nextDelay(downloadId: String, bytesOnDisk: Long): Long? {
+        lock.lock()
+        val delay = tracker.nextDelaySeconds(downloadId, bytesOnDisk)
+        lock.unlock()
+        return delay
+    }
+
+    fun forget(downloadId: String) {
+        lock.lock()
+        tracker.forget(downloadId)
+        lock.unlock()
+    }
+
+    /** Only a row that is still meant to be downloading comes back. */
+    fun stillWanted(downloadId: String): Boolean =
+        !IosTransferControl.isSuppressed(downloadId) &&
+            DownloadsRepository.uiState.value.items.any {
+                it.id == downloadId && it.status == DownloadStatus.Downloading
+            }
+
+    /**
+     * The `.part` writer lost its connection. In the app: try the writer again after the backoff,
+     * with a Range from the bytes on disk. Leaving or out of the app: hand the file to the
+     * background session now, which waits for the network itself. Returns false when the
+     * retries are used up and the caller should report the failure.
+     */
+    fun scheduleForegroundRetry(request: DownloadPlatformRequest, callbacks: DownloadCallbacks): Boolean {
+        val downloadId = request.item.id
+        val onDisk = iosPartialBytesOnDisk(request.destinationFileName)
+        val delay = nextDelay(downloadId, onDisk) ?: return false
+        if (!IosForegroundDownloads.shouldUseForeground()) {
+            dispatch_async(dispatch_get_main_queue()) {
+                if (!stillWanted(downloadId)) return@dispatch_async
+                IosBackgroundDownloadCoordinator.startOrResume(
+                    downloadId = downloadId,
+                    request = request,
+                    rangeStart = iosPartialBytesOnDisk(request.destinationFileName),
+                    callbacks = callbacks,
+                )
+            }
+            return true
+        }
+        dispatch_after(
+            dispatch_time(DISPATCH_TIME_NOW, delay * 1_000_000_000L),
+            dispatch_get_main_queue(),
+        ) {
+            if (!stillWanted(downloadId)) return@dispatch_after
+            if (IosForegroundDownloads.shouldUseForeground() && IosForegroundDownloads.start(request, callbacks)) {
+                return@dispatch_after
+            }
+            IosBackgroundDownloadCoordinator.startOrResume(
+                downloadId = downloadId,
+                request = request,
+                rangeStart = iosPartialBytesOnDisk(request.destinationFileName),
+                callbacks = callbacks,
+            )
+        }
+        return true
+    }
+
+    /**
+     * The background task lost its connection. A new task resumes from the system's resume data
+     * when there is some, otherwise with a Range from `.part`. The backoff is the task's
+     * earliest begin date, which the session honours while the app is suspended.
+     * Returns the delay, or null when the retries are used up.
+     */
+    fun backgroundRetryDelay(downloadId: String, bytesOnDisk: Long): Long? = nextDelay(downloadId, bytesOnDisk)
 }
 
 internal object IosDeferredPartialRename {
@@ -710,9 +788,20 @@ private class IosForegroundSessionDelegate : NSObject(), NSURLSessionDataDelegat
         lock.unlock()
         if ((didCompleteWithError != null || failMessage != null) && !completeDespiteError) {
             IosWriterOwnership.release(downloadId, DownloadWriterKind.Foreground)
+            val error = didCompleteWithError
+            if (
+                failMessage == null &&
+                error != null &&
+                DownloadRetryPolicy.isTransient(error.domain, error.code) &&
+                IosDownloadRetries.scheduleForegroundRetry(request, callbacks)
+            ) {
+                return
+            }
+            IosDownloadRetries.forget(downloadId)
             callbacks.onFailure(failMessage ?: didCompleteWithError?.localizedDescription ?: httpFailure(0))
             return
         }
+        IosDownloadRetries.forget(downloadId)
         finalizeIosPartialFile(downloadId, request.destinationFileName, callbacks)
     }
 
