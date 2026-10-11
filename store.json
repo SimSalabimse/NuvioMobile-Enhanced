@@ -20,6 +20,16 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "0.5.8",
+          "buildVersion": "144",
+          "date": "2026-10-11T09:56:47Z",
+          "localizedDescription": "Unsigned sideload IPA 0.5.8 (144), enhanced 234b57b1. Sign with SideStore, AltStore, or TrollStore. No Apple certificate is embedded.\n\nNew since 0.5.6 (140):\n- Downloads: play an in-progress download from the partial file (iOS), resume an iOS download after the phone locks, at most two active downloads, season download sheet with episode sizes, download percent on movie and episode rows, delete a finished download after in-app playback, 416 for bytes not on disk yet.\n- Chromecast support from upstream, with the intro flag kept.\n- Player: seek-bar buffer end fix on iOS, stall cause details, chapters panel position fix, player chrome sizing and safe-area fixes, developer overlay restored.\n- Running commit shown in Settings and the player.\n- Upstream Nuvio and Nuvio Enhanced merges.\n",
+          "downloadURL": "https://github.com/SimSalabimse/NuvioMobile-Enhanced/releases/download/sideload-0.5.8-234b57b1/nuvio-0.5.8-full-release.ipa",
+          "size": 71081383,
+          "sha256": "ddfbc2ca5204f651b9305472ce10307586ec1719696f0adee6b6a66c14b3c88e",
+          "minOSVersion": "16.1"
+        },
+        {
           "version": "0.5.6",
           "buildVersion": "140",
           "date": "2026-10-01T10:27:37Z",
@@ -62,7 +72,9 @@
       ],
       "appPermissions": {
         "entitlements": [],
-        "privacy": {}
+        "privacy": {
+          "NSLocalNetworkUsageDescription": "Nuvio connects to media servers on your local network."
+        }
       }
     }
   ],
