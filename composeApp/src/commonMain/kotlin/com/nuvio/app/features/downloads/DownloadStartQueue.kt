@@ -99,6 +99,19 @@ internal class DownloadStartQueue(
         return promote(thermalBlocksNextFile)
     }
 
+    /**
+     * Put [idsInOrder] at the front of the line in exactly that order, ahead of everything
+     * already waiting, then fill the free slots once. Used by Resume season.
+     */
+    fun requestAllAtFront(idsInOrder: List<String>, thermalBlocksNextFile: Boolean): List<String> {
+        idsInOrder.forEach { id ->
+            active.remove(id)
+            waiting.remove(id)
+        }
+        idsInOrder.asReversed().forEach { id -> waiting.addFirst(id) }
+        return promote(thermalBlocksNextFile)
+    }
+
     fun discard(id: String) {
         active.remove(id)
         waiting.remove(id)

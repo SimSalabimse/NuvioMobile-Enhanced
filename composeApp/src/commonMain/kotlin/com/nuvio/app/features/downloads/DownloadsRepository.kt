@@ -369,21 +369,74 @@ object DownloadsRepository {
         downloadIds.forEach(::cancelDownload)
     }
 
+    /**
+     * Pause season. Waiting episodes are taken out of the line first; pausing a running one used
+     * to free its slot, which started the next waiting episode, which was then paused in turn,
+     * cascading through the season and leaving every episode Paused in no useful order.
+     */
     fun pauseDownloads(downloadIds: List<String>) {
+        ensureLoaded()
+        val ids = downloadIds.toSet()
+        val now = DownloadsClock.nowEpochMs()
+        val waitingIds = _uiState.value.items
+            .filter { it.id in ids && it.status == DownloadStatus.Queued }
+            .map { it.id }
+            .toSet()
+        if (waitingIds.isNotEmpty()) {
+            waitingIds.forEach(startQueue::discard)
+            publish(
+                _uiState.value.items.map { item ->
+                    if (item.id in waitingIds) item.copy(status = DownloadStatus.Paused, updatedAtEpochMs = now) else item
+                },
+            )
+            persistStatus()
+        }
         downloadIds.forEach(::pauseDownload)
     }
 
-    /** Resumes in list order: each resume goes to the front of the line, so walk it backwards. */
+    /**
+     * Resume season. Episodes that already have bytes on disk (were running, or paused part way)
+     * go first, lowest episode first; then the ones that never started, lowest first. Two run.
+     * It used to resume them one by one walking the list backwards; every resume with a free slot
+     * started immediately, so the last (newest) episodes took the two slots.
+     */
     fun resumeDownloads(downloadIds: List<String>) {
-        downloadIds.asReversed().forEach { id ->
-            val status = _uiState.value.items.firstOrNull { it.id == id }?.status
-            when (status) {
-                DownloadStatus.Paused -> resumeDownload(id)
-                DownloadStatus.Failed -> retryDownload(id)
-                else -> Unit
-            }
+        ensureLoaded()
+        val ids = downloadIds.toSet()
+        val resumable = _uiState.value.items.filter {
+            it.id in ids && (it.status == DownloadStatus.Paused || it.status == DownloadStatus.Failed)
         }
+        if (resumable.isEmpty()) return
+        val ordered = resumable.sortedWith(
+            compareBy<DownloadItem> { if (it.hasBytesOnDisk()) 0 else 1 }
+                .thenBy { it.seasonNumber ?: Int.MAX_VALUE }
+                .thenBy { it.episodeNumber ?: Int.MAX_VALUE }
+                .thenBy { it.createdAtEpochMs },
+        )
+        val orderedIds = ordered.map { it.id }
+        val now = DownloadsClock.nowEpochMs()
+        val idSet = orderedIds.toSet()
+        publish(
+            _uiState.value.items.map { item ->
+                if (item.id in idSet) {
+                    item.copy(
+                        status = DownloadStatus.Queued,
+                        errorMessage = null,
+                        localFileUri = null,
+                        updatedAtEpochMs = now,
+                    )
+                } else {
+                    item
+                }
+            },
+        )
+        val toStart = startQueue.requestAllAtFront(orderedIds, DownloadThermalGate.blocksNextFile())
+        persistStatus()
+        applyStarts(toStart)
     }
+
+    private fun DownloadItem.hasBytesOnDisk(): Boolean =
+        downloadedBytes > 0L || (DownloadsPlatformDownloader.playableBytesOnDisk(fileName) ?: 0L) > 0L
 
     fun cancelDownload(downloadId: String) {
         ensureLoaded()

@@ -183,4 +183,15 @@ class DownloadPersistGateTest {
         assertEquals(listOf("e3", "e4"), started)
         assertEquals(listOf("e5", "e6"), queue.waitingIds())
     }
+
+    @Test
+    fun `resume season puts its episodes first in the given order and starts two`() {
+        val queue = DownloadStartQueue(maxActive = 0)
+        queue.request("other", thermalBlocksNextFile = false)
+        queue.maxActive = MAX_ACTIVE_DOWNLOADS
+
+        val started = queue.requestAllAtFront(listOf("e16", "e17", "e18", "e19"), thermalBlocksNextFile = false)
+        assertEquals(listOf("e16", "e17"), started)
+        assertEquals(listOf("e18", "e19", "other"), queue.waitingIds())
+    }
 }
