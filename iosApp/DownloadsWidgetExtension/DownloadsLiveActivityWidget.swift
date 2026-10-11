@@ -26,46 +26,67 @@ struct DownloadsLiveActivityWidget: Widget {
             DownloadActivityLockScreenView(context: context)
                 .widgetURL(downloadsUrl)
         } dynamicIsland: { context in
+            // Expanded island: the leading and trailing regions sit inside the pill's top curve,
+            // so they get a few points of inset; the title and episode line go in the center
+            // region; the bar and the size line go in the bottom region with 12 pt on each side so
+            // neither reaches the bottom corners. "in background" becomes a small moon icon.
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     AccentGlyphView()
-                        .padding(.leading, 4)
+                        .padding(.leading, 6)
+                        .padding(.top, 2)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     Text(activityProgressLabel(context.state.progressPercent))
-                        .font(.title3.monospacedDigit().weight(.semibold))
+                        .font(.callout.monospacedDigit().weight(.semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
-                        .padding(.trailing, 4)
+                        .padding(.trailing, 6)
+                        .padding(.top, 2)
                 }
                 DynamicIslandExpandedRegion(.center) {
-                    Text(context.attributes.title)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                        .truncationMode(.tail)
+                    VStack(spacing: 1) {
+                        Text(context.attributes.title)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .truncationMode(.tail)
+                        Text(context.state.detail ?? context.attributes.subtitle)
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.78))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                            .truncationMode(.tail)
+                    }
+                    .frame(maxWidth: .infinity)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(context.state.detail ?? context.attributes.subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.82))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                            .truncationMode(.tail)
+                    let size = activitySizeParts(context.state.transferredText)
+                    VStack(alignment: .leading, spacing: 4) {
                         ProgressView(value: activityNormalizedProgress(context.state.progressPercent))
                             .progressViewStyle(.linear)
                             .tint(appBlue)
-                        Text(context.state.transferredText)
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.white.opacity(0.86))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                            .truncationMode(.tail)
+                        HStack(spacing: 4) {
+                            Text(size.text)
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(.white.opacity(0.8))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
+                                .truncationMode(.tail)
+                            if size.inBackground {
+                                Image(systemName: "moon.fill")
+                                    .font(.system(size: 9, weight: .semibold))
+                                    .foregroundStyle(.white.opacity(0.7))
+                                    .accessibilityLabel("in background")
+                            }
+                            Spacer(minLength: 0)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 2)
                 }
             } compactLeading: {
                 AccentGlyphView()
@@ -90,6 +111,16 @@ private func activityProgressLabel(_ progressPercent: Int) -> String {
     return "\(max(0, min(100, progressPercent)))%"
 }
 
+/// Splits "246,7 MB / 5,65 GB · in background" into the size and a flag, so the expanded island
+/// can show the note as an icon instead of spending width on it.
+private func activitySizeParts(_ transferredText: String) -> (text: String, inBackground: Bool) {
+    let suffix = " · in background"
+    if transferredText.hasSuffix(suffix) {
+        return (String(transferredText.dropLast(suffix.count)), true)
+    }
+    return (transferredText, false)
+}
+
 private func activityNormalizedProgress(_ progressPercent: Int) -> Double {
     guard progressPercent >= 0 else { return 0 }
     return min(max(Double(progressPercent) / 100.0, 0), 1)
@@ -103,6 +134,7 @@ private struct DownloadActivityLockScreenView: View {
     let context: ActivityViewContext<DownloadsLiveActivityAttributes>
 
     var body: some View {
+        let size = activitySizeParts(context.state.transferredText)
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 10) {
                 AccentGlyphView()
@@ -132,16 +164,25 @@ private struct DownloadActivityLockScreenView: View {
                 .progressViewStyle(.linear)
                 .tint(.white)
 
-            Text(context.state.transferredText)
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.white.opacity(0.86))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 4) {
+                Text(size.text)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.white.opacity(0.86))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .truncationMode(.tail)
+                if size.inBackground {
+                    Image(systemName: "moon.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.75))
+                        .accessibilityLabel("in background")
+                }
+                Spacer(minLength: 0)
+            }
         }
+        // Same idea as the expanded island: a clear inset from the rounded edges on all sides.
         .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(
             LinearGradient(
