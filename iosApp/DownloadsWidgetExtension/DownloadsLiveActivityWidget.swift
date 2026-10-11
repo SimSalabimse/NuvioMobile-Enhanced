@@ -29,67 +29,84 @@ struct DownloadsLiveActivityWidget: Widget {
             DownloadActivityLockScreenView(context: context)
                 .widgetURL(downloadsUrl)
         } dynamicIsland: { context in
-            // Expanded island: the leading and trailing regions sit inside the pill's top curve,
-            // so they get a few points of inset; the title and episode line go in the center
-            // region; the bar and the size line go in the bottom region with 12 pt on each side so
-            // neither reaches the bottom corners. "in background" becomes a small moon icon.
+            // Expanded island, laid out like Apple's own activities:
+            // - leading: a 26 pt arrow.down.circle.fill, a little in from the top-left curve;
+            // - trailing: the percent in a fixed-width slot, or a small ring that fills with the
+            //   estimate. Text(timerInterval:) reserves width for its longest string, so in the
+            //   narrow trailing slot it truncated ("5:…"); the countdown moved to the bottom row;
+            // - center: title and episode line;
+            // - bottom: bar, then size + moon on the left and the countdown on the right in a
+            //   fixed 56 pt slot that fits "0:00:00", 16 pt in from the sides and clear of the
+            //   bottom corners.
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    AccentGlyphView()
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.system(size: 26, weight: .regular))
+                        .foregroundStyle(.white, appBlue)
+                        .frame(width: 28, height: 28)
                         .padding(.leading, 6)
-                        .padding(.top, 2)
+                        .padding(.top, 4)
+                        .accessibilityLabel("Downloading")
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    ActivityTrailingLabel(context: context, font: .callout.monospacedDigit().weight(.semibold), maxWidth: 64)
+                    ActivityProgressBadge(context: context, tint: appBlue, ringSize: 24, font: .callout.monospacedDigit().weight(.semibold), textWidth: 52)
                         .foregroundStyle(.white)
                         .padding(.trailing, 6)
-                        .padding(.top, 2)
+                        .padding(.top, 4)
                 }
                 DynamicIslandExpandedRegion(.center) {
                     VStack(spacing: 1) {
                         Text(context.attributes.title)
-                            .font(.caption.weight(.semibold))
+                            .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.white)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                             .truncationMode(.tail)
                         Text(context.state.detail ?? context.attributes.subtitle)
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(0.78))
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.7))
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                             .truncationMode(.tail)
                     }
                     .frame(maxWidth: .infinity)
+                    .padding(.top, 2)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     let size = activitySizeParts(context.state.transferredText)
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 6) {
                         ActivityProgressBar(context: context, tint: appBlue)
-                        HStack(spacing: 4) {
+                        HStack(alignment: .firstTextBaseline, spacing: 4) {
                             Text(size.text)
                                 .font(.caption2.monospacedDigit())
-                                .foregroundStyle(.white.opacity(0.8))
+                                .foregroundStyle(.white.opacity(0.7))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.75)
                                 .truncationMode(.tail)
                             if size.inBackground {
                                 Image(systemName: "moon.fill")
                                     .font(.system(size: 9, weight: .semibold))
-                                    .foregroundStyle(.white.opacity(0.7))
+                                    .foregroundStyle(.white.opacity(0.6))
                                     .accessibilityLabel("in background")
                             }
-                            Spacer(minLength: 0)
+                            Spacer(minLength: 6)
+                            ActivityCountdown(context: context, font: .caption2.monospacedDigit().weight(.semibold), width: 56)
+                                .foregroundStyle(.white.opacity(0.85))
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 2)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
+                    .padding(.bottom, 8)
                 }
             } compactLeading: {
-                AccentGlyphView()
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 18, weight: .regular))
+                    .foregroundStyle(.white, appBlue)
+                    .accessibilityLabel("Downloading")
             } compactTrailing: {
-                ActivityTrailingLabel(context: context, font: .caption2.monospacedDigit(), maxWidth: 44)
+                // About 40 pt: a ring with the estimate, otherwise "100%" fits at caption2.
+                ActivityProgressBadge(context: context, tint: appBlue, ringSize: 18, font: .caption2.monospacedDigit().weight(.semibold), textWidth: 34)
                     .foregroundStyle(appBlue)
             } minimal: {
                 ActivityMinimalView(context: context, tint: appBlue)
@@ -131,7 +148,9 @@ private struct DownloadActivityLockScreenView: View {
         let size = activitySizeParts(context.state.transferredText)
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 10) {
-                AccentGlyphView()
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 28, weight: .regular))
+                    .foregroundStyle(.white, Color(red: 30.0 / 255.0, green: 136.0 / 255.0, blue: 229.0 / 255.0))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(context.attributes.title)
                         .font(.headline.weight(.semibold))
@@ -147,7 +166,8 @@ private struct DownloadActivityLockScreenView: View {
                 }
                 .layoutPriority(1)
                 Spacer(minLength: 6)
-                ActivityTrailingLabel(context: context, font: .title3.monospacedDigit().weight(.semibold), maxWidth: 88)
+                // Fixed width that fits "0:00:00" at headline size, so the countdown never truncates.
+                ActivityTrailingLabel(context: context, font: .headline.monospacedDigit().weight(.semibold), width: 84)
                     .foregroundStyle(.white)
             }
 
@@ -237,30 +257,81 @@ private struct ActivityProgressBar: View {
     }
 }
 
-/// Top right: a countdown to the estimated finish when there is an estimate, "almost done" once
-/// it has passed, otherwise the percent.
+/// Lock Screen top right: the countdown to the estimated finish, "almost done" once it has
+/// passed, otherwise the percent. A fixed width, because Text(timerInterval:) sizes itself for
+/// its longest string and truncates in anything narrower.
 @available(iOSApplicationExtension 16.1, *)
 private struct ActivityTrailingLabel: View {
     let context: ActivityViewContext<DownloadsLiveActivityAttributes>
     let font: Font
-    let maxWidth: CGFloat
+    let width: CGFloat
 
     var body: some View {
         Group {
             if let range = activityEstimate(context) {
                 Text(timerInterval: range, countsDown: true)
-                    .multilineTextAlignment(.trailing)
             } else if activityAlmostDone(context) {
                 Text("almost done")
-                    .multilineTextAlignment(.trailing)
             } else {
                 Text(activityProgressLabel(context.state.progressPercent))
             }
         }
         .font(font)
+        .multilineTextAlignment(.trailing)
         .lineLimit(1)
         .minimumScaleFactor(0.6)
-        .frame(maxWidth: maxWidth, alignment: .trailing)
+        .frame(width: width, alignment: .trailing)
+    }
+}
+
+/// Island countdown for the bottom row; empty when there is no estimate (the percent is shown
+/// top right instead).
+@available(iOSApplicationExtension 16.1, *)
+private struct ActivityCountdown: View {
+    let context: ActivityViewContext<DownloadsLiveActivityAttributes>
+    let font: Font
+    let width: CGFloat
+
+    var body: some View {
+        if let range = activityEstimate(context) {
+            Text(timerInterval: range, countsDown: true)
+                .font(font)
+                .multilineTextAlignment(.trailing)
+                .lineLimit(1)
+                .frame(width: width, alignment: .trailing)
+        } else if activityAlmostDone(context) {
+            Text("almost done")
+                .font(font)
+                .lineLimit(1)
+                .fixedSize()
+        }
+    }
+}
+
+/// Island top right and compact trailing: a ring that fills with the estimate (no text to
+/// truncate), otherwise the percent in a fixed-width slot.
+@available(iOSApplicationExtension 16.1, *)
+private struct ActivityProgressBadge: View {
+    let context: ActivityViewContext<DownloadsLiveActivityAttributes>
+    let tint: Color
+    let ringSize: CGFloat
+    let font: Font
+    let textWidth: CGFloat
+
+    var body: some View {
+        if let range = activityEstimate(context) {
+            ProgressView(timerInterval: range, countsDown: false, label: { EmptyView() }, currentValueLabel: { EmptyView() })
+                .progressViewStyle(.circular)
+                .tint(tint)
+                .frame(width: ringSize, height: ringSize)
+        } else {
+            Text(activityAlmostDone(context) ? "97%" : activityProgressLabel(context.state.progressPercent))
+                .font(font)
+                .multilineTextAlignment(.trailing)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(width: textWidth, alignment: .trailing)
+        }
     }
 }
 
@@ -276,20 +347,9 @@ private struct ActivityMinimalView: View {
                 .progressViewStyle(.circular)
                 .tint(tint)
         } else {
-            AccentGlyphView()
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.system(size: 18, weight: .regular))
+                .foregroundStyle(.white, tint)
         }
-    }
-}
-
-private struct AccentGlyphView: View {
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color(red: 30.0 / 255.0, green: 136.0 / 255.0, blue: 229.0 / 255.0).opacity(0.88))
-            Image(systemName: "arrow.down")
-                .font(.caption2.bold())
-                .foregroundStyle(.white)
-        }
-        .frame(width: 22, height: 22)
     }
 }
