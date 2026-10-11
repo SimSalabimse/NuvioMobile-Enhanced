@@ -125,6 +125,17 @@ object DownloadsRepository {
         return DownloadsPlatformDownloader.partialPlaybackUrl(item.id)
     }
 
+    /** Episode time the download of [downloadId] has reached, for the player's buffer bar. */
+    fun partialDownloadReachMs(downloadId: String, durationMs: Long): Long? {
+        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return null
+        return estimatePartialDownloadReachMs(
+            downloadedBytes = item.downloadedBytes,
+            totalBytes = item.totalBytes,
+            durationMs = durationMs,
+            complete = item.status == DownloadStatus.Completed,
+        )
+    }
+
     fun onPartialPlaybackClosed(downloadId: String) {
         ensureLoaded()
         val renamedUri = DownloadsPlatformDownloader.finishPartialPlayback(downloadId) ?: return

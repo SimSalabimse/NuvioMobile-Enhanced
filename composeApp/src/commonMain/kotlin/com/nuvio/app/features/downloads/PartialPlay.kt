@@ -241,3 +241,20 @@ internal fun partialPlaybackKeepsResume(
 
 /** Share of the file kept between a resume point and the last byte on disk. */
 private const val PARTIAL_RESUME_MARGIN_FRACTION = 0.03
+
+/**
+ * How far into the episode an in-progress download reaches, from the downloaded share of the file.
+ * A constant-bitrate estimate; the player's own read-ahead stays the floor.
+ */
+internal fun estimatePartialDownloadReachMs(
+    downloadedBytes: Long,
+    totalBytes: Long?,
+    durationMs: Long,
+    complete: Boolean,
+): Long? {
+    if (durationMs <= 0L) return null
+    if (complete) return durationMs
+    val total = totalBytes?.takeIf { it > 0L } ?: return null
+    val fraction = (downloadedBytes.coerceAtLeast(0L).toDouble() / total.toDouble()).coerceIn(0.0, 1.0)
+    return (durationMs.toDouble() * fraction).toLong()
+}
