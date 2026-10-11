@@ -1837,6 +1837,12 @@ internal fun MainAppContent(
                         navController = navController,
                     )
                 }
+                entry<DownloadsStorageRoute> { route ->
+                    DownloadsStorageDestination(
+                        route = route,
+                        navController = navController,
+                    )
+                }
                 entry<AddonsSettingsRoute> { route ->
                     SettingsDestination(route, navController) { onBack ->
                         AddonsSettingsScreen(onBack = onBack)

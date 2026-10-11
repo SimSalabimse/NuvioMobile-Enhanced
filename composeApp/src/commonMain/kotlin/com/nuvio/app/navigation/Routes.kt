@@ -104,6 +104,13 @@ data class DownloadsSettingsRoute(override val title: String = "") : AppRoute {
         get() = "Library"
 }
 
+/** Downloads > Storage. Pushed on the library stack like [DownloadsSettingsRoute], so back returns to Downloads. */
+@Serializable
+data class DownloadsStorageRoute(override val title: String = "") : AppRoute {
+    override val preferredTabName: String
+        get() = "Library"
+}
+
 @Serializable
 data class AddonsSettingsRoute(override val title: String = "") : SettingsDestinationRoute
 

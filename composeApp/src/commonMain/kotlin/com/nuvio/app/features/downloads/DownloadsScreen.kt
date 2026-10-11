@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ExpandLess
@@ -64,6 +65,7 @@ fun DownloadsScreen(
     onNavigateToShow: ((showId: String, title: String) -> Unit)? = null,
     onBackFromShow: (() -> Unit)? = null,
     onOpenSettings: (() -> Unit)? = null,
+    onOpenStorage: (() -> Unit)? = null,
 ) {
     val uiState by remember {
         DownloadsRepository.ensureLoaded()
@@ -80,6 +82,9 @@ fun DownloadsScreen(
     val openDownloadsDirectoryFailedText = stringResource(Res.string.downloads_open_directory_failed)
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showStorage by rememberSaveable { mutableStateOf(false) }
+    // Held here, not inside NuvioScreen, so the list keeps its scroll while Storage or the
+    // settings page is drawn in its place (Android, or iOS without native navigation).
+    val listState = rememberLazyListState()
 
     // Finished and unfinished episodes: a show with only waiting or paused episodes still has a
     // Shows entry, so its season can be stopped from there.
@@ -112,7 +117,7 @@ fun DownloadsScreen(
     val storageSummary = rememberDownloadStorageSummary(uiState.items)
     val tokens = MaterialTheme.nuvio
 
-    NuvioScreen {
+    NuvioScreen(listState = listState) {
         stickyHeader {
             NuvioScreenHeader(
                 title = if (selectedShowId == null) {
@@ -159,7 +164,10 @@ fun DownloadsScreen(
         if (selectedShowId == null) {
             storageSummary?.let { summary ->
                 item(key = "storage-card") {
-                    DownloadStorageCard(summary = summary, onClick = { showStorage = true })
+                    DownloadStorageCard(
+                        summary = summary,
+                        onClick = { onOpenStorage?.invoke() ?: run { showStorage = true } },
+                    )
                 }
             }
             downloadsRootContent(

@@ -31,3 +31,17 @@ class DownloadsSettingsNavigationTest {
         )
     }
 }
+
+class DownloadsStorageNavigationTest {
+    @Test
+    fun nativeStoragePushStaysOnTheLibraryStackAboveDownloads() {
+        val storage = com.nuvio.app.downloadsStoragePushRoute(useNativeNavigation = true, title = "Downloads")
+        assertEquals(DownloadsStorageRoute("Downloads"), storage)
+        assertEquals("Library", storage?.preferredTabName)
+    }
+
+    @Test
+    fun embeddedStorageStaysOnTheDownloadsScreen() {
+        assertNull(com.nuvio.app.downloadsStoragePushRoute(useNativeNavigation = false, title = "Downloads"))
+    }
+}
