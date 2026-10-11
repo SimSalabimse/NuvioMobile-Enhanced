@@ -193,15 +193,17 @@ internal object IosPartialPlaybackServer {
         sendBytes(client, text.encodeToByteArray())
     }
 
-    private fun sendBytes(client: Int, bytes: ByteArray) {
+    /** False when the player closed the socket. */
+    private fun sendBytes(client: Int, bytes: ByteArray): Boolean {
         var offset = 0
         while (offset < bytes.size) {
             val sent = bytes.usePinned { pinned ->
                 send(client, pinned.addressOf(offset), (bytes.size - offset).convert(), 0).toInt()
             }
-            if (sent <= 0) return
+            if (sent <= 0) return false
             offset += sent
         }
+        return true
     }
 
     private fun networkOrderPort(port: UShort): Int {

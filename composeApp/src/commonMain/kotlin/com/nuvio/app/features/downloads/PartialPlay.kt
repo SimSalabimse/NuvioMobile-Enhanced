@@ -221,3 +221,23 @@ private fun prefixContainsAscii(prefix: ByteArray, needle: String): Boolean {
     }
     return false
 }
+
+/**
+ * Whether an in-progress download may start at its saved resume point. The point must be inside
+ * the bytes already on disk, estimated from the downloaded share of the file with a margin.
+ * A point past that makes the player read forward and wait on bytes that are not there yet,
+ * so playback starts from 0 instead.
+ */
+internal fun partialPlaybackKeepsResume(
+    resumeFraction: Float?,
+    downloadedBytes: Long,
+    totalBytes: Long?,
+): Boolean {
+    val fraction = resumeFraction?.takeIf { it > 0f } ?: return false
+    val total = totalBytes?.takeIf { it > 0L } ?: return false
+    val downloadedFraction = (downloadedBytes.coerceAtLeast(0L).toDouble() / total.toDouble()).coerceIn(0.0, 1.0)
+    return fraction.toDouble() <= downloadedFraction - PARTIAL_RESUME_MARGIN_FRACTION
+}
+
+/** Share of the file kept between a resume point and the last byte on disk. */
+private const val PARTIAL_RESUME_MARGIN_FRACTION = 0.03

@@ -151,10 +151,15 @@ internal fun formatHttpResponseHead(head: RangeResponseHead): String = buildStri
 internal class PartialFileRangeReader(
     private val source: GrowingByteSource,
 ) {
+    /**
+     * Streams [start]..[endInclusive], waiting at the download frontier while it runs.
+     * [onChunk] returns false when the client has gone, which ends the body. Without that a socket
+     * the player dropped after a seek kept this loop waiting on the download until it finished.
+     */
     suspend fun readBody(
         start: Long,
         endInclusive: Long?,
-        onChunk: (ByteArray) -> Unit,
+        onChunk: (ByteArray) -> Boolean,
     ) {
         var offset = start.coerceAtLeast(0L)
         while (true) {
@@ -183,7 +188,7 @@ internal class PartialFileRangeReader(
                 source.awaitAvailable(offset + 1L)
                 continue
             }
-            onChunk(if (read == buffer.size) buffer else buffer.copyOf(read))
+            if (!onChunk(if (read == buffer.size) buffer else buffer.copyOf(read))) return
             offset += read
         }
     }
@@ -242,11 +247,18 @@ private fun resolveRequestedRange(
     }
 }
 
+/**
+ * A 416 carries no Content-Length. FFmpeg's HTTP seek resets its file size before it reads the
+ * new response headers, takes Content-Length as the file size, and on a failed seek restores only
+ * the old connection and offset. A `Content-Length: 0` on the cue-read 416 therefore left FFmpeg
+ * believing the file was 0 bytes: every later seek returned "past the end" without a request and
+ * the next read was EOF, so mpv ended playback at the first seek (resume, skip, scrub).
+ * Connection: close already ends the empty body.
+ */
 private fun unsatisfiable(total: Long?, contentType: String): RangeResponseHead {
     val headers = mutableListOf(
         "Accept-Ranges" to "bytes",
         "Content-Type" to contentType,
-        "Content-Length" to "0",
         "Connection" to "close",
     )
     if (total != null) {

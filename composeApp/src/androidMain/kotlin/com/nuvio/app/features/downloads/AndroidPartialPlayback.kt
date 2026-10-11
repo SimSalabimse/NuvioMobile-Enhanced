@@ -134,8 +134,10 @@ internal object AndroidPartialPlaybackServer {
         if (!head.includeBody) return
         runBlocking {
             PartialFileRangeReader(source).readBody(head.bodyStart, head.bodyEndInclusive) { chunk ->
-                output.write(chunk)
-                output.flush()
+                runCatching {
+                    output.write(chunk)
+                    output.flush()
+                }.isSuccess
             }
         }
     }
