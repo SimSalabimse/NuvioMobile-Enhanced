@@ -365,6 +365,29 @@ object DownloadsRepository {
         applyStarts(toStart)
     }
 
+    /**
+     * iOS put a file in place for a task this process did not start (a background relaunch).
+     * Marks the row Completed if the list is loaded; otherwise the next load does it.
+     */
+    internal fun markFinishedInBackground(downloadId: String, localFileUri: String, totalBytes: Long?) {
+        if (!hasLoaded) return
+        activeHandles.remove(downloadId)
+        partialPrefixCache.remove(downloadId)
+        mutateItem(downloadId) { current ->
+            if (current.status == DownloadStatus.Completed) return@mutateItem current
+            current.copy(
+                status = DownloadStatus.Completed,
+                localFileUri = localFileUri,
+                downloadedBytes = totalBytes?.takeIf { it > 0L } ?: current.downloadedBytes,
+                totalBytes = totalBytes?.takeIf { it > 0L } ?: current.totalBytes,
+                earlyPlayReady = false,
+                playsWhenDownloadFinishes = false,
+                errorMessage = null,
+                updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+            )
+        }
+    }
+
     fun cancelDownloads(downloadIds: List<String>) {
         downloadIds.forEach(::cancelDownload)
     }
