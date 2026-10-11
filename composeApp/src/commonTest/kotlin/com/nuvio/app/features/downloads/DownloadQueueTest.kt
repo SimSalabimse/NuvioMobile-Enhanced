@@ -142,16 +142,45 @@ class DownloadPersistGateTest {
     }
 
     @Test
-    fun `leaving the foreground submits every waiting file and the cap returns after`() {
+    fun `leaving the foreground only fills the two slots and the rest wait`() {
         val queue = DownloadStartQueue()
         listOf("e1", "e2", "e3", "e4").forEach { queue.request(it, thermalBlocksNextFile = false) }
 
         queue.maxActive = BACKGROUND_SUBMIT_CAP
-        assertEquals(listOf("e3", "e4"), queue.promote(thermalBlocksNextFile = false))
+        assertEquals(emptyList(), queue.promote(thermalBlocksNextFile = false))
+        assertEquals(listOf("e3", "e4"), queue.waitingIds())
 
         queue.maxActive = MAX_ACTIVE_DOWNLOADS
-        queue.release("e1", thermalBlocksNextFile = false)
-        assertEquals(emptyList(), queue.request("e5", thermalBlocksNextFile = false))
-        assertEquals(listOf("e5"), queue.waitingIds())
+        assertEquals(listOf("e3"), queue.release("e1", thermalBlocksNextFile = false))
+    }
+
+    @Test
+    fun `episodes of one show wait lowest first whatever order they were queued in`() {
+        val keys = mapOf(
+            "e7" to DownloadOrderKey("tt1", 1, 7),
+            "e8" to DownloadOrderKey("tt1", 1, 8),
+            "e3" to DownloadOrderKey("tt1", 1, 3),
+            "e4" to DownloadOrderKey("tt1", 1, 4),
+            "s2e1" to DownloadOrderKey("tt1", 2, 1),
+        )
+        val queue = DownloadStartQueue(maxActive = 0, orderKeyOf = { keys[it] })
+        listOf("s2e1", "e7", "movie", "e8", "e3", "e4").forEach { queue.request(it, thermalBlocksNextFile = false) }
+        assertEquals(listOf("e3", "e4", "e7", "e8", "s2e1", "movie"), queue.waitingIds())
+
+        queue.maxActive = MAX_ACTIVE_DOWNLOADS
+        assertEquals(listOf("e3", "e4"), queue.promote(thermalBlocksNextFile = false))
+    }
+
+    @Test
+    fun `restore puts waiting episodes back in episode order`() {
+        val keys = (1..6).associate { "e$it" to DownloadOrderKey("tt1", 1, it) }
+        val queue = DownloadStartQueue(orderKeyOf = { keys[it] })
+        val started = queue.restore(
+            activeIdsInOrder = emptyList(),
+            waitingIdsInOrder = listOf("e6", "e5", "e3", "e4"),
+            thermalBlocksNextFile = false,
+        )
+        assertEquals(listOf("e3", "e4"), started)
+        assertEquals(listOf("e5", "e6"), queue.waitingIds())
     }
 }

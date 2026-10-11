@@ -25,7 +25,9 @@ internal suspend fun enqueueSeasonDownloads(
     var queued = 0
     var failureMessage: String? = null
     DownloadsRepository.ensureLoaded()
-    for (row in rows) {
+    // Lowest episode first, whatever order the sheet listed them in.
+    val ordered = rows.sortedWith(compareBy({ it.video.season ?: Int.MAX_VALUE }, { it.video.episode ?: Int.MAX_VALUE }))
+    for (row in ordered) {
         val season = row.video.season
         val episode = row.video.episode
         // Queuing replaces an existing row for the episode and deletes its file. Leave one the user has.

@@ -23,7 +23,7 @@ object DownloadsRepository {
 
     private val activeHandles = mutableMapOf<String, DownloadsTaskHandle>()
     private val partialPrefixCache = mutableMapOf<String, ByteArray>()
-    private val startQueue = DownloadStartQueue()
+    private val startQueue = DownloadStartQueue(orderKeyOf = ::orderKeyOf)
     private val persistGate = DownloadPersistGate()
     private var thermalObserverStarted = false
     private var hasLoaded = false
@@ -125,10 +125,17 @@ object DownloadsRepository {
         return DownloadsPlatformDownloader.partialPlaybackUrl(item.id)
     }
 
-    /** Episode time the download of [downloadId] has reached, for the player's buffer bar. */
+    private fun orderKeyOf(downloadId: String): DownloadOrderKey? {
+        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return null
+        val season = item.seasonNumber ?: return null
+        val episode = item.episodeNumber ?: return null
+        return DownloadOrderKey(showKey = item.parentMetaId.trim(), season = season, episode = episode)
+    }
+
     /**
-     * iOS only, from willResignActive: start every waiting file now so it is on the background
-     * session before the app is in the background. The session itself runs two per host.
+     * iOS only, from willResignActive: fill the free slots with the next waiting files, lowest
+     * episode first, so they are on the background session before the app is in the background.
+     * Only [BACKGROUND_SUBMIT_CAP] run at a time; the rest start as earlier ones finish.
      */
     fun submitWaitingForBackground() {
         if (!hasLoaded) return
@@ -141,6 +148,7 @@ object DownloadsRepository {
         startQueue.maxActive = MAX_ACTIVE_DOWNLOADS
     }
 
+    /** Episode time the download of [downloadId] has reached, for the player's buffer bar. */
     fun partialDownloadReachMs(downloadId: String, durationMs: Long): Long? {
         val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return null
         val onDisk = if (item.status == DownloadStatus.Completed) {
@@ -217,7 +225,6 @@ object DownloadsRepository {
         }
 
         val downloadId = nextDownloadId(now)
-        val toStart = startQueue.request(downloadId, DownloadThermalGate.blocksNextFile())
         val fileName = buildFileName(
             title = title,
             seasonNumber = seasonNumber,
@@ -253,7 +260,9 @@ object DownloadsRepository {
             sourceSubtitles = stream.externalSubtitles,
             localFileUri = null,
             fileName = fileName,
-            status = if (downloadId in toStart) DownloadStatus.Downloading else DownloadStatus.Queued,
+            // Queued until the line says it may start: the line orders episodes by number, which
+            // needs this row to be in the list first.
+            status = DownloadStatus.Queued,
             downloadedBytes = 0L,
             totalBytes = null,
             errorMessage = null,
@@ -263,6 +272,7 @@ object DownloadsRepository {
 
         currentItems.add(0, item)
         publish(currentItems)
+        val toStart = startQueue.request(downloadId, DownloadThermalGate.blocksNextFile())
         persistStatus()
         applyStarts(toStart)
 
