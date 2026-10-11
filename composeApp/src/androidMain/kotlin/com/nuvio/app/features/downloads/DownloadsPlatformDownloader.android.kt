@@ -196,6 +196,9 @@ internal actual object DownloadsPlatformDownloader {
         )
     }
 
+    /** Android writes the destination in place, so the reported bytes are the bytes on disk. */
+    actual fun playableBytesOnDisk(destinationFileName: String): Long? = null
+
     actual fun partialPlaybackUrl(downloadId: String): String? =
         AndroidPartialPlaybackServer.url(downloadId)
 

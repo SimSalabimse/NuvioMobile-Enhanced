@@ -126,10 +126,30 @@ object DownloadsRepository {
     }
 
     /** Episode time the download of [downloadId] has reached, for the player's buffer bar. */
+    /**
+     * iOS only, from willResignActive: start every waiting file now so it is on the background
+     * session before the app is in the background. The session itself runs two per host.
+     */
+    fun submitWaitingForBackground() {
+        if (!hasLoaded) return
+        startQueue.maxActive = BACKGROUND_SUBMIT_CAP
+        applyStarts(startQueue.promote(DownloadThermalGate.blocksNextFile()))
+    }
+
+    /** Back in the app: new starts wait for one of the two slots again. Running files keep going. */
+    fun restoreForegroundCap() {
+        startQueue.maxActive = MAX_ACTIVE_DOWNLOADS
+    }
+
     fun partialDownloadReachMs(downloadId: String, durationMs: Long): Long? {
         val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return null
+        val onDisk = if (item.status == DownloadStatus.Completed) {
+            null
+        } else {
+            DownloadsPlatformDownloader.playableBytesOnDisk(item.fileName)
+        }
         return estimatePartialDownloadReachMs(
-            downloadedBytes = item.downloadedBytes,
+            downloadedBytes = onDisk?.coerceAtMost(item.downloadedBytes) ?: item.downloadedBytes,
             totalBytes = item.totalBytes,
             durationMs = durationMs,
             complete = item.status == DownloadStatus.Completed,
@@ -629,7 +649,7 @@ object DownloadsRepository {
         val accepted = mutableListOf<String>()
         val deferred = mutableListOf<String>()
         startedIds.forEach { id ->
-            if (id !in activeHandles && activeHandles.size + accepted.size >= MAX_ACTIVE_DOWNLOADS) {
+            if (id !in activeHandles && activeHandles.size + accepted.size >= startQueue.maxActive) {
                 startQueue.demoteToFront(id)
                 deferred.add(id)
             } else {

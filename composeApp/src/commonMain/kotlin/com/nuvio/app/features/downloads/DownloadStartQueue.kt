@@ -3,6 +3,9 @@ package com.nuvio.app.features.downloads
 /** At most two transfers run. A third episode waits. */
 internal const val MAX_ACTIVE_DOWNLOADS = 2
 
+/** Cap while iOS hands every waiting file to the background session before suspension. */
+internal const val BACKGROUND_SUBMIT_CAP = 64
+
 /** Progress snapshots of the downloads JSON, not a cap on the transfer. */
 internal const val DOWNLOAD_PROGRESS_PERSIST_INTERVAL_MS = 5_000L
 
@@ -51,7 +54,7 @@ internal class DownloadPersistGate(
  * whatever is already active running at full speed.
  */
 internal class DownloadStartQueue(
-    private val maxActive: Int = MAX_ACTIVE_DOWNLOADS,
+    var maxActive: Int = MAX_ACTIVE_DOWNLOADS,
 ) {
     private val active = LinkedHashSet<String>()
     private val waiting = ArrayDeque<String>()

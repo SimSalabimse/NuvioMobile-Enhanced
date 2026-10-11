@@ -11,6 +11,7 @@ final class DownloadsLiveActivityManager {
     static let shared = DownloadsLiveActivityManager()
 
     private var observer: NSObjectProtocol?
+    private var lifecycleObservers: [NSObjectProtocol] = []
     /// Applies run one at a time. Two overlapping applies could end an activity and then
     /// request a new one from an older payload, leaving an activity nothing updates.
     private var applyChain: Task<Void, Never>?
@@ -33,6 +34,16 @@ final class DownloadsLiveActivityManager {
             queue: .main
         ) { [weak self] _ in
             self?.syncFromPayloadStore()
+        }
+
+        // While the app is suspended the background session keeps downloading but nothing
+        // updates the activity, so say so instead of showing a progress bar that looks stuck.
+        for name in [UIApplication.didEnterBackgroundNotification, UIApplication.willEnterForegroundNotification] {
+            lifecycleObservers.append(
+                NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    self?.syncFromPayloadStore()
+                }
+            )
         }
 
         syncFromPayloadStore()
@@ -89,7 +100,9 @@ final class DownloadsLiveActivityManager {
         let state = DownloadsLiveActivityAttributes.ContentState(
             status: payload.status,
             progressPercent: payload.progressPercent,
-            transferredText: transferredText(payload)
+            transferredText: UIApplication.shared.applicationState == .background
+                ? "\(transferredText(payload)) · continuing in background"
+                : transferredText(payload)
         )
 
         if let existing {

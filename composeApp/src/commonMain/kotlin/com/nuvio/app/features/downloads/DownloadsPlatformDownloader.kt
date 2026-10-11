@@ -33,6 +33,13 @@ internal expect object DownloadsPlatformDownloader {
 
     fun readPartialPrefix(destinationFileName: String, maxBytes: Int): ByteArray
 
+    /**
+     * Bytes early play can read right now, or null when that is the reported progress.
+     * On iOS a background task keeps its bytes in a system temp file until it finishes, so
+     * `.part` can be behind the reported progress.
+     */
+    fun playableBytesOnDisk(destinationFileName: String): Long?
+
     fun updatePartialTarget(
         downloadId: String,
         fileName: String,

@@ -140,4 +140,18 @@ class DownloadPersistGateTest {
         assertTrue(gate.allowProgressWrite(50L))
         assertFalse(gate.allowProgressWrite(51L))
     }
+
+    @Test
+    fun `leaving the foreground submits every waiting file and the cap returns after`() {
+        val queue = DownloadStartQueue()
+        listOf("e1", "e2", "e3", "e4").forEach { queue.request(it, thermalBlocksNextFile = false) }
+
+        queue.maxActive = BACKGROUND_SUBMIT_CAP
+        assertEquals(listOf("e3", "e4"), queue.promote(thermalBlocksNextFile = false))
+
+        queue.maxActive = MAX_ACTIVE_DOWNLOADS
+        queue.release("e1", thermalBlocksNextFile = false)
+        assertEquals(emptyList(), queue.request("e5", thermalBlocksNextFile = false))
+        assertEquals(listOf("e5"), queue.waitingIds())
+    }
 }

@@ -98,6 +98,11 @@ fun handleDownloadsBackgroundEvents(
     IosBackgroundDownloadCoordinator.ensureSessionCreated()
 }
 
+/** willResignActive: move every transfer onto the background session while still in the foreground. */
+fun prepareDownloadsForAppBackground() {
+    IosForegroundDownloads.prepareForBackground()
+}
+
 fun pauseDownloadsForAppBackground() {
     IosForegroundDownloads.onAppEnteredBackground()
 }
@@ -234,6 +239,9 @@ internal actual object DownloadsPlatformDownloader {
         )
     }
 
+    actual fun playableBytesOnDisk(destinationFileName: String): Long? =
+        destinationFileName.takeIf { it.isNotBlank() }?.let(::iosPartialBytesOnDisk)
+
     actual fun partialPlaybackUrl(downloadId: String): String? = IosPartialPlaybackServer.url(downloadId)
 
     actual fun finishPartialPlayback(downloadId: String): String? = finishIosPartialPlayback(downloadId)
@@ -319,6 +327,9 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
             discretionary = policy.discretionary
             allowsCellularAccess = policy.allowsCellularAccess
             sessionSendsLaunchEvents = policy.sendsLaunchEvents
+            // Queued files are all submitted before the app leaves the foreground; the session
+            // itself keeps the two-at-a-time limit and starts the next one while locked.
+            HTTPMaximumConnectionsPerHost = MAX_ACTIVE_DOWNLOADS.toLong()
         }
         val created = NSURLSession.sessionWithConfiguration(
             configuration = configuration,
@@ -553,6 +564,12 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
     }
 
     fun activeDownloadIds(): List<String> = activeDownloads.keys.toList()
+
+    /** Bytes the live background task for [downloadId] has fetched, or null when it has none. */
+    fun bytesReceivedByTask(downloadId: String): Long? {
+        if (activeDownloads[downloadId]?.deliberatelyCancelled != false) return null
+        return tasksByDownloadId[downloadId]?.countOfBytesReceived
+    }
 
     fun peek(downloadId: String): Pair<DownloadPlatformRequest, DownloadCallbacks?>? {
         val active = activeDownloads[downloadId] ?: return null
