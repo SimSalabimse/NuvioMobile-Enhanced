@@ -37,7 +37,7 @@ final class DownloadsLiveActivityManager {
         }
 
         // While the app is suspended the background session keeps downloading but nothing
-        // updates the activity, so say so instead of showing a progress bar that looks stuck.
+        // updates the activity, so say so ("in background") instead of a bar that looks stuck.
         for name in [UIApplication.didEnterBackgroundNotification, UIApplication.willEnterForegroundNotification] {
             lifecycleObservers.append(
                 NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -101,7 +101,7 @@ final class DownloadsLiveActivityManager {
             status: payload.status,
             progressPercent: payload.progressPercent,
             transferredText: UIApplication.shared.applicationState == .background
-                ? "\(transferredText(payload)) · continuing in background"
+                ? "\(transferredText(payload)) · in background"
                 : transferredText(payload),
             detail: payload.detail
         )
