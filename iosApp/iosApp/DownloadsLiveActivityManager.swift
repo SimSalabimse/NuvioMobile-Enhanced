@@ -102,7 +102,8 @@ final class DownloadsLiveActivityManager {
             progressPercent: payload.progressPercent,
             transferredText: UIApplication.shared.applicationState == .background
                 ? "\(transferredText(payload)) · continuing in background"
-                : transferredText(payload)
+                : transferredText(payload),
+            detail: payload.detail
         )
 
         if let existing {
@@ -162,6 +163,8 @@ struct DownloadsLiveActivityAttributes: ActivityAttributes {
         let status: String
         let progressPercent: Int
         let transferredText: String
+        /// Which episodes are running, e.g. "S1 · E3 + E4 · 2 downloading". Nil for a movie.
+        var detail: String? = nil
     }
 
     let downloadId: String
@@ -178,4 +181,5 @@ private struct DownloadsLiveStatusPayload: Decodable {
     let downloadedBytes: Int64
     let totalBytes: Int64?
     let progressPercent: Int
+    let detail: String?
 }
