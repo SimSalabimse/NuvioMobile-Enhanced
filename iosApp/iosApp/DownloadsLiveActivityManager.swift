@@ -23,6 +23,9 @@ final class DownloadsLiveActivityManager {
         // An activity from an earlier process has no transfer behind it any more.
         // A download that is still running is published again once the downloads list loads.
         endStaleActivitiesFromEarlierLaunch()
+        // The stored payload can name a download from the earlier launch. A running download
+        // writes it again on its next progress update.
+        UserDefaults.standard.removeObject(forKey: downloadsLiveStatusPayloadKey)
 
         observer = NotificationCenter.default.addObserver(
             forName: downloadsLiveStatusUpdatedNotification,
