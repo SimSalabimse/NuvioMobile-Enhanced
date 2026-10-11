@@ -14,6 +14,8 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -70,6 +72,8 @@ fun DownloadsScreen(
 
     var selectedShowId by rememberSaveable(initialShowId) { mutableStateOf(initialShowId) }
     var downloadPendingDeletionId by rememberSaveable { mutableStateOf<String?>(null) }
+    var expandedSeasonGroups by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var groupPendingCancel by remember { mutableStateOf<ActiveSeasonGroup?>(null) }
     val openDownloadsDirectoryFailedText = stringResource(Res.string.downloads_open_directory_failed)
     var showSettings by rememberSaveable { mutableStateOf(false) }
 
@@ -147,6 +151,15 @@ fun DownloadsScreen(
                     onNavigateToShow?.invoke(showId, title) ?: run { selectedShowId = showId }
                 },
                 onDeleteDownload = { downloadPendingDeletionId = it },
+                expandedSeasonGroups = expandedSeasonGroups,
+                onToggleSeasonGroup = { key ->
+                    expandedSeasonGroups = if (key in expandedSeasonGroups) {
+                        expandedSeasonGroups - key
+                    } else {
+                        expandedSeasonGroups + key
+                    }
+                },
+                onCancelSeasonGroup = { groupPendingCancel = it },
             )
         } else {
             downloadsShowContent(
@@ -174,6 +187,23 @@ fun DownloadsScreen(
             onDismiss = { downloadPendingDeletionId = null },
         )
     }
+
+    val pendingGroup = groupPendingCancel
+    if (pendingGroup != null) {
+        NuvioStatusModal(
+            title = stringResource(Res.string.downloads_group_cancel_title, pendingGroup.items.size),
+            message = stringResource(Res.string.downloads_group_cancel_message, pendingGroup.label),
+            isVisible = true,
+            destructive = true,
+            confirmText = stringResource(Res.string.action_yes),
+            dismissText = stringResource(Res.string.action_no),
+            onConfirm = {
+                DownloadsRepository.cancelDownloads(pendingGroup.items.map { it.id })
+                groupPendingCancel = null
+            },
+            onDismiss = { groupPendingCancel = null },
+        )
+    }
 }
 
 private fun LazyListScope.downloadsRootContent(
@@ -181,6 +211,9 @@ private fun LazyListScope.downloadsRootContent(
     onOpenDownload: (DownloadItem) -> Unit,
     onOpenShow: (showId: String, title: String) -> Unit,
     onDeleteDownload: (String) -> Unit,
+    expandedSeasonGroups: Set<String>,
+    onToggleSeasonGroup: (String) -> Unit,
+    onCancelSeasonGroup: (ActiveSeasonGroup) -> Unit,
 ) {
     val activeItems = uiState.activeItems
     val completedMovies = uiState.completedItems.filterNot(DownloadItem::isEpisode)
@@ -198,18 +231,45 @@ private fun LazyListScope.downloadsRootContent(
         item {
             SectionTitle(stringResource(Res.string.downloads_section_active))
         }
-        items(
-            items = activeItems,
-            key = { it.id },
-        ) { item ->
-            DownloadRow(
-                item = item,
-                onOpen = { onOpenDownload(item) },
-                onPause = { DownloadsRepository.pauseDownload(item.id) },
-                onResume = { DownloadsRepository.resumeDownload(item.id) },
-                onRetry = { DownloadsRepository.retryDownload(item.id) },
-                onDelete = { onDeleteDownload(item.id) },
-            )
+        activeDownloadEntries(activeItems).forEach { entry ->
+            when (entry) {
+                is ActiveDownloadEntry.Single -> item(key = entry.item.id) {
+                    DownloadRow(
+                        item = entry.item,
+                        onOpen = { onOpenDownload(entry.item) },
+                        onPause = { DownloadsRepository.pauseDownload(entry.item.id) },
+                        onResume = { DownloadsRepository.resumeDownload(entry.item.id) },
+                        onRetry = { DownloadsRepository.retryDownload(entry.item.id) },
+                        onDelete = { onDeleteDownload(entry.item.id) },
+                    )
+                }
+                is ActiveDownloadEntry.Season -> {
+                    val group = entry.group
+                    val expanded = group.key in expandedSeasonGroups
+                    item(key = "season-group:${group.key}") {
+                        ActiveSeasonGroupHeader(
+                            group = group,
+                            expanded = expanded,
+                            onToggle = { onToggleSeasonGroup(group.key) },
+                            onPauseAll = { DownloadsRepository.pauseDownloads(group.items.map { it.id }) },
+                            onResumeAll = { DownloadsRepository.resumeDownloads(group.items.map { it.id }) },
+                            onCancelAll = { onCancelSeasonGroup(group) },
+                        )
+                    }
+                    if (expanded) {
+                        items(items = group.items, key = { it.id }) { item ->
+                            DownloadRow(
+                                item = item,
+                                onOpen = { onOpenDownload(item) },
+                                onPause = { DownloadsRepository.pauseDownload(item.id) },
+                                onResume = { DownloadsRepository.resumeDownload(item.id) },
+                                onRetry = { DownloadsRepository.retryDownload(item.id) },
+                                onDelete = { onDeleteDownload(item.id) },
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -530,6 +590,67 @@ private fun downloadDisplaySubtitle(
         item.episodeTitle?.trim().orEmpty().takeIf { it.isNotBlank() && it != displayTitle },
         item.title.trim().takeIf { it.isNotBlank() && it != displayTitle },
     ).filterNotNull().joinToString(" • ")
+}
+
+@Composable
+private fun ActiveSeasonGroupHeader(
+    group: ActiveSeasonGroup,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onPauseAll: () -> Unit,
+    onResumeAll: () -> Unit,
+    onCancelAll: () -> Unit,
+) {
+    val percent = group.progressPercent
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
+                Text(
+                    text = group.label,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = listOfNotNull(
+                        stringResource(Res.string.downloads_group_count, group.items.size),
+                        percent?.let { "$it%" },
+                    ).joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (group.anyRunning) {
+                IconButton(onClick = onPauseAll) {
+                    Icon(Icons.Rounded.Pause, contentDescription = stringResource(Res.string.downloads_group_pause_all))
+                }
+            } else if (group.anyPaused) {
+                IconButton(onClick = onResumeAll) {
+                    Icon(Icons.Rounded.PlayArrow, contentDescription = stringResource(Res.string.downloads_group_resume_all))
+                }
+            }
+            IconButton(onClick = onCancelAll) {
+                Icon(Icons.Rounded.Delete, contentDescription = stringResource(Res.string.downloads_group_cancel_all))
+            }
+        }
+        if (percent != null) {
+            LinearProgressIndicator(
+                progress = percent / 100f,
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            )
+        }
+    }
 }
 
 @Composable

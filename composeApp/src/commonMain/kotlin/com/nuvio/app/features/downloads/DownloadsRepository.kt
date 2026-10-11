@@ -335,6 +335,26 @@ object DownloadsRepository {
         applyStarts(toStart)
     }
 
+    fun cancelDownloads(downloadIds: List<String>) {
+        downloadIds.forEach(::cancelDownload)
+    }
+
+    fun pauseDownloads(downloadIds: List<String>) {
+        downloadIds.forEach(::pauseDownload)
+    }
+
+    /** Resumes in list order: each resume goes to the front of the line, so walk it backwards. */
+    fun resumeDownloads(downloadIds: List<String>) {
+        downloadIds.asReversed().forEach { id ->
+            val status = _uiState.value.items.firstOrNull { it.id == id }?.status
+            when (status) {
+                DownloadStatus.Paused -> resumeDownload(id)
+                DownloadStatus.Failed -> retryDownload(id)
+                else -> Unit
+            }
+        }
+    }
+
     fun cancelDownload(downloadId: String) {
         ensureLoaded()
         val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
