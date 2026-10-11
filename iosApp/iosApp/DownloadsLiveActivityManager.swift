@@ -37,8 +37,14 @@ final class DownloadsLiveActivityManager {
         }
 
         // While the app is suspended the background session keeps downloading but nothing
-        // updates the activity, so say so ("in background") instead of a bar that looks stuck.
-        for name in [UIApplication.didEnterBackgroundNotification, UIApplication.willEnterForegroundNotification] {
+        // updates the activity. On the way out the activity gets fresh estimates, so its bar and
+        // countdown keep moving on their own; back in the foreground it corrects to real values.
+        for name in [
+            UIApplication.willResignActiveNotification,
+            UIApplication.didEnterBackgroundNotification,
+            UIApplication.willEnterForegroundNotification,
+            UIApplication.didBecomeActiveNotification,
+        ] {
             lifecycleObservers.append(
                 NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                     self?.syncFromPayloadStore()
@@ -97,14 +103,36 @@ final class DownloadsLiveActivityManager {
         }
         let existing = activities.first { $0.attributes.downloadId == payload.id }
 
+        let est = estimate(for: payload)
         let state = DownloadsLiveActivityAttributes.ContentState(
             status: payload.status,
             progressPercent: payload.progressPercent,
             transferredText: UIApplication.shared.applicationState == .background
                 ? "\(transferredText(payload)) · in background"
                 : transferredText(payload),
-            detail: payload.detail
+            detail: payload.detail,
+            estimatedStart: est?.start,
+            estimatedEnd: est?.end
         )
+
+        if #available(iOS 16.2, *) {
+            let content = ActivityContent(state: state, staleDate: est?.staleDate)
+            if let existing {
+                await existing.update(content)
+                return
+            }
+            let attributes = DownloadsLiveActivityAttributes(
+                downloadId: payload.id,
+                title: payload.title,
+                subtitle: payload.subtitle
+            )
+            _ = try? Activity<DownloadsLiveActivityAttributes>.request(
+                attributes: attributes,
+                content: content,
+                pushType: nil
+            )
+            return
+        }
 
         if let existing {
             await existing.update(using: state)
@@ -124,6 +152,36 @@ final class DownloadsLiveActivityManager {
         )
     }
 #endif
+
+    private struct Estimate {
+        let start: Date
+        let end: Date
+        let staleDate: Date
+    }
+
+    /**
+     * Where the bar would be if the smoothed speed holds: it starts at the bytes already done
+     * (start = sampled time minus done / speed) and fills at end = sampled time plus remaining /
+     * speed. The speed is shaded 5% down so the bar tends to lag, not lead, and the activity goes
+     * stale a moment before the bar would be full, so it never shows 100% before the file is done.
+     * Nil (static bar) when the size or speed is unknown or the speed is too low to be useful.
+     */
+    private func estimate(for payload: DownloadsLiveStatusPayload) -> Estimate? {
+        guard let total = payload.totalBytes, total > 0,
+              let measured = payload.bytesPerSecond, measured >= 32 * 1024,
+              let sampledAtMs = payload.sampledAtEpochMs else { return nil }
+        let done = max(0, min(payload.downloadedBytes, total))
+        let remaining = Double(total - done)
+        guard remaining > 0 else { return nil }
+        let speed = measured * 0.95
+        let remainingSeconds = remaining / speed
+        guard remainingSeconds.isFinite, remainingSeconds < 24 * 3600 else { return nil }
+        let sampledAt = Date(timeIntervalSince1970: Double(sampledAtMs) / 1000.0)
+        let start = sampledAt.addingTimeInterval(-Double(done) / speed)
+        let end = sampledAt.addingTimeInterval(remainingSeconds)
+        let staleDate = end.addingTimeInterval(-min(2.0, remainingSeconds / 10.0))
+        return Estimate(start: start, end: end, staleDate: staleDate)
+    }
 
     private func endStaleActivitiesFromEarlierLaunch() {
 #if canImport(ActivityKit) && os(iOS) && !targetEnvironment(macCatalyst)
@@ -165,6 +223,9 @@ struct DownloadsLiveActivityAttributes: ActivityAttributes {
         let transferredText: String
         /// Which episodes are running, e.g. "S1 · E3 + E4 · 2 downloading". Nil for a movie.
         var detail: String? = nil
+        /// Estimated bar: empty at start, full at end, at the current speed. Nil = static bar.
+        var estimatedStart: Date? = nil
+        var estimatedEnd: Date? = nil
     }
 
     let downloadId: String
@@ -182,4 +243,6 @@ private struct DownloadsLiveStatusPayload: Decodable {
     let totalBytes: Int64?
     let progressPercent: Int
     let detail: String?
+    let bytesPerSecond: Double?
+    let sampledAtEpochMs: Int64?
 }

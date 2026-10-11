@@ -9,6 +9,9 @@ struct DownloadsLiveActivityAttributes: ActivityAttributes {
         let transferredText: String
         /// Which episodes are running, e.g. "S1 · E3 + E4 · 2 downloading". Nil for a movie.
         var detail: String? = nil
+        /// Estimated bar: empty at start, full at end, at the current speed. Nil = static bar.
+        var estimatedStart: Date? = nil
+        var estimatedEnd: Date? = nil
     }
 
     let downloadId: String
@@ -37,11 +40,8 @@ struct DownloadsLiveActivityWidget: Widget {
                         .padding(.top, 2)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Text(activityProgressLabel(context.state.progressPercent))
-                        .font(.callout.monospacedDigit().weight(.semibold))
+                    ActivityTrailingLabel(context: context, font: .callout.monospacedDigit().weight(.semibold), maxWidth: 64)
                         .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
                         .padding(.trailing, 6)
                         .padding(.top, 2)
                 }
@@ -65,9 +65,7 @@ struct DownloadsLiveActivityWidget: Widget {
                 DynamicIslandExpandedRegion(.bottom) {
                     let size = activitySizeParts(context.state.transferredText)
                     VStack(alignment: .leading, spacing: 4) {
-                        ProgressView(value: activityNormalizedProgress(context.state.progressPercent))
-                            .progressViewStyle(.linear)
-                            .tint(appBlue)
+                        ActivityProgressBar(context: context, tint: appBlue)
                         HStack(spacing: 4) {
                             Text(size.text)
                                 .font(.caption2.monospacedDigit())
@@ -91,14 +89,10 @@ struct DownloadsLiveActivityWidget: Widget {
             } compactLeading: {
                 AccentGlyphView()
             } compactTrailing: {
-                Text(activityProgressLabel(context.state.progressPercent))
-                    .font(.caption2.monospacedDigit())
+                ActivityTrailingLabel(context: context, font: .caption2.monospacedDigit(), maxWidth: 44)
                     .foregroundStyle(appBlue)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .frame(maxWidth: 40)
             } minimal: {
-                AccentGlyphView()
+                ActivityMinimalView(context: context, tint: appBlue)
             }
             .widgetURL(downloadsUrl)
             .keylineTint(appBlue)
@@ -153,16 +147,11 @@ private struct DownloadActivityLockScreenView: View {
                 }
                 .layoutPriority(1)
                 Spacer(minLength: 6)
-                Text(activityProgressLabel(context.state.progressPercent))
-                    .font(.title3.monospacedDigit().weight(.semibold))
+                ActivityTrailingLabel(context: context, font: .title3.monospacedDigit().weight(.semibold), maxWidth: 88)
                     .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .fixedSize()
             }
 
-            ProgressView(value: activityNormalizedProgress(context.state.progressPercent))
-                .progressViewStyle(.linear)
-                .tint(.white)
+            ActivityProgressBar(context: context, tint: .white)
 
             HStack(spacing: 4) {
                 Text(size.text)
@@ -202,6 +191,93 @@ private struct DownloadActivityLockScreenView: View {
             accent.opacity(0.42),
             Color.black.opacity(0.97),
         ]
+    }
+}
+
+/// The estimate to draw, or nil for the static bar: none was sent, or iOS marked the activity
+/// stale because the estimated finish passed without an update.
+@available(iOSApplicationExtension 16.1, *)
+private func activityEstimate(_ context: ActivityViewContext<DownloadsLiveActivityAttributes>) -> ClosedRange<Date>? {
+    guard let start = context.state.estimatedStart, let end = context.state.estimatedEnd, end > start else { return nil }
+    if activityIsStale(context) { return nil }
+    return start...end
+}
+
+@available(iOSApplicationExtension 16.1, *)
+private func activityIsStale(_ context: ActivityViewContext<DownloadsLiveActivityAttributes>) -> Bool {
+    if #available(iOSApplicationExtension 16.2, *) {
+        return context.isStale
+    }
+    return false
+}
+
+/// Past the estimated finish with no word from the app: "almost done" rather than a full bar.
+@available(iOSApplicationExtension 16.1, *)
+private func activityAlmostDone(_ context: ActivityViewContext<DownloadsLiveActivityAttributes>) -> Bool {
+    context.state.estimatedEnd != nil && activityIsStale(context)
+}
+
+/// The bar. With an estimate it fills on its own (no updates needed while the app is suspended);
+/// otherwise it shows the last reported percent.
+@available(iOSApplicationExtension 16.1, *)
+private struct ActivityProgressBar: View {
+    let context: ActivityViewContext<DownloadsLiveActivityAttributes>
+    let tint: Color
+
+    var body: some View {
+        if let range = activityEstimate(context) {
+            ProgressView(timerInterval: range, countsDown: false, label: { EmptyView() }, currentValueLabel: { EmptyView() })
+                .progressViewStyle(.linear)
+                .tint(tint)
+        } else {
+            ProgressView(value: activityAlmostDone(context) ? 0.97 : activityNormalizedProgress(context.state.progressPercent))
+                .progressViewStyle(.linear)
+                .tint(tint)
+        }
+    }
+}
+
+/// Top right: a countdown to the estimated finish when there is an estimate, "almost done" once
+/// it has passed, otherwise the percent.
+@available(iOSApplicationExtension 16.1, *)
+private struct ActivityTrailingLabel: View {
+    let context: ActivityViewContext<DownloadsLiveActivityAttributes>
+    let font: Font
+    let maxWidth: CGFloat
+
+    var body: some View {
+        Group {
+            if let range = activityEstimate(context) {
+                Text(timerInterval: range, countsDown: true)
+                    .multilineTextAlignment(.trailing)
+            } else if activityAlmostDone(context) {
+                Text("almost done")
+                    .multilineTextAlignment(.trailing)
+            } else {
+                Text(activityProgressLabel(context.state.progressPercent))
+            }
+        }
+        .font(font)
+        .lineLimit(1)
+        .minimumScaleFactor(0.6)
+        .frame(maxWidth: maxWidth, alignment: .trailing)
+    }
+}
+
+/// Minimal island: a ring that fills with the estimate, the arrow glyph otherwise.
+@available(iOSApplicationExtension 16.1, *)
+private struct ActivityMinimalView: View {
+    let context: ActivityViewContext<DownloadsLiveActivityAttributes>
+    let tint: Color
+
+    var body: some View {
+        if let range = activityEstimate(context) {
+            ProgressView(timerInterval: range, countsDown: false, label: { EmptyView() }, currentValueLabel: { EmptyView() })
+                .progressViewStyle(.circular)
+                .tint(tint)
+        } else {
+            AccentGlyphView()
+        }
     }
 }
 
