@@ -30,7 +30,7 @@ struct DownloadsLiveActivityWidget: Widget {
                 .widgetURL(downloadsUrl)
         } dynamicIsland: { context in
             // Expanded island, laid out like Apple's own activities:
-            // - leading: a 26 pt arrow.down.circle.fill, a little in from the top-left curve;
+            // - leading: a plain 22 pt semibold blue arrow.down (no circle or square behind it), a little in from the top-left curve;
             // - trailing: the percent in a fixed-width slot, or a small ring that fills with the
             //   estimate. Text(timerInterval:) reserves width for its longest string, so in the
             //   narrow trailing slot it truncated ("5:…"); the countdown moved to the bottom row;
@@ -40,9 +40,9 @@ struct DownloadsLiveActivityWidget: Widget {
             //   bottom corners.
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .font(.system(size: 26, weight: .regular))
-                        .foregroundStyle(.white, appBlue)
+                    Image(systemName: "arrow.down")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(appBlue)
                         .frame(width: 28, height: 28)
                         .padding(.leading, 6)
                         .padding(.top, 4)
@@ -100,9 +100,9 @@ struct DownloadsLiveActivityWidget: Widget {
                     .padding(.bottom, 8)
                 }
             } compactLeading: {
-                Image(systemName: "arrow.down.circle.fill")
-                    .font(.system(size: 18, weight: .regular))
-                    .foregroundStyle(.white, appBlue)
+                Image(systemName: "arrow.down")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(appBlue)
                     .accessibilityLabel("Downloading")
             } compactTrailing: {
                 // About 40 pt: a ring with the estimate, otherwise "100%" fits at caption2.
@@ -148,9 +148,10 @@ private struct DownloadActivityLockScreenView: View {
         let size = activitySizeParts(context.state.transferredText)
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 10) {
-                Image(systemName: "arrow.down.circle.fill")
-                    .font(.system(size: 28, weight: .regular))
-                    .foregroundStyle(.white, Color(red: 30.0 / 255.0, green: 136.0 / 255.0, blue: 229.0 / 255.0))
+                Image(systemName: "arrow.down")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(Color(red: 30.0 / 255.0, green: 136.0 / 255.0, blue: 229.0 / 255.0))
+                    .frame(width: 28, height: 28)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(context.attributes.title)
                         .font(.headline.weight(.semibold))
@@ -347,9 +348,9 @@ private struct ActivityMinimalView: View {
                 .progressViewStyle(.circular)
                 .tint(tint)
         } else {
-            Image(systemName: "arrow.down.circle.fill")
-                .font(.system(size: 18, weight: .regular))
-                .foregroundStyle(.white, tint)
+            Image(systemName: "arrow.down")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(tint)
         }
     }
 }
