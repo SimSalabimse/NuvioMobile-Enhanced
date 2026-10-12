@@ -1,5 +1,6 @@
 package com.nuvio.app.features.details.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -35,9 +40,15 @@ import com.nuvio.app.features.downloads.DetailsDownloadProgress
 import com.nuvio.app.features.downloads.DetailsDownloadProgressKind
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.detailsDownloadProgress
+import com.nuvio.app.features.downloads.resumeDownloadFromMark
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_player_downloaded
 import nuvio.composeapp.generated.resources.details_download_action
+import nuvio.composeapp.generated.resources.download_mark_failed
+import nuvio.composeapp.generated.resources.download_mark_paused
+import nuvio.composeapp.generated.resources.download_mark_resume
+import nuvio.composeapp.generated.resources.download_mark_retry
+import nuvio.composeapp.generated.resources.download_mark_waiting
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -55,6 +66,9 @@ internal fun downloadProgressLabel(progress: DetailsDownloadProgress): String {
     return when (progress.kind) {
         DetailsDownloadProgressKind.Determinate -> "$action ${progress.percent}%"
         DetailsDownloadProgressKind.Completed -> stringResource(Res.string.compose_player_downloaded)
+        DetailsDownloadProgressKind.Queued -> stringResource(Res.string.download_mark_waiting)
+        DetailsDownloadProgressKind.Paused -> pausedLabel(progress)
+        DetailsDownloadProgressKind.Failed -> stringResource(Res.string.download_mark_failed)
         DetailsDownloadProgressKind.Indeterminate,
         DetailsDownloadProgressKind.None,
         -> action
@@ -112,6 +126,76 @@ internal fun DetailsDownloadIconMark(
                 modifier = modifier.size(21.dp),
             )
         }
+        DetailsDownloadProgressKind.Queued -> {
+            Icon(
+                imageVector = Icons.Rounded.Schedule,
+                contentDescription = contentDescription,
+                modifier = modifier.size(21.dp),
+            )
+        }
+        DetailsDownloadProgressKind.Paused -> {
+            Box(
+                modifier = modifier.size(34.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator(
+                    progress = { progress.fraction ?: 0f },
+                    modifier = Modifier.fillMaxSize(),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Icon(
+                    imageVector = Icons.Rounded.Pause,
+                    contentDescription = contentDescription,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+        DetailsDownloadProgressKind.Failed -> {
+            Icon(
+                imageVector = Icons.Rounded.ErrorOutline,
+                contentDescription = contentDescription,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = modifier.size(21.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun pausedLabel(progress: DetailsDownloadProgress): String {
+    val paused = stringResource(Res.string.download_mark_paused)
+    return progress.percent?.let { "$paused $it%" } ?: paused
+}
+
+@Composable
+private fun StateLine(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    text: String,
+    tint: Color,
+    iconSize: androidx.compose.ui.unit.Dp,
+    style: androidx.compose.ui.text.TextStyle,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(iconSize),
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = text,
+            style = style,
+            color = tint,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -186,6 +270,30 @@ internal fun DetailsDownloadWideContent(
                 )
             }
         }
+        DetailsDownloadProgressKind.Queued -> StateLine(
+            icon = Icons.Rounded.Schedule,
+            text = stringResource(Res.string.download_mark_waiting),
+            tint = MaterialTheme.colorScheme.onSurface,
+            iconSize = iconSize,
+            style = labelStyle,
+            modifier = modifier,
+        )
+        DetailsDownloadProgressKind.Paused -> StateLine(
+            icon = Icons.Rounded.Pause,
+            text = "${pausedLabel(progress)} · ${stringResource(Res.string.download_mark_resume)}",
+            tint = MaterialTheme.colorScheme.onSurface,
+            iconSize = iconSize,
+            style = labelStyle,
+            modifier = modifier,
+        )
+        DetailsDownloadProgressKind.Failed -> StateLine(
+            icon = Icons.Rounded.Refresh,
+            text = "${stringResource(Res.string.download_mark_failed)} · ${stringResource(Res.string.download_mark_retry)}",
+            tint = MaterialTheme.colorScheme.error,
+            iconSize = iconSize,
+            style = labelStyle,
+            modifier = modifier,
+        )
         DetailsDownloadProgressKind.None -> {
             Row(
                 modifier = modifier,
@@ -261,5 +369,47 @@ internal fun DetailsDownloadEpisodeMark(
                 )
             }
         }
+        DetailsDownloadProgressKind.Queued -> StateLine(
+            icon = Icons.Rounded.Schedule,
+            text = stringResource(Res.string.download_mark_waiting),
+            tint = percentColor,
+            iconSize = 16.dp,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+            modifier = modifier,
+        )
+        DetailsDownloadProgressKind.Paused -> {
+            // Tap resumes the download.
+            Column(
+                modifier = modifier
+                    .fillMaxWidth()
+                    .clickable { resumeDownloadFromMark(progress) },
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (progress.fraction != null) {
+                    NuvioProgressBar(
+                        progress = progress.fraction,
+                        height = 4.dp,
+                        trackColor = track,
+                        fillColor = percentColor.copy(alpha = 0.6f),
+                    )
+                }
+                StateLine(
+                    icon = Icons.Rounded.Pause,
+                    text = "${pausedLabel(progress)} · ${stringResource(Res.string.download_mark_resume)}",
+                    tint = percentColor,
+                    iconSize = 16.dp,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                )
+            }
+        }
+        DetailsDownloadProgressKind.Failed -> StateLine(
+            // Tap retries from the bytes already downloaded.
+            icon = Icons.Rounded.Refresh,
+            text = "${stringResource(Res.string.download_mark_failed)} · ${stringResource(Res.string.download_mark_retry)}",
+            tint = MaterialTheme.colorScheme.error,
+            iconSize = 16.dp,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+            modifier = modifier.clickable { resumeDownloadFromMark(progress) },
+        )
     }
 }

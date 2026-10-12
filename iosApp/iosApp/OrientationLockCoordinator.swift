@@ -34,6 +34,11 @@ final class OrientationLockAppDelegate: NSObject, UIApplicationDelegate, UNUserN
         )
     }
 
+    func applicationWillResignActive(_ application: UIApplication) {
+        // Still in the foreground here: transfers started now keep full priority while locked.
+        DownloadsPlatformDownloader_iosKt.prepareDownloadsForAppBackground()
+    }
+
     func applicationDidEnterBackground(_ application: UIApplication) {
         DownloadsPlatformDownloader_iosKt.pauseDownloadsForAppBackground()
     }

@@ -38,10 +38,26 @@ import platform.Foundation.setValue
 import platform.UIKit.UIApplication
 import platform.UIKit.UIApplicationDidBecomeActiveNotification
 import platform.UIKit.UIApplicationState
+import platform.UIKit.UIBackgroundTaskInvalid
+import platform.darwin.DISPATCH_TIME_NOW
+import platform.darwin.dispatch_after
+import platform.darwin.dispatch_async
+import platform.darwin.dispatch_get_main_queue
+import platform.darwin.dispatch_time
 import platform.darwin.NSObject
 
 private const val FOREGROUND_REQUEST_TIMEOUT_SECONDS = 120.0
 private const val FOREGROUND_WRITE_BUFFER_BYTES = 1024 * 1024
+
+/** Seconds of run time held after leaving the foreground so every handoff reaches nsurlsessiond. */
+private const val HANDOFF_BACKGROUND_TIME_SECONDS = 10L
+
+/**
+ * On return to the app, a handed-off file comes back to the `.part` writer (early play follows
+ * the bytes again) only while its background task has fetched at most this much, because the
+ * background task's bytes are dropped on take-back.
+ */
+internal const val TAKE_BACK_MAX_BACKGROUND_BYTES = 8L * 1024L * 1024L
 
 private enum class ForegroundMode { Running, UserCancel, Handoff }
 
@@ -78,6 +94,11 @@ internal object IosForegroundDownloads {
     private val delegate = IosForegroundSessionDelegate()
     private var activeObserver: Any? = null
 
+    /** Set from willResignActive until didBecomeActive: new files go to the background session. */
+    private var leavingForeground = false
+    private val handedOff = mutableSetOf<String>()
+    private var handoffBackgroundTask = UIBackgroundTaskInvalid
+
     fun ensureObserver() {
         if (activeObserver != null) return
         activeObserver = NSNotificationCenter.defaultCenter.addObserverForName(
@@ -85,8 +106,7 @@ internal object IosForegroundDownloads {
             `object` = null,
             queue = null,
         ) { _ ->
-            // Opening the app reattaches a live background task. It does not start another request.
-            IosBackgroundDownloadCoordinator.reconcileAfterOpen()
+            onAppBecameActive()
         }
     }
 
@@ -98,12 +118,87 @@ internal object IosForegroundDownloads {
 
     fun shouldUseForeground(): Boolean =
         InAppPlaybackKeepAlive.isPlaying() ||
-            UIApplication.sharedApplication.applicationState == UIApplicationState.UIApplicationStateActive
+            (!leavingForeground &&
+                UIApplication.sharedApplication.applicationState == UIApplicationState.UIApplicationStateActive)
 
-    fun onAppEnteredBackground() {
+    /**
+     * Called from willResignActive, while the app is still in the foreground. iOS treats a
+     * background-session task created after the app is in the background as discretionary and
+     * may hold it until the phone is charging on Wi-Fi, so every transfer has to be on the
+     * background session before the app gets there: running `.part` writers hand off now, and
+     * every queued file is submitted too (the session runs two per host and starts the rest
+     * itself while locked, without waking the app).
+     */
+    fun prepareForBackground() {
         ensureObserver()
         if (InAppPlaybackKeepAlive.isPlaying()) return
-        delegate.handoffAll()
+        leavingForeground = true
+        holdBackgroundTime()
+        handedOff += delegate.handoffAll()
+        DownloadsRepository.submitWaitingForBackground()
+    }
+
+    /** didEnterBackground: a fallback for any writer willResignActive did not reach. */
+    fun onAppEnteredBackground() {
+        prepareForBackground()
+    }
+
+    private fun onAppBecameActive() {
+        leavingForeground = false
+        endBackgroundTime()
+        DownloadsRepository.restoreForegroundCap()
+        takeBackCheapHandoffs()
+        // Opening the app reattaches a live background task. It does not start another request.
+        IosBackgroundDownloadCoordinator.reconcileAfterOpen()
+    }
+
+    /**
+     * A file that was writing `.part` before a short trip out of the app (Control Center, a
+     * banner, a quick lock) comes back to the `.part` writer when its background task has
+     * fetched little. A longer background run stays on its task so those bytes are kept; it
+     * lands in `.part` when the task finishes.
+     */
+    private fun takeBackCheapHandoffs() {
+        val ids = handedOff.toList()
+        handedOff.clear()
+        ids.forEach { downloadId ->
+            val received = IosBackgroundDownloadCoordinator.bytesReceivedByTask(downloadId) ?: return@forEach
+            if (received > TAKE_BACK_MAX_BACKGROUND_BYTES) return@forEach
+            val captured = IosBackgroundDownloadCoordinator.peek(downloadId) ?: return@forEach
+            val (request, callbacks) = captured
+            if (callbacks == null) return@forEach
+            IosBackgroundDownloadCoordinator.stopKeepingPartial(downloadId) {
+                if (IosTransferControl.isSuppressed(downloadId)) return@stopKeepingPartial
+                if (shouldUseForeground() && start(request, callbacks)) return@stopKeepingPartial
+                IosBackgroundDownloadCoordinator.startOrResume(
+                    downloadId = downloadId,
+                    request = request,
+                    rangeStart = iosPartialBytesOnDisk(request.destinationFileName),
+                    callbacks = callbacks,
+                )
+            }
+        }
+    }
+
+    private fun holdBackgroundTime() {
+        if (handoffBackgroundTask != UIBackgroundTaskInvalid) return
+        val application = UIApplication.sharedApplication
+        handoffBackgroundTask = application.beginBackgroundTaskWithName("NuvioDownloadsHandoff") {
+            endBackgroundTime()
+        }
+        dispatch_after(
+            dispatch_time(DISPATCH_TIME_NOW, HANDOFF_BACKGROUND_TIME_SECONDS * 1_000_000_000L),
+            dispatch_get_main_queue(),
+        ) {
+            endBackgroundTime()
+        }
+    }
+
+    private fun endBackgroundTime() {
+        val task = handoffBackgroundTask
+        if (task == UIBackgroundTaskInvalid) return
+        handoffBackgroundTask = UIBackgroundTaskInvalid
+        UIApplication.sharedApplication.endBackgroundTask(task)
     }
 
     fun notePlayback(playing: Boolean) {
@@ -114,7 +209,7 @@ internal object IosForegroundDownloads {
             return
         }
         if (wasPlaying && !playing && !isApplicationActive()) {
-            delegate.handoffAll()
+            handedOff += delegate.handoffAll()
         }
     }
 
@@ -179,6 +274,83 @@ internal object IosTransferControl {
         lock.unlock()
         return value
     }
+}
+
+/**
+ * Retries after a dropped connection, timeout or lost network (see [DownloadRetryPolicy]),
+ * resuming from the bytes already on disk instead of marking the download Failed.
+ */
+internal object IosDownloadRetries {
+    private val lock = NSLock()
+    private val tracker = DownloadRetryTracker()
+
+    private fun nextDelay(downloadId: String, bytesOnDisk: Long): Long? {
+        lock.lock()
+        val delay = tracker.nextDelaySeconds(downloadId, bytesOnDisk)
+        lock.unlock()
+        return delay
+    }
+
+    fun forget(downloadId: String) {
+        lock.lock()
+        tracker.forget(downloadId)
+        lock.unlock()
+    }
+
+    /** Only a row that is still meant to be downloading comes back. */
+    fun stillWanted(downloadId: String): Boolean =
+        !IosTransferControl.isSuppressed(downloadId) &&
+            DownloadsRepository.uiState.value.items.any {
+                it.id == downloadId && it.status == DownloadStatus.Downloading
+            }
+
+    /**
+     * The `.part` writer lost its connection. In the app: try the writer again after the backoff,
+     * with a Range from the bytes on disk. Leaving or out of the app: hand the file to the
+     * background session now, which waits for the network itself. Returns false when the
+     * retries are used up and the caller should report the failure.
+     */
+    fun scheduleForegroundRetry(request: DownloadPlatformRequest, callbacks: DownloadCallbacks): Boolean {
+        val downloadId = request.item.id
+        val onDisk = iosPartialBytesOnDisk(request.destinationFileName)
+        val delay = nextDelay(downloadId, onDisk) ?: return false
+        if (!IosForegroundDownloads.shouldUseForeground()) {
+            dispatch_async(dispatch_get_main_queue()) {
+                if (!stillWanted(downloadId)) return@dispatch_async
+                IosBackgroundDownloadCoordinator.startOrResume(
+                    downloadId = downloadId,
+                    request = request,
+                    rangeStart = iosPartialBytesOnDisk(request.destinationFileName),
+                    callbacks = callbacks,
+                )
+            }
+            return true
+        }
+        dispatch_after(
+            dispatch_time(DISPATCH_TIME_NOW, delay * 1_000_000_000L),
+            dispatch_get_main_queue(),
+        ) {
+            if (!stillWanted(downloadId)) return@dispatch_after
+            if (IosForegroundDownloads.shouldUseForeground() && IosForegroundDownloads.start(request, callbacks)) {
+                return@dispatch_after
+            }
+            IosBackgroundDownloadCoordinator.startOrResume(
+                downloadId = downloadId,
+                request = request,
+                rangeStart = iosPartialBytesOnDisk(request.destinationFileName),
+                callbacks = callbacks,
+            )
+        }
+        return true
+    }
+
+    /**
+     * The background task lost its connection. A new task resumes from the system's resume data
+     * when there is some, otherwise with a Range from `.part`. The backoff is the task's
+     * earliest begin date, which the session honours while the app is suspended.
+     * Returns the delay, or null when the retries are used up.
+     */
+    fun backgroundRetryDelay(downloadId: String, bytesOnDisk: Long): Long? = nextDelay(downloadId, bytesOnDisk)
 }
 
 internal object IosDeferredPartialRename {
@@ -405,11 +577,11 @@ private class IosForegroundSessionDelegate : NSObject(), NSURLSessionDataDelegat
         closeHandle(job)
         val task = job.task
         lock.unlock()
-        if (task == null) {
-            deliverHandoff(downloadId)
-        } else {
-            task.cancel()
-        }
+        // The `.part` handle is closed and this job ignores any further body, so the background
+        // task starts now rather than after the cancelled task reports back. That callback can
+        // arrive after the app is already in the background, which makes the new task discretionary.
+        task?.cancel()
+        deliverHandoff(downloadId)
         return true
     }
 
@@ -427,16 +599,18 @@ private class IosForegroundSessionDelegate : NSObject(), NSURLSessionDataDelegat
         lock.unlock()
     }
 
-    fun handoffAll() {
+    /** Hands every running writer to the background session. Returns the ids handed off. */
+    fun handoffAll(): List<String> {
         lock.lock()
         val ids = jobs.keys.toList()
         lock.unlock()
+        val handed = mutableListOf<String>()
         ids.forEach { downloadId ->
             val captured = lock.withLock {
                 val job = jobs[downloadId] ?: return@withLock null
                 job.request to job.callbacks
             } ?: return@forEach
-            handoff(downloadId) { size ->
+            val started = handoff(downloadId) { size ->
                 if (IosTransferControl.isSuppressed(downloadId)) return@handoff
                 IosBackgroundDownloadCoordinator.startOrResume(
                     downloadId = downloadId,
@@ -445,7 +619,9 @@ private class IosForegroundSessionDelegate : NSObject(), NSURLSessionDataDelegat
                     callbacks = captured.second,
                 )
             }
+            if (started) handed += downloadId
         }
+        return handed
     }
 
     override fun URLSession(
@@ -612,9 +788,20 @@ private class IosForegroundSessionDelegate : NSObject(), NSURLSessionDataDelegat
         lock.unlock()
         if ((didCompleteWithError != null || failMessage != null) && !completeDespiteError) {
             IosWriterOwnership.release(downloadId, DownloadWriterKind.Foreground)
+            val error = didCompleteWithError
+            if (
+                failMessage == null &&
+                error != null &&
+                DownloadRetryPolicy.isTransient(error.domain, error.code) &&
+                IosDownloadRetries.scheduleForegroundRetry(request, callbacks)
+            ) {
+                return
+            }
+            IosDownloadRetries.forget(downloadId)
             callbacks.onFailure(failMessage ?: didCompleteWithError?.localizedDescription ?: httpFailure(0))
             return
         }
+        IosDownloadRetries.forget(downloadId)
         finalizeIosPartialFile(downloadId, request.destinationFileName, callbacks)
     }
 

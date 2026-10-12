@@ -1304,6 +1304,11 @@ object WatchProgressRepository {
             lastSourceUrl = session.lastSourceUrl,
             isCompleted = isCompleted,
         ).normalizedCompletion()
+        // Delete-after-watch keys off the playback itself, before any profile, dedupe or
+        // Trakt/MDBList history branch below can return early.
+        if (candidateEntry.isCompleted) {
+            com.nuvio.app.features.downloads.FinishedDownloadDeletion.onPlaybackCompleted(candidateEntry)
+        }
 
         if (targetProfileId != currentProfileId || ProfileRepository.activeProfileId != targetProfileId) {
             val resolvedEntry = resolveStoredProfileProgressIdentity(

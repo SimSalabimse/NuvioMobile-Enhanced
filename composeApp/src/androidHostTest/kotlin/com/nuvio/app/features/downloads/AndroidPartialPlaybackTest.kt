@@ -230,7 +230,7 @@ class AndroidPartialPlaybackTest {
             val input = socket.getInputStream()
             val headers = readHeaders(input)
             assertTrue(headers.startsWith("HTTP/1.1 416"))
-            assertTrue(headers.contains("Content-Length: 0"))
+            assertFalse(headers.contains("Content-Length"))
             assertEquals(-1, input.read())
         } finally {
             socket.close()

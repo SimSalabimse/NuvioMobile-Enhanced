@@ -23,7 +23,7 @@ object DownloadsRepository {
 
     private val activeHandles = mutableMapOf<String, DownloadsTaskHandle>()
     private val partialPrefixCache = mutableMapOf<String, ByteArray>()
-    private val startQueue = DownloadStartQueue()
+    private val startQueue = DownloadStartQueue(orderKeyOf = ::orderKeyOf)
     private val persistGate = DownloadPersistGate()
     private var thermalObserverStarted = false
     private var hasLoaded = false
@@ -125,6 +125,45 @@ object DownloadsRepository {
         return DownloadsPlatformDownloader.partialPlaybackUrl(item.id)
     }
 
+    private fun orderKeyOf(downloadId: String): DownloadOrderKey? {
+        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return null
+        val season = item.seasonNumber ?: return null
+        val episode = item.episodeNumber ?: return null
+        return DownloadOrderKey(showKey = item.parentMetaId.trim(), season = season, episode = episode)
+    }
+
+    /**
+     * iOS only, from willResignActive: fill the free slots with the next waiting files, lowest
+     * episode first, so they are on the background session before the app is in the background.
+     * Only [BACKGROUND_SUBMIT_CAP] run at a time; the rest start as earlier ones finish.
+     */
+    fun submitWaitingForBackground() {
+        if (!hasLoaded) return
+        startQueue.maxActive = BACKGROUND_SUBMIT_CAP
+        applyStarts(startQueue.promote(DownloadThermalGate.blocksNextFile()))
+    }
+
+    /** Back in the app: new starts wait for one of the two slots again. Running files keep going. */
+    fun restoreForegroundCap() {
+        startQueue.maxActive = MAX_ACTIVE_DOWNLOADS
+    }
+
+    /** Episode time the download of [downloadId] has reached, for the player's buffer bar. */
+    fun partialDownloadReachMs(downloadId: String, durationMs: Long): Long? {
+        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return null
+        val onDisk = if (item.status == DownloadStatus.Completed) {
+            null
+        } else {
+            DownloadsPlatformDownloader.playableBytesOnDisk(item.fileName)
+        }
+        return estimatePartialDownloadReachMs(
+            downloadedBytes = onDisk?.coerceAtMost(item.downloadedBytes) ?: item.downloadedBytes,
+            totalBytes = item.totalBytes,
+            durationMs = durationMs,
+            complete = item.status == DownloadStatus.Completed,
+        )
+    }
+
     fun onPartialPlaybackClosed(downloadId: String) {
         ensureLoaded()
         val renamedUri = DownloadsPlatformDownloader.finishPartialPlayback(downloadId) ?: return
@@ -186,7 +225,6 @@ object DownloadsRepository {
         }
 
         val downloadId = nextDownloadId(now)
-        val toStart = startQueue.request(downloadId, DownloadThermalGate.blocksNextFile())
         val fileName = buildFileName(
             title = title,
             seasonNumber = seasonNumber,
@@ -222,7 +260,9 @@ object DownloadsRepository {
             sourceSubtitles = stream.externalSubtitles,
             localFileUri = null,
             fileName = fileName,
-            status = if (downloadId in toStart) DownloadStatus.Downloading else DownloadStatus.Queued,
+            // Queued until the line says it may start: the line orders episodes by number, which
+            // needs this row to be in the list first.
+            status = DownloadStatus.Queued,
             downloadedBytes = 0L,
             totalBytes = null,
             errorMessage = null,
@@ -232,6 +272,7 @@ object DownloadsRepository {
 
         currentItems.add(0, item)
         publish(currentItems)
+        val toStart = startQueue.request(downloadId, DownloadThermalGate.blocksNextFile())
         persistStatus()
         applyStarts(toStart)
 
@@ -324,6 +365,102 @@ object DownloadsRepository {
         applyStarts(toStart)
     }
 
+    /**
+     * iOS put a file in place for a task this process did not start (a background relaunch).
+     * Marks the row Completed if the list is loaded; otherwise the next load does it.
+     */
+    internal fun markFinishedInBackground(downloadId: String, localFileUri: String, totalBytes: Long?) {
+        if (!hasLoaded) return
+        activeHandles.remove(downloadId)
+        partialPrefixCache.remove(downloadId)
+        mutateItem(downloadId) { current ->
+            if (current.status == DownloadStatus.Completed) return@mutateItem current
+            current.copy(
+                status = DownloadStatus.Completed,
+                localFileUri = localFileUri,
+                downloadedBytes = totalBytes?.takeIf { it > 0L } ?: current.downloadedBytes,
+                totalBytes = totalBytes?.takeIf { it > 0L } ?: current.totalBytes,
+                earlyPlayReady = false,
+                playsWhenDownloadFinishes = false,
+                errorMessage = null,
+                updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+            )
+        }
+    }
+
+    fun cancelDownloads(downloadIds: List<String>) {
+        downloadIds.forEach(::cancelDownload)
+    }
+
+    /**
+     * Pause season. Waiting episodes are taken out of the line first; pausing a running one used
+     * to free its slot, which started the next waiting episode, which was then paused in turn,
+     * cascading through the season and leaving every episode Paused in no useful order.
+     */
+    fun pauseDownloads(downloadIds: List<String>) {
+        ensureLoaded()
+        val ids = downloadIds.toSet()
+        val now = DownloadsClock.nowEpochMs()
+        val waitingIds = _uiState.value.items
+            .filter { it.id in ids && it.status == DownloadStatus.Queued }
+            .map { it.id }
+            .toSet()
+        if (waitingIds.isNotEmpty()) {
+            waitingIds.forEach(startQueue::discard)
+            publish(
+                _uiState.value.items.map { item ->
+                    if (item.id in waitingIds) item.copy(status = DownloadStatus.Paused, updatedAtEpochMs = now) else item
+                },
+            )
+            persistStatus()
+        }
+        downloadIds.forEach(::pauseDownload)
+    }
+
+    /**
+     * Resume season. Episodes that already have bytes on disk (were running, or paused part way)
+     * go first, lowest episode first; then the ones that never started, lowest first. Two run.
+     * It used to resume them one by one walking the list backwards; every resume with a free slot
+     * started immediately, so the last (newest) episodes took the two slots.
+     */
+    fun resumeDownloads(downloadIds: List<String>) {
+        ensureLoaded()
+        val ids = downloadIds.toSet()
+        val resumable = _uiState.value.items.filter {
+            it.id in ids && (it.status == DownloadStatus.Paused || it.status == DownloadStatus.Failed)
+        }
+        if (resumable.isEmpty()) return
+        val ordered = resumable.sortedWith(
+            compareBy<DownloadItem> { if (it.hasBytesOnDisk()) 0 else 1 }
+                .thenBy { it.seasonNumber ?: Int.MAX_VALUE }
+                .thenBy { it.episodeNumber ?: Int.MAX_VALUE }
+                .thenBy { it.createdAtEpochMs },
+        )
+        val orderedIds = ordered.map { it.id }
+        val now = DownloadsClock.nowEpochMs()
+        val idSet = orderedIds.toSet()
+        publish(
+            _uiState.value.items.map { item ->
+                if (item.id in idSet) {
+                    item.copy(
+                        status = DownloadStatus.Queued,
+                        errorMessage = null,
+                        localFileUri = null,
+                        updatedAtEpochMs = now,
+                    )
+                } else {
+                    item
+                }
+            },
+        )
+        val toStart = startQueue.requestAllAtFront(orderedIds, DownloadThermalGate.blocksNextFile())
+        persistStatus()
+        applyStarts(toStart)
+    }
+
+    private fun DownloadItem.hasBytesOnDisk(): Boolean =
+        downloadedBytes > 0L || (DownloadsPlatformDownloader.playableBytesOnDisk(fileName) ?: 0L) > 0L
+
     fun cancelDownload(downloadId: String) {
         ensureLoaded()
         val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
@@ -379,6 +516,10 @@ object DownloadsRepository {
             onProgress = onProgress@{ downloadedBytes, totalBytes ->
                 val current = _uiState.value.items.firstOrNull { it.id == item.id } ?: return@onProgress
                 if (current.status != DownloadStatus.Downloading) return@onProgress
+                if (outOfSpaceWhileDownloading(current)) {
+                    failForSpace(current.id)
+                    return@onProgress
+                }
                 val safeBytes = downloadedBytes.coerceAtLeast(0L)
                 val resolvedTotal = totalBytes?.takeIf { it > 0L } ?: current.totalBytes
                 val decision = decideEarlyPlay(current.id, current.fileName, safeBytes)
@@ -598,7 +739,7 @@ object DownloadsRepository {
         val accepted = mutableListOf<String>()
         val deferred = mutableListOf<String>()
         startedIds.forEach { id ->
-            if (id !in activeHandles && activeHandles.size + accepted.size >= MAX_ACTIVE_DOWNLOADS) {
+            if (id !in activeHandles && activeHandles.size + accepted.size >= startQueue.maxActive) {
                 startQueue.demoteToFront(id)
                 deferred.add(id)
             } else {
@@ -632,8 +773,75 @@ object DownloadsRepository {
         accepted.forEach { id ->
             if (id in activeHandles) return@forEach
             val item = _uiState.value.items.firstOrNull { it.id == id } ?: return@forEach
-            if (item.status == DownloadStatus.Downloading) startDownload(item)
+            if (item.status != DownloadStatus.Downloading) return@forEach
+            if (lacksSpaceFor(item.remainingBytes(), DownloadDiskInfo.volumeSpace())) {
+                failForSpace(id)
+            } else {
+                startDownload(item)
+            }
         }
+    }
+
+    private fun DownloadItem.remainingBytes(): Long? =
+        totalBytes?.takeIf { it > 0L }?.let { (it - downloadedBytes).coerceAtLeast(0L) }
+
+    private val lastSpaceCheckAt = mutableMapOf<String, Long>()
+
+    /** Checked every so often while a file downloads, so it stops before the disk is full. */
+    private fun outOfSpaceWhileDownloading(item: DownloadItem): Boolean {
+        val now = DownloadsClock.nowEpochMs()
+        val last = lastSpaceCheckAt[item.id] ?: 0L
+        if (now - last < SPACE_CHECK_INTERVAL_MS) return false
+        lastSpaceCheckAt[item.id] = now
+        return lacksSpaceFor(null, DownloadDiskInfo.volumeSpace())
+    }
+
+    /**
+     * Not enough free space: the download stops with what it has (Failed, "Not enough space")
+     * instead of filling the disk. Its slot goes to the next one, which then hits the same check,
+     * so the waiting episodes stop too. Retry continues from the bytes on disk.
+     */
+    private fun failForSpace(downloadId: String) {
+        activeHandles.remove(downloadId)?.cancel()
+        lastSpaceCheckAt.remove(downloadId)
+        val message = runBlocking { getString(Res.string.downloads_not_enough_space) }
+        mutateItem(downloadId) { current ->
+            current.copy(
+                status = DownloadStatus.Failed,
+                errorMessage = message,
+                updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+            )
+        }
+        val failed = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
+        DownloadsPlatformDownloader.updatePartialTarget(
+            downloadId = downloadId,
+            fileName = failed.fileName,
+            totalBytes = failed.totalBytes,
+            downloadRunning = false,
+        )
+    }
+
+    /** Storage view: what is on disk, per title and season, and leftovers no download owns. */
+    internal fun storageSummary(): DownloadStorageSummary {
+        ensureLoaded()
+        val items = _uiState.value.items
+        val mine = items.map { it.fileName }.toSet()
+        val others = storedFileNames(DownloadDiskInfo.allProfilePayloads()) - mine
+        return summarizeDownloadStorage(
+            items = items,
+            files = DownloadDiskInfo.listDownloadFiles(),
+            otherProfileFileNames = others,
+            volume = DownloadDiskInfo.volumeSpace(),
+        )
+    }
+
+    /** Deletes leftover files; re-checks each against the current rows first. */
+    internal fun clearOrphans(orphans: List<DiskFile>) {
+        val owned = _uiState.value.items.map { it.fileName } +
+            storedFileNames(DownloadDiskInfo.allProfilePayloads())
+        orphans
+            .filter { file -> owned.none { ownsDiskFile(it, file.name) } }
+            .forEach { DownloadDiskInfo.deleteDownloadFile(it.name) }
     }
 
     private fun nextDownloadId(nowEpochMs: Long): String {
@@ -789,6 +997,8 @@ private fun buildLogicalKey(
 } else {
     "${parentMetaId.trim()}|movie"
 }
+
+private const val SPACE_CHECK_INTERVAL_MS = 10_000L
 
 private fun buildFileName(
     title: String,

@@ -106,6 +106,7 @@ import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadSubtitles
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.isLoopbackPartialPlaybackUrl
+import com.nuvio.app.features.downloads.partialPlaybackKeepsResume
 import com.nuvio.app.features.home.HomeCatalogSection
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.HomeRepository
@@ -937,10 +938,18 @@ internal fun MainAppContent(
 
         fun openDownloadedItem(item: DownloadItem) {
             val sourceUrl = DownloadsRepository.playableLocalFileUri(item) ?: return
+            val partial = isLoopbackPartialPlaybackUrl(sourceUrl)
             val resumeEntry = item.videoId
                 .takeIf { it.isNotBlank() }
                 ?.let(WatchProgressRepository::progressForVideo)
                 ?.takeIf { it.isResumable }
+                ?.takeIf { entry ->
+                    !partial || partialPlaybackKeepsResume(
+                        resumeFraction = entry.progressFraction,
+                        downloadedBytes = item.downloadedBytes,
+                        totalBytes = item.totalBytes,
+                    )
+                }
 
             val playerLaunch = PlayerLaunch(
                 profileId = activePlaybackProfileId,
@@ -968,7 +977,7 @@ internal fun MainAppContent(
                 initialPositionMs = resumeEntry?.lastPositionMs?.takeIf { it > 0L } ?: 0L,
                 initialProgressFraction = resumeEntry?.progressFraction?.takeIf { it > 0f },
             )
-            if (playerSettingsUiState.externalPlayerEnabled && !isLoopbackPartialPlaybackUrl(sourceUrl)) {
+            if (playerSettingsUiState.externalPlayerEnabled && !partial) {
                 coroutineScope.launch { openExternalPlayback(playerLaunch) }
                 return
             }
@@ -1824,6 +1833,12 @@ internal fun MainAppContent(
                 }
                 entry<DownloadsSettingsRoute> { route ->
                     DownloadsSettingsDestination(
+                        route = route,
+                        navController = navController,
+                    )
+                }
+                entry<DownloadsStorageRoute> { route ->
+                    DownloadsStorageDestination(
                         route = route,
                         navController = navController,
                     )

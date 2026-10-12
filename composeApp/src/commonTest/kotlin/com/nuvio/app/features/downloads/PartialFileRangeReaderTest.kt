@@ -59,7 +59,7 @@ class PartialFileRangeReaderTest {
         )
         assertEquals(416, suffix.status)
         assertFalse(suffix.includeBody)
-        assertEquals("0", header(suffix, "Content-Length"))
+        assertEquals(null, header(suffix, "Content-Length"))
         assertEquals("bytes */$total", header(suffix, "Content-Range"))
         assertEquals(0L, suffix.bodyStart)
 
@@ -74,7 +74,7 @@ class PartialFileRangeReaderTest {
         )
         assertEquals(416, bounded.status)
         assertFalse(bounded.includeBody)
-        assertEquals("0", header(bounded, "Content-Length"))
+        assertEquals(null, header(bounded, "Content-Length"))
         assertEquals("bytes */$total", header(bounded, "Content-Range"))
     }
 
@@ -120,6 +120,7 @@ class PartialFileRangeReaderTest {
         val job = launch {
             reader.readBody(start = 90L, endInclusive = 109L) { chunk ->
                 collected.addAll(chunk.toList())
+                true
             }
         }
         yield()
@@ -134,6 +135,20 @@ class PartialFileRangeReaderTest {
         assertEquals((90..109).map { it.toByte() }, collected)
         assertEquals(120, source.writeCursor)
         assertEquals(listOf(90L, 100L), source.readOffsets)
+    }
+
+    @Test
+    fun readerStopsWhenTheClientHasGone() = runTest {
+        val source = FakeGrowingSource(advertisedTotal = 1_000L)
+        source.append(ByteArray(1_000) { it.toByte() })
+        val reader = PartialFileRangeReader(source)
+        var chunks = 0
+        reader.readBody(start = 0L, endInclusive = null) {
+            chunks += 1
+            false
+        }
+        assertEquals(1, chunks)
+        assertEquals(listOf(0L), source.readOffsets)
     }
 
     private fun header(head: RangeResponseHead, name: String): String? =

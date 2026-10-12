@@ -30,6 +30,7 @@ import platform.Foundation.NSURLSessionTaskStateCanceling
 import platform.Foundation.NSURLSessionTaskStateCompleted
 import platform.Foundation.NSURLSessionTaskStateSuspended
 import platform.Foundation.dataWithContentsOfFile
+import platform.Foundation.dateWithTimeIntervalSinceNow
 import platform.Foundation.writeToFile
 import platform.Foundation.NSOperationQueue
 import platform.Foundation.NSURL
@@ -39,6 +40,7 @@ import platform.Foundation.NSURLSessionConfiguration
 import platform.Foundation.NSURLSessionDownloadDelegateProtocol
 import platform.Foundation.NSURLSessionDownloadTask
 import platform.Foundation.NSURLSessionTask
+import platform.Foundation.NSUserDefaults
 import platform.Foundation.setHTTPMethod
 import platform.Foundation.setValue
 import platform.Foundation.timeIntervalSince1970
@@ -98,6 +100,11 @@ fun handleDownloadsBackgroundEvents(
     IosBackgroundDownloadCoordinator.ensureSessionCreated()
 }
 
+/** willResignActive: move every transfer onto the background session while still in the foreground. */
+fun prepareDownloadsForAppBackground() {
+    IosForegroundDownloads.prepareForBackground()
+}
+
 fun pauseDownloadsForAppBackground() {
     IosForegroundDownloads.onAppEnteredBackground()
 }
@@ -125,6 +132,7 @@ internal actual object DownloadsPlatformDownloader {
     }
 
     actual fun restoreItem(item: DownloadItem): DownloadItem {
+        iosFinishedFileOrNull(item)?.let { return it }
         val partLength = iosPartFileLength(item.fileName)
         val bytes = resumedByteCount(item.downloadedBytes, partLength)
         val kept = if (bytes == item.downloadedBytes) item else item.copy(downloadedBytes = bytes)
@@ -234,6 +242,9 @@ internal actual object DownloadsPlatformDownloader {
         )
     }
 
+    actual fun playableBytesOnDisk(destinationFileName: String): Long? =
+        destinationFileName.takeIf { it.isNotBlank() }?.let(::iosPartialBytesOnDisk)
+
     actual fun partialPlaybackUrl(downloadId: String): String? = IosPartialPlaybackServer.url(downloadId)
 
     actual fun finishPartialPlayback(downloadId: String): String? = finishIosPartialPlayback(downloadId)
@@ -319,6 +330,9 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
             discretionary = policy.discretionary
             allowsCellularAccess = policy.allowsCellularAccess
             sessionSendsLaunchEvents = policy.sendsLaunchEvents
+            // Queued files are all submitted before the app leaves the foreground; the session
+            // itself keeps the two-at-a-time limit and starts the next one while locked.
+            HTTPMaximumConnectionsPerHost = MAX_ACTIVE_DOWNLOADS.toLong()
         }
         val created = NSURLSession.sessionWithConfiguration(
             configuration = configuration,
@@ -405,6 +419,12 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         val downloadId = request.item.id
         if (IosTransferControl.isSuppressed(downloadId)) return
         if (adoptInProcess(downloadId, callbacks)) return
+        // Finished while the app was relaunched in the background: the file is already in place.
+        iosFinishedFileOrNull(request.item)?.let { finished ->
+            IosBackgroundTaskFiles.forget(downloadId)
+            callbacks.onSuccess(finished.localFileUri.orEmpty(), finished.totalBytes)
+            return
+        }
         val partLength = iosPartFileLength(request.destinationFileName)
         val resumeBlobExists = iosResumeBlobExists(request.destinationFileName)
         val live = findLiveDownloadTask(tasks, downloadId, request.sourceUrl)
@@ -453,6 +473,7 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         if (task.taskDescription.isNullOrBlank()) {
             task.taskDescription = downloadId
         }
+        IosBackgroundTaskFiles.remember(downloadId, request.destinationFileName)
         val existing = activeDownloads[downloadId]
         if (existing != null) {
             existing.callbacks = callbacks
@@ -554,6 +575,12 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
 
     fun activeDownloadIds(): List<String> = activeDownloads.keys.toList()
 
+    /** Bytes the live background task for [downloadId] has fetched, or null when it has none. */
+    fun bytesReceivedByTask(downloadId: String): Long? {
+        if (activeDownloads[downloadId]?.deliberatelyCancelled != false) return null
+        return tasksByDownloadId[downloadId]?.countOfBytesReceived
+    }
+
     fun peek(downloadId: String): Pair<DownloadPlatformRequest, DownloadCallbacks?>? {
         val active = activeDownloads[downloadId] ?: return null
         return active.request to active.callbacks
@@ -588,6 +615,7 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         request: DownloadPlatformRequest,
         rangeStart: Long?,
         callbacks: DownloadCallbacks?,
+        notBeforeSeconds: Long = 0L,
     ): Boolean {
         val existing = activeDownloads[downloadId]
         if (existing != null) {
@@ -596,7 +624,7 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         }
 
         pendingPauses[downloadId]?.let { pending ->
-            pending.deferredStart = { startOrResume(downloadId, request, rangeStart, callbacks) }
+            pending.deferredStart = { startOrResume(downloadId, request, rangeStart, callbacks, notBeforeSeconds) }
             return true
         }
         if (IosTransferControl.isSuppressed(downloadId)) return false
@@ -604,7 +632,7 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
 
         var startedTask = false
         try {
-            startedTask = startTask(downloadId, request, rangeStart, callbacks)
+            startedTask = startTask(downloadId, request, rangeStart, callbacks, notBeforeSeconds)
         } finally {
             if (!startedTask) {
                 activeDownloads.remove(downloadId)
@@ -620,12 +648,15 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         request: DownloadPlatformRequest,
         rangeStart: Long?,
         callbacks: DownloadCallbacks?,
+        notBeforeSeconds: Long = 0L,
     ): Boolean {
         if (rangeStart == null) {
             val resumeData = takeResumeData(request.destinationFileName)
             if (resumeData != null) {
                 val task = ensureSessionCreated().downloadTaskWithResumeData(resumeData)
                 task.taskDescription = downloadId
+                IosBackgroundTaskFiles.remember(downloadId, request.destinationFileName)
+                applyRetryDelay(task, notBeforeSeconds)
                 activeDownloads[downloadId] = ActiveDownload(
                     request = request,
                     taskIdentifier = task.taskIdentifier,
@@ -654,6 +685,8 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
             val nativeRequest = buildRequest(request, rangeStart = resumeFromBytes.takeIf { it > 0L })
             val task = ensureSessionCreated().downloadTaskWithRequest(nativeRequest)
             task.taskDescription = downloadId
+            IosBackgroundTaskFiles.remember(downloadId, request.destinationFileName)
+            applyRetryDelay(task, notBeforeSeconds)
 
             activeDownloads[downloadId] = ActiveDownload(
                 request = request,
@@ -674,7 +707,46 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         }
     }
 
+    /** A retry waits out its backoff inside the session, which also works while the app is suspended. */
+    private fun applyRetryDelay(task: NSURLSessionTask, notBeforeSeconds: Long) {
+        if (notBeforeSeconds <= 0L) return
+        task.earliestBeginDate = NSDate.dateWithTimeIntervalSinceNow(notBeforeSeconds.toDouble())
+    }
+
+    /**
+     * A dropped connection, timeout or lost network. Start a new task after the backoff from
+     * the system's resume data, or from `.part` with a Range. Returns false when the retries
+     * are used up or the row no longer wants to download, so the caller marks it Failed.
+     */
+    private fun retryAfterTransientError(
+        downloadId: String,
+        active: ActiveDownload,
+        task: NSURLSessionTask,
+        error: NSError,
+    ): Boolean {
+        if (!IosDownloadRetries.stillWanted(downloadId)) return false
+        val fileName = active.request.destinationFileName
+        val partLength = iosPartFileLength(fileName)
+        val delay = IosDownloadRetries.backgroundRetryDelay(
+            downloadId,
+            partLength + task.countOfBytesReceived.coerceAtLeast(0L),
+        ) ?: return false
+        val resumeData = error.userInfo[NSURLSessionDownloadTaskResumeData] as? NSData
+        if (activeDownloads[downloadId] === active) activeDownloads.remove(downloadId)
+        tasksByDownloadId.remove(downloadId)
+        IosWriterOwnership.release(downloadId, DownloadWriterKind.Background)
+        if (resumeData != null) writeResumeData(fileName, resumeData)
+        return startOrResume(
+            downloadId = downloadId,
+            request = active.request,
+            rangeStart = if (resumeData != null) null else partLength,
+            callbacks = active.callbacks,
+            notBeforeSeconds = delay,
+        )
+    }
+
     fun cancelDownload(downloadId: String) {
+        IosBackgroundTaskFiles.forget(downloadId)
         val active = activeDownloads.remove(downloadId)
         active?.deliberatelyCancelled = true
         if (active != null) {
@@ -751,6 +823,12 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
     ) {
         val downloadId = downloadTask.taskDescription ?: return
         val active = activeFor(downloadTask)?.second
+        if (active == null && activeDownloads[downloadId] == null) {
+            // iOS relaunched the app in the background (or after it was killed) to deliver this
+            // file, so nothing in this process tracks the task. It used to be deleted here.
+            finishUntrackedDownload(downloadId, downloadTask, didFinishDownloadingToURL)
+            return
+        }
         if (active == null || active.deliberatelyCancelled) {
             runCatching { NSFileManager.defaultManager.removeItemAtPath(didFinishDownloadingToURL.path.orEmpty(), null) }
             return
@@ -832,6 +910,8 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
             if (scopedStarted) base.scopedUrl?.stopAccessingSecurityScopedResource()
         }
         if (readyToFinalize) {
+            IosDownloadRetries.forget(downloadId)
+            IosBackgroundTaskFiles.forget(downloadId)
             finalizeIosPartialFile(downloadId, request.destinationFileName, finalizeCallbacks)
         }
     }
@@ -858,6 +938,13 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         if (didCompleteWithError == null) return
         val isCancelled = didCompleteWithError.domain == NSURLErrorDomain &&
             didCompleteWithError.code == NSURLErrorCancelled
+        if (
+            !isCancelled &&
+            DownloadRetryPolicy.isTransient(didCompleteWithError.domain, didCompleteWithError.code) &&
+            retryAfterTransientError(downloadId, active, task, didCompleteWithError)
+        ) {
+            return
+        }
         if (active.resumedFromData && !isCancelled) {
             val partLength = iosPartFileLength(active.request.destinationFileName)
             val action = chooseIosResume(
@@ -891,6 +978,7 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         (didCompleteWithError.userInfo[NSURLSessionDownloadTaskResumeData] as? NSData)?.let { data ->
             writeResumeData(active.request.destinationFileName, data)
         }
+        IosDownloadRetries.forget(downloadId)
         finishWithFailure(downloadId, didCompleteWithError.localizedDescription)
     }
 
@@ -899,7 +987,59 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         backgroundSessionCompletionHandlers.remove(identifier)?.invoke()
     }
 
+    /**
+     * Moves a file the session finished for a task this process never started into place:
+     * appended onto `{name}.part` from the task's Range, then renamed to `{name}`. The file name
+     * comes from [IosBackgroundTaskFiles], written when the task was created. The downloads list
+     * marks the row Completed now if it is loaded, otherwise when it next loads ([restoreItem]).
+     */
+    private fun finishUntrackedDownload(downloadId: String, task: NSURLSessionDownloadTask, location: NSURL) {
+        val tempPath = location.path.orEmpty()
+        val fileName = IosBackgroundTaskFiles.fileName(downloadId)
+        val statusCode = (task.response as? NSHTTPURLResponse)?.statusCode?.toInt() ?: 200
+        if (fileName == null || statusCode !in 200..299) {
+            removePathIfExists(tempPath)
+            return
+        }
+        val base = resolveDownloadsBaseDirectory()
+        val scopedStarted = base.scopedUrl?.startAccessingSecurityScopedResource() ?: false
+        var appended = false
+        try {
+            val partPath = "${base.path}/$fileName.part"
+            val disposition = partialPrefixDisposition(
+                statusCode = statusCode,
+                requestedRange = resumeOffset(task),
+                prefixLength = fileSizeOrNull(partPath) ?: 0L,
+            )
+            if (disposition == PartialPrefixDisposition.Keep) {
+                removePathIfExists(tempPath)
+                return
+            }
+            if (disposition == PartialPrefixDisposition.Replace) removePathIfExists(partPath)
+            appended = appendFile(
+                fromPath = tempPath,
+                toPath = partPath,
+                append = disposition == PartialPrefixDisposition.Append,
+            )
+        } finally {
+            if (scopedStarted) base.scopedUrl?.stopAccessingSecurityScopedResource()
+        }
+        if (!appended) return
+        IosBackgroundTaskFiles.forget(downloadId)
+        IosDownloadRetries.forget(downloadId)
+        finalizeIosPartialFile(
+            downloadId = downloadId,
+            fileName = fileName,
+            callbacks = DownloadCallbacks(
+                onProgress = { _, _ -> },
+                onSuccess = { uri, size -> DownloadsRepository.markFinishedInBackground(downloadId, uri, size) },
+                onFailure = { _ -> },
+            ),
+        )
+    }
+
     private fun finishWithFailure(downloadId: String, message: String) {
+        IosBackgroundTaskFiles.forget(downloadId)
         val callbacks = activeDownloads.remove(downloadId)?.callbacks
         tasksByDownloadId.remove(downloadId)
         IosWriterOwnership.release(downloadId, DownloadWriterKind.Background)
@@ -1081,4 +1221,51 @@ private fun takeResumeData(fileName: String): NSData? {
     val data = NSData.dataWithContentsOfFile(path)
     removePathIfExists(path)
     return data?.takeIf { it.length > 0uL }
+}
+
+/**
+ * Download id to destination file name for every background task, kept in user defaults so a
+ * process that iOS relaunched in the background can still put a finished file in place.
+ */
+internal object IosBackgroundTaskFiles {
+    private const val KEY_PREFIX = "nuvio.downloads.bg_task_file."
+
+    fun remember(downloadId: String, fileName: String) {
+        if (downloadId.isBlank() || fileName.isBlank()) return
+        NSUserDefaults.standardUserDefaults.setObject(fileName, forKey = KEY_PREFIX + downloadId)
+    }
+
+    fun fileName(downloadId: String): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(KEY_PREFIX + downloadId)?.takeIf { it.isNotBlank() }
+
+    fun forget(downloadId: String) {
+        NSUserDefaults.standardUserDefaults.removeObjectForKey(KEY_PREFIX + downloadId)
+    }
+}
+
+/**
+ * A row that is not Completed but whose finished `{name}` exists with no `{name}.part` left:
+ * only the final rename creates that file, so the download finished (in the background, while
+ * this process was not tracking it). Returns the row as Completed, or null.
+ */
+@OptIn(ExperimentalForeignApi::class)
+internal fun iosFinishedFileOrNull(item: DownloadItem): DownloadItem? {
+    if (item.status == DownloadStatus.Completed || item.fileName.isBlank()) return null
+    return resolveDownloadsBaseDirectory().withAccess { directory ->
+        val destination = "$directory/${item.fileName}"
+        val manager = NSFileManager.defaultManager
+        if (!manager.fileExistsAtPath(destination) || manager.fileExistsAtPath("$destination.part")) {
+            return@withAccess null
+        }
+        val size = fileSizeOrNull(destination)?.takeIf { it > 0L } ?: return@withAccess null
+        item.copy(
+            status = DownloadStatus.Completed,
+            localFileUri = NSURL.fileURLWithPath(destination).absoluteString ?: "file://$destination",
+            downloadedBytes = size,
+            totalBytes = size,
+            errorMessage = null,
+            earlyPlayReady = false,
+            playsWhenDownloadFinishes = false,
+        )
+    }
 }

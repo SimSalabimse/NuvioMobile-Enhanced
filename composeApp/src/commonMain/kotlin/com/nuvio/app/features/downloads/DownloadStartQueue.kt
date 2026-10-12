@@ -3,6 +3,15 @@ package com.nuvio.app.features.downloads
 /** At most two transfers run. A third episode waits. */
 internal const val MAX_ACTIVE_DOWNLOADS = 2
 
+/**
+ * Cap while iOS moves transfers to the background session before suspension.
+ * It used to be 64: every waiting file was submitted at once. Debrid links of one season sit on
+ * different hosts, so the session's two-per-host limit did not hold them back and the system
+ * started them in its own order (E7 and E8 before E3), many at once. Only the next two in
+ * episode order are submitted now; a finished file starts the next one from its completion.
+ */
+internal const val BACKGROUND_SUBMIT_CAP = MAX_ACTIVE_DOWNLOADS
+
 /** Progress snapshots of the downloads JSON, not a cap on the transfer. */
 internal const val DOWNLOAD_PROGRESS_PERSIST_INTERVAL_MS = 5_000L
 
@@ -46,12 +55,25 @@ internal class DownloadPersistGate(
     }
 }
 
+/** Where an episode sits in its show, so waiting episodes of one show start lowest first. */
+internal data class DownloadOrderKey(
+    val showKey: String,
+    val season: Int,
+    val episode: Int,
+) : Comparable<DownloadOrderKey> {
+    override fun compareTo(other: DownloadOrderKey): Int =
+        compareValuesBy(this, other, { it.season }, { it.episode })
+}
+
 /**
- * FIFO of download ids. A critical thermal state refuses the next start and leaves
- * whatever is already active running at full speed.
+ * Waiting line of download ids. Episodes of the same show wait in ascending season/episode
+ * order whatever order they were queued in; other titles keep the order they were queued.
+ * A critical thermal state refuses the next start and leaves whatever is already active
+ * running at full speed.
  */
 internal class DownloadStartQueue(
-    private val maxActive: Int = MAX_ACTIVE_DOWNLOADS,
+    var maxActive: Int = MAX_ACTIVE_DOWNLOADS,
+    private val orderKeyOf: (String) -> DownloadOrderKey? = { null },
 ) {
     private val active = LinkedHashSet<String>()
     private val waiting = ArrayDeque<String>()
@@ -73,7 +95,20 @@ internal class DownloadStartQueue(
     fun request(id: String, thermalBlocksNextFile: Boolean, atFront: Boolean = false): List<String> {
         active.remove(id)
         waiting.remove(id)
-        if (atFront) waiting.addFirst(id) else waiting.addLast(id)
+        if (atFront) waiting.addFirst(id) else insertInOrder(id)
+        return promote(thermalBlocksNextFile)
+    }
+
+    /**
+     * Put [idsInOrder] at the front of the line in exactly that order, ahead of everything
+     * already waiting, then fill the free slots once. Used by Resume season.
+     */
+    fun requestAllAtFront(idsInOrder: List<String>, thermalBlocksNextFile: Boolean): List<String> {
+        idsInOrder.forEach { id ->
+            active.remove(id)
+            waiting.remove(id)
+        }
+        idsInOrder.asReversed().forEach { id -> waiting.addFirst(id) }
         return promote(thermalBlocksNextFile)
     }
 
@@ -120,8 +155,22 @@ internal class DownloadStartQueue(
         clear()
         activeIdsInOrder.forEach { id -> active.add(id) }
         waitingIdsInOrder.forEach { id ->
-            if (id !in active && id !in waiting) waiting.addLast(id)
+            if (id !in active && id !in waiting) insertInOrder(id)
         }
         return promote(thermalBlocksNextFile)
+    }
+
+    /** Before the first waiting episode of the same show that comes later; otherwise at the end. */
+    private fun insertInOrder(id: String) {
+        val key = orderKeyOf(id)
+        if (key == null) {
+            waiting.addLast(id)
+            return
+        }
+        val index = waiting.indexOfFirst { other ->
+            val otherKey = orderKeyOf(other)
+            otherKey != null && otherKey.showKey == key.showKey && otherKey > key
+        }
+        if (index < 0) waiting.addLast(id) else waiting.add(index, id)
     }
 }

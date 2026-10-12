@@ -1591,6 +1591,11 @@ fun MetaDetailsScreen(
                                 onDownload = onEpisodeDownloadClick?.let { download ->
                                     { download(selectedEpisode) }
                                 },
+                                downloadContentKey = com.nuvio.app.features.downloads.downloadLogicalContentKey(
+                                    meta.id,
+                                    selectedEpisode.season,
+                                    selectedEpisode.episode,
+                                ),
                                 userRating = episodeUserRating,
                                 onRate = if (canRateEpisode && episodeRatingTarget != null) {
                                     {

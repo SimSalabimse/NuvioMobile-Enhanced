@@ -195,3 +195,97 @@ internal suspend fun probeSeasonSizes(
         }
     }
 }
+
+/** What the Downloads list already holds for one episode of the sheet. */
+internal enum class SeasonExistingDownload {
+    Downloaded,
+    InProgress,
+}
+
+/**
+ * [DownloadsRepository.enqueueFromStream] replaces an existing row for the same episode, which deletes
+ * the finished file or the partial file. The season sheet must not do that to an episode the user
+ * already has, so a finished, running, queued or paused download is left out. A failed one can be queued again.
+ */
+internal fun seasonExistingDownload(status: DownloadStatus?): SeasonExistingDownload? = when (status) {
+    DownloadStatus.Completed -> SeasonExistingDownload.Downloaded
+    DownloadStatus.Downloading,
+    DownloadStatus.Queued,
+    DownloadStatus.Paused,
+    -> SeasonExistingDownload.InProgress
+    DownloadStatus.Failed,
+    null,
+    -> null
+}
+
+/** The auto-play stream settings the player uses, read once for the sheet. */
+internal data class SeasonAutoPickSettings(
+    val mode: com.nuvio.app.features.streams.StreamAutoPlayMode,
+    val regexPattern: String,
+    val source: com.nuvio.app.features.streams.StreamAutoPlaySource,
+    val selectedAddons: Set<String>,
+    val selectedPlugins: Set<String>,
+    val preferredBingeGroup: String?,
+    val timeoutSeconds: Int,
+    val debridEnabled: Boolean,
+    val activeResolverProviderId: String?,
+)
+
+/** True when the player's auto-play would pick a stream on its own for these settings. */
+internal fun SeasonAutoPickSettings.picksAutomatically(): Boolean =
+    preferredBingeGroup != null ||
+        when (mode) {
+            com.nuvio.app.features.streams.StreamAutoPlayMode.MANUAL -> false
+            com.nuvio.app.features.streams.StreamAutoPlayMode.FIRST_STREAM -> true
+            com.nuvio.app.features.streams.StreamAutoPlayMode.REGEX_MATCH ->
+                com.nuvio.app.features.streams.StreamAutoPlayPolicy.isRegexSelectionConfigured(regexPattern)
+        }
+
+/**
+ * The stream the player's auto-play would choose, limited to streams the season sheet can download.
+ * Same selector, same order, same addon/plugin/regex/binge-group rules.
+ */
+internal fun autoPickSeasonStream(
+    streams: List<StreamItem>,
+    settings: SeasonAutoPickSettings,
+    installedAddonNames: Set<String>,
+): StreamItem? {
+    if (!settings.picksAutomatically()) return null
+    val candidates = streams.filter { it.isSeasonDownloadCandidate() }
+    if (candidates.isEmpty()) return null
+    val bingeGroup = settings.preferredBingeGroup
+    return com.nuvio.app.features.streams.StreamAutoPlaySelector.selectAutoPlayStream(
+        streams = candidates,
+        mode = if (settings.mode == com.nuvio.app.features.streams.StreamAutoPlayMode.MANUAL) {
+            com.nuvio.app.features.streams.StreamAutoPlayMode.FIRST_STREAM
+        } else {
+            settings.mode
+        },
+        regexPattern = settings.regexPattern,
+        source = settings.source,
+        installedAddonNames = installedAddonNames,
+        selectedAddons = settings.selectedAddons,
+        selectedPlugins = settings.selectedPlugins,
+        preferredBingeGroup = bingeGroup,
+        preferBingeGroupInSelection = bingeGroup != null,
+        bingeGroupOnly = settings.mode == com.nuvio.app.features.streams.StreamAutoPlayMode.MANUAL,
+        debridEnabled = settings.debridEnabled,
+        activeResolverProviderId = settings.activeResolverProviderId,
+    )
+}
+
+/**
+ * When the auto-pick may decide on the sources answered so far. Mirrors the stream screen:
+ * 0 s decides on the first answer that matches, unlimited waits for every source,
+ * otherwise the timeout or the last source, whichever comes first.
+ */
+internal fun seasonAutoPickMayDecide(
+    timeoutSeconds: Int,
+    timeoutElapsed: Boolean,
+    allSourcesAnswered: Boolean,
+): Boolean {
+    if (allSourcesAnswered) return true
+    if (timeoutSeconds == Int.MAX_VALUE) return false
+    if (timeoutSeconds <= 0) return true
+    return timeoutElapsed
+}

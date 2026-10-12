@@ -1,5 +1,7 @@
 package com.nuvio.app.features.player
 
+import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.partialPlaybackDownloadId
 import com.nuvio.app.features.servers.ServerItemRef
 import com.nuvio.app.features.servers.ServerStreams
 import com.nuvio.app.features.tmdb.TmdbService
@@ -43,7 +45,12 @@ internal fun PlayerScreenRuntime.updatePlaybackSnapshot(
         snapshot
     }
     playbackClock.positionMs = incoming.positionMs
-    playbackClock.bufferedPositionMs = incoming.bufferedPositionMs
+    // The player's buffered end is only its read-ahead cache (mpv: at most demuxer-max-bytes past the
+    // playhead). For an in-progress download the bar follows how far the file on disk reaches.
+    val downloadReachMs = activeSourceUrl
+        ?.let(::partialPlaybackDownloadId)
+        ?.let { downloadId -> DownloadsRepository.partialDownloadReachMs(downloadId, incoming.durationMs) }
+    playbackClock.bufferedPositionMs = maxOf(incoming.bufferedPositionMs, downloadReachMs ?: 0L)
     val status = incoming.copy(positionMs = 0L, bufferedPositionMs = 0L)
     val previousStatus = playbackSnapshot.copy(positionMs = 0L, bufferedPositionMs = 0L)
     if (playbackSnapshotKey != playbackKey || status != previousStatus) {

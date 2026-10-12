@@ -50,11 +50,13 @@ fun EpisodeWatchedActionSheet(
     showPlayManually: Boolean = false,
     onPlayManually: (() -> Unit)? = null,
     onDownload: (() -> Unit)? = null,
+    downloadContentKey: String? = null,
     userRating: Int? = null,
     onRate: (() -> Unit)? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
+    val downloadProgress = rememberDetailsDownloadProgress(downloadContentKey)
 
     NuvioModalBottomSheet(
         onDismissRequest = {
@@ -133,9 +135,11 @@ fun EpisodeWatchedActionSheet(
             if (onDownload != null) {
                 NuvioBottomSheetActionRow(
                     icon = Icons.Rounded.Download,
-                    title = stringResource(Res.string.details_download_action),
+                    // Shows the episode's download state: "Download 42%", Waiting, "Paused 42%",
+                    // failed or downloaded. Paused resumes and failed retries instead of re-queuing.
+                    title = downloadProgressLabel(downloadProgress),
                     onClick = {
-                        onDownload()
+                        if (!com.nuvio.app.features.downloads.resumeDownloadFromMark(downloadProgress)) onDownload()
                         coroutineScope.launch {
                             dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
                         }

@@ -57,6 +57,7 @@ import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.themePalette
 import com.nuvio.app.core.ui.appIconPainter
 import com.nuvio.app.features.downloads.DetailsDownloadProgress
+import com.nuvio.app.features.downloads.resumeDownloadFromMark
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_play
 import nuvio.composeapp.generated.resources.details_download_action
@@ -289,7 +290,9 @@ fun DetailActionButtons(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable(role = Role.Button, onClick = onDownloadClick)
+                        .clickable(role = Role.Button, onClick = {
+                            if (!resumeDownloadFromMark(downloadProgress)) onDownloadClick()
+                        })
                         .height(buttonHeight),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -426,7 +429,7 @@ private fun detailActionSet(
                 DetailSecondaryAction(
                     label = downloadLabel,
                     icon = Icons.Rounded.Download,
-                    onClick = download,
+                    onClick = { if (!resumeDownloadFromMark(downloadProgress)) download() },
                     downloadProgress = downloadProgress,
                 ),
             )
