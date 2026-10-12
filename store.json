@@ -20,6 +20,16 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "0.5.9",
+          "buildVersion": "152",
+          "date": "2026-10-12T00:57:06Z",
+          "localizedDescription": "Unsigned sideload IPA 0.5.9 (152), enhanced 281c8f4f. Sign with SideStore, AltStore, or TrollStore. No Apple certificate is embedded.\n\nNew since 0.5.8 (144):\n- Season download sheet: sources show up as they answer, one scrollable list, auto-picked by your auto-play settings with Change, a per-episode source pick, watched episodes marked, and episodes already in Downloads skipped.\n- Early play: an in-progress download keeps playing after a seek instead of jumping to the end, and the player's buffer bar shows how far the download reaches.\n- iOS background downloads: keep running while locked or in the background, retry dropped connections and timeouts from the bytes on disk, and a file finished during a background relaunch is kept and marked done.\n- Season queue: episodes start lowest first, two at a time. Resume season restarts partly downloaded episodes first, and pause season no longer cascades.\n- Downloads screen: active season card with Pause, Resume and Cancel season (also from Shows, a show's seasons, and long-press). Waiting, paused (tap to resume) and failed (tap to retry) states also show on episode cards, details buttons and the episode sheet.\n- Storage: a card with how much Nuvio, other apps and free space use, sizes per title and season with delete, leftover file cleanup, a low-space warning in the season sheet, and downloads stop with \"Not enough space\" instead of filling the disk.\n- Delete after watching: works with Trakt/MDBList history and after early play.\n- Live Activity: one per season with combined progress, updates about once a second, an estimated bar and countdown that keep moving while the app is suspended, a native-style Dynamic Island layout with a plain blue arrow icon, and no stuck activity after a cancel.\n",
+          "downloadURL": "https://github.com/SimSalabimse/NuvioMobile-Enhanced/releases/download/sideload-0.5.9-281c8f4f/nuvio-0.5.9-full-release.ipa",
+          "size": 71334403,
+          "sha256": "44b75248c3b85c069ef4f27d89b6ca03ea08f147e4907407a179d513154bcc46",
+          "minOSVersion": "16.1"
+        },
+        {
           "version": "0.5.8",
           "buildVersion": "144",
           "date": "2026-10-11T09:56:47Z",
