@@ -41,6 +41,9 @@ internal actual object DownloadsLiveStatusPlatform {
     private var lastWritten: String? = null
     private var written = false
     private var lifecycleObservers: List<Any>? = null
+    /** The running payload last built and the rows behind it, to tell how it stopped. */
+    private var lastRunning: DownloadsLiveStatusPayload? = null
+    private var lastMemberIds: Set<String> = emptySet()
 
     actual fun onItemsChanged(items: List<DownloadItem>) {
         val snapshot = items.toList()
@@ -59,10 +62,51 @@ internal actual object DownloadsLiveStatusPlatform {
         // ended, which is what showed up stuck on the Lock Screen once the app was left.
         val base = liveStatusPayloadFor(items)
         val bytesPerSecond = speed.sample(base?.id, base?.downloadedBytes ?: 0L, now)
-        pending = base?.copy(bytesPerSecond = bytesPerSecond, sampledAtEpochMs = now)
+        pending = if (base != null) {
+            lastRunning = base
+            lastMemberIds = liveStatusMembers(items).mapTo(mutableSetOf()) { it.id }
+            base.copy(bytesPerSecond = bytesPerSecond, sampledAtEpochMs = now)
+        } else {
+            stoppedPayload(items)
+        }
         hasPending = true
         val wait = throttle.waitBeforeSend(pending.structuralKey(), now)
         if (wait <= 0L) flush() else scheduleFlush(wait)
+    }
+
+    /**
+     * Nothing is running any more. When the transfer behind the activity failed, or is waiting for
+     * the app to refresh its link, the activity gets that as its final state ("Failed" or
+     * "Waiting" with the row's message) instead of being left estimating. A user pause or a
+     * finished file still ends it (null).
+     */
+    private fun stoppedPayload(items: List<DownloadItem>): DownloadsLiveStatusPayload? {
+        val last = lastRunning ?: return null
+        val stopped = items.filter { it.id in lastMemberIds }
+        val failed = stopped.firstOrNull { it.status == DownloadStatus.Failed }
+        val waiting = stopped.firstOrNull { it.status == DownloadStatus.Paused && it.waitingForAppOpen }
+        val reason = failed ?: waiting
+        if (reason == null) {
+            lastRunning = null
+            lastMemberIds = emptySet()
+            return null
+        }
+        return last.copy(
+            status = if (failed != null) "Failed" else "Waiting",
+            message = reason.errorMessage,
+            bytesPerSecond = null,
+            sampledAtEpochMs = null,
+        )
+    }
+
+    /**
+     * Writes the latest state now, skipping the once-a-second pacing. Called on the main queue
+     * before a background wake's completion handler, so a failure reaches the activity before iOS
+     * suspends the app again.
+     */
+    fun flushNow() {
+        hasPending = true
+        flush()
     }
 
     private fun scheduleFlush(waitMs: Long) {
@@ -117,17 +161,25 @@ internal actual object DownloadsLiveStatusPlatform {
  * lowest first ("S1 · E3 + E4 · 2 downloading") with their bytes and percent combined, and the
  * activity is keyed by the season so E3+E4 becoming E4+E5 updates it instead of replacing it.
  */
-internal fun liveStatusPayloadFor(items: List<DownloadItem>): DownloadsLiveStatusPayload? {
+/** The running rows one activity covers: the oldest running one and its running season mates. */
+internal fun liveStatusMembers(items: List<DownloadItem>): List<DownloadItem> {
     val running = items.filter { it.status == DownloadStatus.Downloading }
-    val anchor = running.minByOrNull { it.createdAtEpochMs } ?: return null
+    val anchor = running.minByOrNull { it.createdAtEpochMs } ?: return emptyList()
     val season = anchor.seasonNumber
-    val members = if (anchor.isEpisode && season != null) {
+    return if (anchor.isEpisode && season != null) {
         running
             .filter { it.isEpisode && it.parentMetaId == anchor.parentMetaId && it.seasonNumber == season }
             .sortedBy { it.episodeNumber ?: 0 }
     } else {
         listOf(anchor)
     }
+}
+
+internal fun liveStatusPayloadFor(items: List<DownloadItem>): DownloadsLiveStatusPayload? {
+    val running = items.filter { it.status == DownloadStatus.Downloading }
+    val anchor = running.minByOrNull { it.createdAtEpochMs } ?: return null
+    val season = anchor.seasonNumber
+    val members = liveStatusMembers(items)
     val sized = members.filter { (it.totalBytes ?: 0L) > 0L }
     val allSized = sized.size == members.size
     val downloaded = members.sumOf { it.downloadedBytes.coerceAtLeast(0L) }
@@ -177,6 +229,8 @@ internal data class DownloadsLiveStatusPayload(
     val bytesPerSecond: Double? = null,
     /** When [downloadedBytes] and [bytesPerSecond] were taken. */
     val sampledAtEpochMs: Long? = null,
+    /** "Failed" / "Waiting" only: why it stopped, shown in place of the size line. */
+    val message: String? = null,
 )
 
 /** A change here (activity, status, episode set, known size) skips the once-a-second pacing. */

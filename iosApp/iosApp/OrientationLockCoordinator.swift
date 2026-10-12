@@ -28,9 +28,12 @@ final class OrientationLockAppDelegate: NSObject, UIApplicationDelegate, UNUserN
         handleEventsForBackgroundURLSession identifier: String,
         completionHandler: @escaping () -> Void
     ) {
+        // The handler runs only after the Live Activity has the latest state (a failure included).
         DownloadsPlatformDownloader_iosKt.handleDownloadsBackgroundEvents(
             identifier: identifier,
-            completionHandler: completionHandler
+            completionHandler: {
+                DownloadsLiveActivityManager.shared.syncThen(completionHandler)
+            }
         )
     }
 

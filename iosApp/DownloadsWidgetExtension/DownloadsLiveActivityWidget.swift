@@ -73,7 +73,7 @@ struct DownloadsLiveActivityWidget: Widget {
                     .padding(.top, 2)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    let size = activitySizeParts(context.state.transferredText)
+                    let size = activityStatusLine(context)
                     VStack(alignment: .leading, spacing: 6) {
                         ActivityProgressBar(context: context, tint: appBlue)
                         HStack(alignment: .firstTextBaseline, spacing: 4) {
@@ -145,7 +145,7 @@ private struct DownloadActivityLockScreenView: View {
     let context: ActivityViewContext<DownloadsLiveActivityAttributes>
 
     var body: some View {
-        let size = activitySizeParts(context.state.transferredText)
+        let size = activityStatusLine(context)
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 10) {
                 Image(systemName: "arrow.down")
@@ -232,10 +232,33 @@ private func activityIsStale(_ context: ActivityViewContext<DownloadsLiveActivit
     return false
 }
 
-/// Past the estimated finish with no word from the app: "almost done" rather than a full bar.
+/// No word from the app by the stale date (the estimated finish, or 15 minutes without an
+/// estimate). The transfer may have stopped, so it says so instead of "almost done" forever.
 @available(iOSApplicationExtension 16.1, *)
-private func activityAlmostDone(_ context: ActivityViewContext<DownloadsLiveActivityAttributes>) -> Bool {
-    context.state.estimatedEnd != nil && activityIsStale(context)
+private func activityUnconfirmed(_ context: ActivityViewContext<DownloadsLiveActivityAttributes>) -> Bool {
+    !activityStopped(context) && activityIsStale(context)
+}
+
+/// The app reported that the transfer stopped: "Failed", or "Waiting" for the app to be opened.
+@available(iOSApplicationExtension 16.1, *)
+private func activityStopped(_ context: ActivityViewContext<DownloadsLiveActivityAttributes>) -> Bool {
+    context.state.status == "Failed" || context.state.status == "Waiting"
+}
+
+/// Short state for the narrow slots, or nil while it is running normally.
+@available(iOSApplicationExtension 16.1, *)
+private func activityStateWord(_ context: ActivityViewContext<DownloadsLiveActivityAttributes>) -> String? {
+    if context.state.status == "Failed" { return "Failed" }
+    if context.state.status == "Waiting" || activityUnconfirmed(context) { return "Paused" }
+    return nil
+}
+
+/// The size line, or why it stopped.
+@available(iOSApplicationExtension 16.1, *)
+private func activityStatusLine(_ context: ActivityViewContext<DownloadsLiveActivityAttributes>) -> (text: String, inBackground: Bool) {
+    if activityStopped(context) { return (context.state.transferredText, false) }
+    if activityUnconfirmed(context) { return ("Paused — open Nuvio to check", false) }
+    return activitySizeParts(context.state.transferredText)
 }
 
 /// The bar. With an estimate it fills on its own (no updates needed while the app is suspended);
@@ -251,15 +274,15 @@ private struct ActivityProgressBar: View {
                 .progressViewStyle(.linear)
                 .tint(tint)
         } else {
-            ProgressView(value: activityAlmostDone(context) ? 0.97 : activityNormalizedProgress(context.state.progressPercent))
+            ProgressView(value: activityNormalizedProgress(context.state.progressPercent))
                 .progressViewStyle(.linear)
                 .tint(tint)
         }
     }
 }
 
-/// Lock Screen top right: the countdown to the estimated finish, "almost done" once it has
-/// passed, otherwise the percent. A fixed width, because Text(timerInterval:) sizes itself for
+/// Lock Screen top right: the countdown to the estimated finish, "Paused"/"Failed" once the app
+/// has gone quiet or reported a stop, otherwise the percent. A fixed width, because Text(timerInterval:) sizes itself for
 /// its longest string and truncates in anything narrower.
 @available(iOSApplicationExtension 16.1, *)
 private struct ActivityTrailingLabel: View {
@@ -271,8 +294,8 @@ private struct ActivityTrailingLabel: View {
         Group {
             if let range = activityEstimate(context) {
                 Text(timerInterval: range, countsDown: true)
-            } else if activityAlmostDone(context) {
-                Text("almost done")
+            } else if let word = activityStateWord(context) {
+                Text(word)
             } else {
                 Text(activityProgressLabel(context.state.progressPercent))
             }
@@ -300,8 +323,8 @@ private struct ActivityCountdown: View {
                 .multilineTextAlignment(.trailing)
                 .lineLimit(1)
                 .frame(width: width, alignment: .trailing)
-        } else if activityAlmostDone(context) {
-            Text("almost done")
+        } else if let word = activityStateWord(context) {
+            Text(word)
                 .font(font)
                 .lineLimit(1)
                 .fixedSize()
@@ -326,7 +349,7 @@ private struct ActivityProgressBadge: View {
                 .tint(tint)
                 .frame(width: ringSize, height: ringSize)
         } else {
-            Text(activityAlmostDone(context) ? "97%" : activityProgressLabel(context.state.progressPercent))
+            Text(activityStateWord(context) ?? activityProgressLabel(context.state.progressPercent))
                 .font(font)
                 .multilineTextAlignment(.trailing)
                 .lineLimit(1)

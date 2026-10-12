@@ -2,7 +2,12 @@ package com.nuvio.app.features.downloads
 
 import com.nuvio.app.features.player.addonSubtitleRequests
 import com.nuvio.app.features.streams.StreamItem
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,6 +33,10 @@ object DownloadsRepository {
     private var thermalObserverStarted = false
     private var hasLoaded = false
     private var nextDownloadOrdinal = 0L
+    private val linkRefreshScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val linkRefreshAttempts = mutableMapOf<String, Int>()
+    private val linkRefreshBytes = mutableMapOf<String, Long>()
+    private val linkRefreshHandles = mutableMapOf<String, DownloadsTaskHandle>()
 
     fun ensureLoaded() {
         ensureThermalObserver()
@@ -146,6 +155,7 @@ object DownloadsRepository {
     /** Back in the app: new starts wait for one of the two slots again. Running files keep going. */
     fun restoreForegroundCap() {
         startQueue.maxActive = MAX_ACTIVE_DOWNLOADS
+        resumeWaitingForAppOpen()
     }
 
     /** Episode time the download of [downloadId] has reached, for the player's buffer bar. */
@@ -256,6 +266,9 @@ object DownloadsRepository {
             sourceUrl = sourceUrl,
             sourceHeaders = sanitizeRequestHeaders(stream.behaviorHints.proxyHeaders?.request),
             sourceResponseHeaders = sanitizeResponseHeaders(stream.behaviorHints.proxyHeaders?.response),
+            sourceFilename = stream.behaviorHints.filename?.trim()?.takeIf { it.isNotBlank() },
+            sourceBingeGroup = stream.behaviorHints.bingeGroup?.trim()?.takeIf { it.isNotBlank() },
+            sourceQualityLabel = streamQualityLabel(stream),
             subtitleRequests = addonSubtitleRequests(contentType, videoId),
             sourceSubtitles = stream.externalSubtitles,
             localFileUri = null,
@@ -327,6 +340,8 @@ object DownloadsRepository {
             status = if (item.id in toStart) DownloadStatus.Downloading else DownloadStatus.Queued,
             errorMessage = null,
             localFileUri = null,
+            needsLinkRefresh = item.wantsFreshLink(),
+            waitingForAppOpen = false,
             updatedAtEpochMs = DownloadsClock.nowEpochMs(),
         )
 
@@ -335,8 +350,179 @@ object DownloadsRepository {
         applyStarts(toStart)
     }
 
+    /** Retry gets a fresh link first when the old one was rejected (see [wantsFreshLink]). */
     fun retryDownload(downloadId: String) {
+        linkRefreshAttempts.remove(downloadId)
         resumeDownload(downloadId)
+    }
+
+    /**
+     * A link-rejected failure, or one from before this build ("Request failed with HTTP 400"),
+     * starts again with a fresh link from the same source instead of the stored one.
+     */
+    private fun DownloadItem.wantsFreshLink(): Boolean =
+        needsLinkRefresh ||
+            (status == DownloadStatus.Failed && DownloadLinkFailure.legacyStatus(errorMessage) != null)
+
+    /**
+     * iOS woke the app for a background task whose link was rejected and this process did not
+     * start it (a relaunch). Loads the list if needed and refreshes the link within that wake.
+     */
+    internal fun onBackgroundLinkRejected(downloadId: String, status: Int) {
+        ensureLoaded()
+        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
+        if (item.status != DownloadStatus.Downloading) return
+        if (downloadId in linkRefreshHandles) return
+        handleLinkRejected(downloadId, status)
+    }
+
+    private fun handleLinkRejected(downloadId: String, @Suppress("UNUSED_PARAMETER") status: Int) {
+        activeHandles.remove(downloadId)
+        val attempts = linkRefreshAttempts[downloadId] ?: 0
+        if (attempts >= DownloadLinkFailure.MAX_REFRESHES) {
+            failForExpiredLink(downloadId)
+            return
+        }
+        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
+        if (item.status != DownloadStatus.Downloading) return
+        refreshLinkAndRestart(item)
+    }
+
+    /**
+     * Asks the row's addon for the same item again (same addon, then file name, title or quality),
+     * swaps in the new link and resumes from the bytes on disk with a Range. A different file size
+     * means a different file, so it starts over instead of appending. The row keeps its slot
+     * while this runs; pausing or cancelling it drops the result.
+     */
+    private fun refreshLinkAndRestart(item: DownloadItem) {
+        val downloadId = item.id
+        if (downloadId in linkRefreshHandles) return
+        linkRefreshAttempts[downloadId] = (linkRefreshAttempts[downloadId] ?: 0) + 1
+        linkRefreshBytes[downloadId] = item.downloadedBytes
+        val placeholder = object : DownloadsTaskHandle {
+            override fun cancel() {
+                linkRefreshHandles.remove(downloadId)
+            }
+        }
+        linkRefreshHandles[downloadId] = placeholder
+        activeHandles[downloadId] = placeholder
+        mutateItem(downloadId) { current ->
+            current.copy(
+                needsLinkRefresh = true,
+                waitingForAppOpen = false,
+                errorMessage = runBlocking { getString(Res.string.downloads_link_refreshing) },
+                updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+            )
+        }
+        val token = DownloadBackgroundTime.begin("NuvioDownloadLinkRefresh")
+        linkRefreshScope.launch {
+            try {
+                val fresh = runCatching {
+                    withTimeoutOrNull(LINK_REFRESH_TIMEOUT_MS) { resolveFreshLink(item) }
+                }.getOrNull()
+                val freshTotal = fresh?.let { link ->
+                    runCatching {
+                        withTimeoutOrNull(LINK_PROBE_TIMEOUT_MS) {
+                            RemoteContentLengthProbe.probe(
+                                SeasonProbeTarget(id = downloadId, url = link.url, headers = sanitizeRequestHeaders(link.headers)),
+                            )
+                        }
+                    }.getOrNull()
+                }
+                finishLinkRefresh(downloadId, placeholder, fresh, freshTotal)
+            } finally {
+                DownloadBackgroundTime.end(token)
+            }
+        }
+    }
+
+    private fun finishLinkRefresh(
+        downloadId: String,
+        placeholder: DownloadsTaskHandle,
+        fresh: RefreshedLink?,
+        freshTotal: Long?,
+    ) {
+        if (linkRefreshHandles[downloadId] !== placeholder) return
+        linkRefreshHandles.remove(downloadId)
+        if (activeHandles[downloadId] === placeholder) activeHandles.remove(downloadId)
+        val current = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
+        if (current.status != DownloadStatus.Downloading) return
+        if (fresh == null) {
+            if (DownloadBackgroundTime.isAppActive()) failForExpiredLink(downloadId) else waitForAppOpen(downloadId)
+            return
+        }
+        val knownTotal = current.totalBytes?.takeIf { it > 0L }
+        val differentFile = freshTotal != null && knownTotal != null && freshTotal != knownTotal
+        if (differentFile) {
+            partialPrefixCache.remove(downloadId)
+            DownloadsPlatformDownloader.removePartialFile(current.fileName)
+        }
+        val updated = current.copy(
+            sourceUrl = fresh.url,
+            sourceHeaders = sanitizeRequestHeaders(fresh.headers),
+            sourceResponseHeaders = sanitizeResponseHeaders(fresh.responseHeaders),
+            needsLinkRefresh = false,
+            waitingForAppOpen = false,
+            errorMessage = null,
+            downloadedBytes = if (differentFile) 0L else current.downloadedBytes,
+            totalBytes = freshTotal ?: current.totalBytes,
+            earlyPlayReady = if (differentFile) false else current.earlyPlayReady,
+            playsWhenDownloadFinishes = if (differentFile) false else current.playsWhenDownloadFinishes,
+            updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+        )
+        replaceItem(updated)
+        persistStatus()
+        startDownload(updated)
+    }
+
+    private fun failForExpiredLink(downloadId: String) {
+        linkRefreshAttempts.remove(downloadId)
+        linkRefreshBytes.remove(downloadId)
+        activeHandles.remove(downloadId)
+        mutateItem(downloadId) { current ->
+            current.copy(
+                status = DownloadStatus.Failed,
+                needsLinkRefresh = true,
+                waitingForAppOpen = false,
+                errorMessage = runBlocking { getString(Res.string.downloads_error_link_expired) },
+                updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+            )
+        }
+        stopPartialTarget(downloadId)
+    }
+
+    /** No network for the addon while locked: paused, and refreshed when the app is next opened. */
+    private fun waitForAppOpen(downloadId: String) {
+        activeHandles.remove(downloadId)
+        mutateItem(downloadId) { current ->
+            current.copy(
+                status = DownloadStatus.Paused,
+                needsLinkRefresh = true,
+                waitingForAppOpen = true,
+                errorMessage = runBlocking { getString(Res.string.downloads_link_refresh_on_open) },
+                updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+            )
+        }
+        stopPartialTarget(downloadId)
+    }
+
+    private fun stopPartialTarget(downloadId: String) {
+        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
+        DownloadsPlatformDownloader.updatePartialTarget(
+            downloadId = item.id,
+            fileName = item.fileName,
+            totalBytes = item.totalBytes,
+            downloadRunning = false,
+        )
+    }
+
+    /** Back in the app: downloads whose link refresh had to wait for it carry on. */
+    private fun resumeWaitingForAppOpen() {
+        if (!hasLoaded || !DownloadBackgroundTime.isAppActive()) return
+        val ids = _uiState.value.items
+            .filter { it.status == DownloadStatus.Paused && it.waitingForAppOpen }
+            .map { it.id }
+        if (ids.isNotEmpty()) resumeDownloads(ids)
     }
 
     internal fun reattachBackgroundDownload(downloadId: String) {
@@ -446,6 +632,8 @@ object DownloadsRepository {
                         status = DownloadStatus.Queued,
                         errorMessage = null,
                         localFileUri = null,
+                        needsLinkRefresh = item.wantsFreshLink(),
+                        waitingForAppOpen = false,
                         updatedAtEpochMs = now,
                     )
                 } else {
@@ -466,6 +654,8 @@ object DownloadsRepository {
         val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
 
         activeHandles.remove(downloadId)?.cancel()
+        linkRefreshAttempts.remove(downloadId)
+        linkRefreshBytes.remove(downloadId)
         partialPrefixCache.remove(downloadId)
         DownloadsPlatformDownloader.removeFile(playableLocalFileUri(item) ?: item.localFileUri)
         DownloadsPlatformDownloader.removePartialFile(item.fileName)
@@ -506,9 +696,14 @@ object DownloadsRepository {
             persistStatus()
         }
         adoptLoadedItems()
+        resumeWaitingForAppOpen()
     }
 
     private fun startDownload(item: DownloadItem) {
+        if (item.needsLinkRefresh) {
+            refreshLinkAndRestart(item)
+            return
+        }
         val request = DownloadPlatformRequest(item)
 
         val handle = DownloadsPlatformDownloader.start(
@@ -521,6 +716,13 @@ object DownloadsRepository {
                     return@onProgress
                 }
                 val safeBytes = downloadedBytes.coerceAtLeast(0L)
+                // A refreshed link that is really moving again gets its refresh attempts back.
+                linkRefreshBytes[item.id]?.let { atRefresh ->
+                    if (safeBytes - atRefresh >= DownloadRetryPolicy.PROGRESS_RESETS_ATTEMPTS_BYTES) {
+                        linkRefreshBytes.remove(item.id)
+                        linkRefreshAttempts.remove(item.id)
+                    }
+                }
                 val resolvedTotal = totalBytes?.takeIf { it > 0L } ?: current.totalBytes
                 val decision = decideEarlyPlay(current.id, current.fileName, safeBytes)
                 DownloadsPlatformDownloader.updatePartialTarget(
@@ -546,6 +748,8 @@ object DownloadsRepository {
             },
             onSuccess = { localFileUri, totalBytes ->
                 activeHandles.remove(item.id)
+                linkRefreshAttempts.remove(item.id)
+                linkRefreshBytes.remove(item.id)
                 partialPrefixCache.remove(item.id)
                 val current = _uiState.value.items.firstOrNull { it.id == item.id }
                 if (current != null) {
@@ -574,7 +778,11 @@ object DownloadsRepository {
                     )
                 }
             },
-            onFailure = { message ->
+            onFailure = onFailure@{ message ->
+                DownloadLinkFailure.decode(message)?.let { status ->
+                    handleLinkRejected(item.id, status)
+                    return@onFailure
+                }
                 activeHandles.remove(item.id)
                 mutateItem(item.id) { current ->
                     if (current.status != DownloadStatus.Downloading) {
@@ -999,6 +1207,8 @@ private fun buildLogicalKey(
 }
 
 private const val SPACE_CHECK_INTERVAL_MS = 10_000L
+private const val LINK_REFRESH_TIMEOUT_MS = 25_000L
+private const val LINK_PROBE_TIMEOUT_MS = 8_000L
 
 private fun buildFileName(
     title: String,

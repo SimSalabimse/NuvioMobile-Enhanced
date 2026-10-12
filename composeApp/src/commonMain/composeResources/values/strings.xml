@@ -2180,6 +2180,9 @@
     <string name="downloads_error_empty_body">Empty response body</string>
     <string name="downloads_error_finalize_failed">Failed to finalize download file</string>
     <string name="downloads_error_http_failed">Request failed with HTTP %1$d</string>
+    <string name="downloads_error_link_expired">Link expired — couldn't refresh the source. Tap retry to try again.</string>
+    <string name="downloads_link_refreshing">Link expired — getting a fresh one…</string>
+    <string name="downloads_link_refresh_on_open">Link expired — open Nuvio to continue</string>
     <string name="downloads_error_not_initialized">Download system is not initialized</string>
     <string name="downloads_error_open_partial_failed">Failed to open partial download file</string>
     <string name="downloads_error_partial_not_open">Partial download file is not open</string>

@@ -648,13 +648,15 @@ private class IosForegroundSessionDelegate : NSObject(), NSURLSessionDataDelegat
                 job.ignoreBody = true
                 job.retryFromZero = true
             }
-            status == 416 -> {
+            status == 416 || status !in 200..299 -> {
                 job.ignoreBody = true
-                job.failMessage = httpFailure(status)
-            }
-            status !in 200..299 -> {
-                job.ignoreBody = true
-                job.failMessage = httpFailure(status)
+                job.failMessage = if (DownloadLinkFailure.isRefreshable(status)) {
+                    // Expired or session-bound link: the repository fetches a fresh one and resumes.
+                    IosBackgroundDownloadCoordinator.discardResumeData(job.request.destinationFileName)
+                    DownloadLinkFailure.encode(status)
+                } else {
+                    httpFailure(status)
+                }
             }
             else -> {
                 if (status == 200 && job.rangedRequest) {
