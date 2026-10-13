@@ -1,5 +1,6 @@
 package com.nuvio.app.features.player
 
+import com.nuvio.app.features.downloads.FinishedDownloadDeletion
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.features.watching.application.WatchingState
@@ -263,6 +264,9 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                         checkAutoSubtitleRewindWatermark(snapshot.positionMs)
                         refreshAudioTracksIfChanged()
                         if (!snapshot.isLoading) initialLoadCompleted = true
+                        if (snapshot.isPlaying && !snapshot.isLoading && snapshot.positionMs > 0L) {
+                            FinishedDownloadDeletion.playbackPlaying(playbackSession.videoId)
+                        }
                         if (snapshot.isEnded) {
                             shouldPlay = false
                             controlsVisible = !playerControlsLocked

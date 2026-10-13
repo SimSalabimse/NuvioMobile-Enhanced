@@ -50,6 +50,7 @@ class DeleteDownloadWhenFinishedTest {
         WatchedRepository.clearLocalState()
         WatchProgressRepository.clearLocalState()
         FinishedDownloadDeletion.reset()
+        FinishedDownloadDeletion.closeGraceMs = 0L
         directory = File(context.filesDir, "downloads").apply { mkdirs() }
     }
 
@@ -117,6 +118,9 @@ class DeleteDownloadWhenFinishedTest {
         WatchingActions.onProgressEntryUpdated(completedEntry())
 
         FinishedDownloadDeletion.playbackOpened("tt123:1:2", "https://example.com/next.mkv")
+        // Kept until the next episode is actually playing.
+        assertEquals(stored.id, DownloadsRepository.uiState.value.items.single().id)
+        FinishedDownloadDeletion.playbackPlaying("tt123:1:2")
         awaitRemoval(stored)
         assertTrue(DownloadsRepository.uiState.value.items.isEmpty())
     }
