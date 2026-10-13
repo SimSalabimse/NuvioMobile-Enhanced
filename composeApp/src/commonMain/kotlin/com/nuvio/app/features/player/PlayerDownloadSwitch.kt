@@ -22,13 +22,17 @@ import kotlin.math.abs
 /**
  * "Switch to downloaded file while watching" (Downloads settings, on by default).
  *
- * When the download of the video on screen has finished, the player moves from the stream to the
- * file at the same position. On iOS the file is swapped inside the same mpv instance (`loadfile`
+ * When the download of the video on screen has finished, or is far enough ahead and fast enough
+ * (see [partialSwitchAllowed]), the player moves from the stream to the file at the same position.
+ * A partial file plays through the early-play loopback server; a watchdog moves back to the stream
+ * before playback can catch up with the downloaded bytes. On iOS the file is swapped inside the same mpv instance (`loadfile`
  * with `start=`), so the player screen, the scrobble session and the track/speed/delay/aspect
- * state stay as they are and the last frame stays up while the file opens. Only finished files
- * are used (no early-play loopback), never in the last 2 minutes, never during a seek, and it
+ * state stay as they are and the last frame stays up while the file opens. Never in the last
+ * 2 minutes, never during a seek, and it
  * waits for a pause or a healthy buffer. If the file does not open, the stream comes back at the
- * same position without a message, and that video is not tried again in this player session.
+ * same position without a message. A finished file that fails is not tried again for that video in
+ * this player session; a partial file that had to hand back needs a much larger lead next time, and
+ * after [PARTIAL_MAX_FALLBACKS] hand-backs only the finished file is used.
  */
 internal enum class DownloadSwapPhase { Loading, Playing, FellBack }
 
@@ -40,6 +44,8 @@ internal data class PlayerDownloadSwap(
     val streamResponseHeaders: Map<String, String>,
     val streamType: String?,
     val localUrl: String,
+    /** Playing a still-downloading file through the loopback server (watchdog active). */
+    val partial: Boolean,
     val phase: DownloadSwapPhase,
     /** Where the pending load starts; cleared once the load has been seen through. */
     val startMs: Long?,
@@ -62,6 +68,25 @@ private const val SWAP_BUFFER_AHEAD_MS = 10_000L
 private const val SWAP_FORCE_AFTER_WAIT_MS = 45_000L
 private const val SWAP_STABLE_TICKS = 3
 private const val SWAP_LOAD_TIMEOUT_MS = 12_000L
+
+// Partial (still downloading) files.
+/** The byte-rate estimate of how far the file reaches is cut by this much (VBR, headers). */
+private const val PARTIAL_REACH_MARGIN = 0.90
+/** Downloaded video needed past the current position before a first partial switch. */
+private const val PARTIAL_ENTRY_LEAD_MS = 5 * 60_000L
+/** After a hand-back to the stream, the lead needed before trying the partial file again. */
+private const val PARTIAL_RETRY_LEAD_MS = 15 * 60_000L
+/** Below this lead the watchdog hands back to the stream. */
+private const val PARTIAL_FLOOR_LEAD_MS = 60_000L
+/** The download has to run at least this many times the playback byte rate... */
+private const val PARTIAL_SPEED_FACTOR = 1.5
+/** ...over this window, and every [PARTIAL_SPEED_SLICE_MS] slice of it at least [PARTIAL_SLICE_FACTOR]. */
+private const val PARTIAL_SPEED_WINDOW_MS = 30_000L
+private const val PARTIAL_SPEED_SLICE_MS = 10_000L
+private const val PARTIAL_SLICE_FACTOR = 1.1
+/** No new bytes for this long while on the partial file counts as a stall. */
+private const val PARTIAL_STALL_MS = 15_000L
+private const val PARTIAL_MAX_FALLBACKS = 2
 
 /** The swap keeps the surface (and so the mpv instance) by keeping the playback identity. */
 internal val PlayerScreenRuntime.downloadSwapIdentity: String?
@@ -96,14 +121,32 @@ internal val PlayerScreenRuntime.isPlayingSwappedDownload: Boolean
 internal fun PlayerScreenRuntime.handleDownloadSwapError(message: String?): Boolean {
     val swap = downloadSwap ?: return false
     if (activeSourceUrl != swap.localUrl) return false
-    InAppLogger.warn("Player/DownloadSwap", "local file failed, back to stream error=${message.orEmpty()}")
-    fallBackToStream(swap)
+    InAppLogger.warn(
+        "Player/DownloadSwap",
+        "local file failed partial=${swap.partial}, back to stream error=${message.orEmpty()}",
+    )
+    fallBackToStream(swap, partialHandBack = swap.partial)
     return true
 }
 
-private fun PlayerScreenRuntime.fallBackToStream(swap: PlayerDownloadSwap) {
+/** The partial file ran out (mpv saw its end) before the download finished: back to the stream. */
+internal fun PlayerScreenRuntime.handleDownloadSwapPartialEnd(): Boolean {
+    val swap = downloadSwap ?: return false
+    if (!swap.partial || activeSourceUrl != swap.localUrl) return false
+    val row = DownloadsRepository.uiState.value.items.firstOrNull { it.id == swap.downloadId }
+    if (row?.status == DownloadStatus.Completed) return false
+    InAppLogger.warn("Player/DownloadSwap", "partial file ended early, back to stream")
+    fallBackToStream(swap, partialHandBack = true)
+    return true
+}
+
+private fun PlayerScreenRuntime.fallBackToStream(swap: PlayerDownloadSwap, partialHandBack: Boolean = false) {
     val position = playbackClock.positionMs.takeIf { it > 1_000L } ?: swap.startMs ?: 0L
-    downloadSwapGaveUpVideoIds = downloadSwapGaveUpVideoIds + swap.videoId
+    if (partialHandBack) {
+        downloadSwapPartialFallbacks += 1
+    } else {
+        downloadSwapGaveUpVideoIds = downloadSwapGaveUpVideoIds + swap.videoId
+    }
     downloadSwap = swap.copy(
         phase = DownloadSwapPhase.FellBack,
         startMs = position,
@@ -121,12 +164,14 @@ internal fun PlayerScreenRuntime.BindDownloadSwitchEffect() {
     LaunchedEffect(activeVideoId) {
         val swap = downloadSwap
         if (swap != null && swap.videoId != activeVideoId.orEmpty()) downloadSwap = null
+        downloadSwapPartialFallbacks = 0
     }
     LaunchedEffect(Unit) {
         var stableTicks = 0
         var lastPositionMs = -1L
         var lastTickAt = 0L
         var readySince = 0L
+        val samples = DownloadByteSamples()
         while (isActive) {
             delay(SWAP_TICK_MS)
             val now = nowMs()
@@ -145,15 +190,25 @@ internal fun PlayerScreenRuntime.BindDownloadSwitchEffect() {
                 superviseSwapLoad(swap, now)
                 continue
             }
-            if (swap != null) continue
+            if (swap != null && swap.phase == DownloadSwapPhase.Playing) {
+                if (swap.partial) watchPartialSwap(swap, samples, now)
+                continue
+            }
 
             val target = switchTargetOrNull()
             if (target == null) {
                 readySince = 0L
+                samples.clear()
                 continue
             }
+            if (target.partial) {
+                samples.add(target.downloadId, now, DownloadsRepository.playableContiguousBytes(target.downloadId))
+                if (!partialSwitchAllowed(target.downloadId, samples, positionMs, snapshot.durationMs, now)) {
+                    readySince = 0L
+                    continue
+                }
+            }
             if (readySince == 0L) readySince = now
-            val (downloadId, localUrl) = target
             val nearEnd = snapshot.durationMs > 0L && positionMs > snapshot.durationMs - SWAP_END_GUARD_MS
             val seeking = isScrubbingTimeline || isTouchingTimeline || scrubbingPositionMs != null ||
                 accumulatedSeekState != null || stableTicks < SWAP_STABLE_TICKS
@@ -163,13 +218,134 @@ internal fun PlayerScreenRuntime.BindDownloadSwitchEffect() {
                 bufferedAhead >= SWAP_BUFFER_AHEAD_MS ||
                 now - readySince >= SWAP_FORCE_AFTER_WAIT_MS
             if (!naturalMoment) continue
-            startDownloadSwap(downloadId, localUrl, positionMs, now)
+            startDownloadSwap(target, positionMs, now)
         }
     }
 }
 
-/** The finished download of the video on screen, when switching to it is allowed right now. */
-private fun PlayerScreenRuntime.switchTargetOrNull(): Pair<String, String>? {
+private class SwitchTarget(val downloadId: String, val localUrl: String, val partial: Boolean)
+
+/** Contiguous-byte samples of one download, for its recent speed and stall detection. */
+private class DownloadByteSamples {
+    private var downloadId: String? = null
+    private val points = ArrayDeque<Pair<Long, Long>>()
+
+    fun clear() {
+        downloadId = null
+        points.clear()
+    }
+
+    fun add(id: String, atMs: Long, bytes: Long?) {
+        if (bytes == null) return
+        if (downloadId != id) {
+            clear()
+            downloadId = id
+        }
+        points.addLast(atMs to bytes)
+        while (points.size > 2 && atMs - points.first().first > PARTIAL_SPEED_WINDOW_MS + 5_000L) points.removeFirst()
+    }
+
+    /** Bytes per ms over the last [windowMs], or null without enough history. */
+    fun rate(nowMs: Long, windowMs: Long): Double? {
+        val last = points.lastOrNull() ?: return null
+        val start = points.firstOrNull { nowMs - it.first <= windowMs } ?: return null
+        val first = points.firstOrNull() ?: return null
+        if (last.first - first.first < windowMs - 1_500L) return null
+        val span = last.first - start.first
+        if (span <= 0L) return null
+        return (last.second - start.second).toDouble() / span.toDouble()
+    }
+
+    /** True when every slice of the window is at least [minRate]. */
+    fun steadyAtLeast(nowMs: Long, minRate: Double): Boolean {
+        var sliceEnd = nowMs
+        repeat((PARTIAL_SPEED_WINDOW_MS / PARTIAL_SPEED_SLICE_MS).toInt()) {
+            val endPoint = points.lastOrNull { it.first <= sliceEnd } ?: return false
+            val startPoint = points.lastOrNull { it.first <= sliceEnd - PARTIAL_SPEED_SLICE_MS } ?: return false
+            val span = endPoint.first - startPoint.first
+            if (span <= 0L) return false
+            if ((endPoint.second - startPoint.second).toDouble() / span < minRate) return false
+            sliceEnd -= PARTIAL_SPEED_SLICE_MS
+        }
+        return true
+    }
+
+    /** How long the byte count has not moved. */
+    fun stalledForMs(nowMs: Long): Long {
+        val last = points.lastOrNull() ?: return 0L
+        val firstSame = points.firstOrNull { it.second == last.second } ?: return 0L
+        return nowMs - firstSame.first
+    }
+}
+
+/** Video time the contiguous downloaded bytes safely reach (byte-rate estimate with a margin). */
+private fun PlayerScreenRuntime.partialSafeReachMs(downloadId: String, durationMs: Long): Long? {
+    if (durationMs <= 0L) return null
+    val row = DownloadsRepository.uiState.value.items.firstOrNull { it.id == downloadId } ?: return null
+    if (row.status == DownloadStatus.Completed) return durationMs
+    val total = row.totalBytes?.takeIf { it > 0L } ?: return null
+    val bytes = DownloadsRepository.playableContiguousBytes(downloadId) ?: return null
+    val fraction = (bytes.toDouble() / total.toDouble()).coerceIn(0.0, 1.0)
+    return (durationMs * fraction * PARTIAL_REACH_MARGIN).toLong()
+}
+
+/** Playback byte rate (bytes per ms of video), from file size over duration. */
+private fun playbackBytesPerMs(totalBytes: Long?, durationMs: Long): Double? {
+    val total = totalBytes?.takeIf { it > 0L } ?: return null
+    if (durationMs <= 0L) return null
+    return total.toDouble() / durationMs.toDouble()
+}
+
+private fun PlayerScreenRuntime.partialSwitchAllowed(
+    downloadId: String,
+    samples: DownloadByteSamples,
+    positionMs: Long,
+    durationMs: Long,
+    now: Long,
+): Boolean {
+    val row = DownloadsRepository.uiState.value.items.firstOrNull { it.id == downloadId } ?: return false
+    if (row.status != DownloadStatus.Downloading) return false
+    val reach = partialSafeReachMs(downloadId, durationMs) ?: return false
+    val neededLead = if (downloadSwapPartialFallbacks > 0) PARTIAL_RETRY_LEAD_MS else PARTIAL_ENTRY_LEAD_MS
+    if (reach - positionMs < neededLead) return false
+    val byteRate = playbackBytesPerMs(row.totalBytes, durationMs) ?: return false
+    val speed = samples.rate(now, PARTIAL_SPEED_WINDOW_MS) ?: return false
+    if (speed < byteRate * PARTIAL_SPEED_FACTOR) return false
+    return samples.steadyAtLeast(now, byteRate * PARTIAL_SLICE_FACTOR)
+}
+
+/** On the partial file: hand back to the stream before playback can reach the downloaded end. */
+private fun PlayerScreenRuntime.watchPartialSwap(swap: PlayerDownloadSwap, samples: DownloadByteSamples, now: Long) {
+    if (activeSourceUrl != swap.localUrl) return
+    val row = DownloadsRepository.uiState.value.items.firstOrNull { it.id == swap.downloadId }
+    if (row?.status == DownloadStatus.Completed) {
+        // Every byte is there now; the loopback server serves the finished file.
+        downloadSwap = swap.copy(partial = false)
+        InAppLogger.info("Player/DownloadSwap", "download finished while playing it, watchdog off")
+        return
+    }
+    val reason: String? = when {
+        row == null -> "download removed"
+        row.status != DownloadStatus.Downloading -> "download ${row.status.name.lowercase()}"
+        else -> {
+            samples.add(swap.downloadId, now, DownloadsRepository.playableContiguousBytes(swap.downloadId))
+            val reach = partialSafeReachMs(swap.downloadId, playbackSnapshot.durationMs)
+            val watched = maxOf(playbackClock.positionMs, scrubbingPositionMs ?: 0L)
+            when {
+                samples.stalledForMs(now) >= PARTIAL_STALL_MS -> "download stalled"
+                reach == null -> null
+                reach - watched < PARTIAL_FLOOR_LEAD_MS -> "lead ${(reach - watched) / 1000}s below floor"
+                else -> null
+            }
+        }
+    }
+    if (reason == null) return
+    InAppLogger.warn("Player/DownloadSwap", "partial file hand-back: $reason")
+    fallBackToStream(swap, partialHandBack = true)
+}
+
+/** The download of the video on screen, when switching to it may be allowed. */
+private fun PlayerScreenRuntime.switchTargetOrNull(): SwitchTarget? {
     if (!isIos) return null
     if (!DownloadsSettingsRepository.isSwitchToDownloadWhileWatchingEnabled()) return null
     if (!shouldTrackWatchProgress || errorMessage != null || !initialLoadCompleted || !initialSeekApplied) return null
@@ -182,13 +358,28 @@ private fun PlayerScreenRuntime.switchTargetOrNull(): Pair<String, String>? {
     if (activePlaybackSourceUrl != activeSourceUrl) return null
     val key = downloadLogicalContentKey(parentMetaId, activeSeasonNumber, activeEpisodeNumber)
     val row = DownloadsRepository.uiState.value.items.firstOrNull { it.logicalContentKey == key } ?: return null
-    if (row.status != DownloadStatus.Completed) return null
-    val localUrl = DownloadsRepository.playableLocalFileUri(row) ?: return null
-    return row.id to localUrl
+    return when (row.status) {
+        DownloadStatus.Completed -> {
+            val localUrl = DownloadsRepository.playableLocalFileUri(row) ?: return null
+            SwitchTarget(row.id, localUrl, partial = false)
+        }
+        DownloadStatus.Downloading -> {
+            if (downloadSwapPartialFallbacks >= PARTIAL_MAX_FALLBACKS) return null
+            // Only files the early-play check found playable from the front (moov first, etc.).
+            if (!row.earlyPlayReady || row.playsWhenDownloadFinishes) return null
+            if (row.totalBytes == null || row.totalBytes <= 0L) return null
+            val partialUrl = DownloadsRepository.playableLocalFileUri(row) ?: return null
+            if (!isLoopbackPartialPlaybackUrl(partialUrl)) return null
+            SwitchTarget(row.id, partialUrl, partial = true)
+        }
+        else -> null
+    }
 }
 
-private fun PlayerScreenRuntime.startDownloadSwap(downloadId: String, localUrl: String, positionMs: Long, now: Long) {
+private fun PlayerScreenRuntime.startDownloadSwap(target: SwitchTarget, positionMs: Long, now: Long) {
     val videoId = activeVideoId ?: return
+    val downloadId = target.downloadId
+    val localUrl = target.localUrl
     val restore = SwapTrackRestore(
         speed = playbackSnapshot.playbackSpeed.takeIf { it > 0f } ?: 1f,
         audio = audioTracks.firstOrNull { it.index == selectedAudioIndex } ?: audioTracks.firstOrNull { it.isSelected },
@@ -208,6 +399,7 @@ private fun PlayerScreenRuntime.startDownloadSwap(downloadId: String, localUrl: 
         streamResponseHeaders = activeSourceResponseHeaders,
         streamType = activeStreamType,
         localUrl = localUrl,
+        partial = target.partial,
         phase = DownloadSwapPhase.Loading,
         startMs = positionMs,
         startedAtMs = now,
@@ -216,7 +408,7 @@ private fun PlayerScreenRuntime.startDownloadSwap(downloadId: String, localUrl: 
     FinishedDownloadDeletion.linkDownload(videoId, downloadId)
     InAppLogger.info(
         "Player/DownloadSwap",
-        "switch to download videoId=$videoId positionMs=$positionMs paused=${!playbackSnapshot.isPlaying} " +
+        "switch to download partial=${target.partial} videoId=$videoId positionMs=$positionMs paused=${!playbackSnapshot.isPlaying} " +
             "file=${InAppLogger.redactUrl(localUrl)}",
     )
     activeSourceHeaders = emptyMap()
@@ -232,8 +424,8 @@ private suspend fun PlayerScreenRuntime.superviseSwapLoad(swap: PlayerDownloadSw
         playbackClock.positionMs > 0L
     if (!loaded) {
         if (swap.phase == DownloadSwapPhase.Loading && now - swap.startedAtMs > SWAP_LOAD_TIMEOUT_MS) {
-            InAppLogger.warn("Player/DownloadSwap", "local file did not open in time, back to stream")
-            fallBackToStream(swap)
+            InAppLogger.warn("Player/DownloadSwap", "local file did not open in time partial=${swap.partial}, back to stream")
+            fallBackToStream(swap, partialHandBack = swap.partial)
         } else if (swap.phase == DownloadSwapPhase.FellBack && now - swap.startedAtMs > SWAP_LOAD_TIMEOUT_MS) {
             downloadSwap = swap.copy(startMs = null)
         }

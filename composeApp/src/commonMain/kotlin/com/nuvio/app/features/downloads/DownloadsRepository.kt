@@ -174,6 +174,14 @@ object DownloadsRepository {
         )
     }
 
+    /** Contiguous bytes early play can read right now (the whole file once it has finished). */
+    fun playableContiguousBytes(downloadId: String): Long? {
+        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return null
+        if (item.status == DownloadStatus.Completed) return item.totalBytes ?: item.downloadedBytes
+        val onDisk = DownloadsPlatformDownloader.playableBytesOnDisk(item.fileName)
+        return onDisk?.coerceAtMost(item.downloadedBytes) ?: item.downloadedBytes
+    }
+
     fun onPartialPlaybackClosed(downloadId: String) {
         ensureLoaded()
         val renamedUri = DownloadsPlatformDownloader.finishPartialPlayback(downloadId) ?: return

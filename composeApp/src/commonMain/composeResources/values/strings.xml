@@ -2177,7 +2177,7 @@
     <string name="downloads_delete_when_finished_title">Delete when finished</string>
     <string name="downloads_delete_when_finished_description">Remove the downloaded file after you finish the episode or movie.</string>
     <string name="downloads_switch_while_watching_title">Switch to downloaded file while watching</string>
-    <string name="downloads_switch_while_watching_description">When a download of what you are watching finishes, keep playing from the file instead of the stream.</string>
+    <string name="downloads_switch_while_watching_description">Move from the stream to the download of what you are watching, once it has finished or is far enough ahead. Goes back to the stream if the download falls behind.</string>
     <string name="player_now_playing_from_download">Now playing from download</string>
     <string name="downloads_allow_mobile_data_description">By default, downloads only start on Wi-Fi. Enable this to also allow them on mobile data.</string>
     <string name="downloads_error_empty_body">Empty response body</string>

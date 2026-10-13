@@ -269,6 +269,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                         if (snapshot.isPlaying && !snapshot.isLoading && snapshot.positionMs > 0L) {
                             FinishedDownloadDeletion.playbackPlaying(playbackSession.videoId)
                         }
+                        if (snapshot.isEnded && handleDownloadSwapPartialEnd()) return@PlatformPlayerSurface
                         if (snapshot.isEnded && !isDownloadSwapInFlight) {
                             shouldPlay = false
                             controlsVisible = !playerControlsLocked
