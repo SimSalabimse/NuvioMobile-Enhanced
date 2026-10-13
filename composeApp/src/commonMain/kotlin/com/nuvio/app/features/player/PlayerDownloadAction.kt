@@ -39,6 +39,7 @@ import com.nuvio.app.features.streams.StreamProxyHeaders
  */
 internal fun PlayerScreenRuntime.playerDownloadActionAvailable(): Boolean {
     if (!isDownloadablePlayback) return false
+    if (isPlayingSwappedDownload) return true
     val url = activeSourceUrl?.trim().orEmpty()
     if (url.isEmpty() || url.startsWith("file:") || isLoopbackPartialPlaybackUrl(url)) return false
     return url.isSupportedDownloadUrl()

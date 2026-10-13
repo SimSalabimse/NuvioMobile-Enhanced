@@ -54,6 +54,17 @@ internal object FinishedDownloadDeletion {
         session = current.copy(sourceUrl = sourceUrl)
     }
 
+    /**
+     * The player moved from a stream to the downloaded file of the same video (or back). The
+     * session keeps that download, so finishing the video counts for the file whichever of the
+     * two is on screen when completion fires.
+     */
+    fun linkDownload(videoId: String, downloadId: String) {
+        val current = session ?: return
+        if (current.videoId != videoId) return
+        session = current.copy(linkedDownloadId = downloadId)
+    }
+
     /** The player is showing frames of [videoId]: a previous episode waiting for that may go. */
     fun playbackPlaying(videoId: String) {
         val waiting = pending ?: return
@@ -77,6 +88,7 @@ internal object FinishedDownloadDeletion {
         val items = DownloadsRepository.uiState.value.items
         val item = current.incompleteDownloadId?.let { id -> items.firstOrNull { it.id == id } }
             ?: downloadOpenedBySource(current.sourceUrl, items)
+            ?: current.linkedDownloadId?.let { id -> items.firstOrNull { it.id == id } }
             ?: return
         session = if (item.status == DownloadStatus.Completed) {
             current.copy(queuedDownloadId = item.id, incompleteDownloadId = null)
@@ -135,6 +147,7 @@ internal object FinishedDownloadDeletion {
         val open = session
         if (open != null) {
             if (open.videoId == deletion.videoId) return
+            if (open.linkedDownloadId == deletion.downloadId) return
             if (downloadOpenedBySource(open.sourceUrl, listOf(item)) != null) return
         }
         DownloadsRepository.cancelDownload(deletion.downloadId)
@@ -176,6 +189,8 @@ private data class OpenPlayback(
     val queuedDownloadId: String? = null,
     /** Watched to the end while still downloading: removed on leave only if it finished by then. */
     val incompleteDownloadId: String? = null,
+    /** Downloaded while watching and switched to (see [FinishedDownloadDeletion.linkDownload]). */
+    val linkedDownloadId: String? = null,
 )
 
 internal fun downloadOpenedBySource(sourceUrl: String, items: List<DownloadItem>): DownloadItem? {

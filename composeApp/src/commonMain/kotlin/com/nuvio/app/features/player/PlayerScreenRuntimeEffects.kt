@@ -84,6 +84,8 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
 
     LaunchedEffect(activePlaybackKey, activeSourceUrl, activeSourceAudioUrl, activeSourceHeaders, activeSourceResponseHeaders) {
         errorMessage = null
+        // Stream <-> download swap of the same video: same mpv, same session, nothing to reset.
+        if (isDownloadSwapInFlight) return@LaunchedEffect
         playerController = null
         playerControllerSourceUrl = null
         playbackSnapshot = PlayerPlaybackSnapshot()

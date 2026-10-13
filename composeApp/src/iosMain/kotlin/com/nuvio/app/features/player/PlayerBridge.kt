@@ -15,6 +15,17 @@ interface NuvioPlayerBridge {
         headersJson: String?,
         subtitlesJson: String? = null
     )
+    /**
+     * Replaces the current file inside the same mpv instance, starting at [startMs] (mpv `start`),
+     * and keeps the last frame on screen while the new file opens. Used to move between a stream
+     * and the downloaded file of the same video.
+     */
+    fun loadFileAtPosition(
+        videoUrl: String,
+        headersJson: String?,
+        subtitlesJson: String?,
+        startMs: Long,
+    )
     fun play()
     fun pause()
     fun seekTo(positionMs: Long)

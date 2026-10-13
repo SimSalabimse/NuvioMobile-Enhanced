@@ -18,6 +18,8 @@ import nuvio.composeapp.generated.resources.downloads_delete_when_finished_descr
 import nuvio.composeapp.generated.resources.downloads_delete_when_finished_title
 import nuvio.composeapp.generated.resources.downloads_show_download_button_description
 import nuvio.composeapp.generated.resources.downloads_show_download_button_title
+import nuvio.composeapp.generated.resources.downloads_switch_while_watching_description
+import nuvio.composeapp.generated.resources.downloads_switch_while_watching_title
 import nuvio.composeapp.generated.resources.settings_downloads_location_title
 import org.jetbrains.compose.resources.stringResource
 
@@ -29,6 +31,7 @@ internal fun LazyListScope.downloadsSettingsContent(
         val allowMobileData by DownloadsSettingsRepository.allowMobileDataDownloads.collectAsStateWithLifecycle()
         val showDownloadButton by DownloadsSettingsRepository.showDownloadButton.collectAsStateWithLifecycle()
         val deleteWhenFinished by DownloadsSettingsRepository.deleteWhenFinished.collectAsStateWithLifecycle()
+        val switchToDownload by DownloadsSettingsRepository.switchToDownloadWhileWatching.collectAsStateWithLifecycle()
         var showPicker by remember { mutableStateOf(false) }
 
         SettingsSection(
@@ -58,6 +61,14 @@ internal fun LazyListScope.downloadsSettingsContent(
                     checked = deleteWhenFinished,
                     isTablet = isTablet,
                     onCheckedChange = DownloadsSettingsRepository::setDeleteWhenFinished,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.downloads_switch_while_watching_title),
+                    description = stringResource(Res.string.downloads_switch_while_watching_description),
+                    checked = switchToDownload,
+                    isTablet = isTablet,
+                    onCheckedChange = DownloadsSettingsRepository::setSwitchToDownloadWhileWatching,
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsNavigationRow(

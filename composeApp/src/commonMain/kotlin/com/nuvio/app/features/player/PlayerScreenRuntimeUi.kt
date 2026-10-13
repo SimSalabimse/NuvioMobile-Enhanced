@@ -109,6 +109,8 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     val gestureCallbacks = rememberSurfaceGestureCallbacks()
     val playbackGesturesEnabled = initialLoadCompleted && errorMessage == null
 
+    BindDownloadSwitchEffect()
+
     LaunchedEffect(activeSourceUrl, activeSourceAudioUrl, activeSourceHeaders, activeTorrentInfoHash) {
         val resolvingSourceUrl = activeSourceUrl
         val resolvingAudioUrl = activeSourceAudioUrl
@@ -267,13 +269,14 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                         if (snapshot.isPlaying && !snapshot.isLoading && snapshot.positionMs > 0L) {
                             FinishedDownloadDeletion.playbackPlaying(playbackSession.videoId)
                         }
-                        if (snapshot.isEnded) {
+                        if (snapshot.isEnded && !isDownloadSwapInFlight) {
                             shouldPlay = false
                             controlsVisible = !playerControlsLocked
                         }
                     },
                     onError = { message ->
                         if (!active.value || playbackKey != activePlaybackKey) return@PlatformPlayerSurface
+                        if (message != null && handleDownloadSwapError(message)) return@PlatformPlayerSurface
                         if (message != null && tryRefreshCredentialedSourceAfterError(message)) {
                             return@PlatformPlayerSurface
                         }
@@ -285,6 +288,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                         }
                     },
                     includeMediaInfo = showStreamInfoModal,
+                    sourceSwapStartMs = downloadSwapStartMsFor(playerSurfaceSourceUrl),
                 )
             }
         }

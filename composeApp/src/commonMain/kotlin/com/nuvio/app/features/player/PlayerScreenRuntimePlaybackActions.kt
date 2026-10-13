@@ -44,7 +44,7 @@ internal fun PlayerScreenRuntime.updatePlaybackSnapshot(
     } else {
         snapshot
     }
-    playbackClock.positionMs = incoming.positionMs
+    playbackClock.positionMs = downloadSwapHeldPositionMs(incoming.positionMs)
     // The player's buffered end is only its read-ahead cache (mpv: at most demuxer-max-bytes past the
     // playhead). For an in-progress download the bar follows how far the file on disk reaches.
     val downloadReachMs = activeSourceUrl
@@ -71,6 +71,7 @@ internal fun PlayerScreenRuntime.updatePlaybackSnapshot(
 internal val PlayerScreenRuntime.activePlaybackIdentity: String
     get() = activeTorrentInfoHash
         ?.let { hash -> "torrent:$hash:${activeTorrentFileIdx ?: -1}" }
+        ?: downloadSwapIdentity
         ?: activeSourceUrl
 
 internal val PlayerScreenRuntime.shouldTrackWatchProgress: Boolean
