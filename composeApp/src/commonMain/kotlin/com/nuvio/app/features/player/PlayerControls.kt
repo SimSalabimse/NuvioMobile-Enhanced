@@ -142,6 +142,7 @@ internal fun PlayerControlsShell(
     onVideoSettingsClick: (() -> Unit)? = null,
     onCastClick: (() -> Unit)? = null,
     isCasting: Boolean = false,
+    downloadAction: (@Composable (buttonSize: Dp, iconSize: Dp) -> Unit)? = null,
     onPictureInPictureClick: (() -> Unit)? = null,
     onInfoClick: (() -> Unit)? = null,
     onRateClick: (() -> Unit)? = null,
@@ -225,6 +226,7 @@ internal fun PlayerControlsShell(
                     onVideoSettingsClick = onVideoSettingsClick,
                     onCastClick = onCastClick,
                     isCasting = isCasting,
+                    downloadAction = downloadAction,
                     onPictureInPictureClick = onPictureInPictureClick,
                     onInfoClick = onInfoClick,
                     onRateClick = onRateClick,
@@ -250,6 +252,7 @@ internal fun PlayerControlsShell(
                         onSubmitIntroClick = onSubmitIntroClick,
                         onCastClick = onCastClick,
                         isCasting = isCasting,
+                        downloadAction = downloadAction,
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .windowInsetsPadding(WindowInsets.safeContent.only(WindowInsetsSides.Top))
@@ -425,6 +428,7 @@ private fun PlayerHeader(
     onVideoSettingsClick: (() -> Unit)?,
     onCastClick: (() -> Unit)?,
     isCasting: Boolean,
+    downloadAction: (@Composable (buttonSize: Dp, iconSize: Dp) -> Unit)? = null,
     onPictureInPictureClick: (() -> Unit)?,
     onInfoClick: (() -> Unit)?,
     onRateClick: (() -> Unit)? = null,
@@ -567,6 +571,7 @@ private fun PlayerHeader(
                             onClick = onVideoSettingsClick,
                         )
                     }
+                    downloadAction?.invoke(metrics.headerIconSize + 16.dp, metrics.headerIconSize)
                     if (onCastClick != null) {
                         PlayerHeaderIconButton(
                             icon = if (isCasting) Icons.Rounded.CastConnected else Icons.Rounded.Cast,

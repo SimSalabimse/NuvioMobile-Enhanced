@@ -445,6 +445,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
                 { playerController?.showCastDialog() }
             } else null,
             isCasting = playbackSnapshot.castDeviceName != null,
+            downloadAction = rememberPlayerDownloadAction(),
             onPictureInPictureClick = if (pipAvailable) {
                 {
                     InAppLogger.info("Player/PiP", "start requested")
