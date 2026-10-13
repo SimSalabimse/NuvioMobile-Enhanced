@@ -113,4 +113,9 @@ expect fun PlatformPlayerSurface(
     onSnapshot: (PlayerPlaybackSnapshot) -> Unit,
     onError: (String?) -> Unit,
     includeMediaInfo: Boolean = false,
+    /**
+     * Set when [sourceUrl] changes to the same video at the same spot (stream <-> its download):
+     * the engine swaps the file in place starting here, instead of a fresh open. iOS only.
+     */
+    sourceSwapStartMs: Long? = null,
 )

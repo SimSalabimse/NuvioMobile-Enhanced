@@ -78,6 +78,26 @@ final class DownloadsLiveActivityManager {
 #endif
     }
 
+    /// Background URLSession wake: apply the latest payload, wait until the activity has it, then
+    /// let iOS suspend the app. The handler used to run first, so a failure that arrived during the
+    /// wake never reached the activity and it kept estimating to "almost done".
+    func syncThen(_ completion: @escaping () -> Void) {
+#if canImport(ActivityKit) && os(iOS) && !targetEnvironment(macCatalyst)
+        if #available(iOS 16.1, *) {
+            DispatchQueue.main.async {
+                self.syncFromPayloadStore()
+                let chain = self.applyChain
+                Task { @MainActor in
+                    await chain?.value
+                    completion()
+                }
+            }
+            return
+        }
+#endif
+        DispatchQueue.main.async { completion() }
+    }
+
     private func loadPayload() -> DownloadsLiveStatusPayload? {
         guard let encoded = UserDefaults.standard.string(forKey: downloadsLiveStatusPayloadKey) else {
             return nil
@@ -94,6 +114,10 @@ final class DownloadsLiveActivityManager {
         // End every activity that is not the running download, not just the first one.
         for activity in activities where activity.attributes.downloadId != payload?.id {
             await activity.end(dismissalPolicy: .immediate)
+        }
+        if let payload, payload.status == "Failed" || payload.status == "Waiting" {
+            await endStopped(payload, activities: activities)
+            return
         }
         guard let payload, payload.status == "Downloading" else {
             for activity in activities where activity.attributes.downloadId == payload?.id {
@@ -116,7 +140,11 @@ final class DownloadsLiveActivityManager {
         )
 
         if #available(iOS 16.2, *) {
-            let content = ActivityContent(state: state, staleDate: est?.staleDate)
+            // Safety net: with no word from the app by the stale date, the widget says
+            // "Paused — open Nuvio to check" instead of a bar that keeps moving. With an estimate
+            // that is just before the estimated finish; without one, after 15 minutes.
+            let staleDate = est?.staleDate ?? Date().addingTimeInterval(15 * 60)
+            let content = ActivityContent(state: state, staleDate: staleDate)
             if let existing {
                 await existing.update(content)
                 return
@@ -150,6 +178,34 @@ final class DownloadsLiveActivityManager {
             contentState: state,
             pushType: nil
         )
+    }
+#endif
+
+#if canImport(ActivityKit) && os(iOS) && !targetEnvironment(macCatalyst)
+    /// The transfer behind the activity stopped without the user pausing it: show why ("Failed" or
+    /// "Waiting" for the app to refresh the link) as the final state and end the activity, so it
+    /// stays on the Lock Screen for a while but never keeps estimating.
+    @available(iOS 16.1, *)
+    private func endStopped(
+        _ payload: DownloadsLiveStatusPayload,
+        activities: [Activity<DownloadsLiveActivityAttributes>]
+    ) async {
+        guard let existing = activities.first(where: { $0.attributes.downloadId == payload.id }),
+              existing.activityState == .active else { return }
+        let state = DownloadsLiveActivityAttributes.ContentState(
+            status: payload.status,
+            progressPercent: payload.progressPercent,
+            transferredText: payload.message ?? transferredText(payload),
+            detail: payload.detail,
+            estimatedStart: nil,
+            estimatedEnd: nil
+        )
+        let dismissal: ActivityUIDismissalPolicy = .after(Date().addingTimeInterval(2 * 3600))
+        if #available(iOS 16.2, *) {
+            await existing.end(ActivityContent(state: state, staleDate: nil), dismissalPolicy: dismissal)
+        } else {
+            await existing.end(using: state, dismissalPolicy: dismissal)
+        }
     }
 #endif
 
@@ -245,4 +301,5 @@ private struct DownloadsLiveStatusPayload: Decodable {
     let detail: String?
     let bytesPerSecond: Double?
     let sampledAtEpochMs: Int64?
+    let message: String?
 }

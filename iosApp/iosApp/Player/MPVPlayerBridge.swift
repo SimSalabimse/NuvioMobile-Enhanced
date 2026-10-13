@@ -41,6 +41,17 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
         )
     }
 
+    func loadFileAtPosition(videoUrl: String, headersJson: String?, subtitlesJson: String?, startMs: Int64) {
+        ensurePlayerViewController().loadFile(
+            videoUrl,
+            audioUrl: nil,
+            requestHeaders: parseRequestHeaders(headersJson),
+            subtitles: parseSubtitles(subtitlesJson),
+            startMs: startMs,
+            keepLastFrame: true
+        )
+    }
+
     private func parseSubtitles(_ json: String?) -> [PluginSubtitle] {
         guard
             let json,
@@ -295,6 +306,8 @@ private struct PendingLoadRequest {
     let requestHeaders: [String: String]
     let subtitles: [PluginSubtitle]
     let queuedAtUptime: TimeInterval
+    var startMs: Int64? = nil
+    var keepLastFrame: Bool = false
 }
 
 struct AudioCaptureSource {
@@ -819,13 +832,22 @@ final class MPVPlayerViewController: UIViewController {
 
     // MARK: - Playback API
 
-    func loadFile(_ urlString: String, audioUrl: String? = nil, requestHeaders: [String: String] = [:], subtitles: [PluginSubtitle] = []) {
+    func loadFile(
+        _ urlString: String,
+        audioUrl: String? = nil,
+        requestHeaders: [String: String] = [:],
+        subtitles: [PluginSubtitle] = [],
+        startMs: Int64? = nil,
+        keepLastFrame: Bool = false
+    ) {
         let request = PendingLoadRequest(
             urlString: urlString,
             audioUrl: audioUrl,
             requestHeaders: requestHeaders,
             subtitles: subtitles,
-            queuedAtUptime: ProcessInfo.processInfo.systemUptime
+            queuedAtUptime: ProcessInfo.processInfo.systemUptime,
+            startMs: startMs,
+            keepLastFrame: keepLastFrame
         )
 
         if Thread.isMainThread {
@@ -861,6 +883,8 @@ final class MPVPlayerViewController: UIViewController {
         startLoad(request)
     }
 
+    private var loadStartOptionSet = false
+
     private func startLoad(_ request: PendingLoadRequest) {
         guard mpv != nil else { return }
         automaticPictureInPictureStartRetryWorkItem?.cancel()
@@ -868,7 +892,9 @@ final class MPVPlayerViewController: UIViewController {
         automaticPictureInPicturePrepared = false
         automaticPictureInPicturePreparedAt = 0
         automaticPictureInPictureStartPreparationInFlight = false
-        if !isPictureInPictureActive(), !isPictureInPictureStarting {
+        // A swap to the same video at the same spot (stream <-> download) keeps the last frame up
+        // until the new file renders, instead of flashing black.
+        if !request.keepLastFrame, !isPictureInPictureActive(), !isPictureInPictureStarting {
             primaryRenderSurface?.stopPictureInPictureRendering(removingDisplayedImage: true)
             sampleBufferDisplayView.flush()
         }
@@ -885,6 +911,15 @@ final class MPVPlayerViewController: UIViewController {
         isPlayerEnded = false
         playbackStateGeneration &+= 1
         invalidateMediaInfoCache()
+        // `start` is a per-file option; every load sets it so a swap position never leaks into
+        // the next file.
+        if let startMs = request.startMs, startMs > 0 {
+            setStringProperty("start", String(format: "%.3f", Double(startMs) / 1000.0))
+            loadStartOptionSet = true
+        } else if loadStartOptionSet {
+            setStringProperty("start", "none")
+            loadStartOptionSet = false
+        }
         command("loadfile", args: [request.urlString, "replace"])
         if let audioUrl = request.audioUrl, !audioUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in

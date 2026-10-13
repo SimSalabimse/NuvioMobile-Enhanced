@@ -1,5 +1,6 @@
 package com.nuvio.app.features.player
 
+import com.nuvio.app.features.downloads.FinishedDownloadDeletion
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.features.watching.application.WatchingState
@@ -107,6 +108,8 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
         !p2pSettingsUiState.hideTorrentStats
     val gestureCallbacks = rememberSurfaceGestureCallbacks()
     val playbackGesturesEnabled = initialLoadCompleted && errorMessage == null
+
+    BindDownloadSwitchEffect()
 
     LaunchedEffect(activeSourceUrl, activeSourceAudioUrl, activeSourceHeaders, activeTorrentInfoHash) {
         val resolvingSourceUrl = activeSourceUrl
@@ -263,13 +266,18 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                         checkAutoSubtitleRewindWatermark(snapshot.positionMs)
                         refreshAudioTracksIfChanged()
                         if (!snapshot.isLoading) initialLoadCompleted = true
-                        if (snapshot.isEnded) {
+                        if (snapshot.isPlaying && !snapshot.isLoading && snapshot.positionMs > 0L) {
+                            FinishedDownloadDeletion.playbackPlaying(playbackSession.videoId)
+                        }
+                        if (snapshot.isEnded && handleDownloadSwapPartialEnd()) return@PlatformPlayerSurface
+                        if (snapshot.isEnded && !isDownloadSwapInFlight) {
                             shouldPlay = false
                             controlsVisible = !playerControlsLocked
                         }
                     },
                     onError = { message ->
                         if (!active.value || playbackKey != activePlaybackKey) return@PlatformPlayerSurface
+                        if (message != null && handleDownloadSwapError(message)) return@PlatformPlayerSurface
                         if (message != null && tryRefreshCredentialedSourceAfterError(message)) {
                             return@PlatformPlayerSurface
                         }
@@ -281,6 +289,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                         }
                     },
                     includeMediaInfo = showStreamInfoModal,
+                    sourceSwapStartMs = downloadSwapStartMsFor(playerSurfaceSourceUrl),
                 )
             }
         }
@@ -441,6 +450,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
                 { playerController?.showCastDialog() }
             } else null,
             isCasting = playbackSnapshot.castDeviceName != null,
+            downloadAction = rememberPlayerDownloadAction(),
             onPictureInPictureClick = if (pipAvailable) {
                 {
                     InAppLogger.info("Player/PiP", "start requested")

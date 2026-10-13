@@ -1,10 +1,17 @@
 package com.nuvio.app.features.downloads
 
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Queues removal of a finished download when in-app playback completes, and
- * runs [DownloadsRepository.cancelDownload] only after that playback leaves the file.
+ * runs [DownloadsRepository.cancelDownload] only after the player has closed (plus a short grace,
+ * see [closeGraceMs]) or the next episode is actually playing, never for the video on screen.
  *
  * A transfer that is still running when completion fires is not removed while it runs.
  * An early-play session that crosses the threshold before the bytes finish is removed when
@@ -16,37 +23,72 @@ import com.nuvio.app.features.watchprogress.WatchProgressEntry
  */
 internal object FinishedDownloadDeletion {
     private var session: OpenPlayback? = null
+    private var pending: PendingDeletion? = null
+    private var pendingJob: Job? = null
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    /**
+     * How long a closed player waits before its file goes. The player screen can be torn down and
+     * rebuilt for the same episode (back from the background, a layout change, a reload); the file
+     * used to be deleted on that teardown, so the rebuilt player found no download and fell back to
+     * a stream (TorBox) mid episode. Reopening the same video within this time keeps the file.
+     */
+    internal var closeGraceMs: Long = 5_000L
 
     fun playbackOpened(videoId: String, sourceUrl: String) {
+        cancelPendingFor(videoId, sourceUrl)
         val current = session
         if (current != null && current.videoId == videoId) {
             session = current.copy(sourceUrl = sourceUrl)
             return
         }
-        if (current != null) release(current)
+        // Next episode: the previous file waits until this one is actually playing.
+        if (current != null) release(current, untilOtherPlays = true)
         session = OpenPlayback(videoId = videoId, sourceUrl = sourceUrl)
     }
 
     fun playbackSourceChanged(videoId: String, sourceUrl: String) {
+        cancelPendingFor(videoId, sourceUrl)
         val current = session ?: return
         if (current.videoId != videoId) return
         session = current.copy(sourceUrl = sourceUrl)
     }
 
+    /**
+     * The player moved from a stream to the downloaded file of the same video (or back). The
+     * session keeps that download, so finishing the video counts for the file whichever of the
+     * two is on screen when completion fires.
+     */
+    fun linkDownload(videoId: String, downloadId: String) {
+        val current = session ?: return
+        if (current.videoId != videoId) return
+        session = current.copy(linkedDownloadId = downloadId)
+    }
+
+    /** The player is showing frames of [videoId]: a previous episode waiting for that may go. */
+    fun playbackPlaying(videoId: String) {
+        val waiting = pending ?: return
+        if (!waiting.untilOtherPlays || waiting.videoId == videoId) return
+        if (session?.videoId != videoId) return
+        schedule(waiting.copy(untilOtherPlays = false), delayMs = 0L)
+    }
+
     fun playbackEnded(videoId: String) {
         val current = session ?: return
         if (current.videoId != videoId) return
-        release(current)
+        session = null
+        release(current, untilOtherPlays = false)
     }
 
     fun onPlaybackCompleted(entry: WatchProgressEntry) {
         val current = session ?: return
         if (!entry.isCompleted || entry.videoId != current.videoId) return
         if (current.queuedDownloadId != null) return
-        if (!DownloadsSettingsRepository.deleteWhenFinished.value) return
+        if (!DownloadsSettingsRepository.isDeleteWhenFinishedEnabled()) return
         val items = DownloadsRepository.uiState.value.items
         val item = current.incompleteDownloadId?.let { id -> items.firstOrNull { it.id == id } }
             ?: downloadOpenedBySource(current.sourceUrl, items)
+            ?: current.linkedDownloadId?.let { id -> items.firstOrNull { it.id == id } }
             ?: return
         session = if (item.status == DownloadStatus.Completed) {
             current.copy(queuedDownloadId = item.id, incompleteDownloadId = null)
@@ -57,19 +99,89 @@ internal object FinishedDownloadDeletion {
 
     internal fun reset() {
         session = null
+        pending = null
+        pendingJob?.cancel()
+        pendingJob = null
     }
 
-    private fun release(current: OpenPlayback) {
-        session = null
-        if (!DownloadsSettingsRepository.deleteWhenFinished.value) return
-        val downloadId = current.queuedDownloadId
-            ?: current.incompleteDownloadId?.takeIf { id ->
-                DownloadsRepository.uiState.value.items.any { it.id == id && it.status == DownloadStatus.Completed }
-            }
-            ?: return
-        DownloadsRepository.cancelDownload(downloadId)
+    private fun release(current: OpenPlayback, untilOtherPlays: Boolean) {
+        if (session === current) session = null
+        if (!DownloadsSettingsRepository.isDeleteWhenFinishedEnabled()) return
+        val downloadId = current.queuedDownloadId ?: current.incompleteDownloadId ?: return
+        val deletion = PendingDeletion(
+            downloadId = downloadId,
+            videoId = current.videoId,
+            requireCompleted = current.queuedDownloadId == null,
+            untilOtherPlays = untilOtherPlays,
+        )
+        if (untilOtherPlays) {
+            pendingJob?.cancel()
+            pending = deletion
+        } else {
+            schedule(deletion, closeGraceMs)
+        }
+    }
+
+    private fun schedule(deletion: PendingDeletion, delayMs: Long) {
+        pendingJob?.cancel()
+        pending = deletion
+        if (delayMs <= 0L) {
+            pendingJob = null
+            execute(deletion)
+            return
+        }
+        pendingJob = scope.launch {
+            delay(delayMs)
+            execute(deletion)
+        }
+    }
+
+    private fun execute(deletion: PendingDeletion) {
+        if (pending !== deletion) return
+        pending = null
+        pendingJob = null
+        if (!DownloadsSettingsRepository.isDeleteWhenFinishedEnabled()) return
+        val item = DownloadsRepository.uiState.value.items.firstOrNull { it.id == deletion.downloadId } ?: return
+        if (deletion.requireCompleted && item.status != DownloadStatus.Completed) return
+        // Never the episode on screen, whatever path got here.
+        val open = session
+        if (open != null) {
+            if (open.videoId == deletion.videoId) return
+            if (open.linkedDownloadId == deletion.downloadId) return
+            if (downloadOpenedBySource(open.sourceUrl, listOf(item)) != null) return
+        }
+        DownloadsRepository.cancelDownload(deletion.downloadId)
+    }
+
+    /** The same video (or the same file) is open again: keep its file. */
+    private fun cancelPendingFor(videoId: String, sourceUrl: String) {
+        val waiting = pending ?: return
+        val sameFile = DownloadsRepository.uiState.value.items
+            .firstOrNull { it.id == waiting.downloadId }
+            ?.let { downloadOpenedBySource(sourceUrl, listOf(it)) != null } == true
+        if (waiting.videoId != videoId && !sameFile) return
+        pendingJob?.cancel()
+        pendingJob = null
+        pending = null
+        // Back on the same episode: it is still watched, so closing again queues it again.
+        val current = session
+        if (current == null || current.videoId != videoId) {
+            session = OpenPlayback(
+                videoId = videoId,
+                sourceUrl = sourceUrl,
+                queuedDownloadId = waiting.downloadId.takeUnless { waiting.requireCompleted },
+                incompleteDownloadId = waiting.downloadId.takeIf { waiting.requireCompleted },
+            )
+        }
     }
 }
+
+private data class PendingDeletion(
+    val downloadId: String,
+    val videoId: String,
+    val requireCompleted: Boolean,
+    val untilOtherPlays: Boolean,
+)
 
 private data class OpenPlayback(
     val videoId: String,
@@ -77,6 +189,8 @@ private data class OpenPlayback(
     val queuedDownloadId: String? = null,
     /** Watched to the end while still downloading: removed on leave only if it finished by then. */
     val incompleteDownloadId: String? = null,
+    /** Downloaded while watching and switched to (see [FinishedDownloadDeletion.linkDownload]). */
+    val linkedDownloadId: String? = null,
 )
 
 internal fun downloadOpenedBySource(sourceUrl: String, items: List<DownloadItem>): DownloadItem? {

@@ -55,6 +55,14 @@ data class DownloadItem(
     val updatedAtEpochMs: Long,
     val earlyPlayReady: Boolean = false,
     val playsWhenDownloadFinishes: Boolean = false,
+    /** What picked this stream, so an expired link can be re-resolved to the same source. */
+    val sourceFilename: String? = null,
+    val sourceBingeGroup: String? = null,
+    val sourceQualityLabel: String? = null,
+    /** The stored link was rejected (400/403/410...). The next start asks the addon for a fresh one. */
+    val needsLinkRefresh: Boolean = false,
+    /** The refresh could not run in the background; it runs the next time the app is opened. */
+    val waitingForAppOpen: Boolean = false,
 ) {
     val isEpisode: Boolean
         get() = seasonNumber != null && episodeNumber != null

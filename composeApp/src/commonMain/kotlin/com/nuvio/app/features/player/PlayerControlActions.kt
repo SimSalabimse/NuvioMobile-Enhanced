@@ -69,10 +69,12 @@ internal fun PlayerToolbar(
     onSubmitIntroClick: (() -> Unit)? = null,
     onCastClick: (() -> Unit)? = null,
     isCasting: Boolean = false,
+    downloadAction: (@Composable (buttonSize: Dp, iconSize: Dp) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Spacer(Modifier.weight(1f))
+        downloadAction?.invoke(48.dp, 24.dp)
         if (onSubmitIntroClick != null) {
             PlayerAction(
                 description = stringResource(Res.string.submit_intro_action),

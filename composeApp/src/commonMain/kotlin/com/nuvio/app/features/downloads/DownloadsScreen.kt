@@ -259,7 +259,9 @@ private fun LazyListScope.downloadsRootContent(
         item {
             SectionTitle(stringResource(Res.string.downloads_section_active))
         }
-        if (activeItems.any(DownloadItem::isEpisode)) {
+        // Only when a season with two or more unfinished episodes is in the list; long-press does
+        // nothing useful on a lone episode, such as a single failed one.
+        if (activeDownloadEntries(activeItems).any { it is ActiveDownloadEntry.Season }) {
             item {
                 Text(
                     text = stringResource(Res.string.downloads_cancel_season_hint),
@@ -822,12 +824,14 @@ private fun statusText(item: DownloadItem): String {
     }
 
     return when (item.status) {
-        DownloadStatus.Downloading -> {
+        DownloadStatus.Downloading -> if (item.needsLinkRefresh && item.errorMessage != null) {
+            item.errorMessage
+        } else {
             val label = stringResource(Res.string.downloads_status_downloading, size)
             val percent = item.downloadsScreenProgressPercent()
             if (percent != null) "$label • $percent%" else label
         }
-        DownloadStatus.Paused -> stringResource(Res.string.downloads_status_paused, size)
+        DownloadStatus.Paused -> if (item.waitingForAppOpen && item.errorMessage != null) item.errorMessage else stringResource(Res.string.downloads_status_paused, size)
         DownloadStatus.Queued -> stringResource(Res.string.downloads_status_queued)
         DownloadStatus.Completed -> stringResource(
             Res.string.downloads_status_completed,

@@ -44,6 +44,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.flow.collectLatest
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.key
@@ -245,10 +248,32 @@ internal fun HomeHeroSection(
         pagerState.scrollToPage(pagerState.currentPage)
     }
 
+    // Finger on the hero, so the settle guard leaves a drag alone.
+    val heroPointerDown = remember(pagerState) { mutableStateOf(false) }
+
     ScreenActivityEffect(pagerState) { active ->
-        if (!active) {
-            pagerState.stopScroll(MutatePriority.PreventUserInput)
-            pagerState.scrollToPage(pagerState.currentPage)
+        // Leaving and coming back both snap to one page: a crossfade interrupted by the app going
+        // to the background used to stay half way, two slides blended.
+        pagerState.stopScroll(MutatePriority.PreventUserInput)
+        pagerState.scrollToPage(heroNearestPage(pagerState))
+        if (!active) heroPointerDown.value = false
+    }
+
+    // The hero draws its slides from the pager offset, so any offset left between pages shows two
+    // backdrops, logos and metadata lines at about half alpha. The custom swipe moves the pager
+    // with dispatchRawDelta, outside any scroll, and a cancelled gesture (the list or the system
+    // taking the pointer) or an animation cancelled with nothing after it never settled it.
+    // Whenever nothing is scrolling and no finger is down, an offset left behind is animated
+    // to the nearest page.
+    LaunchedEffect(pagerState) {
+        snapshotFlow {
+            Triple(pagerState.isScrollInProgress, heroPointerDown.value, pagerState.currentPageOffsetFraction)
+        }.collectLatest { (scrolling, pointerDown, fraction) ->
+            if (scrolling || pointerDown || abs(fraction) < 0.001f) return@collectLatest
+            delay(HERO_SETTLE_GRACE_MS)
+            // Launched outside collectLatest: this animation flips isScrollInProgress, which
+            // would otherwise cancel it half way and leave the offset it is meant to clear.
+            coroutineScope.launch { pagerState.animateScrollToPage(heroNearestPage(pagerState)) }
         }
     }
 
@@ -294,6 +319,7 @@ internal fun HomeHeroSection(
                     pagerState = pagerState,
                     itemCount = items.size,
                     coroutineScope = coroutineScope,
+                    pointerDown = heroPointerDown,
                 )
                 .clip(heroShape),
         ) {
@@ -1060,65 +1086,86 @@ private fun Modifier.homeHeroPagerGesture(
     pagerState: PagerState,
     itemCount: Int,
     coroutineScope: CoroutineScope,
+    pointerDown: MutableState<Boolean>,
 ): Modifier {
     if (itemCount <= 1) return this
 
     return pointerInput(pagerState, itemCount) {
         awaitEachGesture {
             val down = awaitFirstDown(pass = PointerEventPass.Initial)
-            val widthPx = size.width.toFloat().takeIf { it > 0f } ?: return@awaitEachGesture
-            val velocityTracker = VelocityTracker().apply {
-                addPosition(down.uptimeMillis, down.position)
-            }
-            val startPage = pagerState.currentPage
-            var totalDx = 0f
-            var totalDy = 0f
-            var dragging = false
+            pointerDown.value = true
+            try {
+                val widthPx = size.width.toFloat().takeIf { it > 0f } ?: return@awaitEachGesture
+                val velocityTracker = VelocityTracker().apply {
+                    addPosition(down.uptimeMillis, down.position)
+                }
+                val startPage = pagerState.currentPage
+                var totalDx = 0f
+                var totalDy = 0f
+                var dragging = false
 
-            while (true) {
-                val event = awaitPointerEvent(pass = PointerEventPass.Initial)
-                val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                velocityTracker.addPosition(change.uptimeMillis, change.position)
+                while (true) {
+                    val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    velocityTracker.addPosition(change.uptimeMillis, change.position)
 
-                if (!change.pressed) {
-                    if (dragging) {
-                        val targetPage = resolveHeroTargetPage(
-                            startPage = startPage,
-                            pageCount = pagerState.pageCount,
-                            totalDx = totalDx,
-                            velocityX = velocityTracker.calculateVelocity().x,
-                            widthPx = widthPx,
-                        )
-                        coroutineScope.launch {
-                            pagerState.animateScrollToPage(targetPage)
+                    if (!change.pressed) {
+                        if (dragging) {
+                            val targetPage = resolveHeroTargetPage(
+                                startPage = startPage,
+                                pageCount = pagerState.pageCount,
+                                totalDx = totalDx,
+                                velocityX = velocityTracker.calculateVelocity().x,
+                                widthPx = widthPx,
+                            )
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(targetPage)
+                            }
+                        }
+                        break
+                    }
+
+                    val delta = change.position - change.previousPosition
+                    totalDx += delta.x
+                    totalDy += delta.y
+
+                    if (!dragging) {
+                        val horizontalDrag =
+                            abs(totalDx) > viewConfiguration.touchSlop && abs(totalDx) > abs(totalDy)
+                        val verticalDrag =
+                            abs(totalDy) > viewConfiguration.touchSlop && abs(totalDy) > abs(totalDx)
+
+                        when {
+                            verticalDrag -> break
+                            horizontalDrag -> dragging = true
+                            else -> continue
                         }
                     }
-                    break
+
+                    pagerState.dispatchRawDelta(-delta.x)
+                    change.consume()
                 }
-
-                val delta = change.position - change.previousPosition
-                totalDx += delta.x
-                totalDy += delta.y
-
-                if (!dragging) {
-                    val horizontalDrag =
-                        abs(totalDx) > viewConfiguration.touchSlop && abs(totalDx) > abs(totalDy)
-                    val verticalDrag =
-                        abs(totalDy) > viewConfiguration.touchSlop && abs(totalDy) > abs(totalDx)
-
-                    when {
-                        verticalDrag -> break
-                        horizontalDrag -> dragging = true
-                        else -> continue
-                    }
-                }
-
-                pagerState.dispatchRawDelta(-delta.x)
-                change.consume()
+            } finally {
+                // Lifted, cancelled or turned into a vertical scroll: the settle guard snaps any
+                // offset this drag left behind.
+                pointerDown.value = false
             }
         }
     }
 }
+
+/** The page nearest to where the pager is drawn now. */
+private fun heroNearestPage(pagerState: PagerState): Int {
+    val fraction = pagerState.currentPageOffsetFraction
+    val page = when {
+        fraction > 0.5f -> pagerState.currentPage + 1
+        fraction < -0.5f -> pagerState.currentPage - 1
+        else -> pagerState.currentPage
+    }
+    return page.coerceIn(0, (pagerState.pageCount - 1).coerceAtLeast(0))
+}
+
+private const val HERO_SETTLE_GRACE_MS = 150L
 
 private fun resolveHeroTargetPage(
     startPage: Int,

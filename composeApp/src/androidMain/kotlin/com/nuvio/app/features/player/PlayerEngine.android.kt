@@ -138,6 +138,7 @@ actual fun PlatformPlayerSurface(
     onSnapshot: (PlayerPlaybackSnapshot) -> Unit,
     onError: (String?) -> Unit,
     includeMediaInfo: Boolean,
+    sourceSwapStartMs: Long?,
 ) {
     val playerSettings = remember {
         PlayerSettingsRepository.ensureLoaded()

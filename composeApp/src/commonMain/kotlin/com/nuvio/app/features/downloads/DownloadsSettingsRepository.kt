@@ -19,6 +19,9 @@ object DownloadsSettingsRepository {
     private val _deleteWhenFinished = MutableStateFlow(false)
     val deleteWhenFinished: StateFlow<Boolean> = _deleteWhenFinished.asStateFlow()
 
+    private val _switchToDownloadWhileWatching = MutableStateFlow(true)
+    val switchToDownloadWhileWatching: StateFlow<Boolean> = _switchToDownloadWhileWatching.asStateFlow()
+
     private val _downloadLocationUri = MutableStateFlow<String?>(null)
     val downloadLocationUri: StateFlow<String?> = _downloadLocationUri.asStateFlow()
 
@@ -30,6 +33,7 @@ object DownloadsSettingsRepository {
         _allowMobileDataDownloads.value = DownloadsSettingsStorage.loadAllowMobileDataDownloads() ?: false
         _showDownloadButton.value = DownloadsSettingsStorage.loadShowDownloadButton() ?: true
         _deleteWhenFinished.value = DownloadsSettingsStorage.loadDeleteWhenFinished() ?: false
+        _switchToDownloadWhileWatching.value = DownloadsSettingsStorage.loadSwitchToDownloadWhileWatching() ?: true
         _downloadLocationUri.value = DownloadsStorage.getDownloadLocationUri()
     }
 
@@ -47,6 +51,16 @@ object DownloadsSettingsRepository {
         DownloadsSettingsStorage.saveShowDownloadButton(enabled)
     }
 
+    /**
+     * The stored value. [deleteWhenFinished] stays false until [ensureLoaded] runs, which only the
+     * settings screen and the details page did, so playing a download straight from Downloads
+     * after a launch read "off" and never deleted the file.
+     */
+    fun isDeleteWhenFinishedEnabled(): Boolean {
+        ensureLoaded()
+        return _deleteWhenFinished.value
+    }
+
     fun setDeleteWhenFinished(enabled: Boolean) {
         ensureLoaded()
         if (_deleteWhenFinished.value == enabled) return
@@ -54,11 +68,25 @@ object DownloadsSettingsRepository {
         DownloadsSettingsStorage.saveDeleteWhenFinished(enabled)
     }
 
+    /** On by default: the player moves from the stream to the finished file of the same item. */
+    fun isSwitchToDownloadWhileWatchingEnabled(): Boolean {
+        ensureLoaded()
+        return _switchToDownloadWhileWatching.value
+    }
+
+    fun setSwitchToDownloadWhileWatching(enabled: Boolean) {
+        ensureLoaded()
+        if (_switchToDownloadWhileWatching.value == enabled) return
+        _switchToDownloadWhileWatching.value = enabled
+        DownloadsSettingsStorage.saveSwitchToDownloadWhileWatching(enabled)
+    }
+
     internal fun clearLocalState() {
         hasLoaded = false
         _allowMobileDataDownloads.value = false
         _showDownloadButton.value = true
         _deleteWhenFinished.value = false
+        _switchToDownloadWhileWatching.value = true
         _downloadLocationUri.value = null
     }
 

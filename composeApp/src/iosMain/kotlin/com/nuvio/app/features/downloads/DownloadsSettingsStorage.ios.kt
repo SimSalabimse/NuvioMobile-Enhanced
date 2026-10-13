@@ -6,6 +6,7 @@ actual object DownloadsSettingsStorage {
     private const val allowMobileDataDownloadsKey = "allow_mobile_data_downloads"
     private const val showDownloadButtonKey = "show_download_button"
     private const val deleteWhenFinishedKey = "delete_when_finished"
+    private const val switchToDownloadKey = "switch_to_download_while_watching"
 
     actual fun loadAllowMobileDataDownloads(): Boolean? {
         val defaults = NSUserDefaults.standardUserDefaults
@@ -44,5 +45,18 @@ actual object DownloadsSettingsStorage {
 
     actual fun saveDeleteWhenFinished(enabled: Boolean) {
         NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = deleteWhenFinishedKey)
+    }
+
+    actual fun loadSwitchToDownloadWhileWatching(): Boolean? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        return if (defaults.objectForKey(switchToDownloadKey) != null) {
+            defaults.boolForKey(switchToDownloadKey)
+        } else {
+            null
+        }
+    }
+
+    actual fun saveSwitchToDownloadWhileWatching(enabled: Boolean) {
+        NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = switchToDownloadKey)
     }
 }

@@ -8,6 +8,7 @@ actual object DownloadsSettingsStorage {
     private const val allowMobileDataDownloadsKey = "allow_mobile_data_downloads"
     private const val showDownloadButtonKey = "show_download_button"
     private const val deleteWhenFinishedKey = "delete_when_finished"
+    private const val switchToDownloadKey = "switch_to_download_while_watching"
 
     private var preferences: SharedPreferences? = null
 
@@ -61,5 +62,14 @@ actual object DownloadsSettingsStorage {
             ?.edit()
             ?.putBoolean(deleteWhenFinishedKey, enabled)
             ?.apply()
+    }
+
+    actual fun loadSwitchToDownloadWhileWatching(): Boolean? =
+        preferences?.let { prefs ->
+            if (prefs.contains(switchToDownloadKey)) prefs.getBoolean(switchToDownloadKey, true) else null
+        }
+
+    actual fun saveSwitchToDownloadWhileWatching(enabled: Boolean) {
+        preferences?.edit()?.putBoolean(switchToDownloadKey, enabled)?.apply()
     }
 }

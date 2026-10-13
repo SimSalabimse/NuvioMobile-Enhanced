@@ -63,6 +63,7 @@ actual fun PlatformPlayerSurface(
     onSnapshot: (PlayerPlaybackSnapshot) -> Unit,
     onError: (String?) -> Unit,
     includeMediaInfo: Boolean,
+    sourceSwapStartMs: Long?,
 ) {
     sanitizePlaybackResponseHeaders(sourceResponseHeaders)
     val latestOnControllerReady = rememberUpdatedState(onControllerReady)
@@ -70,6 +71,7 @@ actual fun PlatformPlayerSurface(
     val latestOnError = rememberUpdatedState(onError)
     val latestIncludeMediaInfo = rememberUpdatedState(includeMediaInfo)
     val latestSourceUrl = rememberUpdatedState(sourceUrl)
+    val latestSourceSwapStartMs = rememberUpdatedState(sourceSwapStartMs)
     val density = LocalDensity.current
     PlayerSettingsRepository.ensureLoaded()
     val playerSettings by PlayerSettingsRepository.uiState.collectAsStateWithLifecycle()
@@ -403,13 +405,24 @@ actual fun PlatformPlayerSurface(
                 "subtitles=${externalSubtitles.size} headers=${InAppLogger.headerKeys(sanitizePlaybackHeaders(sourceHeaders))} " +
                 "hwdec=${latestPlayerSettings.value.iosHardwareDecoderMode.mpvValue} toneMapping=${latestPlayerSettings.value.iosToneMappingMode.mpvValue}",
         )
-        bridge.applyIosVideoOutputSettings(latestPlayerSettings.value)
-        bridge.loadFileWithAudio(
-            videoUrl = sourceUrl,
-            audioUrl = sourceAudioUrl,
-            headersJson = encodePlaybackHeadersForBridge(sourceHeaders),
-            subtitlesJson = encodeExternalSubtitlesForBridge(externalSubtitles),
-        )
+        val swapStartMs = latestSourceSwapStartMs.value
+        if (swapStartMs != null && swapStartMs > 0L && sourceAudioUrl.isNullOrBlank()) {
+            InAppLogger.info("Player/iOS", "swap file in place startMs=$swapStartMs")
+            bridge.loadFileAtPosition(
+                videoUrl = sourceUrl,
+                headersJson = encodePlaybackHeadersForBridge(sourceHeaders),
+                subtitlesJson = encodeExternalSubtitlesForBridge(externalSubtitles),
+                startMs = swapStartMs,
+            )
+        } else {
+            bridge.applyIosVideoOutputSettings(latestPlayerSettings.value)
+            bridge.loadFileWithAudio(
+                videoUrl = sourceUrl,
+                audioUrl = sourceAudioUrl,
+                headersJson = encodePlaybackHeadersForBridge(sourceHeaders),
+                subtitlesJson = encodeExternalSubtitlesForBridge(externalSubtitles),
+            )
+        }
         if (playWhenReady) {
             InAppLogger.debug("Player/iOS", "initial play requested")
             noteInAppPlaybackPlaying(true)

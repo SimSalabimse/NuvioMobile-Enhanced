@@ -133,6 +133,9 @@ internal actual object DownloadsPlatformDownloader {
 
     actual fun restoreItem(item: DownloadItem): DownloadItem {
         iosFinishedFileOrNull(item)?.let { return it }
+        if (IosLinkRejected.take(item.id) && item.status == DownloadStatus.Downloading) {
+            return item.copy(needsLinkRefresh = true)
+        }
         val partLength = iosPartFileLength(item.fileName)
         val bytes = resumedByteCount(item.downloadedBytes, partLength)
         val kept = if (bytes == item.downloadedBytes) item else item.copy(downloadedBytes = bytes)
@@ -859,18 +862,14 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
                     activeDownloads[downloadId]?.retriedWithoutRange = true
                 } else {
                     IosWriterOwnership.release(downloadId, DownloadWriterKind.Background)
-                    callbacks?.onFailure(
-                        runBlocking { getString(Res.string.network_request_failed_http, statusCode) },
-                    )
+                    callbacks?.onFailure(httpFailureMessage(request.destinationFileName, statusCode))
                 }
                 return
             }
 
             if (statusCode !in 200..299) {
-                finishWithFailure(
-                    downloadId,
-                    runBlocking { getString(Res.string.network_request_failed_http, statusCode) },
-                )
+                removePathIfExists(didFinishDownloadingToURL.path.orEmpty())
+                finishWithFailure(downloadId, httpFailureMessage(request.destinationFileName, statusCode))
                 return
             }
 
@@ -982,9 +981,28 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         finishWithFailure(downloadId, didCompleteWithError.localizedDescription)
     }
 
+    /**
+     * The last delegate callback of a background wake. Calling the completion handler lets iOS
+     * suspend the app again. It used to be called right here, on the delegate queue, while a
+     * failure's status change was still waiting for the main queue, so the Live Activity was never
+     * told and kept estimating to "almost done". Now it runs on the main queue after the row
+     * update and the Live Activity payload went out (the Swift side waits for the activity too).
+     */
     override fun URLSessionDidFinishEventsForBackgroundURLSession(session: NSURLSession) {
         val identifier = session.configuration.identifier ?: return
-        backgroundSessionCompletionHandlers.remove(identifier)?.invoke()
+        dispatch_async(dispatch_get_main_queue()) {
+            DownloadsLiveStatusPlatform.flushNow()
+            backgroundSessionCompletionHandlers.remove(identifier)?.invoke()
+        }
+    }
+
+    /** A rejected link goes to the repository to be refreshed; the resume data names the old URL. */
+    private fun httpFailureMessage(fileName: String, statusCode: Int): String {
+        if (DownloadLinkFailure.isRefreshable(statusCode)) {
+            discardResumeData(fileName)
+            return DownloadLinkFailure.encode(statusCode)
+        }
+        return runBlocking { getString(Res.string.network_request_failed_http, statusCode) }
     }
 
     /**
@@ -999,6 +1017,21 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         val statusCode = (task.response as? NSHTTPURLResponse)?.statusCode?.toInt() ?: 200
         if (fileName == null || statusCode !in 200..299) {
             removePathIfExists(tempPath)
+            if (fileName != null && DownloadLinkFailure.isRefreshable(statusCode)) {
+                // A relaunch for a task whose link was rejected: nothing in this process tracks it,
+                // so it used to be dropped silently and the row and Live Activity never heard.
+                discardResumeData(fileName)
+                IosBackgroundTaskFiles.forget(downloadId)
+                IosLinkRejected.mark(downloadId)
+                dispatch_async(dispatch_get_main_queue()) {
+                    DownloadsRepository.ensureLoaded()
+                    // Loading the list consumed the mark (the row restarts with a fresh link);
+                    // a list that was already loaded needs telling directly.
+                    if (IosLinkRejected.take(downloadId)) {
+                        DownloadsRepository.onBackgroundLinkRejected(downloadId, statusCode)
+                    }
+                }
+            }
             return
         }
         val base = resolveDownloadsBaseDirectory()
@@ -1227,6 +1260,17 @@ private fun takeResumeData(fileName: String): NSData? {
  * Download id to destination file name for every background task, kept in user defaults so a
  * process that iOS relaunched in the background can still put a finished file in place.
  */
+/** Rows whose background task was rejected while this process did not track it (see [finishUntrackedDownload]). */
+internal object IosLinkRejected {
+    private val ids = mutableSetOf<String>()
+
+    fun mark(downloadId: String) {
+        ids += downloadId
+    }
+
+    fun take(downloadId: String): Boolean = ids.remove(downloadId)
+}
+
 internal object IosBackgroundTaskFiles {
     private const val KEY_PREFIX = "nuvio.downloads.bg_task_file."
 
