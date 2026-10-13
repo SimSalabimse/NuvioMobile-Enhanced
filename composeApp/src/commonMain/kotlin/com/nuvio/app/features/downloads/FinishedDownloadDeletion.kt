@@ -43,7 +43,7 @@ internal object FinishedDownloadDeletion {
         val current = session ?: return
         if (!entry.isCompleted || entry.videoId != current.videoId) return
         if (current.queuedDownloadId != null) return
-        if (!DownloadsSettingsRepository.deleteWhenFinished.value) return
+        if (!DownloadsSettingsRepository.isDeleteWhenFinishedEnabled()) return
         val items = DownloadsRepository.uiState.value.items
         val item = current.incompleteDownloadId?.let { id -> items.firstOrNull { it.id == id } }
             ?: downloadOpenedBySource(current.sourceUrl, items)
@@ -61,7 +61,7 @@ internal object FinishedDownloadDeletion {
 
     private fun release(current: OpenPlayback) {
         session = null
-        if (!DownloadsSettingsRepository.deleteWhenFinished.value) return
+        if (!DownloadsSettingsRepository.isDeleteWhenFinishedEnabled()) return
         val downloadId = current.queuedDownloadId
             ?: current.incompleteDownloadId?.takeIf { id ->
                 DownloadsRepository.uiState.value.items.any { it.id == id && it.status == DownloadStatus.Completed }

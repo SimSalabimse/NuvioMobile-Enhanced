@@ -47,6 +47,16 @@ object DownloadsSettingsRepository {
         DownloadsSettingsStorage.saveShowDownloadButton(enabled)
     }
 
+    /**
+     * The stored value. [deleteWhenFinished] stays false until [ensureLoaded] runs, which only the
+     * settings screen and the details page did, so playing a download straight from Downloads
+     * after a launch read "off" and never deleted the file.
+     */
+    fun isDeleteWhenFinishedEnabled(): Boolean {
+        ensureLoaded()
+        return _deleteWhenFinished.value
+    }
+
     fun setDeleteWhenFinished(enabled: Boolean) {
         ensureLoaded()
         if (_deleteWhenFinished.value == enabled) return
