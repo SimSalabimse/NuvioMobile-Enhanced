@@ -66,6 +66,9 @@ internal data class RawThumbnailSheets(
 internal object MediaAnalysisScheduler {
     private const val START_DELAY_MS = 20_000L
     private const val PLAYBACK_POLL_MS = 15_000L
+    private const val CHARGER_POLL_MS = 60_000L
+    private const val RETRY_DELAY_MS = 2 * 60_000L
+    private const val MAX_ATTEMPTS = 3
     private const val MAX_SIBLINGS = 4
     private const val THUMBNAIL_TARGET_COUNT = 400L
     private const val THUMBNAIL_MIN_INTERVAL_MS = 5_000L
@@ -103,6 +106,7 @@ internal object MediaAnalysisScheduler {
     /** "Analyse now": forget this session's failures and start at once (also replaces a pending start). */
     fun analyseNow() {
         failedThisSession.clear()
+        retries.clear()
         MediaAnalysisStatus.clearAllFailures()
         val running = MediaAnalysisStatus.job.value is AnalysisJobState.Running
         if (!running) {
@@ -126,6 +130,20 @@ internal object MediaAnalysisScheduler {
         analyseNow()
     }
 
+    /** The episode being watched goes next (or now, replacing another file mid-way). */
+    private var priorityItemId: String? = null
+
+    fun prioritise(item: DownloadItem) {
+        priorityItemId = item.id
+        failedThisSession -= item.id
+        val runningId = (MediaAnalysisStatus.job.value as? AnalysisJobState.Running)?.itemId
+        if (runningId == item.id) return
+        if (runningId != null) cancel()
+        if (job?.isActive != true) kick(startDelayMs = 0L) else {
+            job?.cancel(); job = null; kick(startDelayMs = 0L)
+        }
+    }
+
     fun cancel() {
         job?.cancel()
         job = null
@@ -144,15 +162,25 @@ internal object MediaAnalysisScheduler {
             ) {
                 InAppLogger.debug("Analysis", "waiting for charger")
                 MediaAnalysisStatus.setJob(AnalysisJobState.WaitingForCharger)
-                return false
+                // In the app, keep checking: nothing else starts the queue when the charger goes in.
+                if (fromBackgroundTask) return false
+                delay(CHARGER_POLL_MS)
+                continue
             }
-            if (!fromBackgroundTask && InAppPlaybackKeepAlive.isPlaying()) {
+            // Playback no longer stops analysis; it runs throttled (see PlaybackPriority). Only a
+            // struggling player makes it wait before the next file.
+            if (!fromBackgroundTask &&
+                !com.nuvio.app.features.downloads.PlaybackPriority.analysisBoosted &&
+                com.nuvio.app.features.downloads.PlaybackPriority.level ==
+                com.nuvio.app.features.downloads.PlaybackPriority.Level.Strained
+            ) {
                 MediaAnalysisStatus.setJob(AnalysisJobState.WaitingForPlayback)
                 delay(PLAYBACK_POLL_MS)
                 continue
             }
             val item = nextPending() ?: run {
                 MediaAnalysisStatus.setJob(AnalysisJobState.Idle)
+                scheduleRetryKick()
                 return true
             }
             currentItem = item
@@ -165,14 +193,42 @@ internal object MediaAnalysisScheduler {
             }
             if (!scopeActive()) return false
             if (ok) MediaAnalysisStatus.clearFailure(item.id)
+            if (ok) retries -= item.id
             if (!ok) {
-                // Remember the failure for this session so one bad file does not loop.
-                failedThisSession += item.id
+                // Try again later instead of skipping the file for the rest of the session: it
+                // used to stay "partly analysed, queued for more" until Analyse now was tapped.
+                // After a few tries it is left alone and shown as failed, with the reason.
+                val attempt = (retries[item.id]?.first ?: 0) + 1
+                if (attempt >= MAX_ATTEMPTS) {
+                    retries -= item.id
+                    failedThisSession += item.id
+                    if (MediaAnalysisStatus.statusFor(item) !is ItemAnalysisStatus.Failed) {
+                        MediaAnalysisStatus.recordFailure(item, MediaAnalyzerPlatform.lastError() ?: "Analysis stopped")
+                    }
+                } else {
+                    retries[item.id] = attempt to (com.nuvio.app.features.streams.epochMs() + RETRY_DELAY_MS * attempt)
+                }
             }
         }
     }
 
     private val failedThisSession = mutableSetOf<String>()
+    /** id -> (attempts so far, not before epoch ms). */
+    private val retries = mutableMapOf<String, Pair<Int, Long>>()
+    private var retryKick: Job? = null
+
+    private fun isBackingOff(id: String): Boolean =
+        (retries[id]?.second ?: 0L) > com.nuvio.app.features.streams.epochMs()
+
+    /** Files waiting out a retry delay get a pass of their own when it is over. */
+    private fun scheduleRetryKick() {
+        val next = retries.values.minOfOrNull { it.second } ?: return
+        retryKick?.cancel()
+        retryKick = scope.launch {
+            delay((next - com.nuvio.app.features.streams.epochMs()).coerceAtLeast(1_000L))
+            kick(startDelayMs = 0L)
+        }
+    }
     private var currentItem: DownloadItem? = null
     private var currentInBackground = false
 
@@ -203,8 +259,8 @@ internal object MediaAnalysisScheduler {
     private suspend fun scopeActive(): Boolean = kotlin.coroutines.coroutineContext.isActive
 
     private fun nextPending(): DownloadItem? = DownloadsRepository.uiState.value.items
-        .filter { it.status == DownloadStatus.Completed && it.id !in failedThisSession }
-        .sortedBy { it.updatedAtEpochMs }
+        .filter { it.status == DownloadStatus.Completed && it.id !in failedThisSession && !isBackingOff(it.id) }
+        .sortedWith(compareBy<DownloadItem> { if (it.id == priorityItemId) 0 else 1 }.thenBy { it.updatedAtEpochMs })
         .firstOrNull { item ->
             val existing = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item))
             existing == null || existing.fileName != item.fileName || needsDerived(existing)
@@ -372,6 +428,8 @@ internal object MediaAnalysisScheduler {
 /** Entry points for the iOS app delegate and background task. */
 object MediaAnalysisBackground {
     fun appDidLaunch() {
+        // A throttle left from a player in an earlier process must not hold the analyser.
+        setAnalysisThrottleLevel(0)
         MediaAnalysisScheduler.kick()
         com.nuvio.app.features.downloads.DownloadsRepository.ensureLoaded()
         com.nuvio.app.features.offline.OfflineArtwork.cacheAll(
@@ -399,7 +457,11 @@ object MediaAnalysisBackground {
                 finished = false
             } finally {
                 MediaAnalysisStatus.backgroundRan(finished)
+                MediaAnalysisStatus.resultsChanged()
                 onDone(finished)
+                // The background task cancelled the in-app pass; without this nothing restarted it
+                // and a half-done file stayed "queued" until Analyse now was tapped.
+                if (!finished) MediaAnalysisScheduler.kick()
             }
         }
     }
@@ -408,6 +470,9 @@ object MediaAnalysisBackground {
         backgroundJob?.cancel()
         backgroundJob = null
         MediaAnalysisScheduler.cancel()
+        MediaAnalysisStatus.setJob(AnalysisJobState.Idle)
+        MediaAnalysisStatus.resultsChanged()
+        MediaAnalysisScheduler.kick()
     }
 
     fun requiresExternalPower(): Boolean =

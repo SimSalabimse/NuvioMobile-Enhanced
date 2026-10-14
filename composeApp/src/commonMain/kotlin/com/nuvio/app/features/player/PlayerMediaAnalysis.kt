@@ -80,7 +80,13 @@ internal fun PlayerScreenRuntime.userMarkedSkipIntervals(): List<SkipInterval> =
     com.nuvio.app.features.analysis.SkipLearning.userMarks(parentMetaId, activeSeasonNumber, activeEpisodeNumber)
         .filter { (_, mark) -> mark.endMs > mark.startMs }
         .map { (type, mark) ->
-            SkipInterval(mark.startMs / 1000.0, mark.endMs / 1000.0, type, com.nuvio.app.features.analysis.SkipLearning.PROVIDER)
+            SkipInterval(
+                mark.startMs / 1000.0,
+                mark.endMs / 1000.0,
+                type,
+                if (mark.imported) com.nuvio.app.features.analysis.SkipLearning.PROVIDER_IMPORTED
+                else com.nuvio.app.features.analysis.SkipLearning.PROVIDER,
+            )
         }
 
 private fun skipCategory(type: String): String = when (type.lowercase()) {

@@ -595,7 +595,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
             val imported = runCatching {
                 com.nuvio.app.features.player.skip.SkipMarkImport.importForShow(parentMetaId, vid, isMovie = false)
             }.getOrDefault(0)
-            if (imported > 0) skipIntervals = withOnDeviceSkips(skipIntervals.filter { it.provider != com.nuvio.app.features.analysis.SkipLearning.PROVIDER })
+            if (imported > 0) skipIntervals = withOnDeviceSkips(skipIntervals.filter { !com.nuvio.app.features.analysis.SkipLearning.isUserProvider(it.provider) })
         }
         launch {
             val imdbFromContent = parentMetaId.takeIf { it.startsWith("tt") }

@@ -10,9 +10,21 @@
       "improved": [
         "Your own marks always win over online and on-device times for that episode, streamed or downloaded.",
         "Times you send with Submit Timestamps are kept on the phone too.",
+        "Skip settings show how the TheIntroDB import went: how many of your submissions came in and when, or why the key was refused.",
+        "The Skip button shows where its times came from: You, TheIntroDB (yours), TheIntroDB, or On-device.",
+        "Re-analyze one episode, a season or a whole show: long-press a downloaded episode or show, or use the refresh button on a season or in Storage. Your own skip marks are kept.",
+        "Playback comes first: while you watch, one download runs at a time and on-device analysis runs slowly in the background. If the player buffers, both wait until playback is smooth again. Full speed returns when the player closes or after 2 minutes paused.",
+        "Playing a downloaded episode that isn't fully analysed asks (without stopping playback): Play now, Finish first (with a progress bar, then plays), or Finish in background. Skip times found while you watch are used straight away. Pick a default with Don't ask again, or in Playback settings.",
+        "Downloads shows speed and time left for each running episode, and for the whole season on its group row, using the same estimate as the Live Activity.",
+        "Download Season: pick the episodes first (or the whole season), then sources are searched only for those. Downloaded and watched episodes start unticked.",
+        "The download Live Activity has its own StandBy layout: dark, large title, thick bar and time left, readable under the red night tint.",
         "Your earlier TheIntroDB submissions are brought onto the phone when you play that show, and teach the detector too."
       ],
       "fixed": [
+        "Tapping the download Live Activity no longer stacks another Downloads screen each time; it goes back to the one already open.",
+        "On-device analysis picks up again by itself after playback, after the background task, when the charger goes in, and retries a failed file a little later. Episodes no longer sit at \"partly analysed, queued\" until Analyse now is tapped.",
+        "A downloaded file that got stuck buffering (for example right after jumping to the resume point) is seeked again after 5 seconds and reopened if it is still stuck.",
+        "Episode cards: the watched check and the download badge no longer overlap at the top right.",
         "Morphed tab bar: after it expands from the small Home button, tapping Search, Library or Profile works again instead of doing nothing until it collapses.",
         "A tab tapped while the app is still getting ready now opens as soon as it can instead of being ignored."
       ]

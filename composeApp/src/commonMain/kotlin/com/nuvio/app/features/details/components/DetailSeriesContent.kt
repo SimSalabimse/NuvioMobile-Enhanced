@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import com.nuvio.app.features.downloads.DetailsDownloadProgressKind
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -1088,12 +1089,20 @@ private fun EpisodeHorizontalCard(
                 ),
         )
 
-        NuvioAnimatedWatchedBadge(
-            isVisible = isWatched,
+        // One badge spot at the top-right: the downloaded tick and the watched mark sit side by side.
+        val downloadDone = downloadProgress.showsMark && downloadProgress.kind == DetailsDownloadProgressKind.Completed
+        Row(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(metrics.contentPadding),
-        )
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (downloadDone) {
+                DetailsDownloadEpisodeMark(progress = downloadProgress, onDark = true)
+            }
+            NuvioAnimatedWatchedBadge(isVisible = isWatched)
+        }
 
         Column(
             modifier = Modifier
@@ -1194,14 +1203,19 @@ private fun EpisodeHorizontalCard(
             )
         }
 
-        if (downloadProgress.showsMark) {
+        if (downloadProgress.showsMark && downloadProgress.kind != DetailsDownloadProgressKind.Completed) {
+            // Progress runs along the top but stops short of the badge spot so nothing overlaps.
             DetailsDownloadEpisodeMark(
                 progress = downloadProgress,
                 onDark = true,
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .fillMaxWidth()
-                    .padding(metrics.contentPadding),
+                    .padding(
+                        start = metrics.contentPadding,
+                        top = metrics.contentPadding,
+                        end = metrics.contentPadding + if (isWatched) 36.dp else 0.dp,
+                    ),
             )
         }
     }

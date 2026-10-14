@@ -20,7 +20,7 @@ import kotlinx.coroutines.launch
 /** After a tap on Skip: ask Good / Wrong unless turned off (own marks are not asked about again). */
 internal fun PlayerScreenRuntime.offerSkipFeedback(interval: SkipInterval) {
     if (!MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.SkipFeedbackPrompt)) return
-    if (interval.provider == SkipLearning.PROVIDER) return
+    if (SkipLearning.isUserProvider(interval.provider)) return
     if (SkipLearning.canonicalType(interval.type) == null) return
     skipFeedbackNudging = false
     skipFeedbackInterval = interval

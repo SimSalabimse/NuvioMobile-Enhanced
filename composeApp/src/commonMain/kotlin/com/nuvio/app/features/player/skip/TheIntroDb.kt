@@ -112,11 +112,16 @@ internal object TheIntroDb {
      * This account's submissions for one title. TheIntroDB has no per-episode filter,
      * so callers keep the rows that match the episode they are flagging.
      */
+    /** Why the last [listMySubmissions] call stopped early, or null when it went through. */
+    var lastListError: String? = null
+        private set
+
     suspend fun listMySubmissions(
         apiKey: String,
         tmdbId: Int,
         mediaType: String,
     ): List<TheIntroDbUserSubmission> {
+        lastListError = null
         if (apiKey.isBlank() || tmdbId <= 0) return emptyList()
         val type = if (mediaType.equals("movie", ignoreCase = true)) "movie" else "tv"
         val collected = mutableListOf<TheIntroDbUserSubmission>()
@@ -137,9 +142,18 @@ internal object TheIntroDb {
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
+                lastListError = "Couldn't reach TheIntroDB"
                 return collected
             }
-            if (response.status !in 200..299 || response.body.isBlank()) return collected
+            if (response.status == 401 || response.status == 403) {
+                lastListError = "TheIntroDB refused the API key (${response.status})"
+                return collected
+            }
+            if (response.status !in 200..299) {
+                lastListError = "TheIntroDB error ${response.status}"
+                return collected
+            }
+            if (response.body.isBlank()) return collected
             val page = try {
                 json.decodeFromString<TheIntroDbSubmissionsPage>(response.body)
             } catch (cancelled: CancellationException) {

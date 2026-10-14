@@ -111,6 +111,7 @@ private final class ThumbnailSheetBuilder {
             let last = min(count, first + perSheet)
             for index in first..<last {
                 if abort.isSet { removeSheets(upTo: sheet); return nil }
+                MediaAnalyzerThrottle.yield(abort: abort)
                 MediaAnalyzerStatus.shared.set(Double(index) / Double(count))
                 let positionMs = min(durationMs - 1000, Int64(index) * intervalMs + intervalMs / 2)
                 let image: UIImage? = autoreleasepool {
@@ -307,7 +308,15 @@ private final class MediaAnalysisRun {
         }
 
         var packetsSinceProgress = 0
+        var packetsSinceThrottle = 0
         while !abort.isSet {
+            // Playback comes first (PlaybackPriority in the shared code): while the player is open
+            // the decode runs in small slices with short sleeps, and holds while it buffers.
+            packetsSinceThrottle += 1
+            if packetsSinceThrottle >= 64 {
+                packetsSinceThrottle = 0
+                MediaAnalyzerThrottle.yield(abort: abort)
+            }
             let read = av_read_frame(context, packet)
             if read < 0 { break }
             if packet.pointee.stream_index == audioIndex {
@@ -584,5 +593,27 @@ enum NuvioMediaAnalyzerRegistration {
 
     static func register() {
         NuvioMediaAnalyzerRegistry.shared.register(analyzer: shared)
+    }
+}
+
+
+/// Set from Kotlin (setAnalysisThrottleLevel): 0 full speed, 1 playing, 2 the player is buffering.
+private enum MediaAnalyzerThrottle {
+    private static let key = "NuvioAnalysisThrottleLevel"
+
+    static func yield(abort: MediaAnalyzerAbortFlag) {
+        var level = UserDefaults.standard.integer(forKey: key)
+        if level == 1 {
+            usleep(25_000)
+            return
+        }
+        // Hold while the player struggles, but never for more than a minute at a time, so a level
+        // that is never cleared cannot stall the queue.
+        var waited = 0
+        while level >= 2 && !abort.isSet && waited < 240 {
+            usleep(250_000)
+            waited += 1
+            level = UserDefaults.standard.integer(forKey: key)
+        }
     }
 }

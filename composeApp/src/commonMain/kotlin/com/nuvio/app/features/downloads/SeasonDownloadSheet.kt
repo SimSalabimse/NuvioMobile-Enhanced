@@ -104,12 +104,13 @@ internal fun SeasonDownloadSheet(
             episodes.toSeasonRows(meta.id, DownloadsRepository.uiState.value.items, isEpisodeWatched),
         )
     }
-    // The first episode the sheet would queue lists the sources. It does not move when a row is unchecked.
-    val anchorKey = remember(episodes) {
-        (rows.firstOrNull { it.existing == null && !it.watched } ?: rows.firstOrNull { it.existing == null })?.key
-    }
+    // Step 1: pick episodes. Nothing is searched until the user confirms the selection.
+    var selectionConfirmed by remember(episodes) { mutableStateOf(false) }
+    var confirmedKeys by remember(episodes) { mutableStateOf<Set<String>>(emptySet()) }
+    // The first selected episode lists the sources. It does not move when a row is unchecked.
+    var anchorKey by remember(episodes) { mutableStateOf<String?>(null) }
     var anchorStreams by remember(episodes) { mutableStateOf<List<StreamItem>>(emptyList()) }
-    var pendingSources by remember(episodes) { mutableStateOf(if (anchorKey == null) 0 else 1) }
+    var pendingSources by remember(episodes) { mutableStateOf(0) }
     var choice by remember(episodes) { mutableStateOf<StreamItem?>(null) }
     var autoPicked by remember(episodes) { mutableStateOf(false) }
     var pickingSource by remember(episodes) { mutableStateOf(false) }
@@ -141,28 +142,10 @@ internal fun SeasonDownloadSheet(
         }
     }
 
-    fun applyChoice(stream: StreamItem, byAutoPick: Boolean) {
-        choice = stream
-        autoPicked = byAutoPick
-        pickingSource = false
-        probedIds.clear()
+    fun matchRows(stream: StreamItem): Job {
         val picked = SeasonSourceChoice(stream)
-        rows = rows.map { row ->
-            when {
-                row.existing != null -> row.copy(match = null, matching = false)
-                row.overridden -> row
-                row.key == anchorKey -> row.copy(
-                    match = SeasonStreamMatch.Matched(stream),
-                    matching = false,
-                    probedBytes = null,
-                    probeDone = false,
-                )
-                else -> row.copy(match = null, matching = true, probedBytes = null, probeDone = false)
-            }
-        }
-        matchJob?.cancel()
         val toMatch = rows.filter { it.matching }
-        matchJob = scope.launch {
+        return scope.launch {
             val gate = Semaphore(SEASON_MATCH_CONCURRENCY)
             toMatch.map { row ->
                 launch {
@@ -186,6 +169,31 @@ internal fun SeasonDownloadSheet(
                 }
             }.forEach { it.join() }
         }
+    }
+
+    fun applyChoice(stream: StreamItem, byAutoPick: Boolean) {
+        choice = stream
+        autoPicked = byAutoPick
+        pickingSource = false
+        probedIds.clear()
+        val picked = SeasonSourceChoice(stream)
+        rows = rows.map { row ->
+            when {
+                row.existing != null -> row.copy(match = null, matching = false)
+                row.overridden -> row
+                // Only the episodes picked in step 1 are searched.
+                row.key !in confirmedKeys -> row.copy(match = null, matching = false)
+                row.key == anchorKey -> row.copy(
+                    match = SeasonStreamMatch.Matched(stream),
+                    matching = false,
+                    probedBytes = null,
+                    probeDone = false,
+                )
+                else -> row.copy(match = null, matching = true, probedBytes = null, probeDone = false)
+            }
+        }
+        matchJob?.cancel()
+        matchJob = matchRows(stream)
     }
 
     LaunchedEffect(anchorKey) {
@@ -308,7 +316,8 @@ internal fun SeasonDownloadSheet(
     val usableFree = usableFreeBytes(volume)
     val lowSpace = usableFree != null && summary.knownBytes > 0L && summary.knownBytes > usableFree
     val stillMatching = rows.any { it.matching && it.userChecked }
-    val canQueue = !queuing && !stillMatching &&
+    val selectedBeforeSearch = rows.count { it.existing == null && it.userChecked }
+    val canQueue = selectionConfirmed && !queuing && !stillMatching &&
         rows.any { it.selectedForTotal() && it.match is SeasonStreamMatch.Matched }
     val showPicker = anchorKey != null && (choice == null || pickingSource)
     val candidates = anchorStreams.filter { it.isSeasonDownloadCandidate() }
@@ -372,6 +381,44 @@ internal fun SeasonDownloadSheet(
                 }
                 return@LazyColumn
             }
+            if (!selectionConfirmed) {
+                val open = rows.filter { it.existing == null }
+                item(key = "select-title") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = open.isNotEmpty() && open.all { it.userChecked },
+                            enabled = open.isNotEmpty(),
+                            onCheckedChange = { all ->
+                                rows = rows.map { if (it.existing == null) it.copy(userChecked = all) else it }
+                            },
+                        )
+                        Text(
+                            text = "Whole season",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+                items(rows, key = { "select:" + it.key }) { row ->
+                    EpisodeSelectRow(
+                        row = row,
+                        detail = when {
+                            row.existing == SeasonExistingDownload.Downloaded -> downloadedText
+                            row.existing == SeasonExistingDownload.InProgress -> inDownloadsText
+                            row.watched -> watchedText
+                            else -> null
+                        },
+                        onCheckedChange = { checked ->
+                            rows = rows.map { if (it.key == row.key && it.existing == null) it.copy(userChecked = checked) else it }
+                        },
+                    )
+                }
+                return@LazyColumn
+            }
             if (anchorKey == null) {
                 item(key = "nothing-left") {
                     SheetNote(stringResource(Res.string.season_download_nothing_left))
@@ -409,7 +456,7 @@ internal fun SeasonDownloadSheet(
                     }
                 }
             }
-            items(rows, key = { "episode:" + it.key }) { row ->
+            items(rows.filter { it.key in confirmedKeys }, key = { "episode:" + it.key }) { row ->
                 EpisodeDownloadRow(
                     row = row,
                     sizeUnknown = sizeUnknown,
@@ -461,11 +508,27 @@ internal fun SeasonDownloadSheet(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = totalText,
+                text = if (selectionConfirmed) totalText else "$selectedBeforeSearch selected",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
+            if (!selectionConfirmed) {
+                Button(
+                    onClick = {
+                        val picked = rows.filter { it.existing == null && it.userChecked }
+                        if (picked.isEmpty()) return@Button
+                        confirmedKeys = picked.map { it.key }.toSet()
+                        anchorKey = picked.first().key
+                        pendingSources = 1
+                        selectionConfirmed = true
+                    },
+                    enabled = selectedBeforeSearch > 0,
+                ) {
+                    Text("Find sources")
+                }
+                return@Row
+            }
             Button(
                 onClick = {
                     if (!canQueue) return@Button
@@ -493,6 +556,46 @@ internal fun SeasonDownloadSheet(
                 enabled = canQueue,
             ) {
                 Text(stringResource(Res.string.details_download_action))
+            }
+        }
+    }
+}
+
+@Composable
+private fun EpisodeSelectRow(
+    row: SeasonEpisodeRowState,
+    detail: String?,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    val code = localizedSeasonEpisodeCode(row.video.season, row.video.episode)
+    val title = listOfNotNull(code, row.video.title.takeIf { it.isNotBlank() }).joinToString(" · ")
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = row.existing == null) { onCheckedChange(!row.userChecked) }
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Checkbox(
+            checked = row.existing == null && row.userChecked,
+            onCheckedChange = if (row.existing == null) onCheckedChange else null,
+            enabled = row.existing == null,
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title.ifBlank { row.video.id },
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (detail != null) {
+                Text(
+                    text = detail,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
             }
         }
     }

@@ -14,6 +14,10 @@ import kotlinx.coroutines.withContext
 internal object SkipLearning {
     /** Provider name of skip intervals that come from the user's own marks. */
     const val PROVIDER = "you"
+    /** A mark imported from the user's own TheIntroDB submissions. */
+    const val PROVIDER_IMPORTED = "you-theintrodb"
+
+    fun isUserProvider(provider: String): Boolean = provider == PROVIDER || provider == PROVIDER_IMPORTED
 
     private const val MIN_REFERENCE_MS = 8_000L
     private const val END_SNAP_MS = 10_000L
@@ -76,7 +80,7 @@ internal object SkipLearning {
         if (existing.userSegments.containsKey(category)) return false
         MediaAnalysisStore.save(
             existing.copy(
-                userSegments = existing.userSegments + (category to UserSegment(startMs, endMs, 0L)),
+                userSegments = existing.userSegments + (category to UserSegment(startMs, endMs, 0L, imported = true)),
                 learnedTypes = existing.learnedTypes - category,
                 derivedVersion = if (category == "intro") 0 else existing.derivedVersion,
             ),

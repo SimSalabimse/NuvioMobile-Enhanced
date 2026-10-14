@@ -21,6 +21,8 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -205,6 +207,7 @@ internal fun DownloadStorageScreen(
     val summary = rememberDownloadStorageSummary(items, refresh)
     var expanded by remember { mutableStateOf<Set<String>>(emptySet()) }
     var pendingDelete by remember { mutableStateOf<PendingStorageDelete?>(null) }
+    var reanalyzeTarget by remember { mutableStateOf<ReanalyzeTarget?>(null) }
     var confirmOrphans by remember { mutableStateOf(false) }
     val specialsLabel = stringResource(Res.string.downloads_storage_specials)
 
@@ -270,6 +273,7 @@ internal fun DownloadStorageScreen(
                     },
                     leadingExpand = if (title.isShow) isExpanded else null,
                     trailing = {
+                        ReanalyzeButton { reanalyzeTarget = ReanalyzeTarget(title.title, title.downloadIds) }
                         DeleteButton { pendingDelete = PendingStorageDelete(title.title, title.downloadIds, title.bytes) }
                     },
                 )
@@ -288,6 +292,9 @@ internal fun DownloadStorageScreen(
                                 " · " + formatDownloadBytes(season.bytes),
                             indent = true,
                             trailing = {
+                                ReanalyzeButton {
+                                    reanalyzeTarget = ReanalyzeTarget("${title.title} – $label", season.downloadIds)
+                                }
                                 DeleteButton {
                                     pendingDelete = PendingStorageDelete("${title.title} – $label", season.downloadIds, season.bytes)
                                 }
@@ -298,6 +305,8 @@ internal fun DownloadStorageScreen(
             }
         }
     }
+
+    ReanalyzeModal(target = reanalyzeTarget, onDismiss = { reanalyzeTarget = null })
 
     pendingDelete?.let { pending ->
         NuvioStatusModal(
@@ -335,6 +344,18 @@ internal fun DownloadStorageScreen(
                 refresh++
             },
             onDismiss = { confirmOrphans = false },
+        )
+    }
+}
+
+@Composable
+private fun ReanalyzeButton(onClick: () -> Unit) {
+    IconButton(onClick = onClick) {
+        Icon(
+            Icons.Rounded.Refresh,
+            contentDescription = "Re-analyze",
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

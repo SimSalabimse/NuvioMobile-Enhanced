@@ -32,6 +32,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -1375,6 +1376,31 @@ private fun PlaybackSettingsSection(
                             ?: com.nuvio.app.features.analysis.MediaAnalysisSettings.isEnabled(feedbackFlag),
                         isTablet = isTablet,
                         onCheckedChange = { com.nuvio.app.features.analysis.MediaAnalysisSettings.set(feedbackFlag, it) },
+                    )
+                    val importStatus by com.nuvio.app.features.player.skip.SkipImportStatus.status.collectAsState()
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = "TheIntroDB import",
+                        description = com.nuvio.app.features.player.skip.SkipImportStatus.describe(
+                            importStatus,
+                            com.nuvio.app.features.streams.epochMs(),
+                        ),
+                        isTablet = isTablet,
+                        trailingContent = {},
+                        onClick = {},
+                    )
+                    val playChoice by com.nuvio.app.features.analysis.AnalysisPlayChoice.current.collectAsState()
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = "Playing an episode that isn't analysed yet",
+                        description = (playChoice ?: com.nuvio.app.features.analysis.AnalysisPlayChoice.Ask).label +
+                            " · tap to change",
+                        isTablet = isTablet,
+                        onClick = {
+                            val all = com.nuvio.app.features.analysis.AnalysisPlayChoice.entries
+                            val current = playChoice ?: com.nuvio.app.features.analysis.AnalysisPlayChoice.Ask
+                            com.nuvio.app.features.analysis.AnalysisPlayChoice.set(all[(all.indexOf(current) + 1) % all.size])
+                        },
                     )
                 }
                 SettingsGroupDivider(isTablet = isTablet)

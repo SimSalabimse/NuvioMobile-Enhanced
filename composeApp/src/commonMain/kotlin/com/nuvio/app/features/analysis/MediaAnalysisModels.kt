@@ -62,6 +62,8 @@ internal data class UserSegment(
     val startMs: Long,
     val endMs: Long,
     val markedAtMs: Long = 0L,
+    /** Brought in from the user's own TheIntroDB submissions, not marked on this phone. */
+    val imported: Boolean = false,
 )
 
 /** The user's marks override what was detected for this episode. */

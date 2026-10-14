@@ -131,6 +131,18 @@ internal class DownloadStartQueue(
         waiting.addFirst(id)
     }
 
+    /** Moves the newest active ids back to the front of the line until at most [max] are active. */
+    fun shrinkTo(max: Int): List<String> {
+        val demoted = mutableListOf<String>()
+        while (active.size > max) {
+            val newest = active.last()
+            active.remove(newest)
+            waiting.addFirst(newest)
+            demoted.add(newest)
+        }
+        return demoted
+    }
+
     fun promote(thermalBlocksNextFile: Boolean): List<String> {
         if (thermalBlocksNextFile) return emptyList()
         val started = mutableListOf<String>()

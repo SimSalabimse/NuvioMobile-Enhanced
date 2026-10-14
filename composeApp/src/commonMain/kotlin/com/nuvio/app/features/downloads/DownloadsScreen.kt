@@ -37,6 +37,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -81,6 +82,7 @@ fun DownloadsScreen(
     var downloadPendingDeletionId by rememberSaveable { mutableStateOf<String?>(null) }
     var expandedSeasonGroups by remember { mutableStateOf<Set<String>>(emptySet()) }
     var groupPendingCancel by remember { mutableStateOf<ActiveSeasonGroup?>(null) }
+    var reanalyzeTarget by remember { mutableStateOf<ReanalyzeTarget?>(null) }
     val openDownloadsDirectoryFailedText = stringResource(Res.string.downloads_open_directory_failed)
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showStorage by rememberSaveable { mutableStateOf(false) }
@@ -201,6 +203,7 @@ fun DownloadsScreen(
                     }
                 },
                 onCancelSeasonGroup = { groupPendingCancel = it },
+                onReanalyze = { reanalyzeTarget = it },
             )
         } else {
             downloadsShowContent(
@@ -210,9 +213,12 @@ fun DownloadsScreen(
                 onOpenDownload = onOpenDownload,
                 onDeleteDownload = { downloadPendingDeletionId = it },
                 onCancelSeasonGroup = { groupPendingCancel = it },
+                onReanalyze = { reanalyzeTarget = it },
             )
         }
     }
+
+    ReanalyzeModal(target = reanalyzeTarget, onDismiss = { reanalyzeTarget = null })
 
     val pendingDeletionId = downloadPendingDeletionId
     if (pendingDeletionId != null) {
@@ -249,6 +255,7 @@ fun DownloadsScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 private fun LazyListScope.downloadsRootContent(
     uiState: DownloadsUiState,
     onOpenDownload: (DownloadItem) -> Unit,
@@ -257,6 +264,7 @@ private fun LazyListScope.downloadsRootContent(
     expandedSeasonGroups: Set<String>,
     onToggleSeasonGroup: (String) -> Unit,
     onCancelSeasonGroup: (ActiveSeasonGroup) -> Unit,
+    onReanalyze: (ReanalyzeTarget) -> Unit,
 ) {
     val activeItems = uiState.activeItems
     val completedMovies = uiState.completedItems.filterNot(DownloadItem::isEpisode)
@@ -347,6 +355,7 @@ private fun LazyListScope.downloadsRootContent(
                 onResume = { DownloadsRepository.resumeDownload(item.id) },
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                 onDelete = { onDeleteDownload(item.id) },
+                onLongPress = { onReanalyze(ReanalyzeTarget(item.title, listOf(item.id))) },
             )
         }
     }
@@ -363,7 +372,10 @@ private fun LazyListScope.downloadsRootContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 6.dp)
-                    .clickable { onOpenShow(item.parentMetaId, item.title) },
+                    .combinedClickable(
+                        onClick = { onOpenShow(item.parentMetaId, item.title) },
+                        onLongClick = { onReanalyze(ReanalyzeTarget(item.title, episodes.map { it.id })) },
+                    ),
                 shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.surfaceContainer,
             ) {
@@ -447,6 +459,7 @@ private fun LazyListScope.downloadsShowContent(
     onOpenDownload: (DownloadItem) -> Unit,
     onDeleteDownload: (String) -> Unit,
     onCancelSeasonGroup: (ActiveSeasonGroup) -> Unit,
+    onReanalyze: (ReanalyzeTarget) -> Unit,
 ) {
     val showEpisodes = episodes
         .filter { it.parentMetaId == showId }
@@ -495,6 +508,25 @@ private fun LazyListScope.downloadsShowContent(
                         },
                     )
                 }
+                val seasonLabel = if (seasonNumber == 0) "Specials" else "Season $seasonNumber"
+                if (entries.any { it.status == DownloadStatus.Completed }) {
+                    IconButton(
+                        onClick = {
+                            onReanalyze(
+                                ReanalyzeTarget(
+                                    "${entries.first().title} – $seasonLabel",
+                                    entries.map { it.id },
+                                ),
+                            )
+                        },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Refresh,
+                            contentDescription = "Re-analyze $seasonLabel",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 if (unfinished != null) {
                     SeasonGroupActions(
                         group = unfinished,
@@ -519,6 +551,15 @@ private fun LazyListScope.downloadsShowContent(
                 onDelete = { onDeleteDownload(item.id) },
                 onLongPress = if (item.status != DownloadStatus.Completed && unfinished != null) {
                     { onCancelSeasonGroup(unfinished) }
+                } else if (item.status == DownloadStatus.Completed) {
+                    {
+                        onReanalyze(
+                            ReanalyzeTarget(
+                                "${item.title} S${item.seasonNumber ?: 0}E${item.episodeNumber ?: 0}",
+                                listOf(item.id),
+                            ),
+                        )
+                    }
                 } else {
                     null
                 },
@@ -660,6 +701,14 @@ private fun DownloadRow(
             }
 
             if (item.status == DownloadStatus.Downloading) {
+                val speeds by DownloadSpeeds.speeds.collectAsState()
+                speedAndEta(speeds[item.id], item.remainingBytesOrNull())?.let { line ->
+                    Text(
+                        text = line,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 if (item.totalBytes != null && item.totalBytes > 0L) {
                     LinearProgressIndicator(
                         progress = item.progressFraction,
@@ -738,10 +787,19 @@ private fun ActiveSeasonGroupHeader(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    val speeds by DownloadSpeeds.speeds.collectAsState()
+                    val groupSpeed = group.items.mapNotNull { speeds[it.id] }.takeIf { it.isNotEmpty() }?.sum()
+                    val pending = group.items.filter {
+                        it.status == DownloadStatus.Downloading || it.status == DownloadStatus.Queued
+                    }
+                    val groupRemaining = pending.map { it.remainingBytesOrNull() }
+                        .takeIf { list -> list.isNotEmpty() && list.all { it != null } }
+                        ?.sumOf { it ?: 0L }
                     Text(
                         text = listOfNotNull(
                             stringResource(Res.string.downloads_group_count, group.items.size),
                             percent?.let { "$it%" },
+                            speedAndEta(groupSpeed, groupRemaining),
                         ).joinToString(" · "),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

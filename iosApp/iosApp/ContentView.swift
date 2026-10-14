@@ -469,6 +469,14 @@ final class TabNavigationCoordinator: ObservableObject {
             AppKt.disposeRoute(route: route)
             return
         }
+        // Single-top also means "already in this stack": pop back to it instead of stacking
+        // another copy (each Live Activity tap used to add one more Downloads screen).
+        if launchSingleTop,
+           let existing = path.lastIndex(where: { $0.route.navigationIdentity == route.navigationIdentity }) {
+            AppKt.disposeRoute(route: route)
+            setPath(Array(path.prefix(through: existing)))
+            return
+        }
         path.append(RouteWrapper(route: route))
     }
 
@@ -1108,6 +1116,9 @@ final class AppNavigationCoordinator: ObservableObject {
         tabBarBehavior = behavior
         if !behavior.respondsToScroll {
             setTabBarVisible(true)
+        } else if behavior.usesCompactPill {
+            // Undo state left by the previous style (pill hidden, native bar shown).
+            setTabBarVisible(isTabBarVisible)
         }
     }
 
@@ -1143,6 +1154,24 @@ final class AppNavigationCoordinator: ObservableObject {
 
         tabBarTransitionTask?.cancel()
         tabBarTransitionTask = nil
+
+        // Morphed style: the pill is the only tab bar (the native one is never shown), so it must
+        // never be hidden. The plain path below hid it whenever the bar was "visible" (any call
+        // without animation, and every call with Reduce Motion on), leaving no working tab bar.
+        if tabBarBehavior.usesCompactPill {
+            isNativeTabBarVisible = false
+            isCompactPillHidden = false
+            if isTabBarVisible != visible {
+                if animated, !UIAccessibility.isReduceMotionEnabled {
+                    isTabBarVisible = visible
+                } else {
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) { isTabBarVisible = visible }
+                }
+            }
+            return
+        }
 
         guard animated, !UIAccessibility.isReduceMotionEnabled else {
             isTabBarVisible = visible

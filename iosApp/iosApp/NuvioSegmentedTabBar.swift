@@ -281,6 +281,14 @@ final class NuvioTabSegmentedControl: UISegmentedControl {
         let longPress = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
         longPress.minimumPressDuration = 0.45
         addGestureRecognizer(longPress)
+        // With accessibility text sizes the lens does not follow the finger and the touch
+        // overrides never select, so the control's own value change has to switch the tab.
+        addTarget(self, action: #selector(handleValueChanged), for: .valueChanged)
+    }
+
+    @objc private func handleValueChanged() {
+        guard !movesLensOnTouchDown else { return }
+        onSelect(selectedSegmentIndex)
     }
 
     @available(*, unavailable)

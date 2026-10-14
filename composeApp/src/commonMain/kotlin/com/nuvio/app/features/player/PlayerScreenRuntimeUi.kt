@@ -742,6 +742,7 @@ private fun BoxScope.RenderPlaybackOverlays(
             httpRebufferDetail = if (initialLoadCompleted) stallCopy?.detail else null,
         )
         if (!playerControlsLocked) RenderSkipFeedbackPrompt(runtime)
+        RenderAnalysisPlayPrompt(runtime)
     }
 }
 

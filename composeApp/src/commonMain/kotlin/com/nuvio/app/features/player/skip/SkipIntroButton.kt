@@ -131,6 +131,19 @@ fun SkipIntroButton(
                     fontSize = 14.sp,
                     modifier = Modifier.padding(start = 8.dp),
                 )
+                skipSourceTag(interval?.provider)?.let { tag ->
+                    Text(
+                        text = tag,
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .padding(start = 8.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color.White.copy(alpha = 0.12f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
             }
             Box(
                 modifier = Modifier
@@ -167,3 +180,17 @@ private fun skipLabel(type: String?, skipsToPostCredits: Boolean): String =
         )
         else -> stringResource(Res.string.player_skip)
     }
+
+/** Where the skip times came from, shown as a small tag next to the Skip label. */
+internal fun skipSourceTag(provider: String?): String? = when (provider) {
+    null -> null
+    com.nuvio.app.features.analysis.SkipLearning.PROVIDER -> "You"
+    com.nuvio.app.features.analysis.SkipLearning.PROVIDER_IMPORTED -> "TheIntroDB (yours)"
+    TheIntroDb.PROVIDER -> "TheIntroDB"
+    com.nuvio.app.features.player.ON_DEVICE_SKIP_PROVIDER -> "On-device"
+    "introdb" -> "IntroDB"
+    "aniskip" -> "AniSkip"
+    "animeskip" -> "Anime-Skip"
+    "heuristic" -> "Guess"
+    else -> null
+}
