@@ -8,8 +8,18 @@ engine_checksum=a941b1638ff725d775712aeef68beda2a3eadff3325bad017a8724d73be5043c
 engine_root="${NUVIO_ENGINE_ROOT:-${repository_root}/../nuvio-engine}"
 engine_framework="${engine_root}/platform/apple/NuvioEngine.xcframework"
 
-if [[ ! -f "${repository_root}/MPVKit/Package.swift" ]]; then
-    git -C "${repository_root}" submodule update --init --depth 1 MPVKit
+# Keep MPVKit on the commit this checkout records, not only when it is missing. A reused worktree
+# kept an older MPVKit after the upstream 0.5.10 merge, so the libmpv without the PiP frame hook
+# was linked and Picture in Picture never received frames.
+recorded_mpvkit="$(git -C "${repository_root}" ls-tree HEAD MPVKit | awk '{print $3}')"
+current_mpvkit="$(git -C "${repository_root}/MPVKit" rev-parse HEAD 2>/dev/null || true)"
+if [[ ! -f "${repository_root}/MPVKit/Package.swift" || ( -n "${recorded_mpvkit}" && "${current_mpvkit}" != "${recorded_mpvkit}" ) ]]; then
+    git -C "${repository_root}" submodule sync -- MPVKit
+    if ! git -C "${repository_root}" submodule update --init --depth 1 MPVKit; then
+        git -C "${repository_root}/MPVKit" fetch --depth 1 origin "${recorded_mpvkit}"
+        git -C "${repository_root}" submodule update --init MPVKit
+    fi
+    echo "MPVKit at $(git -C "${repository_root}/MPVKit" rev-parse --short HEAD)"
 fi
 
 if [[ -f "${engine_framework}/Info.plist" ]]; then
