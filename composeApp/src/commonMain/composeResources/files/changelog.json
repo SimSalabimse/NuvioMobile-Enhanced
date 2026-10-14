@@ -16,7 +16,16 @@
         "Posters and artwork of downloads are kept on the phone, so they show offline.",
         "Smart downloads can wait until the phone is charging."
       ],
-      "fixed": []
+      "fixed": [
+        "Watched downloads are no longer deleted early; they go only once you reach the credits or the last two minutes and then close the player or start the next episode.",
+        "Smart downloads now start near the end of an episode, not halfway through.",
+        "Picture in Picture works again, from the player button and automatically when you leave the app.",
+        "Offline home redesigned with posters, episode counts and Continue watching, and it no longer shows when only Nuvio's servers are unreachable.",
+        "Watch stats: better contrast, a labelled 7-day chart, correct plurals, and one watched day counts as a streak.",
+        "Stray backslashes before apostrophes in new text are gone.",
+        "The season header in Downloads no longer sits behind the Back button.",
+        "Analysis shows \"No recap found\" instead of asking for another episode when other episodes are already analysed."
+      ]
     },
     {
       "version": "0.5.10.1",

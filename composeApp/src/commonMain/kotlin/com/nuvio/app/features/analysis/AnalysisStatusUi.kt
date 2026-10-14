@@ -12,6 +12,7 @@ import nuvio.composeapp.generated.resources.analysis_status_partly
 import nuvio.composeapp.generated.resources.analysis_status_failed
 import nuvio.composeapp.generated.resources.analysis_part_intro_credits
 import nuvio.composeapp.generated.resources.analysis_part_recap
+import nuvio.composeapp.generated.resources.analysis_part_recap_none
 import nuvio.composeapp.generated.resources.analysis_part_subtitle_sync
 import nuvio.composeapp.generated.resources.analysis_part_loudness
 import nuvio.composeapp.generated.resources.analysis_part_previews
@@ -154,8 +155,22 @@ private fun PartChips(item: DownloadItem, parts: AnalysisParts) {
         add(stringResource(Res.string.analysis_part_previews) to parts.previews)
     }.filter { it.second != AnalysisPart.Off }
     if (entries.isEmpty()) return
+    val recapLabel = stringResource(Res.string.analysis_part_recap)
+    val noRecapText = stringResource(Res.string.analysis_part_recap_none)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         entries.forEach { (label, part) ->
+            if (label == recapLabel && part == AnalysisPart.NotFound) {
+                Text(
+                    text = noRecapText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+                return@forEach
+            }
             val (suffix, ready) = when (part) {
                 AnalysisPart.Ready -> "✓" to true
                 AnalysisPart.NotFound -> stringResource(Res.string.analysis_part_none) to false

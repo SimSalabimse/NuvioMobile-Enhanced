@@ -2212,7 +2212,7 @@
     <string name="analysis_intro_detection_title">Find intros and credits</string>
     <string name="analysis_intro_detection_description">Compare the opening and ending audio of downloaded episodes in a season to find the intro and credits.</string>
     <string name="analysis_loudness_title">Even out loudness</string>
-    <string name="analysis_loudness_description">Measure each downloaded file\'s loudness and adjust the volume so files play at a similar level.</string>
+    <string name="analysis_loudness_description">Measure each downloaded file's loudness and adjust the volume so files play at a similar level.</string>
     <string name="analysis_only_while_charging_title">Analyse only while charging</string>
     <string name="analysis_only_while_charging_description">Run the analysis of downloaded files only when the phone is plugged in.</string>
     <string name="skip_source_theintrodb_only_title">TheIntroDB only</string>
@@ -2943,7 +2943,7 @@
     <string name="analysis_scrub_previews_title">Scrub previews for downloads</string>
     <string name="analysis_scrub_previews_description">Make small thumbnails of downloaded files so you see the picture while scrubbing.</string>
     <string name="analysis_recap_detection_title">Find recaps in downloads</string>
-    <string name="analysis_recap_detection_description">Detect \"Previously on\" recaps at the start of downloaded episodes and offer Skip Recap.</string>
+    <string name="analysis_recap_detection_description">Detect “Previously on” recaps at the start of downloaded episodes and offer Skip Recap.</string>
     <string name="smart_downloads_title">Smart downloads</string>
     <string name="smart_downloads_description">When you finish a downloaded episode, delete it and download the next ones. Wi-Fi only.</string>
     <string name="smart_downloads_count_title">Episodes to keep ready</string>
@@ -2975,13 +2975,13 @@
     <string name="watch_stats_recap_completed">%1$d episodes and movies finished</string>
     <string name="watch_stats_recap_top">Most watched: %1$s (%2$s)</string>
     <string name="watch_stats_recap_streak">Longest streak: %1$d days in a row</string>
-    <string name="offline_home_title">You\'re offline</string>
+    <string name="offline_home_title">You're offline</string>
     <string name="offline_home_message">Here is what you have downloaded. It plays without a connection.</string>
     <string name="offline_home_open_downloads">Open Downloads</string>
     <string name="offline_home_show_home">Show home anyway</string>
     <string name="offline_home_movie">Movie</string>
     <string name="offline_home_episodes">%1$d episodes downloaded</string>
-    <string name="whats_new_sheet_title">What\'s new in %1$s</string>
+    <string name="whats_new_sheet_title">What's new in %1$s</string>
     <string name="whats_new_sheet_welcome">Welcome to Nuvio %1$s</string>
     <string name="whats_new_sheet_continue">Continue</string>
     <string name="whats_new_section_new">New</string>
@@ -3028,4 +3028,28 @@
     <string name="analysis_action_now">Analyse now</string>
     <string name="analysis_action_reanalyse_all">Re-analyse all downloads</string>
     <string name="whats_new_version_label">Version %1$s</string>
+    <string name="offline_home_continue">Continue watching</string>
+    <string name="offline_home_downloaded">Downloaded</string>
+    <plurals name="watch_stats_days_count">
+        <item quantity="one">%1$d day</item>
+        <item quantity="other">%1$d days</item>
+    </plurals>
+    <plurals name="watch_stats_recap_hours_days">
+        <item quantity="one">%2$s watched on %1$d day</item>
+        <item quantity="other">%2$s watched on %1$d days</item>
+    </plurals>
+    <plurals name="watch_stats_recap_titles_finished">
+        <item quantity="one">%1$d title finished</item>
+        <item quantity="other">%1$d titles finished</item>
+    </plurals>
+    <plurals name="watch_stats_recap_streak_days">
+        <item quantity="one">Longest streak: %1$d day</item>
+        <item quantity="other">Longest streak: %1$d days in a row</item>
+    </plurals>
+    <plurals name="offline_home_episodes_count">
+        <item quantity="one">%1$d episode</item>
+        <item quantity="other">%1$d episodes</item>
+    </plurals>
+    <string name="watch_stats_last_7_days">Last 7 days</string>
+    <string name="analysis_part_recap_none">No recap found</string>
 </resources>

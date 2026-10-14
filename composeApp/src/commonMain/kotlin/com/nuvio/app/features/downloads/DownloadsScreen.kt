@@ -1,5 +1,7 @@
 package com.nuvio.app.features.downloads
 
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -117,7 +119,20 @@ fun DownloadsScreen(
     val storageSummary = rememberDownloadStorageSummary(uiState.items)
     val tokens = MaterialTheme.nuvio
 
-    NuvioScreen(listState = listState) {
+    // Under the native iOS navigation bar the header collapses to its actions, so the list has to
+    // clear the bar itself (status bar + 44 pt), or the first row ("Season 2") sits behind Back.
+    val underNativeNavigationBar = com.nuvio.app.navigation.LocalUseNativeNavigation.current &&
+        !com.nuvio.app.navigation.LocalNativeNavigationBarHidden.current
+    val statusBarTop = androidx.compose.foundation.layout.WindowInsets.statusBars
+        .asPaddingValues().calculateTopPadding()
+    NuvioScreen(
+        listState = listState,
+        topPadding = if (underNativeNavigationBar) {
+            tokens.spacing.screenTop + statusBarTop + com.nuvio.app.core.ui.nuvioPlatformExtraTopPadding + 44.dp
+        } else {
+            null
+        },
+    ) {
         stickyHeader {
             NuvioScreenHeader(
                 title = if (selectedShowId == null) {

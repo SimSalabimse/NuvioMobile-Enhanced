@@ -50,7 +50,8 @@ internal object WatchStats {
     private const val KEY = "watch_stats_v1"
     private const val SAVE_EVERY_MS = 60_000L
     /** A day counts towards a streak with at least this much watched. */
-    const val STREAK_DAY_MIN_MS = 10 * 60_000L
+    /** Any watching on a day counts for the streak (a watched day is a streak of at least 1). */
+    const val STREAK_DAY_MIN_MS = 1L
 
     private val json = Json { ignoreUnknownKeys = true }
     private val _data = MutableStateFlow(WatchStatsData())
