@@ -50,7 +50,7 @@ internal actual object MediaAnalysisFiles {
 
     actual fun readBytes(fileName: String): ByteArray? {
         val path = binaryPath(fileName) ?: return null
-        val data = platform.Foundation.NSData.dataWithContentsOfFile(path) ?: return null
+        val data = platform.Foundation.NSData.create(contentsOfFile = path) ?: return null
         val size = data.length.toInt()
         if (size <= 0) return null
         val out = ByteArray(size)

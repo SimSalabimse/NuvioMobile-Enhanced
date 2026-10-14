@@ -1309,6 +1309,7 @@ object WatchProgressRepository {
         if (candidateEntry.isCompleted) {
             com.nuvio.app.features.downloads.FinishedDownloadDeletion.onPlaybackCompleted(candidateEntry)
         }
+        com.nuvio.app.features.stats.WatchStats.record(candidateEntry)
 
         if (targetProfileId != currentProfileId || ProfileRepository.activeProfileId != targetProfileId) {
             val resolvedEntry = resolveStoredProfileProgressIdentity(

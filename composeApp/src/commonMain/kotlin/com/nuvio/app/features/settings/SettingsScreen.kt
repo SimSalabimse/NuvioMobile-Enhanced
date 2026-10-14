@@ -817,13 +817,16 @@ private fun MobileSettingsScreen(
                 SettingsPage.Account -> accountSettingsContent(
                     isTablet = false,
                 )
-                SettingsPage.Profile -> profileInsightsContent(
-                    isTablet = false,
-                    onSwitchProfile = onSwitchProfile,
-                    onEditProfile = onEditProfile,
-                    onPosterClick = onPosterClick,
-                    onBack = if (profileDrawsOwnChrome) onNavigateBack else null,
-                )
+                SettingsPage.Profile -> {
+                    profileInsightsContent(
+                        isTablet = false,
+                        onSwitchProfile = onSwitchProfile,
+                        onEditProfile = onEditProfile,
+                        onPosterClick = onPosterClick,
+                        onBack = if (profileDrawsOwnChrome) onNavigateBack else null,
+                    )
+                    com.nuvio.app.features.stats.watchStatsContent(isTablet = false)
+                }
                 SettingsPage.SupportersContributors -> {
                     if (AppFeaturePolicy.supportersContributorsPageEnabled) {
                         supportersContributorsContent(isTablet = false)
@@ -1319,12 +1322,15 @@ private fun TabletSettingsScreen(
                     SettingsPage.Account -> accountSettingsContent(
                         isTablet = true,
                     )
-                    SettingsPage.Profile -> profileInsightsContent(
-                        isTablet = true,
-                        onSwitchProfile = onSwitchProfile,
-                        onEditProfile = onEditProfile,
-                        onPosterClick = onPosterClick,
-                    )
+                    SettingsPage.Profile -> {
+                        profileInsightsContent(
+                            isTablet = true,
+                            onSwitchProfile = onSwitchProfile,
+                            onEditProfile = onEditProfile,
+                            onPosterClick = onPosterClick,
+                        )
+                        com.nuvio.app.features.stats.watchStatsContent(isTablet = true)
+                    }
                     SettingsPage.SupportersContributors -> {
                         if (AppFeaturePolicy.supportersContributorsPageEnabled) {
                             supportersContributorsContent(isTablet = true)

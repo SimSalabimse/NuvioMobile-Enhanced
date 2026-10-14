@@ -2962,4 +2962,17 @@
     <string name="download_quality_cancel">Cancel</string>
     <string name="download_quality_confirm">Download</string>
     <string name="download_quality_confirm_size">Download (%1$s)</string>
+    <string name="watch_stats_title">Watch stats (this device)</string>
+    <string name="watch_stats_empty">Nothing watched in the app yet. Stats start counting from this version.</string>
+    <string name="watch_stats_total">Total watched</string>
+    <string name="watch_stats_today">Today</string>
+    <string name="watch_stats_streak">Current streak</string>
+    <string name="watch_stats_longest_streak">Longest streak</string>
+    <string name="watch_stats_days">%1$d days</string>
+    <string name="watch_stats_top_titles">Top titles</string>
+    <string name="watch_stats_recap_title">Your %1$s in Nuvio</string>
+    <string name="watch_stats_recap_hours">%1$s watched on %2$d days</string>
+    <string name="watch_stats_recap_completed">%1$d episodes and movies finished</string>
+    <string name="watch_stats_recap_top">Most watched: %1$s (%2$s)</string>
+    <string name="watch_stats_recap_streak">Longest streak: %1$d days in a row</string>
 </resources>
