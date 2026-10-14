@@ -12,7 +12,10 @@
         "Times you send with Submit Timestamps are kept on the phone too.",
         "Your earlier TheIntroDB submissions are brought onto the phone when you play that show, and teach the detector too."
       ],
-      "fixed": []
+      "fixed": [
+        "Morphed tab bar: after it expands from the small Home button, tapping Search, Library or Profile works again instead of doing nothing until it collapses.",
+        "A tab tapped while the app is still getting ready now opens as soon as it can instead of being ignored."
+      ]
     },
     {
       "version": "0.5.10.2",

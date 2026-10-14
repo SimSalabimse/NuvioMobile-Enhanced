@@ -1185,9 +1185,7 @@ final class AppNavigationCoordinator: ObservableObject {
             selectedTab = .home
             return
         }
-        if tab == .home || isAppReady {
-            selectedTab = tab
-        }
+        requestTabSelection(tab)
     }
 
     func title(for tab: NuvioAppTab) -> String {
@@ -1214,12 +1212,63 @@ final class AppNavigationCoordinator: ObservableObject {
     }
 
     func updateAppReady(_ ready: Bool) {
+        if isAppReady != ready {
+            NSLog("[Nuvio] app ready \(ready) (main visible: \(isMainContentVisible))")
+        }
         isAppReady = ready
-        if !ready {
-            isProfileSwitcherPresented = false
-            setTabBarVisible(true)
+        readinessWatchdog?.cancel()
+        readinessWatchdog = nil
+        if ready {
+            if let pending = pendingTab {
+                pendingTab = nil
+                selectedTab = pending
+            }
+            return
+        }
+        isProfileSwitcherPresented = false
+        setTabBarVisible(true)
+        // A short not-ready blip while the main UI stays on screen (profile/Home reload, overlay
+        // animation) must not throw the user back to Home or leave the tab bar dead.
+        if !isMainContentVisible {
             selectedTab = .home
             allCoordinators.forEach { $0.popToRoot() }
+        }
+        // Fail safe: the gate never blocks tabs for long while the main UI is visible.
+        readinessWatchdog = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            guard let self, !Task.isCancelled, !self.isAppReady,
+                  self.isMainContentMounted, self.isMainContentVisible else { return }
+            NSLog("[Nuvio] app readiness stuck at not-ready with main UI visible; releasing the gate")
+            self.isAppReady = true
+            if let pending = self.pendingTab {
+                self.pendingTab = nil
+                self.selectedTab = pending
+            }
+        }
+    }
+
+    private var pendingTab: NuvioAppTab?
+    private var pendingTabTask: Task<Void, Never>?
+    private var readinessWatchdog: Task<Void, Never>?
+
+    /// Tab taps are never dropped: while not ready they are queued and applied when ready,
+    /// or after 1.5 s when the main UI is on screen anyway.
+    func requestTabSelection(_ tab: NuvioAppTab) {
+        if isAppReady || tab == .home {
+            pendingTab = nil
+            pendingTabTask?.cancel()
+            selectedTab = tab
+            return
+        }
+        NSLog("[Nuvio] tab \(tab.rawValue) tapped while not ready; queued")
+        pendingTab = tab
+        pendingTabTask?.cancel()
+        pendingTabTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard let self, !Task.isCancelled, let pending = self.pendingTab else { return }
+            guard self.isMainContentMounted, self.isMainContentVisible else { return }
+            self.pendingTab = nil
+            self.selectedTab = pending
         }
     }
 
@@ -1856,9 +1905,7 @@ struct NativeNavContentView: View {
                     NativeTabBridgeKt.nativeTabSelect(tabName: newTab.rawValue)
                     return
                 }
-                if appCoordinator.isAppReady || newTab == .home {
-                    appCoordinator.selectedTab = newTab
-                }
+                appCoordinator.requestTabSelection(newTab)
             }
         )
     }
@@ -1978,7 +2025,10 @@ struct NativeNavContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 }
                 .ignoresSafeArea(.all)
-                .allowsHitTesting(!appCoordinator.isTabBarVisible)
+                // In the morphed style this pill is the only tab bar (the native one is hidden), so
+                // it must take taps whenever it is shown, expanded or collapsed. Gating it on
+                // !isTabBarVisible left the expanded bar dead until it collapsed again.
+                .allowsHitTesting(!appCoordinator.isCompactPillHidden)
                 .opacity(appCoordinator.isCompactPillHidden ? 0 : 1)
                 .accessibilityHidden(appCoordinator.isCompactPillHidden)
             }
