@@ -20,6 +20,16 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "0.5.9.1",
+          "buildVersion": "159",
+          "date": "2026-10-14T00:15:27Z",
+          "localizedDescription": "Unsigned sideload IPA 0.5.9.1 (159), enhanced c7d418f5. Sign with SideStore, AltStore, or TrollStore. No Apple certificate is embedded.\n\nNew since 0.5.9 (152):\n- Fixed the HTTP 400 error when starting some downloads.\n- No stale Live Activity left behind after downloads finish or are cancelled.\n- Delete after watching: more reliable removal once an episode or movie is watched.\n- Home hero carousel fix.\n- Player: download button to save what you are watching.\n- Switch to downloaded file while watching (Settings → Downloads, on by default): when the download finishes, playback moves to the local file at the same position without a visible jump. It can also switch to a partly downloaded file once enough is on disk, with a watchdog that switches back to the stream if the download falls behind.\n",
+          "downloadURL": "https://github.com/SimSalabimse/NuvioMobile-Enhanced/releases/download/sideload-0.5.9.1-c7d418f5/nuvio-0.5.9.1-full-release.ipa",
+          "size": 71407216,
+          "sha256": "110c540e1be9e8a6b0c9ded767ccae7f52d811ae8c6a7bef00c128338a15dce6",
+          "minOSVersion": "16.1"
+        },
+        {
           "version": "0.5.9",
           "buildVersion": "152",
           "date": "2026-10-12T00:57:06Z",
