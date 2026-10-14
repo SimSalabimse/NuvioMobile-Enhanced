@@ -158,7 +158,8 @@ internal object SmartDownloads {
         retryPending()
     }
 
-    fun onPlaybackCompleted(entry: WatchProgressEntry) {
+    /** The episode on screen is near its end (credits or last minutes, see PlaybackEndRules). */
+    fun onNearEnd(entry: WatchProgressEntry) {
         if (!isEnabled()) return
         val season = entry.seasonNumber ?: return
         val episode = entry.episodeNumber ?: return

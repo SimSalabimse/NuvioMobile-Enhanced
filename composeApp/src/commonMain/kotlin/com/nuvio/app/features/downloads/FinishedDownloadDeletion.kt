@@ -42,8 +42,16 @@ internal object FinishedDownloadDeletion {
             session = current.copy(sourceUrl = sourceUrl)
             return
         }
-        // Next episode: the previous file waits until this one is actually playing.
-        if (current != null) release(current, untilOtherPlays = true)
+        // Next episode: the previous file waits until this one is actually playing. Moving on from
+        // the next-episode card counts as finished when it was near the end (credits or last 5 min).
+        if (current != null) {
+            val moved = if (current.queuedDownloadId == null && current.incompleteDownloadId == null && current.nearEnd) {
+                queueFor(current) ?: current
+            } else {
+                current
+            }
+            release(moved, untilOtherPlays = true)
+        }
         session = OpenPlayback(videoId = videoId, sourceUrl = sourceUrl)
     }
 
@@ -84,23 +92,65 @@ internal object FinishedDownloadDeletion {
     private fun deletionEnabled(): Boolean =
         DownloadsSettingsRepository.isDeleteWhenFinishedEnabled() || SmartDownloads.isEnabled()
 
-    fun onPlaybackCompleted(entry: WatchProgressEntry) {
-        SmartDownloads.onPlaybackCompleted(entry)
+    /**
+     * Watched-history completion (90 % locally, 80 % from Trakt/MDBList, or a remote pull). It no
+     * longer queues anything: that marked episodes watched ~10 minutes before the end, and closing
+     * the player then deleted the file. See [onLocalProgress].
+     */
+    @Suppress("UNUSED_PARAMETER")
+    fun onPlaybackCompleted(entry: WatchProgressEntry) = Unit
+
+    /**
+     * Every progress report of the in-app player, with the real position (not snapped to the
+     * duration). Queues the file once the position is at the credits or in the last two minutes
+     * ([PlaybackEndRules.reachedEnd]), unqueues it when the viewer goes back before that, and asks
+     * smart downloads for the next episodes near the end.
+     */
+    fun onLocalProgress(entry: WatchProgressEntry, positionMs: Long, durationMs: Long) {
         val current = session ?: return
-        if (!entry.isCompleted || entry.videoId != current.videoId) return
-        if (current.queuedDownloadId != null) return
-        if (!deletionEnabled()) return
+        if (entry.videoId != current.videoId) return
+        val items = DownloadsRepository.uiState.value.items
+        val item = current.queuedDownloadId?.let { id -> items.firstOrNull { it.id == id } }
+            ?: current.incompleteDownloadId?.let { id -> items.firstOrNull { it.id == id } }
+            ?: downloadOpenedBySource(current.sourceUrl, items)
+            ?: current.linkedDownloadId?.let { id -> items.firstOrNull { it.id == id } }
+        val creditsStartMs = item?.let { creditsStartFor(it) }
+        val near = PlaybackEndRules.nearEnd(positionMs, durationMs, creditsStartMs)
+        if (near) SmartDownloads.onNearEnd(entry)
+        val tracked = current.copy(nearEnd = near)
+        session = tracked
+        val ended = PlaybackEndRules.reachedEnd(positionMs, durationMs, creditsStartMs)
+        if (!ended) {
+            if (tracked.queuedDownloadId != null || tracked.incompleteDownloadId != null) {
+                // Went back into the episode: keep the file.
+                session = tracked.copy(queuedDownloadId = null, incompleteDownloadId = null)
+            }
+            return
+        }
+        if (tracked.queuedDownloadId != null) return
+        queueFor(tracked)?.let { session = it }
+    }
+
+    /** The session with its download queued for removal, or null when there is nothing to queue. */
+    private fun queueFor(current: OpenPlayback): OpenPlayback? {
+        if (!deletionEnabled()) return null
         val items = DownloadsRepository.uiState.value.items
         val item = current.incompleteDownloadId?.let { id -> items.firstOrNull { it.id == id } }
             ?: downloadOpenedBySource(current.sourceUrl, items)
             ?: current.linkedDownloadId?.let { id -> items.firstOrNull { it.id == id } }
-            ?: return
-        session = if (item.status == DownloadStatus.Completed) {
+            ?: return null
+        return if (item.status == DownloadStatus.Completed) {
             current.copy(queuedDownloadId = item.id, incompleteDownloadId = null)
         } else {
             current.copy(incompleteDownloadId = item.id)
         }
     }
+
+    private fun creditsStartFor(item: DownloadItem): Long? = runCatching {
+        com.nuvio.app.features.analysis.MediaAnalysisStore
+            .load(com.nuvio.app.features.analysis.MediaAnalysisStore.keyFor(item))
+            ?.creditsStartMs
+    }.getOrNull()
 
     internal fun reset() {
         session = null
@@ -196,6 +246,8 @@ private data class OpenPlayback(
     val incompleteDownloadId: String? = null,
     /** Downloaded while watching and switched to (see [FinishedDownloadDeletion.linkDownload]). */
     val linkedDownloadId: String? = null,
+    /** Last progress report was within the near-end window (credits or last 5 minutes). */
+    val nearEnd: Boolean = false,
 )
 
 internal fun downloadOpenedBySource(sourceUrl: String, items: List<DownloadItem>): DownloadItem? {
