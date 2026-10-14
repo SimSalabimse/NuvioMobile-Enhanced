@@ -1,6 +1,20 @@
 {
   "releases": [
     {
+      "version": "0.5.10.3",
+      "date": "2026-10-14",
+      "new": [
+        "After you tap Skip, a small Good / Wrong prompt shows for a few seconds. Good saves it, Wrong lets you nudge the start and end. Both are sent to TheIntroDB when submitting is on. Turn it off in Settings > Playback > Ask after Skip.",
+        "Your marks teach the on-device detector: an intro or credits you mark or confirm on a downloaded episode is matched against the rest of the season, also episodes where nothing was found before."
+      ],
+      "improved": [
+        "Your own marks always win over online and on-device times for that episode, streamed or downloaded.",
+        "Times you send with Submit Timestamps are kept on the phone too.",
+        "Your earlier TheIntroDB submissions are brought onto the phone when you play that show, and teach the detector too."
+      ],
+      "fixed": []
+    },
+    {
       "version": "0.5.10.2",
       "date": "2026-10-14",
       "new": [

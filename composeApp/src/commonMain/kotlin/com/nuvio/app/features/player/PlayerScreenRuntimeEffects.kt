@@ -574,6 +574,8 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         lastManualSkipSeekPositions = null
         activeSkipInterval = null
         skipIntervalDismissed = false
+        skipFeedbackInterval = null
+        skipFeedbackNudging = false
         showNextEpisodeCard = false
         nextEpisodeCardDismissed = false
         cancelNextEpisodeAutoPlay()
@@ -583,11 +585,18 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         val vid = activeVideoId
         if (!playerSettingsUiState.skipIntroEnabled) return@LaunchedEffect
         if ((contentType ?: parentMetaType).equals("movie", ignoreCase = true)) {
-            skipIntervals = filterSkipSources(SkipIntroRepository.getMovieSkipIntervals(parentMetaId, vid))
+            skipIntervals = withOnDeviceSkips(filterSkipSources(SkipIntroRepository.getMovieSkipIntervals(parentMetaId, vid)))
             return@LaunchedEffect
         }
         if (season == null || episode == null || vid == null) return@LaunchedEffect
 
+        launch {
+            // Earlier TheIntroDB submissions become this phone's marks (once per show per session).
+            val imported = runCatching {
+                com.nuvio.app.features.player.skip.SkipMarkImport.importForShow(parentMetaId, vid, isMovie = false)
+            }.getOrDefault(0)
+            if (imported > 0) skipIntervals = withOnDeviceSkips(skipIntervals.filter { it.provider != com.nuvio.app.features.analysis.SkipLearning.PROVIDER })
+        }
         launch {
             val imdbFromContent = parentMetaId.takeIf { it.startsWith("tt") }
                 ?: (metaUiState.meta ?: playerMeta)

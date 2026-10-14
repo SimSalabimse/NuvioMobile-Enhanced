@@ -312,6 +312,7 @@ internal object MediaAnalysisScheduler {
             headFingerprint = raw.head,
             tailFingerprint = raw.tail,
             tailStartMs = raw.tailStartMs,
+            userSegments = MediaAnalysisStore.load(key)?.userSegments.orEmpty(),
         )
         val season = item.seasonNumber
         if (season != null && item.episodeNumber != null &&
@@ -344,8 +345,21 @@ internal object MediaAnalysisScheduler {
                     )
                 }
             }
+            // Episodes the user marked are trusted references: they beat the pairwise guess.
+            val references = MediaAnalysisStore.seasonSiblings(item.parentMetaId, season, key)
+                .filter { it.userSegments.containsKey("intro") || it.userSegments.containsKey("outro") }
+            if (references.isNotEmpty()) {
+                stage(AnalysisStage.Matching)
+                result = withContext(Dispatchers.Default) { SkipLearning.learnFromReferences(result, references) }
+            }
         }
         MediaAnalysisStore.save(result)
+        // A mark made before this file was analysed now has fingerprints: teach the season.
+        if (season != null && item.episodeNumber != null &&
+            (result.userSegments.containsKey("intro") || result.userSegments.containsKey("outro"))
+        ) {
+            SkipLearning.teachSeason(item.parentMetaId, season, key)
+        }
         InAppLogger.info(
             "Analysis",
             "analyse done id=${item.id} durationMs=${raw.durationMs} lufs=${raw.integratedLufs} " +

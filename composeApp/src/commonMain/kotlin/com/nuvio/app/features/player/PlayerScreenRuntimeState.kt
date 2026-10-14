@@ -199,6 +199,9 @@ internal class PlayerScreenRuntime(
     var lastManualSkipSeekPositions by mutableStateOf<Pair<Long, Long>?>(null)
     var activeSkipInterval by mutableStateOf<SkipInterval?>(null)
     var skipIntervalDismissed by mutableStateOf(false)
+    /** Segment just skipped, asked about in the Good / Wrong prompt. */
+    var skipFeedbackInterval by mutableStateOf<SkipInterval?>(null)
+    var skipFeedbackNudging by mutableStateOf(false)
     var parentalWarnings by mutableStateOf<List<ParentalWarning>>(emptyList())
     var showParentalGuide by mutableStateOf(false)
     var parentalGuideHasShown by mutableStateOf(false)

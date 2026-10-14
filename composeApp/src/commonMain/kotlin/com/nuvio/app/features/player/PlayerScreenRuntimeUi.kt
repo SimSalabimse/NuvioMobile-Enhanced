@@ -684,6 +684,7 @@ private fun BoxScope.RenderPlaybackOverlays(
                 playerController?.seekTo(seekMs)
                 scheduleProgressSyncAfterSeek()
                 skipIntervalDismissed = true
+                offerSkipFeedback(interval)
             }
         },
         onDismissSkipInterval = {
@@ -740,6 +741,7 @@ private fun BoxScope.RenderPlaybackOverlays(
             httpRebufferHeadline = if (initialLoadCompleted) stallCopy?.headline else null,
             httpRebufferDetail = if (initialLoadCompleted) stallCopy?.detail else null,
         )
+        if (!playerControlsLocked) RenderSkipFeedbackPrompt(runtime)
     }
 }
 
@@ -1016,6 +1018,12 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
             if (currentVideoId.isNotBlank()) {
                 submittedSegmentTypesByVideoId.getOrPut(currentVideoId) { mutableSetOf() }
                     .add(submitIntroSegmentType)
+            }
+            // Keep the submitted times as this episode's own mark so the season learns from it.
+            val markStart = com.nuvio.app.features.player.skip.parseTimeToSeconds(submitIntroStartTimeStr)
+            val markEnd = com.nuvio.app.features.player.skip.parseTimeToSeconds(submitIntroEndTimeStr)
+            if (markStart != null && markEnd != null && markEnd > markStart) {
+                saveUserSkipMark(submitIntroSegmentType, markStart, markEnd, submit = false)
             }
             submitIntroStartTimeStr = EMPTY_SKIP_TIMESTAMP
             submitIntroEndTimeStr = EMPTY_SKIP_TIMESTAMP

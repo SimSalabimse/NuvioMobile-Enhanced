@@ -27,6 +27,8 @@ object MediaAnalysisSettings {
         ScrubPreviews("analysis_scrub_previews", true),
         /** Find "Previously on" recaps at the start of downloaded episodes and offer Skip Recap. */
         RecapDetection("analysis_recap_detection", true),
+        /** After tapping Skip, ask "Good / Wrong" for a few seconds to confirm or fix the segment. */
+        SkipFeedbackPrompt("skip_feedback_prompt", true),
     }
 
     private val state = MutableStateFlow<Map<Flag, Boolean>>(emptyMap())

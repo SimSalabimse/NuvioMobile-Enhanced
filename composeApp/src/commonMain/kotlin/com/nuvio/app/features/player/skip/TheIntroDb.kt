@@ -294,6 +294,13 @@ internal data class TheIntroDbUserSubmission(
     val episode: Int? = null,
     val segment: String? = null,
     val status: String? = null,
+    /** Times, when the list returns them (null start: from 0, null end: to the end). */
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+    @kotlinx.serialization.json.JsonNames("start_ms", "startMs") val startMs: Long? = null,
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+    @kotlinx.serialization.json.JsonNames("end_ms", "endMs") val endMs: Long? = null,
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+    @kotlinx.serialization.json.JsonNames("video_duration_ms", "videoDurationMs") val videoDurationMs: Long? = null,
 )
 
 internal fun TheIntroDbUserSubmission.toFlagRecord(): FlagSubmissionRecord? {

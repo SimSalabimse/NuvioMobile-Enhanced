@@ -41,8 +41,10 @@ internal object MediaAnalysisStore {
     }
 
     fun save(result: MediaAnalysisResult) {
-        cache[result.key] = result
-        MediaAnalysisFiles.write(result.key, json.encodeToString(MediaAnalysisResult.serializer(), result))
+        // User marks always win over whatever was detected.
+        val applied = result.withUserSegmentsApplied()
+        cache[applied.key] = applied
+        MediaAnalysisFiles.write(applied.key, json.encodeToString(MediaAnalysisResult.serializer(), applied))
     }
 
     /** Other episodes of the same season that have fingerprints. */
@@ -66,6 +68,13 @@ internal object MediaAnalysisStore {
 
     /** Deletes everything stored for [key] (analysis JSON and thumbnail sheets). */
     fun reset(key: String) {
+        val marks = load(key)?.userSegments.orEmpty()
+        resetAll(key)
+        // Analysing again keeps what the user marked.
+        if (marks.isNotEmpty()) save(MediaAnalysisResult(key = key, analyzedAtMs = 0L, durationMs = 0L, userSegments = marks))
+    }
+
+    private fun resetAll(key: String) {
         load(key)?.thumbnails?.let { sheets ->
             repeat(sheets.sheets) { MediaAnalysisFiles.delete(thumbnailSheetFileName(key, it)) }
         }

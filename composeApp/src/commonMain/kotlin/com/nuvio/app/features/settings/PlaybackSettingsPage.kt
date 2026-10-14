@@ -1366,6 +1366,16 @@ private fun PlaybackSettingsSection(
                         isTablet = isTablet,
                         onCheckedChange = { com.nuvio.app.features.analysis.MediaAnalysisSettings.set(onDeviceFlag, it) },
                     )
+                    val feedbackFlag = com.nuvio.app.features.analysis.MediaAnalysisSettings.Flag.SkipFeedbackPrompt
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = "Ask after Skip",
+                        description = "After you tap Skip, show Good / Wrong for a few seconds. Your answers are saved, teach the on-device detector, and are sent when submitting is on.",
+                        checked = skipFlags[feedbackFlag]
+                            ?: com.nuvio.app.features.analysis.MediaAnalysisSettings.isEnabled(feedbackFlag),
+                        isTablet = isTablet,
+                        onCheckedChange = { com.nuvio.app.features.analysis.MediaAnalysisSettings.set(feedbackFlag, it) },
+                    )
                 }
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(

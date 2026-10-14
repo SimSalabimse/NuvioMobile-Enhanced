@@ -47,7 +47,32 @@ internal data class MediaAnalysisResult(
     val derivedVersion: Int = 0,
     /** Scrub-preview thumbnail sheets of this file (null: not made). */
     val thumbnails: ThumbnailSheets? = null,
+    /**
+     * Segments the user marked or confirmed for this episode ("intro", "recap", "outro",
+     * "preview"). They always win over detection, and intro/credits marks on a fingerprinted
+     * episode are the season's trusted reference (see [SkipLearning]).
+     */
+    val userSegments: Map<String, UserSegment> = emptyMap(),
+    /** Segment types found by matching another episode's user mark. */
+    val learnedTypes: Set<String> = emptySet(),
 )
+
+@Serializable
+internal data class UserSegment(
+    val startMs: Long,
+    val endMs: Long,
+    val markedAtMs: Long = 0L,
+)
+
+/** The user's marks override what was detected for this episode. */
+internal fun MediaAnalysisResult.withUserSegmentsApplied(): MediaAnalysisResult {
+    if (userSegments.isEmpty()) return this
+    var r = this
+    userSegments["intro"]?.let { r = r.copy(introStartMs = it.startMs, introEndMs = it.endMs) }
+    userSegments["outro"]?.let { r = r.copy(creditsStartMs = it.startMs, creditsEndMs = it.endMs) }
+    userSegments["recap"]?.let { r = r.copy(recapStartMs = it.startMs, recapEndMs = it.endMs) }
+    return r
+}
 
 /**
  * Thumbnails every [intervalMs], [columns] x [rows] tiles per JPEG sheet, sheets stored as
