@@ -23,6 +23,8 @@ interface PlayerEngineController {
         isMuted = false,
     )
     fun setMuted(muted: Boolean) {}
+    /** Loudness normalisation from the on-device analysis (iOS). */
+    fun setLoudnessGainDb(gainDb: Double) {}
     fun getAudioTracks(): List<AudioTrack>
     fun getSubtitleTracks(): List<SubtitleTrack>
     fun applyAudioLanguagePreferences(languages: List<String>)

@@ -110,6 +110,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     val playbackGesturesEnabled = initialLoadCompleted && errorMessage == null
 
     BindDownloadSwitchEffect()
+    BindMediaAnalysisEffects()
 
     LaunchedEffect(activeSourceUrl, activeSourceAudioUrl, activeSourceHeaders, activeTorrentInfoHash) {
         val resolvingSourceUrl = activeSourceUrl

@@ -181,6 +181,10 @@ actual fun PlatformPlayerSurface(
                 bridge.setMuted(muted)
             }
 
+            override fun setLoudnessGainDb(gainDb: Double) {
+                bridge.setLoudnessGainDb(gainDb)
+            }
+
             override fun getAudioTracks(): List<AudioTrack> {
                 val count = bridge.getAudioTrackCount()
                 val tracks = (0 until count).map { i ->

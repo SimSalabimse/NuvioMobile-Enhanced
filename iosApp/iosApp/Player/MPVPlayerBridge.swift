@@ -144,6 +144,7 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
     func getVolume() -> Float { playerVC?.getVolume() ?? 1.0 }
     func setVolume(volume: Float) { playerVC?.setVolume(volume) }
     func setMuted(muted: Bool) { playerVC?.setMuted(muted) }
+    func setLoudnessGainDb(gainDb: Double) { ensurePlayerViewController().setLoudnessGainDb(gainDb) }
     func setEmbeddedPreviewMode(enabled: Bool) { ensurePlayerViewController().setEmbeddedPreviewMode(enabled) }
     func setResizeMode(mode: Int32) { playerVC?.setResize(Int(mode)) }
     func syncVideoSurfaceLayout(width: Double, height: Double) {
@@ -1408,7 +1409,7 @@ final class MPVPlayerViewController: UIViewController {
     func getVolume() -> Float {
         guard mpv != nil else { return 1.0 }
         let baseVolume = getDouble("volume") / 100.0
-        let gainDb = getDouble("volume-gain")
+        let gainDb = getDouble("volume-gain") - loudnessGainDb
         let gainMultiplier = pow(10.0, gainDb / 20.0)
         return Float(max(0.0, min(2.0, baseVolume * gainMultiplier)))
     }
@@ -1427,7 +1428,19 @@ final class MPVPlayerViewController: UIViewController {
         // Keep mpv's base volume at 100 and apply real software amplification through volume-gain.
         // 2.0x equals about +6.02 dB.
         setDoubleProperty("volume", 100.0)
-        setDoubleProperty("volume-gain", 20.0 * log10(clamped))
+        setDoubleProperty("volume-gain", 20.0 * log10(clamped) + loudnessGainDb)
+    }
+
+    /// Loudness normalisation from the on-device analysis, added on top of the user's volume.
+    private var loudnessGainDb: Double = 0
+
+    func setLoudnessGainDb(_ gainDb: Double) {
+        let clamped = max(-12.0, min(6.0, gainDb.isFinite ? gainDb : 0))
+        guard abs(clamped - loudnessGainDb) > 0.01 else { return }
+        loudnessGainDb = clamped
+        InAppLogBridge.shared.info(tag: "MPV/iOS", message: "loudness gain \(String(format: "%.1f", clamped)) dB")
+        guard mpv != nil else { return }
+        setVolume(lastVolume ?? 1.0)
     }
 
 

@@ -1318,6 +1318,29 @@ private fun PlaybackSettingsSection(
                     }
                 }
                 SettingsGroupDivider(isTablet = isTablet)
+                run {
+                    val skipFlags by com.nuvio.app.features.analysis.MediaAnalysisSettings.flags.collectAsStateWithLifecycle()
+                    val theIntroDbOnlyFlag = com.nuvio.app.features.analysis.MediaAnalysisSettings.Flag.TheIntroDbOnly
+                    val onDeviceFlag = com.nuvio.app.features.analysis.MediaAnalysisSettings.Flag.OnDeviceSkipFallback
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.skip_source_theintrodb_only_title),
+                        description = stringResource(Res.string.skip_source_theintrodb_only_description),
+                        checked = skipFlags[theIntroDbOnlyFlag]
+                            ?: com.nuvio.app.features.analysis.MediaAnalysisSettings.isEnabled(theIntroDbOnlyFlag),
+                        isTablet = isTablet,
+                        onCheckedChange = { com.nuvio.app.features.analysis.MediaAnalysisSettings.set(theIntroDbOnlyFlag, it) },
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.skip_source_on_device_title),
+                        description = stringResource(Res.string.skip_source_on_device_description),
+                        checked = skipFlags[onDeviceFlag]
+                            ?: com.nuvio.app.features.analysis.MediaAnalysisSettings.isEnabled(onDeviceFlag),
+                        isTablet = isTablet,
+                        onCheckedChange = { com.nuvio.app.features.analysis.MediaAnalysisSettings.set(onDeviceFlag, it) },
+                    )
+                }
+                SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
                     title = stringResource(Res.string.settings_playback_intro_submit_enabled),
                     description = stringResource(Res.string.settings_playback_intro_submit_enabled_description),

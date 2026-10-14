@@ -785,6 +785,7 @@ object DownloadsRepository {
                         updatedAtEpochMs = DownloadsClock.nowEpochMs(),
                     )
                 }
+                com.nuvio.app.features.analysis.MediaAnalysisScheduler.kick()
             },
             onFailure = onFailure@{ message ->
                 DownloadLinkFailure.decode(message)?.let { status ->
