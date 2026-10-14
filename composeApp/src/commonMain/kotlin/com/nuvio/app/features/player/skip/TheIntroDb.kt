@@ -288,7 +288,9 @@ internal fun TheIntroDbMediaResponse.movieSkipIntervals(): List<SkipInterval> {
     val firstCredits = creditIntervals.firstOrNull()
     val laterCredits = creditIntervals.drop(1).map { it.copy(type = "post-credits") }
     val introIntervals = intro.toTheIntroDbIntervals("intro")
-    return listOfNotNull(firstCredits) + laterCredits + introIntervals
+    // Every segment type TheIntroDB has gets its own Skip button, movies included.
+    return listOfNotNull(firstCredits) + laterCredits + introIntervals +
+        recap.toTheIntroDbIntervals("recap") + preview.toTheIntroDbIntervals("preview")
 }
 
 @Serializable

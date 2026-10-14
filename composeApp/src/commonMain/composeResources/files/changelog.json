@@ -21,6 +21,8 @@
         "Your earlier TheIntroDB submissions are brought onto the phone when you play that show, and teach the detector too."
       ],
       "fixed": [
+        "Skip Recap shows while you are inside a recap, even when the intro's early Skip button would overlap it.",
+        "Submit Timestamps: each segment type fills in its own known times (or stays empty), and what you type for one type is kept when you switch to another.",
         "Tapping the download Live Activity no longer stacks another Downloads screen each time; it goes back to the one already open.",
         "On-device analysis picks up again by itself after playback, after the background task, when the charger goes in, and retries a failed file a little later. Episodes no longer sit at \"partly analysed, queued\" until Analyse now is tapped.",
         "A downloaded file that got stuck buffering (for example right after jumping to the resume point) is seeked again after 5 seconds and reopened if it is still stuck.",

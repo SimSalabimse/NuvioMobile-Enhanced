@@ -175,6 +175,7 @@ private fun skipLabel(type: String?, skipsToPostCredits: Boolean): String =
             if (skipsToPostCredits) Res.string.player_skip_to_post_credits else Res.string.player_skip_outro,
         )
         "recap" -> stringResource(Res.string.player_skip_recap)
+        "preview" -> "Skip Preview"
         "movie-credits" -> stringResource(
             if (skipsToPostCredits) Res.string.player_skip_to_post_credits else Res.string.player_skip_movie_credits,
         )

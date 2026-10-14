@@ -190,6 +190,8 @@ internal class PlayerScreenRuntime(
     var submitIntroSegmentType by mutableStateOf("intro")
     var submitIntroStartTimeStr by mutableStateOf(EMPTY_SKIP_TIMESTAMP)
     var submitIntroEndTimeStr by mutableStateOf(EMPTY_SKIP_TIMESTAMP)
+    /** Start/end typed per segment type in Submit Timestamps, so switching type keeps each apart. */
+    val submitIntroDrafts = mutableMapOf<String, Pair<String, String>>()
     val submittedSegmentTypesByVideoId = mutableMapOf<String, MutableSet<String>>()
     var episodeStreamsPanelState by mutableStateOf(EpisodeStreamsPanelState())
     var playerMetaVideos by mutableStateOf<List<MetaVideo>>(emptyList())

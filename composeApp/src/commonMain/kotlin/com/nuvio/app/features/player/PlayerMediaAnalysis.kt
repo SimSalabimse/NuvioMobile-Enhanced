@@ -108,8 +108,12 @@ internal fun PlayerScreenRuntime.withOnDeviceSkips(online: List<SkipInterval>): 
     val covered = allowed.map { skipCategory(it.type) }.toSet()
     val extra = onDeviceSkipIntervals().filter { skipCategory(it.type) !in covered }
     if (extra.isEmpty()) return allowed
-    extra.firstOrNull { it.type == "intro" }?.let { intro ->
-        submitIntroSegmentType = "intro"
+    extra.firstOrNull { it.type == "intro" }?.takeIf {
+        // Only fill an untouched intro form; never switch the type the user picked.
+        submitIntroSegmentType == "intro" &&
+            submitIntroStartTimeStr == com.nuvio.app.features.player.skip.EMPTY_SKIP_TIMESTAMP &&
+            submitIntroEndTimeStr == com.nuvio.app.features.player.skip.EMPTY_SKIP_TIMESTAMP
+    }?.let { intro ->
         submitIntroStartTimeStr = formatSecondsToHms(intro.startTime)
         submitIntroEndTimeStr = formatSecondsToHms(intro.endTime)
     }

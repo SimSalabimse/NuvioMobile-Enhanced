@@ -638,11 +638,15 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
             lastManualSkipSeekPositions?.let { (fromMs, toMs) ->
                 autoSkippedIntervals += skipIntervals.intervalsAtSeekPositions(fromMs, toMs)
             }
-            val current = skipIntervals.firstOrNull { interval ->
+            val eligible = skipIntervals.filter { interval ->
                 // Fork: intro-like segments show the button a few seconds early (pre-roll).
                 interval.isEligibleForSkipButton(positionSec) &&
                     interval.internalSkipAction(skipIntervals, playbackSnapshot.durationMs) != null
             }
+            // A segment the position is really inside wins over another one's pre-roll, so a
+            // recap right before the intro gets Skip Recap rather than an early Skip Intro.
+            val current = eligible.firstOrNull { positionSec >= it.startTime && positionSec < it.endTime }
+                ?: eligible.firstOrNull()
             if (current != activeSkipInterval) {
                 activeSkipInterval = current
                 if (current != null) skipIntervalDismissed = false
