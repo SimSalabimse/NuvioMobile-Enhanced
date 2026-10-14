@@ -208,6 +208,9 @@ internal fun LazyListScope.downloadsSettingsContent(
             )
         }
     }
+    item {
+        com.nuvio.app.features.analysis.AnalysisSummarySection(isTablet = isTablet)
+    }
 }
 
 @Composable

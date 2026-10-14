@@ -12,6 +12,10 @@ interface NuvioMediaAnalyzerBridge {
     /** Thumbnail sheets every [intervalMs] to `<outputPrefix><n>.jpg`; [onDone] gets their layout JSON. */
     fun makeThumbnails(fileUri: String, outputPrefix: String, durationMs: Long, intervalMs: Long, tileWidth: Int, onDone: (String?) -> Unit)
     fun cancel()
+    /** 0..1 for the running call, negative when unknown. */
+    fun currentProgress(): Double
+    /** Short reason the last call returned null. */
+    fun lastFailure(): String?
 }
 
 object NuvioMediaAnalyzerRegistry {
@@ -49,6 +53,10 @@ internal actual object MediaAnalyzerPlatform {
     actual fun cancel() {
         NuvioMediaAnalyzerRegistry.bridge?.cancel()
     }
+
+    actual fun progress(): Double = NuvioMediaAnalyzerRegistry.bridge?.currentProgress() ?: -1.0
+
+    actual fun lastError(): String? = NuvioMediaAnalyzerRegistry.bridge?.lastFailure()
 
     actual fun isCharging(): Boolean {
         val device = UIDevice.currentDevice

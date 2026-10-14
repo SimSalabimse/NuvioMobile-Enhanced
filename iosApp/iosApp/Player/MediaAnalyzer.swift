@@ -18,11 +18,19 @@ final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
     private let queue = DispatchQueue(label: "nuvio.media-analyzer", qos: .utility)
     private let abort = MediaAnalyzerAbortFlag()
 
+    func currentProgress() -> Double { MediaAnalyzerStatus.shared.progress }
+
+    func lastFailure() -> String? { MediaAnalyzerStatus.shared.failure }
+
     func analyze(fileUri: String, onDone: @escaping (String?) -> Void) {
         abort.reset()
+        MediaAnalyzerStatus.shared.begin()
         let flag = abort
         queue.async {
             let result = MediaAnalysisRun(fileUri: fileUri, abort: flag).run()
+            if result == nil, MediaAnalyzerStatus.shared.failure == nil {
+                MediaAnalyzerStatus.shared.fail(flag.isSet ? "Stopped" : "Could not analyse the audio")
+            }
             DispatchQueue.main.async { onDone(result) }
         }
     }
@@ -36,6 +44,7 @@ final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
         onDone: @escaping (String?) -> Void
     ) {
         abort.reset()
+        MediaAnalyzerStatus.shared.begin()
         let flag = abort
         queue.async {
             let result = ThumbnailSheetBuilder(
@@ -46,6 +55,9 @@ final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
                 tileWidth: Int(tileWidth),
                 abort: flag
             ).run()
+            if result == nil, MediaAnalyzerStatus.shared.failure == nil {
+                MediaAnalyzerStatus.shared.fail(flag.isSet ? "Stopped" : "Could not make previews")
+            }
             DispatchQueue.main.async { onDone(result) }
         }
     }
@@ -80,7 +92,10 @@ private final class ThumbnailSheetBuilder {
 
     func run() -> String? {
         let path = URL(string: fileUri)?.path ?? fileUri.replacingOccurrences(of: "file://", with: "")
-        guard durationMs > 0, FileManager.default.fileExists(atPath: path) else { return nil }
+        guard durationMs > 0, FileManager.default.fileExists(atPath: path) else {
+            MediaAnalyzerStatus.shared.fail("File missing for previews")
+            return nil
+        }
         let generator = FFmpegSeekPreviewGenerator(url: path, headers: [:])
         defer { generator.close() }
         let count = Int(max(1, durationMs / intervalMs))
@@ -96,6 +111,7 @@ private final class ThumbnailSheetBuilder {
             let last = min(count, first + perSheet)
             for index in first..<last {
                 if abort.isSet { removeSheets(upTo: sheet); return nil }
+                MediaAnalyzerStatus.shared.set(Double(index) / Double(count))
                 let positionMs = min(durationMs - 1000, Int64(index) * intervalMs + intervalMs / 2)
                 let image: UIImage? = autoreleasepool {
                     guard let data = generator.frameJpeg(positionMs: max(0, positionMs), maxWidth: Int32(tileWidth)) else { return nil }
@@ -149,6 +165,21 @@ private final class ThumbnailSheetBuilder {
             try? FileManager.default.removeItem(atPath: "\(outputPrefix)\(index).jpg")
         }
     }
+}
+
+/// Progress and last failure of the running analyzer call, read by Kotlin for the status UI.
+final class MediaAnalyzerStatus {
+    static let shared = MediaAnalyzerStatus()
+    private let lock = NSLock()
+    private var _progress: Double = -1
+    private var _failure: String?
+
+    var progress: Double { lock.lock(); defer { lock.unlock() }; return _progress }
+    var failure: String? { lock.lock(); defer { lock.unlock() }; return _failure }
+
+    func begin() { lock.lock(); _progress = 0; _failure = nil; lock.unlock() }
+    func set(_ value: Double) { lock.lock(); _progress = min(1, max(0, value)); lock.unlock() }
+    func fail(_ reason: String) { lock.lock(); _failure = reason; lock.unlock() }
 }
 
 private final class MediaAnalyzerAbortFlag {
@@ -222,6 +253,7 @@ private final class MediaAnalysisRun {
         var contextPointer: UnsafeMutablePointer<AVFormatContext>? = allocated
         guard avformat_open_input(&contextPointer, path, nil, nil) >= 0, let context = contextPointer else {
             log("open failed")
+            MediaAnalyzerStatus.shared.fail("Could not open the file")
             return nil
         }
         defer { avformat_close_input(&contextPointer) }
@@ -233,6 +265,7 @@ private final class MediaAnalysisRun {
               let decoder = avcodec_find_decoder(parameters.pointee.codec_id),
               let codecContext = avcodec_alloc_context3(decoder) else {
             log("no decodable audio")
+            MediaAnalyzerStatus.shared.fail("No audio track it can decode")
             return nil
         }
         var codecPointer: UnsafeMutablePointer<AVCodecContext>? = codecContext
@@ -240,6 +273,7 @@ private final class MediaAnalysisRun {
         guard avcodec_parameters_to_context(codecContext, parameters) >= 0,
               avcodec_open2(codecContext, decoder, nil) >= 0 else {
             log("decoder open failed")
+            MediaAnalyzerStatus.shared.fail("Audio decoder failed to start")
             return nil
         }
         for index in 0..<Int(context.pointee.nb_streams) where index != Int(audioIndex) {
@@ -272,11 +306,17 @@ private final class MediaAnalysisRun {
             }
         }
 
+        var packetsSinceProgress = 0
         while !abort.isSet {
             let read = av_read_frame(context, packet)
             if read < 0 { break }
             if packet.pointee.stream_index == audioIndex {
                 if avcodec_send_packet(codecContext, packet) >= 0 { drainFrames() }
+                packetsSinceProgress += 1
+                if packetsSinceProgress >= 200, durationMs > 0, let acc = accumulator {
+                    packetsSinceProgress = 0
+                    MediaAnalyzerStatus.shared.set(Double(acc.decodedMs) / Double(durationMs))
+                }
             }
             av_packet_unref(packet)
         }

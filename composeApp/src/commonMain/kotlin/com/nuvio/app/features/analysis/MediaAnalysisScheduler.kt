@@ -36,6 +36,10 @@ internal expect object MediaAnalyzerPlatform {
     suspend fun analyze(fileUri: String): String?
     fun cancel()
     fun isCharging(): Boolean
+    /** Progress of the running analyze/makeThumbnails call, 0..1 (negative: unknown). */
+    fun progress(): Double
+    /** Why the last analyze/makeThumbnails call returned null, in short words. */
+    fun lastError(): String?
     /**
      * Writes scrub-preview thumbnail sheets of [fileUri] to `<outputPrefix><n>.jpg` and returns
      * their layout as JSON ([RawThumbnailSheets]); null when it failed or was cancelled.
@@ -84,9 +88,42 @@ internal object MediaAnalysisScheduler {
         if (!MediaAnalyzerPlatform.supported) return
         if (job?.isActive == true) return
         job = scope.launch {
-            delay(startDelayMs)
-            runPending(fromBackgroundTask = false)
+            MediaAnalysisStatus.setJob(AnalysisJobState.Starting)
+            try {
+                delay(startDelayMs)
+                runPending(fromBackgroundTask = false)
+            } finally {
+                if (MediaAnalysisStatus.job.value !is AnalysisJobState.WaitingForCharger) {
+                    MediaAnalysisStatus.setJob(AnalysisJobState.Idle)
+                }
+            }
         }
+    }
+
+    /** "Analyse now": forget this session's failures and start at once (also replaces a pending start). */
+    fun analyseNow() {
+        failedThisSession.clear()
+        MediaAnalysisStatus.clearAllFailures()
+        val running = MediaAnalysisStatus.job.value is AnalysisJobState.Running
+        if (!running) {
+            job?.cancel()
+            job = null
+        }
+        kick(startDelayMs = 0L)
+    }
+
+    /** Drops the stored results of [items] and analyses them again. */
+    fun reanalyse(items: List<DownloadItem>) {
+        val runningId = (MediaAnalysisStatus.job.value as? AnalysisJobState.Running)?.itemId
+        if (runningId != null && items.any { it.id == runningId }) cancel()
+        items.forEach { item ->
+            val key = MediaAnalysisStore.keyFor(item)
+            MediaAnalysisStore.reset(key)
+            failedThisSession -= item.id
+            MediaAnalysisStatus.clearFailure(item.id)
+        }
+        MediaAnalysisStatus.resultsChanged()
+        analyseNow()
     }
 
     fun cancel() {
@@ -106,15 +143,28 @@ internal object MediaAnalysisScheduler {
                 !MediaAnalyzerPlatform.isCharging()
             ) {
                 InAppLogger.debug("Analysis", "waiting for charger")
+                MediaAnalysisStatus.setJob(AnalysisJobState.WaitingForCharger)
                 return false
             }
             if (!fromBackgroundTask && InAppPlaybackKeepAlive.isPlaying()) {
+                MediaAnalysisStatus.setJob(AnalysisJobState.WaitingForPlayback)
                 delay(PLAYBACK_POLL_MS)
                 continue
             }
-            val item = nextPending() ?: return true
-            val ok = analyzeOne(item)
+            val item = nextPending() ?: run {
+                MediaAnalysisStatus.setJob(AnalysisJobState.Idle)
+                return true
+            }
+            currentItem = item
+            currentInBackground = fromBackgroundTask
+            val ok = try {
+                analyzeOne(item)
+            } finally {
+                MediaAnalysisStatus.setJob(AnalysisJobState.Idle)
+                MediaAnalysisStatus.resultsChanged()
+            }
             if (!scopeActive()) return false
+            if (ok) MediaAnalysisStatus.clearFailure(item.id)
             if (!ok) {
                 // Remember the failure for this session so one bad file does not loop.
                 failedThisSession += item.id
@@ -123,6 +173,32 @@ internal object MediaAnalysisScheduler {
     }
 
     private val failedThisSession = mutableSetOf<String>()
+    private var currentItem: DownloadItem? = null
+    private var currentInBackground = false
+
+    private fun stage(stage: AnalysisStage) {
+        val item = currentItem ?: return
+        val title = buildString {
+            append(item.title)
+            if (item.seasonNumber != null && item.episodeNumber != null) append(" S${item.seasonNumber}E${item.episodeNumber}")
+        }
+        MediaAnalysisStatus.setJob(AnalysisJobState.Running(item.id, title, stage, if (stage == AnalysisStage.Audio || stage == AnalysisStage.Previews) 0.0 else -1.0, currentInBackground))
+    }
+
+    /** Runs [block] while copying the platform analyzer's progress into the status every half second. */
+    private suspend fun <T> withProgress(block: suspend () -> T): T = kotlinx.coroutines.coroutineScope {
+        val poller = launch {
+            while (isActive) {
+                delay(500)
+                MediaAnalysisStatus.updateProgress(MediaAnalyzerPlatform.progress())
+            }
+        }
+        try {
+            block()
+        } finally {
+            poller.cancel()
+        }
+    }
 
     private suspend fun scopeActive(): Boolean = kotlin.coroutines.coroutineContext.isActive
 
@@ -149,8 +225,14 @@ internal object MediaAnalysisScheduler {
     }
 
     private suspend fun analyzeOne(item: DownloadItem): Boolean {
-        val uri = DownloadsRepository.playableLocalFileUri(item) ?: return false
-        if (!uri.startsWith("file:")) return false
+        val uri = DownloadsRepository.playableLocalFileUri(item) ?: run {
+            MediaAnalysisStatus.recordFailure(item, "The file is not on this device")
+            return false
+        }
+        if (!uri.startsWith("file:")) {
+            MediaAnalysisStatus.recordFailure(item, "The file is not on this device")
+            return false
+        }
         val key = MediaAnalysisStore.keyFor(item)
         val base = MediaAnalysisStore.load(key)?.takeIf { it.fileName == item.fileName }
             ?: audioAnalysis(item, uri)
@@ -166,6 +248,7 @@ internal object MediaAnalysisScheduler {
             MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.RecapDetection)
         ) {
             val siblings = MediaAnalysisStore.seasonSiblings(item.parentMetaId, season, result.key)
+            stage(AnalysisStage.Recap)
             val recap = withContext(Dispatchers.Default) { RecapDetector.detect(result, siblings) }
             result = result.copy(recapStartMs = recap?.first, recapEndMs = recap?.second)
         }
@@ -175,7 +258,8 @@ internal object MediaAnalysisScheduler {
         ) {
             val intervalMs = (result.durationMs / THUMBNAIL_TARGET_COUNT).coerceIn(THUMBNAIL_MIN_INTERVAL_MS, THUMBNAIL_MAX_INTERVAL_MS)
             val prefix = MediaAnalysisFiles.binaryPath("${result.key}_thumbs_")
-            val text = prefix?.let { MediaAnalyzerPlatform.makeThumbnails(uri, it, result.durationMs, intervalMs, THUMBNAIL_TILE_WIDTH) }
+            stage(AnalysisStage.Previews)
+            val text = prefix?.let { withProgress { MediaAnalyzerPlatform.makeThumbnails(uri, it, result.durationMs, intervalMs, THUMBNAIL_TILE_WIDTH) } }
             val raw = text?.let { runCatching { json.decodeFromString(RawThumbnailSheets.serializer(), it) }.getOrNull() }
             if (raw != null && raw.count > 0 && raw.sheets > 0) {
                 result = result.copy(
@@ -193,6 +277,9 @@ internal object MediaAnalysisScheduler {
             } else {
                 thumbsOk = false
                 InAppLogger.warn("Analysis", "thumbnails failed id=${item.id}")
+                if (scopeActive()) {
+                    MediaAnalysisStatus.recordFailure(item, "Previews: " + (MediaAnalyzerPlatform.lastError() ?: "could not be made"))
+                }
             }
         }
         if (!scopeActive()) return false
@@ -202,11 +289,16 @@ internal object MediaAnalysisScheduler {
 
     private suspend fun audioAnalysis(item: DownloadItem, uri: String): MediaAnalysisResult? {
         InAppLogger.info("Analysis", "analyse start id=${item.id} file=${item.fileName}")
-        val text = MediaAnalyzerPlatform.analyze(uri) ?: run {
+        stage(AnalysisStage.Audio)
+        val text = withProgress { MediaAnalyzerPlatform.analyze(uri) } ?: run {
             InAppLogger.warn("Analysis", "analyse failed id=${item.id}")
+            if (scopeActive()) MediaAnalysisStatus.recordFailure(item, MediaAnalyzerPlatform.lastError() ?: "Could not analyse the audio")
             return null
         }
-        val raw = runCatching { json.decodeFromString(RawMediaAnalysis.serializer(), text) }.getOrNull() ?: return null
+        val raw = runCatching { json.decodeFromString(RawMediaAnalysis.serializer(), text) }.getOrNull() ?: run {
+            MediaAnalysisStatus.recordFailure(item, "The analyser returned unreadable data")
+            return null
+        }
         val key = MediaAnalysisStore.keyFor(item)
         var result = MediaAnalysisResult(
             key = key,
@@ -229,6 +321,7 @@ internal object MediaAnalysisScheduler {
                 .sortedByDescending { it.analyzedAtMs }
                 .take(MAX_SIBLINGS)
             if (siblings.isNotEmpty()) {
+                stage(AnalysisStage.Matching)
                 val detected = withContext(Dispatchers.Default) { SeasonSegmentDetector.detect(result, siblings) }
                 result = result.copy(
                     introStartMs = detected.introStartMs,
@@ -276,6 +369,10 @@ object MediaAnalysisBackground {
     /** BGProcessingTask: runs pending analysis; [onDone] gets true when everything finished. */
     private var backgroundJob: Job? = null
 
+    fun didSchedule(error: String?) {
+        MediaAnalysisStatus.backgroundScheduled(error)
+    }
+
     fun runBackgroundTask(onDone: (Boolean) -> Unit) {
         MediaAnalysisScheduler.cancel()
         backgroundJob?.cancel()
@@ -287,6 +384,7 @@ object MediaAnalysisBackground {
             } catch (_: Throwable) {
                 finished = false
             } finally {
+                MediaAnalysisStatus.backgroundRan(finished)
                 onDone(finished)
             }
         }

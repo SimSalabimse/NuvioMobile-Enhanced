@@ -35,7 +35,9 @@ enum MediaAnalysisBackgroundTask {
         request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
         do {
             try BGTaskScheduler.shared.submit(request)
+            MediaAnalysisBackground.shared.didSchedule(error: nil)
         } catch {
+            MediaAnalysisBackground.shared.didSchedule(error: "\(error.localizedDescription)")
             InAppLogBridge.shared.info(tag: "Analysis/iOS", message: "background task not scheduled: \(error)")
         }
     }

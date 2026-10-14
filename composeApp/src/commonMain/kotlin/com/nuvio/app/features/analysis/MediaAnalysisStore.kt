@@ -64,6 +64,15 @@ internal object MediaAnalysisStore {
         save(current.copy(energy = null, fileName = null, integratedLufs = null, thumbnails = null))
     }
 
+    /** Deletes everything stored for [key] (analysis JSON and thumbnail sheets). */
+    fun reset(key: String) {
+        load(key)?.thumbnails?.let { sheets ->
+            repeat(sheets.sheets) { MediaAnalysisFiles.delete(thumbnailSheetFileName(key, it)) }
+        }
+        MediaAnalysisFiles.delete("$key.json")
+        cache[key] = null
+    }
+
     private fun sanitize(value: String): String =
         value.map { if (it.isLetterOrDigit() || it == '.' || it == '-' || it == '_') it else '_' }.joinToString("")
 }
