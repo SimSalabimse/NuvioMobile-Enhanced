@@ -1,5 +1,6 @@
 package com.nuvio.app.features.settings
 
+import com.nuvio.app.features.stats.watchStatsContent
 import com.nuvio.app.features.whatsnew.WhatsNewSettingsScreen
 import com.nuvio.app.navigation.LocalUseNativeNavigation
 import com.nuvio.app.core.build.AppFeaturePolicy
@@ -825,7 +826,7 @@ private fun MobileSettingsScreen(
                         onPosterClick = onPosterClick,
                         onBack = if (profileDrawsOwnChrome) onNavigateBack else null,
                     )
-                    com.nuvio.app.features.stats.com.nuvio.app.features.stats.watchStatsContent(isTablet = false)
+                    watchStatsContent(isTablet = false)
                 }
                 SettingsPage.SupportersContributors -> {
                     if (AppFeaturePolicy.supportersContributorsPageEnabled) {
@@ -1329,7 +1330,7 @@ private fun TabletSettingsScreen(
                             onEditProfile = onEditProfile,
                             onPosterClick = onPosterClick,
                         )
-                        com.nuvio.app.features.stats.com.nuvio.app.features.stats.watchStatsContent(isTablet = true)
+                        watchStatsContent(isTablet = true)
                     }
                     SettingsPage.SupportersContributors -> {
                         if (AppFeaturePolicy.supportersContributorsPageEnabled) {
