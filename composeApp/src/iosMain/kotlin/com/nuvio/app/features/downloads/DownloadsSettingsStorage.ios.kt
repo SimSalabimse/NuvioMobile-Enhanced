@@ -68,4 +68,12 @@ actual object DownloadsSettingsStorage {
     actual fun saveFlag(key: String, enabled: Boolean) {
         NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = key)
     }
+
+    actual fun loadString(key: String): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(key)
+
+    actual fun saveString(key: String, value: String?) {
+        if (value == null) NSUserDefaults.standardUserDefaults.removeObjectForKey(key)
+        else NSUserDefaults.standardUserDefaults.setObject(value, forKey = key)
+    }
 }

@@ -234,7 +234,7 @@ fun StreamsScreen(
         )
     }
 
-    val startStreamDownload: (StreamItem) -> Unit = { stream ->
+    val enqueueStreamDownload: (StreamItem) -> Unit = { stream ->
 
             if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(stream)) {
                 downloadScope.launch {
@@ -288,6 +288,21 @@ fun StreamsScreen(
                 )
                 NuvioToastController.show(result.toastMessage())
             }
+    }
+
+    // Quality picker with a size estimate before a download starts.
+    var downloadQualityTarget by remember { mutableStateOf<StreamItem?>(null) }
+    val startStreamDownload: (StreamItem) -> Unit = { stream -> downloadQualityTarget = stream }
+    downloadQualityTarget?.let { tapped ->
+        com.nuvio.app.features.downloads.DownloadQualitySheet(
+            tapped = tapped,
+            allStreams = uiState.groups.flatMap { it.streams },
+            onDismiss = { downloadQualityTarget = null },
+            onConfirm = { chosen ->
+                downloadQualityTarget = null
+                enqueueStreamDownload(chosen)
+            },
+        )
     }
 
     if (showLoadingScreen) return

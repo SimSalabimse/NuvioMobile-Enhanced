@@ -23,6 +23,10 @@ object MediaAnalysisSettings {
         TheIntroDbOnly("skip_source_theintrodb_only", false),
         /** Use the on-device intro/credits detection when the online sources have nothing. */
         OnDeviceSkipFallback("skip_source_on_device_fallback", true),
+        /** Make a small thumbnail sheet of each downloaded file for previews while scrubbing. */
+        ScrubPreviews("analysis_scrub_previews", true),
+        /** Find "Previously on" recaps at the start of downloaded episodes and offer Skip Recap. */
+        RecapDetection("analysis_recap_detection", true),
     }
 
     private val state = MutableStateFlow<Map<Flag, Boolean>>(emptyMap())

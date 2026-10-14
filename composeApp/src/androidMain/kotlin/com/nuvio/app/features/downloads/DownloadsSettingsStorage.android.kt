@@ -79,4 +79,10 @@ actual object DownloadsSettingsStorage {
     actual fun saveFlag(key: String, enabled: Boolean) {
         preferences?.edit()?.putBoolean(key, enabled)?.apply()
     }
+
+    actual fun loadString(key: String): String? = preferences?.getString(key, null)
+
+    actual fun saveString(key: String, value: String?) {
+        preferences?.edit()?.apply { if (value == null) remove(key) else putString(key, value) }?.apply()
+    }
 }

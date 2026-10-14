@@ -189,6 +189,7 @@ internal object MediaAnalysisScheduler {
 object MediaAnalysisBackground {
     fun appDidLaunch() {
         MediaAnalysisScheduler.kick()
+        com.nuvio.app.features.downloads.SmartDownloads.appDidLaunch()
     }
 
     /** BGProcessingTask: runs pending analysis; [onDone] gets true when everything finished. */
@@ -200,6 +201,7 @@ object MediaAnalysisBackground {
         backgroundJob = CoroutineScope(SupervisorJob() + Dispatchers.Main).launch {
             var finished = false
             try {
+                com.nuvio.app.features.downloads.SmartDownloads.retryPending()
                 finished = MediaAnalysisScheduler.runPending(fromBackgroundTask = true)
             } catch (_: Throwable) {
                 finished = false

@@ -80,11 +80,16 @@ internal object FinishedDownloadDeletion {
         release(current, untilOtherPlays = false)
     }
 
+    /** Delete after watching, or smart downloads (which replace a watched episode with the next ones). */
+    private fun deletionEnabled(): Boolean =
+        DownloadsSettingsRepository.isDeleteWhenFinishedEnabled() || SmartDownloads.isEnabled()
+
     fun onPlaybackCompleted(entry: WatchProgressEntry) {
+        SmartDownloads.onPlaybackCompleted(entry)
         val current = session ?: return
         if (!entry.isCompleted || entry.videoId != current.videoId) return
         if (current.queuedDownloadId != null) return
-        if (!DownloadsSettingsRepository.isDeleteWhenFinishedEnabled()) return
+        if (!deletionEnabled()) return
         val items = DownloadsRepository.uiState.value.items
         val item = current.incompleteDownloadId?.let { id -> items.firstOrNull { it.id == id } }
             ?: downloadOpenedBySource(current.sourceUrl, items)
@@ -106,7 +111,7 @@ internal object FinishedDownloadDeletion {
 
     private fun release(current: OpenPlayback, untilOtherPlays: Boolean) {
         if (session === current) session = null
-        if (!DownloadsSettingsRepository.isDeleteWhenFinishedEnabled()) return
+        if (!deletionEnabled()) return
         val downloadId = current.queuedDownloadId ?: current.incompleteDownloadId ?: return
         val deletion = PendingDeletion(
             downloadId = downloadId,
@@ -140,7 +145,7 @@ internal object FinishedDownloadDeletion {
         if (pending !== deletion) return
         pending = null
         pendingJob = null
-        if (!DownloadsSettingsRepository.isDeleteWhenFinishedEnabled()) return
+        if (!deletionEnabled()) return
         val item = DownloadsRepository.uiState.value.items.firstOrNull { it.id == deletion.downloadId } ?: return
         if (deletion.requireCompleted && item.status != DownloadStatus.Completed) return
         // Never the episode on screen, whatever path got here.
