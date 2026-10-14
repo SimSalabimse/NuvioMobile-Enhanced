@@ -825,7 +825,7 @@ private fun MobileSettingsScreen(
                         onPosterClick = onPosterClick,
                         onBack = if (profileDrawsOwnChrome) onNavigateBack else null,
                     )
-                    com.nuvio.app.features.stats.watchStatsContent(isTablet = false)
+                    com.nuvio.app.features.stats.com.nuvio.app.features.stats.watchStatsContent(isTablet = false)
                 }
                 SettingsPage.SupportersContributors -> {
                     if (AppFeaturePolicy.supportersContributorsPageEnabled) {
@@ -1329,7 +1329,7 @@ private fun TabletSettingsScreen(
                             onEditProfile = onEditProfile,
                             onPosterClick = onPosterClick,
                         )
-                        com.nuvio.app.features.stats.watchStatsContent(isTablet = true)
+                        com.nuvio.app.features.stats.com.nuvio.app.features.stats.watchStatsContent(isTablet = true)
                     }
                     SettingsPage.SupportersContributors -> {
                         if (AppFeaturePolicy.supportersContributorsPageEnabled) {

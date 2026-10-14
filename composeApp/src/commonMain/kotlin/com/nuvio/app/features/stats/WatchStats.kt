@@ -120,7 +120,7 @@ internal object WatchStats {
     fun summarize(data: WatchStatsData, today: String = CurrentDateProvider.todayIsoDate()): WatchStatsSummary {
         val year = today.take(4)
         val streakDays = data.dayMs.filterValues { it >= STREAK_DAY_MIN_MS }.keys
-        val dayNumbers = streakDays.mapNotNull(::isoDayNumber).toSortedSet()
+        val dayNumbers = streakDays.mapNotNull { isoDayNumber(it) }.distinct().sorted()
         val todayNumber = isoDayNumber(today) ?: 0
         var current = 0
         // Today without watching yet does not break a streak that ran until yesterday.
