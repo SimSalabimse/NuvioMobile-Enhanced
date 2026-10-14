@@ -142,7 +142,10 @@ import com.nuvio.app.features.player.PlayerLaunchStore
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.SubtitleLanguageOption
 import com.nuvio.app.features.player.prepareExternalPlayerLaunch
+import com.nuvio.app.features.player.HostedPlayerRoutePlaceholder
 import com.nuvio.app.features.player.LockPlayerToLandscape
+import com.nuvio.app.features.player.MiniPlayerController
+import com.nuvio.app.features.player.MiniPlayerHost
 import com.nuvio.app.features.player.HidePlayerSystemBars
 import com.nuvio.app.features.player.rememberExternalPlayerLauncher
 import com.nuvio.app.features.profiles.ProfileEditScreen
@@ -331,6 +334,9 @@ internal fun MainAppContent(
         PlayerSettingsRepository.uiState
     }.collectAsStateWithLifecycle()
     var visiblePlayerEntries by remember { mutableIntStateOf(0) }
+    val miniPlayerHostEnabled = playerSettingsUiState.miniPlayerEnabled && !isIos
+    val topPlayerRoute = currentRoute as? PlayerRoute
+    val hostedPlayerRoute = MiniPlayerController.hostedRoute(topPlayerRoute, miniPlayerHostEnabled)
     var streamLandscapeLoadingVisible by remember(currentRoute) { mutableStateOf(false) }
     if (currentRoute is PlayerRoute || visiblePlayerEntries > 0 || streamLandscapeLoadingVisible) {
         LockPlayerToLandscape()
@@ -1287,6 +1293,8 @@ internal fun MainAppContent(
             LibrarySourceMode.TRAKT -> stringResource(Res.string.compose_catalog_subtitle_trakt_library)
             LibrarySourceMode.SIMKL -> stringResource(Res.string.compose_catalog_subtitle_simkl_library)
                                     LibrarySourceMode.MDBLIST -> stringResource(Res.string.library_mdblist_title)
+            LibrarySourceMode.ANILIST -> stringResource(Res.string.library_anilist_title)
+            LibrarySourceMode.WETRAKR -> stringResource(Res.string.library_wetrakr_title)
         }
 
         val openLibraryItem: (LibraryItem) -> Unit = { item ->
@@ -1758,6 +1766,15 @@ internal fun MainAppContent(
                             onDispose { visiblePlayerEntries -= 1 }
                         }
                     }
+                    if (
+                        MiniPlayerController.isHostedRoute(
+                            route = route,
+                            topPlayerRoute = navController.currentRoute as? PlayerRoute,
+                            enabled = miniPlayerHostEnabled,
+                        )
+                    ) {
+                        HostedPlayerRoutePlaceholder(route)
+                    } else {
                     PlayerDestination(
                         route = route,
                         navController = navController,
@@ -1768,6 +1785,7 @@ internal fun MainAppContent(
                         launchExternalPlayer = launchExternalPlayer,
                         openExternalStreamUrl = ::openExternalStreamUrl,
                     )
+                    }
                 }
                 entry<CatalogRoute> { route ->
                     CatalogDestination(
@@ -1934,6 +1952,30 @@ internal fun MainAppContent(
                     )
                 }
             }
+            }
+
+            MiniPlayerHost(
+                hostedRoute = hostedPlayerRoute,
+                topPlayerRoute = topPlayerRoute,
+                onExpand = { route -> navController.navigate(route) },
+            ) { route ->
+                PlayerDestination(
+                    route = route,
+                    navController = navController,
+                    externalPlayerId = playerSettingsUiState.externalPlayerId,
+                    externalPlayerNotConfiguredText = externalPlayerNotConfiguredText,
+                    externalPlayerFailedText = externalPlayerFailedText,
+                    onExternalPlayerLaunch = { launch -> lastExternalPlayerLaunch = launch },
+                    launchExternalPlayer = launchExternalPlayer,
+                    openExternalStreamUrl = ::openExternalStreamUrl,
+                    onBackOverride = {
+                        if (navController.currentRoute == route) {
+                            navController.popBackStack(expectedRoute = route)
+                        } else {
+                            MiniPlayerController.close()
+                        }
+                    },
+                )
             }
 
             selectedPosterActionTarget?.let { posterActionTarget ->

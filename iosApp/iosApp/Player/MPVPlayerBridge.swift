@@ -22,9 +22,7 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
 
     private func ensurePlayerViewController() -> MPVPlayerViewController {
         if let playerVC { return playerVC }
-        let vc = MPVPlayerViewController(
-            experimentalSinglePrimaryPictureInPictureEnabled: experimentalSinglePrimaryPictureInPictureEnabled
-        )
+        let vc = MPVPlayerViewController()
         vc.setKeyboardShortcutsEnabled(keyboardShortcutsEnabled)
         vc.setKeyboardShortcutHandler(keyboardShortcutHandler)
         self.playerVC = vc
@@ -79,8 +77,9 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
     func isPictureInPictureSupported() -> Bool { playerVC?.isPictureInPictureSupported() ?? false }
     func startPictureInPicture() { playerVC?.startPictureInPicture() }
     func setExperimentalSinglePrimaryPictureInPictureEnabled(enabled: Bool) {
+        // The experimental Metal-capture PiP renderer was replaced by upstream's VideoToolbox
+        // frame handoff; the toggle is kept only so the Kotlin bridge contract stays intact.
         experimentalSinglePrimaryPictureInPictureEnabled = enabled
-        playerVC?.setExperimentalSinglePrimaryPictureInPictureEnabled(enabled)
     }
     func updateNowPlayingMetadata(
         title: String,
@@ -337,12 +336,11 @@ final class MPVPlayerViewController: UIViewController {
     }
 
     private let errorStateLock = NSLock()
-    let experimentalSinglePrimaryPictureInPictureEnabled: Bool
     let metalLayer = MetalLayer()
+    private var pictureInPictureController: PlayerPictureInPictureController?
     private var lastAppliedDrawableSize: CGSize = .zero
     private var externallyManagedViewSize: CGSize?
     private var pendingSurfaceLayoutWorkItems: [DispatchWorkItem] = []
-    var primaryRenderSurface: MPVPictureInPictureFrameCapture?
     private var pendingLoadRequest: PendingLoadRequest?
     private var pendingLoadRetryWorkItem: DispatchWorkItem?
     var mpv: OpaquePointer?
@@ -476,37 +474,6 @@ final class MPVPlayerViewController: UIViewController {
     private let logCoalesceLock = NSLock()
     private var throttledLogEntries: [String: ThrottledLogEntry] = [:]
 
-    lazy var sampleBufferDisplayView: SampleBufferDisplayView = {
-        let view = SampleBufferDisplayView(frame: CGRect(x: -4, y: -4, width: 2, height: 2))
-        view.alpha = 0.01
-        view.isHidden = false
-        view.pictureInPictureDelegate = self
-        return view
-    }()
-    var isPictureInPictureStarting = false
-    var pipStartTimeoutWorkItem: DispatchWorkItem?
-    var automaticPictureInPictureStartArmed = false
-    var automaticPictureInPicturePrepared = false
-    var automaticPictureInPicturePreparedAt: CFTimeInterval = 0
-    var automaticPictureInPictureStartPreparationInFlight = false
-    var automaticPictureInPictureStartRetryWorkItem: DispatchWorkItem?
-    var automaticPictureInPictureTimeoutWorkItem: DispatchWorkItem?
-    var automaticPictureInPictureBackgroundTask: UIBackgroundTaskIdentifier = .invalid
-    var videoTrackSuspendedForBackground = false
-    var resumePlaybackAfterPictureInPictureRestore = false
-    var pipRestoreResumeWorkItem: DispatchWorkItem?
-    var preservePlaybackDuringPictureInPictureStart = false
-    var ignorePictureInPicturePauseCallbacksUntil: CFTimeInterval = 0
-    var automaticPiPHomeSwipeCandidate = false
-    lazy var automaticPiPHomeSwipeRecognizer: UIPanGestureRecognizer = {
-        let recognizer = UIPanGestureRecognizer(target: self, action: #selector(handleAutomaticPiPHomeSwipe(_:)))
-        recognizer.maximumNumberOfTouches = 1
-        recognizer.cancelsTouchesInView = false
-        recognizer.delaysTouchesBegan = false
-        recognizer.delaysTouchesEnded = false
-        recognizer.delegate = self
-        return recognizer
-    }()
 
     // Cached track lists
     var audioTracks: [TrackInfo] = []
@@ -533,13 +500,11 @@ final class MPVPlayerViewController: UIViewController {
     private var _currentErrorMessage: String?
     private var isEmbeddedPreviewMode = false
 
-    init(experimentalSinglePrimaryPictureInPictureEnabled: Bool) {
-        self.experimentalSinglePrimaryPictureInPictureEnabled = experimentalSinglePrimaryPictureInPictureEnabled
+    init() {
         super.init(nibName: nil, bundle: nil)
     }
 
     required init?(coder: NSCoder) {
-        self.experimentalSinglePrimaryPictureInPictureEnabled = false
         super.init(coder: coder)
     }
 
@@ -591,18 +556,17 @@ final class MPVPlayerViewController: UIViewController {
                 )
             }
         }
+        let pip = PlayerPictureInPictureController(owner: self, metalLayer: metalLayer)
+        pictureInPictureController = pip
+        view.layer.addSublayer(pip.displayLayer)
         view.layer.addSublayer(metalLayer)
         layoutPlayerSurfaces()
 
         setupMpv()
-        installExperimentalPictureInPictureCaptureIfNeeded()
         if !isEmbeddedPreviewMode {
             activateAudioSessionForPlayback()
         }
         setupNotifications()
-        if experimentalSinglePrimaryPictureInPictureEnabled {
-            view.addGestureRecognizer(automaticPiPHomeSwipeRecognizer)
-        }
         refreshImmersiveSystemUI()
     }
 
@@ -728,8 +692,6 @@ final class MPVPlayerViewController: UIViewController {
         let bounds = CGRect(origin: .zero, size: externallyManagedViewSize ?? view.bounds.size)
         guard bounds.width > 1, bounds.height > 1 else { return }
 
-        layoutExperimentalPictureInPictureSurfaces(in: bounds)
-
         let scale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
         let drawableSize = CGSize(
             width: (bounds.width * scale).rounded(.toNearestOrAwayFromZero),
@@ -741,6 +703,7 @@ final class MPVPlayerViewController: UIViewController {
         metalLayer.contentsScale = scale
         metalLayer.position = .zero
         metalLayer.bounds = CGRect(origin: .zero, size: bounds.size)
+        pictureInPictureController?.displayLayer.frame = bounds
         if drawableSize != lastAppliedDrawableSize {
             metalLayer.drawableSize = drawableSize
             lastAppliedDrawableSize = drawableSize
@@ -831,6 +794,58 @@ final class MPVPlayerViewController: UIViewController {
         }
     }
 
+    private func setupNotifications() {
+        NotificationCenter.default.addObserver(self, selector: #selector(enterBackground),
+                                               name: UIApplication.didEnterBackgroundNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(enterForeground),
+                                               name: UIApplication.willEnterForegroundNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(didBecomeActive),
+                                               name: UIApplication.didBecomeActiveNotification, object: nil)
+    }
+
+    @objc private func enterBackground() {
+        metalLayer.releasePendingDrawable()
+        guard mpv != nil else { return }
+        if pictureInPictureController?.enteredBackground() == true { return }
+        pausePlayback()
+        setStringProperty("vid", "no")
+    }
+
+    @objc private func enterForeground() {
+        resumeRenderingAfterDeviceLossIfPossible(reason: "enter-foreground")
+        guard mpv != nil else { return }
+        let wasInPictureInPicture = pictureInPictureController?.enteredForeground() == true
+        if wasInPictureInPicture { return }
+        setStringProperty("vid", "auto")
+        playPlayback()
+    }
+
+    @objc private func didBecomeActive() {
+        resumeRenderingAfterDeviceLossIfPossible(reason: "did-become-active")
+    }
+
+    private func resumeRenderingAfterDeviceLossIfPossible(reason: String) {
+        retryDeviceLossRecoveryNow()
+        if !isAwaitingDeviceLossRecovery {
+            metalLayer.setRenderingSuspended(false, reason: reason)
+        }
+    }
+
+    // MARK: - Picture in Picture
+
+    func isPictureInPictureSupported() -> Bool {
+        pictureInPictureController?.isSupported ?? false
+    }
+
+    /// The player's PiP button. Automatic PiP on backgrounding is handled by the controller.
+    func startPictureInPicture() {
+        pictureInPictureController?.start()
+    }
+
+    func isPictureInPictureActive() -> Bool {
+        pictureInPictureController?.isActive ?? false
+    }
+
     // MARK: - Playback API
 
     func loadFile(
@@ -888,17 +903,6 @@ final class MPVPlayerViewController: UIViewController {
 
     private func startLoad(_ request: PendingLoadRequest) {
         guard mpv != nil else { return }
-        automaticPictureInPictureStartRetryWorkItem?.cancel()
-        automaticPictureInPictureStartRetryWorkItem = nil
-        automaticPictureInPicturePrepared = false
-        automaticPictureInPicturePreparedAt = 0
-        automaticPictureInPictureStartPreparationInFlight = false
-        // A swap to the same video at the same spot (stream <-> download) keeps the last frame up
-        // until the new file renders, instead of flashing black.
-        if !request.keepLastFrame, !isPictureInPictureActive(), !isPictureInPictureStarting {
-            primaryRenderSurface?.stopPictureInPictureRendering(removingDisplayedImage: true)
-            sampleBufferDisplayView.flush()
-        }
         layoutPlayerSurfaces()
         clearPlaybackError()
         let sanitizedHeaders = sanitizeRequestHeaders(request.requestHeaders)
@@ -967,11 +971,6 @@ final class MPVPlayerViewController: UIViewController {
         if !isEmbeddedPreviewMode {
             syncNowPlayingPlaybackState(isPlaying: true)
         }
-        if experimentalSinglePrimaryPictureInPictureEnabled, !isPictureInPictureActive(), !isPictureInPictureStarting {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-                self?.prewarmAutomaticPictureInPictureSource(reason: "play")
-            }
-        }
     }
 
     func pausePlayback() {
@@ -982,7 +981,6 @@ final class MPVPlayerViewController: UIViewController {
         if !isEmbeddedPreviewMode {
             syncNowPlayingPlaybackState(isPlaying: false)
         }
-        primaryRenderSurface?.setPaused(true)
     }
 
     func seekToMs(_ ms: Int64) {
@@ -991,12 +989,6 @@ final class MPVPlayerViewController: UIViewController {
         if isRecoveringFromDeviceLoss { deviceLossResumeSeconds = max(0, seconds) }
         let mode = seekTargetIsBehind(seconds) ? "absolute+exact" : "absolute"
         command("seek", args: [String(format: "%.3f", seconds), mode])
-        primaryRenderSurface?.didSeek()
-        automaticPictureInPicturePrepared = false
-        automaticPictureInPicturePreparedAt = 0
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            self?.prewarmAutomaticPictureInPictureSource(reason: "seek")
-        }
     }
 
     /// True when the absolute target is behind `time-pos`, or the position cannot be read.
@@ -1017,12 +1009,6 @@ final class MPVPlayerViewController: UIViewController {
         }
         let mode = ms < 0 ? "relative+exact" : "relative"
         command("seek", args: [String(format: "%.3f", seconds), mode])
-        primaryRenderSurface?.didSeek()
-        automaticPictureInPicturePrepared = false
-        automaticPictureInPicturePreparedAt = 0
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            self?.prewarmAutomaticPictureInPictureSource(reason: "seek")
-        }
     }
 
     // MARK: - GPU device-loss recovery
@@ -1250,7 +1236,6 @@ final class MPVPlayerViewController: UIViewController {
         } else {
             pausePlayback()
         }
-        primaryRenderSurface?.requestRenderBurst(reason: "device-loss-recovery", count: 5)
         clearDeviceLossLogLatch()
         InAppLogBridge.shared.info(
             tag: "MPV/iOS",
@@ -1269,7 +1254,6 @@ final class MPVPlayerViewController: UIViewController {
         pendingLoadRetryWorkItem?.cancel()
         pendingLoadRetryWorkItem = nil
         pendingLoadRequest = nil
-        videoTrackSuspendedForBackground = false
 
         mpvQueue.async { [weak self, eventQueue, metalLayer] in
             eventQueue.sync {}
@@ -1371,7 +1355,6 @@ final class MPVPlayerViewController: UIViewController {
             gamma: gamma
         )
         metalLayer.wantsExtendedDynamicRangeContent = extendedDynamicRange
-        primaryRenderSurface?.setExtendedDynamicRangePreferred(extendedDynamicRange)
         guard mpv != nil else { return }
 
         setStringProperty("hwdec", hardwareDecoder)
@@ -1403,7 +1386,6 @@ final class MPVPlayerViewController: UIViewController {
     func setSpeed(_ speed: Float) {
         guard mpv != nil else { return }
         setDoubleProperty("speed", Double(speed))
-        primaryRenderSurface?.requestRenderBurst(reason: "speed", count: 2)
     }
 
     func getVolume() -> Float {
@@ -1846,12 +1828,8 @@ final class MPVPlayerViewController: UIViewController {
     }
 
     func destroyPlayer() {
-        automaticPictureInPictureStartRetryWorkItem?.cancel()
-        automaticPictureInPictureStartRetryWorkItem = nil
-        cancelAutomaticPictureInPictureStart(stopPriming: false)
-        endAutomaticPictureInPictureBackgroundTask()
-        stopPictureInPicture(source: "destroy")
-        primaryRenderSurface?.detach()
+        pictureInPictureController?.invalidate()
+        pictureInPictureController = nil
         NotificationCenter.default.removeObserver(self)
         if !isEmbeddedPreviewMode {
             UIApplication.shared.endReceivingRemoteControlEvents()
@@ -2180,6 +2158,7 @@ final class MPVPlayerViewController: UIViewController {
     }
 
     private func syncNowPlayingPlaybackState(isPlaying: Bool) {
+        pictureInPictureController?.updatePlaybackState()
         nowPlayingController.syncPlayback(
             positionMs: positionMs,
             durationMs: durationMs,
@@ -2515,10 +2494,6 @@ final class MPVPlayerViewController: UIViewController {
                         }
                         self.logCurrentAudioOutput()
                         self.performDeviceLossResume()
-                        self.primaryRenderSurface?.requestRenderBurst(reason: "file-loaded", count: 5)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-                            self?.prewarmAutomaticPictureInPictureSource(reason: "file-loaded")
-                        }
                     }
                 case MPV_EVENT_PLAYBACK_RESTART:
                     DispatchQueue.main.async {

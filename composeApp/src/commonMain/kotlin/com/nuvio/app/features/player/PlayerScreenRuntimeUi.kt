@@ -45,6 +45,11 @@ import com.nuvio.app.features.ratings.rememberCanRate
 import com.nuvio.app.features.ratings.rememberUserRating
 import com.nuvio.app.features.ratings.toUserRatingTarget
 import com.nuvio.app.features.tracking.TrackingRatingTarget
+import com.nuvio.app.features.livetv.LiveTvRepository
+import com.nuvio.app.features.livetv.currentProgram
+import com.nuvio.app.features.livetv.rememberLiveTvEpgNowMillis
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import nuvio.composeapp.generated.resources.*
 
 @Composable
@@ -180,7 +185,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     // are open, so focus is re-requested whenever the last one closes.
     val keyboardFocusRequester = remember { FocusRequester() }
     val keyboardShortcutsEnabled = remember {
-        derivedStateOf { !isAnyOverlayVisible && !playerControlsLocked }
+        derivedStateOf { !isAnyOverlayVisible && !playerControlsLocked && !isMiniPresentation }
     }
     val onKeyboardShortcut = rememberUpdatedState(::handleKeyboardShortcut)
     LaunchedEffect(keyboardShortcutsEnabled.value) {
@@ -188,6 +193,8 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
             runCatching { keyboardFocusRequester.requestFocus() }
         }
     }
+
+    BindAutoSyncRuntimeEffects() // AutoSync hook
 
     Box(
         modifier = Modifier
@@ -295,6 +302,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
             }
         }
 
+        if (!isMiniPresentation) {
         AnimatedVisibility(
             visible = playerSettingsUiState.pauseOverlayEnabled && pausedOverlayVisible && !controlsVisible && !playerControlsLocked,
             enter = fadeIn(animationSpec = tween(durationMillis = 220)),
@@ -339,6 +347,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 .padding(top = 16.dp, start = horizontalSafePadding, end = horizontalSafePadding),
         )
         RenderPlayerModals()
+        }
     }
 }
 
@@ -379,16 +388,26 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
     val userRatingTarget = currentUserRatingTarget()
     val canRate = rememberCanRate(userRatingTarget)
     val userRating = rememberUserRating(userRatingTarget.takeIf { canRate })
+    val liveTvEpgNowMillis = rememberLiveTvEpgNowMillis()
+    val liveTvEpgState by LiveTvRepository.uiState.collectAsStateWithLifecycle()
+    val liveTvNowProgramTitle = if (isLiveTvPlayback) {
+        activeVideoId?.let { channelId -> liveTvEpgState.epgPrograms[channelId] }
+            ?.currentProgram(liveTvEpgNowMillis)
+            ?.title
+    } else {
+        null
+    }
     AnimatedVisibility(
         visible = (controlsVisible || showParentalGuide) && !playerControlsLocked && !isInPip,
         enter = fadeIn(),
         exit = fadeOut(),
     ) {
+        val displayedPositionMs = scrubbingPositionMs ?: playbackSnapshot.positionMs
         val pipAvailable = isIos && playerController?.isPictureInPictureSupported() == true
         PlayerControlsShell(
             title = title,
             streamTitle = activeStreamTitle,
-            providerName = activeProviderName,
+            providerName = liveTvNowProgramTitle?.let { programTitle -> "$activeProviderName · $programTitle" } ?: activeProviderName,
             seasonNumber = activeSeasonNumber,
             episodeNumber = activeEpisodeNumber,
             episodeTitle = activeEpisodeTitle,
@@ -414,7 +433,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
                 if (playerControlsLocked) unlockPlayerControls() else lockPlayerControls()
             },
             onBack = {
-                flushWatchProgress()
+                if (!handOffToMiniPlayer()) flushWatchProgress()
                 args.onBack()
             },
             onTogglePlayback = { togglePlayback() },
@@ -773,6 +792,7 @@ private fun PlayerScreenRuntime.playbackResolutionLabel(forButton: Boolean): Str
 
 @Composable
 private fun PlayerScreenRuntime.RenderPlayerModals() {
+    val displayedPositionMs = scrubbingPositionMs ?: playbackSnapshot.positionMs
     PlayerScreenModalHosts(
         pendingP2pSwitch = pendingP2pSwitch,
         onPendingP2pSwitchChanged = { pendingP2pSwitch = it },
@@ -842,7 +862,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
             useCustomSubtitles = true
             preferredSubtitleSelectionApplied = true
             persistAddonSubtitlePreference(addon)
-            playerController?.setSubtitleUri(addon.url)
+            attachSelectedAddonSubtitleWithAutoSync(addon.url) // AutoSync hook
             if (hasBurnedInServerSubtitle) clearServerSubtitleTrack()
         },
         onFetchAddonSubtitles = { fetchAddonSubtitlesForActiveItem() },

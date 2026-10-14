@@ -1154,41 +1154,10 @@ final class AppNavigationCoordinator: ObservableObject {
             return
         }
 
-        if visible {
-            guard !isTabBarVisible || !isCompactPillHidden else { return }
-            withAnimation(.smooth(duration: 0.38)) {
-                isTabBarVisible = visible
-            }
-            let needsGrowDelay = !isNativeTabBarVisible
-
-            tabBarTransitionTask = Task { [weak self] in
-                if needsGrowDelay {
-                    try? await Task.sleep(nanoseconds: 340_000_000)
-                }
-                guard !Task.isCancelled, let self, self.isTabBarVisible else { return }
-                var transaction = Transaction()
-                transaction.disablesAnimations = true
-                withTransaction(transaction) {
-                    self.isNativeTabBarVisible = true
-                    self.isCompactPillHidden = true
-                }
-                try? await Task.sleep(nanoseconds: 50_000_000)
-                guard !Task.isCancelled, self.isTabBarVisible else { return }
-                self.refreshNativeTabBarMetrics()
-            }
-            return
-        }
-
-        guard isTabBarVisible || isNativeTabBarVisible || isCompactPillHidden else { return }
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            isCompactPillHidden = false
-            isNativeTabBarVisible = false
-        }
-        withAnimation(.smooth(duration: 0.38)) {
-            isTabBarVisible = false
-        }
+        isNativeTabBarVisible = false
+        isCompactPillHidden = false
+        guard isTabBarVisible != visible else { return }
+        isTabBarVisible = visible
     }
 
     func reloadLiveTvTabVisibility() {
@@ -1476,6 +1445,7 @@ struct TabContentView: View {
             usesNativeTabBar &&
                 appCoordinator.isMainContentVisible &&
                 coordinator.path.keepsTabBar &&
+                !appCoordinator.tabBarBehavior.usesCompactPill &&
                 appCoordinator.isNativeTabBarVisible
                 ? Visibility.visible
                 : Visibility.hidden,
@@ -1563,6 +1533,7 @@ private struct DetailDestinationView: View {
         .toolbar(
             usesNativeTabBar &&
                 wrapper.route.keepsTabBar &&
+                !appCoordinator.tabBarBehavior.usesCompactPill &&
                 appCoordinator.isNativeTabBarVisible
                 ? Visibility.visible
                 : Visibility.hidden,
@@ -1999,16 +1970,11 @@ struct NativeNavContentView: View {
                 appCoordinator.isAppReady &&
                 appCoordinator.isSelectedTabAtRoot {
                 GeometryReader { proxy in
-                    let metrics = appCoordinator.isTabBarVisible
-                        ? appCoordinator.nativeTabBarMetrics(for: proxy.size)
-                        : nil
                     NuvioGlassTabBar(
                         appCoordinator: appCoordinator,
-                        iconStore: iconStore,
-                        expandedMetrics: metrics
+                        iconStore: iconStore
                     )
-                    .padding(.leading, metrics?.leadingInset ?? (appCoordinator.isTabBarVisible ? 20 : 16))
-                    .padding(.trailing, metrics?.trailingInset ?? (appCoordinator.isTabBarVisible ? 20 : 16))
+                    .frame(width: proxy.size.width)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 }
                 .ignoresSafeArea(.all)
@@ -2062,6 +2028,7 @@ struct NativeNavContentView: View {
 }
 
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var systemUI = SystemUI.shared
 
     var body: some View {
@@ -2075,6 +2042,13 @@ struct ContentView: View {
         }
         .persistentSystemOverlays(systemUI.isPlayerImmersive ? .hidden : .automatic)
         .statusBarHidden(systemUI.isPlayerImmersive)
+        .onChange(of: scenePhase) { phase in
+            if phase == .active {
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: playerSceneDidActivateNotification, object: nil)
+                }
+            }
+        }
     }
 }
 
