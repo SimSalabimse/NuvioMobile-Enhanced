@@ -13,6 +13,7 @@ final class OrientationLockAppDelegate: NSObject, UIApplicationDelegate, UNUserN
         OrientationLockCoordinator.shared.start()
         DownloadsLiveActivityManager.shared.start()
         UNUserNotificationCenter.current().delegate = self
+        MediaAnalysisBackgroundTask.registerAtLaunch()
         return true
     }
 

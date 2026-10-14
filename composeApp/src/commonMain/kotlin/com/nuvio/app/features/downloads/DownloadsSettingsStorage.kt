@@ -9,4 +9,6 @@ internal expect object DownloadsSettingsStorage {
     fun saveDeleteWhenFinished(enabled: Boolean)
     fun loadSwitchToDownloadWhileWatching(): Boolean?
     fun saveSwitchToDownloadWhileWatching(enabled: Boolean)
+    fun loadFlag(key: String): Boolean?
+    fun saveFlag(key: String, enabled: Boolean)
 }

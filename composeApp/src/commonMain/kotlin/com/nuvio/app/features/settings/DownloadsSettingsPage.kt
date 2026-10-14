@@ -7,8 +7,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.features.analysis.MediaAnalysisSettings
 import com.nuvio.app.features.downloads.DownloadsSettingsRepository
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.analysis_intro_detection_description
+import nuvio.composeapp.generated.resources.analysis_intro_detection_title
+import nuvio.composeapp.generated.resources.analysis_loudness_description
+import nuvio.composeapp.generated.resources.analysis_loudness_title
+import nuvio.composeapp.generated.resources.analysis_only_while_charging_description
+import nuvio.composeapp.generated.resources.analysis_only_while_charging_title
+import nuvio.composeapp.generated.resources.analysis_subtitle_sync_description
+import nuvio.composeapp.generated.resources.analysis_subtitle_sync_title
 import nuvio.composeapp.generated.resources.compose_settings_root_downloads_title
 import nuvio.composeapp.generated.resources.settings_downloads_location_private
 import nuvio.composeapp.generated.resources.settings_downloads_location_reset
@@ -69,6 +78,40 @@ internal fun LazyListScope.downloadsSettingsContent(
                     checked = switchToDownload,
                     isTablet = isTablet,
                     onCheckedChange = DownloadsSettingsRepository::setSwitchToDownloadWhileWatching,
+                )
+                val analysisFlags by MediaAnalysisSettings.flags.collectAsStateWithLifecycle()
+                fun flagOn(flag: MediaAnalysisSettings.Flag) = analysisFlags[flag] ?: MediaAnalysisSettings.isEnabled(flag)
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.analysis_subtitle_sync_title),
+                    description = stringResource(Res.string.analysis_subtitle_sync_description),
+                    checked = flagOn(MediaAnalysisSettings.Flag.SubtitleSync),
+                    isTablet = isTablet,
+                    onCheckedChange = { MediaAnalysisSettings.set(MediaAnalysisSettings.Flag.SubtitleSync, it) },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.analysis_intro_detection_title),
+                    description = stringResource(Res.string.analysis_intro_detection_description),
+                    checked = flagOn(MediaAnalysisSettings.Flag.IntroDetection),
+                    isTablet = isTablet,
+                    onCheckedChange = { MediaAnalysisSettings.set(MediaAnalysisSettings.Flag.IntroDetection, it) },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.analysis_loudness_title),
+                    description = stringResource(Res.string.analysis_loudness_description),
+                    checked = flagOn(MediaAnalysisSettings.Flag.Loudness),
+                    isTablet = isTablet,
+                    onCheckedChange = { MediaAnalysisSettings.set(MediaAnalysisSettings.Flag.Loudness, it) },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.analysis_only_while_charging_title),
+                    description = stringResource(Res.string.analysis_only_while_charging_description),
+                    checked = flagOn(MediaAnalysisSettings.Flag.OnlyWhileCharging),
+                    isTablet = isTablet,
+                    onCheckedChange = { MediaAnalysisSettings.set(MediaAnalysisSettings.Flag.OnlyWhileCharging, it) },
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsNavigationRow(

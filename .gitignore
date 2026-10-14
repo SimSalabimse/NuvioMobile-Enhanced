@@ -21,6 +21,7 @@ captures
 node_modules/
 logs/
 analysis/
+!composeApp/src/*/kotlin/com/nuvio/app/features/analysis/
 Docs
 SUPPORTER_COSMETICS.md
 supabase/migrations/

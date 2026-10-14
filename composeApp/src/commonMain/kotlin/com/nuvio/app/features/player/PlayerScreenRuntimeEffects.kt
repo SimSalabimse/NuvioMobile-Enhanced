@@ -583,7 +583,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         val vid = activeVideoId
         if (!playerSettingsUiState.skipIntroEnabled) return@LaunchedEffect
         if ((contentType ?: parentMetaType).equals("movie", ignoreCase = true)) {
-            skipIntervals = SkipIntroRepository.getMovieSkipIntervals(parentMetaId, vid)
+            skipIntervals = filterSkipSources(SkipIntroRepository.getMovieSkipIntervals(parentMetaId, vid))
             return@LaunchedEffect
         }
         if (season == null || episode == null || vid == null) return@LaunchedEffect
@@ -609,7 +609,9 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                     episode = episode,
                 )
             }
-            skipIntervals = intervals
+            // Settings: TheIntroDB only, and the on-device detection when nothing came back.
+            val allowed = filterSkipSources(intervals)
+            skipIntervals = allowed.ifEmpty { onDeviceSkipIntervals() }
         }
     }
 

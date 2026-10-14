@@ -59,4 +59,13 @@ actual object DownloadsSettingsStorage {
     actual fun saveSwitchToDownloadWhileWatching(enabled: Boolean) {
         NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = switchToDownloadKey)
     }
+
+    actual fun loadFlag(key: String): Boolean? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        return if (defaults.objectForKey(key) != null) defaults.boolForKey(key) else null
+    }
+
+    actual fun saveFlag(key: String, enabled: Boolean) {
+        NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = key)
+    }
 }

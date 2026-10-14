@@ -72,4 +72,11 @@ actual object DownloadsSettingsStorage {
     actual fun saveSwitchToDownloadWhileWatching(enabled: Boolean) {
         preferences?.edit()?.putBoolean(switchToDownloadKey, enabled)?.apply()
     }
+
+    actual fun loadFlag(key: String): Boolean? =
+        preferences?.let { prefs -> if (prefs.contains(key)) prefs.getBoolean(key, false) else null }
+
+    actual fun saveFlag(key: String, enabled: Boolean) {
+        preferences?.edit()?.putBoolean(key, enabled)?.apply()
+    }
 }
