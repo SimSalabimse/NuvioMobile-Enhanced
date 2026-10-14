@@ -79,7 +79,6 @@ import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.build.TrailerPlaybackMode
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.ui.atLeastIosHitTarget
-import com.nuvio.app.core.ui.dynamicScrimAlpha
 import com.nuvio.app.core.ui.LocalDynamicArtworkBackgroundColor
 import com.nuvio.app.core.ui.heroStretchHeight
 import com.nuvio.app.core.ui.ScreenActivityEffect
