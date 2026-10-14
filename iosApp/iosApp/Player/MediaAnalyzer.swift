@@ -1,6 +1,7 @@
 import Accelerate
 import ComposeApp
 import Foundation
+import UIKit
 import Libavcodec
 import Libavformat
 import Libavutil
@@ -26,8 +27,127 @@ final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
         }
     }
 
+    func makeThumbnails(
+        fileUri: String,
+        outputPrefix: String,
+        durationMs: Int64,
+        intervalMs: Int64,
+        tileWidth: Int32,
+        onDone: @escaping (String?) -> Void
+    ) {
+        abort.reset()
+        let flag = abort
+        queue.async {
+            let result = ThumbnailSheetBuilder(
+                fileUri: fileUri,
+                outputPrefix: outputPrefix,
+                durationMs: durationMs,
+                intervalMs: intervalMs,
+                tileWidth: Int(tileWidth),
+                abort: flag
+            ).run()
+            DispatchQueue.main.async { onDone(result) }
+        }
+    }
+
     func cancel() {
         abort.set()
+    }
+}
+
+/// Scrub-preview thumbnails of a downloaded file: one keyframe every `intervalMs`, drawn into
+/// JPEG contact sheets of 10 x 10 tiles (`<outputPrefix><n>.jpg`). Uses the same FFmpeg keyframe
+/// decoder as the live seek preview, on the local file.
+private final class ThumbnailSheetBuilder {
+    static let columns = 10
+    static let rows = 10
+
+    let fileUri: String
+    let outputPrefix: String
+    let durationMs: Int64
+    let intervalMs: Int64
+    let tileWidth: Int
+    let abort: MediaAnalyzerAbortFlag
+
+    init(fileUri: String, outputPrefix: String, durationMs: Int64, intervalMs: Int64, tileWidth: Int, abort: MediaAnalyzerAbortFlag) {
+        self.fileUri = fileUri
+        self.outputPrefix = outputPrefix
+        self.durationMs = durationMs
+        self.intervalMs = max(1000, intervalMs)
+        self.tileWidth = max(64, tileWidth)
+        self.abort = abort
+    }
+
+    func run() -> String? {
+        let path = URL(string: fileUri)?.path ?? fileUri.replacingOccurrences(of: "file://", with: "")
+        guard durationMs > 0, FileManager.default.fileExists(atPath: path) else { return nil }
+        let generator = FFmpegSeekPreviewGenerator(url: path, headers: [:])
+        defer { generator.close() }
+        let count = Int(max(1, durationMs / intervalMs))
+        let perSheet = Self.columns * Self.rows
+        let sheets = (count + perSheet - 1) / perSheet
+        var tileHeight = 0
+        var written = 0
+        var lastTile: UIImage?
+        for sheet in 0..<sheets {
+            if abort.isSet { removeSheets(upTo: sheet); return nil }
+            var tiles: [UIImage?] = []
+            let first = sheet * perSheet
+            let last = min(count, first + perSheet)
+            for index in first..<last {
+                if abort.isSet { removeSheets(upTo: sheet); return nil }
+                let positionMs = min(durationMs - 1000, Int64(index) * intervalMs + intervalMs / 2)
+                let image: UIImage? = autoreleasepool {
+                    guard let data = generator.frameJpeg(positionMs: max(0, positionMs), maxWidth: Int32(tileWidth)) else { return nil }
+                    return UIImage(data: data)
+                }
+                if tileHeight == 0, let image, image.size.width > 0 {
+                    tileHeight = max(2, Int((Double(tileWidth) * Double(image.size.height) / Double(image.size.width)).rounded()))
+                }
+                // A frame that cannot be decoded repeats the previous one.
+                tiles.append(image ?? lastTile)
+                if image != nil { lastTile = image }
+            }
+            if tileHeight == 0 { return nil }
+            let size = CGSize(width: Self.columns * tileWidth, height: Self.rows * tileHeight)
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            format.opaque = true
+            let renderer = UIGraphicsImageRenderer(size: size, format: format)
+            let data = renderer.jpegData(withCompressionQuality: 0.6) { context in
+                UIColor.black.setFill()
+                context.fill(CGRect(origin: .zero, size: size))
+                for (offset, tile) in tiles.enumerated() {
+                    guard let tile else { continue }
+                    let column = offset % Self.columns
+                    let row = offset / Self.columns
+                    tile.draw(in: CGRect(x: column * tileWidth, y: row * tileHeight, width: tileWidth, height: tileHeight))
+                }
+            }
+            do {
+                try data.write(to: URL(fileURLWithPath: "\(outputPrefix)\(sheet).jpg"), options: .atomic)
+            } catch {
+                removeSheets(upTo: sheet)
+                return nil
+            }
+            written = sheet + 1
+        }
+        let json: [String: Any] = [
+            "count": count,
+            "tileWidth": tileWidth,
+            "tileHeight": tileHeight,
+            "columns": Self.columns,
+            "rows": Self.rows,
+            "sheets": written,
+        ]
+        guard let out = try? JSONSerialization.data(withJSONObject: json) else { return nil }
+        return String(data: out, encoding: .utf8)
+    }
+
+    private func removeSheets(upTo sheet: Int) {
+        for index in 0...sheet {
+            try? FileManager.default.removeItem(atPath: "\(outputPrefix)\(index).jpg")
+        }
     }
 }
 

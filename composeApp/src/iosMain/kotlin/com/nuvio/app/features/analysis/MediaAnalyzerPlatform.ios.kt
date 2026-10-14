@@ -9,6 +9,8 @@ import kotlin.coroutines.resume
 interface NuvioMediaAnalyzerBridge {
     /** Decodes [fileUri] off the main thread; [onDone] gets the JSON result or null. */
     fun analyze(fileUri: String, onDone: (String?) -> Unit)
+    /** Thumbnail sheets every [intervalMs] to `<outputPrefix><n>.jpg`; [onDone] gets their layout JSON. */
+    fun makeThumbnails(fileUri: String, outputPrefix: String, durationMs: Long, intervalMs: Long, tileWidth: Int, onDone: (String?) -> Unit)
     fun cancel()
 }
 
@@ -29,6 +31,16 @@ internal actual object MediaAnalyzerPlatform {
         return suspendCancellableCoroutine { continuation ->
             continuation.invokeOnCancellation { bridge.cancel() }
             bridge.analyze(fileUri) { result ->
+                if (continuation.isActive) continuation.resume(result)
+            }
+        }
+    }
+
+    actual suspend fun makeThumbnails(fileUri: String, outputPrefix: String, durationMs: Long, intervalMs: Long, tileWidth: Int): String? {
+        val bridge = NuvioMediaAnalyzerRegistry.bridge ?: return null
+        return suspendCancellableCoroutine { continuation ->
+            continuation.invokeOnCancellation { bridge.cancel() }
+            bridge.makeThumbnails(fileUri, outputPrefix, durationMs, intervalMs, tileWidth) { result ->
                 if (continuation.isActive) continuation.resume(result)
             }
         }

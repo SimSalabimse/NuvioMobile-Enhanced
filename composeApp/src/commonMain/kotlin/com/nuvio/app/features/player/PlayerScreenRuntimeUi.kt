@@ -384,6 +384,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
                 activeTorrentInfoHash == null
         },
         headers = activeSourceHeaders,
+        localSheets = { localThumbnailSource() },
     )
     val userRatingTarget = currentUserRatingTarget()
     val canRate = rememberCanRate(userRatingTarget)

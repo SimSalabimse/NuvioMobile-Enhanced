@@ -45,30 +45,65 @@ internal fun filterSkipSources(intervals: List<SkipInterval>): List<SkipInterval
 
 internal const val ON_DEVICE_SKIP_PROVIDER = "on-device"
 
-/** Intro/credits found on this phone, when online sources gave nothing and the fallback is on. */
+/**
+ * Intro, recap and credits found on this phone (when the fallback is on). Intro and credits need
+ * intro detection, the recap needs recap detection.
+ */
 internal fun PlayerScreenRuntime.onDeviceSkipIntervals(): List<SkipInterval> {
     if (!MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.OnDeviceSkipFallback)) return emptyList()
-    if (!MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.IntroDetection)) return emptyList()
     val analysis = currentLocalAnalysis() ?: return emptyList()
     val out = mutableListOf<SkipInterval>()
-    val introStart = analysis.introStartMs
-    val introEnd = analysis.introEndMs
-    if (introStart != null && introEnd != null && introEnd > introStart) {
-        out += SkipInterval(introStart / 1000.0, introEnd / 1000.0, "intro", ON_DEVICE_SKIP_PROVIDER)
-        // Offer it to Submit Timestamps: the dialog opens pre-filled with what was found.
-        submitIntroSegmentType = "intro"
-        submitIntroStartTimeStr = formatSecondsToHms(introStart / 1000.0)
-        submitIntroEndTimeStr = formatSecondsToHms(introEnd / 1000.0)
+    if (MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.RecapDetection)) {
+        val recapStart = analysis.recapStartMs
+        val recapEnd = analysis.recapEndMs
+        if (recapStart != null && recapEnd != null && recapEnd > recapStart) {
+            out += SkipInterval(recapStart / 1000.0, recapEnd / 1000.0, "recap", ON_DEVICE_SKIP_PROVIDER)
+        }
     }
-    val creditsStart = analysis.creditsStartMs
-    val creditsEnd = analysis.creditsEndMs
-    if (creditsStart != null && creditsEnd != null && creditsEnd > creditsStart) {
-        out += SkipInterval(creditsStart / 1000.0, creditsEnd / 1000.0, "outro", ON_DEVICE_SKIP_PROVIDER)
-    }
-    if (out.isNotEmpty()) {
-        InAppLogger.info("Analysis", "on-device skip intervals ${out.joinToString { "${it.type} ${it.startTime}-${it.endTime}" }}")
+    if (MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.IntroDetection)) {
+        val introStart = analysis.introStartMs
+        val introEnd = analysis.introEndMs
+        if (introStart != null && introEnd != null && introEnd > introStart) {
+            out += SkipInterval(introStart / 1000.0, introEnd / 1000.0, "intro", ON_DEVICE_SKIP_PROVIDER)
+        }
+        val creditsStart = analysis.creditsStartMs
+        val creditsEnd = analysis.creditsEndMs
+        if (creditsStart != null && creditsEnd != null && creditsEnd > creditsStart) {
+            out += SkipInterval(creditsStart / 1000.0, creditsEnd / 1000.0, "outro", ON_DEVICE_SKIP_PROVIDER)
+        }
     }
     return out
+}
+
+private fun skipCategory(type: String): String = when (type.lowercase()) {
+    "intro", "op", "mixed-op", "opening" -> "intro"
+    "recap" -> "recap"
+    "outro", "ed", "mixed-ed", "credits", "ending", "movie-credits" -> "outro"
+    else -> type.lowercase()
+}
+
+/**
+ * The allowed online segments, plus on-device ones for each kind (intro, recap, credits) the
+ * online sources did not cover. An on-device intro pre-fills Submit Timestamps.
+ */
+internal fun PlayerScreenRuntime.withOnDeviceSkips(allowed: List<SkipInterval>): List<SkipInterval> {
+    val covered = allowed.map { skipCategory(it.type) }.toSet()
+    val extra = onDeviceSkipIntervals().filter { skipCategory(it.type) !in covered }
+    if (extra.isEmpty()) return allowed
+    extra.firstOrNull { it.type == "intro" }?.let { intro ->
+        submitIntroSegmentType = "intro"
+        submitIntroStartTimeStr = formatSecondsToHms(intro.startTime)
+        submitIntroEndTimeStr = formatSecondsToHms(intro.endTime)
+    }
+    InAppLogger.info("Analysis", "on-device skip intervals ${extra.joinToString { "${it.type} ${it.startTime}-${it.endTime}" }}")
+    return (allowed + extra).sortedBy { it.startTime }
+}
+
+/** Seek preview from the thumbnail sheets of the downloaded file on screen, when there are any. */
+internal fun PlayerScreenRuntime.localThumbnailSource(): com.nuvio.app.features.player.seekpreview.SeekPreviewFrameSource? {
+    if (!MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.ScrubPreviews)) return null
+    val analysis = currentLocalAnalysis()?.takeIf { it.thumbnails != null } ?: return null
+    return com.nuvio.app.features.player.seekpreview.ThumbnailSheetFrameSource(analysis)
 }
 
 private const val SYNC_WINDOW_BEFORE_MS = 20_000L

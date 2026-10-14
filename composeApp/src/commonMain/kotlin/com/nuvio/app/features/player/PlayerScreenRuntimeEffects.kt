@@ -610,8 +610,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                 )
             }
             // Settings: TheIntroDB only, and the on-device detection when nothing came back.
-            val allowed = filterSkipSources(intervals)
-            skipIntervals = allowed.ifEmpty { onDeviceSkipIntervals() }
+            skipIntervals = withOnDeviceSkips(filterSkipSources(intervals))
         }
     }
 

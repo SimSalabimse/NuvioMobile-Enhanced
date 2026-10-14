@@ -2,6 +2,8 @@ package com.nuvio.app.features.analysis
 
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.addressOf
+import kotlinx.cinterop.usePinned
 import platform.Foundation.NSApplicationSupportDirectory
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
@@ -42,5 +44,22 @@ internal actual object MediaAnalysisFiles {
         return names.mapNotNull { it as? String }
             .filter { it.startsWith(prefix) && it.endsWith(".json") }
             .map { it.removeSuffix(".json") }
+    }
+
+    actual fun binaryPath(fileName: String): String? = directory?.let { "$it/$fileName" }
+
+    actual fun readBytes(fileName: String): ByteArray? {
+        val path = binaryPath(fileName) ?: return null
+        val data = platform.Foundation.NSData.dataWithContentsOfFile(path) ?: return null
+        val size = data.length.toInt()
+        if (size <= 0) return null
+        val out = ByteArray(size)
+        out.usePinned { pinned -> platform.posix.memcpy(pinned.addressOf(0), data.bytes, data.length) }
+        return out
+    }
+
+    actual fun delete(fileName: String) {
+        val path = binaryPath(fileName) ?: return
+        NSFileManager.defaultManager.removeItemAtPath(path, error = null)
     }
 }

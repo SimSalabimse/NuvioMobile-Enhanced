@@ -8,6 +8,10 @@ internal expect object MediaAnalysisFiles {
     fun read(name: String): String?
     fun write(name: String, text: String)
     fun list(prefix: String): List<String>
+    /** Absolute path for a binary file (thumbnail sheet) in the analysis folder. */
+    fun binaryPath(fileName: String): String?
+    fun readBytes(fileName: String): ByteArray?
+    fun delete(fileName: String)
 }
 
 /**
@@ -52,8 +56,11 @@ internal object MediaAnalysisStore {
     /** The download is gone: drop what only applies to that file, keep fingerprints and segments. */
     fun forgetFileData(key: String) {
         val current = load(key) ?: return
-        if (current.energy == null && current.fileName == null) return
-        save(current.copy(energy = null, fileName = null, integratedLufs = null))
+        if (current.energy == null && current.fileName == null && current.thumbnails == null) return
+        current.thumbnails?.let { sheets ->
+            repeat(sheets.sheets) { MediaAnalysisFiles.delete(thumbnailSheetFileName(key, it)) }
+        }
+        save(current.copy(energy = null, fileName = null, integratedLufs = null, thumbnails = null))
     }
 
     private fun sanitize(value: String): String =

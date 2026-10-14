@@ -105,3 +105,63 @@ internal object SeasonSegmentDetector {
         )
     }
 }
+
+/**
+ * "Previously on" recaps: the stretch before the intro that replays material from earlier
+ * episodes. The part of this episode before its intro is matched, at any alignment, against what
+ * is stored of the other episodes (their first 10 and last 8 minutes, their own intros masked
+ * out). Recaps are a montage of short clips, so a few seconds of shared audio are enough; the
+ * recap is then taken to run from the start (when the first match is near it) to the intro.
+ *
+ * Needs a detected intro to bound the recap. Clips from the middle of earlier episodes are not
+ * stored, so a recap made only of those is not found.
+ */
+internal object RecapDetector {
+    private const val MIN_CLIP_MS = 4_000L
+    private const val MIN_RECAP_MS = 10_000L
+    private const val MAX_RECAP_MS = 240_000L
+    private const val SNAP_TO_START_MS = 20_000L
+    private const val SNAP_TO_INTRO_MS = 60_000L
+
+    fun detect(episode: MediaAnalysisResult, others: List<MediaAnalysisResult>): Pair<Long, Long>? {
+        val step = episode.fingerprintStepMs.coerceAtLeast(1).toLong()
+        val introStart = episode.introStartMs ?: return null
+        if (introStart < MIN_RECAP_MS) return null
+        val head = decodeFingerprint(episode.headFingerprint)
+        val windowFrames = minOf(head.size, (minOf(introStart, MAX_RECAP_MS + SNAP_TO_START_MS) / step).toInt())
+        val minFrames = (MIN_CLIP_MS / step).toInt()
+        if (windowFrames < minFrames) return null
+        val window = head.copyOfRange(0, windowFrames)
+        var firstStart = Int.MAX_VALUE
+        var lastEnd = 0
+        for (other in others) {
+            if (other.fingerprintStepMs.toLong() != step) continue
+            val sequences = listOf(
+                maskRange(decodeFingerprint(other.headFingerprint), other.introStartMs, other.introEndMs, step, 0L),
+                maskRange(decodeFingerprint(other.tailFingerprint), other.creditsStartMs, other.creditsEndMs, step, other.tailStartMs),
+            )
+            for (sequence in sequences) {
+                val segment = FingerprintMatcher.longestSharedSegment(window, sequence, minFrames = minFrames) ?: continue
+                firstStart = minOf(firstStart, segment.startA)
+                lastEnd = maxOf(lastEnd, segment.endA)
+            }
+        }
+        if (lastEnd == 0) return null
+        val startMs = (firstStart * step).let { if (it <= SNAP_TO_START_MS) 0L else it }
+        val lastMs = lastEnd * step
+        val endMs = if (introStart >= lastMs && introStart - lastMs <= SNAP_TO_INTRO_MS) introStart else lastMs
+        if (endMs - startMs !in MIN_RECAP_MS..MAX_RECAP_MS) return null
+        return startMs to endMs
+    }
+
+    /** Replaces frames in [startMs, endMs) (relative to [offsetMs]) with values that never match. */
+    private fun maskRange(frames: IntArray, startMs: Long?, endMs: Long?, step: Long, offsetMs: Long): IntArray {
+        if (startMs == null || endMs == null || frames.isEmpty()) return frames
+        val from = ((startMs - offsetMs) / step).toInt().coerceIn(0, frames.size)
+        val to = ((endMs - offsetMs) / step).toInt().coerceIn(0, frames.size)
+        if (to <= from) return frames
+        val out = frames.copyOf()
+        for (i in from until to) out[i] = (i * -0x61c88647) xor 0x5A5A5A5A
+        return out
+    }
+}

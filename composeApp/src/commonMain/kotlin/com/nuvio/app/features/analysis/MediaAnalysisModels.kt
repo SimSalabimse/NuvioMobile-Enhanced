@@ -8,6 +8,9 @@ import kotlinx.serialization.Serializable
 /** Bumped when the analyzer output changes meaning; older results are analysed again. */
 internal const val MEDIA_ANALYSIS_VERSION = 1
 
+/** Version of the derived data (recaps, thumbnails) computed from a stored analysis. */
+internal const val MEDIA_ANALYSIS_DERIVED_VERSION = 2
+
 /**
  * What the on-device analyzer measured in one downloaded episode or movie, stored per episode
  * (see [MediaAnalysisStore]). Fingerprints and detected segments stay after the file is deleted so
@@ -37,7 +40,33 @@ internal data class MediaAnalysisResult(
     val introEndMs: Long? = null,
     val creditsStartMs: Long? = null,
     val creditsEndMs: Long? = null,
+    /** "Previously on" recap at the start, found against other episodes of the season. */
+    val recapStartMs: Long? = null,
+    val recapEndMs: Long? = null,
+    /** Derived data (recap, thumbnails) is up to date with [MEDIA_ANALYSIS_DERIVED_VERSION]. */
+    val derivedVersion: Int = 0,
+    /** Scrub-preview thumbnail sheets of this file (null: not made). */
+    val thumbnails: ThumbnailSheets? = null,
 )
+
+/**
+ * Thumbnails every [intervalMs], [columns] x [rows] tiles per JPEG sheet, sheets stored as
+ * `<key>_thumbs_<n>.jpg` next to the analysis JSON.
+ */
+@Serializable
+internal data class ThumbnailSheets(
+    val intervalMs: Long,
+    val count: Int,
+    val tileWidth: Int,
+    val tileHeight: Int,
+    val columns: Int,
+    val rows: Int,
+    val sheets: Int,
+) {
+    val perSheet: Int get() = columns * rows
+}
+
+internal fun thumbnailSheetFileName(key: String, index: Int): String = "${key}_thumbs_$index.jpg"
 
 internal const val HEAD_FINGERPRINT_MS = 10 * 60_000L
 internal const val TAIL_FINGERPRINT_MS = 8 * 60_000L
