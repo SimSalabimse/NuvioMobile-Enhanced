@@ -2975,4 +2975,10 @@
     <string name="watch_stats_recap_completed">%1$d episodes and movies finished</string>
     <string name="watch_stats_recap_top">Most watched: %1$s (%2$s)</string>
     <string name="watch_stats_recap_streak">Longest streak: %1$d days in a row</string>
+    <string name="offline_home_title">You\'re offline</string>
+    <string name="offline_home_message">Here is what you have downloaded. It plays without a connection.</string>
+    <string name="offline_home_open_downloads">Open Downloads</string>
+    <string name="offline_home_show_home">Show home anyway</string>
+    <string name="offline_home_movie">Movie</string>
+    <string name="offline_home_episodes">%1$d episodes downloaded</string>
 </resources>

@@ -12,6 +12,7 @@ internal expect object MediaAnalysisFiles {
     fun binaryPath(fileName: String): String?
     fun readBytes(fileName: String): ByteArray?
     fun delete(fileName: String)
+    fun writeBytes(fileName: String, bytes: ByteArray): Boolean
 }
 
 /**

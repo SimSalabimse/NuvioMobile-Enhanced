@@ -126,6 +126,8 @@ fun HomeScreen(
     continueWatchingDisintegrationRequest: DisintegrationRequest<String>? = null,
     onFolderClick: ((collectionId: String, folderId: String) -> Unit)? = null,
     onFirstCatalogRendered: (() -> Unit)? = null,
+    onOpenDownload: ((com.nuvio.app.features.downloads.DownloadItem) -> Unit)? = null,
+    onOpenDownloads: () -> Unit = {},
 ) {
     LaunchedEffect(Unit) {
         AddonRepository.initialize()
@@ -196,6 +198,27 @@ fun HomeScreen(
             NetworkCondition.Checking,
             -> Unit
         }
+    }
+
+    // No network: downloads first (Settings never needed; "Show home anyway" goes back to catalogs).
+    val offlineDownloads by remember {
+        com.nuvio.app.features.downloads.DownloadsRepository.ensureLoaded()
+        com.nuvio.app.features.downloads.DownloadsRepository.uiState
+    }.collectAsStateWithLifecycle()
+    var showOnlineHomeWhileOffline by remember { mutableStateOf(false) }
+    LaunchedEffect(networkStatusUiState.isOfflineLike) {
+        if (!networkStatusUiState.isOfflineLike) showOnlineHomeWhileOffline = false
+    }
+    val completedOffline = offlineDownloads.completedItems
+    if (networkStatusUiState.isOfflineLike && !showOnlineHomeWhileOffline && completedOffline.isNotEmpty() && onOpenDownload != null) {
+        com.nuvio.app.features.home.components.OfflineDownloadsHome(
+            items = completedOffline,
+            onOpenDownload = onOpenDownload,
+            onOpenDownloads = onOpenDownloads,
+            onShowHome = { showOnlineHomeWhileOffline = true },
+            modifier = modifier,
+        )
+        return
     }
 
     val progressProviderOwnsCompletedHistory = remember(effectiveWatchProgressSource) {

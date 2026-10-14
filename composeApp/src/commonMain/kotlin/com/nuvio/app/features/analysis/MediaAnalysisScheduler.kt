@@ -266,6 +266,9 @@ internal object MediaAnalysisScheduler {
 object MediaAnalysisBackground {
     fun appDidLaunch() {
         MediaAnalysisScheduler.kick()
+        com.nuvio.app.features.offline.OfflineArtwork.cacheAll(
+            com.nuvio.app.features.downloads.DownloadsRepository.uiState.value.completedItems,
+        )
         com.nuvio.app.features.downloads.SmartDownloads.appDidLaunch()
     }
 

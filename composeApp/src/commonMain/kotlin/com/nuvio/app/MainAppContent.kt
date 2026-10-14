@@ -1574,6 +1574,7 @@ internal fun MainAppContent(
                         },
                         actions = { isTabletLayout ->
                             AppTabActions(
+                                onOpenDownload = ::openDownloadedItem,
                                 onCatalogClick = onCatalogClick,
                                 onPosterClick = navController::openPreview,
                                 onPosterLongClick = { meta ->

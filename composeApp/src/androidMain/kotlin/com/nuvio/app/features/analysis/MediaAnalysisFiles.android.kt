@@ -8,4 +8,5 @@ internal actual object MediaAnalysisFiles {
     actual fun binaryPath(fileName: String): String? = null
     actual fun readBytes(fileName: String): ByteArray? = null
     actual fun delete(fileName: String) = Unit
+    actual fun writeBytes(fileName: String, bytes: ByteArray): Boolean = false
 }

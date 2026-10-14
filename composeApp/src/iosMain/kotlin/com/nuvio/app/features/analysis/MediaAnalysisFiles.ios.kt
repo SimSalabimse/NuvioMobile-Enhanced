@@ -62,4 +62,13 @@ internal actual object MediaAnalysisFiles {
         val path = binaryPath(fileName) ?: return
         NSFileManager.defaultManager.removeItemAtPath(path, error = null)
     }
+
+    actual fun writeBytes(fileName: String, bytes: ByteArray): Boolean {
+        val path = binaryPath(fileName) ?: return false
+        if (bytes.isEmpty()) return false
+        val data = bytes.usePinned { pinned ->
+            platform.Foundation.NSData.create(bytes = pinned.addressOf(0), length = bytes.size.toULong())
+        }
+        return data.writeToFile(path, atomically = true)
+    }
 }

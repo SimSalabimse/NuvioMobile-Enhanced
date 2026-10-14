@@ -786,6 +786,7 @@ object DownloadsRepository {
                     )
                 }
                 com.nuvio.app.features.analysis.MediaAnalysisScheduler.kick()
+                com.nuvio.app.features.offline.OfflineArtwork.cache(item)
             },
             onFailure = onFailure@{ message ->
                 DownloadLinkFailure.decode(message)?.let { status ->
