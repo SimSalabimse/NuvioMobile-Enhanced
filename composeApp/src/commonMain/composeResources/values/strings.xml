@@ -2981,4 +2981,10 @@
     <string name="offline_home_show_home">Show home anyway</string>
     <string name="offline_home_movie">Movie</string>
     <string name="offline_home_episodes">%1$d episodes downloaded</string>
+    <string name="whats_new_sheet_title">What\'s new in %1$s</string>
+    <string name="whats_new_sheet_welcome">Welcome to Nuvio %1$s</string>
+    <string name="whats_new_sheet_continue">Continue</string>
+    <string name="whats_new_section_new">New</string>
+    <string name="whats_new_section_improved">Improved</string>
+    <string name="whats_new_section_fixed">Fixed</string>
 </resources>

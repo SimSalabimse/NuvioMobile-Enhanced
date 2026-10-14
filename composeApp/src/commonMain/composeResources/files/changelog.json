@@ -1,0 +1,64 @@
+{
+  "releases": [
+    {
+      "version": "0.5.10.2",
+      "date": "2026-10-14",
+      "new": [
+        "Smart downloads: watch an episode and the next one or two download by themselves, on Wi-Fi.",
+        "Skip Recap button on downloaded shows, found from the audio of other episodes.",
+        "Scrub previews for downloads, made on the phone, so seeking shows real frames offline.",
+        "Offline home: with no network, Home shows what you have downloaded first.",
+        "Watch stats on your profile: hours, streaks, top shows and a yearly recap.",
+        "Pick the download quality and see the size before downloading.",
+        "This What's new screen. Find it again in Settings > About."
+      ],
+      "improved": [
+        "Posters and artwork of downloads are kept on the phone, so they show offline.",
+        "Smart downloads can wait until the phone is charging."
+      ],
+      "fixed": []
+    },
+    {
+      "version": "0.5.10.1",
+      "date": "2026-10-13",
+      "new": [
+        "Up to date with Nuvio 0.5.10.",
+        "Episode search, go-to and sort on the show page, with a sticky bar.",
+        "Mini player and incognito mode in playback settings.",
+        "Automatic Picture in Picture on iOS.",
+        "EPG guide for Live TV.",
+        "WeTrakr and AniList tracking.",
+        "Biometric lock for profiles.",
+        "New full-bleed home hero and new tab bar."
+      ],
+      "improved": [
+        "On-device analysis of downloads: subtitle sync and season intro and credits detection.",
+        "Media servers: libraries that mix movies and shows.",
+        "Smoother hero swipe on Home."
+      ],
+      "fixed": [
+        "Next-episode card timing.",
+        "Downloads pausing themselves in the player.",
+        "Subtitle encodings in AutoSync.",
+        "Dismissed shows coming back after marking episodes watched."
+      ]
+    },
+    {
+      "version": "0.5.9.1",
+      "date": "2026-10-11",
+      "new": [
+        "Download the episode or movie you are watching from the player.",
+        "Switch to the finished download while watching. On by default."
+      ],
+      "improved": [
+        "The player moves to a partial download when it is far enough ahead, and back to the stream if needed."
+      ],
+      "fixed": [
+        "Downloads with expired links (HTTP 400, 403, 410) now refresh the link.",
+        "The Live Activity ends when a download fails.",
+        "Delete after watch never deletes during playback, and reads its setting correctly.",
+        "The Home hero no longer stops between two slides."
+      ]
+    }
+  ]
+}

@@ -1,7 +1,6 @@
 package com.nuvio.app.features.settings
 
 import com.nuvio.app.features.stats.watchStatsContent
-import com.nuvio.app.features.whatsnew.WhatsNewSettingsScreen
 import com.nuvio.app.navigation.LocalUseNativeNavigation
 import com.nuvio.app.core.build.AppFeaturePolicy
 
@@ -670,7 +669,7 @@ private fun MobileSettingsScreen(
     val saveableStateHolder = rememberSaveableStateHolder()
     saveableStateHolder.SaveableStateProvider(page.name) {
         if (page == SettingsPage.WhatsNew) {
-            WhatsNewSettingsScreen(onBack = onNavigateBack)
+            com.nuvio.app.features.whatsnew.BundledWhatsNewScreen(onBack = onNavigateBack)
         } else {
         var settingsSearchQuery by rememberSaveable { mutableStateOf("") }
         var rootSearchVisible by rememberSaveable { mutableStateOf(false) }
@@ -1188,7 +1187,7 @@ private fun TabletSettingsScreen(
 
         saveableStateHolder.SaveableStateProvider(page.name) {
             if (page == SettingsPage.WhatsNew) {
-                WhatsNewSettingsScreen(onBack = onNavigateBack)
+                com.nuvio.app.features.whatsnew.BundledWhatsNewScreen(onBack = onNavigateBack)
             } else {
             var settingsSearchQuery by rememberSaveable { mutableStateOf("") }
             var rootSearchVisible by rememberSaveable { mutableStateOf(false) }
