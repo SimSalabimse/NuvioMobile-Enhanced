@@ -114,6 +114,10 @@ internal fun SeasonDownloadSheet(
     var choice by remember(episodes) { mutableStateOf<StreamItem?>(null) }
     var autoPicked by remember(episodes) { mutableStateOf(false) }
     var pickingSource by remember(episodes) { mutableStateOf(false) }
+    // Auto-pick on: the source list stays folded while it decides; it opens on "Choose myself"
+    // or when auto-pick finds nothing it may use.
+    var autoPickOn by remember(episodes) { mutableStateOf(false) }
+    var autoPickGaveUp by remember(episodes) { mutableStateOf(false) }
     var queuing by remember(episodes) { mutableStateOf(false) }
     var matchJob by remember(episodes) { mutableStateOf<Job?>(null) }
     val probedIds = remember(episodes) { mutableSetOf<String>() }
@@ -224,11 +228,17 @@ internal fun SeasonDownloadSheet(
             .toSet()
         var timeoutElapsed = false
         var allAnswered = false
+        autoPickOn = autoSettings.picksAutomatically()
+        autoPickGaveUp = false
 
         fun tryAutoPick() {
             if (choice != null || pickingSource || !autoSettings.picksAutomatically()) return
             if (!seasonAutoPickMayDecide(autoSettings.timeoutSeconds, timeoutElapsed, allAnswered)) return
-            val picked = autoPickSeasonStream(anchorStreams, autoSettings, installedAddonNames) ?: return
+            val picked = autoPickSeasonStream(anchorStreams, autoSettings, installedAddonNames)
+            if (picked == null) {
+                if (allAnswered || timeoutElapsed) autoPickGaveUp = true
+                return
+            }
             applyChoice(picked, byAutoPick = true)
         }
 
@@ -422,6 +432,32 @@ internal fun SeasonDownloadSheet(
             if (anchorKey == null) {
                 item(key = "nothing-left") {
                     SheetNote(stringResource(Res.string.season_download_nothing_left))
+                }
+            } else if (showPicker && autoPickOn && !pickingSource && !autoPickGaveUp) {
+                item(key = "auto-picking") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Picking a source automatically…",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            Text(
+                                text = "${candidates.size} found" +
+                                    if (pendingSources > 0) " · $pendingSources still searching" else "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        TextButton(onClick = { pickingSource = true }) {
+                            Text("Choose myself")
+                        }
+                    }
                 }
             } else if (showPicker) {
                 item(key = "picker-title") {
@@ -724,6 +760,11 @@ private fun EpisodeDownloadRow(
         else -> sizeUnknown
     }
     val detail = if (row.watched && row.existing == null) "$watchedText · $baseDetail" else baseDetail
+    // The source this episode will download from, so alternatives only show on Change source.
+    val sourceSummary = (row.match as? SeasonStreamMatch.Matched)?.stream
+        ?.takeIf { row.existing == null }
+        ?.let { stream -> listOfNotNull(stream.addonName.takeIf { it.isNotBlank() }, streamQualityLabel(stream)).joinToString(" · ") }
+        ?.takeIf { it.isNotBlank() }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -750,6 +791,15 @@ private fun EpisodeDownloadRow(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
+            sourceSummary?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         if (row.existing == null) {
             TextButton(onClick = onChangeSource) {

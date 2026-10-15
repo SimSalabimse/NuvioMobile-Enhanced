@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -83,6 +84,13 @@ fun DownloadsScreen(
     var expandedSeasonGroups by remember { mutableStateOf<Set<String>>(emptySet()) }
     var groupPendingCancel by remember { mutableStateOf<ActiveSeasonGroup?>(null) }
     var reanalyzeTarget by remember { mutableStateOf<ReanalyzeTarget?>(null) }
+    var unwatchedOnly by remember { mutableStateOf(false) }
+    val watchedState by com.nuvio.app.features.watched.WatchedRepository.uiState.collectAsState()
+    val progressState by com.nuvio.app.features.watchprogress.WatchProgressRepository.uiState.collectAsState()
+    val watchedIds = remember(uiState.items, watchedState, progressState) {
+        uiState.items.filter { it.status == DownloadStatus.Completed && downloadWatchState(it).watched }
+            .mapTo(mutableSetOf()) { it.id }
+    }
     val openDownloadsDirectoryFailedText = stringResource(Res.string.downloads_open_directory_failed)
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showStorage by rememberSaveable { mutableStateOf(false) }
@@ -214,6 +222,9 @@ fun DownloadsScreen(
                 onDeleteDownload = { downloadPendingDeletionId = it },
                 onCancelSeasonGroup = { groupPendingCancel = it },
                 onReanalyze = { reanalyzeTarget = it },
+                unwatchedOnly = unwatchedOnly,
+                watchedIds = watchedIds,
+                onToggleUnwatched = { unwatchedOnly = !unwatchedOnly },
             )
         }
     }
@@ -460,10 +471,34 @@ private fun LazyListScope.downloadsShowContent(
     onDeleteDownload: (String) -> Unit,
     onCancelSeasonGroup: (ActiveSeasonGroup) -> Unit,
     onReanalyze: (ReanalyzeTarget) -> Unit,
+    unwatchedOnly: Boolean,
+    watchedIds: Set<String>,
+    onToggleUnwatched: () -> Unit,
 ) {
-    val showEpisodes = episodes
-        .filter { it.parentMetaId == showId }
+    val allShowEpisodes = episodes.filter { it.parentMetaId == showId }
+    val showEpisodes = allShowEpisodes
+        .filter { !unwatchedOnly || it.id !in watchedIds }
         .sortedForSeriesDownloads()
+    val watchedCount = allShowEpisodes.count { it.id in watchedIds }
+    if (watchedCount > 0 || unwatchedOnly) {
+        item(key = "unwatched-filter") {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onToggleUnwatched)
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                androidx.compose.material3.Checkbox(checked = unwatchedOnly, onCheckedChange = { onToggleUnwatched() })
+                Text(
+                    text = "Unwatched only ($watchedCount watched hidden)".takeIf { unwatchedOnly }
+                        ?: "Unwatched only",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+    }
 
     val seasons = showEpisodes
         .groupBy { it.seasonNumber ?: 0 }
@@ -613,18 +648,35 @@ private fun DownloadRow(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.Top,
             ) {
+                val watchState = rememberDownloadWatchState(item)
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    Text(
-                        text = displayTitle,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (watchState.watched) {
+                            Icon(
+                                imageVector = Icons.Rounded.CheckCircle,
+                                contentDescription = "Watched",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(end = 6.dp).size(16.dp),
+                            )
+                        }
+                        Text(
+                            text = displayTitle,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    watchState.progress?.let { fraction ->
+                        LinearProgressIndicator(
+                            progress = { fraction },
+                            modifier = Modifier.fillMaxWidth(0.6f).padding(vertical = 2.dp).height(3.dp),
+                        )
+                    }
                     Text(
                         text = displaySubtitle,
                         style = MaterialTheme.typography.bodySmall,

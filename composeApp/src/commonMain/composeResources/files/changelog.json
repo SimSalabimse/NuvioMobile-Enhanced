@@ -16,6 +16,8 @@
         "Playback comes first: while you watch, one download runs at a time and on-device analysis runs slowly in the background. If the player buffers, both wait until playback is smooth again. Full speed returns when the player closes or after 2 minutes paused.",
         "Playing a downloaded episode that isn't fully analysed asks (without stopping playback): Play now, Finish first (with a progress bar, then plays), or Finish in background. Skip times found while you watch are used straight away. Pick a default with Don't ask again, or in Playback settings.",
         "Downloads shows speed and time left for each running episode, and for the whole season on its group row, using the same estimate as the Live Activity.",
+        "Downloads shows what you have watched: a check on watched episodes and movies, a progress bar on ones you are part-way through, and an Unwatched only filter inside a show.",
+        "Download Season with auto-pick on: the source list stays folded while it picks; each episode shows the source it will use, with Change source for alternatives. Choose myself opens the full list, and it opens by itself if auto-pick finds nothing.",
         "Download Season: pick the episodes first (or the whole season), then sources are searched only for those. Downloaded and watched episodes start unticked.",
         "The download Live Activity has its own StandBy layout: dark, large title, thick bar and time left, readable under the red night tint.",
         "Your earlier TheIntroDB submissions are brought onto the phone when you play that show, and teach the detector too."
