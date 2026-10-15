@@ -1,6 +1,19 @@
 {
   "releases": [
     {
+      "version": "0.5.10.4",
+      "date": "2026-10-16",
+      "new": [
+        "What's new now loads the latest release notes from GitHub Releases, so notes fixed after a build still show up. It's cached for offline use, falls back to the notes built into the app, and never delays launch."
+      ],
+      "improved": [
+        "Release notes are put together automatically at build time from merged pull requests and commits, grouped into New, Improved and Fixed. Hand-written notes are kept."
+      ],
+      "fixed": [
+        "The GitHub release and SideStore source now carry the full notes again instead of a single line."
+      ]
+    },
+    {
       "version": "0.5.10.3",
       "date": "2026-10-14",
       "new": [
