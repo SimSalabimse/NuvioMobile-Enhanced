@@ -44,6 +44,17 @@ internal class NuvioNavigator(
         }
 
         if (resolvedOptions.launchSingleTop && currentRoute == route) return
+        if (resolvedOptions.launchSingleTop && onExternalNavigate == null) {
+            val existing = backStack.indexOfLast {
+                (it as? AppRoute)?.navigationIdentity == route.navigationIdentity
+            }
+            if (existing >= 0) {
+                if (existing < backStack.lastIndex) {
+                    backStack.subList(existing + 1, backStack.size).clear()
+                }
+                return
+            }
+        }
         if (onExternalNavigate != null) {
             onExternalNavigate.invoke(route, resolvedOptions.launchSingleTop)
         } else {

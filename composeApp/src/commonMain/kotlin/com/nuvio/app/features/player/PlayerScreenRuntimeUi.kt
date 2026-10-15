@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.layout.onSizeChanged
 import com.nuvio.app.features.player.skip.EMPTY_SKIP_TIMESTAMP
+import com.nuvio.app.features.player.skip.formatSecondsToHms
 import com.nuvio.app.features.player.seekpreview.rememberSeekPreviewController
 import com.nuvio.app.features.player.skip.PlayerNextEpisodeRules
 import com.nuvio.app.core.logging.InAppLogger
@@ -684,6 +685,7 @@ private fun BoxScope.RenderPlaybackOverlays(
                 playerController?.seekTo(seekMs)
                 scheduleProgressSyncAfterSeek()
                 skipIntervalDismissed = true
+                offerSkipFeedback(interval)
             }
         },
         onDismissSkipInterval = {
@@ -740,6 +742,8 @@ private fun BoxScope.RenderPlaybackOverlays(
             httpRebufferHeadline = if (initialLoadCompleted) stallCopy?.headline else null,
             httpRebufferDetail = if (initialLoadCompleted) stallCopy?.detail else null,
         )
+        if (!playerControlsLocked) RenderSkipFeedbackPrompt(runtime)
+        RenderAnalysisPlayPrompt(runtime)
     }
 }
 
@@ -999,7 +1003,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
         durationMs = playbackSnapshot.durationMs,
         displayedPositionMs = scrubbingPositionMs ?: playbackClock.positionMs,
         submitIntroSegmentType = submitIntroSegmentType,
-        onSubmitIntroSegmentTypeChanged = { submitIntroSegmentType = it },
+        onSubmitIntroSegmentTypeChanged = { switchSubmitSegmentType(it) },
         submitIntroStartTimeStr = submitIntroStartTimeStr,
         onSubmitIntroStartTimeChanged = { submitIntroStartTimeStr = it },
         submitIntroEndTimeStr = submitIntroEndTimeStr,
@@ -1017,9 +1021,16 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
                 submittedSegmentTypesByVideoId.getOrPut(currentVideoId) { mutableSetOf() }
                     .add(submitIntroSegmentType)
             }
+            // Keep the submitted times as this episode's own mark so the season learns from it.
+            val markStart = com.nuvio.app.features.player.skip.parseTimeToSeconds(submitIntroStartTimeStr)
+            val markEnd = com.nuvio.app.features.player.skip.parseTimeToSeconds(submitIntroEndTimeStr)
+            if (markStart != null && markEnd != null && markEnd > markStart) {
+                saveUserSkipMark(submitIntroSegmentType, markStart, markEnd, submit = false)
+            }
             submitIntroStartTimeStr = EMPTY_SKIP_TIMESTAMP
             submitIntroEndTimeStr = EMPTY_SKIP_TIMESTAMP
             submitIntroSegmentType = "intro"
+            submitIntroDrafts.clear()
             showSubmitIntroModal = false
         },
         skipIntervals = skipIntervals,
@@ -1085,3 +1096,35 @@ internal val PlayerScreenRuntime.movieRecommendationCandidates: List<MetaPreview
             .toList()
     }
 
+
+
+/**
+ * Submit Timestamps: switching the segment type keeps what was typed for the old type, then shows
+ * the new type's own draft, or that type's known segment, or empty fields.
+ */
+internal fun PlayerScreenRuntime.switchSubmitSegmentType(newType: String) {
+    val oldType = submitIntroSegmentType
+    if (newType == oldType) return
+    submitIntroDrafts[oldType] = submitIntroStartTimeStr to submitIntroEndTimeStr
+    submitIntroSegmentType = newType
+    val draft = submitIntroDrafts[newType]
+    if (draft != null) {
+        submitIntroStartTimeStr = draft.first
+        submitIntroEndTimeStr = draft.second
+        return
+    }
+    val known = skipIntervals.firstOrNull { submitCategory(it.type) == submitCategory(newType) }
+    if (known != null) {
+        submitIntroStartTimeStr = formatSecondsToHms(known.startTime)
+        submitIntroEndTimeStr = formatSecondsToHms(known.endTime)
+    } else {
+        submitIntroStartTimeStr = EMPTY_SKIP_TIMESTAMP
+        submitIntroEndTimeStr = EMPTY_SKIP_TIMESTAMP
+    }
+}
+
+private fun submitCategory(type: String): String = when (type.lowercase()) {
+    "intro", "op", "mixed-op", "opening" -> "intro"
+    "outro", "ed", "mixed-ed", "credits", "ending", "movie-credits" -> "outro"
+    else -> type.lowercase()
+}

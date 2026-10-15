@@ -75,6 +75,20 @@ internal fun PlayerScreenRuntime.onDeviceSkipIntervals(): List<SkipInterval> {
     return out
 }
 
+/** Segments the user marked or confirmed for the episode on screen (streamed or downloaded). */
+internal fun PlayerScreenRuntime.userMarkedSkipIntervals(): List<SkipInterval> =
+    com.nuvio.app.features.analysis.SkipLearning.userMarks(parentMetaId, activeSeasonNumber, activeEpisodeNumber)
+        .filter { (_, mark) -> mark.endMs > mark.startMs }
+        .map { (type, mark) ->
+            SkipInterval(
+                mark.startMs / 1000.0,
+                mark.endMs / 1000.0,
+                type,
+                if (mark.imported) com.nuvio.app.features.analysis.SkipLearning.PROVIDER_IMPORTED
+                else com.nuvio.app.features.analysis.SkipLearning.PROVIDER,
+            )
+        }
+
 private fun skipCategory(type: String): String = when (type.lowercase()) {
     "intro", "op", "mixed-op", "opening" -> "intro"
     "recap" -> "recap"
@@ -86,12 +100,20 @@ private fun skipCategory(type: String): String = when (type.lowercase()) {
  * The allowed online segments, plus on-device ones for each kind (intro, recap, credits) the
  * online sources did not cover. An on-device intro pre-fills Submit Timestamps.
  */
-internal fun PlayerScreenRuntime.withOnDeviceSkips(allowed: List<SkipInterval>): List<SkipInterval> {
+internal fun PlayerScreenRuntime.withOnDeviceSkips(online: List<SkipInterval>): List<SkipInterval> {
+    // The user's own marks for this episode replace every other source of that kind.
+    val mine = userMarkedSkipIntervals()
+    val mineCovered = mine.map { skipCategory(it.type) }.toSet()
+    val allowed = (online.filter { skipCategory(it.type) !in mineCovered } + mine).sortedBy { it.startTime }
     val covered = allowed.map { skipCategory(it.type) }.toSet()
     val extra = onDeviceSkipIntervals().filter { skipCategory(it.type) !in covered }
     if (extra.isEmpty()) return allowed
-    extra.firstOrNull { it.type == "intro" }?.let { intro ->
-        submitIntroSegmentType = "intro"
+    extra.firstOrNull { it.type == "intro" }?.takeIf {
+        // Only fill an untouched intro form; never switch the type the user picked.
+        submitIntroSegmentType == "intro" &&
+            submitIntroStartTimeStr == com.nuvio.app.features.player.skip.EMPTY_SKIP_TIMESTAMP &&
+            submitIntroEndTimeStr == com.nuvio.app.features.player.skip.EMPTY_SKIP_TIMESTAMP
+    }?.let { intro ->
         submitIntroStartTimeStr = formatSecondsToHms(intro.startTime)
         submitIntroEndTimeStr = formatSecondsToHms(intro.endTime)
     }

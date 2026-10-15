@@ -154,7 +154,7 @@ object DownloadsRepository {
 
     /** Back in the app: new starts wait for one of the two slots again. Running files keep going. */
     fun restoreForegroundCap() {
-        startQueue.maxActive = MAX_ACTIVE_DOWNLOADS
+        startQueue.maxActive = PlaybackPriority.level.maxDownloads
         resumeWaitingForAppOpen()
     }
 
@@ -869,6 +869,7 @@ object DownloadsRepository {
         _uiState.value = DownloadsUiState(
             items = items,
         )
+        runCatching { DownloadSpeeds.onItems(items, DownloadsClock.nowEpochMs()) }
         notifyLiveStatusPlatform()
     }
 
@@ -891,6 +892,23 @@ object DownloadsRepository {
 
     private fun persistProgressIfDue() {
         if (persistGate.allowProgressWrite(DownloadsClock.nowEpochMs())) persist()
+    }
+
+    /**
+     * How many downloads may run while the player is open (see [PlaybackPriority]): fewer while
+     * playing, none while it buffers, the normal cap again when it closes. Extra transfers go back
+     * to the front of the line (paused, resumed in place later).
+     */
+    fun setPlaybackDownloadCap(cap: Int) {
+        if (startQueue.maxActive == cap) return
+        val shrinking = cap < startQueue.maxActive
+        startQueue.maxActive = cap
+        if (!hasLoaded) return
+        if (shrinking) {
+            if (startQueue.shrinkTo(cap).isNotEmpty()) alignQueuedStatuses()
+        } else {
+            applyStarts(startQueue.promote(DownloadThermalGate.blocksNextFile()))
+        }
     }
 
     private fun ensureThermalObserver() {
