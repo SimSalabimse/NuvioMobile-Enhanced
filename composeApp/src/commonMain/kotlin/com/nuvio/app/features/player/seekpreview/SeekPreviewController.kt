@@ -43,6 +43,8 @@ internal class SeekPreviewFrame(val positionMs: Long, val bitmap: ImageBitmap)
 internal class SeekPreviewController(
     private val url: String,
     private val headers: Map<String, String>,
+    /** Pre-made thumbnails of a downloaded file; used instead of decoding the video when set. */
+    private val localSheets: SeekPreviewFrameSource? = null,
 ) {
     @OptIn(ExperimentalCoroutinesApi::class)
     private val decodeDispatcher = Dispatchers.IO.limitedParallelism(1)
@@ -146,7 +148,7 @@ internal class SeekPreviewController(
     private fun decodeFrame(positionMs: Long): ImageBitmap? {
         if (!sourceOpened) {
             sourceOpened = true
-            source = openSeekPreviewFrameSource(url, headers)
+            source = localSheets ?: openSeekPreviewFrameSource(url, headers)
             InAppLogger.info(
                 LogTag,
                 "source=${source?.let { it::class.simpleName } ?: "none"} headers=${headers.size} " +
@@ -201,9 +203,10 @@ internal fun bucketFor(positionMs: Long, durationMs: Long): Long {
 internal fun rememberSeekPreviewController(
     url: String?,
     headers: Map<String, String>,
+    localSheets: (() -> SeekPreviewFrameSource?)? = null,
 ): SeekPreviewController? {
     val controller = remember(url, headers) {
-        url?.let { SeekPreviewController(it, headers) }
+        url?.let { SeekPreviewController(it, headers, localSheets?.invoke()) }
     }
     DisposableEffect(controller) {
         onDispose { controller?.dispose() }

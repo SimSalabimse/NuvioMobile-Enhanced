@@ -1,5 +1,17 @@
 package com.nuvio.app.features.settings
 
+import nuvio.composeapp.generated.resources.analysis_scrub_previews_title
+import nuvio.composeapp.generated.resources.analysis_scrub_previews_description
+import nuvio.composeapp.generated.resources.analysis_recap_detection_title
+import nuvio.composeapp.generated.resources.analysis_recap_detection_description
+import nuvio.composeapp.generated.resources.smart_downloads_title
+import nuvio.composeapp.generated.resources.smart_downloads_description
+import nuvio.composeapp.generated.resources.smart_downloads_count_title
+import nuvio.composeapp.generated.resources.smart_downloads_count_value
+import nuvio.composeapp.generated.resources.smart_downloads_charging_title
+import nuvio.composeapp.generated.resources.smart_downloads_charging_description
+import nuvio.composeapp.generated.resources.download_quality_title
+
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -8,6 +20,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.analysis.MediaAnalysisSettings
+import com.nuvio.app.features.downloads.DownloadQualityPreference
+import com.nuvio.app.features.downloads.SmartDownloadSettings
+import com.nuvio.app.features.downloads.downloadQualityLabel
 import com.nuvio.app.features.downloads.DownloadsSettingsRepository
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.analysis_intro_detection_description
@@ -79,6 +94,42 @@ internal fun LazyListScope.downloadsSettingsContent(
                     isTablet = isTablet,
                     onCheckedChange = DownloadsSettingsRepository::setSwitchToDownloadWhileWatching,
                 )
+                val smart by SmartDownloadSettings.state.collectAsStateWithLifecycle()
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.smart_downloads_title),
+                    description = stringResource(Res.string.smart_downloads_description),
+                    checked = smart.enabled,
+                    isTablet = isTablet,
+                    onCheckedChange = SmartDownloadSettings::setEnabled,
+                )
+                if (smart.enabled) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.smart_downloads_count_title),
+                        description = stringResource(Res.string.smart_downloads_count_value, smart.count),
+                        isTablet = isTablet,
+                        onClick = { SmartDownloadSettings.setCount(if (smart.count >= 3) 1 else smart.count + 1) },
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.smart_downloads_charging_title),
+                        description = stringResource(Res.string.smart_downloads_charging_description),
+                        checked = smart.onlyWhileCharging,
+                        isTablet = isTablet,
+                        onCheckedChange = SmartDownloadSettings::setOnlyWhileCharging,
+                    )
+                }
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.download_quality_title),
+                    description = downloadQualityLabel(smart.quality),
+                    isTablet = isTablet,
+                    onClick = {
+                        val all = DownloadQualityPreference.entries
+                        SmartDownloadSettings.setQuality(all[(all.indexOf(smart.quality) + 1) % all.size])
+                    },
+                )
                 val analysisFlags by MediaAnalysisSettings.flags.collectAsStateWithLifecycle()
                 fun flagOn(flag: MediaAnalysisSettings.Flag) = analysisFlags[flag] ?: MediaAnalysisSettings.isEnabled(flag)
                 SettingsGroupDivider(isTablet = isTablet)
@@ -104,6 +155,22 @@ internal fun LazyListScope.downloadsSettingsContent(
                     checked = flagOn(MediaAnalysisSettings.Flag.Loudness),
                     isTablet = isTablet,
                     onCheckedChange = { MediaAnalysisSettings.set(MediaAnalysisSettings.Flag.Loudness, it) },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.analysis_scrub_previews_title),
+                    description = stringResource(Res.string.analysis_scrub_previews_description),
+                    checked = flagOn(MediaAnalysisSettings.Flag.ScrubPreviews),
+                    isTablet = isTablet,
+                    onCheckedChange = { MediaAnalysisSettings.set(MediaAnalysisSettings.Flag.ScrubPreviews, it) },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.analysis_recap_detection_title),
+                    description = stringResource(Res.string.analysis_recap_detection_description),
+                    checked = flagOn(MediaAnalysisSettings.Flag.RecapDetection),
+                    isTablet = isTablet,
+                    onCheckedChange = { MediaAnalysisSettings.set(MediaAnalysisSettings.Flag.RecapDetection, it) },
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
@@ -140,6 +207,9 @@ internal fun LazyListScope.downloadsSettingsContent(
                 onDismiss = { showPicker = false },
             )
         }
+    }
+    item {
+        com.nuvio.app.features.analysis.AnalysisSummarySection(isTablet = isTablet)
     }
 }
 

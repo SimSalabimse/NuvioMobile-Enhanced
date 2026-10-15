@@ -72,6 +72,8 @@ actual fun PlatformPlayerSurface(
     val latestIncludeMediaInfo = rememberUpdatedState(includeMediaInfo)
     val latestSourceUrl = rememberUpdatedState(sourceUrl)
     val latestSourceSwapStartMs = rememberUpdatedState(sourceSwapStartMs)
+    val latestPlayWhenReady = rememberUpdatedState(playWhenReady)
+    val latestExternalSubtitles = rememberUpdatedState(externalSubtitles)
     val density = LocalDensity.current
     PlayerSettingsRepository.ensureLoaded()
     val playerSettings by PlayerSettingsRepository.uiState.collectAsStateWithLifecycle()
@@ -473,6 +475,12 @@ actual fun PlatformPlayerSurface(
         var cachedMediaInfoJson = "{}"
         var chapters = emptyList<PlayerChapter>()
         var chaptersDurationMs = 0L
+        com.nuvio.app.features.downloads.PlaybackPriority.sessionStarted(isLocalPlaybackUrl(latestSourceUrl.value))
+        // Local-file stall watchdog: a file on the phone should never buffer for long. After 5 s
+        // stuck at one position it seeks there again; after 5 s more it reopens the file there.
+        var stallSinceMs = 0L
+        var stallPositionMs = -1L
+        var stallActions = 0
         while (isActive) {
             val durationMs = bridge.getDurationMs()
             if (durationMs > 0L && durationMs != chaptersDurationMs) {
@@ -506,6 +514,41 @@ actual fun PlatformPlayerSurface(
                 stallFailure = PlaybackStallFailure.None,
             )
             noteInAppPlaybackPlaying(snapshot.isPlaying && !snapshot.isEnded)
+            val nowMs = com.nuvio.app.features.streams.epochMs()
+            val wantsToPlay = latestPlayWhenReady.value && !snapshot.isEnded
+            com.nuvio.app.features.downloads.PlaybackPriority.noteSnapshot(
+                wantsToPlay = wantsToPlay,
+                buffering = snapshot.isLoading,
+                nowMs = nowMs,
+            )
+            val url = latestSourceUrl.value
+            if (wantsToPlay && snapshot.isLoading && isLocalPlaybackUrl(url)) {
+                if (stallSinceMs == 0L || snapshot.positionMs != stallPositionMs) {
+                    stallSinceMs = nowMs
+                    stallPositionMs = snapshot.positionMs
+                } else if (nowMs - stallSinceMs >= 5_000L) {
+                    stallSinceMs = nowMs
+                    stallActions += 1
+                    val at = snapshot.positionMs.coerceAtLeast(0L)
+                    if (stallActions % 2 == 1) {
+                        InAppLogger.warn("Player/iOS", "local file stalled at ${at}ms, seeking again")
+                        bridge.seekTo(at)
+                    } else {
+                        InAppLogger.warn("Player/iOS", "local file still stalled at ${at}ms, reopening")
+                        bridge.loadFileAtPosition(
+                            videoUrl = url,
+                            headersJson = null,
+                            subtitlesJson = encodeExternalSubtitlesForBridge(latestExternalSubtitles.value),
+                            startMs = at,
+                        )
+                        bridge.play()
+                    }
+                }
+            } else {
+                stallSinceMs = 0L
+                stallPositionMs = -1L
+                if (!snapshot.isLoading) stallActions = 0
+            }
             latestOnSnapshot.value(snapshot)
             val errorMessage = bridge.getErrorMessage().ifBlank { null }
             if (errorMessage != lastReportedError) {
@@ -524,6 +567,7 @@ actual fun PlatformPlayerSurface(
         onDispose {
             InAppLogger.info("Player/iOS", "destroy bridge positionMs=${bridge.getPositionMs()} durationMs=${bridge.getDurationMs()}")
             noteInAppPlaybackPlaying(false)
+            com.nuvio.app.features.downloads.PlaybackPriority.sessionEnded()
             bridge.destroy()
         }
     }
@@ -655,4 +699,10 @@ private fun encodePlaybackHeadersForBridge(headers: Map<String, String>): String
     return runCatching {
         Json.encodeToString(sanitized)
     }.getOrNull()
+}
+
+/** A file on the phone, opened directly (not the partial-download loopback proxy). */
+private fun isLocalPlaybackUrl(url: String?): Boolean {
+    val trimmed = url?.trim().orEmpty()
+    return trimmed.startsWith("file://") || trimmed.startsWith("/")
 }

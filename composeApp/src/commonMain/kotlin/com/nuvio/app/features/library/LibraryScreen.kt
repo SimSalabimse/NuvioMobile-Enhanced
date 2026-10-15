@@ -158,6 +158,9 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import com.nuvio.app.core.poster.CustomPosterScreen
+import com.nuvio.app.core.poster.CustomPosterUrlRepository
+import com.nuvio.app.core.poster.withCustomPosterUrl
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -187,6 +190,14 @@ fun LibraryScreen(
         LibraryRepository.ensureLoaded()
         LibraryRepository.uiState
     }.collectAsStateWithLifecycle()
+    val libraryPosterPattern by remember {
+        CustomPosterUrlRepository.ensureLoaded()
+        CustomPosterUrlRepository.pattern
+    }.collectAsStateWithLifecycle()
+    val libraryPosterScreens by CustomPosterUrlRepository.enabledScreens.collectAsStateWithLifecycle()
+    val effectivePosterPattern = remember(libraryPosterPattern, libraryPosterScreens) {
+        if (CustomPosterScreen.LIBRARY in libraryPosterScreens) libraryPosterPattern else ""
+    }
     val cloudUiState by CloudLibraryRepository.uiState.collectAsStateWithLifecycle()
     val cloudSettings by remember {
         DebridSettingsRepository.ensureLoaded()
@@ -439,6 +450,8 @@ fun LibraryScreen(
                             LibrarySourceMode.TRAKT -> stringResource(Res.string.library_trakt_title)
                             LibrarySourceMode.SIMKL -> stringResource(Res.string.library_simkl_title)
                             LibrarySourceMode.MDBLIST -> stringResource(Res.string.library_mdblist_title)
+                            LibrarySourceMode.ANILIST -> stringResource(Res.string.library_anilist_title)
+                            LibrarySourceMode.WETRAKR -> stringResource(Res.string.library_wetrakr_title)
                         }
                     },
                     modifier = Modifier.padding(horizontal = 16.dp),
@@ -599,6 +612,8 @@ fun LibraryScreen(
                                         LibrarySourceMode.TRAKT -> stringResource(Res.string.library_trakt_load_failed)
                                         LibrarySourceMode.SIMKL -> stringResource(Res.string.library_simkl_load_failed)
                                         LibrarySourceMode.MDBLIST -> stringResource(Res.string.library_mdblist_load_failed)
+                                        LibrarySourceMode.ANILIST -> stringResource(Res.string.library_anilist_load_failed)
+                                        LibrarySourceMode.WETRAKR -> stringResource(Res.string.library_wetrakr_load_failed)
                                     },
                                     message = uiState.errorMessage.orEmpty(),
                                     actionLabel = stringResource(Res.string.action_retry),
@@ -617,12 +632,16 @@ fun LibraryScreen(
                                     LibrarySourceMode.TRAKT -> stringResource(Res.string.library_trakt_empty_title)
                                     LibrarySourceMode.SIMKL -> stringResource(Res.string.library_simkl_empty_title)
                                     LibrarySourceMode.MDBLIST -> stringResource(Res.string.library_mdblist_empty_title)
+                                    LibrarySourceMode.ANILIST -> stringResource(Res.string.library_anilist_empty_title)
+                                    LibrarySourceMode.WETRAKR -> stringResource(Res.string.library_wetrakr_empty_title)
                                 },
                                 message = when (uiState.sourceMode) {
                                     LibrarySourceMode.LOCAL -> stringResource(Res.string.library_empty_message)
                                     LibrarySourceMode.TRAKT -> stringResource(Res.string.library_trakt_empty_message)
                                     LibrarySourceMode.SIMKL -> stringResource(Res.string.library_simkl_empty_message)
                                     LibrarySourceMode.MDBLIST -> stringResource(Res.string.library_mdblist_empty_message)
+                                    LibrarySourceMode.ANILIST -> stringResource(Res.string.library_anilist_empty_message)
+                                    LibrarySourceMode.WETRAKR -> stringResource(Res.string.library_wetrakr_empty_message)
                                 },
                             )
                         }
@@ -664,6 +683,7 @@ fun LibraryScreen(
                                 watchedKeys = watchedUiState.watchedKeys,
                                 fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
                                 sortOption = effectiveSortOption,
+                                posterPattern = effectivePosterPattern,
                                 onPosterClick = onPosterClick,
                                 onSectionViewAllClick = onSectionViewAllClick,
                                 onPosterLongClick = onPosterLongClick,
@@ -675,6 +695,7 @@ fun LibraryScreen(
                                 releaseInfoFor = releaseInfoFor,
                                 watchedKeys = watchedUiState.watchedKeys,
                                 fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+                                posterPattern = effectivePosterPattern,
                                 onPosterClick = onPosterClick,
                                 onPosterLongClick = onPosterLongClick,
                             )
@@ -1907,6 +1928,7 @@ private fun LazyListScope.librarySections(
     watchedKeys: Set<String>,
     fullyWatchedSeriesKeys: Set<String>,
     sortOption: LibrarySortOption,
+    posterPattern: String,
     onPosterClick: ((LibraryItem) -> Unit)?,
     onSectionViewAllClick: ((LibrarySection, LibrarySortOption) -> Unit)?,
     onPosterLongClick: ((LibraryItem, LibrarySection) -> Unit)?,
@@ -1930,7 +1952,11 @@ private fun LazyListScope.librarySections(
             animatePlacement = true,
         ) { entry ->
             val item = entry.item
-            val posterItem = item.toMetaPreview().copy(releaseInfo = releaseInfoFor(item))
+            val posterItem = remember(item, posterPattern, releaseInfoFor) {
+                item.toMetaPreview()
+                    .copy(releaseInfo = releaseInfoFor(item))
+                    .let { if (posterPattern.isNotBlank()) it.withCustomPosterUrl(posterPattern) else it }
+            }
             val entrySource = entry.section
             DisintegratingContainer(
                 disintegrating = entry.exiting,

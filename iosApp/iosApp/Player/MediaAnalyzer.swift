@@ -1,6 +1,7 @@
 import Accelerate
 import ComposeApp
 import Foundation
+import UIKit
 import Libavcodec
 import Libavformat
 import Libavutil
@@ -17,11 +18,46 @@ final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
     private let queue = DispatchQueue(label: "nuvio.media-analyzer", qos: .utility)
     private let abort = MediaAnalyzerAbortFlag()
 
+    func currentProgress() -> Double { MediaAnalyzerStatus.shared.progress }
+
+    func lastFailure() -> String? { MediaAnalyzerStatus.shared.failure }
+
     func analyze(fileUri: String, onDone: @escaping (String?) -> Void) {
         abort.reset()
+        MediaAnalyzerStatus.shared.begin()
         let flag = abort
         queue.async {
             let result = MediaAnalysisRun(fileUri: fileUri, abort: flag).run()
+            if result == nil, MediaAnalyzerStatus.shared.failure == nil {
+                MediaAnalyzerStatus.shared.fail(flag.isSet ? "Stopped" : "Could not analyse the audio")
+            }
+            DispatchQueue.main.async { onDone(result) }
+        }
+    }
+
+    func makeThumbnails(
+        fileUri: String,
+        outputPrefix: String,
+        durationMs: Int64,
+        intervalMs: Int64,
+        tileWidth: Int32,
+        onDone: @escaping (String?) -> Void
+    ) {
+        abort.reset()
+        MediaAnalyzerStatus.shared.begin()
+        let flag = abort
+        queue.async {
+            let result = ThumbnailSheetBuilder(
+                fileUri: fileUri,
+                outputPrefix: outputPrefix,
+                durationMs: durationMs,
+                intervalMs: intervalMs,
+                tileWidth: Int(tileWidth),
+                abort: flag
+            ).run()
+            if result == nil, MediaAnalyzerStatus.shared.failure == nil {
+                MediaAnalyzerStatus.shared.fail(flag.isSet ? "Stopped" : "Could not make previews")
+            }
             DispatchQueue.main.async { onDone(result) }
         }
     }
@@ -29,6 +65,122 @@ final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
     func cancel() {
         abort.set()
     }
+}
+
+/// Scrub-preview thumbnails of a downloaded file: one keyframe every `intervalMs`, drawn into
+/// JPEG contact sheets of 10 x 10 tiles (`<outputPrefix><n>.jpg`). Uses the same FFmpeg keyframe
+/// decoder as the live seek preview, on the local file.
+private final class ThumbnailSheetBuilder {
+    static let columns = 10
+    static let rows = 10
+
+    let fileUri: String
+    let outputPrefix: String
+    let durationMs: Int64
+    let intervalMs: Int64
+    let tileWidth: Int
+    let abort: MediaAnalyzerAbortFlag
+
+    init(fileUri: String, outputPrefix: String, durationMs: Int64, intervalMs: Int64, tileWidth: Int, abort: MediaAnalyzerAbortFlag) {
+        self.fileUri = fileUri
+        self.outputPrefix = outputPrefix
+        self.durationMs = durationMs
+        self.intervalMs = max(1000, intervalMs)
+        self.tileWidth = max(64, tileWidth)
+        self.abort = abort
+    }
+
+    func run() -> String? {
+        let path = URL(string: fileUri)?.path ?? fileUri.replacingOccurrences(of: "file://", with: "")
+        guard durationMs > 0, FileManager.default.fileExists(atPath: path) else {
+            MediaAnalyzerStatus.shared.fail("File missing for previews")
+            return nil
+        }
+        let generator = FFmpegSeekPreviewGenerator(url: path, headers: [:])
+        defer { generator.close() }
+        let count = Int(max(1, durationMs / intervalMs))
+        let perSheet = Self.columns * Self.rows
+        let sheets = (count + perSheet - 1) / perSheet
+        var tileHeight = 0
+        var written = 0
+        var lastTile: UIImage?
+        for sheet in 0..<sheets {
+            if abort.isSet { removeSheets(upTo: sheet); return nil }
+            var tiles: [UIImage?] = []
+            let first = sheet * perSheet
+            let last = min(count, first + perSheet)
+            for index in first..<last {
+                if abort.isSet { removeSheets(upTo: sheet); return nil }
+                MediaAnalyzerThrottle.yield(abort: abort)
+                MediaAnalyzerStatus.shared.set(Double(index) / Double(count))
+                let positionMs = min(durationMs - 1000, Int64(index) * intervalMs + intervalMs / 2)
+                let image: UIImage? = autoreleasepool {
+                    guard let data = generator.frameJpeg(positionMs: max(0, positionMs), maxWidth: Int32(tileWidth)) else { return nil }
+                    return UIImage(data: data)
+                }
+                if tileHeight == 0, let image, image.size.width > 0 {
+                    tileHeight = max(2, Int((Double(tileWidth) * Double(image.size.height) / Double(image.size.width)).rounded()))
+                }
+                // A frame that cannot be decoded repeats the previous one.
+                tiles.append(image ?? lastTile)
+                if image != nil { lastTile = image }
+            }
+            if tileHeight == 0 { return nil }
+            let size = CGSize(width: Self.columns * tileWidth, height: Self.rows * tileHeight)
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            format.opaque = true
+            let renderer = UIGraphicsImageRenderer(size: size, format: format)
+            let data = renderer.jpegData(withCompressionQuality: 0.6) { context in
+                UIColor.black.setFill()
+                context.fill(CGRect(origin: .zero, size: size))
+                for (offset, tile) in tiles.enumerated() {
+                    guard let tile else { continue }
+                    let column = offset % Self.columns
+                    let row = offset / Self.columns
+                    tile.draw(in: CGRect(x: column * tileWidth, y: row * tileHeight, width: tileWidth, height: tileHeight))
+                }
+            }
+            do {
+                try data.write(to: URL(fileURLWithPath: "\(outputPrefix)\(sheet).jpg"), options: .atomic)
+            } catch {
+                removeSheets(upTo: sheet)
+                return nil
+            }
+            written = sheet + 1
+        }
+        let json: [String: Any] = [
+            "count": count,
+            "tileWidth": tileWidth,
+            "tileHeight": tileHeight,
+            "columns": Self.columns,
+            "rows": Self.rows,
+            "sheets": written,
+        ]
+        guard let out = try? JSONSerialization.data(withJSONObject: json) else { return nil }
+        return String(data: out, encoding: .utf8)
+    }
+
+    private func removeSheets(upTo sheet: Int) {
+        for index in 0...sheet {
+            try? FileManager.default.removeItem(atPath: "\(outputPrefix)\(index).jpg")
+        }
+    }
+}
+
+/// Progress and last failure of the running analyzer call, read by Kotlin for the status UI.
+final class MediaAnalyzerStatus {
+    static let shared = MediaAnalyzerStatus()
+    private let lock = NSLock()
+    private var _progress: Double = -1
+    private var _failure: String?
+
+    var progress: Double { lock.lock(); defer { lock.unlock() }; return _progress }
+    var failure: String? { lock.lock(); defer { lock.unlock() }; return _failure }
+
+    func begin() { lock.lock(); _progress = 0; _failure = nil; lock.unlock() }
+    func set(_ value: Double) { lock.lock(); _progress = min(1, max(0, value)); lock.unlock() }
+    func fail(_ reason: String) { lock.lock(); _failure = reason; lock.unlock() }
 }
 
 private final class MediaAnalyzerAbortFlag {
@@ -102,6 +254,7 @@ private final class MediaAnalysisRun {
         var contextPointer: UnsafeMutablePointer<AVFormatContext>? = allocated
         guard avformat_open_input(&contextPointer, path, nil, nil) >= 0, let context = contextPointer else {
             log("open failed")
+            MediaAnalyzerStatus.shared.fail("Could not open the file")
             return nil
         }
         defer { avformat_close_input(&contextPointer) }
@@ -113,6 +266,7 @@ private final class MediaAnalysisRun {
               let decoder = avcodec_find_decoder(parameters.pointee.codec_id),
               let codecContext = avcodec_alloc_context3(decoder) else {
             log("no decodable audio")
+            MediaAnalyzerStatus.shared.fail("No audio track it can decode")
             return nil
         }
         var codecPointer: UnsafeMutablePointer<AVCodecContext>? = codecContext
@@ -120,6 +274,7 @@ private final class MediaAnalysisRun {
         guard avcodec_parameters_to_context(codecContext, parameters) >= 0,
               avcodec_open2(codecContext, decoder, nil) >= 0 else {
             log("decoder open failed")
+            MediaAnalyzerStatus.shared.fail("Audio decoder failed to start")
             return nil
         }
         for index in 0..<Int(context.pointee.nb_streams) where index != Int(audioIndex) {
@@ -152,11 +307,25 @@ private final class MediaAnalysisRun {
             }
         }
 
+        var packetsSinceProgress = 0
+        var packetsSinceThrottle = 0
         while !abort.isSet {
+            // Playback comes first (PlaybackPriority in the shared code): while the player is open
+            // the decode runs in small slices with short sleeps, and holds while it buffers.
+            packetsSinceThrottle += 1
+            if packetsSinceThrottle >= 64 {
+                packetsSinceThrottle = 0
+                MediaAnalyzerThrottle.yield(abort: abort)
+            }
             let read = av_read_frame(context, packet)
             if read < 0 { break }
             if packet.pointee.stream_index == audioIndex {
                 if avcodec_send_packet(codecContext, packet) >= 0 { drainFrames() }
+                packetsSinceProgress += 1
+                if packetsSinceProgress >= 200, durationMs > 0, let acc = accumulator {
+                    packetsSinceProgress = 0
+                    MediaAnalyzerStatus.shared.set(Double(acc.decodedMs) / Double(durationMs))
+                }
             }
             av_packet_unref(packet)
         }
@@ -424,5 +593,27 @@ enum NuvioMediaAnalyzerRegistration {
 
     static func register() {
         NuvioMediaAnalyzerRegistry.shared.register(analyzer: shared)
+    }
+}
+
+
+/// Set from Kotlin (setAnalysisThrottleLevel): 0 full speed, 1 playing, 2 the player is buffering.
+private enum MediaAnalyzerThrottle {
+    private static let key = "NuvioAnalysisThrottleLevel"
+
+    static func yield(abort: MediaAnalyzerAbortFlag) {
+        var level = UserDefaults.standard.integer(forKey: key)
+        if level == 1 {
+            usleep(25_000)
+            return
+        }
+        // Hold while the player struggles, but never for more than a minute at a time, so a level
+        // that is never cleared cannot stall the queue.
+        var waited = 0
+        while level >= 2 && !abort.isSet && waited < 240 {
+            usleep(250_000)
+            waited += 1
+            level = UserDefaults.standard.integer(forKey: key)
+        }
     }
 }

@@ -1,6 +1,6 @@
 package com.nuvio.app.features.settings
 
-import com.nuvio.app.features.whatsnew.WhatsNewSettingsScreen
+import com.nuvio.app.features.stats.watchStatsContent
 import com.nuvio.app.navigation.LocalUseNativeNavigation
 import com.nuvio.app.core.build.AppFeaturePolicy
 
@@ -669,7 +669,7 @@ private fun MobileSettingsScreen(
     val saveableStateHolder = rememberSaveableStateHolder()
     saveableStateHolder.SaveableStateProvider(page.name) {
         if (page == SettingsPage.WhatsNew) {
-            WhatsNewSettingsScreen(onBack = onNavigateBack)
+            com.nuvio.app.features.whatsnew.BundledWhatsNewScreen(onBack = onNavigateBack)
         } else {
         var settingsSearchQuery by rememberSaveable { mutableStateOf("") }
         var rootSearchVisible by rememberSaveable { mutableStateOf(false) }
@@ -817,13 +817,16 @@ private fun MobileSettingsScreen(
                 SettingsPage.Account -> accountSettingsContent(
                     isTablet = false,
                 )
-                SettingsPage.Profile -> profileInsightsContent(
-                    isTablet = false,
-                    onSwitchProfile = onSwitchProfile,
-                    onEditProfile = onEditProfile,
-                    onPosterClick = onPosterClick,
-                    onBack = if (profileDrawsOwnChrome) onNavigateBack else null,
-                )
+                SettingsPage.Profile -> {
+                    profileInsightsContent(
+                        isTablet = false,
+                        onSwitchProfile = onSwitchProfile,
+                        onEditProfile = onEditProfile,
+                        onPosterClick = onPosterClick,
+                        onBack = if (profileDrawsOwnChrome) onNavigateBack else null,
+                    )
+                    watchStatsContent(isTablet = false)
+                }
                 SettingsPage.SupportersContributors -> {
                     if (AppFeaturePolicy.supportersContributorsPageEnabled) {
                         supportersContributorsContent(isTablet = false)
@@ -854,9 +857,7 @@ private fun MobileSettingsScreen(
                     tunnelingEnabled = tunnelingEnabled,
                     useLibass = useLibass,
                     libassRenderType = libassRenderType,
-                ).also {
-                    experimentalPictureInPictureSettingsContent()
-                }
+                )
                 SettingsPage.Streams -> streamsSettingsContent(
                     isTablet = false,
                 )
@@ -1186,7 +1187,7 @@ private fun TabletSettingsScreen(
 
         saveableStateHolder.SaveableStateProvider(page.name) {
             if (page == SettingsPage.WhatsNew) {
-                WhatsNewSettingsScreen(onBack = onNavigateBack)
+                com.nuvio.app.features.whatsnew.BundledWhatsNewScreen(onBack = onNavigateBack)
             } else {
             var settingsSearchQuery by rememberSaveable { mutableStateOf("") }
             var rootSearchVisible by rememberSaveable { mutableStateOf(false) }
@@ -1321,12 +1322,15 @@ private fun TabletSettingsScreen(
                     SettingsPage.Account -> accountSettingsContent(
                         isTablet = true,
                     )
-                    SettingsPage.Profile -> profileInsightsContent(
-                        isTablet = true,
-                        onSwitchProfile = onSwitchProfile,
-                        onEditProfile = onEditProfile,
-                        onPosterClick = onPosterClick,
-                    )
+                    SettingsPage.Profile -> {
+                        profileInsightsContent(
+                            isTablet = true,
+                            onSwitchProfile = onSwitchProfile,
+                            onEditProfile = onEditProfile,
+                            onPosterClick = onPosterClick,
+                        )
+                        watchStatsContent(isTablet = true)
+                    }
                     SettingsPage.SupportersContributors -> {
                         if (AppFeaturePolicy.supportersContributorsPageEnabled) {
                             supportersContributorsContent(isTablet = true)
@@ -1357,9 +1361,7 @@ private fun TabletSettingsScreen(
                         tunnelingEnabled = tunnelingEnabled,
                         useLibass = useLibass,
                         libassRenderType = libassRenderType,
-                    ).also {
-                        experimentalPictureInPictureSettingsContent()
-                    }
+                    )
                     SettingsPage.Streams -> streamsSettingsContent(
                         isTablet = true,
                     )

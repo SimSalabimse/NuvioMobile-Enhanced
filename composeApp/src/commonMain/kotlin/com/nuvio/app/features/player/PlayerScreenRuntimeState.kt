@@ -166,6 +166,7 @@ internal class PlayerScreenRuntime(
     var seekProgressSyncJob by mutableStateOf<Job?>(null)
     var accumulatedSeekState by mutableStateOf<PlayerAccumulatedSeekState?>(null)
     var initialLoadCompleted by mutableStateOf(false)
+    var isMiniPresentation by mutableStateOf(false)
     var speedBoostRestoreSpeed by mutableStateOf<Float?>(null)
     var isHoldToSpeedGestureActive by mutableStateOf(false)
     var initialSeekApplied by mutableStateOf(
@@ -189,6 +190,8 @@ internal class PlayerScreenRuntime(
     var submitIntroSegmentType by mutableStateOf("intro")
     var submitIntroStartTimeStr by mutableStateOf(EMPTY_SKIP_TIMESTAMP)
     var submitIntroEndTimeStr by mutableStateOf(EMPTY_SKIP_TIMESTAMP)
+    /** Start/end typed per segment type in Submit Timestamps, so switching type keeps each apart. */
+    val submitIntroDrafts = mutableMapOf<String, Pair<String, String>>()
     val submittedSegmentTypesByVideoId = mutableMapOf<String, MutableSet<String>>()
     var episodeStreamsPanelState by mutableStateOf(EpisodeStreamsPanelState())
     var playerMetaVideos by mutableStateOf<List<MetaVideo>>(emptyList())
@@ -198,6 +201,9 @@ internal class PlayerScreenRuntime(
     var lastManualSkipSeekPositions by mutableStateOf<Pair<Long, Long>?>(null)
     var activeSkipInterval by mutableStateOf<SkipInterval?>(null)
     var skipIntervalDismissed by mutableStateOf(false)
+    /** Segment just skipped, asked about in the Good / Wrong prompt. */
+    var skipFeedbackInterval by mutableStateOf<SkipInterval?>(null)
+    var skipFeedbackNudging by mutableStateOf(false)
     var parentalWarnings by mutableStateOf<List<ParentalWarning>>(emptyList())
     var showParentalGuide by mutableStateOf(false)
     var parentalGuideHasShown by mutableStateOf(false)

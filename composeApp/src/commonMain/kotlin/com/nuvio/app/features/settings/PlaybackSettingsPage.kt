@@ -32,6 +32,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -439,6 +440,25 @@ private fun PlaybackSettingsSection(
                     isTablet = isTablet,
                     onCheckedChange = PlayerSettingsRepository::setMovieRecommendationsEnabled,
                 )
+                if (!isIos) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_playback_mini_player),
+                        description = stringResource(Res.string.settings_playback_mini_player_description),
+                        checked = autoPlayPlayerSettings.miniPlayerEnabled,
+                        enabled = !autoPlayPlayerSettings.externalPlayerEnabled,
+                        isTablet = isTablet,
+                        onCheckedChange = PlayerSettingsRepository::setMiniPlayerEnabled,
+                    )
+                }
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_playback_private_viewing),
+                    description = stringResource(Res.string.settings_playback_private_viewing_description),
+                    checked = autoPlayPlayerSettings.privateViewingEnabled,
+                    isTablet = isTablet,
+                    onCheckedChange = PlayerSettingsRepository::setPrivateViewingEnabled,
+                )
                 SettingsGroupDivider(isTablet = isTablet)
                 // Player preference picker: Internal / External
                 SettingsNavigationRow(
@@ -589,6 +609,14 @@ private fun PlaybackSettingsSection(
                     isTablet = isTablet,
                     onClick = { showSecondarySubtitleDialog = true },
                 )
+                if (!isIos) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    AutoSyncPlaybackSettingsRows( // AutoSync hook
+                        isTablet = isTablet,
+                        enabled = otherSubtitleOptionsEnabled && androidPlaybackEngine != AndroidPlaybackEngine.Libmpv,
+                        preferredSubtitleLanguage = preferredSubtitleLanguage,
+                    )
+                }
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
                     title = stringResource(Res.string.settings_playback_subtitle_strip_sdh),
@@ -1338,6 +1366,41 @@ private fun PlaybackSettingsSection(
                             ?: com.nuvio.app.features.analysis.MediaAnalysisSettings.isEnabled(onDeviceFlag),
                         isTablet = isTablet,
                         onCheckedChange = { com.nuvio.app.features.analysis.MediaAnalysisSettings.set(onDeviceFlag, it) },
+                    )
+                    val feedbackFlag = com.nuvio.app.features.analysis.MediaAnalysisSettings.Flag.SkipFeedbackPrompt
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = "Ask after Skip",
+                        description = "After you tap Skip, show Good / Wrong for a few seconds. Your answers are saved, teach the on-device detector, and are sent when submitting is on.",
+                        checked = skipFlags[feedbackFlag]
+                            ?: com.nuvio.app.features.analysis.MediaAnalysisSettings.isEnabled(feedbackFlag),
+                        isTablet = isTablet,
+                        onCheckedChange = { com.nuvio.app.features.analysis.MediaAnalysisSettings.set(feedbackFlag, it) },
+                    )
+                    val importStatus by com.nuvio.app.features.player.skip.SkipImportStatus.status.collectAsState()
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = "TheIntroDB import",
+                        description = com.nuvio.app.features.player.skip.SkipImportStatus.describe(
+                            importStatus,
+                            com.nuvio.app.features.streams.epochMs(),
+                        ),
+                        isTablet = isTablet,
+                        trailingContent = {},
+                        onClick = {},
+                    )
+                    val playChoice by com.nuvio.app.features.analysis.AnalysisPlayChoice.current.collectAsState()
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = "Playing an episode that isn't analysed yet",
+                        description = (playChoice ?: com.nuvio.app.features.analysis.AnalysisPlayChoice.Ask).label +
+                            " · tap to change",
+                        isTablet = isTablet,
+                        onClick = {
+                            val all = com.nuvio.app.features.analysis.AnalysisPlayChoice.entries
+                            val current = playChoice ?: com.nuvio.app.features.analysis.AnalysisPlayChoice.Ask
+                            com.nuvio.app.features.analysis.AnalysisPlayChoice.set(all[(all.indexOf(current) + 1) % all.size])
+                        },
                     )
                 }
                 SettingsGroupDivider(isTablet = isTablet)

@@ -1,0 +1,106 @@
+{
+  "releases": [
+    {
+      "version": "0.5.10.3",
+      "date": "2026-10-14",
+      "new": [
+        "After you tap Skip, a small Good / Wrong prompt shows for a few seconds. Good saves it, Wrong lets you nudge the start and end. Both are sent to TheIntroDB when submitting is on. Turn it off in Settings > Playback > Ask after Skip.",
+        "Your marks teach the on-device detector: an intro or credits you mark or confirm on a downloaded episode is matched against the rest of the season, also episodes where nothing was found before."
+      ],
+      "improved": [
+        "Your own marks always win over online and on-device times for that episode, streamed or downloaded.",
+        "Times you send with Submit Timestamps are kept on the phone too.",
+        "Skip settings show how the TheIntroDB import went: how many of your submissions came in and when, or why the key was refused.",
+        "The Skip button shows where its times came from: You, TheIntroDB (yours), TheIntroDB, or On-device.",
+        "Re-analyze one episode, a season or a whole show: long-press a downloaded episode or show, or use the refresh button on a season or in Storage. Your own skip marks are kept.",
+        "Playback comes first: while you watch, one download runs at a time and on-device analysis runs slowly in the background. If the player buffers, both wait until playback is smooth again. Full speed returns when the player closes or after 2 minutes paused.",
+        "Playing a downloaded episode that isn't fully analysed asks (without stopping playback): Play now, Finish first (with a progress bar, then plays), or Finish in background. Skip times found while you watch are used straight away. Pick a default with Don't ask again, or in Playback settings.",
+        "Downloads shows speed and time left for each running episode, and for the whole season on its group row, using the same estimate as the Live Activity.",
+        "Downloads shows what you have watched: a check on watched episodes and movies, a progress bar on ones you are part-way through, and an Unwatched only filter inside a show.",
+        "Download Season with auto-pick on: the source list stays folded while it picks; each episode shows the source it will use, with Change source for alternatives. Choose myself opens the full list, and it opens by itself if auto-pick finds nothing.",
+        "Download Season: pick the episodes first (or the whole season), then sources are searched only for those. Downloaded and watched episodes start unticked.",
+        "The download Live Activity has its own StandBy layout: dark, large title, thick bar and time left, readable under the red night tint.",
+        "Your earlier TheIntroDB submissions are brought onto the phone when you play that show, and teach the detector too."
+      ],
+      "fixed": [
+        "Skip Recap shows while you are inside a recap, even when the intro's early Skip button would overlap it.",
+        "Submit Timestamps: each segment type fills in its own known times (or stays empty), and what you type for one type is kept when you switch to another.",
+        "Tapping the download Live Activity no longer stacks another Downloads screen each time; it goes back to the one already open.",
+        "On-device analysis picks up again by itself after playback, after the background task, when the charger goes in, and retries a failed file a little later. Episodes no longer sit at \"partly analysed, queued\" until Analyse now is tapped.",
+        "A downloaded file that got stuck buffering (for example right after jumping to the resume point) is seeked again after 5 seconds and reopened if it is still stuck.",
+        "Episode cards: the watched check and the download badge no longer overlap at the top right.",
+        "Morphed tab bar: after it expands from the small Home button, tapping Search, Library or Profile works again instead of doing nothing until it collapses.",
+        "A tab tapped while the app is still getting ready now opens as soon as it can instead of being ignored."
+      ]
+    },
+    {
+      "version": "0.5.10.2",
+      "date": "2026-10-14",
+      "new": [
+        "Smart downloads: watch an episode and the next one or two download by themselves, on Wi-Fi.",
+        "Skip Recap button on downloaded shows, found from the audio of other episodes.",
+        "Scrub previews for downloads, made on the phone, so seeking shows real frames offline.",
+        "Offline home: with no network, Home shows what you have downloaded first.",
+        "Watch stats on your profile: hours, streaks, top shows and a yearly recap.",
+        "Pick the download quality and see the size before downloading.",
+        "This What's new screen. Find it again in Settings > About."
+      ],
+      "improved": [
+        "Posters and artwork of downloads are kept on the phone, so they show offline.",
+        "Smart downloads can wait until the phone is charging."
+      ],
+      "fixed": [
+        "Watched downloads are no longer deleted early; they go only once you reach the credits or the last two minutes and then close the player or start the next episode.",
+        "Smart downloads now start near the end of an episode, not halfway through.",
+        "Picture in Picture works again, from the player button and automatically when you leave the app.",
+        "Offline home redesigned with posters, episode counts and Continue watching, and it no longer shows when only Nuvio's servers are unreachable.",
+        "Watch stats: better contrast, a labelled 7-day chart, correct plurals, and one watched day counts as a streak.",
+        "Stray backslashes before apostrophes in new text are gone.",
+        "The season header in Downloads no longer sits behind the Back button.",
+        "Analysis shows \"No recap found\" instead of asking for another episode when other episodes are already analysed."
+      ]
+    },
+    {
+      "version": "0.5.10.1",
+      "date": "2026-10-13",
+      "new": [
+        "Up to date with Nuvio 0.5.10.",
+        "Episode search, go-to and sort on the show page, with a sticky bar.",
+        "Mini player and incognito mode in playback settings.",
+        "Automatic Picture in Picture on iOS.",
+        "EPG guide for Live TV.",
+        "WeTrakr and AniList tracking.",
+        "Biometric lock for profiles.",
+        "New full-bleed home hero and new tab bar."
+      ],
+      "improved": [
+        "On-device analysis of downloads: subtitle sync and season intro and credits detection.",
+        "Media servers: libraries that mix movies and shows.",
+        "Smoother hero swipe on Home."
+      ],
+      "fixed": [
+        "Next-episode card timing.",
+        "Downloads pausing themselves in the player.",
+        "Subtitle encodings in AutoSync.",
+        "Dismissed shows coming back after marking episodes watched."
+      ]
+    },
+    {
+      "version": "0.5.9.1",
+      "date": "2026-10-11",
+      "new": [
+        "Download the episode or movie you are watching from the player.",
+        "Switch to the finished download while watching. On by default."
+      ],
+      "improved": [
+        "The player moves to a partial download when it is far enough ahead, and back to the stream if needed."
+      ],
+      "fixed": [
+        "Downloads with expired links (HTTP 400, 403, 410) now refresh the link.",
+        "The Live Activity ends when a download fails.",
+        "Delete after watch never deletes during playback, and reads its setting correctly.",
+        "The Home hero no longer stops between two slides."
+      ]
+    }
+  ]
+}

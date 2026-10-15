@@ -153,6 +153,7 @@ internal data class AppTabActions(
     val onCloudFilePlay: ((CloudLibraryItem, CloudLibraryFile) -> Unit)? = null,
     val onConnectCloudClick: (() -> Unit)? = null,
     val onDownloadsClick: () -> Unit = {},
+    val onOpenDownload: ((com.nuvio.app.features.downloads.DownloadItem) -> Unit)? = null,
     val onContinueWatchingClick: ((ContinueWatchingItem) -> Unit)? = null,
     val onContinueWatchingLongPress: ((ContinueWatchingItem) -> Unit)? = null,
     val onLiveTvChannelClick: (LiveTvChannel) -> Unit = {},
@@ -205,6 +206,8 @@ internal fun AppTabHost(
                         continueWatchingDisintegrationRequest = state.continueWatchingDisintegrationRequest,
                         onFolderClick = actions.onFolderClick,
                         onFirstCatalogRendered = actions.onInitialHomeContentRendered,
+                        onOpenDownload = actions.onOpenDownload,
+                        onOpenDownloads = actions.onDownloadsClick,
                     )
                 }
             }

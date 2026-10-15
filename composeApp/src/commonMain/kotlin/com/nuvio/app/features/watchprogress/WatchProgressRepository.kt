@@ -1306,9 +1306,8 @@ object WatchProgressRepository {
         ).normalizedCompletion()
         // Delete-after-watch keys off the playback itself, before any profile, dedupe or
         // Trakt/MDBList history branch below can return early.
-        if (candidateEntry.isCompleted) {
-            com.nuvio.app.features.downloads.FinishedDownloadDeletion.onPlaybackCompleted(candidateEntry)
-        }
+        com.nuvio.app.features.downloads.FinishedDownloadDeletion.onLocalProgress(candidateEntry, positionMs, durationMs)
+        com.nuvio.app.features.stats.WatchStats.record(candidateEntry)
 
         if (targetProfileId != currentProfileId || ProfileRepository.activeProfileId != targetProfileId) {
             val resolvedEntry = resolveStoredProfileProgressIdentity(
@@ -1728,6 +1727,9 @@ object WatchProgressRepository {
     fun shouldUseAsNextUpSeed(entry: WatchProgressEntry, nowEpochMs: Long): Boolean =
         activeProgressProvider()?.shouldUseAsNextUpSeed(entry, nowEpochMs)
             ?: entry.shouldUseAsCompletedSeedForContinueWatching()
+
+    fun nextUpSeedContentId(contentId: String): String =
+        activeProgressProvider()?.nextUpSeedContentId(contentId) ?: contentId
 
     suspend fun prepareNextUpProgressEntries(
         entries: List<WatchProgressEntry>,
