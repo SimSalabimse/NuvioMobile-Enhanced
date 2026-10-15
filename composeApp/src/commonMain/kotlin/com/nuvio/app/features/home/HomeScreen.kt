@@ -126,6 +126,8 @@ fun HomeScreen(
     continueWatchingDisintegrationRequest: DisintegrationRequest<String>? = null,
     onFolderClick: ((collectionId: String, folderId: String) -> Unit)? = null,
     onFirstCatalogRendered: (() -> Unit)? = null,
+    onOpenDownload: ((com.nuvio.app.features.downloads.DownloadItem) -> Unit)? = null,
+    onOpenDownloads: () -> Unit = {},
 ) {
     LaunchedEffect(Unit) {
         AddonRepository.initialize()
@@ -196,6 +198,30 @@ fun HomeScreen(
             NetworkCondition.Checking,
             -> Unit
         }
+    }
+
+    // No network: downloads first (Settings never needed; "Show home anyway" goes back to catalogs).
+    val offlineDownloads by remember {
+        com.nuvio.app.features.downloads.DownloadsRepository.ensureLoaded()
+        com.nuvio.app.features.downloads.DownloadsRepository.uiState
+    }.collectAsStateWithLifecycle()
+    var showOnlineHomeWhileOffline by remember { mutableStateOf(false) }
+    LaunchedEffect(networkStatusUiState.condition) {
+        if (networkStatusUiState.condition == com.nuvio.app.core.network.NetworkCondition.Online) showOnlineHomeWhileOffline = false
+    }
+    val completedOffline = offlineDownloads.completedItems
+    // Only a confirmed "no internet" swaps Home. "Servers unreachable" (our account backend slow or
+    // down while the internet works) used to show the offline page while online.
+    val trulyOffline = networkStatusUiState.condition == com.nuvio.app.core.network.NetworkCondition.NoInternet
+    if (trulyOffline && !showOnlineHomeWhileOffline && completedOffline.isNotEmpty() && onOpenDownload != null) {
+        com.nuvio.app.features.home.components.OfflineDownloadsHome(
+            items = completedOffline,
+            onOpenDownload = onOpenDownload,
+            onOpenDownloads = onOpenDownloads,
+            onShowHome = { showOnlineHomeWhileOffline = true },
+            modifier = modifier,
+        )
+        return
     }
 
     val progressProviderOwnsCompletedHistory = remember(effectiveWatchProgressSource) {

@@ -26,7 +26,7 @@ struct DownloadsLiveActivityWidget: Widget {
 
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: DownloadsLiveActivityAttributes.self) { context in
-            DownloadActivityLockScreenView(context: context)
+            DownloadActivityPresentation(context: context)
                 .widgetURL(downloadsUrl)
         } dynamicIsland: { context in
             // Expanded island, laid out like Apple's own activities:
@@ -135,6 +135,92 @@ private func activitySizeParts(_ transferredText: String) -> (text: String, inBa
 private func activityNormalizedProgress(_ progressPercent: Int) -> Double {
     guard progressPercent >= 0 else { return 0 }
     return min(max(Double(progressPercent) / 100.0, 0), 1)
+}
+
+/// Lock Screen, or the StandBy layout when the phone is on its side charging (iOS 17+).
+@available(iOSApplicationExtension 16.1, *)
+private struct DownloadActivityPresentation: View {
+    let context: ActivityViewContext<DownloadsLiveActivityAttributes>
+
+    var body: some View {
+        if #available(iOSApplicationExtension 17.0, *) {
+            StandByAwareActivityView(context: context)
+        } else {
+            DownloadActivityLockScreenView(context: context)
+        }
+    }
+}
+
+@available(iOSApplicationExtension 17.0, *)
+private struct StandByAwareActivityView: View {
+    let context: ActivityViewContext<DownloadsLiveActivityAttributes>
+    @Environment(\.isActivityFullscreen) private var isFullscreen
+    @Environment(\.isLuminanceReduced) private var isLuminanceReduced
+
+    var body: some View {
+        if isFullscreen {
+            DownloadActivityStandByView(context: context, dimmed: isLuminanceReduced)
+        } else {
+            DownloadActivityLockScreenView(context: context)
+        }
+    }
+}
+
+/// StandBy: seen from across the room, often at night when iOS tints everything red. A plain
+/// black panel, a big title, a thick bar, and the percent and time left in large digits. Only
+/// white and grey, so the red night tint stays readable; no gradient to wash out.
+@available(iOSApplicationExtension 17.0, *)
+private struct DownloadActivityStandByView: View {
+    let context: ActivityViewContext<DownloadsLiveActivityAttributes>
+    let dimmed: Bool
+
+    var body: some View {
+        let size = activityStatusLine(context)
+        let primary = Color.white.opacity(dimmed ? 0.85 : 1)
+        let secondary = Color.white.opacity(dimmed ? 0.55 : 0.7)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 34, weight: .semibold))
+                    .foregroundStyle(primary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(context.attributes.title)
+                        .font(.system(size: 30, weight: .bold))
+                        .foregroundStyle(primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    Text(context.state.detail ?? context.attributes.subtitle)
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(secondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+            }
+            ProgressView(value: activityNormalizedProgress(context.state.progressPercent))
+                .progressViewStyle(.linear)
+                .tint(primary)
+                .scaleEffect(x: 1, y: 2.5, anchor: .center)
+                .padding(.vertical, 4)
+            HStack(alignment: .firstTextBaseline) {
+                Text(activityProgressLabel(context.state.progressPercent))
+                    .font(.system(size: 28, weight: .bold).monospacedDigit())
+                    .foregroundStyle(primary)
+                Text(size.text)
+                    .font(.system(size: 16).monospacedDigit())
+                    .foregroundStyle(secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Spacer(minLength: 8)
+                ActivityCountdown(context: context, font: .system(size: 28, weight: .bold).monospacedDigit(), width: 120)
+                    .foregroundStyle(primary)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .background(Color.black)
+        .activityBackgroundTint(.black)
+        .activitySystemActionForegroundColor(.white)
+    }
 }
 
 /// Lock Screen. The system caps this view at about 160 pt, so it no longer asks for a 168 pt

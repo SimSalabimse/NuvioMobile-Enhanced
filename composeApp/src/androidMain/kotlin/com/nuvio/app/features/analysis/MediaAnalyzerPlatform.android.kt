@@ -6,4 +6,7 @@ internal actual object MediaAnalyzerPlatform {
     actual suspend fun analyze(fileUri: String): String? = null
     actual fun cancel() = Unit
     actual fun isCharging(): Boolean = false
+    actual fun progress(): Double = -1.0
+    actual fun lastError(): String? = null
+    actual suspend fun makeThumbnails(fileUri: String, outputPrefix: String, durationMs: Long, intervalMs: Long, tileWidth: Int): String? = null
 }

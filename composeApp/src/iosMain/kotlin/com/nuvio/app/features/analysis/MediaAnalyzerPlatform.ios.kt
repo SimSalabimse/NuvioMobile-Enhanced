@@ -9,7 +9,13 @@ import kotlin.coroutines.resume
 interface NuvioMediaAnalyzerBridge {
     /** Decodes [fileUri] off the main thread; [onDone] gets the JSON result or null. */
     fun analyze(fileUri: String, onDone: (String?) -> Unit)
+    /** Thumbnail sheets every [intervalMs] to `<outputPrefix><n>.jpg`; [onDone] gets their layout JSON. */
+    fun makeThumbnails(fileUri: String, outputPrefix: String, durationMs: Long, intervalMs: Long, tileWidth: Int, onDone: (String?) -> Unit)
     fun cancel()
+    /** 0..1 for the running call, negative when unknown. */
+    fun currentProgress(): Double
+    /** Short reason the last call returned null. */
+    fun lastFailure(): String?
 }
 
 object NuvioMediaAnalyzerRegistry {
@@ -34,9 +40,23 @@ internal actual object MediaAnalyzerPlatform {
         }
     }
 
+    actual suspend fun makeThumbnails(fileUri: String, outputPrefix: String, durationMs: Long, intervalMs: Long, tileWidth: Int): String? {
+        val bridge = NuvioMediaAnalyzerRegistry.bridge ?: return null
+        return suspendCancellableCoroutine { continuation ->
+            continuation.invokeOnCancellation { bridge.cancel() }
+            bridge.makeThumbnails(fileUri, outputPrefix, durationMs, intervalMs, tileWidth) { result ->
+                if (continuation.isActive) continuation.resume(result)
+            }
+        }
+    }
+
     actual fun cancel() {
         NuvioMediaAnalyzerRegistry.bridge?.cancel()
     }
+
+    actual fun progress(): Double = NuvioMediaAnalyzerRegistry.bridge?.currentProgress() ?: -1.0
+
+    actual fun lastError(): String? = NuvioMediaAnalyzerRegistry.bridge?.lastFailure()
 
     actual fun isCharging(): Boolean {
         val device = UIDevice.currentDevice

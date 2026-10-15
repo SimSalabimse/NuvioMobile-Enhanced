@@ -85,6 +85,10 @@ data class ContinueWatchingSettingsRoute(override val title: String = "") : Sett
 data class DownloadsRoute(override val title: String = "") : AppRoute {
     override val preferredTabName: String
         get() = "Library"
+
+    /** One Downloads screen per stack, whatever title it was opened with. */
+    override val navigationIdentity: String
+        get() = "DownloadsRoute"
 }
 
 @Serializable

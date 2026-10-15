@@ -574,6 +574,8 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         lastManualSkipSeekPositions = null
         activeSkipInterval = null
         skipIntervalDismissed = false
+        skipFeedbackInterval = null
+        skipFeedbackNudging = false
         showNextEpisodeCard = false
         nextEpisodeCardDismissed = false
         cancelNextEpisodeAutoPlay()
@@ -583,11 +585,18 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         val vid = activeVideoId
         if (!playerSettingsUiState.skipIntroEnabled) return@LaunchedEffect
         if ((contentType ?: parentMetaType).equals("movie", ignoreCase = true)) {
-            skipIntervals = filterSkipSources(SkipIntroRepository.getMovieSkipIntervals(parentMetaId, vid))
+            skipIntervals = withOnDeviceSkips(filterSkipSources(SkipIntroRepository.getMovieSkipIntervals(parentMetaId, vid)))
             return@LaunchedEffect
         }
         if (season == null || episode == null || vid == null) return@LaunchedEffect
 
+        launch {
+            // Earlier TheIntroDB submissions become this phone's marks (once per show per session).
+            val imported = runCatching {
+                com.nuvio.app.features.player.skip.SkipMarkImport.importForShow(parentMetaId, vid, isMovie = false)
+            }.getOrDefault(0)
+            if (imported > 0) skipIntervals = withOnDeviceSkips(skipIntervals.filter { !com.nuvio.app.features.analysis.SkipLearning.isUserProvider(it.provider) })
+        }
         launch {
             val imdbFromContent = parentMetaId.takeIf { it.startsWith("tt") }
                 ?: (metaUiState.meta ?: playerMeta)
@@ -610,8 +619,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                 )
             }
             // Settings: TheIntroDB only, and the on-device detection when nothing came back.
-            val allowed = filterSkipSources(intervals)
-            skipIntervals = allowed.ifEmpty { onDeviceSkipIntervals() }
+            skipIntervals = withOnDeviceSkips(filterSkipSources(intervals))
         }
     }
 
@@ -630,11 +638,15 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
             lastManualSkipSeekPositions?.let { (fromMs, toMs) ->
                 autoSkippedIntervals += skipIntervals.intervalsAtSeekPositions(fromMs, toMs)
             }
-            val current = skipIntervals.firstOrNull { interval ->
+            val eligible = skipIntervals.filter { interval ->
                 // Fork: intro-like segments show the button a few seconds early (pre-roll).
                 interval.isEligibleForSkipButton(positionSec) &&
                     interval.internalSkipAction(skipIntervals, playbackSnapshot.durationMs) != null
             }
+            // A segment the position is really inside wins over another one's pre-roll, so a
+            // recap right before the intro gets Skip Recap rather than an early Skip Intro.
+            val current = eligible.firstOrNull { positionSec >= it.startTime && positionSec < it.endTime }
+                ?: eligible.firstOrNull()
             if (current != activeSkipInterval) {
                 activeSkipInterval = current
                 if (current != null) skipIntervalDismissed = false

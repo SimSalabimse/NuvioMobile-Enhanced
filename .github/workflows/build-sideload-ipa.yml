@@ -209,7 +209,14 @@ jobs:
         run: |
           set -euo pipefail
           ipa_path="$(find build/ios-ipa -maxdepth 1 -type f -name "*.ipa" -print -quit)"
-          notes="Unsigned sideload IPA ${VERSION} (${GITHUB_SHA:0:7}). Sign with SideStore, AltStore, or TrollStore. No Apple certificate is embedded."
+          footer="Unsigned sideload IPA ${VERSION} (${GITHUB_SHA:0:7}). Sign with SideStore, AltStore, or TrollStore. No Apple certificate is embedded."
+          # Same notes as the in-app What's new screen (changelog.json); store.json reuses this body.
+          bundled="$(python3 scripts/release-notes.py "${VERSION}" 2>/dev/null || true)"
+          if [[ -n "${bundled}" ]]; then
+            notes="${bundled}"$'\n\n'"${footer}"
+          else
+            notes="${footer}"
+          fi
           if gh release view "${TAG}" >/dev/null 2>&1; then
             gh release upload "${TAG}" "${ipa_path}" --clobber
           else

@@ -8,6 +8,11 @@ internal expect object MediaAnalysisFiles {
     fun read(name: String): String?
     fun write(name: String, text: String)
     fun list(prefix: String): List<String>
+    /** Absolute path for a binary file (thumbnail sheet) in the analysis folder. */
+    fun binaryPath(fileName: String): String?
+    fun readBytes(fileName: String): ByteArray?
+    fun delete(fileName: String)
+    fun writeBytes(fileName: String, bytes: ByteArray): Boolean
 }
 
 /**
@@ -36,8 +41,10 @@ internal object MediaAnalysisStore {
     }
 
     fun save(result: MediaAnalysisResult) {
-        cache[result.key] = result
-        MediaAnalysisFiles.write(result.key, json.encodeToString(MediaAnalysisResult.serializer(), result))
+        // User marks always win over whatever was detected.
+        val applied = result.withUserSegmentsApplied()
+        cache[applied.key] = applied
+        MediaAnalysisFiles.write(applied.key, json.encodeToString(MediaAnalysisResult.serializer(), applied))
     }
 
     /** Other episodes of the same season that have fingerprints. */
@@ -52,8 +59,27 @@ internal object MediaAnalysisStore {
     /** The download is gone: drop what only applies to that file, keep fingerprints and segments. */
     fun forgetFileData(key: String) {
         val current = load(key) ?: return
-        if (current.energy == null && current.fileName == null) return
-        save(current.copy(energy = null, fileName = null, integratedLufs = null))
+        if (current.energy == null && current.fileName == null && current.thumbnails == null) return
+        current.thumbnails?.let { sheets ->
+            repeat(sheets.sheets) { MediaAnalysisFiles.delete(thumbnailSheetFileName(key, it)) }
+        }
+        save(current.copy(energy = null, fileName = null, integratedLufs = null, thumbnails = null))
+    }
+
+    /** Deletes everything stored for [key] (analysis JSON and thumbnail sheets). */
+    fun reset(key: String) {
+        val marks = load(key)?.userSegments.orEmpty()
+        resetAll(key)
+        // Analysing again keeps what the user marked.
+        if (marks.isNotEmpty()) save(MediaAnalysisResult(key = key, analyzedAtMs = 0L, durationMs = 0L, userSegments = marks))
+    }
+
+    private fun resetAll(key: String) {
+        load(key)?.thumbnails?.let { sheets ->
+            repeat(sheets.sheets) { MediaAnalysisFiles.delete(thumbnailSheetFileName(key, it)) }
+        }
+        MediaAnalysisFiles.delete("$key.json")
+        cache[key] = null
     }
 
     private fun sanitize(value: String): String =
