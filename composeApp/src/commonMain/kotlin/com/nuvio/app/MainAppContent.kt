@@ -2041,6 +2041,7 @@ internal fun MainAppContent(
                     onExternalPlayerLaunch = { launch -> lastExternalPlayerLaunch = launch },
                     launchExternalPlayer = launchExternalPlayer,
                     openExternalStreamUrl = ::openExternalStreamUrl,
+                    onOpenPartyMedia = ::openPartyMedia,
                     onBackOverride = {
                         if (navController.currentRoute == route) {
                             navController.popBackStack(expectedRoute = route)

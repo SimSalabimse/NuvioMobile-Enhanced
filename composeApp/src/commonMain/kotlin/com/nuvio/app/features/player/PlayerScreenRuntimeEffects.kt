@@ -679,7 +679,6 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                 skipIntervalDismissed = true
                 notification?.let { NuvioToastController.show(it, AUTO_SKIP_NOTIFICATION_DURATION_MS) }
             }
-            }
         }
     }
 
