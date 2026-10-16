@@ -32,7 +32,9 @@ import com.nuvio.app.features.player.skip.formatSecondsToHms
 import com.nuvio.app.features.player.seekpreview.rememberSeekPreviewController
 import com.nuvio.app.features.player.skip.PlayerNextEpisodeRules
 import com.nuvio.app.core.logging.InAppLogger
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.p2p.P2pStreamingState
+import com.nuvio.app.features.party.PartyRepository
 import com.nuvio.app.features.p2p.formatP2pMegabytes
 import com.nuvio.app.features.p2p.formatP2pSpeed
 import com.nuvio.app.features.player.skip.internalSkipAction
@@ -348,6 +350,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 .padding(top = 16.dp, start = horizontalSafePadding, end = horizontalSafePadding),
         )
         RenderPlayerModals()
+        RenderParty(runtime = runtime)
         }
     }
 }
@@ -399,6 +402,8 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
     } else {
         null
     }
+    val partyState by PartyRepository.state.collectAsStateWithLifecycle()
+    val partyActive = partyState.party != null
     AnimatedVisibility(
         visible = (controlsVisible || showParentalGuide) && !playerControlsLocked && !isInPip,
         enter = fadeIn(),
@@ -426,7 +431,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
             hideDetails = activeSkipInterval != null && !skipIntervalDismissed,
             onNextEpisodeClick = if (nextEpisodeInfo?.hasAired == true && !nextEpisodeAutoPlaySearching && nextEpisodeAutoPlayCountdown == null) {
                 {
-                    playNextEpisode()
+                    if (!partyBlocksControl()) playNextEpisode()
                 }
             } else null,
             onInteraction = { controlsActivityTick += 1 },
@@ -438,6 +443,15 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
                 if (!handOffToMiniPlayer()) flushWatchProgress()
                 args.onBack()
             },
+            onPartyClick = if (PartyRepository.available.collectAsStateWithLifecycle().value) {
+                {
+                    showPartyPanel = true
+                    controlsVisible = false
+                }
+            } else {
+                null
+            },
+            partyActive = partyActive,
             onTogglePlayback = { togglePlayback() },
             onSeekBack = { seekBy(-10_000L) },
             onSeekForward = { seekBy(10_000L) },
@@ -584,9 +598,16 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
                 scrubbingPositionMs = positionMs
             },
             onScrubFinished = { positionMs ->
-                finishTimelineScrub(positionMs)
-                playerController?.seekTo(positionMs)
-                scheduleProgressSyncAfterSeek()
+                val targetMs = if (isPartyControlLocked) ownSeekTarget(positionMs) else positionMs
+                if (targetMs == null) {
+                    isScrubbingTimeline = false
+                    scrubbingPositionMs = null
+                } else {
+                    finishTimelineScrub(targetMs)
+                    playerController?.seekTo(targetMs)
+                    scheduleProgressSyncAfterSeek()
+                    publishPartyPlayback(positionMs = targetMs)
+                }
             },
             horizontalSafePadding = horizontalSafePadding,
             modifier = Modifier.fillMaxSize(),
@@ -674,18 +695,22 @@ private fun BoxScope.RenderPlaybackOverlays(
         onSkipInterval = { interval ->
             interval.internalSkipAction(skipIntervals, playbackSnapshot.durationMs)?.let { action ->
                 val durationMs = playbackSnapshot.durationMs
-                val seekMs = if (durationMs > 0L) action.targetMs.coerceAtMost(durationMs - 1) else action.targetMs
+                val requestedMs = if (durationMs > 0L) action.targetMs.coerceAtMost(durationMs - 1) else action.targetMs
+                val seekMs = if (isPartyControlLocked) ownSeekTarget(requestedMs) else requestedMs
                 InAppLogger.info(
                     "Player/SkipIntro",
                     "skip type=${interval.type} provider=${interval.provider} " +
-                        "fromMs=${playbackClock.positionMs} targetMs=$seekMs rawMs=${action.targetMs} " +
+                        "fromMs=${playbackClock.positionMs} targetMs=$requestedMs rawMs=${action.targetMs} " +
                         "postCredits=${action.skipsToPostCredits} " +
                         "startSec=${interval.startTime} endSec=${interval.endTime}",
                 )
-                playerController?.seekTo(seekMs)
-                scheduleProgressSyncAfterSeek()
-                skipIntervalDismissed = true
-                offerSkipFeedback(interval)
+                if (seekMs != null) {
+                    playerController?.seekTo(seekMs)
+                    scheduleProgressSyncAfterSeek()
+                    publishPartyPlayback(positionMs = seekMs)
+                    skipIntervalDismissed = true
+                    offerSkipFeedback(interval)
+                }
             }
         },
         onDismissSkipInterval = {
@@ -708,7 +733,7 @@ private fun BoxScope.RenderPlaybackOverlays(
         nextEpisodeAutoPlayCountdown = nextEpisodeAutoPlayCountdown,
         blurUnwatchedEpisodes = metaScreenSettingsUiState.blurUnwatchedEpisodes,
         onPlayNextEpisode = {
-            playNextEpisode()
+            if (!partyBlocksControl()) playNextEpisode()
         },
         onDismissNextEpisode = {
             cancelNextEpisodeAutoPlay()

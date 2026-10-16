@@ -1,6 +1,20 @@
 {
   "releases": [
     {
+      "version": "0.6.1.1",
+      "date": "2026-10-16",
+      "new": [
+        "Watch Party from the latest upstream Nuvio (0.6.1): watch in sync with friends, share invites as nuvio.tv links, see the party before you join (experimental).",
+        "MDBList dynamic and liked lists in the library."
+      ],
+      "improved": [
+        "Updated to the latest upstream Nuvio (0.6.1-beta), with the updated p2p streaming engine (0.1.5), better picture-in-picture on iOS and new translations.",
+        "Skip buttons, auto-skip and seeking follow the Watch Party's control rules, and a skip is shared with the party.",
+        "In a Watch Party, an episode that isn't fully analysed is analysed in the background without asking, so you never pause and drop out of sync. Auto-play next episode waits for the party."
+      ],
+      "fixed": []
+    },
+    {
       "version": "0.5.10.4",
       "date": "2026-10-16",
       "new": [

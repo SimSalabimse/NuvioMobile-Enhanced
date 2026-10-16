@@ -93,6 +93,12 @@ internal fun BoxScope.RenderAnalysisPlayPrompt(runtime: PlayerScreenRuntime) {
 
         LaunchedEffect(item.id) {
             if (decided || !askedAtStart) return@LaunchedEffect
+            // Watch Party: never pause for analysis (it would pull this member out of sync).
+            // Analyse in the background instead, without asking.
+            if (isPartySynced) {
+                choose(AnalysisPlayChoice.Background)
+                return@LaunchedEffect
+            }
             when (val saved = AnalysisPlayChoice.get()) {
                 AnalysisPlayChoice.Ask -> Unit
                 else -> choose(saved)
