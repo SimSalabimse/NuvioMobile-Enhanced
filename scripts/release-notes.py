@@ -103,6 +103,8 @@ def clean(text: str) -> str:
     text = re.sub(r"\\(.)", r"\1", text)
     text = text.replace("\\", "").replace("`", "").replace("**", "")
     text = re.sub(r"\s*\((?:#\d+(?:,\s*)?)+\)\s*$", "", text)
+    # Version/build tags like "(0.5.10.4, 170)" or "(169)" belong to commits, not notes.
+    text = re.sub(r"\s*\((?:v?\d+(?:\.\d+)+(?:-[\w.]+)?)?(?:,?\s*\d+)?\)\s*$", "", text)
     text = re.sub(r"\s+", " ", text).strip().rstrip(".")
     if not text:
         return ""
@@ -111,6 +113,18 @@ def clean(text: str) -> str:
 
 def norm(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+def similar(a: str, known: list[str]) -> bool:
+    """True when most words of [a] already appear in one existing note (a reworded duplicate)."""
+    words = {w for w in norm(a).split() if len(w) > 3}
+    if not words:
+        return False
+    for k in known:
+        kw = set(norm(k).split())
+        if len(words & kw) / len(words) >= 0.6:
+            return True
+    return False
 
 
 def classify(title: str, labels: list[str]) -> tuple[str | None, str]:
@@ -207,10 +221,11 @@ def merge_entry(existing: dict | None, generated: dict[str, list[str]], version:
     entry = dict(existing or {"version": version})
     entry.setdefault("date", dt.date.today().isoformat())
     known = {norm(t) for s in SECTIONS for t in entry.get(s, [])}
+    existing_text = [t for s in SECTIONS for t in entry.get(s, [])]
     for s in SECTIONS:
         merged = [clean(t) or t for t in entry.get(s, [])]
         for t in generated.get(s, []):
-            if norm(t) not in known:
+            if norm(t) not in known and not similar(t, existing_text):
                 merged.append(t)
                 known.add(norm(t))
         entry[s] = merged
