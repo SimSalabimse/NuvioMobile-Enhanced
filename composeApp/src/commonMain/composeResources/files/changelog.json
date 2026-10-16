@@ -17,7 +17,8 @@
         "Download Season with auto-pick on now picks a source the same way auto-play does, including TorBox cached torrents, instead of opening the full source list. It waits for the sources and the TorBox cache check, and shows the list only if nothing matches.",
         "Download Season auto-pick falling back to the source list (0.5.10.4, 170).",
         "Download Season no longer selects or queues episodes that haven't aired yet. They're shown greyed out with their air date.",
-        "The Skip Intro button no longer appears 10 seconds before the intro. It shows exactly when the segment starts, with its start and end times (for example Skip Intro 1:12–2:41)."
+        "The Skip Intro button no longer appears 10 seconds before the intro. It shows exactly when the segment starts, with its start and end times (for example Skip Intro 1:12–2:41).",
+        "Tapping Good or Wrong after a skip no longer brings up the \"isn't fully analysed yet\" prompt. That prompt only shows when an episode starts."
       ]
     },
     {
