@@ -9,7 +9,8 @@
       "improved": [
         "Release notes are put together automatically at build time from merged pull requests and commits, grouped into New, Improved and Fixed. Hand-written notes are kept.",
         "Downloaded episodes show where their skip times come from, for each of intro, recap and credits: You, TheIntroDB (yours), TheIntroDB, On-device, and so on. Online sources show up after the episode has been played once.",
-        "Downloading a single episode or movie picks its source automatically when auto-pick is on, the same way Download Season does (including TorBox cached torrents). Tap Change source to choose from the list."
+        "Downloading a single episode or movie picks its source automatically when auto-pick is on, the same way Download Season does (including TorBox cached torrents). Tap Change source to choose from the list.",
+        "The Good / Wrong prompt after Skip now shows about 4 seconds after the skip lands, so you can see where it landed. It stays for 8 seconds, can be closed, and Wrong has a Rewind 5s button to check again."
       ],
       "fixed": [
         "The GitHub release and SideStore source now carry the full notes again instead of a single line.",

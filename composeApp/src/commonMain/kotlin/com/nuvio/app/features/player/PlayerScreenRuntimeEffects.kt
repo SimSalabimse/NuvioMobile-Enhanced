@@ -574,6 +574,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         lastManualSkipSeekPositions = null
         activeSkipInterval = null
         skipIntervalDismissed = false
+        skipFeedbackDelayJob?.cancel()
         skipFeedbackInterval = null
         skipFeedbackNudging = false
         showNextEpisodeCard = false
