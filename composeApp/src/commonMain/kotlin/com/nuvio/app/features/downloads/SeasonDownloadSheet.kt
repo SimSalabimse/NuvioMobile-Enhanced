@@ -61,7 +61,9 @@ private data class SeasonEpisodeRowState(
     val video: MetaVideo,
     val existing: SeasonExistingDownload? = null,
     val watched: Boolean = false,
-    val userChecked: Boolean = existing == null && !watched,
+    /** Not aired yet (or no air date): shown disabled with its date, never selected or queued. */
+    val unaired: Boolean = false,
+    val userChecked: Boolean = existing == null && !watched && !unaired,
     /** The user chose this episode's source in its own list; a season-level change leaves it. */
     val overridden: Boolean = false,
     val match: SeasonStreamMatch? = null,
@@ -70,8 +72,12 @@ private data class SeasonEpisodeRowState(
     val probeDone: Boolean = false,
 )
 
+/** Can be ticked in step 1: not already downloaded or queued, and aired. */
+private val SeasonEpisodeRowState.canPick: Boolean
+    get() = existing == null && !unaired
+
 private val SeasonEpisodeRowState.selectable: Boolean
-    get() = existing == null && match !is SeasonStreamMatch.Unmatched
+    get() = canPick && match !is SeasonStreamMatch.Unmatched
 
 private fun SeasonEpisodeRowState.selectedForTotal(): Boolean =
     userChecked && selectable
@@ -141,7 +147,7 @@ internal fun SeasonDownloadSheet(
             if (existing == row.existing) {
                 row
             } else {
-                row.copy(existing = existing, userChecked = existing == null && row.userChecked)
+                row.copy(existing = existing, userChecked = existing == null && !row.unaired && row.userChecked)
             }
         }
     }
@@ -227,19 +233,22 @@ internal fun SeasonDownloadSheet(
             .mapNotNull { addon -> addon.manifest?.let { addon.displayTitle.ifBlank { it.name } } }
             .toSet()
         var timeoutElapsed = false
+        var hardTimeoutElapsed = false
         var allAnswered = false
         autoPickOn = autoSettings.picksAutomatically()
         autoPickGaveUp = false
 
         fun tryAutoPick() {
-            if (choice != null || pickingSource || !autoSettings.picksAutomatically()) return
-            if (!seasonAutoPickMayDecide(autoSettings.timeoutSeconds, timeoutElapsed, allAnswered)) return
-            val picked = autoPickSeasonStream(anchorStreams, autoSettings, installedAddonNames)
-            if (picked == null) {
-                if (allAnswered || timeoutElapsed) autoPickGaveUp = true
+            if (choice != null || pickingSource || autoPickGaveUp || !autoSettings.picksAutomatically()) return
+            val result = evaluateSeasonAutoPick(anchorStreams, autoSettings, installedAddonNames)
+            // Pick when the player's auto-play would: the timeout, the last source, or at once for 0 s.
+            val mayDecide = seasonAutoPickMayDecide(autoSettings.timeoutSeconds, timeoutElapsed, allAnswered) ||
+                hardTimeoutElapsed
+            if (result.stream != null && mayDecide) {
+                applyChoice(result.stream, byAutoPick = true)
                 return
             }
-            applyChoice(picked, byAutoPick = true)
+            if (seasonAutoPickShouldGiveUp(result, allAnswered, hardTimeoutElapsed)) autoPickGaveUp = true
         }
 
         val timer = launch {
@@ -250,18 +259,31 @@ internal fun SeasonDownloadSheet(
                 tryAutoPick()
             }
         }
+        val hardTimer = launch {
+            delay(SEASON_AUTO_PICK_GIVE_UP_MS)
+            hardTimeoutElapsed = true
+            tryAutoPick()
+        }
         SeasonStreamCatalog.stream(
             type = meta.type,
             videoId = seasonStreamVideoId(meta.id, anchor.video),
             season = anchor.video.season,
             episode = anchor.video.episode,
+            annotateDebridCache = true,
         ).collect { snapshot ->
             anchorStreams = snapshot.streams
             pendingSources = snapshot.pendingSources
             allAnswered = snapshot.complete
             tryAutoPick()
         }
-        timer.cancel()
+        // All sources answered: the last tryAutoPick decided or gave up, so the timers are not needed.
+        if (choice != null || autoPickGaveUp || !autoPickOn) {
+            timer.cancel()
+            hardTimer.cancel()
+        } else {
+            timer.join()
+            hardTimer.join()
+        }
     }
 
     LaunchedEffect(episodePickerKey) {
@@ -326,7 +348,7 @@ internal fun SeasonDownloadSheet(
     val usableFree = usableFreeBytes(volume)
     val lowSpace = usableFree != null && summary.knownBytes > 0L && summary.knownBytes > usableFree
     val stillMatching = rows.any { it.matching && it.userChecked }
-    val selectedBeforeSearch = rows.count { it.existing == null && it.userChecked }
+    val selectedBeforeSearch = rows.count { it.canPick && it.userChecked }
     val canQueue = selectionConfirmed && !queuing && !stillMatching &&
         rows.any { it.selectedForTotal() && it.match is SeasonStreamMatch.Matched }
     val showPicker = anchorKey != null && (choice == null || pickingSource)
@@ -392,7 +414,7 @@ internal fun SeasonDownloadSheet(
                 return@LazyColumn
             }
             if (!selectionConfirmed) {
-                val open = rows.filter { it.existing == null }
+                val open = rows.filter { it.canPick }
                 item(key = "select-title") {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp),
@@ -402,7 +424,7 @@ internal fun SeasonDownloadSheet(
                             checked = open.isNotEmpty() && open.all { it.userChecked },
                             enabled = open.isNotEmpty(),
                             onCheckedChange = { all ->
-                                rows = rows.map { if (it.existing == null) it.copy(userChecked = all) else it }
+                                rows = rows.map { if (it.canPick) it.copy(userChecked = all) else it }
                             },
                         )
                         Text(
@@ -419,11 +441,12 @@ internal fun SeasonDownloadSheet(
                         detail = when {
                             row.existing == SeasonExistingDownload.Downloaded -> downloadedText
                             row.existing == SeasonExistingDownload.InProgress -> inDownloadsText
+                            row.unaired -> unairedLabel(row.video.released)
                             row.watched -> watchedText
                             else -> null
                         },
                         onCheckedChange = { checked ->
-                            rows = rows.map { if (it.key == row.key && it.existing == null) it.copy(userChecked = checked) else it }
+                            rows = rows.map { if (it.key == row.key && it.canPick) it.copy(userChecked = checked) else it }
                         },
                     )
                 }
@@ -552,7 +575,7 @@ internal fun SeasonDownloadSheet(
             if (!selectionConfirmed) {
                 Button(
                     onClick = {
-                        val picked = rows.filter { it.existing == null && it.userChecked }
+                        val picked = rows.filter { it.canPick && it.userChecked }
                         if (picked.isEmpty()) return@Button
                         confirmedKeys = picked.map { it.key }.toSet()
                         anchorKey = picked.first().key
@@ -608,14 +631,14 @@ private fun EpisodeSelectRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = row.existing == null) { onCheckedChange(!row.userChecked) }
+            .clickable(enabled = row.canPick) { onCheckedChange(!row.userChecked) }
             .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Checkbox(
-            checked = row.existing == null && row.userChecked,
-            onCheckedChange = if (row.existing == null) onCheckedChange else null,
-            enabled = row.existing == null,
+            checked = row.canPick && row.userChecked,
+            onCheckedChange = if (row.canPick) onCheckedChange else null,
+            enabled = row.canPick,
         )
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -830,6 +853,7 @@ private fun List<MetaVideo>.toSeasonRows(
             video = video,
             existing = seasonExistingDownload(video.existingStatus(parentMetaId, downloads)),
             watched = isWatched(video),
+            unaired = !video.hasAiredForDownload(),
         )
     }
 
@@ -844,4 +868,23 @@ private fun SeasonEpisodeRowState.toProbeTarget(): SeasonProbeTarget? {
         url = url,
         headers = matched.stream.behaviorHints.proxyHeaders?.request.orEmpty(),
     )
+}
+
+/** Aired only with a known air date in the past; no date or a future date is not downloadable yet. */
+internal fun MetaVideo.hasAiredForDownload(
+    nowEpochMs: Long = com.nuvio.app.core.time.EpisodeReleaseDatePlatform.nowEpochMs(),
+): Boolean {
+    if (!available) return false
+    val date = released?.trim()?.takeIf { it.isNotEmpty() } ?: return false
+    return com.nuvio.app.core.time.isEpisodeReleaseAired(date, nowEpochMs) == true
+}
+
+private val AIR_MONTHS = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+/** "Airs 12 Nov 2026" or "Not aired yet" when there is no date. */
+internal fun unairedLabel(released: String?): String {
+    val parts = released?.trim()?.take(10)?.split("-")?.takeIf { it.size == 3 } ?: return "Not aired yet"
+    val month = parts[1].toIntOrNull()?.takeIf { it in 1..12 } ?: return "Not aired yet"
+    val day = parts[2].toIntOrNull() ?: return "Not aired yet"
+    return "Airs $day ${AIR_MONTHS[month - 1]} ${parts[0]}"
 }

@@ -24,7 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 
-private const val PROMPT_VISIBLE_MS = 6_000L
+private const val PROMPT_VISIBLE_MS = 8_000L
 
 private fun segmentLabel(type: String): String = when (SkipLabelType.of(type)) {
     "intro" -> "intro"
@@ -45,8 +45,9 @@ private object SkipLabelType {
 }
 
 /**
- * Small prompt after Skip: "Skipped the intro right?" with Good / Wrong, gone after 6 seconds.
- * Wrong turns it into a nudge panel to move the start and end before saving. Never pauses playback.
+ * Small prompt about 4 s after a skip lands: "Skipped the intro right?" with Good / Wrong and ✕,
+ * gone after 8 seconds. Wrong turns it into a nudge panel to move the start and end before saving,
+ * with "Rewind 5s" to watch the landing spot again. Never pauses playback.
  */
 @Composable
 fun SkipFeedbackPrompt(
@@ -55,6 +56,7 @@ fun SkipFeedbackPrompt(
     durationSec: Double,
     onGood: () -> Unit,
     onWrong: () -> Unit,
+    onRewind: () -> Unit = {},
     onSave: (Double, Double) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
@@ -94,6 +96,7 @@ fun SkipFeedbackPrompt(
         NudgeRow("Start", start) { delta -> start = (start + delta).coerceIn(0.0, (end - 1.0).coerceAtLeast(0.0)) }
         NudgeRow("End", end) { delta -> end = (end + delta).coerceIn(start + 1.0, maxSec) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PromptChip("Rewind 5s", highlighted = false, onClick = onRewind)
             PromptChip("Cancel", highlighted = false, onClick = onDismiss)
             PromptChip("Save", highlighted = true, onClick = { if (end > start) onSave(start, end) })
         }

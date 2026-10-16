@@ -204,6 +204,8 @@ internal class PlayerScreenRuntime(
     /** Segment just skipped, asked about in the Good / Wrong prompt. */
     var skipFeedbackInterval by mutableStateOf<SkipInterval?>(null)
     var skipFeedbackNudging by mutableStateOf(false)
+    /** Waits a few seconds after a skip lands before asking Good / Wrong. */
+    var skipFeedbackDelayJob: Job? = null
     var parentalWarnings by mutableStateOf<List<ParentalWarning>>(emptyList())
     var showParentalGuide by mutableStateOf(false)
     var parentalGuideHasShown by mutableStateOf(false)

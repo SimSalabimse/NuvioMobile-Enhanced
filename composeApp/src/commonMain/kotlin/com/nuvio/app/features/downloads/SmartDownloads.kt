@@ -252,7 +252,7 @@ internal object SmartDownloads {
             val match = matchSeasonStream(choice, streams.orderedForQuality(quality))
             if (match is SeasonStreamMatch.Matched) return match.stream
         }
-        val streams = SeasonStreamCatalog.load(meta.type, videoId, video.season, video.episode)
+        val streams = SeasonStreamCatalog.load(meta.type, videoId, video.season, video.episode, annotateDebridCache = true)
         return autoPickSeasonStream(streams.orderedForQuality(quality), currentAutoPickSettings(meta.id), installedAddonNames())
     }
 

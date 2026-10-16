@@ -394,6 +394,22 @@ fun StreamsScreen(
         }
 
 
+        if (downloadMode) {
+            // Auto-pick on: choose the source like Download Season does; "Change source" shows this list.
+            com.nuvio.app.features.downloads.DownloadAutoPickCard(
+                type = type,
+                videoId = videoId,
+                parentMetaId = parentMetaId,
+                season = seasonNumber,
+                episode = episodeNumber,
+                onDownload = enqueueStreamDownload,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
+                    .padding(bottom = 12.dp),
+            )
+        }
+
         StreamActionsSheet(
             stream = streamActionsTarget,
             externalPlayerEnabled = playerSettings.externalPlayerEnabled,

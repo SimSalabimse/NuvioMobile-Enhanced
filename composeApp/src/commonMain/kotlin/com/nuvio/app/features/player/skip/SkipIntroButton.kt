@@ -59,9 +59,11 @@ fun SkipIntroButton(
     var lastType by remember { mutableStateOf(interval?.type) }
     var lastSkipsToPostCredits by remember { mutableStateOf(skipsToPostCredits) }
     val canSkip = interval?.internalSkipAction(emptyList()) != null
+    var lastRange by remember { mutableStateOf<String?>(null) }
     if (canSkip) {
         lastType = interval?.type
         lastSkipsToPostCredits = skipsToPostCredits
+        lastRange = interval?.let { skipRangeLabel(it.startTime, it.endTime) }
     }
     val shouldShow = canSkip && (!dismissed || controlsVisible)
 
@@ -131,6 +133,15 @@ fun SkipIntroButton(
                     fontSize = 14.sp,
                     modifier = Modifier.padding(start = 8.dp),
                 )
+                lastRange?.let { range ->
+                    Text(
+                        text = range,
+                        color = Color.White.copy(alpha = 0.75f),
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
+                }
                 skipSourceTag(interval?.provider)?.let { tag ->
                     Text(
                         text = tag,
@@ -194,4 +205,19 @@ internal fun skipSourceTag(provider: String?): String? = when (provider) {
     "animeskip" -> "Anime-Skip"
     "heuristic" -> "Guess"
     else -> null
+}
+
+/** "1:12–2:41" (or "1:02:05–1:03:40" past an hour) for the Skip button. */
+internal fun skipRangeLabel(startSec: Double, endSec: Double): String? {
+    if (endSec <= startSec || startSec < 0) return null
+    return "${compactTime(startSec)}\u2013${compactTime(endSec)}"
+}
+
+private fun compactTime(seconds: Double): String {
+    val total = seconds.toLong().coerceAtLeast(0)
+    val h = total / 3600
+    val m = (total % 3600) / 60
+    val s = total % 60
+    val ss = s.toString().padStart(2, '0')
+    return if (h > 0) "$h:${m.toString().padStart(2, '0')}:$ss" else "$m:$ss"
 }

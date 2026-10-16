@@ -113,11 +113,20 @@ echo "==> Preparing iOS dependencies (NuvioEngine xcframework)"
 ./scripts/prepare-ios-dependencies.sh
 
 echo "==> Building unsigned IPA (this can take 15–60+ minutes on first run)"
+# Fill this version's changelog.json entry from merged PRs/commits since the last sideload-* tag
+# (hand-written notes kept). Set NUVIO_SKIP_RELEASE_NOTES=1 to skip.
+if [[ "${NUVIO_SKIP_RELEASE_NOTES:-0}" != "1" ]] && command -v python3 >/dev/null 2>&1; then
+  git fetch --quiet --tags origin 2>/dev/null || true
+  repo_slug="$(git remote get-url origin 2>/dev/null | sed -E 's#.*github.com[:/]([^/]+/[^/.]+)(\.git)?$#\1#')"
+  python3 scripts/release-notes.py generate --write ${repo_slug:+--repo "$repo_slug"} || echo "WARN: release-notes generation failed; using changelog.json as is" >&2
+fi
+
 ./scripts/build-ios-ipa.sh
 
 configuration_slug="$(printf '%s' "${configuration}" | tr '[:upper:]' '[:lower:]')"
 ipa_output_dir="${IOS_IPA_OUTPUT_DIR:-${repository_root}/build/ios-ipa}"
-ipa_path="$(find "${ipa_output_dir}" -maxdepth 1 -type f -name "*-full-${configuration_slug}.ipa" -print -quit 2>/dev/null || true)"
+# build-ios-ipa.sh writes nuvio-<version>-enhanced-<config>.ipa; older builds used -full-.
+ipa_path="$(ls -t "${ipa_output_dir}"/*-enhanced-"${configuration_slug}".ipa "${ipa_output_dir}"/*-full-"${configuration_slug}".ipa 2>/dev/null | head -n 1 || true)"
 if [[ -z "${ipa_path}" ]]; then
   echo "ERROR: IPA not found under ${ipa_output_dir}/" >&2
   ls -la "${ipa_output_dir}/" 2>&1 || true

@@ -690,6 +690,7 @@ private fun DownloadRow(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     com.nuvio.app.features.analysis.AnalysisStatusRow(item)
+                    com.nuvio.app.features.analysis.SkipSourcesRow(item)
                     if (item.playsWhenDownloadFinishes && item.status != DownloadStatus.Completed) {
                         Text(
                             text = stringResource(Res.string.downloads_plays_when_finished),

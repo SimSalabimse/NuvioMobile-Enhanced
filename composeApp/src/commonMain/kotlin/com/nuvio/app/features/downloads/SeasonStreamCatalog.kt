@@ -56,6 +56,8 @@ internal object SeasonStreamCatalog {
         videoId: String,
         season: Int?,
         episode: Int?,
+        /** Run the TorBox/debrid cache check the stream screen runs, so cached torrents count as ready. */
+        annotateDebridCache: Boolean = false,
     ): Flow<SeasonCatalogSnapshot> = channelFlow {
         val embedded = MetaDetailsRepository.findEmbeddedStreams(videoId)
         if (embedded.isNotEmpty()) {
@@ -72,7 +74,8 @@ internal object SeasonStreamCatalog {
         val done = Channel<Pair<Int, List<StreamItem>>>(capacity = Channel.UNLIMITED)
         sources.forEachIndexed { index, source ->
             launch {
-                val streams = runCatchingUnlessCancelled { source.load() }.getOrElse { emptyList() }
+                val raw = runCatchingUnlessCancelled { source.load() }.getOrElse { emptyList() }
+                val streams = if (annotateDebridCache) withDebridCacheStatus(source, raw) else raw
                 done.send(index to streams)
             }
         }
@@ -98,9 +101,10 @@ internal object SeasonStreamCatalog {
         videoId: String,
         season: Int?,
         episode: Int?,
+        annotateDebridCache: Boolean = false,
     ): List<StreamItem> {
         var last = SeasonCatalogSnapshot(emptyList(), pendingSources = 0)
-        stream(type, videoId, season, episode).collect { last = it }
+        stream(type, videoId, season, episode, annotateDebridCache).collect { last = it }
         return last.streams
     }
 
@@ -125,6 +129,17 @@ internal object SeasonStreamCatalog {
                 async { runCatchingUnlessCancelled { source.load() }.getOrElse { emptyList() } }
             }.awaitAll().flatten()
         }
+    }
+
+    /** Same cache check as the stream screen ([LocalDebridAvailabilityService]); unchanged on failure. */
+    private suspend fun withDebridCacheStatus(source: SeasonCatalogSource, streams: List<StreamItem>): List<StreamItem> {
+        if (streams.isEmpty()) return streams
+        val group = listOf(AddonStreamGroup(addonName = source.addonName, addonId = source.addonId, streams = streams))
+        if (!com.nuvio.app.features.debrid.LocalDebridAvailabilityService.hasPendingCacheCheck(group)) return streams
+        return runCatchingUnlessCancelled {
+            com.nuvio.app.features.debrid.LocalDebridAvailabilityService.annotateCachedAvailability(group)
+                .firstOrNull()?.streams ?: streams
+        }.getOrElse { streams }
     }
 
     private fun installedAddonOrder(type: String, videoId: String): List<String> {
