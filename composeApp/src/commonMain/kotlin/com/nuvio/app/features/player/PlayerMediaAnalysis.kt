@@ -100,7 +100,13 @@ private fun skipCategory(type: String): String = when (type.lowercase()) {
  * The allowed online segments, plus on-device ones for each kind (intro, recap, credits) the
  * online sources did not cover. An on-device intro pre-fills Submit Timestamps.
  */
-internal fun PlayerScreenRuntime.withOnDeviceSkips(online: List<SkipInterval>): List<SkipInterval> {
+internal fun PlayerScreenRuntime.withOnDeviceSkips(online: List<SkipInterval>): List<SkipInterval> =
+    mergeOnDeviceSkips(online).also { used ->
+        // Downloads cards show where each segment's times came from.
+        com.nuvio.app.features.analysis.SkipSourceLedger.record(parentMetaId, activeSeasonNumber, activeEpisodeNumber, used)
+    }
+
+private fun PlayerScreenRuntime.mergeOnDeviceSkips(online: List<SkipInterval>): List<SkipInterval> {
     // The user's own marks for this episode replace every other source of that kind.
     val mine = userMarkedSkipIntervals()
     val mineCovered = mine.map { skipCategory(it.type) }.toSet()

@@ -7,11 +7,13 @@
         "What's new now loads the latest release notes from GitHub Releases, so notes fixed after a build still show up. It's cached for offline use, falls back to the notes built into the app, and never delays launch."
       ],
       "improved": [
-        "Release notes are put together automatically at build time from merged pull requests and commits, grouped into New, Improved and Fixed. Hand-written notes are kept."
+        "Release notes are put together automatically at build time from merged pull requests and commits, grouped into New, Improved and Fixed. Hand-written notes are kept.",
+        "Downloaded episodes show where their skip times come from, for each of intro, recap and credits: You, TheIntroDB (yours), TheIntroDB, On-device, and so on. Online sources show up after the episode has been played once."
       ],
       "fixed": [
         "The GitHub release and SideStore source now carry the full notes again instead of a single line.",
-        "Download Season with auto-pick on now picks a source the same way auto-play does, including TorBox cached torrents, instead of opening the full source list. It waits for the sources and the TorBox cache check, and shows the list only if nothing matches."
+        "Download Season with auto-pick on now picks a source the same way auto-play does, including TorBox cached torrents, instead of opening the full source list. It waits for the sources and the TorBox cache check, and shows the list only if nothing matches.",
+        "Download Season auto-pick falling back to the source list (0.5.10.4, 170)."
       ]
     },
     {
