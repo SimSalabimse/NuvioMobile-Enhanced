@@ -840,8 +840,7 @@ internal fun StreamList(
             item(key = "shared_stream") {
                 Column {
                     StreamSectionHeader(
-                        addonName = shared.label,
-                        isLoading = false,
+                        group = AddonStreamGroup(addonName = shared.label, addonId = "shared_stream", streams = emptyList()),
                         fetchingText = fetchingText,
                     )
                     StreamCard(
