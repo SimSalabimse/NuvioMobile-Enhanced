@@ -26,30 +26,25 @@ class MetalLayer: CAMetalLayer {
         pictureInPictureLock.unlock()
     }
 
-    override func nextDrawable() -> CAMetalDrawable? {
+    // Upstream PiP handoff: tell the observer when the next acquired drawable is presented.
+    // Called from the enhanced nextDrawable() override below (only one override is allowed).
+    private func attachPresentationObserver(to drawable: CAMetalDrawable) {
         pictureInPictureLock.lock()
-        let generation = presentationObserver?.generation
-        pictureInPictureLock.unlock()
-        // Return the same drawable that MoltenVK would normally acquire.
-        let drawable = super.nextDrawable()
-        guard let drawable, let generation else { return drawable }
-        pictureInPictureLock.lock()
-        let observer = presentationObserver?.generation == generation ? presentationObserver : nil
+        let observer = presentationObserver
         if observer != nil { presentationObserver = nil }
         pictureInPictureLock.unlock()
-        if let observer {
-            drawable.addPresentedHandler { [weak self] presented in
-                let time = presented.presentedTime
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    self.pictureInPictureLock.lock()
-                    let current = self.presentationGeneration == generation
-                    self.pictureInPictureLock.unlock()
-                    if current { observer.callback(time) }
-                }
+        guard let observer else { return }
+        let generation = observer.generation
+        drawable.addPresentedHandler { [weak self] presented in
+            let time = presented.presentedTime
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.pictureInPictureLock.lock()
+                let current = self.presentationGeneration == generation
+                self.pictureInPictureLock.unlock()
+                if current { observer.callback(time) }
             }
         }
-        return drawable
     }
 
     @objc var nuvioPiPConsumesVideo: Bool {
@@ -193,6 +188,9 @@ class MetalLayer: CAMetalLayer {
 
         let drawable = super.nextDrawable()
         let acquisitionFailed = drawable == nil
+        #if !targetEnvironment(simulator)
+        if let drawable { attachPresentationObserver(to: drawable) }
+        #endif
 
         captureLock.lock()
         var didSuspend = false
