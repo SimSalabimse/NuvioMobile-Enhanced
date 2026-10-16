@@ -8,12 +8,14 @@
       ],
       "improved": [
         "Release notes are put together automatically at build time from merged pull requests and commits, grouped into New, Improved and Fixed. Hand-written notes are kept.",
-        "Downloaded episodes show where their skip times come from, for each of intro, recap and credits: You, TheIntroDB (yours), TheIntroDB, On-device, and so on. Online sources show up after the episode has been played once."
+        "Downloaded episodes show where their skip times come from, for each of intro, recap and credits: You, TheIntroDB (yours), TheIntroDB, On-device, and so on. Online sources show up after the episode has been played once.",
+        "Downloading a single episode or movie picks its source automatically when auto-pick is on, the same way Download Season does (including TorBox cached torrents). Tap Change source to choose from the list."
       ],
       "fixed": [
         "The GitHub release and SideStore source now carry the full notes again instead of a single line.",
         "Download Season with auto-pick on now picks a source the same way auto-play does, including TorBox cached torrents, instead of opening the full source list. It waits for the sources and the TorBox cache check, and shows the list only if nothing matches.",
-        "Download Season auto-pick falling back to the source list (0.5.10.4, 170)."
+        "Download Season auto-pick falling back to the source list (0.5.10.4, 170).",
+        "Download Season no longer selects or queues episodes that haven't aired yet. They're shown greyed out with their air date."
       ]
     },
     {

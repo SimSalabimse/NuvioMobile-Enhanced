@@ -53,3 +53,24 @@ class SeasonAutoPickTest {
         assertFalse(seasonAutoPickShouldGiveUp(found, allSourcesAnswered = true, hardTimeoutElapsed = true))
     }
 }
+
+class SeasonUnairedTest {
+    private fun video(released: String?, available: Boolean = true) =
+        com.nuvio.app.features.details.MetaVideo(id = "x", title = "t", released = released, available = available, season = 1, episode = 1)
+
+    @Test
+    fun onlyPastAirDatesAreDownloadable() {
+        val now = 1_760_000_000_000L // 2025-10-09
+        assertTrue(video("2025-01-01").hasAiredForDownload(now))
+        assertFalse(video("2030-01-01").hasAiredForDownload(now))
+        assertFalse(video(null).hasAiredForDownload(now))
+        assertFalse(video("").hasAiredForDownload(now))
+        assertFalse(video("2025-01-01", available = false).hasAiredForDownload(now))
+    }
+
+    @Test
+    fun unairedLabelShowsDate() {
+        assertEquals("Airs 12 Nov 2026", unairedLabel("2026-11-12T00:00:00.000Z"))
+        assertEquals("Not aired yet", unairedLabel(null))
+    }
+}
