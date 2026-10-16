@@ -241,21 +241,29 @@ internal fun SeasonAutoPickSettings.picksAutomatically(): Boolean =
                 com.nuvio.app.features.streams.StreamAutoPlayPolicy.isRegexSelectionConfigured(regexPattern)
         }
 
+/** What the auto-pick found on the streams answered so far. */
+internal data class SeasonAutoPickResult(
+    /** The stream to queue, or null. */
+    val stream: StreamItem?,
+    /** A matching TorBox/debrid torrent is still being cache-checked; the player would wait for it. */
+    val waitingForDebrid: Boolean,
+)
+
 /**
- * The stream the player's auto-play would choose, limited to streams the season sheet can download.
- * Same selector, same order, same addon/plugin/regex/binge-group rules.
+ * The stream the player's auto-play would choose: the same [StreamAutoPlaySelector.evaluateAutoPlayStream]
+ * call on the same, cache-annotated streams in the same order, with the same addon/plugin/regex/binge-group
+ * and TorBox-cached rules. Only after that is the pick limited to streams the sheet can download: when the
+ * player's choice can't be downloaded, the next ready stream in the player's order that can is used.
  */
-internal fun autoPickSeasonStream(
+internal fun evaluateSeasonAutoPick(
     streams: List<StreamItem>,
     settings: SeasonAutoPickSettings,
     installedAddonNames: Set<String>,
-): StreamItem? {
-    if (!settings.picksAutomatically()) return null
-    val candidates = streams.filter { it.isSeasonDownloadCandidate() }
-    if (candidates.isEmpty()) return null
+): SeasonAutoPickResult {
+    if (!settings.picksAutomatically() || streams.isEmpty()) return SeasonAutoPickResult(null, false)
     val bingeGroup = settings.preferredBingeGroup
-    return com.nuvio.app.features.streams.StreamAutoPlaySelector.selectAutoPlayStream(
-        streams = candidates,
+    val evaluation = com.nuvio.app.features.streams.StreamAutoPlaySelector.evaluateAutoPlayStream(
+        streams = streams,
         mode = if (settings.mode == com.nuvio.app.features.streams.StreamAutoPlayMode.MANUAL) {
             com.nuvio.app.features.streams.StreamAutoPlayMode.FIRST_STREAM
         } else {
@@ -272,6 +280,36 @@ internal fun autoPickSeasonStream(
         debridEnabled = settings.debridEnabled,
         activeResolverProviderId = settings.activeResolverProviderId,
     )
+    val ready = buildList {
+        evaluation.stream?.let(::add)
+        evaluation.readyStreams.filterNot { it == evaluation.stream }.forEach(::add)
+    }
+    val picked = ready.firstOrNull { it.isSeasonDownloadCandidate() }
+    return SeasonAutoPickResult(picked, waitingForDebrid = picked == null && evaluation.hasPendingDebridCandidate)
+}
+
+internal fun autoPickSeasonStream(
+    streams: List<StreamItem>,
+    settings: SeasonAutoPickSettings,
+    installedAddonNames: Set<String>,
+): StreamItem? = evaluateSeasonAutoPick(streams, settings, installedAddonNames).stream
+
+/** Longest the sheet waits for a pick before showing the list, whatever the auto-play timeout is. */
+internal const val SEASON_AUTO_PICK_GIVE_UP_MS = 60_000L
+
+/**
+ * Whether the sheet should stop waiting and show the full source list.
+ * Only when nothing matched after every source answered and no TorBox/debrid cache check is
+ * still running, or after [SEASON_AUTO_PICK_GIVE_UP_MS].
+ */
+internal fun seasonAutoPickShouldGiveUp(
+    result: SeasonAutoPickResult,
+    allSourcesAnswered: Boolean,
+    hardTimeoutElapsed: Boolean,
+): Boolean {
+    if (result.stream != null) return false
+    if (hardTimeoutElapsed) return true
+    return allSourcesAnswered && !result.waitingForDebrid
 }
 
 /**

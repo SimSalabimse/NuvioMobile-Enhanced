@@ -10,7 +10,8 @@
         "Release notes are put together automatically at build time from merged pull requests and commits, grouped into New, Improved and Fixed. Hand-written notes are kept."
       ],
       "fixed": [
-        "The GitHub release and SideStore source now carry the full notes again instead of a single line."
+        "The GitHub release and SideStore source now carry the full notes again instead of a single line.",
+        "Download Season with auto-pick on now picks a source the same way auto-play does, including TorBox cached torrents, instead of opening the full source list. It waits for the sources and the TorBox cache check, and shows the list only if nothing matches."
       ]
     },
     {

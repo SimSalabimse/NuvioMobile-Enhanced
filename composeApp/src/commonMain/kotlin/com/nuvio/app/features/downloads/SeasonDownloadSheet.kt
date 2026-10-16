@@ -227,19 +227,22 @@ internal fun SeasonDownloadSheet(
             .mapNotNull { addon -> addon.manifest?.let { addon.displayTitle.ifBlank { it.name } } }
             .toSet()
         var timeoutElapsed = false
+        var hardTimeoutElapsed = false
         var allAnswered = false
         autoPickOn = autoSettings.picksAutomatically()
         autoPickGaveUp = false
 
         fun tryAutoPick() {
-            if (choice != null || pickingSource || !autoSettings.picksAutomatically()) return
-            if (!seasonAutoPickMayDecide(autoSettings.timeoutSeconds, timeoutElapsed, allAnswered)) return
-            val picked = autoPickSeasonStream(anchorStreams, autoSettings, installedAddonNames)
-            if (picked == null) {
-                if (allAnswered || timeoutElapsed) autoPickGaveUp = true
+            if (choice != null || pickingSource || autoPickGaveUp || !autoSettings.picksAutomatically()) return
+            val result = evaluateSeasonAutoPick(anchorStreams, autoSettings, installedAddonNames)
+            // Pick when the player's auto-play would: the timeout, the last source, or at once for 0 s.
+            val mayDecide = seasonAutoPickMayDecide(autoSettings.timeoutSeconds, timeoutElapsed, allAnswered) ||
+                hardTimeoutElapsed
+            if (result.stream != null && mayDecide) {
+                applyChoice(result.stream, byAutoPick = true)
                 return
             }
-            applyChoice(picked, byAutoPick = true)
+            if (seasonAutoPickShouldGiveUp(result, allAnswered, hardTimeoutElapsed)) autoPickGaveUp = true
         }
 
         val timer = launch {
@@ -250,18 +253,31 @@ internal fun SeasonDownloadSheet(
                 tryAutoPick()
             }
         }
+        val hardTimer = launch {
+            delay(SEASON_AUTO_PICK_GIVE_UP_MS)
+            hardTimeoutElapsed = true
+            tryAutoPick()
+        }
         SeasonStreamCatalog.stream(
             type = meta.type,
             videoId = seasonStreamVideoId(meta.id, anchor.video),
             season = anchor.video.season,
             episode = anchor.video.episode,
+            annotateDebridCache = true,
         ).collect { snapshot ->
             anchorStreams = snapshot.streams
             pendingSources = snapshot.pendingSources
             allAnswered = snapshot.complete
             tryAutoPick()
         }
-        timer.cancel()
+        // All sources answered: the last tryAutoPick decided or gave up, so the timers are not needed.
+        if (choice != null || autoPickGaveUp || !autoPickOn) {
+            timer.cancel()
+            hardTimer.cancel()
+        } else {
+            timer.join()
+            hardTimer.join()
+        }
     }
 
     LaunchedEffect(episodePickerKey) {
