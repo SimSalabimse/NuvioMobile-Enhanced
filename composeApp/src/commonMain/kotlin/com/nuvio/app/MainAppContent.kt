@@ -70,6 +70,10 @@ import com.nuvio.app.core.ui.NativeTabBridge
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.NuvioCardDepthSurface
 import com.nuvio.app.core.ui.NuvioContinueWatchingActionSheet
+import com.nuvio.app.core.ui.ContinueWatchingDownloadState
+import com.nuvio.app.core.ui.continueWatchingDownloadState
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.DownloadDone
 import com.nuvio.app.core.ui.NuvioFloatingPrompt
 import com.nuvio.app.core.ui.NuvioPosterZoomActionOverlay
 import com.nuvio.app.core.ui.NuvioStatusModal
@@ -1487,6 +1491,25 @@ internal fun MainAppContent(
             openContinueWatching(item, true, false)
         }
 
+        // Enhanced: Download from the Continue Watching / Next Up hold menu. Same flow as a
+        // single-episode download (auto-pick, TorBox check, Change source).
+        val onContinueWatchingDownload: (ContinueWatchingItem) -> Unit = { item ->
+            onDownloadContent(
+                item.parentMetaType, item.videoId, item.parentMetaId, item.parentMetaType,
+                item.title, item.logo, item.poster, item.background,
+                item.seasonNumber, item.episodeNumber, item.episodeTitle, item.episodeThumbnail,
+                item.pauseDescription, 0L,
+            )
+        }
+        val continueWatchingDownloadStateOf: (ContinueWatchingItem) -> ContinueWatchingDownloadState = { item ->
+            continueWatchingDownloadState(
+                item = item,
+                downloads = downloadsUiState.items,
+                canDownload = !item.isCloudLibraryContinueWatchingItem() &&
+                    !item.parentMetaType.equals("live", ignoreCase = true),
+            )
+        }
+
         val onContinueWatchingRemove: (ContinueWatchingItem) -> Unit = { item ->
             continueWatchingDisintegrationRequests.arm(continueWatchingItemKey(item))
             if (item.isNextUp) {
@@ -2267,6 +2290,24 @@ internal fun MainAppContent(
                                         ),
                                     )
                                 }
+                                when (val downloadState = continueWatchingDownloadStateOf(item)) {
+                                    ContinueWatchingDownloadState.Available -> add(
+                                        PosterZoomOverlayAction(
+                                            icon = Icons.Rounded.Download,
+                                            label = downloadState.label,
+                                            onSelected = { onContinueWatchingDownload(item) },
+                                        ),
+                                    )
+                                    ContinueWatchingDownloadState.Downloading,
+                                    ContinueWatchingDownloadState.Downloaded -> add(
+                                        PosterZoomOverlayAction(
+                                            icon = Icons.Rounded.DownloadDone,
+                                            label = downloadState.label,
+                                            onSelected = { navController.navigate(DownloadsRoute(downloadsTitle)) },
+                                        ),
+                                    )
+                                    ContinueWatchingDownloadState.Unavailable -> Unit
+                                }
                                 add(
                                     PosterZoomOverlayAction(
                                         icon = Icons.Default.DeleteOutline,
@@ -2311,6 +2352,12 @@ internal fun MainAppContent(
                 onRemove = {
                     selectedContinueWatchingForActions?.let(onContinueWatchingRemove)
                 },
+                downloadState = selectedContinueWatchingForActions
+                    ?.let(continueWatchingDownloadStateOf)
+                    ?: ContinueWatchingDownloadState.Unavailable,
+                onDownload = selectedContinueWatchingForActions
+                    ?.let { item -> { onContinueWatchingDownload(item) } },
+                onOpenDownloads = { navController.navigate(DownloadsRoute(downloadsTitle)) },
             )
 
             TrackingListPickerDialog(
