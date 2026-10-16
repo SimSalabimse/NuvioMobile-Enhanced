@@ -125,7 +125,8 @@ fi
 
 configuration_slug="$(printf '%s' "${configuration}" | tr '[:upper:]' '[:lower:]')"
 ipa_output_dir="${IOS_IPA_OUTPUT_DIR:-${repository_root}/build/ios-ipa}"
-ipa_path="$(find "${ipa_output_dir}" -maxdepth 1 -type f -name "*-full-${configuration_slug}.ipa" -print -quit 2>/dev/null || true)"
+# build-ios-ipa.sh writes nuvio-<version>-enhanced-<config>.ipa; older builds used -full-.
+ipa_path="$(ls -t "${ipa_output_dir}"/*-enhanced-"${configuration_slug}".ipa "${ipa_output_dir}"/*-full-"${configuration_slug}".ipa 2>/dev/null | head -n 1 || true)"
 if [[ -z "${ipa_path}" ]]; then
   echo "ERROR: IPA not found under ${ipa_output_dir}/" >&2
   ls -la "${ipa_output_dir}/" 2>&1 || true
