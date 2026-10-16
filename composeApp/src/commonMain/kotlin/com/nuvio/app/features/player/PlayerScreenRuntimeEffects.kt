@@ -1013,21 +1013,8 @@ private fun findCredentialRefreshCandidate(
         .maxByOrNull { (score, _) -> score }
         ?.second
 
-private fun SkipInterval.isEligibleForSkipButton(positionSec: Double): Boolean {
-    val effectiveStartTime = if (isIntroLikeSkipInterval()) {
-        (startTime - SKIP_INTRO_PRE_ROLL_SECONDS).coerceAtLeast(0.0)
-    } else {
-        startTime
-    }
-    return positionSec >= effectiveStartTime && positionSec < endTime
-}
-
-private fun SkipInterval.isIntroLikeSkipInterval(): Boolean =
-    when (type.lowercase()) {
-        "intro", "op", "mixed-op" -> true
-        else -> false
-    }
-
-private const val SKIP_INTRO_PRE_ROLL_SECONDS = 10.0
+/** The button shows exactly from the segment start to its end; no pre-roll, so the start is visible. */
+private fun SkipInterval.isEligibleForSkipButton(positionSec: Double): Boolean =
+    positionSec >= startTime && positionSec < endTime
 private const val CREDENTIAL_REFRESH_POLL_COUNT = 30
 private const val CREDENTIAL_REFRESH_POLL_INTERVAL_MS = 500L
