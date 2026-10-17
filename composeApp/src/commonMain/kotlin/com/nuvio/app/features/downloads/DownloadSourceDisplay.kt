@@ -1,6 +1,10 @@
 package com.nuvio.app.features.downloads
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -88,3 +92,70 @@ private fun DownloadChip(text: String, emphasized: Boolean, muted: Boolean = fal
 /** Set by download screens so stream list rows also show the quality and size chips. */
 internal val LocalDownloadSourceChips = staticCompositionLocalOf { false }
 
+
+/** Quality buckets offered as options: 4K, 1080p, 720p, 480p (anything lower counts as 480p). */
+internal val DOWNLOAD_QUALITY_BUCKETS = listOf(2160, 1080, 720, 480)
+
+internal fun downloadQualityBucket(stream: StreamItem): Int? {
+    val height = qualityHeight(streamQualityLabel(stream)) ?: return null
+    return DOWNLOAD_QUALITY_BUCKETS.firstOrNull { height >= it } ?: 480
+}
+
+internal fun downloadQualityBucketLabel(bucket: Int): String = if (bucket >= 2160) "4K" else "${bucket}p"
+
+/** One tappable quality option: the best auto-pick candidate of that quality. */
+internal data class DownloadQualityOption(
+    val bucket: Int,
+    val stream: StreamItem,
+) {
+    val label: String get() = downloadQualityBucketLabel(bucket)
+}
+
+/**
+ * Best candidate per quality present in [streams], highest quality first. [pickFrom] is the
+ * auto-pick selector (same rules as auto-play); when it declines a quality, the first
+ * downloadable stream of that quality in source order is used.
+ */
+internal fun bestPerQualityOptions(
+    streams: List<StreamItem>,
+    pickFrom: (List<StreamItem>) -> StreamItem?,
+): List<DownloadQualityOption> {
+    val byBucket = streams.filter { it.isSeasonDownloadCandidate() }.groupBy(::downloadQualityBucket)
+    return DOWNLOAD_QUALITY_BUCKETS.mapNotNull { bucket ->
+        val candidates = byBucket[bucket].orEmpty()
+        if (candidates.isEmpty()) return@mapNotNull null
+        val best = runCatching { pickFrom(candidates) }.getOrNull()?.takeIf { it in candidates } ?: candidates.first()
+        DownloadQualityOption(bucket, best)
+    }
+}
+
+/**
+ * Row of per-quality options ("1080p · 2.3 GB"); the current one is highlighted. Shared by the
+ * picked-source card (every single download entry point) and Download Season.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun DownloadQualityOptionsRow(
+    options: List<DownloadQualityOption>,
+    selectedBucket: Int?,
+    onSelect: (DownloadQualityOption) -> Unit,
+    modifier: Modifier = Modifier,
+    showSize: Boolean = true,
+) {
+    if (options.isEmpty()) return
+    Row(
+        modifier = modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        options.forEach { option ->
+            val selected = option.bucket == selectedBucket
+            val text = if (showSize) "${option.label} · ${downloadSizeLabel(option.stream)}" else option.label
+            FilterChip(
+                selected = selected,
+                onClick = { if (!selected) onSelect(option) },
+                label = { Text(text, maxLines = 1) },
+            )
+        }
+    }
+}

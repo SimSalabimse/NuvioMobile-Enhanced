@@ -327,3 +327,28 @@ internal fun seasonAutoPickMayDecide(
     if (timeoutSeconds <= 0) return true
     return timeoutElapsed
 }
+
+/**
+ * Season quality selector: match an episode at [targetBucket] (4K / 1080p / 720p / 480p), or the
+ * nearest lower quality when that episode lacks it. Inside one quality, the picked stream's
+ * bingeGroup wins, then its addon, then the first downloadable stream.
+ */
+internal fun matchSeasonStreamAtQuality(
+    choice: SeasonSourceChoice,
+    streams: List<StreamItem>,
+    targetBucket: Int,
+): SeasonStreamMatch {
+    if (streams.isEmpty()) return SeasonStreamMatch.Unmatched(SeasonMatchFailure.NoStreams)
+    val candidates = streams.filter { it.isSeasonDownloadCandidate() }
+    if (candidates.isEmpty()) return SeasonStreamMatch.Unmatched(SeasonMatchFailure.UnsupportedFormat)
+    for (bucket in DOWNLOAD_QUALITY_BUCKETS.filter { it <= targetBucket }) {
+        val hits = candidates.filter { downloadQualityBucket(it) == bucket }
+        if (hits.isEmpty()) continue
+        val binge = choice.bingeGroup
+        val pick = binge?.let { group -> hits.firstOrNull { it.behaviorHints.bingeGroup?.trim() == group } }
+            ?: hits.firstOrNull { it.addonId == choice.addonId }
+            ?: hits.first()
+        return SeasonStreamMatch.Matched(pick)
+    }
+    return SeasonStreamMatch.Unmatched(SeasonMatchFailure.NoMatchingSource)
+}

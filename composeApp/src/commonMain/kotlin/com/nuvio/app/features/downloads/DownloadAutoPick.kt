@@ -50,6 +50,7 @@ internal suspend fun runDownloadAutoPick(
     season: Int?,
     episode: Int?,
     onState: (DownloadAutoPickState) -> Unit,
+    onStreams: (streams: List<StreamItem>, pickFrom: (List<StreamItem>) -> StreamItem?) -> Unit = { _, _ -> },
 ) = coroutineScope {
     val settings = currentAutoPickSettings(parentMetaId)
     if (!settings.picksAutomatically()) {
@@ -94,6 +95,7 @@ internal suspend fun runDownloadAutoPick(
     SeasonStreamCatalog.stream(type, videoId, season, episode, annotateDebridCache = true).collect { snapshot ->
         streams = snapshot.streams
         allAnswered = snapshot.complete
+        onStreams(snapshot.streams) { list -> evaluateSeasonAutoPick(list, settings, installed).stream }
         if (!done) onState(DownloadAutoPickState.Picking(snapshot.pendingSources))
         decide()
     }
@@ -126,6 +128,15 @@ internal class DownloadAutoPickController {
     fun revealSources() {
         revealed = true
     }
+
+    /** Best auto-pick candidate per quality present (4K / 1080p / 720p / 480p). */
+    var qualityOptions by mutableStateOf<List<DownloadQualityOption>>(emptyList())
+        internal set
+
+    /** Swap the pick to the best candidate of another quality, without opening the list. */
+    fun selectQuality(option: DownloadQualityOption) {
+        if (state is DownloadAutoPickState.Picked) state = DownloadAutoPickState.Picked(option.stream)
+    }
 }
 
 @Composable
@@ -142,7 +153,15 @@ internal fun rememberDownloadAutoPick(
     }
     if (enabled) {
         LaunchedEffect(controller) {
-            runDownloadAutoPick(type, videoId, parentMetaId, season, episode) { controller.state = it }
+            runDownloadAutoPick(
+                type = type,
+                videoId = videoId,
+                parentMetaId = parentMetaId,
+                season = season,
+                episode = episode,
+                onState = { controller.state = it },
+                onStreams = { streams, pickFrom -> controller.qualityOptions = bestPerQualityOptions(streams, pickFrom) },
+            )
         }
     }
     return controller
@@ -201,7 +220,16 @@ internal fun DownloadAutoPickCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    DownloadQualitySizeChips(stream = stream)
+                    val options = controller.qualityOptions
+                    if (options.isNotEmpty()) {
+                        DownloadQualityOptionsRow(
+                            options = options,
+                            selectedBucket = downloadQualityBucket(stream),
+                            onSelect = controller::selectQuality,
+                        )
+                    } else {
+                        DownloadQualitySizeChips(stream = stream)
+                    }
                     stream.streamLabel.takeIf { it.isNotBlank() }?.let {
                         Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }

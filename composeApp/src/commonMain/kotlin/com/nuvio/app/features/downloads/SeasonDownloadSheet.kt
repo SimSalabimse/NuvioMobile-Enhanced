@@ -119,6 +119,9 @@ internal fun SeasonDownloadSheet(
     var pendingSources by remember(episodes) { mutableStateOf(0) }
     var choice by remember(episodes) { mutableStateOf<StreamItem?>(null) }
     var autoPicked by remember(episodes) { mutableStateOf(false) }
+    // Season quality selector: null follows the picked source; a bucket re-picks every episode at it.
+    var seasonQuality by remember(episodes) { mutableStateOf<Int?>(null) }
+    var anchorPickFrom by remember(episodes) { mutableStateOf<(List<StreamItem>) -> StreamItem?>({ null }) }
     var pickingSource by remember(episodes) { mutableStateOf(false) }
     // Auto-pick on: the source list stays folded while it decides; it opens on "Choose myself"
     // or when auto-pick finds nothing it may use.
@@ -154,6 +157,7 @@ internal fun SeasonDownloadSheet(
 
     fun matchRows(stream: StreamItem): Job {
         val picked = SeasonSourceChoice(stream)
+        val targetQuality = seasonQuality
         val toMatch = rows.filter { it.matching }
         return scope.launch {
             val gate = Semaphore(SEASON_MATCH_CONCURRENCY)
@@ -168,7 +172,11 @@ internal fun SeasonDownloadSheet(
                             episode = row.video.episode,
                         )
                     }
-                    val match = matchSeasonStream(picked, streams)
+                    val match = if (targetQuality != null) {
+                        matchSeasonStreamAtQuality(picked, streams, targetQuality)
+                    } else {
+                        matchSeasonStream(picked, streams)
+                    }
                     rows = rows.map { current ->
                         if (current.key == row.key && !current.overridden) {
                             current.copy(match = match, matching = false)
@@ -237,6 +245,7 @@ internal fun SeasonDownloadSheet(
         var allAnswered = false
         autoPickOn = autoSettings.picksAutomatically()
         autoPickGaveUp = false
+        anchorPickFrom = { list -> evaluateSeasonAutoPick(list, autoSettings, installedAddonNames).stream }
 
         fun tryAutoPick() {
             if (choice != null || pickingSource || autoPickGaveUp || !autoSettings.picksAutomatically()) return
@@ -492,7 +501,10 @@ internal fun SeasonDownloadSheet(
                     )
                 }
                 itemsIndexed(candidates, key = { index, _ -> "source:$index" }) { _, stream ->
-                    SourceRow(stream = stream, onPick = { applyChoice(stream, byAutoPick = false) })
+                    SourceRow(stream = stream, onPick = {
+                        seasonQuality = null
+                        applyChoice(stream, byAutoPick = false)
+                    })
                 }
                 if (pendingSources > 0) {
                     item(key = "picker-pending") {
@@ -512,6 +524,29 @@ internal fun SeasonDownloadSheet(
                             autoPicked = autoPicked,
                             onChange = { pickingSource = true },
                         )
+                    }
+                    val qualityOptions = bestPerQualityOptions(anchorStreams, anchorPickFrom)
+                    if (qualityOptions.isNotEmpty()) {
+                        item(key = "season-quality") {
+                            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                                Text(
+                                    text = "Quality for the season",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                DownloadQualityOptionsRow(
+                                    options = qualityOptions,
+                                    selectedBucket = seasonQuality ?: downloadQualityBucket(picked),
+                                    showSize = false,
+                                    onSelect = { option ->
+                                        // Re-pick every selected episode at this quality (nearest lower if missing).
+                                        seasonQuality = option.bucket
+                                        rows = rows.map { if (it.key in confirmedKeys) it.copy(overridden = false) else it }
+                                        applyChoice(option.stream, byAutoPick = autoPicked)
+                                    },
+                                )
+                            }
+                        }
                     }
                 }
             }
