@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.time.isEpisodeReleaseAired
 import com.nuvio.app.core.ui.NuvioShelfSection
@@ -208,6 +209,8 @@ private fun FinishSeriesCard(
     val item = entry.item
     val shape = RoundedCornerShape(12.dp)
     val image = item.background ?: item.imageUrl ?: item.poster
+    // No clip on the column: in 178 the rounded 12 dp clip of the whole card cut the bottom-left
+    // of the label's first digit. Only the artwork is clipped now.
     Column(modifier = Modifier.width(220.dp)) {
         Box(
             modifier = Modifier
@@ -239,7 +242,7 @@ private fun FinishSeriesCard(
         // Right under the bar; wraps to a second line instead of cutting a word.
         Text(
             text = entry.label,
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 2,
             softWrap = true,
@@ -247,7 +250,7 @@ private fun FinishSeriesCard(
         )
         Text(
             text = item.title,
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp, lineHeight = 20.sp),
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onBackground,
             maxLines = 1,
