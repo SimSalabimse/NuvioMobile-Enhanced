@@ -156,7 +156,10 @@ object DownloadsRepository {
     fun restoreForegroundCap() {
         startQueue.maxActive = PlaybackPriority.level.maxDownloads
         resumeWaitingForAppOpen()
-        if (hasLoaded) scheduleSpaceRetry()
+        if (hasLoaded) {
+            scheduleSpaceRetry()
+            SmartDownloads.retryPending()
+        }
     }
 
     /** Episode time the download of [downloadId] has reached, for the player's buffer bar. */
@@ -235,11 +238,12 @@ object DownloadsRepository {
         val existing = currentItems.firstOrNull { it.logicalContentKey == logicalKey }
         if (existing != null) {
             replacedExisting = true
+            com.nuvio.app.features.analysis.MediaAnalysisScheduler.releaseFile(existing.id)
+            DownloadsPlatformDownloader.discardTransfer(existing.id)
             activeHandles.remove(existing.id)?.cancel()
             partialPrefixCache.remove(existing.id)
             startQueue.discard(existing.id)
-            DownloadsPlatformDownloader.removeFile(playableLocalFileUri(existing) ?: existing.localFileUri)
-            DownloadsPlatformDownloader.removePartialFile(existing.fileName)
+            deleteFilesOf(existing)
             currentItems.removeAll { it.id == existing.id }
         }
 
@@ -719,18 +723,68 @@ object DownloadsRepository {
         ensureLoaded()
         val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
 
+        // Let go of the file first (analysis run, preview reader, audio capture), then stop the
+        // transfer without resume data, then delete and check.
+        com.nuvio.app.features.analysis.MediaAnalysisScheduler.releaseFile(downloadId)
+        DownloadsPlatformDownloader.discardTransfer(downloadId)
         activeHandles.remove(downloadId)?.cancel()
         linkRefreshAttempts.remove(downloadId)
         linkRefreshBytes.remove(downloadId)
         partialPrefixCache.remove(downloadId)
-        DownloadsPlatformDownloader.removeFile(playableLocalFileUri(item) ?: item.localFileUri)
-        DownloadsPlatformDownloader.removePartialFile(item.fileName)
+        deleteFilesOf(item)
 
         publish(_uiState.value.items.filterNot { it.id == downloadId })
         persistStatus()
         applyStarts(startQueue.release(downloadId, DownloadThermalGate.blocksNextFile()))
         appUsageDirty = true
         scheduleSpaceRetry()
+        SmartDownloads.retryPending()
+    }
+
+    /**
+     * Deletes the finished file (checked in every place it can be) and the partial data. A file
+     * that is still there, or a finished file that was found nowhere, goes on the failed-deletes
+     * list, retried at launch and on Clean up leftovers.
+     */
+    private fun deleteFilesOf(item: DownloadItem) {
+        val playable = runCatching { playableLocalFileUri(item) }.getOrNull()
+        val outcome = DownloadsPlatformDownloader.removeFileVerified(
+            listOf(playable, item.localFileUri),
+            item.fileName,
+        )
+        DownloadsPlatformDownloader.removePartialFile(item.fileName)
+        val expectedFile = item.status == DownloadStatus.Completed
+        if (outcome == FileDeleteOutcome.StillThere || (outcome == FileDeleteOutcome.NotFound && expectedFile)) {
+            PendingFileDeletes.add(item.fileName, item.localFileUri)
+        }
+    }
+
+    /** Failed deletes from before: try again (at launch and on cleanup). Returns how many went. */
+    internal fun retryFailedDeletes(): Int {
+        val owned = _uiState.value.items.map { it.fileName }.toSet() +
+            storedFileNames(DownloadDiskInfo.allProfilePayloads())
+        var done = 0
+        PendingFileDeletes.retry { entry ->
+            // Downloaded again since: that file is in use.
+            if (entry.fileName in owned) return@retry true
+            val outcome = DownloadsPlatformDownloader.removeFileVerified(listOf(entry.localFileUri), entry.fileName)
+            if (outcome == FileDeleteOutcome.Deleted) done++
+            outcome == FileDeleteOutcome.Deleted
+        }
+        if (done > 0) {
+            appUsageDirty = true
+            scheduleSpaceRetry()
+        }
+        return done
+    }
+
+    /** "Failed / incomplete downloads": rows that stopped part way, with their partial bytes. */
+    internal fun deleteIncompleteDownloads(ids: List<String>) {
+        ensureLoaded()
+        val incomplete = _uiState.value.items
+            .filter { it.id in ids && (it.status == DownloadStatus.Failed || it.status == DownloadStatus.Paused) }
+            .map { it.id }
+        incomplete.forEach(::cancelDownload)
     }
 
     private fun loadFromDisk() {
@@ -765,6 +819,7 @@ object DownloadsRepository {
         }
         adoptLoadedItems()
         resumeWaitingForAppOpen()
+        runCatching { retryFailedDeletes() }
     }
 
     private fun startDownload(item: DownloadItem) {
@@ -1090,7 +1145,7 @@ object DownloadsRepository {
         }
     }
 
-    private fun DownloadItem.remainingBytes(): Long? =
+    internal fun DownloadItem.remainingBytes(): Long? =
         totalBytes?.takeIf { it > 0L }?.let { (it - downloadedBytes).coerceAtLeast(0L) }
 
     private val lastSpaceCheckAt = mutableMapOf<String, Long>()
@@ -1167,6 +1222,7 @@ object DownloadsRepository {
      */
     internal fun cleanUpLeftovers(): Long {
         ensureLoaded()
+        runCatching { retryFailedDeletes() }
         val summary = storageSummary()
         val owned = _uiState.value.items.map { it.fileName } + storedFileNames(DownloadDiskInfo.allProfilePayloads())
         var freed = 0L
@@ -1175,12 +1231,13 @@ object DownloadsRepository {
             .forEach { file -> if (DownloadDiskInfo.deleteDownloadFile(file.name)) freed += file.sizeBytes }
         summary.app?.leftovers.orEmpty().forEach { leftover ->
             val name = leftover.path.substringAfterLast('/').removeSuffix(".resumedata")
-            if (owned.none { it.isNotBlank() && it == name }) {
+            if (owned.none { it.isNotBlank() && (it == name || ownsDiskFile(it, name)) }) {
                 if (DownloadDiskInfo.deleteLeftover(leftover.path)) freed += leftover.sizeBytes
             }
         }
         appUsageDirty = true
         scheduleSpaceRetry()
+        SmartDownloads.retryPending()
         return freed
     }
 

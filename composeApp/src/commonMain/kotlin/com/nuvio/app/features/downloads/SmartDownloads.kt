@@ -253,16 +253,36 @@ internal object SmartDownloads {
         val reference = items
             .filter { it.parentMetaId == meta.id && it.isEpisode }
             .maxByOrNull { it.updatedAtEpochMs }
-        val rows = missing.mapNotNull { video ->
+        val picked = missing.mapNotNull { video ->
             pickStream(meta, video, reference)?.let { SeasonEnqueueRow(video, it) }
         }
-        if (rows.isEmpty()) return false
-        val result = enqueueSeasonDownloads(meta, rows)
+        if (picked.isEmpty()) return false
+        // Only what fits: each file plus its reserve, after what running downloads still need.
+        val fit = smartDownloadsThatFit(
+            rows = picked,
+            sizeOf = { row -> downloadStreamBytes(row.stream) },
+            fallbackBytes = reference?.totalBytes?.takeIf { it > 0L },
+            freeBytes = DownloadDiskInfo.volumeSpace()?.availableBytes,
+            inProgressRemainingBytes = items
+                .filter { it.status == DownloadStatus.Downloading || it.status == DownloadStatus.Queued }
+                .sumOf { item -> item.totalBytes?.takeIf { it > 0L }?.let { (it - item.downloadedBytes).coerceAtLeast(0L) } ?: 0L },
+        )
+        if (fit.isEmpty()) {
+            // The watched file is about to go: wait for that delete, then this runs again.
+            if (FinishedDownloadDeletion.hasPendingDeletion()) return false
+            val key = "${request.parentMetaId}:${request.season}:${request.episode}"
+            if (noSpaceShown.add(key)) NuvioToastController.show(SMART_DOWNLOADS_NO_SPACE)
+            return false
+        }
+        val result = enqueueSeasonDownloads(meta, fit)
         if (result.queued > 0) {
             NuvioToastController.show(smartDownloadsQueuedMessage(result.queued, meta.name))
         }
-        return rows.size == missing.size
+        // Kept pending while some episodes did not fit, so it runs again once space frees.
+        return fit.size == missing.size && picked.size == missing.size
     }
+
+    private val noSpaceShown = mutableSetOf<String>()
 
     private suspend fun pickStream(meta: MetaDetails, video: MetaVideo, reference: DownloadItem?): StreamItem? {
         val videoId = seasonStreamVideoId(meta.id, video)
@@ -294,6 +314,36 @@ internal object SmartDownloads {
         )
     }
 }
+
+internal const val SMART_DOWNLOADS_NO_SPACE = "No space for the next episode"
+
+/**
+ * The leading [rows] (in episode order) that fit in [freeBytes]: each needs its size plus the usual
+ * reserve, after [inProgressRemainingBytes] that running and queued downloads still need. A row
+ * without a size uses [fallbackBytes] (the last episode of the show), or a 2 GB guess. Unknown free
+ * space lets everything through (the running download checks again).
+ */
+internal fun <T> smartDownloadsThatFit(
+    rows: List<T>,
+    sizeOf: (T) -> Long?,
+    fallbackBytes: Long?,
+    freeBytes: Long?,
+    inProgressRemainingBytes: Long,
+): List<T> {
+    if (freeBytes == null) return rows
+    var budget = freeBytes - inProgressRemainingBytes.coerceAtLeast(0L)
+    val out = mutableListOf<T>()
+    for (row in rows) {
+        val size = sizeOf(row)?.takeIf { it > 0L } ?: fallbackBytes ?: SMART_DOWNLOAD_UNKNOWN_SIZE_BYTES
+        val needed = size + downloadSpaceReserve(size)
+        if (needed > budget) break
+        out += row
+        budget -= size
+    }
+    return out
+}
+
+private const val SMART_DOWNLOAD_UNKNOWN_SIZE_BYTES = 2_000_000_000L
 
 /** The next [count] regular episodes after S[season]E[episode], in order, specials left out. */
 internal fun nextEpisodes(videos: List<MetaVideo>, season: Int, episode: Int, count: Int): List<MetaVideo> =

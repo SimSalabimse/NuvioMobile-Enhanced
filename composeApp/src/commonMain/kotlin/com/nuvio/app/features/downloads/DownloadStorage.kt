@@ -150,6 +150,9 @@ internal data class DownloadStorageSummary(
     val titles: List<TitleStorage>,
     /** Leftover files no download of any profile owns. */
     val orphans: List<DiskFile>,
+    /** Failed or paused rows of this profile ("Failed / incomplete downloads"), with their bytes on disk. */
+    val incompleteIds: List<String> = emptyList(),
+    val incompleteBytes: Long = 0L,
 ) {
     val orphanBytes: Long get() = orphans.sumOf { it.sizeBytes }
 
@@ -174,6 +177,8 @@ internal data class DownloadStorageSummary(
 
 /** File names under the downloads folder look like `Title S01E02_<time>_<n>.mkv`. */
 private val nuvioFileNamePattern = Regex(""".+_[0-9a-z]{6,}_[0-9a-z]+\.[A-Za-z0-9]{2,5}(\..+)?""")
+internal fun isNuvioDownloadFileName(name: String): Boolean = nuvioFileNamePattern.matches(name)
+
 private val storedFileNamePattern = Regex(""""fileName"\s*:\s*"((?:[^"\\]|\\.)*)"""")
 
 internal fun ownsDiskFile(fileName: String, diskName: String): Boolean =
@@ -228,7 +233,10 @@ internal fun summarizeDownloadStorage(
         ownedNames.none { ownsDiskFile(it, file.name) } &&
             (nuvioFileNamePattern.matches(file.name) || isLooseSubtitleFile(file.name))
     }
+    val incomplete = items.filter { it.status == DownloadStatus.Failed || it.status == DownloadStatus.Paused }
     return DownloadStorageSummary(
+        incompleteIds = incomplete.map { it.id },
+        incompleteBytes = incomplete.sumOf { itemBytes[it.id] ?: 0L },
         nuvioBytes = owned.sumOf { it.sizeBytes },
         subtitleBytes = owned.filter { it.name.endsWith(".subtitles") }.sumOf { it.sizeBytes },
         volume = volume,

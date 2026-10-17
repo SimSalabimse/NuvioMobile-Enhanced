@@ -8,7 +8,8 @@
         "MDBList dynamic and liked lists in the library.",
         "Download from the hold menu on Continue Watching and Next Up cards: it downloads that exact episode or movie with auto-pick and Change source. If it's already downloaded or downloading, the item opens Downloads instead.",
         "Pick the quality right on the auto-picked source: one option per quality available (4K, 1080p, 720p, 480p), each with its size, like 1080p · 2.3 GB. Tap one to switch to the best source of that quality without opening the list. Download Season has one quality choice for the whole season: every selected episode is re-picked at that quality (or the nearest lower one if an episode doesn't have it), and the total updates.",
-        "A \"Finish a series\" row on Home: the shows you've started, shortest to finish first, counting every remaining episode across all seasons (for example 4 eps · 2h 50m left), with a progress bar for the series. Tap to play the next episode. Turn it off in Continue Watching settings."
+        "A \"Finish a series\" row on Home: the shows you've started, shortest to finish first, counting every remaining episode across all seasons (for example 4 eps · 2h 50m left), with a progress bar for the series. Tap to play the next episode. Turn it off in Continue Watching settings.",
+        "Search the cast on a title's details: type an actor's or a character's name. Case and accents don't matter (\"zoe\" finds Zoë)."
       ],
       "improved": [
         "Updated to the latest upstream Nuvio (0.6.1-beta), with the updated p2p streaming engine (0.1.5), better picture-in-picture on iOS and new translations.",
@@ -23,12 +24,17 @@
         "Storage shows what Nuvio really takes, matching iOS Settings: sizes in the same units as iOS, free space and capacity from iOS, and the app total split into Downloads, Subtitles & extras, Cache, Leftovers and App data.",
         "\"Clean up leftovers\" in Storage removes files no download owns, such as loose subtitle files and resume data from removed downloads, after you confirm. Subtitles for a download now live in its own folder under Subtitles, and deleting a download removes them.",
         "Finish a series cards have the same hold menu as Continue Watching (Download in place, details, remove and more). The show name now appears on each card, with the time left under it, and neither line is cut off any more.",
-        "Clean up leftovers is now always on the storage card at the top of Downloads, greyed out with 0 B when there's nothing to clean."
+        "Clean up leftovers is now always on the storage card at the top of Downloads, greyed out with 0 B when there's nothing to clean.",
+        "Smart Downloads only queue the episodes that fit: each one needs its size plus the reserve, after what running downloads still need. When the watched episode is about to be deleted they wait for that space first. If nothing fits you see \"No space for the next episode\", and they try again once space frees up.",
+        "Storage lists \"Failed / incomplete downloads\" with what they take on disk, and deletes them all in one go after you confirm. Clean up leftovers also finds files left in the default downloads folder while you use another folder, and data that background downloads left behind in the system cache and tmp (only cleaned while no background download runs)."
       ],
       "fixed": [
         "Holding for 2x speed while playback switched to the downloaded file no longer leaves it stuck at 2x. Letting go, a cancelled hold, or the player switching or reloading always goes back to your normal speed.",
         "\"Not enough space\" no longer stops downloads that fit. It uses the free space iOS lets apps use and keeps a small reserve (5 % of the file, 500 MB to 1 GB) instead of a fixed 1 GB on top. Downloads of unknown size start and are checked while they run. The message now says what's needed, like \"Needs 3.8 GB, 4.0 GB free. Free up space, then tap Retry.\"",
-        "Retry on a download that stopped for space checks the space again and starts it (resuming the partial file), and says why if it still doesn't fit. Downloads that stopped for space start again by themselves once space is freed."
+        "Retry on a download that stopped for space checks the space again and starts it (resuming the partial file), and says why if it still doesn't fit. Downloads that stopped for space start again by themselves once space is freed.",
+        "Space from deleted downloads (also auto-deleted watched episodes) comes back right away. A file still open in a scrub preview, an analysis run, the subtitle-sync audio capture or a player is closed before it is deleted; before, iOS kept that space in use until the app restarted.",
+        "Deleting a download now checks the file is really gone, wherever it is: the saved path, your downloads folder and the default one. A delete that can't be confirmed is retried at the next launch and on Clean up leftovers.",
+        "Deleted or restarted background downloads no longer leave gigabytes in the system download cache. A removed download is cancelled without resume data, a paused one continues its own background task instead of starting over, and resume data that is dropped now also drops its temp file."
       ]
     },
     {

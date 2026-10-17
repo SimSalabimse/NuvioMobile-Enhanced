@@ -8,6 +8,9 @@ internal data class DownloadPlatformRequest(
     val destinationFileName: String get() = item.fileName
 }
 
+/** Result of a checked delete: [NotFound] (nothing anywhere) does not count as deleted. */
+internal enum class FileDeleteOutcome { Deleted, NotFound, StillThere }
+
 internal interface DownloadsTaskHandle {
     fun cancel()
 }
@@ -26,6 +29,12 @@ internal expect object DownloadsPlatformDownloader {
     fun removeFile(localFileUri: String?): Boolean
 
     fun removePartialFile(destinationFileName: String): Boolean
+
+    /** Deletes the finished file at any of [candidates] or by [fileName] in every downloads folder, then checks. */
+    fun removeFileVerified(candidates: List<String?>, fileName: String): FileDeleteOutcome
+
+    /** The row is going away: stop its transfer without keeping resume data. */
+    fun discardTransfer(downloadId: String)
 
     fun resolveLocalFileUri(localFileUri: String?, destinationFileName: String): String?
 

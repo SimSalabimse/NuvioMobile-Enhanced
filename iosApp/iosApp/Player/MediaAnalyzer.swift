@@ -22,12 +22,27 @@ final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
 
     func lastFailure() -> String? { MediaAnalyzerStatus.shared.failure }
 
+    private let fileLock = NSLock()
+    private var runningFile: String?
+
+    private func setRunningFile(_ value: String?) {
+        fileLock.lock(); runningFile = value; fileLock.unlock()
+    }
+
+    /// The file is about to be deleted: stop the run that reads it, so its handle closes.
+    func releaseFile(path: String) {
+        fileLock.lock(); let current = runningFile; fileLock.unlock()
+        if HeldFileRegistry.samePath(current, path) { abort.set() }
+    }
+
     func analyze(fileUri: String, onDone: @escaping (String?) -> Void) {
         abort.reset()
+        setRunningFile(fileUri)
         MediaAnalyzerStatus.shared.begin()
         let flag = abort
         queue.async {
             let result = MediaAnalysisRun(fileUri: fileUri, abort: flag).run()
+            self.setRunningFile(nil)
             if result == nil, MediaAnalyzerStatus.shared.failure == nil {
                 MediaAnalyzerStatus.shared.fail(flag.isSet ? "Stopped" : "Could not analyse the audio")
             }
@@ -44,9 +59,11 @@ final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
         onDone: @escaping (String?) -> Void
     ) {
         abort.reset()
+        setRunningFile(fileUri)
         MediaAnalyzerStatus.shared.begin()
         let flag = abort
         queue.async {
+            defer { self.setRunningFile(nil) }
             let result = ThumbnailSheetBuilder(
                 fileUri: fileUri,
                 outputPrefix: outputPrefix,

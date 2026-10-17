@@ -90,6 +90,25 @@ internal fun DownloadStorageCard(
     onCleaned: () -> Unit = {},
 ) {
     var confirmCleanUp by remember { mutableStateOf(false) }
+    var confirmIncomplete by remember { mutableStateOf(false) }
+    if (confirmIncomplete && summary.incompleteIds.isNotEmpty()) {
+        NuvioStatusModal(
+            title = "Delete failed / incomplete downloads?",
+            message = "${summary.incompleteIds.size} downloads that stopped part way (failed or paused) and their " +
+                "${formatDownloadBytes(summary.incompleteBytes)} on disk will be deleted.",
+            isVisible = true,
+            destructive = true,
+            confirmText = stringResource(Res.string.action_yes),
+            dismissText = stringResource(Res.string.action_no),
+            onConfirm = {
+                DownloadsRepository.deleteIncompleteDownloads(summary.incompleteIds)
+                com.nuvio.app.core.ui.NuvioToastController.show("Deleted ${formatDownloadBytes(summary.incompleteBytes)}")
+                confirmIncomplete = false
+                onCleaned()
+            },
+            onDismiss = { confirmIncomplete = false },
+        )
+    }
     val leftoverCount = summary.orphans.size + (summary.app?.leftovers?.size ?: 0)
     val leftoverBytes = summary.allLeftoverBytes
     if (confirmCleanUp && leftoverCount > 0) {
@@ -198,6 +217,24 @@ internal fun DownloadStorageCard(
                 modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
             ) {
                 Text("Clean up leftovers · ${formatDownloadBytes(if (leftoverCount > 0) leftoverBytes else 0L)}")
+            }
+            // Rows that stopped part way keep their partial bytes; listed apart from leftovers.
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Failed / incomplete downloads: ${formatDownloadBytes(summary.incompleteBytes)}",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                androidx.compose.material3.TextButton(
+                    onClick = { confirmIncomplete = true },
+                    enabled = summary.incompleteIds.isNotEmpty(),
+                ) {
+                    Text("Delete", color = if (summary.incompleteIds.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
     }

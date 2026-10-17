@@ -20,7 +20,20 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -60,6 +73,40 @@ fun DetailCastSection(
         modifier = modifier,
         showHeader = showHeader,
     ) {
+        var query by rememberSaveable { mutableStateOf("") }
+        val indexed = remember(cast) { cast.withIndex().toList() }
+        val shown = remember(indexed, query) { filterCast(indexed, query) }
+        // Find an actor or a character: case and accents are ignored ("zoe" finds "Zoë").
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            modifier = Modifier
+                .fillMaxWidth(),
+            singleLine = true,
+            placeholder = { Text("Search actor or character") },
+            leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+            trailingIcon = if (query.isNotEmpty()) {
+                {
+                    IconButton(onClick = { query = "" }) {
+                        Icon(Icons.Rounded.Close, contentDescription = "Clear")
+                    }
+                }
+            } else {
+                null
+            },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            textStyle = MaterialTheme.typography.bodyMedium,
+            shape = MaterialTheme.shapes.medium,
+        )
+        if (shown.isEmpty()) {
+            Text(
+                text = "No cast matches \"${query.trim()}\"",
+                modifier = Modifier.padding(vertical = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            return@DetailSection
+        }
         BoxWithConstraints {
             val sizing = castSectionSizing(maxWidth.value)
 
@@ -71,9 +118,12 @@ fun DetailCastSection(
                 horizontalArrangement = Arrangement.spacedBy(sizing.avatarGap),
             ) {
                 itemsIndexed(
-                    items = cast,
-                    key = { index, person -> "${person.name}-${person.role.orEmpty()}-${person.photo.orEmpty()}-$index" },
-                ) { index, person ->
+                    items = shown,
+                    key = { _, entry -> "${entry.value.name}-${entry.value.role.orEmpty()}-${entry.value.photo.orEmpty()}-${entry.index}" },
+                ) { _, entry ->
+                    // The index in the full list, so shared-element keys stay the same while filtering.
+                    val index = entry.index
+                    val person = entry.value
                     val sharedTransitionKey = person.tmdbId
                         ?.takeIf { it > 0 }
                         ?.let { castAvatarSharedTransitionKey(it, occurrenceIndex = index) }

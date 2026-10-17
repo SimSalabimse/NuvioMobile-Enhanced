@@ -150,6 +150,18 @@ internal object MediaAnalysisScheduler {
         MediaAnalyzerPlatform.cancel()
     }
 
+    /**
+     * [downloadId] is being deleted: stop the run that reads it, so the analyser closes the file
+     * (iOS frees a deleted file's space only when nothing has it open), and carry on with the rest.
+     */
+    fun releaseFile(downloadId: String) {
+        val runningId = (MediaAnalysisStatus.job.value as? AnalysisJobState.Running)?.itemId
+        if (runningId != downloadId && currentItem?.id != downloadId) return
+        if (priorityItemId == downloadId) priorityItemId = null
+        cancel()
+        kick()
+    }
+
     /** True when every pending file was analysed (false: stopped, cancelled or not allowed). */
     suspend fun runPending(fromBackgroundTask: Boolean): Boolean {
         if (!MediaAnalyzerPlatform.supported || !anyFeatureEnabled) return true

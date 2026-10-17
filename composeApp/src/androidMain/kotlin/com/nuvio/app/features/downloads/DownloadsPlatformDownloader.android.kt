@@ -104,6 +104,21 @@ internal actual object DownloadsPlatformDownloader {
         return runCatching { file.delete() }.getOrDefault(false)
     }
 
+    actual fun removeFileVerified(candidates: List<String?>, fileName: String): FileDeleteOutcome {
+        val uris = candidates.filterNotNull().map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("http") }
+            .distinct()
+        val present = uris.filter { resolveLocalFileUri(it, fileName) != null }
+        present.forEach { removeFile(resolveLocalFileUri(it, fileName) ?: it) }
+        return when {
+            present.any { resolveLocalFileUri(it, fileName) != null } -> FileDeleteOutcome.StillThere
+            present.isNotEmpty() -> FileDeleteOutcome.Deleted
+            else -> FileDeleteOutcome.NotFound
+        }
+    }
+
+    actual fun discardTransfer(downloadId: String) = Unit
+
     actual fun removePartialFile(destinationFileName: String): Boolean {
         AndroidDeferredPartialRename.clearFileName(destinationFileName)
         val scheduler = downloadScheduler ?: return false

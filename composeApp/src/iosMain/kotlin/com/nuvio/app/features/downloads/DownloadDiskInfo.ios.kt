@@ -75,9 +75,31 @@ internal actual object DownloadDiskInfo {
             .mapNotNull { it as? String }
             .filter { it.endsWith(".resumedata") && it.removeSuffix(".resumedata") !in ownedFileNames }
             .forEach { name -> leftovers += LeftoverFile("$resumeDir/$name", entrySize("$resumeDir/$name")) }
+        // The default folder while a custom one is active: files of deleted downloads left there.
+        val defaultDir = downloadsDirectoryPath().trimEnd('/')
+        if (defaultDir != downloadsPath) {
+            NSFileManager.defaultManager.contentsOfDirectoryAtPath(defaultDir, null).orEmpty()
+                .mapNotNull { it as? String }
+                .filter { name -> isNuvioDownloadFileName(name) && ownedFileNames.none { ownsDiskFile(it, name) } }
+                .forEach { name -> leftovers += LeftoverFile("$defaultDir/$name", entrySize("$defaultDir/$name")) }
+        }
+        // Bytes of background downloads the system kept (tmp/ and the nsurlsessiond cache), only
+        // when nothing runs on the background session and no resume data points at them.
+        IosBackgroundDownloadCoordinator.refreshSystemSessionIdle()
+        if (systemTempCleanupAllowed()) {
+            val referenced = iosResumeReferencedTempNames()
+            for (dir in systemDownloadTempDirectories()) {
+                NSFileManager.defaultManager.contentsOfDirectoryAtPath(dir, null).orEmpty()
+                    .mapNotNull { it as? String }
+                    .filter { isSystemDownloadTempFile(it) && it !in referenced }
+                    .forEach { name -> leftovers += LeftoverFile("$dir/$name", entrySize("$dir/$name")) }
+            }
+        }
+        // Temp files listed as leftovers are inside Caches/tmp: count them once.
+        val tempLeftoverBytes = leftovers.filter { isSystemDownloadTempFile(it.path.substringAfterLast('/')) }.sumOf { it.sizeBytes }
         return AppStorageUsage(
             totalBytes = containerBytes + outside,
-            cacheBytes = cacheBytes,
+            cacheBytes = (cacheBytes - tempLeftoverBytes).coerceAtLeast(0L),
             leftovers = leftovers,
         )
     }
@@ -87,11 +109,22 @@ internal actual object DownloadDiskInfo {
         val downloadsPath = resolveDownloadsBaseDirectory().path.trimEnd('/')
         val name = path.substringAfterLast('/')
         val parent = path.substringBeforeLast('/')
+        val defaultDir = downloadsDirectoryPath().trimEnd('/')
         val allowed = (isLooseSubtitleFile(name) && (parent == "$home/Documents" || parent == downloadsPath)) ||
-            (parent == "$home/Library/Application Support/nuvio_download_resume" && name.endsWith(".resumedata"))
+            (parent == "$home/Library/Application Support/nuvio_download_resume" && name.endsWith(".resumedata")) ||
+            (parent == defaultDir && defaultDir != downloadsPath && isNuvioDownloadFileName(name)) ||
+            (isSystemDownloadTempFile(name) && parent in systemDownloadTempDirectories() &&
+                systemTempCleanupAllowed() && name !in iosResumeReferencedTempNames())
         if (!allowed) return false
+        if (parent == defaultDir || isSystemDownloadTempFile(name)) {
+            releaseHeldDownloadFile(path)
+            return removePathIfExists(path)
+        }
         return resolveDownloadsBaseDirectory().withAccess { removePathIfExists(path) }
     }
+
+    private fun systemTempCleanupAllowed(): Boolean =
+        IosBackgroundDownloadCoordinator.systemSessionIdle && !IosBackgroundDownloadCoordinator.hasTrackedTransfers()
 
     /** Sum of every file under [path]. */
     private fun treeSize(path: String): Long {

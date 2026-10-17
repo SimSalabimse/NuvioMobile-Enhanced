@@ -814,6 +814,18 @@ final class MPVPlayerViewController: UIViewController {
                                                name: UIApplication.willEnterForegroundNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(didBecomeActive),
                                                name: UIApplication.didBecomeActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(releaseHeldFile(_:)),
+                                               name: HeldFileRegistry.releaseNotification, object: nil)
+    }
+
+    /// A download is being deleted: stop the audio capture and close the file if this player has it open.
+    @objc private func releaseHeldFile(_ notification: Notification) {
+        guard let path = notification.userInfo?["path"] as? String,
+              let request = lastLoadRequest,
+              HeldFileRegistry.samePath(request.urlString, path) else { return }
+        InAppLogBridge.shared.info(tag: "MPV/iOS", message: "Releasing deleted file")
+        _ = audioCaptureProcessor.stopCapture()
+        if mpv != nil { command("stop", checkForErrors: false) }
     }
 
     @objc private func enterBackground() {
@@ -2825,5 +2837,6 @@ enum NuvioPlayerRegistration {
     static func register() {
         NuvioPlayerBridgeFactory.shared.registerFactory(creator: MPVPlayerBridgeCreator())
         NuvioSeekPreviewRegistry.shared.registerCreator(creator: FFmpegSeekPreviewGeneratorCreator())
+        NuvioHeldFileRegistration.register()
     }
 }

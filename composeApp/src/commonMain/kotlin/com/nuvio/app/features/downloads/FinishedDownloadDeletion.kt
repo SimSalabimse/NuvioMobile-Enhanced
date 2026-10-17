@@ -153,6 +153,10 @@ internal object FinishedDownloadDeletion {
             ?.creditsStartMs
     }.getOrNull()
 
+    /** A watched file is queued or waiting to be deleted (smart downloads wait for its space). */
+    fun hasPendingDeletion(): Boolean =
+        deletionEnabled() && (pending != null || session?.queuedDownloadId != null)
+
     internal fun reset() {
         session = null
         pending = null
