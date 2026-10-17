@@ -380,8 +380,11 @@ private fun PlayerScreenRuntime.startDownloadSwap(target: SwitchTarget, position
     val videoId = activeVideoId ?: return
     val downloadId = target.downloadId
     val localUrl = target.localUrl
+    // A hold-to-speed must not ride over to the file: keep the base speed, not the hold speed.
+    val baseSpeed = speedBoostRestoreSpeed ?: playbackSnapshot.playbackSpeed
+    cancelHoldToSpeed()
     val restore = SwapTrackRestore(
-        speed = playbackSnapshot.playbackSpeed.takeIf { it > 0f } ?: 1f,
+        speed = baseSpeed.takeIf { it > 0f } ?: 1f,
         audio = audioTracks.firstOrNull { it.index == selectedAudioIndex } ?: audioTracks.firstOrNull { it.isSelected },
         subtitle = subtitleTracks.firstOrNull { it.index == selectedSubtitleIndex }.takeIf { !useCustomSubtitles },
         subtitlesOff = !useCustomSubtitles && selectedSubtitleIndex < 0,

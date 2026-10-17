@@ -283,6 +283,7 @@ internal fun PlayerScreenRuntime.cycleResizeMode() {
 internal fun PlayerScreenRuntime.setPlaybackSpeedFromPicker(speed: Float) {
     if (partyBlocksControl()) return
     partyRateNudge = null
+    holdSpeedPendingBase = null
     playerController?.setPlaybackSpeed(speed)
     publishPartyPlayback(rate = speed)
     showGestureMessage(formatPlaybackSpeedLabel(speed))
@@ -294,6 +295,7 @@ internal fun PlayerScreenRuntime.cyclePlaybackSpeed() {
     val current = playbackSnapshot.playbackSpeed
     val next = speeds.firstOrNull { it > current + 0.01f } ?: speeds.first()
     partyRateNudge = null
+    holdSpeedPendingBase = null
     playerController?.setPlaybackSpeed(next)
     publishPartyPlayback(rate = next)
     showGestureMessage(formatPlaybackSpeedLabel(next))
@@ -321,12 +323,40 @@ internal fun PlayerScreenRuntime.activateHoldToSpeed() {
 }
 
 internal fun PlayerScreenRuntime.deactivateHoldToSpeed() {
+    cancelHoldToSpeed()
+}
+
+/**
+ * Ends a hold-to-speed (release, gesture cancel, player swap/reopen/reload) and puts the
+ * user's base speed back. The temporary hold speed is never kept: if the player is being
+ * replaced, the base speed is applied again once the new player reports in.
+ */
+internal fun PlayerScreenRuntime.cancelHoldToSpeed() {
     isHoldToSpeedGestureActive = false
     val restoreSpeed = speedBoostRestoreSpeed ?: return
-    playerController?.setPlaybackSpeed(restoreSpeed)
     speedBoostRestoreSpeed = null
     liveGestureFeedback = null
+    val base = if (isPartySynced) partyBaseRate() else restoreSpeed
+    holdSpeedPendingBase = base to TimeSource.Monotonic.markNow()
+    playerController?.setPlaybackSpeed(base)
 }
+
+/** Called on each playback snapshot: re-applies the base speed after a cancelled hold. */
+internal fun PlayerScreenRuntime.enforcePendingBaseSpeed(reportedSpeed: Float) {
+    val (base, mark) = holdSpeedPendingBase ?: return
+    // Watch Party owns the rate (sync nudges); a new hold or an explicit pick wins too.
+    if (isPartySynced || speedBoostRestoreSpeed != null || mark.elapsedNow() > HoldSpeedRestoreWindow) {
+        holdSpeedPendingBase = null
+        return
+    }
+    if (abs(reportedSpeed - base) <= 0.01f) {
+        holdSpeedPendingBase = null
+    } else {
+        playerController?.setPlaybackSpeed(base)
+    }
+}
+
+private val HoldSpeedRestoreWindow = 15_000.milliseconds
 
 @Composable
 internal fun PlayerScreenRuntime.rememberSurfaceGestureCallbacks(): PlayerSurfaceGestureCallbacks {

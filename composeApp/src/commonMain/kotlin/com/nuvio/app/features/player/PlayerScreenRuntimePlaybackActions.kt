@@ -60,6 +60,7 @@ internal fun PlayerScreenRuntime.updatePlaybackSnapshot(
         playbackSnapshotKey = playbackKey
     }
     playbackSnapshotMark = TimeSource.Monotonic.markNow()
+    enforcePendingBaseSpeed(incoming.playbackSpeed)
     val targetPositionMs = scrubbingPositionMs ?: return true
     if (!isScrubbingTimeline && (
             !snapshot.isLoading || snapshot.isEnded ||
@@ -156,8 +157,7 @@ internal fun PlayerScreenRuntime.resetIdentityStateIfNeeded() {
         lastResetPlaybackIdentity = identity
         shouldPlay = true
         initialLoadCompleted = false
-        speedBoostRestoreSpeed = null
-        isHoldToSpeedGestureActive = false
+        cancelHoldToSpeed()
         initialSeekApplied = activeInitialPositionMs <= 0L &&
             (activeInitialProgressFraction == null || activeInitialProgressFraction!! <= 0f)
         lastProgressPersistEpochMs = 0L

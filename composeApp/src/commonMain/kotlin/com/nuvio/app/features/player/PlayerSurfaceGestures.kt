@@ -24,8 +24,13 @@ internal fun Modifier.playerSurfaceTapGestures(
     pointerInput(layoutSize, playbackGesturesEnabled) {
         detectTapGestures(
             onPress = {
-                tryAwaitRelease()
-                deactivateHoldToSpeedState.value()
+                // finally: the release is also lost when the gesture is cancelled or this
+                // pointerInput restarts (player swap, layout change); never leave the hold on.
+                try {
+                    tryAwaitRelease()
+                } finally {
+                    deactivateHoldToSpeedState.value()
+                }
             },
             onTap = { offset -> onSurfaceTap.value(offset) },
             onDoubleTap = if (playbackGesturesEnabled) {

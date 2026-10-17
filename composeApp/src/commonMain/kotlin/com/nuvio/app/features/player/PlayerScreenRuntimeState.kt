@@ -171,6 +171,8 @@ internal class PlayerScreenRuntime(
     var initialLoadCompleted by mutableStateOf(false)
     var isMiniPresentation by mutableStateOf(false)
     var speedBoostRestoreSpeed by mutableStateOf<Float?>(null)
+    /** Base speed to put back after a hold-to-speed was cancelled by a swap/reopen/reload. */
+    var holdSpeedPendingBase: Pair<Float, kotlin.time.TimeMark>? = null
     var isHoldToSpeedGestureActive by mutableStateOf(false)
     var initialSeekApplied by mutableStateOf(
         initialPositionMs <= 0L && ((initialProgressFraction ?: 0f) <= 0f),

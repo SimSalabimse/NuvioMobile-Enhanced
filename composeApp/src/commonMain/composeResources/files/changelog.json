@@ -13,7 +13,9 @@
         "Skip buttons, auto-skip and seeking follow the Watch Party's control rules, and a skip is shared with the party.",
         "In a Watch Party, an episode that isn't fully analysed is analysed in the background without asking, so you never pause and drop out of sync. Auto-play next episode waits for the party."
       ],
-      "fixed": []
+      "fixed": [
+        "Holding for 2x speed while playback switched to the downloaded file no longer leaves it stuck at 2x. Letting go, a cancelled hold, or the player switching or reloading always goes back to your normal speed."
+      ]
     },
     {
       "version": "0.5.10.4",
