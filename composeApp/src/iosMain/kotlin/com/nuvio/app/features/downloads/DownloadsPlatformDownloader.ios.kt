@@ -180,7 +180,8 @@ internal actual object DownloadsPlatformDownloader {
         val names = buildList {
             fileName.trim().takeIf { it.isNotBlank() && !it.contains('/') }?.let(::add)
             candidates.forEach { uri ->
-                uri?.toLocalPath()?.substringAfterLast('/')?.takeIf { it.isNotBlank() && !it.startsWith("http") }?.let(::add)
+                uri?.trim()?.takeIf { it.startsWith("file:") || it.startsWith("/") }
+                    ?.toLocalPath()?.substringAfterLast('/')?.takeIf { it.isNotBlank() }?.let(::add)
             }
         }.distinct()
         val active = resolveDownloadsBaseDirectory()

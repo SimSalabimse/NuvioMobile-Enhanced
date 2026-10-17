@@ -37,9 +37,10 @@ final class HeldFileRegistry {
         let left = normalizedPath(a)
         let right = normalizedPath(b)
         if left == right { return true }
-        // A container move changes the folder, not the file name of a download.
+        // A container move or another downloads folder changes the folder, not the file name,
+        // and download file names are unique (they end in the download id).
         let leftName = (left as NSString).lastPathComponent
-        return !leftName.isEmpty && leftName == (right as NSString).lastPathComponent && left.contains("/nuvio_downloads/") == right.contains("/nuvio_downloads/")
+        return !leftName.isEmpty && leftName == (right as NSString).lastPathComponent
     }
 
     func track(_ generator: FFmpegSeekPreviewGenerator, url: String) {
@@ -58,7 +59,7 @@ final class HeldFileRegistry {
         matching.forEach { $0.close() }
         NuvioMediaAnalyzerRegistration.shared.releaseFile(path: path)
         let post = { NotificationCenter.default.post(name: Self.releaseNotification, object: nil, userInfo: ["path": path]) }
-        if Thread.isMainThread { post() } else { DispatchQueue.main.sync(execute: post) }
+        if Thread.isMainThread { post() } else { DispatchQueue.main.async(execute: post) }
     }
 }
 
