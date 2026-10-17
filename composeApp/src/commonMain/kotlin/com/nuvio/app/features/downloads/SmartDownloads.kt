@@ -158,6 +158,31 @@ internal object SmartDownloads {
         retryPending()
     }
 
+    /** Credits start the player knows for an episode (own mark > TheIntroDB > on-device). */
+    private val liveCreditsStartMs = mutableMapOf<String, Long>()
+
+    fun reportCredits(videoId: String, creditsStartMs: Long?) {
+        if (creditsStartMs == null) liveCreditsStartMs.remove(videoId) else liveCreditsStartMs[videoId] = creditsStartMs
+    }
+
+    /**
+     * Every progress report while watching: starts the next episodes early, about 3 minutes before
+     * the credits (or 8 minutes before the end / 85 %, whichever is first), or at half-way when the
+     * episode is large. Once per episode; downloads run throttled while playback is on screen.
+     */
+    fun onProgress(entry: WatchProgressEntry, positionMs: Long, durationMs: Long, analysedCreditsStartMs: Long?) {
+        if (!isEnabled()) return
+        if (entry.seasonNumber == null || entry.episodeNumber == null) return
+        if (entry.videoId in handledVideoIds) return
+        val credits = liveCreditsStartMs[entry.videoId] ?: analysedCreditsStartMs
+        val showDownloads = DownloadsRepository.uiState.value.items.filter { it.parentMetaId == entry.parentMetaId }
+        if (showDownloads.isEmpty()) return
+        val large = showDownloads.maxByOrNull { it.updatedAtEpochMs }
+            ?.totalBytes?.let { it >= PlaybackEndRules.SMART_LARGE_EPISODE_BYTES } == true
+        val at = PlaybackEndRules.smartDownloadTriggerMs(durationMs, credits, large) ?: return
+        if (positionMs >= at) onNearEnd(entry)
+    }
+
     /** The episode on screen is near its end (credits or last minutes, see PlaybackEndRules). */
     fun onNearEnd(entry: WatchProgressEntry) {
         if (!isEnabled()) return
@@ -217,6 +242,7 @@ internal object SmartDownloads {
         val meta = MetaDetailsRepository.fetch(request.parentMetaType, request.parentMetaId) ?: return false
         val count = SmartDownloadSettings.snapshot().count
         val next = nextEpisodes(meta.videos, request.season, request.episode, count)
+            .filter { it.hasAiredForDownload() }
         if (next.isEmpty()) return true
         val items = DownloadsRepository.uiState.value.items
         val missing = next.filter { video ->

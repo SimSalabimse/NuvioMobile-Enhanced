@@ -682,6 +682,15 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         }
     }
 
+    // Smart downloads: the credits start of this episode (own mark > TheIntroDB > on-device).
+    LaunchedEffect(skipIntervals, activeVideoId) {
+        val videoId = activeVideoId ?: return@LaunchedEffect
+        com.nuvio.app.features.downloads.SmartDownloads.reportCredits(
+            videoId,
+            smartDownloadCreditsStartMs(skipIntervals),
+        )
+    }
+
     LaunchedEffect(
         playerMetaVideos,
         shuffleSettings,
@@ -1026,3 +1035,21 @@ private fun SkipInterval.isEligibleForSkipButton(positionSec: Double): Boolean =
     positionSec >= startTime && positionSec < endTime
 private const val CREDENTIAL_REFRESH_POLL_COUNT = 30
 private const val CREDENTIAL_REFRESH_POLL_INTERVAL_MS = 500L
+
+/** Credits/outro start for smart downloads, by source: own mark, then TheIntroDB, then on-device. */
+internal fun smartDownloadCreditsStartMs(intervals: List<com.nuvio.app.features.player.skip.SkipInterval>): Long? {
+    fun rank(provider: String): Int = when {
+        com.nuvio.app.features.analysis.SkipLearning.isUserProvider(provider) -> 0
+        provider == com.nuvio.app.features.player.skip.TheIntroDb.PROVIDER -> 1
+        provider == ON_DEVICE_SKIP_PROVIDER -> 2
+        else -> 3
+    }
+    return intervals
+        .filter {
+            com.nuvio.app.features.player.skip.AutoSkipSegmentType.fromSkipIntervalType(it.type) ==
+                com.nuvio.app.features.player.skip.AutoSkipSegmentType.OUTRO &&
+                it.startTime.isFinite() && it.startTime > 0.0
+        }
+        .minByOrNull { rank(it.provider) * 1_000_000.0 + it.startTime }
+        ?.let { (it.startTime * 1000).toLong() }
+}

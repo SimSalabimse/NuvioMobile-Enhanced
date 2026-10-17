@@ -11,7 +11,8 @@
       "improved": [
         "Updated to the latest upstream Nuvio (0.6.1-beta), with the updated p2p streaming engine (0.1.5), better picture-in-picture on iOS and new translations.",
         "Skip buttons, auto-skip and seeking follow the Watch Party's control rules, and a skip is shared with the party.",
-        "In a Watch Party, an episode that isn't fully analysed is analysed in the background without asking, so you never pause and drop out of sync. Auto-play next episode waits for the party."
+        "In a Watch Party, an episode that isn't fully analysed is analysed in the background without asking, so you never pause and drop out of sync. Auto-play next episode waits for the party.",
+        "Smart Downloads start the next episode while you watch, not after: about 3 minutes before the credits (your own mark, then TheIntroDB, then on-device), or 8 minutes before the end / at 85 % without credit times, and at half-way for large episodes. Once per episode, throttled while you watch, never unaired or already downloaded episodes."
       ],
       "fixed": [
         "Holding for 2x speed while playback switched to the downloaded file no longer leaves it stuck at 2x. Letting go, a cancelled hold, or the player switching or reloading always goes back to your normal speed."
