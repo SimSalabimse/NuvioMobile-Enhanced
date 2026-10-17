@@ -226,6 +226,8 @@ data class ContinueWatchingItem(
     val rawBackgroundUrl: String? = null,
     val shufflePlayback: Boolean = false,
     val isWatched: Boolean = false,
+    /** Enhanced: last activity (progress update, or the seed episode for Next Up), for Stale. */
+    val lastActivityEpochMs: Long = 0L,
 )
 
 internal fun continueWatchingItemKey(item: ContinueWatchingItem): String {
@@ -244,6 +246,8 @@ data class ContinueWatchingPreferencesUiState(
     val dismissedNextUpKeys: Set<String> = emptySet(),
     val showResumePromptOnLaunch: Boolean = true,
     val sortMode: ContinueWatchingSortMode = ContinueWatchingSortMode.DEFAULT,
+    /** Enhanced: sort by easiest to finish, in sections. Off = the old order (Recent). */
+    val easiestToFinish: Boolean = true,
 )
 
 internal fun nextUpDismissKey(

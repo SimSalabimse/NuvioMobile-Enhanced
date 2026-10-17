@@ -84,7 +84,7 @@ private fun SeasonEpisodeRowState.selectedForTotal(): Boolean =
 
 private fun SeasonEpisodeRowState.displayBytes(): Long? {
     val matched = match as? SeasonStreamMatch.Matched ?: return null
-    return matched.stream.behaviorHints.videoSize?.takeIf { it > 0L }
+    return downloadStreamBytes(matched.stream)
         ?: probedBytes?.takeIf { it > 0L }
 }
 
@@ -240,7 +240,7 @@ internal fun SeasonDownloadSheet(
 
         fun tryAutoPick() {
             if (choice != null || pickingSource || autoPickGaveUp || !autoSettings.picksAutomatically()) return
-            val result = evaluateSeasonAutoPick(anchorStreams, autoSettings, installedAddonNames)
+            val result = evaluateSeasonAutoPick(anchorStreams.orderedForQuality(SmartDownloadSettings.snapshot().quality), autoSettings, installedAddonNames)
             // Pick when the player's auto-play would: the timeout, the last source, or at once for 0 s.
             val mayDecide = seasonAutoPickMayDecide(autoSettings.timeoutSeconds, timeoutElapsed, allAnswered) ||
                 hardTimeoutElapsed
@@ -322,7 +322,7 @@ internal fun SeasonDownloadSheet(
 
     val probeKey = rows.joinToString(separator = "|") { row ->
         val matched = row.match as? SeasonStreamMatch.Matched
-        val hinted = matched?.stream?.behaviorHints?.videoSize?.takeIf { it > 0L }
+        val hinted = matched?.stream?.let(::downloadStreamBytes)
         if (matched == null || hinted != null || row.probeDone || row.key in probedIds) "" else row.key
     }
     LaunchedEffect(probeKey) {
@@ -686,12 +686,8 @@ private fun SheetNote(text: String) {
     )
 }
 
-private fun StreamItem.sourceDetail(): String {
-    val size = behaviorHints.videoSize?.takeIf { it > 0L }?.let(::formatSeasonBytes)
-    return listOfNotNull(streamQualityLabel(this), streamLabel, size)
-        .distinct()
-        .joinToString(" · ")
-}
+private fun StreamItem.sourceDetail(): String =
+    streamLabel.trim()
 
 @Composable
 private fun SourceRow(
@@ -711,13 +707,16 @@ private fun SourceRow(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        Text(
-            text = stream.sourceDetail(),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+        DownloadQualitySizeChips(stream = stream, modifier = Modifier.padding(top = 4.dp))
+        stream.sourceDetail().takeIf { it.isNotBlank() }?.let { detail ->
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -741,13 +740,16 @@ private fun PickedSourceRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                text = stream.sourceDetail(),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+            DownloadQualitySizeChips(stream = stream, modifier = Modifier.padding(top = 4.dp))
+            stream.sourceDetail().takeIf { it.isNotBlank() }?.let { detail ->
+                Text(
+                    text = detail,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             if (autoPicked) {
                 Text(
                     text = stringResource(Res.string.season_download_auto_picked),
@@ -786,7 +788,7 @@ private fun EpisodeDownloadRow(
     // The source this episode will download from, so alternatives only show on Change source.
     val sourceSummary = (row.match as? SeasonStreamMatch.Matched)?.stream
         ?.takeIf { row.existing == null }
-        ?.let { stream -> listOfNotNull(stream.addonName.takeIf { it.isNotBlank() }, streamQualityLabel(stream)).joinToString(" · ") }
+        ?.let { stream -> listOfNotNull(stream.addonName.takeIf { it.isNotBlank() }, downloadQualityChipText(stream) ?: streamQualityLabel(stream)).joinToString(" · ") }
         ?.takeIf { it.isNotBlank() }
     Row(
         modifier = Modifier
@@ -860,7 +862,7 @@ private fun List<MetaVideo>.toSeasonRows(
 private fun SeasonEpisodeRowState.toProbeTarget(): SeasonProbeTarget? {
     if (existing != null) return null
     val matched = match as? SeasonStreamMatch.Matched ?: return null
-    if (matched.stream.behaviorHints.videoSize?.takeIf { it > 0L } != null) return null
+    if (downloadStreamBytes(matched.stream) != null) return null
     if (probeDone) return null
     val url = matched.stream.playableDirectUrl?.takeIf { it.isSupportedDownloadUrl() } ?: return null
     return SeasonProbeTarget(

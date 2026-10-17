@@ -24,6 +24,8 @@ private data class StoredContinueWatchingPreferences(
     val showResumePromptOnLaunch: Boolean = true,
     @SerialName("sort_mode")
     val sortMode: ContinueWatchingSortMode = ContinueWatchingSortMode.DEFAULT,
+    @SerialName("enhanced_easiest_to_finish")
+    val easiestToFinish: Boolean = true,
 )
 
 object ContinueWatchingPreferencesRepository {
@@ -100,6 +102,7 @@ object ContinueWatchingPreferencesRepository {
                 dismissedNextUpKeys = stored.dismissedNextUpKeys,
                 showResumePromptOnLaunch = stored.showResumePromptOnLaunch,
                 sortMode = stored.sortMode,
+                easiestToFinish = stored.easiestToFinish,
             )
         } else {
             ContinueWatchingPreferencesUiState()
@@ -165,6 +168,13 @@ object ContinueWatchingPreferencesRepository {
         persist()
     }
 
+    fun setEasiestToFinish(enabled: Boolean) {
+        ensureLoaded()
+        if (_uiState.value.easiestToFinish == enabled) return
+        _uiState.value = _uiState.value.copy(easiestToFinish = enabled)
+        persist()
+    }
+
     fun removeDismissedNextUpKeysForContent(contentId: String) {
         ensureLoaded()
         val normalizedContentId = contentId.trim()
@@ -191,6 +201,7 @@ object ContinueWatchingPreferencesRepository {
                     dismissedNextUpKeys = _uiState.value.dismissedNextUpKeys,
                     showResumePromptOnLaunch = _uiState.value.showResumePromptOnLaunch,
                     sortMode = _uiState.value.sortMode,
+                    easiestToFinish = _uiState.value.easiestToFinish,
                 ),
             ),
         )

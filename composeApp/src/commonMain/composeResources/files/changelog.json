@@ -6,13 +6,17 @@
       "new": [
         "Watch Party from the latest upstream Nuvio (0.6.1): watch in sync with friends, share invites as nuvio.tv links, see the party before you join (experimental).",
         "MDBList dynamic and liked lists in the library.",
-        "Download from the hold menu on Continue Watching and Next Up cards: it downloads that exact episode or movie with auto-pick and Change source. If it's already downloaded or downloading, the item opens Downloads instead."
+        "Download from the hold menu on Continue Watching and Next Up cards: it downloads that exact episode or movie with auto-pick and Change source. If it's already downloaded or downloading, the item opens Downloads instead.",
+        "Continue Watching on Home is sorted by what's easiest to finish, in sections: Almost done, In progress, Next up and Stale (untouched for 30+ days, collapsed). Cards show what's left, like \"38 min left\" or \"2 eps left · 1h 20m\". Turn off \"Easiest to finish first\" in Continue Watching settings to go back to the Recent order."
       ],
       "improved": [
         "Updated to the latest upstream Nuvio (0.6.1-beta), with the updated p2p streaming engine (0.1.5), better picture-in-picture on iOS and new translations.",
         "Skip buttons, auto-skip and seeking follow the Watch Party's control rules, and a skip is shared with the party.",
         "In a Watch Party, an episode that isn't fully analysed is analysed in the background without asking, so you never pause and drop out of sync. Auto-play next episode waits for the party.",
-        "Smart Downloads start the next episode while you watch, not after: about 3 minutes before the credits (your own mark, then TheIntroDB, then on-device), or 8 minutes before the end / at 85 % without credit times, and at half-way for large episodes. Once per episode, throttled while you watch, never unaired or already downloaded episodes."
+        "Smart Downloads start the next episode while you watch, not after: about 3 minutes before the credits (your own mark, then TheIntroDB, then on-device), or 8 minutes before the end / at 85 % without credit times, and at half-way for large episodes. Once per episode, throttled while you watch, never unaired or already downloaded episodes.",
+        "Downloading with auto-pick on shows only \"Picking…\" and then the picked source, from every download button (details, episode rows, the Continue Watching and Next Up hold menu). Tap Change source or Choose myself for the full list.",
+        "Download sources show quality and size chips (for example 1080p · 2.3 GB, or Size unknown) on the picked source, in source lists and in Download Season, which also shows the season total.",
+        "Download quality (Auto, 4K, 1080p, 720p or 480p, in Downloads settings) is now used by Smart Downloads and by auto-pick for single downloads and Download Season."
       ],
       "fixed": [
         "Holding for 2x speed while playback switched to the downloaded file no longer leaves it stuck at 2x. Letting go, a cancelled hold, or the player switching or reloading always goes back to your normal speed."

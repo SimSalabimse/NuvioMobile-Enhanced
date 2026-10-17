@@ -1264,6 +1264,7 @@ private fun LazyListScope.homeContinueWatchingSections(
         item(key = HOME_CONTINUE_WATCHING_SECTION_KEY) {
             HomeContinueWatchingSection(
                 items = continueWatchingItems,
+                easiestToFinish = preferences.easiestToFinish,
                 dataSourceKey = dataSourceKey,
                 style = preferences.style,
                 useEpisodeThumbnails = preferences.useEpisodeThumbnails,
@@ -1701,11 +1702,14 @@ internal fun buildHomeContinueWatchingItems(
             seen.add(key)
         }
 
+    val stamped = deduplicated.map { candidate ->
+        candidate.copy(item = candidate.item.copy(lastActivityEpochMs = candidate.lastUpdatedEpochMs))
+    }
     return when (sortMode) {
         ContinueWatchingSortMode.DEFAULT,
         ContinueWatchingSortMode.SPLIT_UPCOMING,
-        -> deduplicated.map(HomeContinueWatchingCandidate::item)
-        ContinueWatchingSortMode.STREAMING_STYLE -> applyStreamingStyleSort(deduplicated, todayIsoDate)
+        -> stamped.map(HomeContinueWatchingCandidate::item)
+        ContinueWatchingSortMode.STREAMING_STYLE -> applyStreamingStyleSort(stamped, todayIsoDate)
     }
 }
 

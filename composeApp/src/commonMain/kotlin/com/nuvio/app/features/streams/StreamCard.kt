@@ -143,6 +143,11 @@ internal fun StreamCard(
                 )
             }
 
+            if (com.nuvio.app.features.downloads.LocalDownloadSourceChips.current) {
+                Spacer(modifier = Modifier.height(5.dp))
+                com.nuvio.app.features.downloads.DownloadQualitySizeChips(stream = stream)
+            }
+
             if (hasBadges && badgePlacement == StreamBadgePlacement.BOTTOM) {
                 Spacer(modifier = Modifier.height(5.dp))
                 StreamCardBadgeRow(

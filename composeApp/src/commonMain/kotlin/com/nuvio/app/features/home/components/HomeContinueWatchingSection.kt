@@ -32,6 +32,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -272,6 +276,7 @@ internal fun ContinueWatchingItem.shouldBlurContinueWatchingArtwork(
 @Composable
 internal fun HomeContinueWatchingSection(
     items: List<ContinueWatchingItem>,
+    easiestToFinish: Boolean = false,
     style: ContinueWatchingSectionStyle,
     dataSourceKey: WatchProgressSource,
     useEpisodeThumbnails: Boolean = true,
@@ -290,6 +295,7 @@ internal fun HomeContinueWatchingSection(
     if (sectionPadding != null && layout != null) {
         HomeContinueWatchingSectionContent(
             items = items,
+            easiestToFinish = easiestToFinish,
             dataSourceKey = dataSourceKey,
             style = style,
             useEpisodeThumbnails = useEpisodeThumbnails,
@@ -307,6 +313,7 @@ internal fun HomeContinueWatchingSection(
         BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
             HomeContinueWatchingSectionContent(
                 items = items,
+                easiestToFinish = easiestToFinish,
                 dataSourceKey = dataSourceKey,
                 style = style,
                 useEpisodeThumbnails = useEpisodeThumbnails,
@@ -327,6 +334,7 @@ internal fun HomeContinueWatchingSection(
 @Composable
 private fun HomeContinueWatchingSectionContent(
     items: List<ContinueWatchingItem>,
+    easiestToFinish: Boolean,
     dataSourceKey: WatchProgressSource,
     style: ContinueWatchingSectionStyle,
     useEpisodeThumbnails: Boolean,
@@ -346,7 +354,41 @@ private fun HomeContinueWatchingSectionContent(
                 itemKey = ::continueWatchingItemKey,
             )
         }
-        val displayEntries = disintegration.sync(dataSourceKey, items, disintegrationRequest)
+        // Enhanced: easiest to finish, in sections (cached metadata only, computed when items change).
+        var staleExpanded by remember { mutableStateOf(false) }
+        val easy = remember(items, easiestToFinish) {
+            if (easiestToFinish) buildEasiestToFinish(items) else null
+        }
+        val staleCount = easy?.count { it.section == ContinueWatchingEasySection.Stale } ?: 0
+        val shownItems = remember(easy, items, staleExpanded) {
+            if (easy == null) {
+                items
+            } else {
+                var staleShown = 0
+                easy.filter { entry ->
+                    entry.section != ContinueWatchingEasySection.Stale || staleExpanded || staleShown++ == 0
+                }.map { it.item }
+            }
+        }
+        val easyByKey = remember(easy) { easy?.associateBy { continueWatchingItemKey(it.item) }.orEmpty() }
+        val sectionStarts = remember(easy, shownItems) {
+            if (easy == null) {
+                emptyMap()
+            } else {
+                val seen = mutableSetOf<ContinueWatchingEasySection>()
+                buildMap {
+                    shownItems.forEach { item ->
+                        val key = continueWatchingItemKey(item)
+                        val section = easyByKey[key]?.section ?: return@forEach
+                        if (seen.add(section)) put(key, section)
+                    }
+                }
+            }
+        }
+        val timeLeftLabels = remember(easyByKey) {
+            easyByKey.mapNotNull { (key, entry) -> entry.timeLeft.label?.let { key to it } }.toMap()
+        }
+        val displayEntries = disintegration.sync(dataSourceKey, shownItems, disintegrationRequest)
 
         NuvioShelfSection(
             title = title ?: stringResource(Res.string.compose_settings_page_continue_watching),
@@ -366,6 +408,17 @@ private fun HomeContinueWatchingSectionContent(
                 disintegrating = entry.exiting,
                 onDisintegrated = { disintegration.onDisintegrated(entry.key) },
             ) {
+              Column {
+                if (easy != null) {
+                    val sectionStart = sectionStarts[continueWatchingItemKey(item)]
+                    ContinueWatchingEasySectionLabel(
+                        section = sectionStart,
+                        staleCount = staleCount,
+                        staleExpanded = staleExpanded,
+                        onToggleStale = { staleExpanded = !staleExpanded },
+                    )
+                }
+              CompositionLocalProvider(LocalContinueWatchingTimeLeftLabels provides timeLeftLabels) {
                 when (style) {
                     ContinueWatchingSectionStyle.Card -> ContinueWatchingCard(
                         item = item,
@@ -391,6 +444,8 @@ private fun HomeContinueWatchingSectionContent(
                         onLongClick = onLongClick,
                     )
                 }
+              }
+              }
             }
         }
     }
@@ -857,6 +912,7 @@ private fun continueWatchingCardBadgeText(
     item: ContinueWatchingItem,
     airDateText: String?,
 ): String {
+    LocalContinueWatchingTimeLeftLabels.current[continueWatchingItemKey(item)]?.let { return it }
     if (item.progressFraction > 0f) {
         if (item.durationMs <= 0L) {
             return stringResource(
@@ -1321,4 +1377,36 @@ internal fun rememberContinueWatchingLayout(
             posterBadgeTextSize = 10.sp,
         )
     }
+}
+
+/** Enhanced: "38 min left" / "2 eps left · 1h 20m" labels for the easiest-to-finish order. */
+internal val LocalContinueWatchingTimeLeftLabels =
+    androidx.compose.runtime.staticCompositionLocalOf<Map<String, String>> { emptyMap() }
+
+/** A section title above the first card of each section (same height on every card). */
+@Composable
+private fun ContinueWatchingEasySectionLabel(
+    section: ContinueWatchingEasySection?,
+    staleCount: Int,
+    staleExpanded: Boolean,
+    onToggleStale: () -> Unit,
+) {
+    val text = when (section) {
+        null -> ""
+        ContinueWatchingEasySection.Stale ->
+            "${section.title} ($staleCount)" + if (staleCount > 1) (if (staleExpanded) " · Hide" else " · Show all") else ""
+        else -> section.title
+    }
+    val clickable = section == ContinueWatchingEasySection.Stale && staleCount > 1
+    androidx.compose.material3.Text(
+        text = text,
+        style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .height(20.dp)
+            .then(if (clickable) Modifier.clickable(onClick = onToggleStale) else Modifier),
+    )
 }

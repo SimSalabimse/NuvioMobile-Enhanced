@@ -307,6 +307,17 @@ fun StreamsScreen(
 
     if (showLoadingScreen) return
 
+    val downloadAutoPick = com.nuvio.app.features.downloads.rememberDownloadAutoPick(
+        type = type,
+        videoId = videoId,
+        parentMetaId = parentMetaId,
+        season = seasonNumber,
+        episode = episodeNumber,
+        enabled = downloadMode,
+    )
+    // Auto-pick on: only the picked-source card shows until "Change source" / "Choose myself".
+    val hideSourceList = downloadMode && downloadAutoPick.hidesSourceList
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
@@ -314,7 +325,9 @@ fun StreamsScreen(
     ) {
         val isTabletLayout = maxWidth >= 768.dp
 
-        if (isTabletLayout) {
+        if (hideSourceList) {
+            // Source list hidden while auto-pick decides.
+        } else CompositionLocalProvider(com.nuvio.app.features.downloads.LocalDownloadSourceChips provides downloadMode) { if (isTabletLayout) {
             TabletStreamsLayout(
                 isEpisode = isEpisode,
                 showSearchField = streamDisplaySettings.showStreamSearch,
@@ -372,7 +385,7 @@ fun StreamsScreen(
                 onStreamLongPress = { stream -> streamActionsTarget = stream },
                 onRefresh = reloadStreams,
             )
-        }
+        } }
 
         Row(
             modifier = Modifier
@@ -395,18 +408,18 @@ fun StreamsScreen(
 
 
         if (downloadMode) {
-            // Auto-pick on: choose the source like Download Season does; "Change source" shows this list.
+            // Shared picked-source card (same for every download entry point).
             com.nuvio.app.features.downloads.DownloadAutoPickCard(
-                type = type,
-                videoId = videoId,
-                parentMetaId = parentMetaId,
-                season = seasonNumber,
-                episode = episodeNumber,
+                controller = downloadAutoPick,
+                heading = listOfNotNull(
+                    title.takeIf { it.isNotBlank() },
+                    if (seasonNumber != null && episodeNumber != null) "S${seasonNumber}E${episodeNumber}" else null,
+                    episodeTitle?.takeIf { it.isNotBlank() },
+                ).joinToString(" · "),
                 onDownload = enqueueStreamDownload,
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
-                    .padding(bottom = 12.dp),
+                    .align(Alignment.Center)
+                    .windowInsetsPadding(WindowInsets.safeDrawing),
             )
         }
 
