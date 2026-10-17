@@ -26,6 +26,10 @@ private data class StoredContinueWatchingPreferences(
     val sortMode: ContinueWatchingSortMode = ContinueWatchingSortMode.DEFAULT,
     @SerialName("enhanced_finish_series_row")
     val showFinishSeries: Boolean = true,
+    @SerialName("enhanced_pause_stale_after_days")
+    val pauseStaleAfterDays: Int = 60,
+    @SerialName("enhanced_restored_stale")
+    val restoredStale: Map<String, Long> = emptyMap(),
 )
 
 object ContinueWatchingPreferencesRepository {
@@ -103,6 +107,8 @@ object ContinueWatchingPreferencesRepository {
                 showResumePromptOnLaunch = stored.showResumePromptOnLaunch,
                 sortMode = stored.sortMode,
                 showFinishSeries = stored.showFinishSeries,
+                pauseStaleAfterDays = stored.pauseStaleAfterDays,
+                restoredStale = stored.restoredStale,
             )
         } else {
             ContinueWatchingPreferencesUiState()
@@ -175,6 +181,20 @@ object ContinueWatchingPreferencesRepository {
         persist()
     }
 
+    fun setPauseStaleAfterDays(days: Int) {
+        ensureLoaded()
+        if (_uiState.value.pauseStaleAfterDays == days) return
+        _uiState.value = _uiState.value.copy(pauseStaleAfterDays = days.coerceAtLeast(0))
+        persist()
+    }
+
+    /** Brings a paused item back to Continue Watching until it is untouched for the limit again. */
+    fun restoreStale(key: String, nowEpochMs: Long) {
+        ensureLoaded()
+        _uiState.value = _uiState.value.copy(restoredStale = _uiState.value.restoredStale + (key to nowEpochMs))
+        persist()
+    }
+
     fun removeDismissedNextUpKeysForContent(contentId: String) {
         ensureLoaded()
         val normalizedContentId = contentId.trim()
@@ -202,6 +222,8 @@ object ContinueWatchingPreferencesRepository {
                     showResumePromptOnLaunch = _uiState.value.showResumePromptOnLaunch,
                     sortMode = _uiState.value.sortMode,
                     showFinishSeries = _uiState.value.showFinishSeries,
+                    pauseStaleAfterDays = _uiState.value.pauseStaleAfterDays,
+                    restoredStale = _uiState.value.restoredStale,
                 ),
             ),
         )

@@ -119,7 +119,45 @@ internal fun LazyListScope.downloadsSettingsContent(
                         isTablet = isTablet,
                         onCheckedChange = SmartDownloadSettings::setOnlyWhileCharging,
                     )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = "Only on Wi-Fi",
+                        description = "Smart Downloads, queued episodes and goals wait for Wi-Fi.",
+                        checked = smart.onlyOnWifi,
+                        isTablet = isTablet,
+                        onCheckedChange = SmartDownloadSettings::setOnlyOnWifi,
+                    )
                 }
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = "Queue unaired episodes",
+                    description = "Episodes that haven't aired can be queued in Download Season and download once they air.",
+                    checked = smart.queueUnaired,
+                    isTablet = isTablet,
+                    onCheckedChange = SmartDownloadSettings::setQueueUnaired,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = "Pause downloads while watching",
+                    description = "Stop all downloads while the player is open, instead of slowing them to one at a time.",
+                    checked = smart.pauseDuringPlayback,
+                    isTablet = isTablet,
+                    onCheckedChange = SmartDownloadSettings::setPauseDuringPlayback,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = "Keep free space",
+                    description = if (smart.keepFreeGb == 0) {
+                        "Off"
+                    } else {
+                        "Keep ${smart.keepFreeGb} GB free: delete watched downloads, oldest first"
+                    },
+                    isTablet = isTablet,
+                    onClick = {
+                        val choices = SmartDownloadSettings.KEEP_FREE_CHOICES_GB
+                        SmartDownloadSettings.setKeepFreeGb(choices[(choices.indexOf(smart.keepFreeGb) + 1) % choices.size])
+                    },
+                )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsNavigationRow(
                     title = stringResource(Res.string.download_quality_title),

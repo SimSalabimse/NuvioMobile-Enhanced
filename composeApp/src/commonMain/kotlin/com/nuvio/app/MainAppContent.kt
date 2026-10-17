@@ -106,6 +106,7 @@ import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.collection.CollectionSyncService
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
+import com.nuvio.app.features.downloads.SmartDownloadSettings
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadSubtitles
 import com.nuvio.app.features.downloads.DownloadsRepository
@@ -2348,6 +2349,18 @@ internal fun MainAppContent(
                     ?.let { item -> { onContinueWatchingStartFromBeginning(item) } },
                 onPlayManually = selectedContinueWatchingForActions
                     ?.let { item -> { onContinueWatchingPlayManually(item) } },
+                goalPinned = selectedContinueWatchingForActions
+                    ?.takeIf { it.seasonNumber != null }
+                    ?.let { SmartDownloadSettings.isGoal(it.parentMetaType, it.parentMetaId) },
+                onToggleGoal = {
+                    selectedContinueWatchingForActions?.let { item ->
+                        SmartDownloadSettings.setGoal(
+                            item.parentMetaType,
+                            item.parentMetaId,
+                            pinned = !SmartDownloadSettings.isGoal(item.parentMetaType, item.parentMetaId),
+                        )
+                    }
+                },
                 onRemove = {
                     selectedContinueWatchingForActions?.let(onContinueWatchingRemove)
                 },

@@ -153,6 +153,13 @@ internal object FinishedDownloadDeletion {
             ?.creditsStartMs
     }.getOrNull()
 
+    /** [item] is the video in the player now (never deleted from under it). */
+    fun isOpen(item: DownloadItem): Boolean {
+        val open = session ?: return false
+        return open.videoId == item.videoId || open.linkedDownloadId == item.id ||
+            downloadOpenedBySource(open.sourceUrl, listOf(item)) != null
+    }
+
     /** A watched file is queued or waiting to be deleted (smart downloads wait for its space). */
     fun hasPendingDeletion(): Boolean =
         deletionEnabled() && (pending != null || session?.queuedDownloadId != null)
@@ -204,12 +211,7 @@ internal object FinishedDownloadDeletion {
         val item = DownloadsRepository.uiState.value.items.firstOrNull { it.id == deletion.downloadId } ?: return
         if (deletion.requireCompleted && item.status != DownloadStatus.Completed) return
         // Never the episode on screen, whatever path got here.
-        val open = session
-        if (open != null) {
-            if (open.videoId == deletion.videoId) return
-            if (open.linkedDownloadId == deletion.downloadId) return
-            if (downloadOpenedBySource(open.sourceUrl, listOf(item)) != null) return
-        }
+        if (session?.videoId == deletion.videoId || isOpen(item)) return
         DownloadsRepository.cancelDownload(deletion.downloadId)
     }
 

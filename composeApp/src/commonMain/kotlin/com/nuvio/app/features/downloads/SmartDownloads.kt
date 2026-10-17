@@ -11,6 +11,7 @@ import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.streams.BingeGroupCacheRepository
 import com.nuvio.app.features.streams.StreamItem
+import com.nuvio.app.core.time.EpisodeReleaseDatePlatform
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,18 +42,35 @@ enum class DownloadQualityPreference(val key: String, val maxHeight: Int?) {
     }
 }
 
-/** Device-level settings for smart downloads and the download quality preference. */
+/** Device-level settings for automatic downloads (smart downloads, queued and goal episodes, autopilot). */
 object SmartDownloadSettings {
     private const val ENABLED_KEY = "smart_downloads_enabled"
     private const val COUNT_KEY = "smart_downloads_count"
     private const val CHARGING_KEY = "smart_downloads_only_charging"
+    private const val WIFI_KEY = "smart_downloads_only_wifi"
     private const val QUALITY_KEY = "download_quality_preference"
+    private const val PAUSE_DURING_PLAYBACK_KEY = "downloads_pause_during_playback"
+    private const val QUEUE_UNAIRED_KEY = "downloads_queue_unaired"
+    private const val KEEP_FREE_GB_KEY = "downloads_keep_free_gb"
+    private const val GOALS_KEY = "smart_downloads_goals"
+
+    /** Choices for "Keep free" (GB); 0 is off. */
+    val KEEP_FREE_CHOICES_GB = listOf(0, 5, 10, 20, 50)
 
     data class State(
         val enabled: Boolean = false,
         val count: Int = 1,
         val onlyWhileCharging: Boolean = false,
+        val onlyOnWifi: Boolean = true,
         val quality: DownloadQualityPreference = DownloadQualityPreference.Best,
+        /** Pause every download while the player is open (instead of the usual one-at-a-time throttle). */
+        val pauseDuringPlayback: Boolean = false,
+        /** Unaired episodes can be queued and download once they air. */
+        val queueUnaired: Boolean = true,
+        /** Storage autopilot: free watched downloads when free space drops below this (0 = off). */
+        val keepFreeGb: Int = 0,
+        /** Shows pinned as a Finish a series goal ("type|id"): their next episodes stay downloaded. */
+        val goals: Set<String> = emptySet(),
     )
 
     private val _state = MutableStateFlow(State())
@@ -66,8 +84,18 @@ object SmartDownloadSettings {
             enabled = DownloadsSettingsStorage.loadFlag(ENABLED_KEY) ?: false,
             count = DownloadsSettingsStorage.loadString(COUNT_KEY)?.toIntOrNull()?.coerceIn(1, 3) ?: 1,
             onlyWhileCharging = DownloadsSettingsStorage.loadFlag(CHARGING_KEY) ?: false,
+            onlyOnWifi = DownloadsSettingsStorage.loadFlag(WIFI_KEY) ?: true,
             quality = DownloadQualityPreference.fromKey(DownloadsSettingsStorage.loadString(QUALITY_KEY)),
+            pauseDuringPlayback = DownloadsSettingsStorage.loadFlag(PAUSE_DURING_PLAYBACK_KEY) ?: false,
+            queueUnaired = DownloadsSettingsStorage.loadFlag(QUEUE_UNAIRED_KEY) ?: true,
+            keepFreeGb = DownloadsSettingsStorage.loadString(KEEP_FREE_GB_KEY)?.toIntOrNull()?.coerceAtLeast(0) ?: 0,
+            goals = DownloadsSettingsStorage.loadString(GOALS_KEY).orEmpty().split('\n').filter { it.isNotBlank() }.toSet(),
         )
+    }
+
+    private fun update(transform: (State) -> State) {
+        ensureLoaded()
+        _state.value = transform(_state.value)
     }
 
     fun snapshot(): State {
@@ -76,28 +104,59 @@ object SmartDownloadSettings {
     }
 
     fun setEnabled(enabled: Boolean) {
-        ensureLoaded()
-        _state.value = _state.value.copy(enabled = enabled)
+        update { it.copy(enabled = enabled) }
         DownloadsSettingsStorage.saveFlag(ENABLED_KEY, enabled)
         if (enabled) SmartDownloads.retryPending()
     }
 
     fun setCount(count: Int) {
-        ensureLoaded()
         val value = count.coerceIn(1, 3)
-        _state.value = _state.value.copy(count = value)
+        update { it.copy(count = value) }
         DownloadsSettingsStorage.saveString(COUNT_KEY, value.toString())
     }
 
     fun setOnlyWhileCharging(enabled: Boolean) {
-        ensureLoaded()
-        _state.value = _state.value.copy(onlyWhileCharging = enabled)
+        update { it.copy(onlyWhileCharging = enabled) }
         DownloadsSettingsStorage.saveFlag(CHARGING_KEY, enabled)
+        if (!enabled) SmartDownloads.retryPending()
     }
 
+    fun setOnlyOnWifi(enabled: Boolean) {
+        update { it.copy(onlyOnWifi = enabled) }
+        DownloadsSettingsStorage.saveFlag(WIFI_KEY, enabled)
+        if (!enabled) SmartDownloads.retryPending()
+    }
+
+    fun setPauseDuringPlayback(enabled: Boolean) {
+        update { it.copy(pauseDuringPlayback = enabled) }
+        DownloadsSettingsStorage.saveFlag(PAUSE_DURING_PLAYBACK_KEY, enabled)
+        PlaybackPriority.reapplyDownloadCap()
+    }
+
+    fun setQueueUnaired(enabled: Boolean) {
+        update { it.copy(queueUnaired = enabled) }
+        DownloadsSettingsStorage.saveFlag(QUEUE_UNAIRED_KEY, enabled)
+    }
+
+    fun setKeepFreeGb(gb: Int) {
+        update { it.copy(keepFreeGb = gb.coerceAtLeast(0)) }
+        DownloadsSettingsStorage.saveString(KEEP_FREE_GB_KEY, gb.coerceAtLeast(0).toString())
+        StorageAutopilot.run()
+    }
+
+    fun isGoal(type: String, id: String): Boolean = goalKey(type, id) in snapshot().goals
+
+    fun setGoal(type: String, id: String, pinned: Boolean) {
+        val key = goalKey(type, id)
+        update { it.copy(goals = if (pinned) it.goals + key else it.goals - key) }
+        DownloadsSettingsStorage.saveString(GOALS_KEY, _state.value.goals.joinToString("\n").ifEmpty { null })
+        if (pinned) SmartDownloads.checkGoal(type, id)
+    }
+
+    private fun goalKey(type: String, id: String) = "$type|$id"
+
     fun setQuality(quality: DownloadQualityPreference) {
-        ensureLoaded()
-        _state.value = _state.value.copy(quality = quality)
+        update { it.copy(quality = quality) }
         DownloadsSettingsStorage.saveString(QUALITY_KEY, quality.key)
     }
 }
@@ -130,7 +189,17 @@ private data class SmartDownloadRequest(
     val parentMetaType: String,
     val season: Int,
     val episode: Int,
-)
+    /** Exactly this episode (one queued before it aired), not the ones after it. */
+    val exact: Boolean = false,
+    /** Episodes after S/E to keep downloaded; null uses the Smart Downloads count. */
+    val count: Int? = null,
+    /** Nothing to do before this time (the next episode airs then). */
+    val notBeforeEpochMs: Long = 0L,
+) {
+    fun sameTarget(other: SmartDownloadRequest): Boolean =
+        parentMetaId == other.parentMetaId && exact == other.exact && count == other.count &&
+            (!exact || (season == other.season && episode == other.episode))
+}
 
 /**
  * Smart downloads: when an episode of a show you have downloads of is finished, the next
@@ -154,8 +223,11 @@ internal object SmartDownloads {
     fun isEnabled(): Boolean = SmartDownloadSettings.snapshot().enabled
 
     fun appDidLaunch() {
-        if (!isEnabled()) return
         retryPending()
+        SmartDownloadSettings.snapshot().goals.forEach { key ->
+            val (type, id) = key.split('|', limit = 2).let { it[0] to it.getOrElse(1) { "" } }
+            if (id.isNotBlank()) checkGoal(type, id)
+        }
     }
 
     /** Credits start the player knows for an episode (own mark > TheIntroDB > on-device). */
@@ -185,15 +257,60 @@ internal object SmartDownloads {
 
     /** The episode on screen is near its end (credits or last minutes, see PlaybackEndRules). */
     fun onNearEnd(entry: WatchProgressEntry) {
-        if (!isEnabled()) return
         val season = entry.seasonNumber ?: return
         val episode = entry.episodeNumber ?: return
         if (!handledVideoIds.add(entry.videoId)) return
+        if (SmartDownloadSettings.isGoal(entry.parentMetaType, entry.parentMetaId)) {
+            // The goal counts from the next episode on, as if this one were watched.
+            add(SmartDownloadRequest(entry.parentMetaId, entry.parentMetaType, season, episode, count = GOAL_EPISODES))
+        }
+        if (!isEnabled()) return
         val hasDownloadsOfShow = DownloadsRepository.uiState.value.items.any { it.parentMetaId == entry.parentMetaId }
         if (!hasDownloadsOfShow) return
-        val request = SmartDownloadRequest(entry.parentMetaId, entry.parentMetaType, season, episode)
+        add(SmartDownloadRequest(entry.parentMetaId, entry.parentMetaType, season, episode))
+    }
+
+    /** "Queue" on an episode that has not aired yet: it downloads once it airs and a source is found. */
+    fun queueUnaired(metaType: String, metaId: String, season: Int, episode: Int) {
+        add(SmartDownloadRequest(metaId, metaType, season, episode, exact = true))
+        NuvioToastController.show("Queued S${season}E$episode: it downloads once it airs")
+    }
+
+    /**
+     * Finish a series goal: keeps the [GOAL_EPISODES] episodes from the first unwatched one
+     * downloaded. Checked at launch, when pinned and after each watched episode; a finished show
+     * is unpinned.
+     */
+    fun checkGoal(type: String, id: String) {
         scope.launch {
-            mutex.withLock { savePending(loadPending().filterNot { it.parentMetaId == request.parentMetaId } + request) }
+            val meta = MetaDetailsRepository.fetch(type, id) ?: return@launch
+            val first = firstUnwatchedEpisode(meta)
+            if (first == null) {
+                if (meta.videos.none { it.season != null && it.season > 0 && !it.hasAiredForDownload() }) {
+                    SmartDownloadSettings.setGoal(type, id, pinned = false)
+                    NuvioToastController.show("Finished ${meta.name}: goal done")
+                }
+                return@launch
+            }
+            add(SmartDownloadRequest(id, type, first.season ?: return@launch, (first.episode ?: return@launch) - 1, count = GOAL_EPISODES))
+        }
+    }
+
+    private fun firstUnwatchedEpisode(meta: MetaDetails): MetaVideo? =
+        nextEpisodes(meta.videos, season = 0, episode = 0, count = Int.MAX_VALUE)
+            .filter { it.hasAiredForDownload() }
+            .firstOrNull { video ->
+                !com.nuvio.app.features.watched.WatchedRepository.isWatched(
+                    id = meta.id,
+                    type = meta.type,
+                    season = video.season,
+                    episode = video.episode,
+                )
+            }
+
+    private fun add(request: SmartDownloadRequest) {
+        scope.launch {
+            mutex.withLock { savePending(loadPending().filterNot { it.sameTarget(request) } + request) }
             runPending()
         }
     }
@@ -204,8 +321,7 @@ internal object SmartDownloads {
 
     private fun canRunNow(): Boolean {
         val settings = SmartDownloadSettings.snapshot()
-        if (!settings.enabled) return false
-        if (!DownloadNetworkGuard.isOnWifi()) return false
+        if (settings.onlyOnWifi && !DownloadNetworkGuard.isOnWifi()) return false
         if (settings.onlyWhileCharging && !MediaAnalyzerPlatform.isCharging()) return false
         return true
     }
@@ -218,11 +334,7 @@ internal object SmartDownloads {
                 scheduleRetry()
                 return
             }
-            val left = mutableListOf<SmartDownloadRequest>()
-            for (request in pending) {
-                val done = runCatching { fulfil(request) }.getOrElse { false }
-                if (!done) left += request
-            }
+            val left = pending.mapNotNull { request -> runCatching { fulfil(request) }.getOrDefault(request) }
             savePending(left)
             if (left.isNotEmpty()) scheduleRetry()
         }
@@ -236,27 +348,38 @@ internal object SmartDownloads {
         }
     }
 
-    /** True when nothing more is to be done for [request]. */
-    private suspend fun fulfil(request: SmartDownloadRequest): Boolean {
+    /** The request to keep for later (maybe with a later start), or null when it is done. */
+    private suspend fun fulfil(request: SmartDownloadRequest): SmartDownloadRequest? {
+        val settings = SmartDownloadSettings.snapshot()
+        // Plain smart downloads follow the switch; queued and goal episodes were asked for directly.
+        if (!settings.enabled && !request.exact && request.count == null) return null
+        if (request.notBeforeEpochMs > EpisodeReleaseDatePlatform.nowEpochMs()) return request
         DownloadsRepository.ensureLoaded()
-        val meta = MetaDetailsRepository.fetch(request.parentMetaType, request.parentMetaId) ?: return false
-        val count = SmartDownloadSettings.snapshot().count
-        val next = nextEpisodes(meta.videos, request.season, request.episode, count)
-            .filter { it.hasAiredForDownload() }
-        if (next.isEmpty()) return true
+        val meta = MetaDetailsRepository.fetch(request.parentMetaType, request.parentMetaId) ?: return request
+        val wanted = if (request.exact) {
+            meta.videos.filter { it.season == request.season && it.episode == request.episode }.take(1)
+        } else {
+            nextEpisodes(meta.videos, request.season, request.episode, request.count ?: settings.count)
+        }
+        val (next, upcoming) = wanted.partition { it.hasAiredForDownload() }
+        // Not aired yet: wait for its air date (a day when it has none), then try again.
+        val later = upcoming.takeIf { settings.queueUnaired && it.isNotEmpty() }
+            ?.let { request.copy(notBeforeEpochMs = nextAirCheckEpochMs(it)) }
+        if (next.isEmpty()) return later
         val items = DownloadsRepository.uiState.value.items
         val missing = next.filter { video ->
             val key = downloadLogicalContentKey(meta.id, video.season, video.episode)
             seasonExistingDownload(items.firstOrNull { it.logicalContentKey == key }?.status) == null
         }
-        if (missing.isEmpty()) return true
+        if (missing.isEmpty()) return later
         val reference = items
             .filter { it.parentMetaId == meta.id && it.isEpisode }
             .maxByOrNull { it.updatedAtEpochMs }
         val picked = missing.mapNotNull { video ->
             pickStream(meta, video, reference)?.let { SeasonEnqueueRow(video, it) }
         }
-        if (picked.isEmpty()) return false
+        // No source yet (often right after it airs): try again later.
+        if (picked.isEmpty()) return request
         // Only what fits: each file plus its reserve, after what running downloads still need.
         val fit = smartDownloadsThatFit(
             rows = picked,
@@ -269,17 +392,18 @@ internal object SmartDownloads {
         )
         if (fit.isEmpty()) {
             // The watched file is about to go: wait for that delete, then this runs again.
-            if (FinishedDownloadDeletion.hasPendingDeletion()) return false
+            if (FinishedDownloadDeletion.hasPendingDeletion()) return request
+            StorageAutopilot.run()
             val key = "${request.parentMetaId}:${request.season}:${request.episode}"
             if (noSpaceShown.add(key)) NuvioToastController.show(SMART_DOWNLOADS_NO_SPACE)
-            return false
+            return request
         }
         val result = enqueueSeasonDownloads(meta, fit)
         if (result.queued > 0) {
             NuvioToastController.show(smartDownloadsQueuedMessage(result.queued, meta.name))
         }
         // Kept pending while some episodes did not fit, so it runs again once space frees.
-        return fit.size == missing.size && picked.size == missing.size
+        return if (fit.size == missing.size && picked.size == missing.size) later else request
     }
 
     private val noSpaceShown = mutableSetOf<String>()
@@ -313,6 +437,17 @@ internal object SmartDownloads {
             if (list.isEmpty()) null else json.encodeToString(ListSerializer(SmartDownloadRequest.serializer()), list),
         )
     }
+}
+
+private const val GOAL_EPISODES = 2
+private const val DAY_MS = 24 * 60 * 60_000L
+
+/** When to look again for episodes that have not aired: the earliest air time, or tomorrow without one. */
+private fun nextAirCheckEpochMs(upcoming: List<MetaVideo>): Long {
+    val now = EpisodeReleaseDatePlatform.nowEpochMs()
+    return upcoming.mapNotNull { com.nuvio.app.core.time.parseEpisodeReleaseEpochMs(it.released) }
+        .filter { it > now }
+        .minOrNull() ?: (now + DAY_MS)
 }
 
 internal const val SMART_DOWNLOADS_NO_SPACE = "No space for the next episode"

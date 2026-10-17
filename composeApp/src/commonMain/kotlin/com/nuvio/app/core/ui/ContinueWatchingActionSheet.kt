@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.DownloadDone
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadStatus
@@ -56,6 +57,9 @@ fun NuvioContinueWatchingActionSheet(
     downloadState: ContinueWatchingDownloadState = ContinueWatchingDownloadState.Unavailable,
     onDownload: (() -> Unit)? = null,
     onOpenDownloads: (() -> Unit)? = null,
+    /** Finish a series goal for this show: null hides it, otherwise whether it is pinned now. */
+    goalPinned: Boolean? = null,
+    onToggleGoal: () -> Unit = {},
 ) {
     if (item == null) return
     val tokens = MaterialTheme.nuvio
@@ -122,6 +126,13 @@ fun NuvioContinueWatchingActionSheet(
                     )
                 }
                 ContinueWatchingDownloadState.Unavailable -> Unit
+            }
+            if (goalPinned != null) {
+                NuvioBottomSheetActionRow(
+                    icon = Icons.Rounded.Flag,
+                    title = if (goalPinned) "Stop the finish goal" else "Goal: finish this series (keep the next 2 downloaded)",
+                    onClick = { dismissAfter(onToggleGoal) },
+                )
             }
             NuvioBottomSheetActionRow(
                 icon = Icons.Default.DeleteOutline,

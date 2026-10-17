@@ -1,5 +1,7 @@
 package com.nuvio.app.features.settings
 
+import com.nuvio.app.features.watchprogress.CONTINUE_WATCHING_PAUSE_CHOICES_DAYS
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -101,6 +103,17 @@ internal fun LazyListScope.continueWatchingSettingsContent(
                     checked = showFinishSeries,
                     isTablet = isTablet,
                     onCheckedChange = ContinueWatchingPreferencesRepository::setShowFinishSeries,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                val pauseAfterDays = ContinueWatchingPreferencesRepository.uiState.collectAsStateWithLifecycle().value.pauseStaleAfterDays
+                SettingsNavigationRow(
+                    title = "Pause untouched items",
+                    description = if (pauseAfterDays == 0) "Never" else "After $pauseAfterDays days they move to a Paused row on Home",
+                    isTablet = isTablet,
+                    onClick = {
+                        val choices = CONTINUE_WATCHING_PAUSE_CHOICES_DAYS
+                        ContinueWatchingPreferencesRepository.setPauseStaleAfterDays(choices[(choices.indexOf(pauseAfterDays) + 1) % choices.size])
+                    },
                 )
             }
         }

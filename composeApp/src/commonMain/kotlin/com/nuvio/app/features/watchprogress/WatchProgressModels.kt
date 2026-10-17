@@ -246,7 +246,27 @@ data class ContinueWatchingPreferencesUiState(
     val sortMode: ContinueWatchingSortMode = ContinueWatchingSortMode.DEFAULT,
     /** Enhanced: the "Finish a series" row on Home. */
     val showFinishSeries: Boolean = true,
+    /** Items untouched this many days move to "Paused" on Home (0 = never). */
+    val pauseStaleAfterDays: Int = 60,
+    /** Paused items brought back, with when (key: show or video id). */
+    val restoredStale: Map<String, Long> = emptyMap(),
 )
+
+/** Choices for "Pause untouched items after" (days; 0 = never). */
+val CONTINUE_WATCHING_PAUSE_CHOICES_DAYS = listOf(30, 60, 90, 180, 0)
+
+private const val DAY_MS = 24L * 60 * 60 * 1000
+
+/** Key a paused Continue Watching item is restored by. */
+internal fun ContinueWatchingItem.staleKey(): String = parentMetaId.ifBlank { videoId }
+
+/** Untouched for [days] (counting a restore as a touch); never when [days] is 0. */
+internal fun isStaleContinueWatching(
+    lastUpdatedEpochMs: Long,
+    restoredAtEpochMs: Long?,
+    days: Int,
+    nowEpochMs: Long,
+): Boolean = days > 0 && maxOf(lastUpdatedEpochMs, restoredAtEpochMs ?: 0L) < nowEpochMs - days * DAY_MS
 
 internal fun nextUpDismissKey(
     contentId: String,

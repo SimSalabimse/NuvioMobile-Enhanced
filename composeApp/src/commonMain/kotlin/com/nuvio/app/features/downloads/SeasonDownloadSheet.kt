@@ -61,7 +61,7 @@ private data class SeasonEpisodeRowState(
     val video: MetaVideo,
     val existing: SeasonExistingDownload? = null,
     val watched: Boolean = false,
-    /** Not aired yet (or no air date): shown disabled with its date, never selected or queued. */
+    /** Not aired yet (or no air date): shown disabled with its date; can be queued for when it airs. */
     val unaired: Boolean = false,
     val userChecked: Boolean = existing == null && !watched && !unaired,
     /** The user chose this episode's source in its own list; a season-level change leaves it. */
@@ -457,6 +457,28 @@ internal fun SeasonDownloadSheet(
                             rows = rows.map { if (it.key == row.key && it.canPick) it.copy(userChecked = checked) else it }
                         },
                     )
+                }
+                item(key = "fill-by-size") {
+                    val estimate = remember(downloads.items) { typicalEpisodeBytes(meta.id, downloads.items) }
+                    SeasonFillBySizeRow(estimateBytes = estimate) { budgetBytes ->
+                        val picked = fillSelection(rows.filter { it.canPick && !it.watched }.map { it.key }, estimate, budgetBytes).toSet()
+                        rows = rows.map { if (it.canPick) it.copy(userChecked = it.key in picked) else it }
+                    }
+                }
+                val unaired = rows.filter { it.unaired && it.existing == null }
+                if (unaired.isNotEmpty() && SmartDownloadSettings.snapshot().queueUnaired) {
+                    item(key = "queue-unaired") {
+                        TextButton(
+                            onClick = {
+                                unaired.forEach { row ->
+                                    SmartDownloads.queueUnaired(meta.type, meta.id, row.video.season ?: return@forEach, row.video.episode ?: return@forEach)
+                                }
+                            },
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                        ) {
+                            Text("Queue ${unaired.size} unaired episode${if (unaired.size == 1) "" else "s"}: they download once they air")
+                        }
+                    }
                 }
                 return@LazyColumn
             }
@@ -923,4 +945,37 @@ internal fun unairedLabel(released: String?): String {
     val month = parts[1].toIntOrNull()?.takeIf { it in 1..12 } ?: return "Not aired yet"
     val day = parts[2].toIntOrNull() ?: return "Not aired yet"
     return "Airs $day ${AIR_MONTHS[month - 1]} ${parts[0]}"
+}
+
+/** "Fill X GB" choices in Download Season. */
+private val SEASON_FILL_CHOICES_GB = listOf(5, 10, 20, 50)
+
+private const val DEFAULT_EPISODE_BYTES = 1_500_000_000L
+
+/** Size of a typical episode of this show: the median of its downloads, else 1.5 GB. */
+internal fun typicalEpisodeBytes(metaId: String, items: List<DownloadItem>): Long {
+    val sizes = items.filter { it.parentMetaId == metaId && it.isEpisode }
+        .mapNotNull { it.totalBytes?.takeIf { bytes -> bytes > 0L } }
+        .sorted()
+    return sizes.getOrNull(sizes.size / 2) ?: DEFAULT_EPISODE_BYTES
+}
+
+/** The leading [keys] (episode order) whose estimated sizes fit in [budgetBytes]. */
+internal fun fillSelection(keys: List<String>, episodeBytes: Long, budgetBytes: Long): List<String> =
+    keys.take((budgetBytes / episodeBytes.coerceAtLeast(1L)).toInt().coerceAtLeast(0))
+
+@Composable
+private fun SeasonFillBySizeRow(estimateBytes: Long, onFill: (Long) -> Unit) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+        Text(
+            text = "Fill with the next episodes (≈ ${formatDownloadBytes(estimateBytes)} each)",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SEASON_FILL_CHOICES_GB.forEach { gb ->
+                TextButton(onClick = { onFill(gb * 1_000_000_000L) }) { Text("$gb GB") }
+            }
+        }
+    }
 }

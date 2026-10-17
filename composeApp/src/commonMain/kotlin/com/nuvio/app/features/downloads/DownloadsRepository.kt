@@ -154,7 +154,7 @@ object DownloadsRepository {
 
     /** Back in the app: new starts wait for one of the two slots again. Running files keep going. */
     fun restoreForegroundCap() {
-        startQueue.maxActive = PlaybackPriority.level.maxDownloads
+        startQueue.maxActive = PlaybackPriority.downloadCap()
         resumeWaitingForAppOpen()
         if (hasLoaded) {
             scheduleSpaceRetry()
@@ -820,6 +820,7 @@ object DownloadsRepository {
         adoptLoadedItems()
         resumeWaitingForAppOpen()
         runCatching { retryFailedDeletes() }
+        StorageAutopilot.run()
     }
 
     private fun startDownload(item: DownloadItem) {
@@ -908,6 +909,7 @@ object DownloadsRepository {
                 }
                 com.nuvio.app.features.analysis.MediaAnalysisScheduler.kick()
                 com.nuvio.app.features.offline.OfflineArtwork.cache(item)
+                StorageAutopilot.run()
             },
             onFailure = onFailure@{ message ->
                 if (staleAttempt()) return@onFailure

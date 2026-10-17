@@ -81,6 +81,8 @@ import com.nuvio.app.features.watchprogress.resolvedProgressKey
 import com.nuvio.app.features.watchprogress.shouldTreatAsInProgressForContinueWatching
 import com.nuvio.app.features.watchprogress.shouldUseAsCompletedSeedForContinueWatching
 import com.nuvio.app.features.watchprogress.WatchProgressClock
+import com.nuvio.app.features.watchprogress.isStaleContinueWatching
+import com.nuvio.app.features.watchprogress.staleKey
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.WatchProgressSourceCoordinator
@@ -150,6 +152,7 @@ fun HomeScreen(
     val homeListState = rememberLazyListState()
     val continueWatchingListState = rememberLazyListState()
     val upcomingListState = rememberLazyListState()
+    val pausedListState = rememberLazyListState()
     ScreenActivityEffect(homeListState, continueWatchingListState, upcomingListState) { active ->
         if (!active) {
             homeListState.stopScroll(MutatePriority.PreventUserInput)
@@ -541,7 +544,7 @@ fun HomeScreen(
         }
     }.collectAsStateWithLifecycle(initialValue = com.nuvio.app.core.poster.CustomPosterUrlRepository.patternForScreen(com.nuvio.app.core.poster.CustomPosterScreen.CONTINUE_WATCHING))
 
-    val allContinueWatchingItems = remember(
+    val (allContinueWatchingItems, pausedContinueWatchingItems) = remember(
         visibleContinueWatchingEntries,
         cachedInProgressItems,
         effectivNextUpItems,
@@ -549,8 +552,11 @@ fun HomeScreen(
         continueWatchingPreferences.sortMode,
         cloudLibraryUiState,
         cwPosterPattern,
+        continueWatchingPreferences.pauseStaleAfterDays,
+        continueWatchingPreferences.restoredStale,
     ) {
-        buildHomeContinueWatchingItems(
+        val now = WatchProgressClock.nowEpochMs()
+        fun build(paused: Boolean) = buildHomeContinueWatchingItems(
             visibleEntries = visibleContinueWatchingEntries,
             cachedInProgressByProgressKey = cachedInProgressItems,
             nextUpItemsBySeries = effectivNextUpItems,
@@ -558,9 +564,17 @@ fun HomeScreen(
             sortMode = continueWatchingPreferences.sortMode,
             todayIsoDate = CurrentDateProvider.todayIsoDate(),
             cloudLibraryUiState = cloudLibraryUiState,
-        ).let { items ->
-            items.withCustomPosterUrls(cwPosterPattern)
-        }
+            paused = paused,
+            isStale = { lastUpdatedEpochMs, item ->
+                isStaleContinueWatching(
+                    lastUpdatedEpochMs = lastUpdatedEpochMs,
+                    restoredAtEpochMs = continueWatchingPreferences.restoredStale[item.staleKey()],
+                    days = continueWatchingPreferences.pauseStaleAfterDays,
+                    nowEpochMs = now,
+                )
+            },
+        ).withCustomPosterUrls(cwPosterPattern)
+        build(paused = false) to build(paused = true)
     }
     val shuffleCandidates = remember(completedSeriesCandidates, continueWatchingPreferences.dismissedNextUpKeys) {
         completedSeriesCandidates.filter { candidate ->
@@ -1083,6 +1097,8 @@ fun HomeScreen(
                             layout = continueWatchingLayout,
                             continueWatchingListState = continueWatchingListState,
                             upcomingListState = upcomingListState,
+                            pausedItems = pausedContinueWatchingItems,
+                            pausedListState = pausedListState,
                             onItemClick = onContinueWatchingClick,
                             onItemLongPress = onContinueWatchingLongPress,
                         disintegrationRequest = continueWatchingDisintegrationRequest,
@@ -1104,6 +1120,8 @@ fun HomeScreen(
                             layout = continueWatchingLayout,
                             continueWatchingListState = continueWatchingListState,
                             upcomingListState = upcomingListState,
+                            pausedItems = pausedContinueWatchingItems,
+                            pausedListState = pausedListState,
                             onItemClick = onContinueWatchingClick,
                             onItemLongPress = onContinueWatchingLongPress,
                         disintegrationRequest = continueWatchingDisintegrationRequest,
@@ -1195,6 +1213,8 @@ fun HomeScreen(
                             layout = continueWatchingLayout,
                             continueWatchingListState = continueWatchingListState,
                             upcomingListState = upcomingListState,
+                            pausedItems = pausedContinueWatchingItems,
+                            pausedListState = pausedListState,
                             onItemClick = onContinueWatchingClick,
                             onItemLongPress = onContinueWatchingLongPress,
                         disintegrationRequest = continueWatchingDisintegrationRequest,
@@ -1254,6 +1274,8 @@ private fun LazyListScope.homeContinueWatchingSections(
     layout: ContinueWatchingLayout,
     continueWatchingListState: LazyListState,
     upcomingListState: LazyListState,
+    pausedItems: List<ContinueWatchingItem>,
+    pausedListState: LazyListState,
     onItemClick: ((ContinueWatchingItem) -> Unit)?,
     onItemLongPress: ((ContinueWatchingItem) -> Unit)?,
     disintegrationRequest: DisintegrationRequest<String>?,
@@ -1311,9 +1333,33 @@ private fun LazyListScope.homeContinueWatchingSections(
             )
         }
     }
+
+    // Untouched for the chosen number of days: tap one to bring it back to Continue Watching.
+    if (pausedItems.isNotEmpty()) {
+        item(key = HOME_PAUSED_SECTION_KEY) {
+            HomeContinueWatchingSection(
+                items = pausedItems,
+                dataSourceKey = dataSourceKey,
+                style = preferences.style,
+                useEpisodeThumbnails = preferences.useEpisodeThumbnails,
+                blurNextUp = preferences.blurNextUp,
+                modifier = Modifier.padding(bottom = HomeContinueWatchingSectionBottomPadding),
+                title = "Paused · tap to restore",
+                sectionPadding = sectionPadding,
+                layout = layout,
+                listState = pausedListState,
+                onItemClick = { item ->
+                    ContinueWatchingPreferencesRepository.restoreStale(item.staleKey(), WatchProgressClock.nowEpochMs())
+                },
+                onItemLongPress = onItemLongPress,
+                disintegrationRequest = null,
+            )
+        }
+    }
 }
 
 private const val HOME_CATALOG_PREVIEW_LIMIT = 18
+private const val HOME_PAUSED_SECTION_KEY = "home_paused"
 private const val HOME_CONTINUE_WATCHING_SECTION_KEY = "home_continue_watching"
 private const val HOME_UPCOMING_SECTION_KEY = "home_upcoming"
 private const val HOME_FINISH_SERIES_SECTION_KEY = "home_finish_series"
@@ -1665,6 +1711,9 @@ internal fun buildHomeContinueWatchingItems(
     sortMode: ContinueWatchingSortMode = ContinueWatchingSortMode.DEFAULT,
     todayIsoDate: String = "",
     cloudLibraryUiState: CloudLibraryUiState? = null,
+    /** Which side of the "untouched for N days" line to return: Continue Watching or Paused. */
+    paused: Boolean = false,
+    isStale: (lastUpdatedEpochMs: Long, item: ContinueWatchingItem) -> Boolean = { _, _ -> false },
 ): List<ContinueWatchingItem> {
     val suppressedSeriesIds = nextUpSuppressedSeriesIds
         ?: visibleEntries
@@ -1710,10 +1759,8 @@ internal fun buildHomeContinueWatchingItems(
                 .thenByDescending { it.isProgressEntry },
         )
         .filter { candidate -> candidate.item.shouldDisplayInContinueWatching() }
-        .filter { candidate ->
-            val key = candidate.item.parentMetaId.ifBlank { candidate.item.videoId }
-            seen.add(key)
-        }
+        .filter { candidate -> seen.add(candidate.item.staleKey()) }
+        .filter { candidate -> isStale(candidate.lastUpdatedEpochMs, candidate.item) == paused }
 
     return when (sortMode) {
         ContinueWatchingSortMode.DEFAULT,

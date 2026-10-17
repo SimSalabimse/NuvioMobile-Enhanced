@@ -95,11 +95,17 @@ internal object PlaybackPriority {
         com.nuvio.app.features.analysis.MediaAnalysisStatus.resultsChanged()
     }
 
+    /** Downloads allowed now: the level's cap, or none while the player is open when that is chosen. */
+    fun downloadCap(): Int =
+        if (level != Level.Normal && SmartDownloadSettings.snapshot().pauseDuringPlayback) 0 else level.maxDownloads
+
+    fun reapplyDownloadCap() = DownloadsRepository.setPlaybackDownloadCap(downloadCap())
+
     private fun apply(next: Level) {
         if (level == next) return
         level = next
         setAnalysisThrottleLevel(if (analysisBoosted) 0 else next.analysisThrottle)
-        DownloadsRepository.setPlaybackDownloadCap(next.maxDownloads)
+        reapplyDownloadCap()
         // Make sure queued analysis is running (throttled) rather than left waiting.
         if (next != Level.Strained) com.nuvio.app.features.analysis.MediaAnalysisScheduler.kick()
     }
