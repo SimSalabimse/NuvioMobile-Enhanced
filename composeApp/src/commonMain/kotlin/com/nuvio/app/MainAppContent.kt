@@ -297,6 +297,8 @@ internal fun MainAppContent(
         var selectedPosterAnchor by remember { mutableStateOf<PosterZoomAnchor?>(null) }
         val posterOverlayHazeState = rememberHazeState()
         var selectedContinueWatchingForActions by remember { mutableStateOf<ContinueWatchingItem?>(null) }
+        // Enhanced: single-episode / movie download as a sheet over the current screen.
+        var downloadSheetRequest by remember { mutableStateOf<com.nuvio.app.features.downloads.DownloadSheetRequest?>(null) }
         var selectedContinueWatchingZoomAnchor by remember { mutableStateOf<PosterZoomAnchor?>(null) }
         val libraryDisintegrationRequests = remember { DisintegrationRequestController<String>() }
         val continueWatchingDisintegrationRequests = remember { DisintegrationRequestController<String>() }
@@ -1248,9 +1250,12 @@ internal fun MainAppContent(
                 )
             }
 
+        // Enhanced: every single download button (details, episode rows, the Continue Watching /
+        // Next Up hold menu) opens the shared download sheet over the current screen instead of
+        // pushing the stream screen; after Download the user stays where they were.
         val onDownloadContent: ContentPlayAction =
-            { type, videoId, parentMetaId, parentMetaType, title, logo, poster, background, seasonNumber, episodeNumber, episodeTitle, episodeThumbnail, pauseDescription, resumePositionMs ->
-                launchPlaybackWithDownloadPreference(
+            { type, videoId, parentMetaId, parentMetaType, title, logo, poster, background, seasonNumber, episodeNumber, episodeTitle, episodeThumbnail, _, _ ->
+                downloadSheetRequest = com.nuvio.app.features.downloads.DownloadSheetRequest(
                     type = type,
                     videoId = videoId,
                     parentMetaId = parentMetaId,
@@ -1263,12 +1268,6 @@ internal fun MainAppContent(
                     episodeNumber = episodeNumber,
                     episodeTitle = episodeTitle,
                     episodeThumbnail = episodeThumbnail,
-                    pauseDescription = pauseDescription,
-                    resumePositionMs = resumePositionMs,
-                    resumeProgressFraction = null,
-                    manualSelection = true,
-                    startFromBeginning = false,
-                    downloadMode = true,
                 )
             }
 
@@ -2359,6 +2358,13 @@ internal fun MainAppContent(
                     ?.let { item -> { onContinueWatchingDownload(item) } },
                 onOpenDownloads = { navController.navigate(DownloadsRoute(downloadsTitle)) },
             )
+
+            downloadSheetRequest?.let { request ->
+                com.nuvio.app.features.downloads.DownloadSourceSheet(
+                    request = request,
+                    onDismiss = { downloadSheetRequest = null },
+                )
+            }
 
             TrackingListPickerDialog(
                 visible = showLibraryListPicker,

@@ -1264,7 +1264,6 @@ private fun LazyListScope.homeContinueWatchingSections(
         item(key = HOME_CONTINUE_WATCHING_SECTION_KEY) {
             HomeContinueWatchingSection(
                 items = continueWatchingItems,
-                easiestToFinish = preferences.easiestToFinish,
                 dataSourceKey = dataSourceKey,
                 style = preferences.style,
                 useEpisodeThumbnails = preferences.useEpisodeThumbnails,
@@ -1276,6 +1275,18 @@ private fun LazyListScope.homeContinueWatchingSections(
                 onItemClick = onItemClick,
                 onItemLongPress = onItemLongPress,
                 disintegrationRequest = disintegrationRequest,
+            )
+        }
+    }
+
+    // Enhanced: shows ranked by time left to finish the whole series.
+    if (preferences.showFinishSeries && continueWatchingItems.isNotEmpty()) {
+        item(key = HOME_FINISH_SERIES_SECTION_KEY) {
+            com.nuvio.app.features.home.components.HomeFinishSeriesSection(
+                items = continueWatchingItems,
+                sectionPadding = sectionPadding,
+                modifier = Modifier.padding(bottom = HomeContinueWatchingSectionBottomPadding),
+                onItemClick = onItemClick,
             )
         }
     }
@@ -1304,6 +1315,7 @@ private fun LazyListScope.homeContinueWatchingSections(
 private const val HOME_CATALOG_PREVIEW_LIMIT = 18
 private const val HOME_CONTINUE_WATCHING_SECTION_KEY = "home_continue_watching"
 private const val HOME_UPCOMING_SECTION_KEY = "home_upcoming"
+private const val HOME_FINISH_SERIES_SECTION_KEY = "home_finish_series"
 internal const val HomeContinueWatchingMaxRecentProgressItems = 300
 internal const val HomeNextUpInitialResolutionLimit = 32
 private const val NEXT_UP_RESOLUTION_CONCURRENCY = 4
@@ -1702,14 +1714,11 @@ internal fun buildHomeContinueWatchingItems(
             seen.add(key)
         }
 
-    val stamped = deduplicated.map { candidate ->
-        candidate.copy(item = candidate.item.copy(lastActivityEpochMs = candidate.lastUpdatedEpochMs))
-    }
     return when (sortMode) {
         ContinueWatchingSortMode.DEFAULT,
         ContinueWatchingSortMode.SPLIT_UPCOMING,
-        -> stamped.map(HomeContinueWatchingCandidate::item)
-        ContinueWatchingSortMode.STREAMING_STYLE -> applyStreamingStyleSort(stamped, todayIsoDate)
+        -> deduplicated.map(HomeContinueWatchingCandidate::item)
+        ContinueWatchingSortMode.STREAMING_STYLE -> applyStreamingStyleSort(deduplicated, todayIsoDate)
     }
 }
 

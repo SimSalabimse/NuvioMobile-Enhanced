@@ -27,8 +27,53 @@ internal expect object DownloadDiskInfo {
     fun allProfilePayloads(): List<String>
 }
 
-/** Keep this much free; a download does not start, or stops, below it. */
-internal const val DOWNLOAD_FREE_SPACE_MARGIN_BYTES: Long = 1024L * 1024L * 1024L
+/** Smallest spare space kept free; a running download stops below it. */
+internal const val DOWNLOAD_FREE_SPACE_MARGIN_BYTES: Long = 500L * 1024L * 1024L
+
+/** Largest spare space ever asked for on top of a file. */
+internal const val DOWNLOAD_FREE_SPACE_RESERVE_MAX_BYTES: Long = 1024L * 1024L * 1024L
+
+/** Spare space kept on top of a file: 5 % of it, at least 500 MB, at most 1 GB. */
+internal fun downloadSpaceReserve(fileBytes: Long?): Long {
+    val fivePercent = fileBytes?.takeIf { it > 0L }?.let { it / 20L } ?: 0L
+    return fivePercent.coerceIn(DOWNLOAD_FREE_SPACE_MARGIN_BYTES, DOWNLOAD_FREE_SPACE_RESERVE_MAX_BYTES)
+}
+
+/** Why a download does not fit: what it needs (rest of the file plus the reserve) and what is free. */
+internal data class DownloadSpaceShortfall(
+    val neededBytes: Long?,
+    val freeBytes: Long,
+)
+
+/**
+ * Up-front check. A known size must fit with its reserve; an unknown size never blocks here
+ * (the running download checks instead, see [spaceRunningOut]).
+ */
+internal fun spaceShortfallBeforeStart(
+    remainingBytes: Long?,
+    fileBytes: Long?,
+    volume: VolumeSpace?,
+): DownloadSpaceShortfall? {
+    val free = volume?.availableBytes ?: return null
+    val remaining = remainingBytes?.takeIf { it > 0L } ?: return null
+    val needed = remaining + downloadSpaceReserve(fileBytes ?: remaining)
+    return if (needed > free) DownloadSpaceShortfall(needed, free) else null
+}
+
+/** While downloading: stop only when free space drops under the 500 MB floor. */
+internal fun spaceRunningOut(volume: VolumeSpace?): DownloadSpaceShortfall? {
+    val free = volume?.availableBytes ?: return null
+    return if (free < DOWNLOAD_FREE_SPACE_MARGIN_BYTES) DownloadSpaceShortfall(null, free) else null
+}
+
+/** "Needs 3.8 GB, 4.0 GB free. Free up space, then tap Retry." */
+internal fun downloadSpaceMessage(shortfall: DownloadSpaceShortfall): String {
+    val free = formatSeasonBytes(shortfall.freeBytes)
+    val head = shortfall.neededBytes?.let { "Needs ${formatSeasonBytes(it)}, $free free" } ?: "Only $free free"
+    return "$head. $DOWNLOAD_SPACE_HINT"
+}
+
+internal const val DOWNLOAD_SPACE_HINT = "Free up space, then tap Retry."
 
 internal data class SeasonStorage(
     val seasonNumber: Int,
@@ -128,8 +173,6 @@ internal fun summarizeDownloadStorage(
 internal fun usableFreeBytes(volume: VolumeSpace?): Long? =
     volume?.let { (it.availableBytes - DOWNLOAD_FREE_SPACE_MARGIN_BYTES).coerceAtLeast(0L) }
 
-/** True when [remainingBytes] (or nothing, if unknown) would not fit above the margin. */
-internal fun lacksSpaceFor(remainingBytes: Long?, volume: VolumeSpace?): Boolean {
-    val usable = usableFreeBytes(volume) ?: return false
-    return usable <= 0L || (remainingBytes != null && remainingBytes > usable)
-}
+/** True when [remainingBytes] would not fit with its reserve, or free space is under the floor. */
+internal fun lacksSpaceFor(remainingBytes: Long?, volume: VolumeSpace?): Boolean =
+    spaceRunningOut(volume) != null || spaceShortfallBeforeStart(remainingBytes, remainingBytes, volume) != null

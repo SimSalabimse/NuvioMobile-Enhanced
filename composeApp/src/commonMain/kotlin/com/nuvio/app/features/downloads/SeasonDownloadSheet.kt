@@ -354,8 +354,7 @@ internal fun SeasonDownloadSheet(
     val summary = summarizeSeasonSizes(selectedBytes)
     val totalText = seasonSelectionTotalText(summary, ::formatSeasonBytes)
     val volume = remember { DownloadDiskInfo.volumeSpace() }
-    val usableFree = usableFreeBytes(volume)
-    val lowSpace = usableFree != null && summary.knownBytes > 0L && summary.knownBytes > usableFree
+    val lowSpace = spaceShortfallBeforeStart(summary.knownBytes, summary.knownBytes, volume) != null
     val stillMatching = rows.any { it.matching && it.userChecked }
     val selectedBeforeSearch = rows.count { it.canPick && it.userChecked }
     val canQueue = selectionConfirmed && !queuing && !stillMatching &&
@@ -586,7 +585,7 @@ internal fun SeasonDownloadSheet(
                     Res.string.downloads_season_sheet_low_space,
                     formatSeasonBytes(summary.knownBytes),
                     formatSeasonBytes(volume.availableBytes),
-                    formatSeasonBytes(DOWNLOAD_FREE_SPACE_MARGIN_BYTES),
+                    formatSeasonBytes(downloadSpaceReserve(summary.knownBytes)),
                 ),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(top = 8.dp),
                 style = MaterialTheme.typography.bodySmall,

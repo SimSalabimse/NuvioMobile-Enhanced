@@ -926,7 +926,7 @@ private fun MobileSettingsScreen(
                     useEpisodeThumbnails = continueWatchingPreferencesUiState.useEpisodeThumbnails,
                     showUnairedNextUp = continueWatchingPreferencesUiState.showUnairedNextUp,
                     blurNextUp = continueWatchingPreferencesUiState.blurNextUp,
-                    easiestToFinish = continueWatchingPreferencesUiState.easiestToFinish,
+                    showFinishSeries = continueWatchingPreferencesUiState.showFinishSeries,
                     showResumePromptOnLaunch = continueWatchingPreferencesUiState.showResumePromptOnLaunch,
                     sortMode = continueWatchingPreferencesUiState.sortMode,
                 )
@@ -1434,7 +1434,7 @@ private fun TabletSettingsScreen(
                         useEpisodeThumbnails = continueWatchingPreferencesUiState.useEpisodeThumbnails,
                         showUnairedNextUp = continueWatchingPreferencesUiState.showUnairedNextUp,
                         blurNextUp = continueWatchingPreferencesUiState.blurNextUp,
-                        easiestToFinish = continueWatchingPreferencesUiState.easiestToFinish,
+                        showFinishSeries = continueWatchingPreferencesUiState.showFinishSeries,
                         showResumePromptOnLaunch = continueWatchingPreferencesUiState.showResumePromptOnLaunch,
                         sortMode = continueWatchingPreferencesUiState.sortMode,
                     )

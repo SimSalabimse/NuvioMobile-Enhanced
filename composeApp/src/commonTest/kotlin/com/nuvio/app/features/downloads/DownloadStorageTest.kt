@@ -3,6 +3,7 @@ package com.nuvio.app.features.downloads
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class DownloadStorageTest {
@@ -45,9 +46,32 @@ class DownloadStorageTest {
     @Test
     fun `space check keeps a margin`() {
         val gib = 1024L * 1024L * 1024L
-        assertTrue(lacksSpaceFor(null, VolumeSpace(availableBytes = gib / 2, totalBytes = 64 * gib)))
+        val mib = 1024L * 1024L
+        assertTrue(lacksSpaceFor(null, VolumeSpace(availableBytes = 400 * mib, totalBytes = 64 * gib)))
         assertTrue(lacksSpaceFor(2 * gib, VolumeSpace(availableBytes = 2 * gib, totalBytes = 64 * gib)))
         assertFalse(lacksSpaceFor(gib / 2, VolumeSpace(availableBytes = 2 * gib, totalBytes = 64 * gib)))
         assertFalse(lacksSpaceFor(10 * gib, null))
+    }
+
+    @Test
+    fun `reserve is 5 percent between 500 MB and 1 GB`() {
+        val mib = 1024L * 1024L
+        val gib = 1024L * mib
+        assertEquals(500 * mib, downloadSpaceReserve(null))
+        assertEquals(500 * mib, downloadSpaceReserve(4 * gib))
+        assertEquals(gib, downloadSpaceReserve(40 * gib))
+    }
+
+    @Test
+    fun `a 3_5 GB episode fits in 4 GB free and unknown sizes are not blocked up front`() {
+        val mib = 1024L * 1024L
+        val gib = 1024L * mib
+        val volume = VolumeSpace(availableBytes = 4 * gib, totalBytes = 238 * gib)
+        assertNull(spaceShortfallBeforeStart(3584 * mib, 3584 * mib, volume))
+        assertNull(spaceShortfallBeforeStart(null, null, volume))
+        val tooBig = spaceShortfallBeforeStart(4 * gib, 4 * gib, volume)
+        assertEquals(4 * gib + 500 * mib, tooBig?.neededBytes)
+        assertNull(spaceRunningOut(volume))
+        assertEquals("Only 400.0 MB free. Free up space, then tap Retry.", downloadSpaceMessage(spaceRunningOut(VolumeSpace(400 * mib, 238 * gib))!!))
     }
 }

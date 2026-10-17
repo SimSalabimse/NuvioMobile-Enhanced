@@ -79,7 +79,7 @@ internal fun LazyListScope.continueWatchingSettingsContent(
     blurNextUp: Boolean,
     showResumePromptOnLaunch: Boolean,
     sortMode: ContinueWatchingSortMode,
-    easiestToFinish: Boolean = true,
+    showFinishSeries: Boolean = true,
 ) {
     item {
         SettingsSection(
@@ -93,6 +93,14 @@ internal fun LazyListScope.continueWatchingSettingsContent(
                     checked = isVisible,
                     isTablet = isTablet,
                     onCheckedChange = ContinueWatchingPreferencesRepository::setVisible,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = "Finish a series",
+                    description = "A Home row with the shows you've started, shortest to finish first (all remaining episodes).",
+                    checked = showFinishSeries,
+                    isTablet = isTablet,
+                    onCheckedChange = ContinueWatchingPreferencesRepository::setShowFinishSeries,
                 )
             }
         }
@@ -176,14 +184,6 @@ internal fun LazyListScope.continueWatchingSettingsContent(
             isTablet = isTablet,
         ) {
             SettingsGroup(isTablet = isTablet) {
-                SettingsSwitchRow(
-                    title = "Easiest to finish first",
-                    description = "Sort by time left, in sections: Almost done, In progress, Next up and Stale. Turn off for the order below (Recent).",
-                    checked = easiestToFinish,
-                    isTablet = isTablet,
-                    onCheckedChange = ContinueWatchingPreferencesRepository::setEasiestToFinish,
-                )
-                SettingsGroupDivider(isTablet = isTablet)
                 val currentModeLabel = stringResource(
                     when (sortMode) {
                         ContinueWatchingSortMode.DEFAULT -> Res.string.settings_continue_watching_sort_mode_default

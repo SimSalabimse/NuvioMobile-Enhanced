@@ -51,8 +51,10 @@ import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * Storage summary for [items], recomputed when a download is added, removed or changes status,
- * and every few seconds while something is downloading.
+ * Storage summary for [items], recomputed when it appears, right after a download is added,
+ * deleted, finishes or changes status (again after 1.5 s and 4 s, since iOS updates its free-space
+ * figure a moment after a delete), then every 5 s while downloading and every 15 s otherwise,
+ * for as long as it is on screen. Each refresh also retries downloads that stopped for space.
  */
 @Composable
 internal fun rememberDownloadStorageSummary(items: List<DownloadItem>, refresh: Int = 0): DownloadStorageSummary? {
@@ -60,12 +62,20 @@ internal fun rememberDownloadStorageSummary(items: List<DownloadItem>, refresh: 
     val key = remember(items) { items.map { it.id to it.status }.hashCode() }
     val downloading = items.any { it.status == DownloadStatus.Downloading }
     LaunchedEffect(key, refresh, downloading) {
-        while (true) {
+        suspend fun recompute() {
             summary = withContext(Dispatchers.Default) {
                 runCatching { DownloadsRepository.storageSummary() }.getOrNull()
             } ?: summary
-            if (!downloading) break
-            delay(5_000L)
+        }
+        recompute()
+        delay(1_500L)
+        recompute()
+        delay(2_500L)
+        recompute()
+        while (true) {
+            delay(if (downloading) 5_000L else 15_000L)
+            recompute()
+            DownloadsRepository.retrySpaceFailures()
         }
     }
     return summary
