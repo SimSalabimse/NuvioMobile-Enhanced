@@ -13,6 +13,10 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.DownloadDone
+import com.nuvio.app.features.downloads.DownloadItem
+import com.nuvio.app.features.downloads.DownloadStatus
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -49,6 +53,9 @@ fun NuvioContinueWatchingActionSheet(
     onStartFromBeginning: (() -> Unit)? = null,
     onPlayManually: (() -> Unit)? = null,
     onRemove: () -> Unit,
+    downloadState: ContinueWatchingDownloadState = ContinueWatchingDownloadState.Unavailable,
+    onDownload: (() -> Unit)? = null,
+    onOpenDownloads: (() -> Unit)? = null,
 ) {
     if (item == null) return
     val tokens = MaterialTheme.nuvio
@@ -97,6 +104,24 @@ fun NuvioContinueWatchingActionSheet(
                     title = stringResource(Res.string.cw_action_start_from_beginning),
                     onClick = { dismissAfter(onStartFromBeginning) },
                 )
+            }
+            when (downloadState) {
+                ContinueWatchingDownloadState.Available -> if (onDownload != null) {
+                    NuvioBottomSheetActionRow(
+                        icon = Icons.Rounded.Download,
+                        title = downloadState.label,
+                        onClick = { dismissAfter(onDownload) },
+                    )
+                }
+                ContinueWatchingDownloadState.Downloading,
+                ContinueWatchingDownloadState.Downloaded -> if (onOpenDownloads != null) {
+                    NuvioBottomSheetActionRow(
+                        icon = Icons.Rounded.DownloadDone,
+                        title = downloadState.label,
+                        onClick = { dismissAfter(onOpenDownloads) },
+                    )
+                }
+                ContinueWatchingDownloadState.Unavailable -> Unit
             }
             NuvioBottomSheetActionRow(
                 icon = Icons.Default.DeleteOutline,
@@ -173,3 +198,35 @@ private fun ContinueWatchingSheetHeader(
 
 private fun ContinueWatchingItem.isCloudLibraryItem(): Boolean =
     parentMetaType.equals(CloudLibraryContentType, ignoreCase = true)
+
+/** Download item on Continue Watching / Next Up cards (enhanced). */
+enum class ContinueWatchingDownloadState(val label: String) {
+    Unavailable(""),
+    Available("Download"),
+    Downloading("Downloading… · Open in Downloads"),
+    Downloaded("Downloaded · Open in Downloads"),
+}
+
+/** Matches the card's exact episode (or the movie) against the download list. */
+fun continueWatchingDownloadState(
+    item: ContinueWatchingItem,
+    downloads: List<DownloadItem>,
+    canDownload: Boolean,
+): ContinueWatchingDownloadState {
+    val match = downloads
+        .filter { it.status != DownloadStatus.Failed }
+        .filter { download ->
+            download.parentMetaId == item.parentMetaId && (
+                (item.seasonNumber != null && item.episodeNumber != null &&
+                    download.seasonNumber == item.seasonNumber && download.episodeNumber == item.episodeNumber) ||
+                    (item.seasonNumber == null && item.episodeNumber == null && download.seasonNumber == null) ||
+                    (item.videoId.isNotBlank() && download.videoId == item.videoId)
+                )
+        }
+    return when {
+        match.any { it.status == DownloadStatus.Completed } -> ContinueWatchingDownloadState.Downloaded
+        match.isNotEmpty() -> ContinueWatchingDownloadState.Downloading
+        canDownload -> ContinueWatchingDownloadState.Available
+        else -> ContinueWatchingDownloadState.Unavailable
+    }
+}

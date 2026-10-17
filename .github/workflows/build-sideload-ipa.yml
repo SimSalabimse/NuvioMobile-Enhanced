@@ -116,6 +116,14 @@ jobs:
           echo "local.properties keys (names only):"
           awk -F= '/^[[:space:]]*[^#[:space:]]/ { print $1 }' local.properties
 
+      - name: Generate release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Fill this version's changelog.json entry from merged PRs and commits since the last
+          # sideload-* tag. Hand-written entries are kept; the bundled What's new uses this file.
+          python3 scripts/release-notes.py generate --write --repo "${GITHUB_REPOSITORY}" || echo "::warning::release-notes generation failed; using changelog.json as committed"
+
       - name: Prepare iOS dependencies
         run: ./scripts/prepare-ios-dependencies.sh
 
@@ -174,9 +182,10 @@ jobs:
         run: |
           set -euo pipefail
           configuration_slug="$(printf '%s' "${IOS_CONFIGURATION}" | tr '[:upper:]' '[:lower:]')"
-          ipa_path="$(find build/ios-ipa -maxdepth 1 -type f -name "*-full-${configuration_slug}.ipa" -print -quit)"
+          # build-ios-ipa.sh writes nuvio-<version>-enhanced-<config>.ipa (older builds: -full-).
+          ipa_path="$(find build/ios-ipa -maxdepth 1 -type f \( -name "*-enhanced-${configuration_slug}.ipa" -o -name "*-full-${configuration_slug}.ipa" \) -print -quit)"
           test -n "${ipa_path}"
-          version="$(basename "${ipa_path}" | sed -E "s/^nuvio-//; s/-full-${configuration_slug}\\.ipa$//")"
+          version="$(basename "${ipa_path}" | sed -E "s/^nuvio-//; s/-(enhanced|full)-${configuration_slug}\\.ipa$//")"
           short_sha="$(git rev-parse --short HEAD)"
           tag="sideload-${version}-${short_sha}"
           echo "ipa_name=$(basename "${ipa_path}")" >> "$GITHUB_OUTPUT"

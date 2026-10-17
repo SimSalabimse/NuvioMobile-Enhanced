@@ -2951,7 +2951,7 @@
     <string name="smart_downloads_charging_title">Only while charging</string>
     <string name="smart_downloads_charging_description">Start smart downloads only while the phone is charging.</string>
     <string name="download_quality_title">Download quality</string>
-    <string name="download_quality_best">Best available</string>
+    <string name="download_quality_best">Auto (best available)</string>
     <string name="download_quality_2160">Up to 4K (2160p)</string>
     <string name="download_quality_1080">Up to 1080p</string>
     <string name="download_quality_720">Up to 720p</string>

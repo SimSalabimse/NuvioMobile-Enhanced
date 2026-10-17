@@ -79,6 +79,7 @@ internal fun LazyListScope.continueWatchingSettingsContent(
     blurNextUp: Boolean,
     showResumePromptOnLaunch: Boolean,
     sortMode: ContinueWatchingSortMode,
+    showFinishSeries: Boolean = true,
 ) {
     item {
         SettingsSection(
@@ -92,6 +93,14 @@ internal fun LazyListScope.continueWatchingSettingsContent(
                     checked = isVisible,
                     isTablet = isTablet,
                     onCheckedChange = ContinueWatchingPreferencesRepository::setVisible,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = "Finish a series",
+                    description = "A Home row with the shows you've started, shortest to finish first (all remaining episodes).",
+                    checked = showFinishSeries,
+                    isTablet = isTablet,
+                    onCheckedChange = ContinueWatchingPreferencesRepository::setShowFinishSeries,
                 )
             }
         }

@@ -23,8 +23,18 @@ internal fun PlayerScreenRuntime.offerSkipFeedback(interval: SkipInterval) {
     if (SkipLearning.isUserProvider(interval.provider)) return
     if (SkipLearning.canonicalType(interval.type) == null) return
     skipFeedbackNudging = false
-    skipFeedbackInterval = interval
+    skipFeedbackInterval = null
+    // The Skip button shows a little before the segment, so ask only once the user has watched
+    // a few seconds from where the skip landed and can judge it.
+    skipFeedbackDelayJob?.cancel()
+    skipFeedbackDelayJob = scope.launch {
+        kotlinx.coroutines.delay(SKIP_FEEDBACK_DELAY_MS)
+        skipFeedbackInterval = interval
+    }
 }
+
+/** How long after the skip lands the Good / Wrong prompt appears. */
+internal const val SKIP_FEEDBACK_DELAY_MS = 4_000L
 
 /**
  * Saves [type] from [startSec] to [endSec] as the user's own mark for this episode, lets the
@@ -112,6 +122,7 @@ internal fun BoxScope.RenderSkipFeedbackPrompt(runtime: PlayerScreenRuntime) {
                 saveUserSkipMark(interval.type, interval.startTime, interval.endTime, submit = true)
             },
             onWrong = { skipFeedbackNudging = true },
+            onRewind = { seekBy(-5_000L) },
             onSave = { start, end ->
                 skipFeedbackInterval = null
                 skipFeedbackNudging = false

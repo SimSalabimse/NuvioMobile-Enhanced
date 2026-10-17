@@ -2,6 +2,7 @@ package com.nuvio.app.features.player
 
 import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
 import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.features.party.PartyRepository
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.shuffle.EpisodeShuffleRepository
 import com.nuvio.app.features.shuffle.ShuffleSurface
@@ -109,7 +110,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         accumulatedSeekResetJob?.cancel()
         accumulatedSeekResetJob = null
         accumulatedSeekState = null
-        speedBoostRestoreSpeed = null
+        cancelHoldToSpeed()
         preferredAudioSelectionApplied = false
         appliedAudioPreferences = null
         preferredSubtitleSelectionApplied = false
@@ -365,6 +366,10 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
                 controllerSourceUrl == p2pResolvedSourceUrl
         if (!controllerMatchesActivePlayback) return@LaunchedEffect
         if (initialSeekApplied || playbackSnapshot.isLoading) return@LaunchedEffect
+        if (isPartySynced && PartyRepository.playback.value != null) {
+            initialSeekApplied = true
+            return@LaunchedEffect
+        }
 
         val progressFraction = activeInitialProgressFraction
             ?.takeIf { it > 0f }
@@ -388,6 +393,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
 
     BindPlayerUiVisibilityEffects()
     BindPlayerMetadataAndSkipEffects()
+    BindPartyEffects()
 
     DisposableEffect(activeSourceUrl) {
         val effectSourceUrl = activeSourceUrl
@@ -574,6 +580,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         lastManualSkipSeekPositions = null
         activeSkipInterval = null
         skipIntervalDismissed = false
+        skipFeedbackDelayJob?.cancel()
         skipFeedbackInterval = null
         skipFeedbackNudging = false
         showNextEpisodeCard = false
@@ -655,7 +662,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
             if (current != null && controller != null &&
                 playerControllerSourceUrl == activeSourceUrl &&
                 playerSettingsUiState.skipIntroEnabled && playbackSnapshot.isPlaying &&
-                !isScrubbingTimeline && initialSeekApplied &&
+                !isScrubbingTimeline && initialSeekApplied && !isPartyControlLocked &&
                 // The pre-roll only reveals the button; auto-skip waits for the segment itself.
                 positionSec >= current.startTime &&
                 current.shouldAutoSkip(playerSettingsUiState.autoSkipSegmentTypes) &&
@@ -668,10 +675,20 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                 autoSkippedIntervals.add(current)
                 controller.seekTo(seekPositionMs)
                 scheduleProgressSyncAfterSeek()
+                publishPartyPlayback(positionMs = seekPositionMs)
                 skipIntervalDismissed = true
                 notification?.let { NuvioToastController.show(it, AUTO_SKIP_NOTIFICATION_DURATION_MS) }
             }
         }
+    }
+
+    // Smart downloads: the credits start of this episode (own mark > TheIntroDB > on-device).
+    LaunchedEffect(skipIntervals, activeVideoId) {
+        val videoId = activeVideoId ?: return@LaunchedEffect
+        com.nuvio.app.features.downloads.SmartDownloads.reportCredits(
+            videoId,
+            smartDownloadCreditsStartMs(skipIntervals),
+        )
     }
 
     LaunchedEffect(
@@ -775,7 +792,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
             }
             if (shouldShow && !showNextEpisodeCard) {
                 showNextEpisodeCard = true
-                if (playerSettingsUiState.streamAutoPlayNextEpisodeEnabled && nextEpisodeInfo?.hasAired == true) {
+                if (playerSettingsUiState.streamAutoPlayNextEpisodeEnabled && nextEpisodeInfo?.hasAired == true && !isPartyControlLocked) {
                     playNextEpisode(automatic = true)
                 }
             } else if (!shouldShow) {
@@ -946,6 +963,7 @@ internal fun PlayerScreenRuntime.tryRefreshCredentialedSourceAfterError(message:
             activeStreamSubtitle = stream.streamSubtitle
             activeProviderName = stream.addonName
             activeProviderAddonId = stream.addonId
+            activeStream = stream
             currentStreamBingeGroup = stream.behaviorHints.bingeGroup
             activeInitialPositionMs = savedPositionMs
             activeInitialProgressFraction = null
@@ -1012,21 +1030,26 @@ private fun findCredentialRefreshCandidate(
         .maxByOrNull { (score, _) -> score }
         ?.second
 
-private fun SkipInterval.isEligibleForSkipButton(positionSec: Double): Boolean {
-    val effectiveStartTime = if (isIntroLikeSkipInterval()) {
-        (startTime - SKIP_INTRO_PRE_ROLL_SECONDS).coerceAtLeast(0.0)
-    } else {
-        startTime
-    }
-    return positionSec >= effectiveStartTime && positionSec < endTime
-}
-
-private fun SkipInterval.isIntroLikeSkipInterval(): Boolean =
-    when (type.lowercase()) {
-        "intro", "op", "mixed-op" -> true
-        else -> false
-    }
-
-private const val SKIP_INTRO_PRE_ROLL_SECONDS = 10.0
+/** The button shows exactly from the segment start to its end; no pre-roll, so the start is visible. */
+private fun SkipInterval.isEligibleForSkipButton(positionSec: Double): Boolean =
+    positionSec >= startTime && positionSec < endTime
 private const val CREDENTIAL_REFRESH_POLL_COUNT = 30
 private const val CREDENTIAL_REFRESH_POLL_INTERVAL_MS = 500L
+
+/** Credits/outro start for smart downloads, by source: own mark, then TheIntroDB, then on-device. */
+internal fun smartDownloadCreditsStartMs(intervals: List<com.nuvio.app.features.player.skip.SkipInterval>): Long? {
+    fun rank(provider: String): Int = when {
+        com.nuvio.app.features.analysis.SkipLearning.isUserProvider(provider) -> 0
+        provider == com.nuvio.app.features.player.skip.TheIntroDb.PROVIDER -> 1
+        provider == ON_DEVICE_SKIP_PROVIDER -> 2
+        else -> 3
+    }
+    return intervals
+        .filter {
+            com.nuvio.app.features.player.skip.AutoSkipSegmentType.fromSkipIntervalType(it.type) ==
+                com.nuvio.app.features.player.skip.AutoSkipSegmentType.OUTRO &&
+                it.startTime.isFinite() && it.startTime > 0.0
+        }
+        .minByOrNull { rank(it.provider) * 1_000_000.0 + it.startTime }
+        ?.let { (it.startTime * 1000).toLong() }
+}

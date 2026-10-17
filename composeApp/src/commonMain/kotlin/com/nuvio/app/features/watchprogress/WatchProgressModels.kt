@@ -244,6 +244,8 @@ data class ContinueWatchingPreferencesUiState(
     val dismissedNextUpKeys: Set<String> = emptySet(),
     val showResumePromptOnLaunch: Boolean = true,
     val sortMode: ContinueWatchingSortMode = ContinueWatchingSortMode.DEFAULT,
+    /** Enhanced: the "Finish a series" row on Home. */
+    val showFinishSeries: Boolean = true,
 )
 
 internal fun nextUpDismissKey(

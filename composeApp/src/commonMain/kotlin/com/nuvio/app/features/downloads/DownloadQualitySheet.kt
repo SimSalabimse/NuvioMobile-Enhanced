@@ -97,11 +97,12 @@ internal fun DownloadQualitySheet(
     val options = remember(tapped, allStreams) { downloadQualityOptions(tapped, allStreams) }
     var selected by remember(tapped) { mutableStateOf(tapped) }
     val probed = remember(tapped) { mutableStateMapOf<String, Long?>() }
-    val freeBytes = remember { usableFreeBytes(DownloadDiskInfo.volumeSpace()) }
+    val volumeNow = remember { DownloadDiskInfo.volumeSpace() }
+    val freeBytes = volumeNow?.availableBytes
 
     LaunchedEffect(options) {
         val targets = options.mapNotNull { stream ->
-            if (statedStreamBytes(stream) != null) return@mapNotNull null
+            if (downloadStreamBytes(stream) != null) return@mapNotNull null
             val url = stream.playableDirectUrl?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
             SeasonProbeTarget(
                 id = url,
@@ -113,7 +114,7 @@ internal fun DownloadQualitySheet(
     }
 
     fun sizeOf(stream: StreamItem): Long? =
-        statedStreamBytes(stream) ?: stream.playableDirectUrl?.let { probed[it] }
+        downloadStreamBytes(stream) ?: stream.playableDirectUrl?.let { probed[it] }
 
     NuvioModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         Column(
@@ -134,11 +135,7 @@ internal fun DownloadQualitySheet(
                     ) {
                         RadioButton(selected = selected === stream, onClick = { selected = stream })
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = streamQualityLabel(stream),
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Medium,
-                            )
+                            DownloadQualitySizeChips(stream = stream, bytesOverride = bytes)
                             Text(
                                 text = stream.title ?: stream.name ?: "",
                                 style = MaterialTheme.typography.bodySmall,
@@ -146,10 +143,6 @@ internal fun DownloadQualitySheet(
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
-                        Text(
-                            text = bytes?.let { formatSeasonBytes(it) } ?: "–",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
                     }
                 }
             }
@@ -160,9 +153,10 @@ internal fun DownloadQualitySheet(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            if (chosenBytes != null && freeBytes != null && chosenBytes > freeBytes) {
+            val shortfall = spaceShortfallBeforeStart(chosenBytes, chosenBytes, volumeNow)
+            if (shortfall != null) {
                 Text(
-                    text = stringResource(Res.string.download_quality_not_enough_space),
+                    text = downloadSpaceMessage(shortfall),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )

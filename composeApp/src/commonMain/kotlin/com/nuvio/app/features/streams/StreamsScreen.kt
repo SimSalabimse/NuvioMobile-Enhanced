@@ -307,6 +307,17 @@ fun StreamsScreen(
 
     if (showLoadingScreen) return
 
+    val downloadAutoPick = com.nuvio.app.features.downloads.rememberDownloadAutoPick(
+        type = type,
+        videoId = videoId,
+        parentMetaId = parentMetaId,
+        season = seasonNumber,
+        episode = episodeNumber,
+        enabled = downloadMode,
+    )
+    // Auto-pick on: only the picked-source card shows until "Change source" / "Choose myself".
+    val hideSourceList = downloadMode && downloadAutoPick.hidesSourceList
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
@@ -314,7 +325,9 @@ fun StreamsScreen(
     ) {
         val isTabletLayout = maxWidth >= 768.dp
 
-        if (isTabletLayout) {
+        if (hideSourceList) {
+            // Source list hidden while auto-pick decides.
+        } else CompositionLocalProvider(com.nuvio.app.features.downloads.LocalDownloadSourceChips provides downloadMode) { if (isTabletLayout) {
             TabletStreamsLayout(
                 isEpisode = isEpisode,
                 showSearchField = streamDisplaySettings.showStreamSearch,
@@ -372,7 +385,7 @@ fun StreamsScreen(
                 onStreamLongPress = { stream -> streamActionsTarget = stream },
                 onRefresh = reloadStreams,
             )
-        }
+        } }
 
         Row(
             modifier = Modifier
@@ -393,6 +406,22 @@ fun StreamsScreen(
             )
         }
 
+
+        if (downloadMode) {
+            // Shared picked-source card (same for every download entry point).
+            com.nuvio.app.features.downloads.DownloadAutoPickCard(
+                controller = downloadAutoPick,
+                heading = listOfNotNull(
+                    title.takeIf { it.isNotBlank() },
+                    if (seasonNumber != null && episodeNumber != null) "S${seasonNumber}E${episodeNumber}" else null,
+                    episodeTitle?.takeIf { it.isNotBlank() },
+                ).joinToString(" · "),
+                onDownload = enqueueStreamDownload,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .windowInsetsPadding(WindowInsets.safeDrawing),
+            )
+        }
 
         StreamActionsSheet(
             stream = streamActionsTarget,
@@ -801,6 +830,7 @@ internal fun StreamList(
     val findingStreamsText = stringResource(Res.string.streams_finding_streams)
     val checkingMoreAddonsText = stringResource(Res.string.streams_checking_more_addons)
     val formatStreamSize = rememberStreamSizeLabelFormat()
+    val sharedStream = LocalSharedStream.current
     val streamBadgeSettings by remember {
         StreamBadgeSettingsRepository.ensureLoaded()
         StreamBadgeSettingsRepository.uiState
@@ -819,6 +849,27 @@ internal fun StreamList(
         ),
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
+        sharedStream?.let { shared ->
+            item(key = "shared_stream") {
+                Column {
+                    StreamSectionHeader(
+                        group = AddonStreamGroup(addonName = shared.label, addonId = "shared_stream", streams = emptyList()),
+                        fetchingText = fetchingText,
+                    )
+                    StreamCard(
+                        stream = shared.stream,
+                        enabled = true,
+                        appendInstantServiceToDefaultName = false,
+                        showFileSizeBadges = streamBadgeSettings.showFileSizeBadges,
+                        showAddonLogo = streamBadgeSettings.showAddonLogo,
+                        badgePlacement = streamBadgeSettings.badgePlacement,
+                        onClick = { onStreamSelected(shared.stream, resumePositionMs, resumeProgressFraction) },
+                        isCurrent = true,
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+            }
+        }
         when {
             hasGroups && anyLoading && !hasAnyStreams -> {
                 item {

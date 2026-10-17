@@ -3,6 +3,7 @@ package com.nuvio.app.features.downloads
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class DownloadStorageTest {
@@ -45,9 +46,33 @@ class DownloadStorageTest {
     @Test
     fun `space check keeps a margin`() {
         val gib = 1024L * 1024L * 1024L
-        assertTrue(lacksSpaceFor(null, VolumeSpace(availableBytes = gib / 2, totalBytes = 64 * gib)))
+        val mib = 1024L * 1024L
+        assertTrue(lacksSpaceFor(null, VolumeSpace(availableBytes = 400 * mib, totalBytes = 64 * gib)))
         assertTrue(lacksSpaceFor(2 * gib, VolumeSpace(availableBytes = 2 * gib, totalBytes = 64 * gib)))
         assertFalse(lacksSpaceFor(gib / 2, VolumeSpace(availableBytes = 2 * gib, totalBytes = 64 * gib)))
         assertFalse(lacksSpaceFor(10 * gib, null))
+    }
+
+    @Test
+    fun `reserve is 5 percent between 500 MB and 1 GB`() {
+        val mb = 1_000_000L
+        val gb = 1_000_000_000L
+        assertEquals(500 * mb, downloadSpaceReserve(null))
+        assertEquals(500 * mb, downloadSpaceReserve(4 * gb))
+        assertEquals(gb, downloadSpaceReserve(40 * gb))
+    }
+
+    @Test
+    fun `a 3_5 GB episode fits in 4 GB free and unknown sizes are not blocked up front`() {
+        val mb = 1_000_000L
+        val gb = 1_000_000_000L
+        val volume = VolumeSpace(availableBytes = 4 * gb, totalBytes = 256 * gb)
+        assertNull(spaceShortfallBeforeStart(3500 * mb, 3500 * mb, volume))
+        assertNull(spaceShortfallBeforeStart(null, null, volume))
+        val tooBig = spaceShortfallBeforeStart(4 * gb, 4 * gb, volume)
+        assertEquals(4 * gb + 500 * mb, tooBig?.neededBytes)
+        assertEquals("Needs 4.5 GB, 4.0 GB free. Free up space, then tap Retry.", downloadSpaceMessage(tooBig!!))
+        assertNull(spaceRunningOut(volume))
+        assertEquals("Only 400.0 MB free. Free up space, then tap Retry.", downloadSpaceMessage(spaceRunningOut(VolumeSpace(400 * mb, 256 * gb))!!))
     }
 }

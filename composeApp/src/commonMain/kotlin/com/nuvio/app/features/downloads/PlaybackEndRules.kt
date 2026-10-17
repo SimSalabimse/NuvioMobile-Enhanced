@@ -35,6 +35,29 @@ internal object PlaybackEndRules {
         return positionMs >= at
     }
 
+    /** Smart downloads start this long before the credits. */
+    const val SMART_BEFORE_CREDITS_MS = 180_000L
+    /** Without credit times: this long before the end, or [SMART_FALLBACK_FRACTION], whichever is first. */
+    const val SMART_BEFORE_END_MS = 480_000L
+    const val SMART_FALLBACK_FRACTION = 0.85
+    /** Next episode this big (or larger): start at half-way instead. */
+    const val SMART_LARGE_EPISODE_BYTES = 2L * 1024 * 1024 * 1024
+    /** Credits earlier than this share of the runtime are not trusted for the early trigger. */
+    private const val SMART_MIN_CREDITS_FRACTION = 0.6
+
+    /** Where smart downloads fetch the next episodes while this one plays. */
+    fun smartDownloadTriggerMs(durationMs: Long, creditsStartMs: Long?, largeNextEpisode: Boolean): Long? {
+        if (durationMs <= 0L || isShortPlaceholderDuration(durationMs)) return null
+        val credits = creditsStartMs?.takeIf { it < durationMs && it >= (durationMs * SMART_MIN_CREDITS_FRACTION).toLong() }
+        val byTimes = if (credits != null) {
+            credits - SMART_BEFORE_CREDITS_MS
+        } else {
+            minOf(durationMs - SMART_BEFORE_END_MS, (durationMs * SMART_FALLBACK_FRACTION).toLong())
+        }
+        val at = if (largeNextEpisode) minOf(byTimes, durationMs / 2) else byTimes
+        return at.coerceAtLeast(0L)
+    }
+
     /** Close enough to the end to fetch what comes next. */
     fun nearEnd(positionMs: Long, durationMs: Long, creditsStartMs: Long?): Boolean {
         val at = threshold(durationMs, creditsStartMs, NEAR_END_WINDOW_MS) ?: return false

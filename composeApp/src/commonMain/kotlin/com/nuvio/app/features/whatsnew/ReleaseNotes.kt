@@ -92,13 +92,44 @@ internal object ReleaseNotes {
     val currentKey: String get() = "${AppVersionConfig.VERSION_NAME}(${AppVersionConfig.VERSION_CODE})"
 
     @OptIn(ExperimentalResourceApi::class)
-    suspend fun load(): List<BundledRelease> {
+    suspend fun loadBundled(): List<BundledRelease> {
         cached?.let { return it }
         val list = runCatching {
             json.decodeFromString<BundledChangelog>(Res.readBytes("files/changelog.json").decodeToString()).releases
         }.getOrDefault(emptyList())
         cached = list
         return list
+    }
+
+    /**
+     * Live GitHub release notes merged over the bundled changelog.json, newest first.
+     * A live entry replaces the bundled one for the same version; bundled-only versions stay.
+     * Offline, rate-limited or slow (4 s cap): bundled + whatever was cached last time.
+     */
+    suspend fun load(forceRefresh: Boolean = false): List<BundledRelease> =
+        merge(LiveReleaseNotes.load(forceRefresh), loadBundled())
+
+    /** Bundled + cached live notes without touching the network. */
+    suspend fun loadOffline(): List<BundledRelease> = merge(LiveReleaseNotes.cached(), loadBundled())
+
+    internal fun merge(live: List<BundledRelease>, bundled: List<BundledRelease>): List<BundledRelease> {
+        val byVersion = LinkedHashMap<String, BundledRelease>()
+        bundled.forEach { byVersion[it.version] = it }
+        live.forEach { l ->
+            val b = byVersion[l.version]
+            byVersion[l.version] = l.copy(date = l.date ?: b?.date)
+        }
+        return byVersion.values.sortedWith { a, b -> compareVersions(b.version, a.version) }
+    }
+
+    private fun compareVersions(a: String, b: String): Int {
+        val pa = a.split('.', '-').map { it.toIntOrNull() ?: 0 }
+        val pb = b.split('.', '-').map { it.toIntOrNull() ?: 0 }
+        for (i in 0 until maxOf(pa.size, pb.size)) {
+            val c = (pa.getOrElse(i) { 0 }).compareTo(pb.getOrElse(i) { 0 })
+            if (c != 0) return c
+        }
+        return 0
     }
 
     /** Null when nothing should show; otherwise the release for this version and whether it's a first run. */
@@ -292,7 +323,10 @@ private fun NotesSection(icon: ImageVector, title: String, notes: List<String>) 
 @Composable
 fun BundledWhatsNewScreen(onBack: () -> Unit) {
     var releases by remember { mutableStateOf<List<BundledRelease>>(emptyList()) }
-    LaunchedEffect(Unit) { releases = ReleaseNotes.load() }
+    LaunchedEffect(Unit) {
+        releases = ReleaseNotes.loadOffline()
+        releases = ReleaseNotes.load(forceRefresh = true)
+    }
     NuvioScreen {
         stickyHeader {
             NuvioScreenHeader(

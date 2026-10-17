@@ -1279,6 +1279,19 @@ private fun LazyListScope.homeContinueWatchingSections(
         }
     }
 
+    // Enhanced: shows ranked by time left to finish the whole series.
+    if (preferences.showFinishSeries && continueWatchingItems.isNotEmpty()) {
+        item(key = HOME_FINISH_SERIES_SECTION_KEY) {
+            com.nuvio.app.features.home.components.HomeFinishSeriesSection(
+                items = continueWatchingItems,
+                sectionPadding = sectionPadding,
+                modifier = Modifier.padding(bottom = HomeContinueWatchingSectionBottomPadding),
+                onItemClick = onItemClick,
+                onItemLongPress = onItemLongPress,
+            )
+        }
+    }
+
     if (upcomingItems.isNotEmpty()) {
         item(key = HOME_UPCOMING_SECTION_KEY) {
             HomeContinueWatchingSection(
@@ -1303,6 +1316,7 @@ private fun LazyListScope.homeContinueWatchingSections(
 private const val HOME_CATALOG_PREVIEW_LIMIT = 18
 private const val HOME_CONTINUE_WATCHING_SECTION_KEY = "home_continue_watching"
 private const val HOME_UPCOMING_SECTION_KEY = "home_upcoming"
+private const val HOME_FINISH_SERIES_SECTION_KEY = "home_finish_series"
 internal const val HomeContinueWatchingMaxRecentProgressItems = 300
 internal const val HomeNextUpInitialResolutionLimit = 32
 private const val NEXT_UP_RESOLUTION_CONCURRENCY = 4

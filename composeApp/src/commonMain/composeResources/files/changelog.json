@@ -1,6 +1,58 @@
 {
   "releases": [
     {
+      "version": "0.6.1.1",
+      "date": "2026-10-16",
+      "new": [
+        "Watch Party from the latest upstream Nuvio (0.6.1): watch in sync with friends, share invites as nuvio.tv links, see the party before you join (experimental).",
+        "MDBList dynamic and liked lists in the library.",
+        "Download from the hold menu on Continue Watching and Next Up cards: it downloads that exact episode or movie with auto-pick and Change source. If it's already downloaded or downloading, the item opens Downloads instead.",
+        "Pick the quality right on the auto-picked source: one option per quality available (4K, 1080p, 720p, 480p), each with its size, like 1080p · 2.3 GB. Tap one to switch to the best source of that quality without opening the list. Download Season has one quality choice for the whole season: every selected episode is re-picked at that quality (or the nearest lower one if an episode doesn't have it), and the total updates.",
+        "A \"Finish a series\" row on Home: the shows you've started, shortest to finish first, counting every remaining episode across all seasons (for example 4 eps · 2h 50m left), with a progress bar for the series. Tap to play the next episode. Turn it off in Continue Watching settings."
+      ],
+      "improved": [
+        "Updated to the latest upstream Nuvio (0.6.1-beta), with the updated p2p streaming engine (0.1.5), better picture-in-picture on iOS and new translations.",
+        "Skip buttons, auto-skip and seeking follow the Watch Party's control rules, and a skip is shared with the party.",
+        "In a Watch Party, an episode that isn't fully analysed is analysed in the background without asking, so you never pause and drop out of sync. Auto-play next episode waits for the party.",
+        "Smart Downloads start the next episode while you watch, not after: about 3 minutes before the credits (your own mark, then TheIntroDB, then on-device), or 8 minutes before the end / at 85 % without credit times, and at half-way for large episodes. Once per episode, throttled while you watch, never unaired or already downloaded episodes.",
+        "Downloading with auto-pick on shows only \"Picking…\" and then the picked source, from every download button (details, episode rows, the Continue Watching and Next Up hold menu). Tap Change source or Choose myself for the full list.",
+        "Download sources show quality and size chips (for example 1080p · 2.3 GB, or Size unknown) on the picked source, in source lists and in Download Season, which also shows the season total.",
+        "Download quality (Auto, 4K, 1080p, 720p or 480p, in Downloads settings) is now used by Smart Downloads and by auto-pick for single downloads and Download Season.",
+        "Download from Home, the details screen and episode rows opens the download card as a sheet right there, with auto-pick, quality options and Change source inside it. After Download you stay where you were and see \"Downloading S2E6\".",
+        "The Downloads storage card updates right after a delete or a finished download, when it opens, and every few seconds while it's on screen.",
+        "Storage shows what Nuvio really takes, matching iOS Settings: sizes in the same units as iOS, free space and capacity from iOS, and the app total split into Downloads, Subtitles & extras, Cache, Leftovers and App data.",
+        "\"Clean up leftovers\" in Storage removes files no download owns, such as loose subtitle files and resume data from removed downloads, after you confirm. Subtitles for a download now live in its own folder under Subtitles, and deleting a download removes them.",
+        "Finish a series cards have the same hold menu as Continue Watching (Download in place, details, remove and more). The show name now appears on each card, with the time left under it, and neither line is cut off any more.",
+        "Clean up leftovers is now always on the storage card at the top of Downloads, greyed out with 0 B when there's nothing to clean."
+      ],
+      "fixed": [
+        "Holding for 2x speed while playback switched to the downloaded file no longer leaves it stuck at 2x. Letting go, a cancelled hold, or the player switching or reloading always goes back to your normal speed.",
+        "\"Not enough space\" no longer stops downloads that fit. It uses the free space iOS lets apps use and keeps a small reserve (5 % of the file, 500 MB to 1 GB) instead of a fixed 1 GB on top. Downloads of unknown size start and are checked while they run. The message now says what's needed, like \"Needs 3.8 GB, 4.0 GB free. Free up space, then tap Retry.\"",
+        "Retry on a download that stopped for space checks the space again and starts it (resuming the partial file), and says why if it still doesn't fit. Downloads that stopped for space start again by themselves once space is freed."
+      ]
+    },
+    {
+      "version": "0.5.10.4",
+      "date": "2026-10-16",
+      "new": [
+        "What's new now loads the latest release notes from GitHub Releases, so notes fixed after a build still show up. It's cached for offline use, falls back to the notes built into the app, and never delays launch."
+      ],
+      "improved": [
+        "Release notes are put together automatically at build time from merged pull requests and commits, grouped into New, Improved and Fixed. Hand-written notes are kept.",
+        "Downloaded episodes show where their skip times come from, for each of intro, recap and credits: You, TheIntroDB (yours), TheIntroDB, On-device, and so on. Online sources show up after the episode has been played once.",
+        "Downloading a single episode or movie picks its source automatically when auto-pick is on, the same way Download Season does (including TorBox cached torrents). Tap Change source to choose from the list.",
+        "The Good / Wrong prompt after Skip now shows about 4 seconds after the skip lands, so you can see where it landed. It stays for 8 seconds, can be closed, and Wrong has a Rewind 5s button to check again."
+      ],
+      "fixed": [
+        "The GitHub release and SideStore source now carry the full notes again instead of a single line.",
+        "Download Season with auto-pick on now picks a source the same way auto-play does, including TorBox cached torrents, instead of opening the full source list. It waits for the sources and the TorBox cache check, and shows the list only if nothing matches.",
+        "Download Season auto-pick falling back to the source list (0.5.10.4, 170).",
+        "Download Season no longer selects or queues episodes that haven't aired yet. They're shown greyed out with their air date.",
+        "The Skip Intro button no longer appears 10 seconds before the intro. It shows exactly when the segment starts, with its start and end times (for example Skip Intro 1:12–2:41).",
+        "Tapping Good or Wrong after a skip no longer brings up the \"isn't fully analysed yet\" prompt. That prompt only shows when an episode starts."
+      ]
+    },
+    {
       "version": "0.5.10.3",
       "date": "2026-10-14",
       "new": [

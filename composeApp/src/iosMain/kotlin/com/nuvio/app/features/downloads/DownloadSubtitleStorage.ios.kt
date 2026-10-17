@@ -11,7 +11,23 @@ import platform.Foundation.writeToFile
 
 @OptIn(ExperimentalForeignApi::class)
 internal actual class DownloadSubtitleStorage actual constructor(localVideoUri: String) {
-    private val directory = requireNotNull(NSURL(string = localVideoUri).path) + ".subtitles"
+    private val videoPath = requireNotNull(NSURL(string = localVideoUri).path)
+
+    /** Before 0.6.1.1 (178): "<video>.subtitles" next to the video. */
+    private val legacyDirectory = "$videoPath.subtitles"
+
+    /** Per-download folder: "<downloads folder>/Subtitles/<video file name>/". */
+    private val directory = run {
+        val parent = videoPath.substringBeforeLast('/', "")
+        val name = videoPath.substringAfterLast('/')
+        val organised = "$parent/$DOWNLOAD_SUBTITLES_FOLDER/$name"
+        val manager = NSFileManager.defaultManager
+        if (!manager.fileExistsAtPath(organised) && manager.fileExistsAtPath(legacyDirectory)) {
+            manager.createDirectoryAtPath("$parent/$DOWNLOAD_SUBTITLES_FOLDER", true, null, null)
+            if (!manager.moveItemAtPath(legacyDirectory, organised, null)) return@run legacyDirectory
+        }
+        organised
+    }
 
     actual fun read(fileName: String): String? =
         NSString.stringWithContentsOfFile(path(fileName), NSUTF8StringEncoding, null)
@@ -27,6 +43,7 @@ internal actual class DownloadSubtitleStorage actual constructor(localVideoUri: 
 
     actual fun remove() {
         NSFileManager.defaultManager.removeItemAtPath(directory, null)
+        NSFileManager.defaultManager.removeItemAtPath(legacyDirectory, null)
     }
 
     private fun path(fileName: String): String {
@@ -34,3 +51,5 @@ internal actual class DownloadSubtitleStorage actual constructor(localVideoUri: 
         return "$directory/$fileName"
     }
 }
+
+internal const val DOWNLOAD_SUBTITLES_FOLDER = "Subtitles"
