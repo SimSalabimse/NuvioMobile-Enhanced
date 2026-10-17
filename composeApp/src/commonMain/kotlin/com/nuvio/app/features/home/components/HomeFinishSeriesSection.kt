@@ -1,7 +1,6 @@
 package com.nuvio.app.features.home.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -9,6 +8,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.time.isEpisodeReleaseAired
 import com.nuvio.app.core.ui.NuvioShelfSection
+import com.nuvio.app.core.ui.posterCardClickable
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.details.MetaVideo
@@ -59,7 +60,7 @@ internal data class FinishSeriesEntry(
     val seriesProgress: Float,
 ) {
     val label: String
-        get() = "$episodesLeft ${if (episodesLeft == 1) "ep" else "eps"} · ${formatFinishMinutes(minutesLeft)} to finish"
+        get() = "$episodesLeft ${if (episodesLeft == 1) "ep" else "eps"} · ${formatFinishMinutes(minutesLeft)} left"
 }
 
 internal fun formatFinishMinutes(minutes: Long): String {
@@ -148,6 +149,7 @@ internal fun HomeFinishSeriesSection(
     sectionPadding: Dp,
     modifier: Modifier = Modifier,
     onItemClick: ((ContinueWatchingItem) -> Unit)?,
+    onItemLongPress: ((ContinueWatchingItem) -> Unit)? = null,
 ) {
     var metaVersion by remember { mutableStateOf(0) }
     val (entries, missing) = remember(items, metaVersion) {
@@ -188,7 +190,12 @@ internal fun HomeFinishSeriesSection(
         rowContentPadding = PaddingValues(horizontal = sectionPadding),
         key = { entry -> "finish:" + entry.item.parentMetaId },
     ) { entry ->
-        FinishSeriesCard(entry = entry, onClick = onItemClick?.let { click -> { click(entry.item) } })
+        FinishSeriesCard(
+            entry = entry,
+            onClick = onItemClick?.let { click -> { click(entry.item) } },
+            // Same hold menu as Continue Watching (Download, details, remove, ...).
+            onLongClick = onItemLongPress?.let { press -> { press(entry.item) } },
+        )
     }
 }
 
@@ -196,23 +203,25 @@ internal fun HomeFinishSeriesSection(
 private fun FinishSeriesCard(
     entry: FinishSeriesEntry,
     onClick: (() -> Unit)?,
+    onLongClick: (() -> Unit)?,
 ) {
     val item = entry.item
     val shape = RoundedCornerShape(12.dp)
-    Column(
-        modifier = Modifier
-            .width(220.dp)
-            .clip(shape)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
-    ) {
+    val image = item.background ?: item.imageUrl ?: item.poster
+    Column(modifier = Modifier.width(220.dp)) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
                 .clip(shape)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .posterCardClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                    zoomImageUrl = image,
+                    zoomCornerRadius = 12.dp,
+                ),
         ) {
-            val image = item.background ?: item.imageUrl ?: item.poster
             if (image != null) {
                 AsyncImage(
                     model = image,
@@ -227,20 +236,23 @@ private fun FinishSeriesCard(
             progress = { entry.seriesProgress },
             modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)),
         )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            text = item.title,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        // Right under the bar; wraps to a second line instead of cutting a word.
         Text(
             text = entry.label,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            softWrap = true,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Text(
+            text = item.title,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 2.dp),
         )
     }
 }

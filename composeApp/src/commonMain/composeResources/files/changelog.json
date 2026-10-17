@@ -8,7 +8,7 @@
         "MDBList dynamic and liked lists in the library.",
         "Download from the hold menu on Continue Watching and Next Up cards: it downloads that exact episode or movie with auto-pick and Change source. If it's already downloaded or downloading, the item opens Downloads instead.",
         "Pick the quality right on the auto-picked source: one option per quality available (4K, 1080p, 720p, 480p), each with its size, like 1080p · 2.3 GB. Tap one to switch to the best source of that quality without opening the list. Download Season has one quality choice for the whole season: every selected episode is re-picked at that quality (or the nearest lower one if an episode doesn't have it), and the total updates.",
-        "A \"Finish a series\" row on Home: the shows you've started, shortest to finish first, counting every remaining episode across all seasons (for example 4 eps · 2h 50m to finish), with a progress bar for the series. Tap to play the next episode. Turn it off in Continue Watching settings."
+        "A \"Finish a series\" row on Home: the shows you've started, shortest to finish first, counting every remaining episode across all seasons (for example 4 eps · 2h 50m left), with a progress bar for the series. Tap to play the next episode. Turn it off in Continue Watching settings."
       ],
       "improved": [
         "Updated to the latest upstream Nuvio (0.6.1-beta), with the updated p2p streaming engine (0.1.5), better picture-in-picture on iOS and new translations.",
@@ -21,7 +21,9 @@
         "Download from Home, the details screen and episode rows opens the download card as a sheet right there, with auto-pick, quality options and Change source inside it. After Download you stay where you were and see \"Downloading S2E6\".",
         "The Downloads storage card updates right after a delete or a finished download, when it opens, and every few seconds while it's on screen.",
         "Storage shows what Nuvio really takes, matching iOS Settings: sizes in the same units as iOS, free space and capacity from iOS, and the app total split into Downloads, Subtitles & extras, Cache, Leftovers and App data.",
-        "\"Clean up leftovers\" in Storage removes files no download owns, such as loose subtitle files and resume data from removed downloads, after you confirm. Subtitles for a download now live in its own folder under Subtitles, and deleting a download removes them."
+        "\"Clean up leftovers\" in Storage removes files no download owns, such as loose subtitle files and resume data from removed downloads, after you confirm. Subtitles for a download now live in its own folder under Subtitles, and deleting a download removes them.",
+        "Finish a series cards have the same hold menu as Continue Watching (Download in place, details, remove and more). The time left sits right under the progress bar and wraps instead of being cut off.",
+        "Clean up leftovers is now always on the storage card at the top of Downloads, greyed out with 0 B when there's nothing to clean."
       ],
       "fixed": [
         "Holding for 2x speed while playback switched to the downloaded file no longer leaves it stuck at 2x. Letting go, a cancelled hold, or the player switching or reloading always goes back to your normal speed.",

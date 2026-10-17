@@ -87,7 +87,32 @@ internal fun DownloadStorageCard(
     summary: DownloadStorageSummary,
     onClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    onCleaned: () -> Unit = {},
 ) {
+    var confirmCleanUp by remember { mutableStateOf(false) }
+    val leftoverCount = summary.orphans.size + (summary.app?.leftovers?.size ?: 0)
+    val leftoverBytes = summary.allLeftoverBytes
+    if (confirmCleanUp && leftoverCount > 0) {
+        NuvioStatusModal(
+            title = stringResource(Res.string.downloads_storage_leftovers_confirm_title),
+            message = stringResource(
+                Res.string.downloads_storage_leftovers_confirm_message,
+                leftoverCount,
+                formatDownloadBytes(leftoverBytes),
+            ),
+            isVisible = true,
+            destructive = true,
+            confirmText = stringResource(Res.string.action_yes),
+            dismissText = stringResource(Res.string.action_no),
+            onConfirm = {
+                val freed = DownloadsRepository.cleanUpLeftovers()
+                com.nuvio.app.core.ui.NuvioToastController.show("Cleaned up ${formatDownloadBytes(freed)}")
+                confirmCleanUp = false
+                onCleaned()
+            },
+            onDismiss = { confirmCleanUp = false },
+        )
+    }
     Surface(
         modifier = modifier
             .fillMaxWidth()
@@ -166,6 +191,14 @@ internal fun DownloadStorageCard(
                     )
                 }
             }
+            // Always shown on the card; greyed out with "0 B" when there is nothing to clean.
+            androidx.compose.material3.FilledTonalButton(
+                onClick = { confirmCleanUp = true },
+                enabled = leftoverCount > 0 && leftoverBytes >= 0L,
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+            ) {
+                Text("Clean up leftovers · ${formatDownloadBytes(if (leftoverCount > 0) leftoverBytes else 0L)}")
+            }
         }
     }
 }
@@ -237,7 +270,6 @@ internal fun DownloadStorageScreen(
     var expanded by remember { mutableStateOf<Set<String>>(emptySet()) }
     var pendingDelete by remember { mutableStateOf<PendingStorageDelete?>(null) }
     var reanalyzeTarget by remember { mutableStateOf<ReanalyzeTarget?>(null) }
-    var confirmOrphans by remember { mutableStateOf(false) }
     val specialsLabel = stringResource(Res.string.downloads_storage_specials)
 
     NuvioScreen {
@@ -248,26 +280,7 @@ internal fun DownloadStorageScreen(
             )
         }
         val current = summary ?: return@NuvioScreen
-        item(key = "storage-card") { DownloadStorageCard(summary = current, onClick = null) }
-
-        val leftoverCount = current.orphans.size + (current.app?.leftovers?.size ?: 0)
-        if (leftoverCount > 0) {
-            item(key = "storage-orphans") {
-                StorageRow(
-                    title = stringResource(Res.string.downloads_storage_leftovers),
-                    subtitle = stringResource(
-                        Res.string.downloads_storage_leftovers_hint,
-                        leftoverCount,
-                        formatDownloadBytes(current.allLeftoverBytes),
-                    ),
-                    trailing = {
-                        TextButton(onClick = { confirmOrphans = true }) {
-                            Text("Clean up leftovers", color = MaterialTheme.colorScheme.error)
-                        }
-                    },
-                )
-            }
-        }
+        item(key = "storage-card") { DownloadStorageCard(summary = current, onClick = null, onCleaned = { refresh++ }) }
 
         item(key = "storage-by-title") {
             Text(
@@ -355,28 +368,6 @@ internal fun DownloadStorageScreen(
         )
     }
 
-    val leftoverTotal = (summary?.orphans?.size ?: 0) + (summary?.app?.leftovers?.size ?: 0)
-    if (confirmOrphans && leftoverTotal > 0) {
-        NuvioStatusModal(
-            title = stringResource(Res.string.downloads_storage_leftovers_confirm_title),
-            message = stringResource(
-                Res.string.downloads_storage_leftovers_confirm_message,
-                leftoverTotal,
-                formatDownloadBytes(summary?.allLeftoverBytes ?: 0L),
-            ),
-            isVisible = true,
-            destructive = true,
-            confirmText = stringResource(Res.string.action_yes),
-            dismissText = stringResource(Res.string.action_no),
-            onConfirm = {
-                val freed = DownloadsRepository.cleanUpLeftovers()
-                com.nuvio.app.core.ui.NuvioToastController.show("Cleaned up ${formatDownloadBytes(freed)}")
-                confirmOrphans = false
-                refresh++
-            },
-            onDismiss = { confirmOrphans = false },
-        )
-    }
 }
 
 @Composable

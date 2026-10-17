@@ -126,7 +126,8 @@ fun DownloadsScreen(
         return
     }
 
-    val storageSummary = rememberDownloadStorageSummary(uiState.items)
+    var storageRefresh by remember { mutableStateOf(0) }
+    val storageSummary = rememberDownloadStorageSummary(uiState.items, storageRefresh)
     val tokens = MaterialTheme.nuvio
 
     // Under the native iOS navigation bar the header collapses to its actions, so the list has to
@@ -192,6 +193,7 @@ fun DownloadsScreen(
                     DownloadStorageCard(
                         summary = summary,
                         onClick = { onOpenStorage?.invoke() ?: run { showStorage = true } },
+                        onCleaned = { storageRefresh++ },
                     )
                 }
             }

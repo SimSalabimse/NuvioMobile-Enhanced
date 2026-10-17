@@ -1287,6 +1287,7 @@ private fun LazyListScope.homeContinueWatchingSections(
                 sectionPadding = sectionPadding,
                 modifier = Modifier.padding(bottom = HomeContinueWatchingSectionBottomPadding),
                 onItemClick = onItemClick,
+                onItemLongPress = onItemLongPress,
             )
         }
     }
