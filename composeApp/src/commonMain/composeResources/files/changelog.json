@@ -22,7 +22,7 @@
         "The Downloads storage card updates right after a delete or a finished download, when it opens, and every few seconds while it's on screen.",
         "Storage shows what Nuvio really takes, matching iOS Settings: sizes in the same units as iOS, free space and capacity from iOS, and the app total split into Downloads, Subtitles & extras, Cache, Leftovers and App data.",
         "\"Clean up leftovers\" in Storage removes files no download owns, such as loose subtitle files and resume data from removed downloads, after you confirm. Subtitles for a download now live in its own folder under Subtitles, and deleting a download removes them.",
-        "Finish a series cards have the same hold menu as Continue Watching (Download in place, details, remove and more). The time left sits right under the progress bar and wraps instead of being cut off.",
+        "Finish a series cards have the same hold menu as Continue Watching (Download in place, details, remove and more). The show name now appears on each card, with the time left under it, and neither line is cut off any more.",
         "Clean up leftovers is now always on the storage card at the top of Downloads, greyed out with 0 B when there's nothing to clean."
       ],
       "fixed": [

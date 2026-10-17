@@ -239,23 +239,27 @@ private fun FinishSeriesCard(
             progress = { entry.seriesProgress },
             modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(2.dp)),
         )
-        // Right under the bar; wraps to a second line instead of cutting a word.
+        // Show name first, styled like the Continue Watching card title: one line, ellipsis at the end.
+        // Explicit line heights and no clip/offset on the text, so no glyph is cut at the bottom or left.
+        Text(
+            text = item.title,
+            style = MaterialTheme.typography.titleSmall.copy(
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                fontWeight = FontWeight.SemiBold,
+            ),
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+        )
         Text(
             text = entry.label,
             style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, lineHeight = 16.sp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 2,
-            softWrap = true,
-            modifier = Modifier.padding(top = 4.dp),
-        )
-        Text(
-            text = item.title,
-            style = MaterialTheme.typography.labelLarge.copy(fontSize = 14.sp, lineHeight = 20.sp),
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onBackground,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 2.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 2.dp),
         )
     }
 }
