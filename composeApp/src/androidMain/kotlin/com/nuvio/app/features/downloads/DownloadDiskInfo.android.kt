@@ -35,8 +35,20 @@ internal actual object DownloadDiskInfo {
         return if (file.isDirectory) file.deleteRecursively() else file.delete()
     }
 
+    actual fun appStorageUsage(ownedFileNames: Set<String>): AppStorageUsage? {
+        val context = appContext ?: return null
+        fun size(file: File?): Long = file?.takeIf { it.exists() }?.walkTopDown()?.filter(File::isFile)?.sumOf(File::length) ?: 0L
+        val data = context.filesDir?.parentFile
+        val cache = size(context.cacheDir) + size(context.externalCacheDir)
+        return AppStorageUsage(totalBytes = size(data) + size(context.getExternalFilesDir(null)) + size(context.externalCacheDir), cacheBytes = cache, leftovers = emptyList())
+    }
+
+    actual fun deleteLeftover(path: String): Boolean = false
+
     actual fun allProfilePayloads(): List<String> {
         val prefs = appContext?.getSharedPreferences("nuvio_downloads", Context.MODE_PRIVATE) ?: return emptyList()
         return prefs.all.filterKeys { it.startsWith(PAYLOAD_KEY_PREFIX) }.values.mapNotNull { it as? String }
     }
 }
+
+internal actual fun platformByteCountString(bytes: Long): String? = null

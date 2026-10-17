@@ -1,7 +1,10 @@
 package com.nuvio.app.features.downloads
 
 import kotlinx.cinterop.ExperimentalForeignApi
+import platform.Foundation.NSByteCountFormatter
+import platform.Foundation.NSByteCountFormatterCountStyleFile
 import platform.Foundation.NSFileManager
+import platform.Foundation.NSHomeDirectory
 import platform.Foundation.NSFileSize
 import platform.Foundation.NSFileSystemFreeSize
 import platform.Foundation.NSFileSystemSize
@@ -17,30 +20,118 @@ import platform.Foundation.NSUserDefaults
 internal actual object DownloadDiskInfo {
     private const val PAYLOAD_KEY_PREFIX = "downloads_payload_"
 
-    actual fun volumeSpace(): VolumeSpace? = resolveDownloadsBaseDirectory().withAccess { path ->
-        val values = NSURL.fileURLWithPath(path).resourceValuesForKeys(
+    /**
+     * Free = volumeAvailableCapacityForImportantUsage, total = volumeTotalCapacity: the figures
+     * iOS Settings uses. Read for the downloads folder, then the app container, so a custom
+     * folder that does not answer does not drop to the smaller plain free-size figure.
+     */
+    actual fun volumeSpace(): VolumeSpace? {
+        val fromDownloads = resolveDownloadsBaseDirectory().withAccess { path -> capacity(path) }
+        return fromDownloads ?: capacity(NSHomeDirectory())
+    }
+
+    private fun capacity(path: String): VolumeSpace? {
+        val url = NSURL.fileURLWithPath(path)
+        url.removeAllCachedResourceValues()
+        val values = url.resourceValuesForKeys(
             listOf(NSURLVolumeAvailableCapacityForImportantUsageKey, NSURLVolumeTotalCapacityKey),
             null,
         )
-        val important = (values?.get(NSURLVolumeAvailableCapacityForImportantUsageKey) as? NSNumber)?.longLongValue
-        val total = (values?.get(NSURLVolumeTotalCapacityKey) as? NSNumber)?.longLongValue
+        val important = values?.get(NSURLVolumeAvailableCapacityForImportantUsageKey).asLong()
+        val total = values?.get(NSURLVolumeTotalCapacityKey).asLong()
         val fsAttrs = NSFileManager.defaultManager.attributesOfFileSystemForPath(path, null)
-        val free = important?.takeIf { it > 0L } ?: (fsAttrs?.get(NSFileSystemFreeSize) as? NSNumber)?.longLongValue
-        val size = total?.takeIf { it > 0L } ?: (fsAttrs?.get(NSFileSystemSize) as? NSNumber)?.longLongValue
-        if (free == null || size == null || size <= 0L) null else VolumeSpace(free, size)
+        val free = important?.takeIf { it > 0L } ?: fsAttrs?.get(NSFileSystemFreeSize).asLong()
+        val size = total?.takeIf { it > 0L } ?: fsAttrs?.get(NSFileSystemSize).asLong()
+        return if (free == null || size == null || size <= 0L) null else VolumeSpace(free, size)
+    }
+
+    private fun Any?.asLong(): Long? = when (this) {
+        is NSNumber -> longLongValue
+        is Long -> this
+        is Number -> toLong()
+        else -> null
+    }
+
+    actual fun appStorageUsage(ownedFileNames: Set<String>): AppStorageUsage? {
+        val home = NSHomeDirectory().trimEnd('/')
+        val containerBytes = treeSize(home)
+        val cacheBytes = treeSize("$home/Library/Caches") + treeSize("$home/tmp")
+        val downloadsPath = resolveDownloadsBaseDirectory().path.trimEnd('/')
+        // A download folder chosen outside the app is not in the container walk.
+        val outside = if (downloadsPath.startsWith("$home/")) 0L else {
+            resolveDownloadsBaseDirectory().withAccess { treeSize(it) }
+        }
+        val leftovers = mutableListOf<LeftoverFile>()
+        // Loose subtitle files ("3.srt", "manifest.json") at the Documents root or the downloads root.
+        for (dir in listOf("$home/Documents", downloadsPath).distinct()) {
+            NSFileManager.defaultManager.contentsOfDirectoryAtPath(dir, null).orEmpty()
+                .mapNotNull { it as? String }
+                .filter { isLooseSubtitleFile(it) }
+                .forEach { name -> leftovers += LeftoverFile("$dir/$name", entrySize("$dir/$name")) }
+        }
+        // Resume data of downloads that no longer exist.
+        val resumeDir = "$home/Library/Application Support/nuvio_download_resume"
+        NSFileManager.defaultManager.contentsOfDirectoryAtPath(resumeDir, null).orEmpty()
+            .mapNotNull { it as? String }
+            .filter { it.endsWith(".resumedata") && it.removeSuffix(".resumedata") !in ownedFileNames }
+            .forEach { name -> leftovers += LeftoverFile("$resumeDir/$name", entrySize("$resumeDir/$name")) }
+        return AppStorageUsage(
+            totalBytes = containerBytes + outside,
+            cacheBytes = cacheBytes,
+            leftovers = leftovers,
+        )
+    }
+
+    actual fun deleteLeftover(path: String): Boolean {
+        val home = NSHomeDirectory().trimEnd('/')
+        val downloadsPath = resolveDownloadsBaseDirectory().path.trimEnd('/')
+        val name = path.substringAfterLast('/')
+        val parent = path.substringBeforeLast('/')
+        val allowed = (isLooseSubtitleFile(name) && (parent == "$home/Documents" || parent == downloadsPath)) ||
+            (parent == "$home/Library/Application Support/nuvio_download_resume" && name.endsWith(".resumedata"))
+        if (!allowed) return false
+        return resolveDownloadsBaseDirectory().withAccess { removePathIfExists(path) }
+    }
+
+    /** Sum of every file under [path]. */
+    private fun treeSize(path: String): Long {
+        val manager = NSFileManager.defaultManager
+        if (!manager.fileExistsAtPath(path)) return 0L
+        val enumerator = manager.enumeratorAtPath(path) ?: return 0L
+        var total = 0L
+        while (true) {
+            enumerator.nextObject() ?: break
+            val attrs = enumerator.fileAttributes ?: continue
+            if (attrs[NSFileType] == NSFileTypeDirectory) continue
+            total += attrs[NSFileSize].asLong() ?: 0L
+        }
+        return total
     }
 
     actual fun listDownloadFiles(): List<DiskFile> = resolveDownloadsBaseDirectory().withAccess { path ->
-        NSFileManager.defaultManager.contentsOfDirectoryAtPath(path, null)
+        val top = NSFileManager.defaultManager.contentsOfDirectoryAtPath(path, null)
+            .orEmpty()
+            .mapNotNull { it as? String }
+            .filter { !it.startsWith(".") && it != DOWNLOAD_SUBTITLES_FOLDER }
+            .map { name -> DiskFile(name, entrySize("$path/$name")) }
+        // Subtitles live in Subtitles/<video file>/; listed as "<video file>.subtitles" so they
+        // count with (and are cleaned up with) their download.
+        val subtitles = NSFileManager.defaultManager.contentsOfDirectoryAtPath("$path/$DOWNLOAD_SUBTITLES_FOLDER", null)
             .orEmpty()
             .mapNotNull { it as? String }
             .filter { !it.startsWith(".") }
-            .map { name -> DiskFile(name, entrySize("$path/$name")) }
+            .map { name -> DiskFile("$name.subtitles", entrySize("$path/$DOWNLOAD_SUBTITLES_FOLDER/$name")) }
+        top + subtitles
     }
 
     actual fun deleteDownloadFile(name: String): Boolean {
         if (name.isBlank() || name.contains('/') || name == "." || name == "..") return false
-        return resolveDownloadsBaseDirectory().withAccess { path -> removePathIfExists("$path/$name") }
+        return resolveDownloadsBaseDirectory().withAccess { path ->
+            val organised = name.takeIf { it.endsWith(".subtitles") }?.removeSuffix(".subtitles")
+                ?.let { "$path/$DOWNLOAD_SUBTITLES_FOLDER/$it" }
+            val removedOrganised = organised?.let(::removePathIfExists) ?: true
+            removePathIfExists("$path/$name") && removedOrganised
+        }
     }
 
     actual fun allProfilePayloads(): List<String> {
@@ -63,3 +154,7 @@ internal actual object DownloadDiskInfo {
         return (attrs[NSFileSize] as? NSNumber)?.longLongValue ?: fileSizeOrNull(path) ?: 0L
     }
 }
+
+/** Sizes exactly as iOS shows them (decimal units, ByteCountFormatter file style). */
+internal actual fun platformByteCountString(bytes: Long): String? =
+    NSByteCountFormatter.stringFromByteCount(bytes, NSByteCountFormatterCountStyleFile)

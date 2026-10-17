@@ -55,23 +55,24 @@ class DownloadStorageTest {
 
     @Test
     fun `reserve is 5 percent between 500 MB and 1 GB`() {
-        val mib = 1024L * 1024L
-        val gib = 1024L * mib
-        assertEquals(500 * mib, downloadSpaceReserve(null))
-        assertEquals(500 * mib, downloadSpaceReserve(4 * gib))
-        assertEquals(gib, downloadSpaceReserve(40 * gib))
+        val mb = 1_000_000L
+        val gb = 1_000_000_000L
+        assertEquals(500 * mb, downloadSpaceReserve(null))
+        assertEquals(500 * mb, downloadSpaceReserve(4 * gb))
+        assertEquals(gb, downloadSpaceReserve(40 * gb))
     }
 
     @Test
     fun `a 3_5 GB episode fits in 4 GB free and unknown sizes are not blocked up front`() {
-        val mib = 1024L * 1024L
-        val gib = 1024L * mib
-        val volume = VolumeSpace(availableBytes = 4 * gib, totalBytes = 238 * gib)
-        assertNull(spaceShortfallBeforeStart(3584 * mib, 3584 * mib, volume))
+        val mb = 1_000_000L
+        val gb = 1_000_000_000L
+        val volume = VolumeSpace(availableBytes = 4 * gb, totalBytes = 256 * gb)
+        assertNull(spaceShortfallBeforeStart(3500 * mb, 3500 * mb, volume))
         assertNull(spaceShortfallBeforeStart(null, null, volume))
-        val tooBig = spaceShortfallBeforeStart(4 * gib, 4 * gib, volume)
-        assertEquals(4 * gib + 500 * mib, tooBig?.neededBytes)
+        val tooBig = spaceShortfallBeforeStart(4 * gb, 4 * gb, volume)
+        assertEquals(4 * gb + 500 * mb, tooBig?.neededBytes)
+        assertEquals("Needs 4.5 GB, 4.0 GB free. Free up space, then tap Retry.", downloadSpaceMessage(tooBig!!))
         assertNull(spaceRunningOut(volume))
-        assertEquals("Only 400.0 MB free. Free up space, then tap Retry.", downloadSpaceMessage(spaceRunningOut(VolumeSpace(400 * mib, 238 * gib))!!))
+        assertEquals("Only 400.0 MB free. Free up space, then tap Retry.", downloadSpaceMessage(spaceRunningOut(VolumeSpace(400 * mb, 256 * gb))!!))
     }
 }

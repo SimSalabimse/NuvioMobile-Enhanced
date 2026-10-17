@@ -19,7 +19,9 @@
         "Download sources show quality and size chips (for example 1080p · 2.3 GB, or Size unknown) on the picked source, in source lists and in Download Season, which also shows the season total.",
         "Download quality (Auto, 4K, 1080p, 720p or 480p, in Downloads settings) is now used by Smart Downloads and by auto-pick for single downloads and Download Season.",
         "Download from Home, the details screen and episode rows opens the download card as a sheet right there, with auto-pick, quality options and Change source inside it. After Download you stay where you were and see \"Downloading S2E6\".",
-        "The Downloads storage card updates right after a delete or a finished download, when it opens, and every few seconds while it's on screen."
+        "The Downloads storage card updates right after a delete or a finished download, when it opens, and every few seconds while it's on screen.",
+        "Storage shows what Nuvio really takes, matching iOS Settings: sizes in the same units as iOS, free space and capacity from iOS, and the app total split into Downloads, Subtitles & extras, Cache, Leftovers and App data.",
+        "\"Clean up leftovers\" in Storage removes files no download owns, such as loose subtitle files and resume data from removed downloads, after you confirm. Subtitles for a download now live in its own folder under Subtitles, and deleting a download removes them."
       ],
       "fixed": [
         "Holding for 2x speed while playback switched to the downloaded file no longer leaves it stuck at 2x. Letting go, a cancelled hold, or the player switching or reloading always goes back to your normal speed.",

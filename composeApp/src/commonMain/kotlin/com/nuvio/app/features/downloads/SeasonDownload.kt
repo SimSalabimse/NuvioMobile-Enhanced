@@ -135,19 +135,8 @@ internal fun seasonSelectionTotalText(
     }
 }
 
-internal fun formatSeasonBytes(bytes: Long): String {
-    if (bytes <= 0L) return "0 B"
-    val kib = 1024.0
-    val mib = kib * 1024.0
-    val gib = mib * 1024.0
-    val value = bytes.toDouble()
-    return when {
-        value >= gib -> "${oneDecimal(value / gib)} GB"
-        value >= mib -> "${oneDecimal(value / mib)} MB"
-        value >= kib -> "${oneDecimal(value / kib)} KB"
-        else -> "$bytes B"
-    }
-}
+/** Sizes in decimal units like iOS Settings (ByteCountFormatter .file on iOS). */
+internal fun formatSeasonBytes(bytes: Long): String = formatBytesDecimal(bytes)
 
 private fun oneDecimal(value: Double): Double = (value * 10.0).toLong() / 10.0
 

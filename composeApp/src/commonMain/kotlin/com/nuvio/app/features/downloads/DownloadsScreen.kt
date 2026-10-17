@@ -971,15 +971,13 @@ private fun statusText(item: DownloadItem): String {
 private fun formatBytes(bytes: Long): String = formatDownloadBytes(bytes)
 
 internal fun formatDownloadBytes(bytes: Long): String {
+    platformByteCountString(bytes)?.let { return it }
     if (bytes <= 0L) return "0 ${localizedByteUnit("B")}"
-    val kib = 1024.0
-    val mib = kib * 1024.0
-    val gib = mib * 1024.0
     val value = bytes.toDouble()
     return when {
-        value >= gib -> "${((value / gib) * 10.0).toInt() / 10.0} ${localizedByteUnit("GB")}"
-        value >= mib -> "${((value / mib) * 10.0).toInt() / 10.0} ${localizedByteUnit("MB")}"
-        value >= kib -> "${((value / kib) * 10.0).toInt() / 10.0} ${localizedByteUnit("KB")}"
+        value >= 1e9 -> "${((value / 1e9) * 10.0).toLong() / 10.0} ${localizedByteUnit("GB")}"
+        value >= 1e6 -> "${((value / 1e6) * 10.0).toLong() / 10.0} ${localizedByteUnit("MB")}"
+        value >= 1e3 -> "${((value / 1e3) * 10.0).toLong() / 10.0} ${localizedByteUnit("KB")}"
         else -> "$bytes ${localizedByteUnit("B")}"
     }
 }

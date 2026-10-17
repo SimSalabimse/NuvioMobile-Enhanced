@@ -28,7 +28,7 @@ class SeasonDownloadTest {
         val summary = summarizeSeasonSizes(listOf(1_500_000_000L, null))
 
         assertEquals(
-            "2 selected · at least 1.3 GB",
+            "2 selected · at least 1.5 GB",
             seasonSelectionTotalText(summary, ::formatSeasonBytes),
         )
     }

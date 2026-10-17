@@ -100,10 +100,14 @@ internal fun DownloadStorageCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = stringResource(
-                            Res.string.downloads_storage_used_by_downloads,
-                            formatDownloadBytes(summary.nuvioBytes),
-                        ),
+                        text = if (summary.app != null) {
+                            "Nuvio uses ${formatDownloadBytes(summary.appTotalBytes)}"
+                        } else {
+                            stringResource(
+                                Res.string.downloads_storage_used_by_downloads,
+                                formatDownloadBytes(summary.nuvioBytes),
+                            )
+                        },
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface,
@@ -122,6 +126,12 @@ internal fun DownloadStorageCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    // What the app total is made of, so it matches iOS Settings > Documents & Data.
+                    Text(
+                        text = storageBreakdownText(summary),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 if (onClick != null) {
                     Icon(
@@ -134,7 +144,7 @@ internal fun DownloadStorageCard(
             val volume = summary.volume
             if (volume != null) {
                 StorageBar(
-                    nuvio = summary.nuvioBytes + summary.orphanBytes,
+                    nuvio = summary.appTotalBytes,
                     other = summary.otherBytes ?: 0L,
                     free = volume.availableBytes,
                     modifier = Modifier.padding(top = 10.dp),
@@ -143,7 +153,7 @@ internal fun DownloadStorageCard(
                     modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Legend(MaterialTheme.colorScheme.primary, stringResource(Res.string.downloads_storage_nuvio, formatDownloadBytes(summary.nuvioBytes + summary.orphanBytes)))
+                    Legend(MaterialTheme.colorScheme.primary, stringResource(Res.string.downloads_storage_nuvio, formatDownloadBytes(summary.appTotalBytes)))
                     Legend(otherColor(), stringResource(Res.string.downloads_storage_other, formatDownloadBytes(summary.otherBytes ?: 0L)))
                     Legend(freeColor(), stringResource(Res.string.downloads_storage_free, formatDownloadBytes(volume.availableBytes)))
                 }
@@ -159,6 +169,15 @@ internal fun DownloadStorageCard(
         }
     }
 }
+
+/** "Downloads 16.2 GB · Subtitles & extras 20 MB · Cache 150 MB · Leftovers 1.0 GB · App data 80 MB". */
+internal fun storageBreakdownText(summary: DownloadStorageSummary): String = buildList {
+    add("Downloads ${formatDownloadBytes(summary.downloadBytes)}")
+    if (summary.subtitleBytes > 0L) add("Subtitles & extras ${formatDownloadBytes(summary.subtitleBytes)}")
+    summary.app?.cacheBytes?.takeIf { it > 0L }?.let { add("Cache ${formatDownloadBytes(it)}") }
+    if (summary.allLeftoverBytes > 0L) add("Leftovers ${formatDownloadBytes(summary.allLeftoverBytes)}")
+    if (summary.app != null && summary.appOtherBytes > 0L) add("App data ${formatDownloadBytes(summary.appOtherBytes)}")
+}.joinToString(" · ")
 
 @Composable
 private fun otherColor(): Color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
@@ -231,18 +250,19 @@ internal fun DownloadStorageScreen(
         val current = summary ?: return@NuvioScreen
         item(key = "storage-card") { DownloadStorageCard(summary = current, onClick = null) }
 
-        if (current.orphans.isNotEmpty()) {
+        val leftoverCount = current.orphans.size + (current.app?.leftovers?.size ?: 0)
+        if (leftoverCount > 0) {
             item(key = "storage-orphans") {
                 StorageRow(
                     title = stringResource(Res.string.downloads_storage_leftovers),
                     subtitle = stringResource(
                         Res.string.downloads_storage_leftovers_hint,
-                        current.orphans.size,
-                        formatDownloadBytes(current.orphanBytes),
+                        leftoverCount,
+                        formatDownloadBytes(current.allLeftoverBytes),
                     ),
                     trailing = {
                         TextButton(onClick = { confirmOrphans = true }) {
-                            Text(stringResource(Res.string.downloads_storage_leftovers_clear), color = MaterialTheme.colorScheme.error)
+                            Text("Clean up leftovers", color = MaterialTheme.colorScheme.error)
                         }
                     },
                 )
@@ -335,21 +355,22 @@ internal fun DownloadStorageScreen(
         )
     }
 
-    val orphans = summary?.orphans.orEmpty()
-    if (confirmOrphans && orphans.isNotEmpty()) {
+    val leftoverTotal = (summary?.orphans?.size ?: 0) + (summary?.app?.leftovers?.size ?: 0)
+    if (confirmOrphans && leftoverTotal > 0) {
         NuvioStatusModal(
             title = stringResource(Res.string.downloads_storage_leftovers_confirm_title),
             message = stringResource(
                 Res.string.downloads_storage_leftovers_confirm_message,
-                orphans.size,
-                formatDownloadBytes(orphans.sumOf { it.sizeBytes }),
+                leftoverTotal,
+                formatDownloadBytes(summary?.allLeftoverBytes ?: 0L),
             ),
             isVisible = true,
             destructive = true,
             confirmText = stringResource(Res.string.action_yes),
             dismissText = stringResource(Res.string.action_no),
             onConfirm = {
-                DownloadsRepository.clearOrphans(orphans)
+                val freed = DownloadsRepository.cleanUpLeftovers()
+                com.nuvio.app.core.ui.NuvioToastController.show("Cleaned up ${formatDownloadBytes(freed)}")
                 confirmOrphans = false
                 refresh++
             },

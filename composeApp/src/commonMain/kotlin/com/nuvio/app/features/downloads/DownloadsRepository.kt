@@ -729,6 +729,7 @@ object DownloadsRepository {
         publish(_uiState.value.items.filterNot { it.id == downloadId })
         persistStatus()
         applyStarts(startQueue.release(downloadId, DownloadThermalGate.blocksNextFile()))
+        appUsageDirty = true
         scheduleSpaceRetry()
     }
 
@@ -1135,12 +1136,52 @@ object DownloadsRepository {
         val items = _uiState.value.items
         val mine = items.map { it.fileName }.toSet()
         val others = storedFileNames(DownloadDiskInfo.allProfilePayloads()) - mine
-        return summarizeDownloadStorage(
+        val summary = summarizeDownloadStorage(
             items = items,
             files = DownloadDiskInfo.listDownloadFiles(),
             otherProfileFileNames = others,
             volume = DownloadDiskInfo.volumeSpace(),
         )
+        return summary.copy(app = appUsage(mine + others))
+    }
+
+    private var cachedAppUsage: AppStorageUsage? = null
+    private var cachedAppUsageAt = 0L
+    private var appUsageDirty = true
+
+    /** The whole-app walk is heavier: at most once a minute unless something was deleted. */
+    private fun appUsage(owned: Set<String>): AppStorageUsage? {
+        val now = DownloadsClock.nowEpochMs()
+        if (!appUsageDirty && cachedAppUsage != null && now - cachedAppUsageAt < 60_000L) return cachedAppUsage
+        val usage = runCatching { DownloadDiskInfo.appStorageUsage(owned) }.getOrNull() ?: cachedAppUsage
+        cachedAppUsage = usage
+        cachedAppUsageAt = now
+        appUsageDirty = false
+        return usage
+    }
+
+    /**
+     * "Clean up leftovers": files in the downloads folder no download of any profile owns, loose
+     * subtitle files and stale resume data. Each one is checked against the current rows first.
+     * Returns the bytes freed.
+     */
+    internal fun cleanUpLeftovers(): Long {
+        ensureLoaded()
+        val summary = storageSummary()
+        val owned = _uiState.value.items.map { it.fileName } + storedFileNames(DownloadDiskInfo.allProfilePayloads())
+        var freed = 0L
+        summary.orphans
+            .filter { file -> owned.none { ownsDiskFile(it, file.name) } }
+            .forEach { file -> if (DownloadDiskInfo.deleteDownloadFile(file.name)) freed += file.sizeBytes }
+        summary.app?.leftovers.orEmpty().forEach { leftover ->
+            val name = leftover.path.substringAfterLast('/').removeSuffix(".resumedata")
+            if (owned.none { it.isNotBlank() && it == name }) {
+                if (DownloadDiskInfo.deleteLeftover(leftover.path)) freed += leftover.sizeBytes
+            }
+        }
+        appUsageDirty = true
+        scheduleSpaceRetry()
+        return freed
     }
 
     /** Deletes leftover files; re-checks each against the current rows first. */
@@ -1150,6 +1191,7 @@ object DownloadsRepository {
         orphans
             .filter { file -> owned.none { ownsDiskFile(it, file.name) } }
             .forEach { DownloadDiskInfo.deleteDownloadFile(it.name) }
+        appUsageDirty = true
         scheduleSpaceRetry()
     }
 
