@@ -296,6 +296,8 @@ internal fun MainAppContent(
         }.collectAsStateWithLifecycle()
         val liquidGlassNativeTabBarSupported = remember { isLiquidGlassNativeTabBarSupported() }
         var showExitConfirmation by rememberSaveable { mutableStateOf(false) }
+        /** A nuvio://skip link waiting for Import / Cancel. */
+        var pendingSkipMark by remember { mutableStateOf<com.nuvio.app.features.player.skip.SharedSkipMark?>(null) }
         var selectedPosterActionTarget by remember { mutableStateOf<PosterActionTarget?>(null) }
         var selectedPosterAnchor by remember { mutableStateOf<PosterZoomAnchor?>(null) }
         val posterOverlayHazeState = rememberHazeState()
@@ -913,7 +915,7 @@ internal fun MainAppContent(
 
                     is AppDeepLink.SkipMark -> {
                         AppDeepLinkRepository.markConsumed(deepLink)
-                        com.nuvio.app.features.player.skip.importSharedSkipMark(deepLink.mark)
+                        pendingSkipMark = deepLink.mark
                     }
 
                     null -> Unit
@@ -2493,6 +2495,21 @@ internal fun MainAppContent(
                     showExitConfirmation = false
                 },
             )
+
+            pendingSkipMark?.let { mark ->
+                NuvioStatusModal(
+                    title = "Import skip mark?",
+                    message = com.nuvio.app.features.player.skip.describeSharedSkipMark(mark),
+                    isVisible = true,
+                    confirmText = "Import",
+                    dismissText = "Cancel",
+                    onConfirm = {
+                        pendingSkipMark = null
+                        coroutineScope.launch { com.nuvio.app.features.player.skip.importSharedSkipMark(mark) }
+                    },
+                    onDismiss = { pendingSkipMark = null },
+                )
+            }
 
             androidx.compose.animation.AnimatedVisibility(
                 visibleState = launchOverlayState,

@@ -3,6 +3,7 @@ package com.nuvio.app.features.player.skip
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.analysis.MediaAnalysisStatus
 import com.nuvio.app.features.analysis.SkipLearning
+import com.nuvio.app.features.player.formatPlaybackTime
 import io.ktor.http.Url
 import io.ktor.http.encodeURLParameter
 
@@ -36,6 +37,13 @@ internal fun parseSkipMarkLink(url: Url): SharedSkipMark? {
     val end = p["to"]?.toLongOrNull() ?: return null
     if (start < 0L || end <= start) return null
     return SharedSkipMark(id, p["s"]?.toIntOrNull(), p["e"]?.toIntOrNull(), type, start, end)
+}
+
+/** The question before a nuvio://skip link is imported. */
+internal fun describeSharedSkipMark(mark: SharedSkipMark): String {
+    val where = if (mark.season != null && mark.episode != null) " for S${mark.season}E${mark.episode}" else ""
+    return "${mark.type.replaceFirstChar { it.uppercase() }} mark$where (${formatPlaybackTime(mark.startMs)}–${formatPlaybackTime(mark.endMs)}) of ${mark.parentMetaId}. " +
+        "It is saved on this device as your own mark; one you already have is kept."
 }
 
 /**

@@ -208,7 +208,9 @@ fun SubmitIntroDialog(
     var remoteTypes by remember(contentKey) {
         mutableStateOf(remoteFlagTypesByContentKey[contentKey].orEmpty())
     }
-    var mySubmissions by remember(contentKey) { mutableStateOf(emptyList<TheIntroDbUserSubmission>()) }
+    /** Null until listed (no TheIntroDB key, or the title has no TMDB id): the button stays hidden. */
+    var mySubmissions by remember(contentKey) { mutableStateOf<List<TheIntroDbUserSubmission>?>(null) }
+    var mySubmissionsError by remember(contentKey) { mutableStateOf<String?>(null) }
     androidx.compose.runtime.LaunchedEffect(
         contentKey,
         imdbId,
@@ -239,8 +241,11 @@ fun SubmitIntroDialog(
         } ?: return@LaunchedEffect
         val records = try {
             TheIntroDb.listMySubmissions(apiKey, tmdbId, mediaType)
-                .also { mySubmissions = it }
-                .mapNotNull { it.toFlagRecord() }
+                .also {
+                    mySubmissions = it
+                    mySubmissionsError = TheIntroDb.lastListError
+                }
+                .mapNotNull { it.toFlagRecord(tmdbId) }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -356,7 +361,8 @@ fun SubmitIntroDialog(
                     errorMessage = if (keyWasNew) {
                         keySavedSubmitFailedMessage
                     } else {
-                        "Submit failed. Check the selected service and try again."
+                        TheIntroDb.lastSubmitError.takeIf { service == IntroSubmitService.THE_INTRODB }
+                            ?: "Submit failed. Check the selected service and try again."
                     }
                 }
             } finally {
@@ -401,6 +407,31 @@ fun SubmitIntroDialog(
                 }
             }
             val submitIntroBody: @Composable () -> Unit = {
+                // At the top so they are found: this account's submissions and the share link.
+                MySubmissionsSection(
+                    submissions = mySubmissions,
+                    error = mySubmissionsError,
+                    onCopyShareLink = shareMetaId?.let { metaId ->
+                        {
+                            val start = parseTimeToSeconds(startTimeStr)
+                            val end = parseTimeToSeconds(endTimeStr)
+                            if (start == null || end == null || end <= start) {
+                                errorMessage = "Set a start and end time first"
+                            } else {
+                                val link = SharedSkipMark(
+                                    parentMetaId = metaId,
+                                    season = season.takeIf { !isMovie },
+                                    episode = episode.takeIf { !isMovie },
+                                    type = segmentType,
+                                    startMs = (start * 1000).toLong(),
+                                    endMs = (end * 1000).toLong(),
+                                ).toLink()
+                                clipboard.setText(androidx.compose.ui.text.AnnotatedString(link))
+                                com.nuvio.app.core.ui.NuvioToastController.show("Link copied: open it on another Nuvio to import this mark")
+                            }
+                        }
+                    },
+                )
                 if (showServiceSection) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
@@ -680,28 +711,6 @@ fun SubmitIntroDialog(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
-                }
-                MySubmissionsSection(mySubmissions)
-                if (shareMetaId != null) {
-                    val start = parseTimeToSeconds(startTimeStr)
-                    val end = parseTimeToSeconds(endTimeStr)
-                    TextButton(
-                        enabled = start != null && end != null && end > start,
-                        onClick = {
-                            val link = SharedSkipMark(
-                                parentMetaId = shareMetaId,
-                                season = season.takeIf { !isMovie },
-                                episode = episode.takeIf { !isMovie },
-                                type = segmentType,
-                                startMs = ((start ?: 0.0) * 1000).toLong(),
-                                endMs = ((end ?: 0.0) * 1000).toLong(),
-                            ).toLink()
-                            clipboard.setText(androidx.compose.ui.text.AnnotatedString(link))
-                            com.nuvio.app.core.ui.NuvioToastController.show("Link copied: open it on another Nuvio to import this mark")
-                        },
-                    ) {
-                        Text("Copy share link")
-                    }
                 }
             }
             if (phonePanel) {
@@ -1011,13 +1020,30 @@ private fun normalizeSegmentTypeForSubmit(type: String): String? {
 
 /** Read-only list of what this account already sent TheIntroDB for the title, with each review status. */
 @Composable
-private fun MySubmissionsSection(submissions: List<TheIntroDbUserSubmission>) {
-    if (submissions.isEmpty()) return
+private fun MySubmissionsSection(
+    submissions: List<TheIntroDbUserSubmission>?,
+    error: String?,
+    onCopyShareLink: (() -> Unit)?,
+) {
     var expanded by remember { mutableStateOf(false) }
-    TextButton(onClick = { expanded = !expanded }) {
-        Text(if (expanded) "Hide your submissions" else "Your submissions (${submissions.size})")
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (submissions != null) {
+            TextButton(onClick = { expanded = !expanded }) {
+                Text(if (expanded) "Hide your submissions" else "Your submissions (${submissions.size})")
+            }
+        }
+        if (onCopyShareLink != null) {
+            TextButton(onClick = onCopyShareLink) { Text("Copy share link") }
+        }
     }
-    if (!expanded) return
+    if (!expanded || submissions == null) return
+    if (submissions.isEmpty() || error != null) {
+        Text(
+            text = error ?: "None for this title yet",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
     submissions.sortedWith(compareBy({ it.season ?: 0 }, { it.episode ?: 0 })).forEach { submission ->
         Text(
             text = submissionLine(submission),
@@ -1027,12 +1053,18 @@ private fun MySubmissionsSection(submissions: List<TheIntroDbUserSubmission>) {
     }
 }
 
-internal fun submissionLine(submission: TheIntroDbUserSubmission): String {
+/** [withTitle]: prefix the show/movie id (the list has no titles), for the all-submissions list. */
+internal fun submissionLine(submission: TheIntroDbUserSubmission, withTitle: Boolean = false): String {
+    val title = if (!withTitle) "" else when {
+        submission.tmdbId != null -> "TMDB ${submission.tmdbId} · "
+        submission.tvdbId != null -> "TVDB ${submission.tvdbId} · "
+        else -> ""
+    }
     val episode = if (submission.season != null && submission.episode != null) {
         "S${submission.season}E${submission.episode} · "
     } else ""
     val start = submission.startMs?.let(::formatPlaybackTime) ?: "start"
     val end = submission.endMs?.let(::formatPlaybackTime) ?: "end"
     val status = submission.status?.takeIf { it.isNotBlank() } ?: "pending"
-    return "$episode${submission.segment.orEmpty()} $start–$end · $status"
+    return "$title$episode${submission.segment.orEmpty()} $start–$end · $status"
 }
