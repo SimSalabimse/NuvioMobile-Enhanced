@@ -137,23 +137,26 @@ fun DownloadsScreen(
     }
     val tokens = MaterialTheme.nuvio
 
-    // Under the native iOS navigation bar the header collapses to its actions, so the list has to
-    // clear the bar itself (status bar + 44 pt), or the first row ("Season 2") sits behind Back.
+    // Under the native iOS navigation bar the header collapses to its actions. The list starts
+    // below the bar (status bar + 44 pt), so nothing scrolls up behind the see-through bar and
+    // the status bar, and the actions scroll with the list instead of sticking over the rows.
     val underNativeNavigationBar = com.nuvio.app.navigation.LocalUseNativeNavigation.current &&
         !com.nuvio.app.navigation.LocalNativeNavigationBarHidden.current
     val statusBarTop = androidx.compose.foundation.layout.WindowInsets.statusBars
         .asPaddingValues().calculateTopPadding()
     androidx.compose.runtime.CompositionLocalProvider(LocalDownloadProblems provides problems) {
     NuvioScreen(
-        modifier = Modifier.dismissKeyboardOnScrollOrTap(),
+        modifier = Modifier.dismissKeyboardOnScrollOrTap().then(
+            if (underNativeNavigationBar) {
+                Modifier.padding(top = statusBarTop + com.nuvio.app.core.ui.nuvioPlatformExtraTopPadding + 44.dp)
+            } else {
+                Modifier
+            },
+        ),
         listState = listState,
-        topPadding = if (underNativeNavigationBar) {
-            tokens.spacing.screenTop + statusBarTop + com.nuvio.app.core.ui.nuvioPlatformExtraTopPadding + 44.dp
-        } else {
-            null
-        },
+        topPadding = if (underNativeNavigationBar) tokens.spacing.screenTop else null,
     ) {
-        stickyHeader {
+        val header: @Composable () -> Unit = {
             NuvioScreenHeader(
                 title = if (selectedShowId == null) {
                     stringResource(Res.string.compose_settings_root_downloads_title)
@@ -195,6 +198,7 @@ fun DownloadsScreen(
                 },
             )
         }
+        if (underNativeNavigationBar) item(key = "header") { header() } else stickyHeader { header() }
 
         if (selectedShowId == null) {
             storageSummary?.let { summary ->

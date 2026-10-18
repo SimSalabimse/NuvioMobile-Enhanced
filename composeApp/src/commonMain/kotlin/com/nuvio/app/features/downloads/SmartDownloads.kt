@@ -53,6 +53,7 @@ object SmartDownloadSettings {
     private const val QUEUE_UNAIRED_KEY = "downloads_queue_unaired"
     private const val KEEP_FREE_GB_KEY = "downloads_keep_free_gb"
     private const val GOALS_KEY = "smart_downloads_goals"
+    private const val GOAL_ANCHORS_KEY = "smart_downloads_goal_anchors"
 
     /** Choices for "Keep free" (GB); 0 is off. */
     val KEEP_FREE_CHOICES_GB = listOf(0, 5, 10, 20, 50)
@@ -71,6 +72,8 @@ object SmartDownloadSettings {
         val keepFreeGb: Int = 0,
         /** Shows pinned as a Finish a series goal ("type|id"): their next episodes stay downloaded. */
         val goals: Set<String> = emptySet(),
+        /** Per goal, the furthest episode counted as watched (season to episode); it never moves back. */
+        val goalAnchors: Map<String, Pair<Int, Int>> = emptyMap(),
     )
 
     private val _state = MutableStateFlow(State())
@@ -90,6 +93,12 @@ object SmartDownloadSettings {
             queueUnaired = DownloadsSettingsStorage.loadFlag(QUEUE_UNAIRED_KEY) ?: true,
             keepFreeGb = DownloadsSettingsStorage.loadString(KEEP_FREE_GB_KEY)?.toIntOrNull()?.coerceAtLeast(0) ?: 0,
             goals = DownloadsSettingsStorage.loadString(GOALS_KEY).orEmpty().split('\n').filter { it.isNotBlank() }.toSet(),
+            goalAnchors = DownloadsSettingsStorage.loadString(GOAL_ANCHORS_KEY).orEmpty().split('\n').mapNotNull { line ->
+                val key = line.substringBeforeLast('=', "")
+                val season = line.substringAfterLast('=').substringBefore(':').toIntOrNull()
+                val episode = line.substringAfterLast(':').toIntOrNull()
+                if (key.isBlank() || season == null || episode == null) null else key to (season to episode)
+            }.toMap(),
         )
     }
 
@@ -155,10 +164,31 @@ object SmartDownloadSettings {
         val key = goalKey(type, id)
         update { it.copy(goals = if (pinned) it.goals + key else it.goals - key) }
         DownloadsSettingsStorage.saveString(GOALS_KEY, _state.value.goals.joinToString("\n").ifEmpty { null })
+        if (!pinned) saveAnchors(_state.value.goalAnchors - key)
         if (pinned) SmartDownloads.checkGoal(type, id, announce = true) else SmartDownloads.dropGoal(id)
     }
 
     private fun goalKey(type: String, id: String) = "$type|$id"
+
+    /** The furthest episode the goal counts as watched, or null before its first check. */
+    fun goalAnchor(type: String, id: String): Pair<Int, Int>? = snapshot().goalAnchors[goalKey(type, id)]
+
+    /** Moves the goal's anchor forward to [season]/[episode]; an earlier episode leaves it alone. */
+    fun advanceGoalAnchor(type: String, id: String, season: Int, episode: Int) {
+        val key = goalKey(type, id)
+        if (key !in snapshot().goals) return
+        val current = goalAnchor(type, id)
+        if (laterEpisode(current, season to episode) == current) return
+        saveAnchors(_state.value.goalAnchors + (key to (season to episode)))
+    }
+
+    private fun saveAnchors(anchors: Map<String, Pair<Int, Int>>) {
+        update { it.copy(goalAnchors = anchors) }
+        DownloadsSettingsStorage.saveString(
+            GOAL_ANCHORS_KEY,
+            anchors.entries.joinToString("\n") { (key, at) -> "$key=${at.first}:${at.second}" }.ifEmpty { null },
+        )
+    }
 
     fun setQuality(quality: DownloadQualityPreference) {
         update { it.copy(quality = quality) }
@@ -295,8 +325,10 @@ internal object SmartDownloads {
         val episode = entry.episodeNumber ?: return
         if (!handledVideoIds.add(entry.videoId)) return
         if (SmartDownloadSettings.isGoal(entry.parentMetaType, entry.parentMetaId)) {
-            // The goal counts from the next episode on, as if this one were watched.
-            add(SmartDownloadRequest(entry.parentMetaId, entry.parentMetaType, season, episode, count = SmartDownloadSettings.goalCount()))
+            // The goal counts from the next episode on, as if this one were watched (a rewatch of
+            // an earlier one leaves it where it is; after the last episode the goal is removed).
+            SmartDownloadSettings.advanceGoalAnchor(entry.parentMetaType, entry.parentMetaId, season, episode)
+            checkGoal(entry.parentMetaType, entry.parentMetaId)
         }
         if (!isEnabled()) return
         val hasDownloadsOfShow = DownloadsRepository.uiState.value.items.any { it.parentMetaId == entry.parentMetaId }
@@ -335,9 +367,9 @@ internal object SmartDownloads {
         loadPending().any { it.exact && it.parentMetaId == metaId && it.season == season && it.episode == episode }
 
     /**
-     * Finish a series goal: keeps [SmartDownloadSettings.goalCount] episodes (the Smart Downloads count) from the first unwatched one
-     * downloaded. Checked at launch, when pinned and after each watched episode; a finished show
-     * is unpinned.
+     * Finish a series goal: keeps [SmartDownloadSettings.goalCount] episodes (the Smart Downloads
+     * count) downloaded after the furthest watched one, never earlier ([goalStart]). Checked at
+     * launch, when pinned and near the end of each episode; a finished show is unpinned.
      */
     fun checkGoal(type: String, id: String, announce: Boolean = false) {
         if (announce) announceGoals += id
@@ -347,14 +379,23 @@ internal object SmartDownloads {
                 reportGoal(id, "Couldn't load the show, trying again at the next launch")
                 return@launch
             }
+            val watched = com.nuvio.app.features.watched.WatchedRepository
             val episodes = nextEpisodes(meta.videos, season = 0, episode = 0, count = Int.MAX_VALUE)
-            val start = goalStart(episodes) { video ->
-                com.nuvio.app.features.watched.WatchedRepository.isWatched(meta.id, meta.type, video.season, video.episode)
+            val start = if (watched.isFullyWatchedSeries(meta.id, meta.type)) {
+                episodes.size
+            } else {
+                goalStart(episodes, SmartDownloadSettings.goalAnchor(type, id)) { video ->
+                    watched.isWatched(meta.id, meta.type, video.season, video.episode)
+                }
+            }
+            episodes.getOrNull(start - 1)?.let { last ->
+                SmartDownloadSettings.advanceGoalAnchor(type, id, last.season ?: return@let, last.episode ?: return@let)
             }
             val first = episodes.getOrNull(start)
             if (first == null) {
+                if (!SmartDownloadSettings.isGoal(type, id)) return@launch
                 SmartDownloadSettings.setGoal(type, id, pinned = false)
-                NuvioToastController.show("Finished ${meta.name}: goal done")
+                NuvioToastController.show("Finished ${meta.name}, goal removed")
                 return@launch
             }
             if (!first.hasAiredForDownload()) {
@@ -421,7 +462,11 @@ internal object SmartDownloads {
         val wanted = if (request.exact) {
             meta.videos.filter { it.season == request.season && it.episode == request.episode }.take(1)
         } else {
-            nextEpisodes(meta.videos, request.season, request.episode, request.count ?: settings.count)
+            // A goal never goes back before its anchor (an older request, a rewatch).
+            val anchor = SmartDownloadSettings.goalAnchor(request.parentMetaType, request.parentMetaId)
+                .takeIf { request.count != null }
+            val (season, episode) = laterEpisode(anchor, request.season to request.episode)
+            nextEpisodes(meta.videos, season, episode, request.count ?: settings.count)
         }
         val (next, upcoming) = wanted.partition { it.hasAiredForDownload() }
         // Not aired yet: wait for its air date (a day when it has none), then try again.
@@ -552,8 +597,22 @@ internal fun pickWithoutReference(
  * Index in [episodes] (in order) where a Finish a series goal starts: right after the furthest
  * watched one, so an old skipped episode is not fetched. [episodes].size when the last is watched.
  */
-internal fun goalStart(episodes: List<MetaVideo>, isWatched: (MetaVideo) -> Boolean): Int =
-    episodes.indexOfLast(isWatched) + 1
+/**
+ * Index in [episodes] (in order, no specials) where a goal starts: after the furthest watched
+ * episode and after [anchor], whichever is later. [episodes].size: the series is done. It never
+ * wraps around to the first episode.
+ */
+internal fun goalStart(episodes: List<MetaVideo>, anchor: Pair<Int, Int>?, isWatched: (MetaVideo) -> Boolean): Int {
+    val afterWatched = episodes.indexOfLast(isWatched) + 1
+    val afterAnchor = anchor?.let { (season, episode) ->
+        episodes.count { laterEpisode(it.season!! to it.episode!!, season to episode) == season to episode }
+    } ?: 0
+    return maxOf(afterWatched, afterAnchor)
+}
+
+/** The later of two season/episode positions (null counts as before everything). */
+internal fun laterEpisode(a: Pair<Int, Int>?, b: Pair<Int, Int>): Pair<Int, Int> =
+    if (a != null && compareValuesBy(a, b, { it.first }, { it.second }) > 0) a else b
 
 /** When to look again for queued unaired episodes: the next air date, else tomorrow. */
 internal fun nextAirCheckEpochMs(upcoming: List<MetaVideo>, now: Long = EpisodeReleaseDatePlatform.nowEpochMs()): Long {
