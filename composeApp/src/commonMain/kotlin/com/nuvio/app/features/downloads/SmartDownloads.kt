@@ -288,6 +288,16 @@ internal object SmartDownloads {
         )
     }
 
+    /** Takes an episode back out of the queue of unaired episodes. */
+    fun unqueue(metaId: String, season: Int?, episode: Int?) {
+        scope.launch {
+            mutex.withLock {
+                savePending(loadPending().filterNot { it.exact && it.parentMetaId == metaId && it.season == season && it.episode == episode })
+            }
+        }
+        NuvioToastController.show("Unqueued S${season}E$episode")
+    }
+
     /** Whether this exact episode is queued to download once it airs. */
     fun isQueued(metaId: String, season: Int?, episode: Int?): Boolean =
         loadPending().any { it.exact && it.parentMetaId == metaId && it.season == season && it.episode == episode }

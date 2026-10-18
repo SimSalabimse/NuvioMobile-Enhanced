@@ -454,7 +454,7 @@ internal fun SeasonDownloadSheet(
                         detail = when {
                             row.existing == SeasonExistingDownload.Downloaded -> downloadedText
                             row.existing == SeasonExistingDownload.InProgress -> inDownloadsText
-                            row.queued -> "Queued · ${unairedLabel(row.video.released)}"
+                            row.queued -> "Queued ✓ · ${unairedLabel(row.video.released)} · tap to unqueue"
                             row.queueable -> "${unairedLabel(row.video.released)} · tick to queue"
                             row.unaired -> unairedLabel(row.video.released)
                             row.watched -> watchedText
@@ -462,6 +462,10 @@ internal fun SeasonDownloadSheet(
                         },
                         onCheckedChange = { checked ->
                             rows = rows.map { if (it.key == row.key && it.canPick) it.copy(userChecked = checked) else it }
+                        },
+                        onUnqueue = {
+                            SmartDownloads.unqueue(meta.id, row.video.season, row.video.episode)
+                            rows = rows.map { if (it.key == row.key) it.copy(queued = false, userChecked = false) else it }
                         },
                     )
                 }
@@ -677,18 +681,23 @@ private fun EpisodeSelectRow(
     row: SeasonEpisodeRowState,
     detail: String?,
     onCheckedChange: (Boolean) -> Unit,
+    onUnqueue: () -> Unit,
 ) {
+    // A queued row shows ticked; tapping it unqueues. The checkbox always gets a handler so every
+    // row keeps the same touch target and lines up (a null handler drops the 48 dp padding).
+    val tappable = row.canPick || row.queued
+    val toggle: (Boolean) -> Unit = { checked -> if (row.queued) onUnqueue() else onCheckedChange(checked) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = row.canPick) { onCheckedChange(!row.userChecked) }
+            .clickable(enabled = tappable) { toggle(!row.userChecked) }
             .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Checkbox(
-            checked = row.canPick && row.userChecked,
-            onCheckedChange = if (row.canPick) onCheckedChange else null,
-            enabled = row.canPick,
+            checked = row.queued || (row.canPick && row.userChecked),
+            onCheckedChange = toggle,
+            enabled = tappable,
         )
         Column(modifier = Modifier.weight(1f)) {
             EpisodeRowTitle(row)
