@@ -71,6 +71,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import com.nuvio.app.core.ui.dismissKeyboardOnScrollOrTap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
@@ -1311,6 +1312,7 @@ fun MetaDetailsScreen(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .nestedScroll(heroStretchState.nestedScrollConnection)
+                                    .dismissKeyboardOnScrollOrTap()
                                     .zIndex(1f),
                             ) {
                                 item(key = "detail-hero") {

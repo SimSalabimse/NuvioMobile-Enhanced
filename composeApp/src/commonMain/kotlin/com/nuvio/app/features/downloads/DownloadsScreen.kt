@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.i18n.localizedByteUnit
 import com.nuvio.app.core.ui.NuvioScreen
+import com.nuvio.app.core.ui.dismissKeyboardOnScrollOrTap
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioToastController
@@ -144,6 +145,7 @@ fun DownloadsScreen(
         .asPaddingValues().calculateTopPadding()
     androidx.compose.runtime.CompositionLocalProvider(LocalDownloadProblems provides problems) {
     NuvioScreen(
+        modifier = Modifier.dismissKeyboardOnScrollOrTap(),
         listState = listState,
         topPadding = if (underNativeNavigationBar) {
             tokens.spacing.screenTop + statusBarTop + com.nuvio.app.core.ui.nuvioPlatformExtraTopPadding + 44.dp

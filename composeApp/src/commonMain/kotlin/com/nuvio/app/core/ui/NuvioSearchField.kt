@@ -1,5 +1,6 @@
 package com.nuvio.app.core.ui
 
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
@@ -43,7 +44,10 @@ internal fun matchesSearch(text: String?, query: String): Boolean {
     return needle.isEmpty() || (text != null && foldForSearch(text).contains(needle))
 }
 
-/** One-line search field with a search icon and a clear button. */
+/**
+ * One-line search field with a search icon and a clear button. The keyboard's Search key puts the
+ * keyboard away; screens add [dismissKeyboardOnScrollOrTap] for scroll and tap outside.
+ */
 @Composable
 internal fun NuvioSearchField(
     query: String,
@@ -51,6 +55,7 @@ internal fun NuvioSearchField(
     placeholder: String,
     modifier: Modifier = Modifier,
 ) {
+    val dismissKeyboard = rememberDismissSoftwareKeyboard()
     OutlinedTextField(
         value = query,
         onValueChange = onQueryChange,
@@ -68,6 +73,7 @@ internal fun NuvioSearchField(
             null
         },
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { dismissKeyboard() }),
         textStyle = MaterialTheme.typography.bodyMedium,
         shape = MaterialTheme.shapes.medium,
     )
