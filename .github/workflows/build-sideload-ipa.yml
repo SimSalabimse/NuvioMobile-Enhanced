@@ -116,14 +116,6 @@ jobs:
           echo "local.properties keys (names only):"
           awk -F= '/^[[:space:]]*[^#[:space:]]/ { print $1 }' local.properties
 
-      - name: Generate release notes
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Fill this version's changelog.json entry from merged PRs and commits since the last
-          # sideload-* tag. Hand-written entries are kept; the bundled What's new uses this file.
-          python3 scripts/release-notes.py generate --write --repo "${GITHUB_REPOSITORY}" || echo "::warning::release-notes generation failed; using changelog.json as committed"
-
       - name: Prepare iOS dependencies
         run: ./scripts/prepare-ios-dependencies.sh
 

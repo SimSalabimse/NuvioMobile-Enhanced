@@ -46,4 +46,31 @@ class LiveReleaseNotesTest {
         assertEquals(listOf("live"), merged[1].new)
         assertEquals("2026-10-14", merged[1].date)
     }
+
+    @Test
+    fun perBuildEntriesKeepTheirNotesAndSortByBuild() {
+        val merged = ReleaseNotes.merge(
+            live = listOf(BundledRelease("0.6.1.1", null, new = listOf("live"))),
+            bundled = listOf(
+                BundledRelease("0.6.1.1", "d", new = listOf("180"), build = 180),
+                BundledRelease("0.6.1.1", "d", new = listOf("181"), build = 181),
+                BundledRelease("0.5.10.4", "d", build = 172),
+            ),
+        )
+        assertEquals(listOf("0.6.1.1(181)", "0.6.1.1(180)", "0.5.10.4(172)"), merged.map { it.key })
+        assertEquals("0.6.1.1 (181)", merged[0].label)
+    }
+
+    @Test
+    fun buildsSinceTheLastOneSeenAreUnseen() {
+        fun build(version: String, build: Int?) = BundledRelease(version, null, build = build)
+        val current = "0.6.1.1(181)"
+        assertEquals(true, ReleaseNotes.isUnseen(build("0.6.1.1", 181), "0.6.1.1(179)", current))
+        assertEquals(true, ReleaseNotes.isUnseen(build("0.6.1.1", 180), "0.6.1.1(179)", current))
+        assertEquals(false, ReleaseNotes.isUnseen(build("0.6.1.1", 179), "0.6.1.1(179)", current))
+        assertEquals(true, ReleaseNotes.isUnseen(build("0.6.1.1", 173), "0.5.10.4(172)", current))
+        assertEquals(false, ReleaseNotes.isUnseen(build("0.5.10.3", null), "0.5.10.4(172)", current))
+        assertEquals(false, ReleaseNotes.isUnseen(build("0.6.1.1", 182), "0.6.1.1(179)", current))
+        assertEquals(false, ReleaseNotes.isUnseen(build("0.6.1.1", 181), null, current))
+    }
 }
