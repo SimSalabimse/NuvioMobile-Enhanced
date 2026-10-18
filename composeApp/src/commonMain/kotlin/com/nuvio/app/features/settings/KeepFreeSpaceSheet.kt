@@ -1,6 +1,8 @@
 package com.nuvio.app.features.settings
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -41,7 +43,13 @@ internal fun KeepFreeSpaceSheet(current: Int, onDismiss: () -> Unit) {
         plan = StorageAutopilot.preview(selected)
     }
     NuvioModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(modifier = Modifier.fillMaxWidth().padding(bottom = nuvioSafeBottomPadding(16.dp))) {
+        // Scrolls on short screens, so the note never runs under the button.
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = nuvioSafeBottomPadding(16.dp)),
+        ) {
             Text(
                 "Keep free space",
                 style = MaterialTheme.typography.titleLarge,
@@ -54,15 +62,15 @@ internal fun KeepFreeSpaceSheet(current: Int, onDismiss: () -> Unit) {
                 text = keepFreePreview(selected, plan),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.nuvio.colors.textSecondary,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 12.dp, bottom = 16.dp),
             )
+            // Always enabled (a disabled label was unreadable): Done when nothing changed.
             NuvioPrimaryButton(
-                text = "Apply",
-                enabled = selected != current && plan != null,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                text = if (selected == current) "Done" else "Apply",
+                modifier = Modifier.padding(horizontal = 24.dp),
                 onClick = {
                     onDismiss()
-                    SmartDownloadSettings.setKeepFreeGb(selected)
+                    if (selected != current) SmartDownloadSettings.setKeepFreeGb(selected)
                 },
             )
         }
