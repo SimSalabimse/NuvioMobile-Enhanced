@@ -1,6 +1,24 @@
 {
   "releases": [
     {
+      "version": "0.6.2.1",
+      "build": 186,
+      "date": "2026-10-19",
+      "improved": [
+        "Updated to Nuvio 0.6.2: chat in Watch Party; on iPhone a party stays in sync in Picture in Picture and the lock-screen controls follow the party rules.",
+        "Autoplay of the next episode picks the exact next file from the same release (matching file name, then the same torrent) before any other source.",
+        "Greek and Italian translations, plus wording fixes in several other languages. Library sections show proper titles.",
+        "Settings > Downloads storage: new \"Verify downloads\" checks every finished download and re-downloads the damaged ones.",
+        "Finished downloads are checked right away. A damaged file is re-downloaded by itself with the message \"Damaged, re-downloading\".",
+        "If a download plays with errors or keeps jumping ahead, the player offers to stream instead and re-downloads the file afterwards."
+      ],
+      "fixed": [
+        "Finish a series never goes back to earlier episodes: it remembers the furthest episode you reached, and at the end of the show it removes the goal (\"Finished <show>, goal removed\") instead of starting again at S1E1.",
+        "Downloads: the \"Failed / incomplete downloads\" header no longer sits under the top bar.",
+        "Resumed downloads could glue on bytes from a different copy of the file, giving noise and jumps during playback. A resume now only continues when the server confirms the exact same file and position; otherwise it starts over."
+      ]
+    },
+    {
       "version": "0.6.1.1",
       "build": 185,
       "date": "2026-10-19",
