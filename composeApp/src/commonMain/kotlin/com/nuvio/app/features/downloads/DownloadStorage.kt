@@ -252,3 +252,14 @@ internal fun usableFreeBytes(volume: VolumeSpace?): Long? =
 /** True when [remainingBytes] would not fit with its reserve, or free space is under the floor. */
 internal fun lacksSpaceFor(remainingBytes: Long?, volume: VolumeSpace?): Boolean =
     spaceRunningOut(volume) != null || spaceShortfallBeforeStart(remainingBytes, remainingBytes, volume) != null
+
+/** Size assumed for an episode when neither the source nor earlier downloads say. */
+internal const val GUESSED_EPISODE_BYTES = 2_000_000_000L
+
+/** A typical episode of this show: the median size of its downloads; null without any. */
+internal fun typicalEpisodeBytes(metaId: String, items: List<DownloadItem>): Long? {
+    val sizes = items.filter { it.parentMetaId == metaId && it.isEpisode }
+        .mapNotNull { it.totalBytes?.takeIf { bytes -> bytes > 0L } }
+        .sorted()
+    return sizes.getOrNull(sizes.size / 2)
+}

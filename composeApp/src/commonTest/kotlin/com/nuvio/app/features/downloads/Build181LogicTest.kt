@@ -55,7 +55,7 @@ class Build181LogicTest {
     fun `typical episode size is the median of the show's downloads, else a guess`() {
         val items = listOf(item("a", bytes = 1 * gb), item("b", bytes = 5 * gb), item("c", bytes = 2 * gb))
         assertEquals(2 * gb, typicalEpisodeBytes("tt1", items))
-        assertEquals(1_500_000_000L, typicalEpisodeBytes("tt9", items))
+        assertNull(typicalEpisodeBytes("tt9", items))
     }
 
     @Test
@@ -74,15 +74,6 @@ class Build181LogicTest {
         assertNotNull(downloadProblem(expectedBytes = null, actualBytes = 1 * gb, probedDurationMs = 10 * 60_000L, expectedDurationMs = 45 * 60_000L))
         assertNull(downloadProblem(expectedBytes = null, actualBytes = 1 * gb, probedDurationMs = 40 * 60_000L, expectedDurationMs = 45 * 60_000L))
         assertNull(downloadProblem(expectedBytes = null, actualBytes = null, probedDurationMs = null, expectedDurationMs = 45 * 60_000L))
-    }
-
-    @Test
-    fun `runtime text is read in minutes`() {
-        assertEquals(130, runtimeMinutes("130 min"))
-        assertEquals(130, runtimeMinutes("2h 10min"))
-        assertEquals(120, runtimeMinutes("2h"))
-        assertEquals(45, runtimeMinutes("45"))
-        assertNull(runtimeMinutes("unknown"))
     }
 
     @Test

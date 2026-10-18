@@ -3,6 +3,7 @@ package com.nuvio.app.features.downloads
 import androidx.compose.runtime.compositionLocalOf
 import com.nuvio.app.features.analysis.MediaAnalysisStore
 import com.nuvio.app.features.details.MetaDetailsRepository
+import com.nuvio.app.features.details.parseRuntimeMinutes
 
 /** Something wrong with a finished download's file; re-downloading fetches it again. */
 internal data class DownloadProblem(val message: String)
@@ -65,17 +66,9 @@ private fun DownloadItem.listedRuntimeMs(): Long? {
     val minutes = if (isEpisode) {
         meta.videos.firstOrNull { it.season == seasonNumber && it.episode == episodeNumber }?.runtime
     } else {
-        meta.runtime?.let(::runtimeMinutes)
+        parseRuntimeMinutes(meta.runtime)
     }
     return minutes?.takeIf { it > 0 }?.let { it * 60_000L }
-}
-
-/** "130 min", "2h 10min" or "130" in minutes; null when there is no number. */
-internal fun runtimeMinutes(text: String): Int? {
-    val hours = Regex("""(\d+)\s*h""").find(text)?.groupValues?.get(1)?.toIntOrNull()
-    val minutes = Regex("""(\d+)\s*m""").find(text)?.groupValues?.get(1)?.toIntOrNull()
-    if (hours == null && minutes == null) return text.trim().toIntOrNull()
-    return (hours ?: 0) * 60 + (minutes ?: 0)
 }
 
 /** Health problems shown on the Downloads rows (provided by the Downloads screen). */

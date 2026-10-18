@@ -459,7 +459,7 @@ internal fun SeasonDownloadSheet(
                     )
                 }
                 item(key = "fill-by-size") {
-                    val estimate = remember(downloads.items) { typicalEpisodeBytes(meta.id, downloads.items) }
+                    val estimate = remember(downloads.items) { typicalEpisodeBytes(meta.id, downloads.items) ?: GUESSED_EPISODE_BYTES }
                     SeasonFillBySizeRow(estimateBytes = estimate) { budgetBytes ->
                         val picked = fillSelection(rows.filter { it.canPick && !it.watched }.map { it.key }, estimate, budgetBytes).toSet()
                         rows = rows.map { if (it.canPick) it.copy(userChecked = it.key in picked) else it }
@@ -950,15 +950,6 @@ internal fun unairedLabel(released: String?): String {
 /** "Fill X GB" choices in Download Season. */
 private val SEASON_FILL_CHOICES_GB = listOf(5, 10, 20, 50)
 
-private const val DEFAULT_EPISODE_BYTES = 1_500_000_000L
-
-/** Size of a typical episode of this show: the median of its downloads, else 1.5 GB. */
-internal fun typicalEpisodeBytes(metaId: String, items: List<DownloadItem>): Long {
-    val sizes = items.filter { it.parentMetaId == metaId && it.isEpisode }
-        .mapNotNull { it.totalBytes?.takeIf { bytes -> bytes > 0L } }
-        .sorted()
-    return sizes.getOrNull(sizes.size / 2) ?: DEFAULT_EPISODE_BYTES
-}
 
 /** The leading [keys] (episode order) whose estimated sizes fit in [budgetBytes]. */
 internal fun fillSelection(keys: List<String>, episodeBytes: Long, budgetBytes: Long): List<String> =

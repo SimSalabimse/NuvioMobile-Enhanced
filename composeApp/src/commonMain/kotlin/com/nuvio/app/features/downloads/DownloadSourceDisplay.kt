@@ -42,10 +42,6 @@ internal fun downloadQualityChipText(stream: StreamItem): String? {
     return if (height >= 2160) "4K" else "${height}p"
 }
 
-/** "1080p · 2.3 GB", "1080p · Size unknown" or just the size when no resolution is named. */
-internal fun downloadQualitySizeLabel(stream: StreamItem): String =
-    listOfNotNull(downloadQualityChipText(stream), downloadSizeLabel(stream)).joinToString(" · ")
-
 /** Quality and size chips shown on picked cards and source rows. */
 @Composable
 internal fun DownloadQualitySizeChips(

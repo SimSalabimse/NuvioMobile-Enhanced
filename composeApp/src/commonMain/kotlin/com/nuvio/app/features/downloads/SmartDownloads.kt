@@ -387,7 +387,7 @@ internal object SmartDownloads {
         val fit = smartDownloadsThatFit(
             rows = picked,
             sizeOf = { row -> downloadStreamBytes(row.stream) },
-            fallbackBytes = reference?.totalBytes?.takeIf { it > 0L },
+            fallbackBytes = typicalEpisodeBytes(meta.id, items),
             freeBytes = DownloadDiskInfo.volumeSpace()?.availableBytes,
             inProgressRemainingBytes = items
                 .filter { it.status == DownloadStatus.Downloading || it.status == DownloadStatus.Queued }
@@ -466,7 +466,7 @@ internal const val SMART_DOWNLOADS_NO_SPACE = "No space for the next episode"
 /**
  * The leading [rows] (in episode order) that fit in [freeBytes]: each needs its size plus the usual
  * reserve, after [inProgressRemainingBytes] that running and queued downloads still need. A row
- * without a size uses [fallbackBytes] (the last episode of the show), or a 2 GB guess. Unknown free
+ * without a size uses [fallbackBytes] (a typical episode of the show), or a 2 GB guess. Unknown free
  * space lets everything through (the running download checks again).
  */
 internal fun <T> smartDownloadsThatFit(
@@ -480,7 +480,7 @@ internal fun <T> smartDownloadsThatFit(
     var budget = freeBytes - inProgressRemainingBytes.coerceAtLeast(0L)
     val out = mutableListOf<T>()
     for (row in rows) {
-        val size = sizeOf(row)?.takeIf { it > 0L } ?: fallbackBytes ?: SMART_DOWNLOAD_UNKNOWN_SIZE_BYTES
+        val size = sizeOf(row)?.takeIf { it > 0L } ?: fallbackBytes ?: GUESSED_EPISODE_BYTES
         val needed = size + downloadSpaceReserve(size)
         if (needed > budget) break
         out += row
@@ -489,7 +489,7 @@ internal fun <T> smartDownloadsThatFit(
     return out
 }
 
-private const val SMART_DOWNLOAD_UNKNOWN_SIZE_BYTES = 2_000_000_000L
+
 
 /** The next [count] regular episodes after S[season]E[episode], in order, specials left out. */
 internal fun nextEpisodes(videos: List<MetaVideo>, season: Int, episode: Int, count: Int): List<MetaVideo> =
