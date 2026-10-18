@@ -372,14 +372,17 @@ internal object SmartDownloads {
             seasonExistingDownload(items.firstOrNull { it.logicalContentKey == key }?.status) == null
         }
         if (missing.isEmpty()) return later
+        // Disk nearly full: don't ask the addons for streams that could not be saved anyway.
+        val free = DownloadDiskInfo.volumeSpace()?.availableBytes
+        if (free != null && free < SMART_DOWNLOAD_MIN_FREE_BYTES) return noSpace(request)
         val reference = items
             .filter { it.parentMetaId == meta.id && it.isEpisode }
             .maxByOrNull { it.updatedAtEpochMs }
         val picked = missing.mapNotNull { video ->
             pickStream(meta, video, reference)?.let { SeasonEnqueueRow(video, it) }
         }
-        // No source yet (often right after it airs): try again later.
-        if (picked.isEmpty()) return request
+        // No source yet (often right after it airs): look again in an hour.
+        if (picked.isEmpty()) return request.copy(notBeforeEpochMs = EpisodeReleaseDatePlatform.nowEpochMs() + HOUR_MS)
         // Only what fits: each file plus its reserve, after what running downloads still need.
         val fit = smartDownloadsThatFit(
             rows = picked,
@@ -390,14 +393,7 @@ internal object SmartDownloads {
                 .filter { it.status == DownloadStatus.Downloading || it.status == DownloadStatus.Queued }
                 .sumOf { item -> item.totalBytes?.takeIf { it > 0L }?.let { (it - item.downloadedBytes).coerceAtLeast(0L) } ?: 0L },
         )
-        if (fit.isEmpty()) {
-            // The watched file is about to go: wait for that delete, then this runs again.
-            if (FinishedDownloadDeletion.hasPendingDeletion()) return request
-            StorageAutopilot.run()
-            val key = "${request.parentMetaId}:${request.season}:${request.episode}"
-            if (noSpaceShown.add(key)) NuvioToastController.show(SMART_DOWNLOADS_NO_SPACE)
-            return request
-        }
+        if (fit.isEmpty()) return noSpace(request)
         val result = enqueueSeasonDownloads(meta, fit)
         if (result.queued > 0) {
             NuvioToastController.show(smartDownloadsQueuedMessage(result.queued, meta.name))
@@ -407,6 +403,18 @@ internal object SmartDownloads {
     }
 
     private val noSpaceShown = mutableSetOf<String>()
+
+    /**
+     * Nothing fits: kept pending (a delete or freed space runs it again). The watched file that is
+     * about to go is waited for; otherwise the autopilot may free room and the user hears it once.
+     */
+    private fun noSpace(request: SmartDownloadRequest): SmartDownloadRequest {
+        if (FinishedDownloadDeletion.hasPendingDeletion()) return request
+        StorageAutopilot.run()
+        val key = "${request.parentMetaId}:${request.season}:${request.episode}"
+        if (noSpaceShown.add(key)) NuvioToastController.show(SMART_DOWNLOADS_NO_SPACE)
+        return request
+    }
 
     private suspend fun pickStream(meta: MetaDetails, video: MetaVideo, reference: DownloadItem?): StreamItem? {
         val videoId = seasonStreamVideoId(meta.id, video)
@@ -440,9 +448,12 @@ internal object SmartDownloads {
 }
 
 private const val GOAL_EPISODES = 2
-private const val DAY_MS = 24 * 60 * 60_000L
+private const val HOUR_MS = 60 * 60_000L
+private const val DAY_MS = 24 * HOUR_MS
 
-/** When to look again for episodes that have not aired: the earliest air time, or tomorrow without one. */
+/** Below this much free space Smart Downloads don't even look for streams. */
+private const val SMART_DOWNLOAD_MIN_FREE_BYTES = 1_000_000_000L
+
 /** When to look again for queued unaired episodes: the next air date, else tomorrow. */
 internal fun nextAirCheckEpochMs(upcoming: List<MetaVideo>, now: Long = EpisodeReleaseDatePlatform.nowEpochMs()): Long {
     return upcoming.mapNotNull { com.nuvio.app.core.time.parseEpisodeReleaseEpochMs(it.released) }

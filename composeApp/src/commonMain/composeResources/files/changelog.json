@@ -9,7 +9,16 @@
         "Download from the hold menu on Continue Watching and Next Up cards: it downloads that exact episode or movie with auto-pick and Change source. If it's already downloaded or downloading, the item opens Downloads instead.",
         "Pick the quality right on the auto-picked source: one option per quality available (4K, 1080p, 720p, 480p), each with its size, like 1080p · 2.3 GB. Tap one to switch to the best source of that quality without opening the list. Download Season has one quality choice for the whole season: every selected episode is re-picked at that quality (or the nearest lower one if an episode doesn't have it), and the total updates.",
         "A \"Finish a series\" row on Home: the shows you've started, shortest to finish first, counting every remaining episode across all seasons (for example 4 eps · 2h 50m left), with a progress bar for the series. Tap to play the next episode. Turn it off in Continue Watching settings.",
-        "Search the cast on a title's details: type an actor's or a character's name. Case and accents don't matter (\"zoe\" finds Zoë)."
+        "Search the cast on a title's details: type an actor's or a character's name. Case and accents don't matter (\"zoe\" finds Zoë).",
+        "Queue episodes that haven't aired from Download Season: they download once they air and a source is found.",
+        "Finish a series goal: in the hold menu, pin a show and its next 2 episodes stay downloaded until you finish it.",
+        "Keep free space: watched downloads are deleted oldest first when free space drops below your choice (off by default; never unwatched or half-watched ones).",
+        "Fill with the next episodes in Download Season: pick 5, 10, 20 or 50 GB.",
+        "Continue Watching items untouched for 60 days move to a Paused row on Home; tap one to bring it back. Change or turn off in Continue Watching settings.",
+        "Mark watched up to here, in an episode's hold menu.",
+        "Per-show auto-skip (Default, Always, Never) in the Continue Watching hold menu.",
+        "Search and sort (name, size, date) in Downloads.",
+        "Downloads health check: cut-off or damaged files are flagged with a Re-download button."
       ],
       "improved": [
         "Updated to the latest upstream Nuvio (0.6.1-beta), with the updated p2p streaming engine (0.1.5), better picture-in-picture on iOS and new translations.",
@@ -26,7 +35,9 @@
         "Finish a series cards have the same hold menu as Continue Watching (Download in place, details, remove and more). The show name now appears on each card, with the time left under it, and neither line is cut off any more.",
         "Clean up leftovers is now always on the storage card at the top of Downloads, greyed out with 0 B when there's nothing to clean.",
         "Smart Downloads only queue the episodes that fit: each one needs its size plus the reserve, after what running downloads still need. When the watched episode is about to be deleted they wait for that space first. If nothing fits you see \"No space for the next episode\", and they try again once space frees up.",
-        "Storage lists \"Failed / incomplete downloads\" with what they take on disk, and deletes them all in one go after you confirm. Clean up leftovers also finds files left in the default downloads folder while you use another folder, and data that background downloads left behind in the system cache and tmp (only cleaned while no background download runs)."
+        "Storage lists \"Failed / incomplete downloads\" with what they take on disk, and deletes them all in one go after you confirm. Clean up leftovers also finds files left in the default downloads folder while you use another folder, and data that background downloads left behind in the system cache and tmp (only cleaned while no background download runs).",
+        "Smart Downloads: an Only on Wi-Fi switch (on, as before), and Pause downloads while watching (off: one download keeps going).",
+        "The playback speed you pick is remembered per show; hold-to-speed is never remembered."
       ],
       "fixed": [
         "Holding for 2x speed while playback switched to the downloaded file no longer leaves it stuck at 2x. Letting go, a cancelled hold, or the player switching or reloading always goes back to your normal speed.",
