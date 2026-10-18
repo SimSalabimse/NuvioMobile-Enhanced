@@ -461,9 +461,13 @@ internal object SmartDownloads {
             sizeOf = { row -> downloadStreamBytes(row.stream) },
             fallbackBytes = typicalEpisodeBytes(meta.id, items),
             freeBytes = DownloadDiskInfo.volumeSpace()?.availableBytes,
+            // Queued ones will need their space too; the start gate itself only counts running ones.
             inProgressRemainingBytes = items
                 .filter { it.status == DownloadStatus.Downloading || it.status == DownloadStatus.Queued }
-                .sumOf { item -> item.totalBytes?.takeIf { it > 0L }?.let { (it - item.downloadedBytes).coerceAtLeast(0L) } ?: 0L },
+                .sumOf { item ->
+                    val size = item.totalBytes?.takeIf { it > 0L } ?: typicalEpisodeBytes(item.parentMetaId, items) ?: GUESSED_EPISODE_BYTES
+                    (size - item.downloadedBytes).coerceAtLeast(0L)
+                },
         )
         if (fit.isEmpty()) return noSpace(request)
         if (request.goalDropped()) return null

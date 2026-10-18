@@ -153,10 +153,10 @@ internal fun DownloadQualitySheet(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            val shortfall = spaceShortfallBeforeStart(chosenBytes, chosenBytes, volumeNow)
+            val shortfall = spaceAdmission(chosenBytes, chosenBytes, GUESSED_EPISODE_BYTES, DownloadsRepository.owedBytes(), volumeNow)
             if (shortfall != null) {
                 Text(
-                    text = downloadSpaceMessage(shortfall),
+                    text = waitingForSpaceMessage(shortfall) + ". It starts once it fits.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )

@@ -382,16 +382,18 @@ object DownloadsRepository {
         // Retry re-checks space with a fresh figure; when it still does not fit, say so instead
         // of silently going back to Failed.
         val after = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
-        if (after.status == DownloadStatus.Failed && after.isSpaceFailure()) {
+        if (after.isWaitingForSpace()) {
             after.errorMessage?.let { com.nuvio.app.core.ui.NuvioToastController.show(it) }
         }
     }
 
     private var legacySpaceMessage: String? = null
 
-    /** Failed for space, by this build ("Needs …, … free. Free up space…") or an older one. */
-    private fun DownloadItem.isSpaceFailure(): Boolean {
+    /** Paused as "Waiting for space", or failed for space by a build before 184. */
+    private fun DownloadItem.isWaitingForSpace(): Boolean {
         val message = errorMessage ?: return false
+        if (status == DownloadStatus.Paused) return message.startsWith(WAITING_FOR_SPACE_PREFIX)
+        if (status != DownloadStatus.Failed) return false
         if (message.endsWith(DOWNLOAD_SPACE_HINT)) return true
         val legacy = legacySpaceMessage
             ?: runCatching { runBlocking { getString(Res.string.downloads_not_enough_space) } }.getOrNull()
@@ -420,19 +422,18 @@ object DownloadsRepository {
 
     internal fun retrySpaceFailures() {
         ensureLoaded()
-        val failed = _uiState.value.items
-            .filter { it.status == DownloadStatus.Failed && it.isSpaceFailure() }
+        val waiting = _uiState.value.items
+            .filter { it.isWaitingForSpace() }
             .sortedBy { it.createdAtEpochMs }
-        if (failed.isEmpty()) return
-        var free = DownloadDiskInfo.volumeSpace()?.availableBytes ?: return
+        if (waiting.isEmpty()) return
+        val volume = DownloadDiskInfo.volumeSpace() ?: return
+        // Same check as the start (fresh free space, bytes running downloads still owe), so a
+        // resumed one is not parked again at once; each one let through owes its rest too.
+        var owed = owedBytes()
         val ids = mutableListOf<String>()
-        for (item in failed) {
-            val remaining = item.remainingBytes()
-            // Unknown size: only when there is clearly room, so it does not stop again at once.
-            val needed = remaining?.let { it + downloadSpaceReserve(item.totalBytes ?: it) }
-                ?: (2 * DOWNLOAD_FREE_SPACE_MARGIN_BYTES)
-            if (needed > free) continue
-            free -= remaining ?: 0L
+        for (item in waiting) {
+            if (spaceAdmission(item.remainingBytes(), item.totalBytes, item.sizeEstimate(), owed, volume) != null) continue
+            owed += item.owedBytes()
             ids += item.id
         }
         if (ids.isNotEmpty()) resumeDownloads(ids)
@@ -554,7 +555,7 @@ object DownloadsRepository {
         )
         replaceItem(updated)
         persistStatus()
-        startDownload(updated)
+        if (admit(updated)) startDownload(updated)
     }
 
     private fun failForExpiredLink(downloadId: String) {
@@ -854,7 +855,7 @@ object DownloadsRepository {
                 if (current.status != DownloadStatus.Downloading) return@onProgress
                 val shortfall = outOfSpaceWhileDownloading(current)
                 if (shortfall != null) {
-                    failForSpace(current.id, shortfall)
+                    waitForSpace(current.id, shortfall)
                     return@onProgress
                 }
                 val safeBytes = downloadedBytes.coerceAtLeast(0L)
@@ -988,6 +989,8 @@ object DownloadsRepository {
         }
         if (statusChanged && before?.status == DownloadStatus.Downloading && after?.status != DownloadStatus.Downloading) {
             applyStarts(startQueue.release(downloadId, DownloadThermalGate.blocksNextFile()))
+            // A finished file owes nothing any more: a waiting one may fit now.
+            if (after?.status == DownloadStatus.Completed) retrySpaceFailures()
         }
     }
 
@@ -1147,17 +1150,46 @@ object DownloadsRepository {
             if (id in activeHandles) return@forEach
             val item = _uiState.value.items.firstOrNull { it.id == id } ?: return@forEach
             if (item.status != DownloadStatus.Downloading) return@forEach
-            val volume = DownloadDiskInfo.volumeSpace()
-            // Unknown size: start anyway; the running download checks the space as it goes.
-            val shortfall = spaceShortfallBeforeStart(item.remainingBytes(), item.totalBytes, volume)
-                ?: spaceRunningOut(volume)
-            if (shortfall != null) {
-                failForSpace(id, shortfall)
-            } else {
-                startDownload(item)
-            }
+            if (admit(item)) startDownload(item)
         }
     }
+
+    /**
+     * The one space gate before any bytes are fetched, for every start: new, resumed, retried,
+     * auto-retried, after a link refresh and when iOS restarts a tracked task. A file that does
+     * not fit (its rest or, size unknown, the show's typical episode size, plus the reserve, against
+     * free space minus what running downloads still owe) is paused as "Waiting for space" and
+     * starts by itself once it fits ([retrySpaceFailures]).
+     */
+    private fun admit(item: DownloadItem): Boolean {
+        val shortfall = spaceAdmission(
+            remainingBytes = item.remainingBytes(),
+            fileBytes = item.totalBytes,
+            estimateBytes = item.sizeEstimate(),
+            owedBytes = owedBytes(excluding = item.id),
+            volume = DownloadDiskInfo.volumeSpace(),
+        ) ?: return true
+        waitForSpace(item.id, shortfall)
+        return false
+    }
+
+    /** iOS is about to restart a tracked task (no live system task left): same gate. */
+    internal fun admitRestart(downloadId: String): Boolean {
+        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return false
+        return admit(item)
+    }
+
+    /** Bytes the running downloads still have to write (unknown size: the estimate less what is on disk). */
+    internal fun owedBytes(excluding: String? = null): Long = _uiState.value.items
+        .filter { it.id != excluding && it.status == DownloadStatus.Downloading && it.id in activeHandles }
+        .sumOf { it.owedBytes() }
+
+    private fun DownloadItem.owedBytes(): Long =
+        remainingBytes() ?: (sizeEstimate() - downloadedBytes).coerceAtLeast(0L)
+
+    /** Size assumed when the source gives none: the show's typical episode, else 2 GB. */
+    private fun DownloadItem.sizeEstimate(): Long =
+        typicalEpisodeBytes(parentMetaId, _uiState.value.items) ?: GUESSED_EPISODE_BYTES
 
     internal fun DownloadItem.remainingBytes(): Long? =
         totalBytes?.takeIf { it > 0L }?.let { (it - downloadedBytes).coerceAtLeast(0L) }
@@ -1175,26 +1207,26 @@ object DownloadsRepository {
     }
 
     /**
-     * Not enough free space: the download stops with what it has (Failed, "Not enough space")
-     * instead of filling the disk. Its slot goes to the next one, which then hits the same check,
-     * so the waiting episodes stop too. Retry continues from the bytes on disk.
+     * Not enough free space: the download does not start, or stops with what it has, instead of
+     * filling the disk. It is paused as "Waiting for space (needs ~X, Y free)" and its slot goes to
+     * the next one, which meets the same gate. It continues from the bytes on disk once it fits.
      */
-    private fun failForSpace(downloadId: String, shortfall: DownloadSpaceShortfall) {
+    private fun waitForSpace(downloadId: String, shortfall: DownloadSpaceShortfall) {
         activeHandles.remove(downloadId)?.cancel()
         lastSpaceCheckAt.remove(downloadId)
-        val message = downloadSpaceMessage(shortfall)
+        val message = waitingForSpaceMessage(shortfall)
         mutateItem(downloadId) { current ->
             current.copy(
-                status = DownloadStatus.Failed,
+                status = DownloadStatus.Paused,
                 errorMessage = message,
                 updatedAtEpochMs = DownloadsClock.nowEpochMs(),
             )
         }
-        val failed = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
+        val paused = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
         DownloadsPlatformDownloader.updatePartialTarget(
             downloadId = downloadId,
-            fileName = failed.fileName,
-            totalBytes = failed.totalBytes,
+            fileName = paused.fileName,
+            totalBytes = paused.totalBytes,
             downloadRunning = false,
         )
     }

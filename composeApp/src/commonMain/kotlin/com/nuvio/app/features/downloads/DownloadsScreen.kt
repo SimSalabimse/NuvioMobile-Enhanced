@@ -994,7 +994,7 @@ private fun statusText(item: DownloadItem): String {
             val percent = item.downloadsScreenProgressPercent()
             if (percent != null) "$label • $percent%" else label
         }
-        DownloadStatus.Paused -> if (item.waitingForAppOpen && item.errorMessage != null) item.errorMessage else stringResource(Res.string.downloads_status_paused, size)
+        DownloadStatus.Paused -> if (item.errorMessage != null && (item.waitingForAppOpen || item.errorMessage.startsWith(WAITING_FOR_SPACE_PREFIX))) item.errorMessage else stringResource(Res.string.downloads_status_paused, size)
         DownloadStatus.Queued -> stringResource(Res.string.downloads_status_queued)
         DownloadStatus.Completed -> stringResource(
             Res.string.downloads_status_completed,

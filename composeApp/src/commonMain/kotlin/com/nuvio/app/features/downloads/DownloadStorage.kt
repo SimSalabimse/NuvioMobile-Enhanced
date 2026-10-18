@@ -94,18 +94,23 @@ internal data class DownloadSpaceShortfall(
 )
 
 /**
- * Up-front check. A known size must fit with its reserve; an unknown size never blocks here
- * (the running download checks instead, see [spaceRunningOut]).
+ * The one up-front space check every download start goes through (DownloadsRepository.admit).
+ * Needs the rest of the file, or [estimateBytes] when its size is unknown, plus the reserve.
+ * Has the free space minus [owedBytes], what running downloads still have to write. Null: it fits
+ * (or the platform cannot tell the free space).
  */
-internal fun spaceShortfallBeforeStart(
+internal fun spaceAdmission(
     remainingBytes: Long?,
     fileBytes: Long?,
+    estimateBytes: Long,
+    owedBytes: Long,
     volume: VolumeSpace?,
 ): DownloadSpaceShortfall? {
     val free = volume?.availableBytes ?: return null
-    val remaining = remainingBytes?.takeIf { it > 0L } ?: return null
-    val needed = remaining + downloadSpaceReserve(fileBytes ?: remaining)
-    return if (needed > free) DownloadSpaceShortfall(needed, free) else null
+    val rest = remainingBytes?.coerceAtLeast(0L) ?: estimateBytes.coerceAtLeast(0L)
+    val needed = rest + downloadSpaceReserve(fileBytes ?: rest)
+    val available = (free - owedBytes.coerceAtLeast(0L)).coerceAtLeast(0L)
+    return if (needed > available) DownloadSpaceShortfall(needed, available) else null
 }
 
 /** While downloading: stop only when free space drops under the 500 MB floor. */
@@ -114,13 +119,16 @@ internal fun spaceRunningOut(volume: VolumeSpace?): DownloadSpaceShortfall? {
     return if (free < DOWNLOAD_FREE_SPACE_MARGIN_BYTES) DownloadSpaceShortfall(null, free) else null
 }
 
-/** "Needs 3.8 GB, 4.0 GB free. Free up space, then tap Retry." */
-internal fun downloadSpaceMessage(shortfall: DownloadSpaceShortfall): String {
+/** "Waiting for space (needs ~3.8 GB, 2.0 GB free)": paused, it starts by itself once it fits. */
+internal fun waitingForSpaceMessage(shortfall: DownloadSpaceShortfall): String {
     val free = formatSeasonBytes(shortfall.freeBytes)
-    val head = shortfall.neededBytes?.let { "Needs ${formatSeasonBytes(it)}, $free free" } ?: "Only $free free"
-    return "$head. $DOWNLOAD_SPACE_HINT"
+    val detail = shortfall.neededBytes?.let { "needs ~${formatSeasonBytes(it)}, $free free" } ?: "only $free free"
+    return "$WAITING_FOR_SPACE_PREFIX ($detail)"
 }
 
+internal const val WAITING_FOR_SPACE_PREFIX = "Waiting for space"
+
+/** End of the space failure message of builds before 184 (those items are retried as waiting). */
 internal const val DOWNLOAD_SPACE_HINT = "Free up space, then tap Retry."
 
 internal data class SeasonStorage(
@@ -251,7 +259,7 @@ internal fun usableFreeBytes(volume: VolumeSpace?): Long? =
 
 /** True when [remainingBytes] would not fit with its reserve, or free space is under the floor. */
 internal fun lacksSpaceFor(remainingBytes: Long?, volume: VolumeSpace?): Boolean =
-    spaceRunningOut(volume) != null || spaceShortfallBeforeStart(remainingBytes, remainingBytes, volume) != null
+    spaceRunningOut(volume) != null || spaceAdmission(remainingBytes, remainingBytes, 0L, 0L, volume) != null
 
 /** Size assumed for an episode when neither the source nor earlier downloads say. */
 internal const val GUESSED_EPISODE_BYTES = 2_000_000_000L

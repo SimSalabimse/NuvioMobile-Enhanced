@@ -452,10 +452,11 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
                         reportReattachedBytes(downloadId, live, partLength)
                     }
                     IosResumeAction.StayPaused -> Unit
-                    IosResumeAction.RangeFromPrefix -> if (live == null) {
+                    // A restart fetches bytes again: through the same space gate as any start.
+                    IosResumeAction.RangeFromPrefix -> if (live == null && DownloadsRepository.admitRestart(downloadId)) {
                         restartTracked(downloadId, active, partLength)
                     }
-                    IosResumeAction.StartAtZero -> if (live == null && partLength <= 0L) {
+                    IosResumeAction.StartAtZero -> if (live == null && partLength <= 0L && DownloadsRepository.admitRestart(downloadId)) {
                         restartTracked(downloadId, active, 0L)
                     }
                 }
