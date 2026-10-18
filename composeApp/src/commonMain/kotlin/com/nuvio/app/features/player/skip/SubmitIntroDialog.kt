@@ -1053,18 +1053,12 @@ private fun MySubmissionsSection(
     }
 }
 
-/** [withTitle]: prefix the show/movie id (the list has no titles), for the all-submissions list. */
-internal fun submissionLine(submission: TheIntroDbUserSubmission, withTitle: Boolean = false): String {
-    val title = if (!withTitle) "" else when {
-        submission.tmdbId != null -> "TMDB ${submission.tmdbId} · "
-        submission.tvdbId != null -> "TVDB ${submission.tvdbId} · "
-        else -> ""
-    }
+internal fun submissionLine(submission: TheIntroDbUserSubmission): String {
     val episode = if (submission.season != null && submission.episode != null) {
         "S${submission.season}E${submission.episode} · "
     } else ""
     val start = submission.startMs?.let(::formatPlaybackTime) ?: "start"
     val end = submission.endMs?.let(::formatPlaybackTime) ?: "end"
     val status = submission.status?.takeIf { it.isNotBlank() } ?: "pending"
-    return "$title$episode${submission.segment.orEmpty()} $start–$end · $status"
+    return "$episode${submission.segment.orEmpty()} $start–$end · $status"
 }

@@ -1,5 +1,10 @@
 package com.nuvio.app.features.player.skip
 
+import com.nuvio.app.features.settings.SubmissionStatus
+import com.nuvio.app.features.settings.groupSubmissions
+import com.nuvio.app.features.settings.segmentChipText
+import com.nuvio.app.features.settings.statusTotals
+
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -25,9 +30,19 @@ class TheIntroDbV4Test {
     }
 
     @Test
-    fun allSubmissionsListNamesTheShow() {
-        assertEquals("TVDB 10 · S1E2 · intro 00:30–01:30 · pending", submissionLine(row(tvdb = 10), withTitle = true))
-        assertEquals("S1E2 · intro 00:30–01:30 · pending", submissionLine(row(tvdb = 10)))
+    fun submissionsGroupByShowThenEpisode() {
+        val rows = listOf(
+            row(tvdb = 10).copy(episode = 3, status = "rejected"),
+            row(tvdb = 10).copy(segment = "credits", status = "accepted"),
+            row(tvdb = 10),
+            row(tmdb = 5).copy(type = "movie", season = null, episode = null, status = "approved"),
+        )
+        val groups = groupSubmissions(rows)
+        assertEquals(listOf("tvdb:10", "tmdb:5"), groups.map { it.key })
+        assertEquals(listOf(2, 3), groups[0].episodes.map { it.episode })
+        assertEquals(2, groups[0].episodes[0].submissions.size)
+        assertEquals(mapOf(SubmissionStatus.Accepted to 2, SubmissionStatus.Pending to 1, SubmissionStatus.Rejected to 1), statusTotals(rows))
+        assertEquals("Credits 00:30–01:30", segmentChipText(rows[1]))
     }
 
     @Test

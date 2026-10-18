@@ -15,6 +15,36 @@ object TmdbService {
     private val imdbToTmdbCache = linkedMapOf<String, String>()
     private val tmdbToImdbCache = linkedMapOf<String, String>()
     private val cacheMutex = Mutex()
+    private val titleCardCache = mutableMapOf<String, TmdbTitleCard?>()
+
+    /**
+     * Name, poster and ids of a show or movie known by its TMDB or TVDB id (TheIntroDB v4 names
+     * shows by TVDB id). Cached for the session, misses included.
+     */
+    suspend fun titleCard(tmdbId: Int?, tvdbId: Int?, mediaType: String): TmdbTitleCard? {
+        val type = normalizeMediaType(mediaType)
+        val cacheKey = tmdbId?.let { "tmdb:$it:$type" } ?: tvdbId?.let { "tvdb:$it" } ?: return null
+        cacheMutex.withLock { if (cacheKey in titleCardCache) return titleCardCache[cacheKey] }
+        val apiKey = TmdbSettingsRepository.effectiveApiKey()
+        val found = if (tmdbId != null) {
+            fetch<TmdbExternalResult>(endpoint = "$type/$tmdbId", apiKey = apiKey)
+        } else {
+            fetch<TmdbFindResponse>(endpoint = "find/$tvdbId", apiKey = apiKey, query = mapOf("external_source" to "tvdb_id"))
+                ?.let { it.tvResults.firstOrNull() ?: it.movieResults.firstOrNull() }
+        }
+        val card = found?.let { result ->
+            val resultType = if (tmdbId == null && result.title != null) "movie" else type
+            TmdbTitleCard(
+                tmdbId = result.id,
+                mediaType = resultType,
+                name = result.name ?: result.title ?: return@let null,
+                posterUrl = result.posterPath?.takeIf { it.isNotBlank() }?.let { "https://image.tmdb.org/t/p/w185$it" },
+                imdbId = tmdbToImdb(result.id, resultType),
+            )
+        }
+        cacheMutex.withLock { titleCardCache[cacheKey] = card }
+        return card
+    }
 
     suspend fun ensureTmdbId(videoId: String, mediaType: String, fallbackImdbId: String? = null): String? {
         val apiKey = TmdbSettingsRepository.effectiveApiKey()
@@ -167,6 +197,18 @@ private data class TmdbFindResponse(
 @Serializable
 private data class TmdbExternalResult(
     val id: Int,
+    val name: String? = null,
+    val title: String? = null,
+    @SerialName("poster_path") val posterPath: String? = null,
+)
+
+/** See [TmdbService.titleCard]; [mediaType] is "tv" or "movie". */
+data class TmdbTitleCard(
+    val tmdbId: Int,
+    val mediaType: String,
+    val name: String,
+    val posterUrl: String?,
+    val imdbId: String?,
 )
 
 @Serializable
