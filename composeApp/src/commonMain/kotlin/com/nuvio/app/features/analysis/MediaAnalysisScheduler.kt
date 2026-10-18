@@ -350,7 +350,12 @@ internal object MediaAnalysisScheduler {
                 }
             }
         }
-        if (!scopeActive()) return false
+        if (!scopeActive()) {
+            // Stopped (the download is being deleted): keep the recap already found; the step
+            // counts as not done, so it runs again if the file comes back.
+            MediaAnalysisStore.save(result)
+            return false
+        }
         MediaAnalysisStore.save(result.copy(derivedVersion = MEDIA_ANALYSIS_DERIVED_VERSION))
         return thumbsOk
     }
