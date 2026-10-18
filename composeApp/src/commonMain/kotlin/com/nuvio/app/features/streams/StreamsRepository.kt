@@ -125,6 +125,12 @@ object StreamsRepository {
         ) {
             parentMetaId?.let { BingeGroupCacheRepository.get(it) }
         } else null
+        val persistedFilename = if (persistedBingeGroup != null) {
+            parentMetaId?.let { BingeGroupCacheRepository.getFilename(it) }
+        } else null
+        val persistedInfoHash = if (persistedBingeGroup != null) {
+            parentMetaId?.let { BingeGroupCacheRepository.getInfoHash(it) }
+        } else null
 
         // Enable direct auto-play flow if normal auto-play is enabled,
         // OR if we have a persisted binge group in MANUAL mode
@@ -265,6 +271,24 @@ object StreamsRepository {
             val debridAvailabilityJobs = mutableListOf<Job>()
             var autoSelectTriggered = false
             var timeoutElapsed = false
+            // The exact next file of the last binge group: its filename (season/episode moved on),
+            // else the same infoHash. Tried before the general binge-group pick.
+            fun preciseBingeMatch(allStreams: List<StreamItem>): StreamItem? {
+                val group = persistedBingeGroup ?: return null
+                persistedFilename?.let { last ->
+                    val next = FilenameEpisodeMatcher.extractSeasonEpisode(last)?.let { (s, e) ->
+                        FilenameEpisodeMatcher.buildNextFilename(last, s, e, season, episode ?: 0)
+                    } ?: last
+                    allStreams.firstOrNull { stream ->
+                        stream.behaviorHints.bingeGroup == group && FilenameEpisodeMatcher.matches(stream.behaviorHints.filename, next)
+                    }?.let { return it }
+                }
+                val hash = persistedInfoHash ?: return null
+                return allStreams.firstOrNull { stream ->
+                    stream.behaviorHints.bingeGroup == group && stream.infoHash?.equals(hash, ignoreCase = true) == true
+                }
+            }
+
             fun publishCompletion(completion: StreamLoadCompletion) {
                 if (completions.trySend(completion).isFailure) {
                     log.d { "Ignoring late stream load completion after channel close" }
@@ -331,7 +355,7 @@ object StreamsRepository {
                     if (isDirectAutoPlayFlow && !autoSelectTriggered && persistedBingeGroup != null && !timeoutElapsed) {
                         val allStreams = _uiState.value.groups.flatMap { it.streams }
                         if (allStreams.isNotEmpty()) {
-                            val earlyMatch = StreamAutoPlaySelector.selectAutoPlayStream(
+                            val earlyMatch = preciseBingeMatch(allStreams) ?: StreamAutoPlaySelector.selectAutoPlayStream(
                                 streams = allStreams,
                                 mode = autoPlayMode,
                                 regexPattern = playerSettings.streamAutoPlayRegex,
@@ -614,7 +638,7 @@ object StreamsRepository {
                 if (isDirectAutoPlayFlow && !autoSelectTriggered && persistedBingeGroup != null) {
                     val allStreams = _uiState.value.groups.flatMap { it.streams }
                     if (allStreams.isNotEmpty()) {
-                        val earlyMatch = StreamAutoPlaySelector.selectAutoPlayStream(
+                        val earlyMatch = preciseBingeMatch(allStreams) ?: StreamAutoPlaySelector.selectAutoPlayStream(
                             streams = allStreams,
                             mode = autoPlayMode,
                             regexPattern = playerSettings.streamAutoPlayRegex,
@@ -662,7 +686,7 @@ object StreamsRepository {
                     if (isDirectAutoPlayFlow && !autoSelectTriggered && persistedBingeGroup != null) {
                         val allStreams = _uiState.value.groups.flatMap { it.streams }
                         if (allStreams.isNotEmpty()) {
-                            val earlyMatch = StreamAutoPlaySelector.selectAutoPlayStream(
+                            val earlyMatch = preciseBingeMatch(allStreams) ?: StreamAutoPlaySelector.selectAutoPlayStream(
                                 streams = allStreams,
                                 mode = autoPlayMode,
                                 regexPattern = playerSettings.streamAutoPlayRegex,
@@ -710,7 +734,7 @@ object StreamsRepository {
                             }
                         } else if (persistedBingeGroup != null) {
                             // Before timeout: try binge-group-only early match
-                            val earlyMatch = StreamAutoPlaySelector.selectAutoPlayStream(
+                            val earlyMatch = preciseBingeMatch(allStreams) ?: StreamAutoPlaySelector.selectAutoPlayStream(
                                 streams = allStreams,
                                 mode = autoPlayMode,
                                 regexPattern = playerSettings.streamAutoPlayRegex,

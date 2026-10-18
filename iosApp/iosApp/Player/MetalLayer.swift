@@ -35,8 +35,7 @@ class MetalLayer: CAMetalLayer {
         pictureInPictureLock.unlock()
         guard let observer else { return }
         let generation = observer.generation
-        drawable.addPresentedHandler { [weak self] presented in
-            let time = presented.presentedTime
+        let notify: (TimeInterval) -> Void = { [weak self] time in
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.pictureInPictureLock.lock()
@@ -45,6 +44,11 @@ class MetalLayer: CAMetalLayer {
                 if current { observer.callback(time) }
             }
         }
+#if targetEnvironment(simulator)
+        notify(CACurrentMediaTime())
+#else
+        drawable.addPresentedHandler { notify($0.presentedTime) }
+#endif
     }
 
     @objc var nuvioPiPConsumesVideo: Bool {

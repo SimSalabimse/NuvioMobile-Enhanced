@@ -96,7 +96,14 @@ actual fun PlatformPlayerSurface(
     bridge.setExperimentalSinglePrimaryPictureInPictureEnabled(experimentalSinglePrimaryPictureInPictureEnabled)
 
     val controller = remember(bridge) {
-        object : PlayerEngineController {
+        object : PlayerEngineController, PlayerSystemControlSource {
+            override val keepsPlaybackInBackground: Boolean
+                get() = bridge.getKeepsPlaybackInBackground()
+
+            override fun setSystemControlHandler(handler: PlayerSystemControlHandler?) {
+                bridge.setSystemControlHandler(handler)
+            }
+
             override fun play() {
                 InAppLogger.debug("Player/iOS", "control play positionMs=${bridge.getPositionMs()}")
                 bridge.play()
