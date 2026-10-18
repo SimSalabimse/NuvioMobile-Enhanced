@@ -200,6 +200,9 @@ fun DetailSeriesContent(
         Column(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            if (meta.type == "series") {
+                com.nuvio.app.features.downloads.FinishSeriesGoalChip(meta.type, meta.id)
+            }
             SeriesSeasonSelector(
                 meta = meta,
                 seasons = seasons,
@@ -462,6 +465,9 @@ internal fun DetailSeriesListHeader(
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val sizing = seriesContentSizing(maxWidth.value)
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            if (meta.type == "series") {
+                com.nuvio.app.features.downloads.FinishSeriesGoalChip(meta.type, meta.id)
+            }
             SeriesSeasonSelector(
                 meta = meta,
                 seasons = seasons,

@@ -1,5 +1,7 @@
 package com.nuvio.app.features.home.components
 
+import com.nuvio.app.features.downloads.FinishSeriesGoalBadge
+import androidx.compose.ui.Alignment
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -233,6 +235,7 @@ private fun FinishSeriesCard(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
+            FinishSeriesGoalBadge(item.parentMetaType, item.parentMetaId, Modifier.align(Alignment.TopEnd))
         }
         Spacer(Modifier.height(6.dp))
         LinearProgressIndicator(

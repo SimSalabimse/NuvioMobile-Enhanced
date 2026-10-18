@@ -148,7 +148,7 @@ fun NuvioContinueWatchingActionSheet(
             if (goalPinned != null) {
                 NuvioBottomSheetActionRow(
                     icon = Icons.Rounded.Flag,
-                    title = if (goalPinned) "Stop the finish goal" else "Goal: finish this series (keep the next 2 downloaded)",
+                    title = com.nuvio.app.features.downloads.FinishSeriesGoal.label(goalPinned),
                     onClick = { dismissAfter(onToggleGoal) },
                 )
             }

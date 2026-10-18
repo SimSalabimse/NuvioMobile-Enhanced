@@ -73,6 +73,8 @@ import com.nuvio.app.core.ui.NuvioContinueWatchingActionSheet
 import com.nuvio.app.core.ui.ContinueWatchingDownloadState
 import com.nuvio.app.core.ui.continueWatchingDownloadState
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.FastForward
+import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.DownloadDone
 import com.nuvio.app.core.ui.NuvioFloatingPrompt
 import com.nuvio.app.core.ui.NuvioPosterZoomActionOverlay
@@ -2313,6 +2315,31 @@ internal fun MainAppContent(
                                     )
                                     ContinueWatchingDownloadState.Unavailable -> Unit
                                 }
+                                // The same show actions as the bottom sheet (this overlay replaces it on Home cards).
+                                if (item.seasonNumber != null) {
+                                    val pinned = SmartDownloadSettings.isGoal(item.parentMetaType, item.parentMetaId)
+                                    add(
+                                        PosterZoomOverlayAction(
+                                            icon = Icons.Rounded.Flag,
+                                            label = com.nuvio.app.features.downloads.FinishSeriesGoal.label(pinned),
+                                            onSelected = {
+                                                com.nuvio.app.features.downloads.FinishSeriesGoal.toggle(item.parentMetaType, item.parentMetaId)
+                                            },
+                                        ),
+                                    )
+                                    val autoSkip = com.nuvio.app.features.player.ShowPlaybackMemory.autoSkip(item.parentMetaId)
+                                    add(
+                                        PosterZoomOverlayAction(
+                                            icon = Icons.Rounded.FastForward,
+                                            label = "Auto-skip on this show: ${autoSkip.label}",
+                                            onSelected = {
+                                                val next = autoSkip.next()
+                                                com.nuvio.app.features.player.ShowPlaybackMemory.setAutoSkip(item.parentMetaId, next)
+                                                NuvioToastController.show("Auto-skip on this show: ${next.label}")
+                                            },
+                                        ),
+                                    )
+                                }
                                 add(
                                     PosterZoomOverlayAction(
                                         icon = Icons.Default.DeleteOutline,
@@ -2359,11 +2386,7 @@ internal fun MainAppContent(
                     ?.let { SmartDownloadSettings.isGoal(it.parentMetaType, it.parentMetaId) },
                 onToggleGoal = {
                     selectedContinueWatchingForActions?.let { item ->
-                        SmartDownloadSettings.setGoal(
-                            item.parentMetaType,
-                            item.parentMetaId,
-                            pinned = !SmartDownloadSettings.isGoal(item.parentMetaType, item.parentMetaId),
-                        )
+                        com.nuvio.app.features.downloads.FinishSeriesGoal.toggle(item.parentMetaType, item.parentMetaId)
                     }
                 },
                 onRemove = {

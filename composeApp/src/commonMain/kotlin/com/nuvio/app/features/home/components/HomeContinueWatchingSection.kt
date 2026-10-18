@@ -1,5 +1,6 @@
 package com.nuvio.app.features.home.components
 
+import com.nuvio.app.features.downloads.FinishSeriesGoalBadge
 import com.nuvio.app.features.settings.ThemeSettingsRepository
 import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -765,6 +766,7 @@ private fun ContinueWatchingCard(
             )
         }
         if (item.shufflePlayback) ShuffleBadge(Modifier.align(Alignment.TopStart).padding(8.dp))
+        FinishSeriesGoalBadge(item.parentMetaType, item.parentMetaId, Modifier.align(Alignment.BottomEnd).padding(bottom = 6.dp))
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -957,6 +959,7 @@ private fun ContinueWatchingWideCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (item.shufflePlayback) ShuffleBadge()
+                    FinishSeriesGoalBadge(item.parentMetaType, item.parentMetaId)
                     if (item.progressFraction <= 0f && item.seasonNumber != null && item.episodeNumber != null) {
                         val todayIsoDate = CurrentDateProvider.todayIsoDate()
                         val badgeText = when {
@@ -1075,6 +1078,7 @@ private fun ContinueWatchingPosterCard(
                 )
             }
             if (item.shufflePlayback) ShuffleBadge(Modifier.align(Alignment.TopStart).padding(8.dp))
+            FinishSeriesGoalBadge(item.parentMetaType, item.parentMetaId, Modifier.align(Alignment.BottomEnd).padding(bottom = 6.dp))
             if (item.progressFraction <= 0f && item.seasonNumber != null && item.episodeNumber != null) {
                 Box(
                     modifier = Modifier

@@ -144,7 +144,9 @@ object SmartDownloadSettings {
         StorageAutopilot.run()
     }
 
-    fun isGoal(type: String, id: String): Boolean = goalKey(type, id) in snapshot().goals
+    fun isGoal(type: String, id: String): Boolean = isGoal(snapshot(), type, id)
+
+    fun isGoal(state: State, type: String, id: String): Boolean = goalKey(type, id) in state.goals
 
     fun setGoal(type: String, id: String, pinned: Boolean) {
         val key = goalKey(type, id)
