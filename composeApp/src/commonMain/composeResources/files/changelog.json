@@ -2,6 +2,17 @@
   "releases": [
     {
       "version": "0.6.1.1",
+      "build": 185,
+      "date": "2026-10-19",
+      "improved": [
+        "Deleting a download also frees its scrub preview images (skip times are kept)."
+      ],
+      "fixed": [
+        "Skip times from analysed episodes now work when streaming after the download was deleted."
+      ]
+    },
+    {
+      "version": "0.6.1.1",
       "build": 184,
       "date": "2026-10-18",
       "improved": [
