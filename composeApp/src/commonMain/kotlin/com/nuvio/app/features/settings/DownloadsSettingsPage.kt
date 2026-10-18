@@ -57,6 +57,7 @@ internal fun LazyListScope.downloadsSettingsContent(
         val deleteWhenFinished by DownloadsSettingsRepository.deleteWhenFinished.collectAsStateWithLifecycle()
         val switchToDownload by DownloadsSettingsRepository.switchToDownloadWhileWatching.collectAsStateWithLifecycle()
         var showPicker by remember { mutableStateOf(false) }
+        var showKeepFree by remember { mutableStateOf(false) }
 
         SettingsSection(
             title = stringResource(Res.string.compose_settings_root_downloads_title),
@@ -150,14 +151,12 @@ internal fun LazyListScope.downloadsSettingsContent(
                     description = if (smart.keepFreeGb == 0) {
                         "Off"
                     } else {
-                        "Keep ${smart.keepFreeGb} GB free: delete watched downloads, oldest first"
+                        "${keepFreeLabel(smart.keepFreeGb)}: delete watched downloads, oldest first"
                     },
                     isTablet = isTablet,
-                    onClick = {
-                        val choices = SmartDownloadSettings.KEEP_FREE_CHOICES_GB
-                        SmartDownloadSettings.setKeepFreeGb(choices[(choices.indexOf(smart.keepFreeGb) + 1) % choices.size])
-                    },
+                    onClick = { showKeepFree = true },
                 )
+                if (showKeepFree) KeepFreeSpaceSheet(current = smart.keepFreeGb, onDismiss = { showKeepFree = false })
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsNavigationRow(
                     title = stringResource(Res.string.download_quality_title),

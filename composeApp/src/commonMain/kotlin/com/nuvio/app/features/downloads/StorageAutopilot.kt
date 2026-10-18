@@ -14,6 +14,13 @@ import kotlinx.coroutines.withContext
 /** A finished download the autopilot may delete: watched, not in progress, not open in the player. */
 internal data class AutopilotCandidate(val id: String, val bytes: Long, val finishedAtEpochMs: Long)
 
+/** The downloads a "Keep X GB free" choice removes and the space that frees. */
+internal data class AutopilotPlan(val ids: List<String>, val bytes: Long) {
+    companion object {
+        val NONE = AutopilotPlan(emptyList(), 0L)
+    }
+}
+
 /** Oldest first until free space reaches [keepFreeBytes]; nothing when it already does. */
 internal fun autopilotPicks(candidates: List<AutopilotCandidate>, freeBytes: Long, keepFreeBytes: Long): List<String> {
     var missing = keepFreeBytes - freeBytes
@@ -32,26 +39,34 @@ internal object StorageAutopilot {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutex = Mutex()
 
+    /** What keeping [keepFreeGb] free would delete right now. Deletes nothing (for the settings preview). */
+    suspend fun preview(keepFreeGb: Int): AutopilotPlan = withContext(Dispatchers.Default) { plan(keepFreeGb) }
+
     fun run() {
-        val keepFreeBytes = SmartDownloadSettings.snapshot().keepFreeGb * 1_000_000_000L
-        if (keepFreeBytes <= 0L) return
+        if (SmartDownloadSettings.snapshot().keepFreeGb <= 0) return
         scope.launch {
             mutex.withLock {
-                val free = DownloadDiskInfo.volumeSpace()?.availableBytes ?: return@withLock
-                if (free >= keepFreeBytes) return@withLock
-                val candidates = DownloadsRepository.uiState.value.items
-                    .filter { it.status == DownloadStatus.Completed && isWatched(it) && !isInProgress(it) }
-                    .filterNot { FinishedDownloadDeletion.isOpen(it) }
-                    .map { AutopilotCandidate(it.id, it.totalBytes ?: it.downloadedBytes, it.updatedAtEpochMs) }
-                val picks = autopilotPicks(candidates, free, keepFreeBytes)
-                if (picks.isEmpty()) return@withLock
-                val freed = candidates.filter { it.id in picks }.sumOf { it.bytes }
+                val plan = plan(SmartDownloadSettings.snapshot().keepFreeGb)
+                if (plan.ids.isEmpty()) return@withLock
                 withContext(Dispatchers.Main) {
-                    DownloadsRepository.cancelDownloads(picks)
-                    NuvioToastController.show("Storage autopilot freed ${formatDownloadBytes(freed)} of watched downloads")
+                    DownloadsRepository.cancelDownloads(plan.ids)
+                    NuvioToastController.show("Storage autopilot freed ${formatDownloadBytes(plan.bytes)} of watched downloads")
                 }
             }
         }
+    }
+
+    private fun plan(keepFreeGb: Int): AutopilotPlan {
+        val keepFreeBytes = keepFreeGb * 1_000_000_000L
+        if (keepFreeBytes <= 0L) return AutopilotPlan.NONE
+        val free = DownloadDiskInfo.volumeSpace()?.availableBytes ?: return AutopilotPlan.NONE
+        if (free >= keepFreeBytes) return AutopilotPlan.NONE
+        val candidates = DownloadsRepository.uiState.value.items
+            .filter { it.status == DownloadStatus.Completed && isWatched(it) && !isInProgress(it) }
+            .filterNot { FinishedDownloadDeletion.isOpen(it) }
+            .map { AutopilotCandidate(it.id, it.totalBytes ?: it.downloadedBytes, it.updatedAtEpochMs) }
+        val picks = autopilotPicks(candidates, free, keepFreeBytes)
+        return AutopilotPlan(picks, candidates.filter { it.id in picks }.sumOf { it.bytes })
     }
 
     private fun isWatched(item: DownloadItem): Boolean = runCatching {
