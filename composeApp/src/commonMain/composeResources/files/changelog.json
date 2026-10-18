@@ -2,6 +2,25 @@
   "releases": [
     {
       "version": "0.6.1.1",
+      "build": 182,
+      "date": "2026-10-18",
+      "improved": [
+        "Finish a series: pin or unpin it from the hold menu on Home cards and with the Finish this series chip on a show's page. Pinned cards show a flag.",
+        "Keep free space: pick a size, see what would be removed, then tap Apply.",
+        "Download Season: tick unaired episodes to queue them. They download once they air.",
+        "Up next tonight shows picks right away (your last time, or 1h).",
+        "Your submissions and Copy share link are at the top of the player's flag sheet. All your submissions: Settings, Playback.",
+        "Opening a skip mark link asks before importing.",
+        "Spoiler blur also covers Download Season, Up next tonight, Finish a series, episode titles and the player episode list. Both blur switches are together in Settings, Detail Page."
+      ],
+      "fixed": [
+        "TheIntroDB import and submit work again (TheIntroDB API v4).",
+        "Queued episodes now download even when auto-play is set to manual.",
+        "Search fields put the keyboard away on Search, scroll or a tap outside."
+      ]
+    },
+    {
+      "version": "0.6.1.1",
       "build": 181,
       "date": "2026-10-18",
       "new": [
