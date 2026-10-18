@@ -2,6 +2,17 @@
   "releases": [
     {
       "version": "0.6.1.1",
+      "build": 184,
+      "date": "2026-10-18",
+      "improved": [
+        "A download that does not fit waits as \"Waiting for space (needs ~X GB, Y free)\" and starts by itself once there is room."
+      ],
+      "fixed": [
+        "Downloads no longer start when there is not enough space: every start, including Finish a series and Smart Downloads, now counts what running downloads still need and uses a typical episode size when the size is unknown."
+      ]
+    },
+    {
+      "version": "0.6.1.1",
       "build": 183,
       "date": "2026-10-18",
       "improved": [
