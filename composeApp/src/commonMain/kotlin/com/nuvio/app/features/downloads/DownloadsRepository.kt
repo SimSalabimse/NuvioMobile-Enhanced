@@ -363,6 +363,18 @@ object DownloadsRepository {
         applyStarts(toStart)
     }
 
+    /** Health check: a cut-off or damaged finished file is deleted and downloaded again. */
+    fun redownload(downloadId: String) {
+        ensureLoaded()
+        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
+        if (item.status != DownloadStatus.Completed) return
+        com.nuvio.app.features.analysis.MediaAnalysisScheduler.releaseFile(item.id)
+        com.nuvio.app.features.analysis.MediaAnalysisStore.forgetFileData(com.nuvio.app.features.analysis.MediaAnalysisStore.keyFor(item))
+        deleteFilesOf(item)
+        replaceItem(item.copy(status = DownloadStatus.Failed, downloadedBytes = 0L, localFileUri = null))
+        retryDownload(downloadId)
+    }
+
     /** Retry gets a fresh link first when the old one was rejected (see [wantsFreshLink]). */
     fun retryDownload(downloadId: String) {
         linkRefreshAttempts.remove(downloadId)

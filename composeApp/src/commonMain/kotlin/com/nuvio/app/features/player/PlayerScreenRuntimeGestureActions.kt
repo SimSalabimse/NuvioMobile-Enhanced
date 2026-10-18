@@ -286,6 +286,7 @@ internal fun PlayerScreenRuntime.setPlaybackSpeedFromPicker(speed: Float) {
     holdSpeedPendingBase = null
     playerController?.setPlaybackSpeed(speed)
     publishPartyPlayback(rate = speed)
+    ShowPlaybackMemory.saveSpeed(parentMetaId, speed)
     showGestureMessage(formatPlaybackSpeedLabel(speed))
 }
 
@@ -298,6 +299,7 @@ internal fun PlayerScreenRuntime.cyclePlaybackSpeed() {
     holdSpeedPendingBase = null
     playerController?.setPlaybackSpeed(next)
     publishPartyPlayback(rate = next)
+    ShowPlaybackMemory.saveSpeed(parentMetaId, next)
     showGestureMessage(formatPlaybackSpeedLabel(next))
     controlsVisible = true
 }
@@ -339,6 +341,16 @@ internal fun PlayerScreenRuntime.cancelHoldToSpeed() {
     val base = if (isPartySynced) partyBaseRate() else restoreSpeed
     holdSpeedPendingBase = base to TimeSource.Monotonic.markNow()
     playerController?.setPlaybackSpeed(base)
+}
+
+/**
+ * A new video starts at this show's last picked speed, through the same re-apply path as a
+ * cancelled hold. Watch Party keeps its own rate.
+ */
+internal fun PlayerScreenRuntime.applyShowSpeed() {
+    if (isPartySynced) return
+    val speed = ShowPlaybackMemory.speed(parentMetaId) ?: return
+    holdSpeedPendingBase = speed to TimeSource.Monotonic.markNow()
 }
 
 /** Called on each playback snapshot: re-applies the base speed after a cancelled hold. */

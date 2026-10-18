@@ -85,6 +85,8 @@ fun DownloadsScreen(
     var groupPendingCancel by remember { mutableStateOf<ActiveSeasonGroup?>(null) }
     var reanalyzeTarget by remember { mutableStateOf<ReanalyzeTarget?>(null) }
     var unwatchedOnly by remember { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var sort by rememberSaveable { mutableStateOf(DownloadsSort.Name) }
     val watchedState by com.nuvio.app.features.watched.WatchedRepository.uiState.collectAsState()
     val progressState by com.nuvio.app.features.watchprogress.WatchProgressRepository.uiState.collectAsState()
     val watchedIds = remember(uiState.items, watchedState, progressState) {
@@ -128,6 +130,10 @@ fun DownloadsScreen(
 
     var storageRefresh by remember { mutableStateOf(0) }
     val storageSummary = rememberDownloadStorageSummary(uiState.items, storageRefresh)
+    // Health check of the finished files (sizes on disk, analysed lengths), off the main thread.
+    val problems by androidx.compose.runtime.produceState(emptyMap<String, DownloadProblem>(), uiState.completedItems, storageRefresh) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { downloadProblems(uiState.items) }
+    }
     val tokens = MaterialTheme.nuvio
 
     // Under the native iOS navigation bar the header collapses to its actions, so the list has to
@@ -136,6 +142,7 @@ fun DownloadsScreen(
         !com.nuvio.app.navigation.LocalNativeNavigationBarHidden.current
     val statusBarTop = androidx.compose.foundation.layout.WindowInsets.statusBars
         .asPaddingValues().calculateTopPadding()
+    androidx.compose.runtime.CompositionLocalProvider(LocalDownloadProblems provides problems) {
     NuvioScreen(
         listState = listState,
         topPadding = if (underNativeNavigationBar) {
@@ -197,8 +204,15 @@ fun DownloadsScreen(
                     )
                 }
             }
+            if (uiState.completedItems.isNotEmpty()) {
+                item(key = "search-sort") {
+                    DownloadsSearchBar(query = query, onQueryChange = { query = it }, sort = sort, onSortChange = { sort = it })
+                }
+            }
             downloadsRootContent(
                 uiState = uiState,
+                query = query,
+                sort = sort,
                 onOpenDownload = onOpenDownload,
                 onOpenShow = { showId, title ->
                     onNavigateToShow?.invoke(showId, title) ?: run { selectedShowId = showId }
@@ -229,6 +243,7 @@ fun DownloadsScreen(
                 onToggleUnwatched = { unwatchedOnly = !unwatchedOnly },
             )
         }
+    }
     }
 
     ReanalyzeModal(target = reanalyzeTarget, onDismiss = { reanalyzeTarget = null })
@@ -271,6 +286,8 @@ fun DownloadsScreen(
 @OptIn(ExperimentalFoundationApi::class)
 private fun LazyListScope.downloadsRootContent(
     uiState: DownloadsUiState,
+    query: String,
+    sort: DownloadsSort,
     onOpenDownload: (DownloadItem) -> Unit,
     onOpenShow: (showId: String, title: String) -> Unit,
     onDeleteDownload: (String) -> Unit,
@@ -279,17 +296,19 @@ private fun LazyListScope.downloadsRootContent(
     onCancelSeasonGroup: (ActiveSeasonGroup) -> Unit,
     onReanalyze: (ReanalyzeTarget) -> Unit,
 ) {
-    val activeItems = uiState.activeItems
+    val activeItems = uiState.activeItems.matchingDownloadsQuery(query)
     val completedMovies = uiState.completedItems.filterNot(DownloadItem::isEpisode)
+        .matchingDownloadsQuery(query)
+        .map(::listOf)
+        .sortedDownloadGroups(sort)
+        .map { it.first() }
     val completedShows = uiState.items
         .filter(DownloadItem::isEpisode)
+        .matchingDownloadsQuery(query)
         .groupBy { it.parentMetaId }
-        .mapNotNull { (_, episodes) ->
-            episodes.firstOrNull()?.let { first ->
-                first to episodes
-            }
-        }
-        .sortedBy { (item, _) -> item.title.lowercase() }
+        .values.toList()
+        .sortedDownloadGroups(sort)
+        .map { episodes -> episodes.first() to episodes }
 
     if (activeItems.isNotEmpty()) {
         item {
@@ -691,6 +710,19 @@ private fun DownloadRow(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    LocalDownloadProblems.current[item.id]?.let { problem ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = problem.message,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            TextButton(onClick = { DownloadsRepository.redownload(item.id) }) {
+                                Text("Re-download")
+                            }
+                        }
+                    }
                     com.nuvio.app.features.analysis.AnalysisStatusRow(item)
                     com.nuvio.app.features.analysis.SkipSourcesRow(item)
                     if (item.playsWhenDownloadFinishes && item.status != DownloadStatus.Completed) {
@@ -981,5 +1013,36 @@ internal fun formatDownloadBytes(bytes: Long): String {
         value >= 1e6 -> "${((value / 1e6) * 10.0).toLong() / 10.0} ${localizedByteUnit("MB")}"
         value >= 1e3 -> "${((value / 1e3) * 10.0).toLong() / 10.0} ${localizedByteUnit("KB")}"
         else -> "$bytes ${localizedByteUnit("B")}"
+    }
+}
+
+@Composable
+private fun DownloadsSearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    sort: DownloadsSort,
+    onSortChange: (DownloadsSort) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
+        com.nuvio.app.core.ui.NuvioSearchField(
+            query = query,
+            onQueryChange = onQueryChange,
+            placeholder = "Search downloads",
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(
+            modifier = Modifier.padding(top = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Sort", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            DownloadsSort.entries.forEach { option ->
+                androidx.compose.material3.FilterChip(
+                    selected = option == sort,
+                    onClick = { onSortChange(option) },
+                    label = { Text(option.label) },
+                )
+            }
+        }
     }
 }

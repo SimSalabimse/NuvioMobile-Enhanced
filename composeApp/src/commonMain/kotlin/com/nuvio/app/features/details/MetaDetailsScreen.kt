@@ -1592,6 +1592,17 @@ fun MetaDetailsScreen(
                                         areCurrentlyWatched = isSeasonWatched,
                                     )
                                 },
+                                onMarkUpToHereWatched = if (previousEpisodes.isNotEmpty() && !(arePreviousEpisodesWatched && isSelectedEpisodeWatched)) {
+                                    {
+                                        WatchingActions.togglePreviousEpisodesWatched(
+                                            meta = meta,
+                                            episodes = previousEpisodes + selectedEpisode,
+                                            areCurrentlyWatched = false,
+                                        )
+                                    }
+                                } else {
+                                    null
+                                },
                                 showPlayManually = showManualPlayOption,
                                 onPlayManually = {
                                     onEpisodeManualPlayClick(selectedEpisode)

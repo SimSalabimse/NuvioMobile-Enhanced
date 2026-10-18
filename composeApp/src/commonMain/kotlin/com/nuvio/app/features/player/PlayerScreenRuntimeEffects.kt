@@ -111,6 +111,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         accumulatedSeekResetJob = null
         accumulatedSeekState = null
         cancelHoldToSpeed()
+        applyShowSpeed()
         preferredAudioSelectionApplied = false
         appliedAudioPreferences = null
         preferredSubtitleSelectionApplied = false
@@ -632,7 +633,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
 
     LaunchedEffect(
         playbackSnapshot.durationMs, playbackSnapshot.isPlaying, skipIntervals,
-        playerSettingsUiState.autoSkipSegmentTypes,
+        playerSettingsUiState.autoSkipSegmentTypes, parentMetaId,
         playerSettingsUiState.skipIntroEnabled, isScrubbingTimeline, initialSeekApplied,
         lastManualSkipSeekPositions,
     ) {
@@ -640,6 +641,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
             activeSkipInterval = null
             return@LaunchedEffect
         }
+        val autoSkipTypes = ShowPlaybackMemory.autoSkip(parentMetaId).segmentTypes(playerSettingsUiState.autoSkipSegmentTypes)
         snapshotFlow { playbackClock.positionMs }.collect { positionMs ->
             val positionSec = positionMs / 1000.0
             lastManualSkipSeekPositions?.let { (fromMs, toMs) ->
@@ -665,7 +667,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                 !isScrubbingTimeline && initialSeekApplied && !isPartyControlLocked &&
                 // The pre-roll only reveals the button; auto-skip waits for the segment itself.
                 positionSec >= current.startTime &&
-                current.shouldAutoSkip(playerSettingsUiState.autoSkipSegmentTypes) &&
+                current.shouldAutoSkip(autoSkipTypes) &&
                 current !in autoSkippedIntervals
             ) {
                 val durationMs = playbackSnapshot.durationMs

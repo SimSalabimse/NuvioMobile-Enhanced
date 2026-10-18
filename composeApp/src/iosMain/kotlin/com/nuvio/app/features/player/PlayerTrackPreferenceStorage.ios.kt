@@ -16,6 +16,8 @@ internal actual object PlayerTrackPreferenceStorage {
     private const val audioTrackIdKey = "audio_track_id"
     private const val subtitleIsForcedKey = "subtitle_is_forced"
     private const val subtitleDelayMsKey = "subtitle_delay_ms"
+    private const val playbackSpeedKey = "playback_speed"
+    private const val autoSkipKey = "auto_skip"
 
     actual fun load(contentId: String): PersistedPlayerTrackPreference? {
         val id = contentId.normalizedStorageId() ?: return null
@@ -30,6 +32,8 @@ internal actual object PlayerTrackPreferenceStorage {
             audioLanguage = loadString(audioLanguageKey, id),
             audioName = loadString(audioNameKey, id),
             audioTrackId = loadString(audioTrackIdKey, id),
+            playbackSpeed = loadString(playbackSpeedKey, id),
+            autoSkip = loadString(autoSkipKey, id),
             subtitleIsForced = loadBoolean(subtitleIsForcedKey, id),
         )
         return preference.takeIf {
@@ -44,6 +48,8 @@ internal actual object PlayerTrackPreferenceStorage {
                 it.audioLanguage,
                 it.audioName,
                 it.audioTrackId,
+                it.playbackSpeed,
+                it.autoSkip,
             ).any { value -> !value.isNullOrBlank() } || it.subtitleIsForced != null
         }
     }
@@ -60,6 +66,8 @@ internal actual object PlayerTrackPreferenceStorage {
         saveOptionalString(audioLanguageKey, id, preference.audioLanguage)
         saveOptionalString(audioNameKey, id, preference.audioName)
         saveOptionalString(audioTrackIdKey, id, preference.audioTrackId)
+        saveOptionalString(playbackSpeedKey, id, preference.playbackSpeed)
+        saveOptionalString(autoSkipKey, id, preference.autoSkip)
         saveOptionalBoolean(subtitleIsForcedKey, id, preference.subtitleIsForced)
     }
 

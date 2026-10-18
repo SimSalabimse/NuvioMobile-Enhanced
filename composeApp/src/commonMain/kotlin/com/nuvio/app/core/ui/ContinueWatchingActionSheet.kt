@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.DownloadDone
 import com.nuvio.app.features.downloads.DownloadItem
@@ -23,6 +24,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +46,7 @@ import nuvio.composeapp.generated.resources.cw_action_go_to_details
 import nuvio.composeapp.generated.resources.cw_action_remove
 import nuvio.composeapp.generated.resources.cw_action_start_from_beginning
 import nuvio.composeapp.generated.resources.play_manually
+import com.nuvio.app.features.player.ShowPlaybackMemory
 import org.jetbrains.compose.resources.stringResource
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -126,6 +132,18 @@ fun NuvioContinueWatchingActionSheet(
                     )
                 }
                 ContinueWatchingDownloadState.Unavailable -> Unit
+            }
+            if (item.seasonNumber != null) {
+                // Per-show auto-skip override; tapping cycles Default → Always → Never.
+                var autoSkip by remember(item.parentMetaId) { mutableStateOf(ShowPlaybackMemory.autoSkip(item.parentMetaId)) }
+                NuvioBottomSheetActionRow(
+                    icon = Icons.Rounded.FastForward,
+                    title = "Auto-skip on this show: ${autoSkip.label}",
+                    onClick = {
+                        autoSkip = autoSkip.next()
+                        ShowPlaybackMemory.setAutoSkip(item.parentMetaId, autoSkip)
+                    },
+                )
             }
             if (goalPinned != null) {
                 NuvioBottomSheetActionRow(

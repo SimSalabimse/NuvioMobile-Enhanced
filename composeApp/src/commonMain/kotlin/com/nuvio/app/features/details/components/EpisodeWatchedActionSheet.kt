@@ -53,6 +53,8 @@ fun EpisodeWatchedActionSheet(
     downloadContentKey: String? = null,
     userRating: Int? = null,
     onRate: (() -> Unit)? = null,
+    /** Marks every earlier episode and this one watched; null hides it (all already watched). */
+    onMarkUpToHereWatched: (() -> Unit)? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
@@ -90,6 +92,18 @@ fun EpisodeWatchedActionSheet(
                     }
                 },
             )
+            if (onMarkUpToHereWatched != null) {
+                NuvioBottomSheetActionRow(
+                    icon = Icons.Default.DoneAll,
+                    title = "Mark watched up to here",
+                    onClick = {
+                        onMarkUpToHereWatched()
+                        coroutineScope.launch {
+                            dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
+                        }
+                    },
+                )
+            }
             if (canMarkPreviousEpisodes) {
                 NuvioBottomSheetActionRow(
                     icon = Icons.Default.DoneAll,

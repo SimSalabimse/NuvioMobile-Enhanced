@@ -443,8 +443,8 @@ private const val GOAL_EPISODES = 2
 private const val DAY_MS = 24 * 60 * 60_000L
 
 /** When to look again for episodes that have not aired: the earliest air time, or tomorrow without one. */
-private fun nextAirCheckEpochMs(upcoming: List<MetaVideo>): Long {
-    val now = EpisodeReleaseDatePlatform.nowEpochMs()
+/** When to look again for queued unaired episodes: the next air date, else tomorrow. */
+internal fun nextAirCheckEpochMs(upcoming: List<MetaVideo>, now: Long = EpisodeReleaseDatePlatform.nowEpochMs()): Long {
     return upcoming.mapNotNull { com.nuvio.app.core.time.parseEpisodeReleaseEpochMs(it.released) }
         .filter { it > now }
         .minOrNull() ?: (now + DAY_MS)

@@ -26,14 +26,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -48,6 +40,7 @@ import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import com.nuvio.app.core.ui.NuvioCardDepthSurface
+import com.nuvio.app.core.ui.NuvioSearchField
 import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
 import com.nuvio.app.core.ui.nuvioCardDepth
 import com.nuvio.app.features.details.MetaPerson
@@ -77,26 +70,11 @@ fun DetailCastSection(
         val indexed = remember(cast) { cast.withIndex().toList() }
         val shown = remember(indexed, query) { filterCast(indexed, query) }
         // Find an actor or a character: case and accents are ignored ("zoe" finds "Zoë").
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it },
-            modifier = Modifier
-                .fillMaxWidth(),
-            singleLine = true,
-            placeholder = { Text("Search actor or character") },
-            leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
-            trailingIcon = if (query.isNotEmpty()) {
-                {
-                    IconButton(onClick = { query = "" }) {
-                        Icon(Icons.Rounded.Close, contentDescription = "Clear")
-                    }
-                }
-            } else {
-                null
-            },
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-            textStyle = MaterialTheme.typography.bodyMedium,
-            shape = MaterialTheme.shapes.medium,
+        NuvioSearchField(
+            query = query,
+            onQueryChange = { query = it },
+            placeholder = "Search actor or character",
+            modifier = Modifier.fillMaxWidth(),
         )
         if (shown.isEmpty()) {
             Text(

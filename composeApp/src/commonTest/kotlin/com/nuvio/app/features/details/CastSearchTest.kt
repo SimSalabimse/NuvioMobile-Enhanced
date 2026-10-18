@@ -1,7 +1,7 @@
 package com.nuvio.app.features.details
 
 import com.nuvio.app.features.details.components.filterCast
-import com.nuvio.app.features.details.components.foldForSearch
+import com.nuvio.app.core.ui.foldForSearch
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
