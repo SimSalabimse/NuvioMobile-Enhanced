@@ -10,7 +10,7 @@ The AVAsset dual-decode implementation for Auto Sync audio capture (added in com
 
 ## The Smoking Gun
 
-From Simen's SideStore screenshot, the exact error text:
+From Simsalabim's SideStore screenshot, the exact error text:
 
 > "Auto Sync unavailable on this build. iOS ReplayKit audio capture is restricted on sideloaded apps. Use manual subtitle delay adjustment instead (tap Settings icon below, adjust delay with ± buttons)."
 
@@ -307,7 +307,7 @@ This would be a different issue requiring investigation of AVFoundation restrict
 
 **However:** This is unlikely. AVAsset is standard media decoding, not restricted on sideloads.
 
-## Summary for Simen
+## Summary for Simsalabim
 
 ### What Was Wrong
 
