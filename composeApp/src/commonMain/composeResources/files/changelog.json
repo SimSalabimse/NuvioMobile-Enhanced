@@ -18,7 +18,15 @@
         "Mark watched up to here, in an episode's hold menu.",
         "Per-show auto-skip (Default, Always, Never) in the Continue Watching hold menu.",
         "Search and sort (name, size, date) in Downloads.",
-        "Downloads health check: cut-off or damaged files are flagged with a Re-download button."
+        "Downloads health check: cut-off or damaged files are flagged with a Re-download button.",
+        "Up next tonight on Home: pick 30m, 1h, 1h30 or 2h and get what fits, Finish a series goals first.",
+        "This week in your watch stats: hours watched, series finished and time saved by skipping.",
+        "An actor's other titles show In library, Watching or Downloaded.",
+        "Sleep timer in the speed menu: 15, 30 or 60 minutes or end of episode, with a soft fade out.",
+        "Swipe up in the player for the episode list.",
+        "Watch credits on the next-episode card.",
+        "Share a skip mark as a link from the skip mark dialog; opening it on another device imports the mark, no TheIntroDB needed.",
+        "Your TheIntroDB submissions for the title, with their status, in the skip mark dialog."
       ],
       "improved": [
         "Updated to the latest upstream Nuvio (0.6.1-beta), with the updated p2p streaming engine (0.1.5), better picture-in-picture on iOS and new translations.",

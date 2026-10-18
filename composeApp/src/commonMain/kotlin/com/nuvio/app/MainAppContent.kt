@@ -909,6 +909,11 @@ internal fun MainAppContent(
                         AppDeepLinkRepository.markConsumed(deepLink)
                     }
 
+                    is AppDeepLink.SkipMark -> {
+                        AppDeepLinkRepository.markConsumed(deepLink)
+                        com.nuvio.app.features.player.skip.importSharedSkipMark(deepLink.mark)
+                    }
+
                     null -> Unit
                 }
             }

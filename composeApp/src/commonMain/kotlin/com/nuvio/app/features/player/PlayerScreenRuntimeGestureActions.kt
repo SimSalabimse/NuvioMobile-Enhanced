@@ -33,6 +33,8 @@ internal data class PlayerSurfaceGestureCallbacks(
     val currentPositionMs: State<Long>,
     val currentDurationMs: State<Long>,
     val commitHorizontalSeek: State<(Long) -> Unit>,
+    /** Series only: opens the episode list; null for movies. */
+    val openEpisodes: State<(() -> Unit)?>,
 )
 
 internal fun PlayerScreenRuntime.showGestureFeedback(feedback: GestureFeedbackState) {
@@ -422,6 +424,13 @@ internal fun PlayerScreenRuntime.rememberSurfaceGestureCallbacks(): PlayerSurfac
             override val value: Long get() = playbackClock.positionMs.coerceAtLeast(0L)
         },
         currentDurationMs = rememberUpdatedState(playbackSnapshot.durationMs),
+        openEpisodes = rememberUpdatedState(
+            if (activeSeasonNumber != null && !playerControlsLocked) {
+                { openEpisodesPanel() }
+            } else {
+                null
+            },
+        ),
         commitHorizontalSeek = rememberUpdatedState { requestedPositionMs: Long ->
             val targetPositionMs = if (isPartyControlLocked) {
                 ownSeekTarget(requestedPositionMs) ?: return@rememberUpdatedState

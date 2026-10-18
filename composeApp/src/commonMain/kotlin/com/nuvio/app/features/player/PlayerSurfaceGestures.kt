@@ -67,6 +67,7 @@ internal fun Modifier.playerSurfaceDragGestures(
     clearLiveGestureFeedbackState: State<() -> Unit>,
     revealLockedOverlayState: State<() -> Unit>,
     commitHorizontalSeekState: State<(Long) -> Unit>,
+    openEpisodesState: State<(() -> Unit)?>,
 ): Modifier =
     pointerInput(
         gestureController,
@@ -169,6 +170,12 @@ internal fun Modifier.playerSurfaceDragGestures(
                             PlayerGestureMode.Volume
                         }
 
+                        verticalDominant && region == null && !isInSideGestureSystemEdge && totalDy < 0f &&
+                            openEpisodesState.value != null -> {
+                            openEpisodesState.value?.invoke()
+                            PlayerGestureMode.EpisodesSwipe
+                        }
+
                         else -> null
                     }
 
@@ -219,6 +226,8 @@ internal fun Modifier.playerSurfaceDragGestures(
                             engineController = playerController,
                         )?.let(showVolumeFeedbackState.value)
                     }
+
+                    PlayerGestureMode.EpisodesSwipe -> Unit
                 }
                 change.consume()
             }

@@ -1314,6 +1314,21 @@ private fun LazyListScope.homeContinueWatchingSections(
         }
     }
 
+    if (preferences.showFinishSeries && continueWatchingItems.isNotEmpty()) {
+        item(key = HOME_TONIGHT_SECTION_KEY) {
+            com.nuvio.app.features.home.components.HomeUpNextTonightSection(
+                items = continueWatchingItems,
+                style = preferences.style,
+                dataSourceKey = dataSourceKey,
+                sectionPadding = sectionPadding,
+                layout = layout,
+                modifier = Modifier.padding(bottom = HomeContinueWatchingSectionBottomPadding),
+                onItemClick = onItemClick,
+                onItemLongPress = onItemLongPress,
+            )
+        }
+    }
+
     if (upcomingItems.isNotEmpty()) {
         item(key = HOME_UPCOMING_SECTION_KEY) {
             HomeContinueWatchingSection(
@@ -1363,6 +1378,7 @@ private const val HOME_PAUSED_SECTION_KEY = "home_paused"
 private const val HOME_CONTINUE_WATCHING_SECTION_KEY = "home_continue_watching"
 private const val HOME_UPCOMING_SECTION_KEY = "home_upcoming"
 private const val HOME_FINISH_SERIES_SECTION_KEY = "home_finish_series"
+private const val HOME_TONIGHT_SECTION_KEY = "home_tonight"
 internal const val HomeContinueWatchingMaxRecentProgressItems = 300
 internal const val HomeNextUpInitialResolutionLimit = 32
 private const val NEXT_UP_RESOLUTION_CONCURRENCY = 4

@@ -1,5 +1,8 @@
 package com.nuvio.app.features.stats
 
+import com.nuvio.app.features.watched.WatchedRepository
+import com.nuvio.app.features.watched.watchedItemKeys
+
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.watch_stats_title
 import nuvio.composeapp.generated.resources.watch_stats_empty
@@ -133,6 +136,7 @@ internal fun LazyListScope.watchStatsContent(isTablet: Boolean) {
                         }
                     }
                 }
+                WeeklyRecapCard(data)
                 YearRecapCard(summary)
             }
         }
@@ -219,6 +223,26 @@ private fun Last7DaysChart(days: List<Pair<String, Long>>) {
                 }
                 Text(weekdayLabel(day), style = MaterialTheme.typography.labelSmall, color = tokens.colors.textPrimary, maxLines = 1)
             }
+        }
+    }
+}
+
+@Composable
+private fun WeeklyRecapCard(data: WatchStatsData) {
+    val fullyWatched by WatchedRepository.fullyWatchedSeriesKeys.collectAsStateWithLifecycle()
+    val recap = remember(data, fullyWatched) {
+        WatchStats.weeklyRecap(data, isSeriesFinished = { id, type -> watchedItemKeys(type, id).any(fullyWatched::contains) })
+    }
+    if (recap.watchedMs <= 0L && recap.skippedMs <= 0L) return
+    val tokens = MaterialTheme.nuvio
+    StatsCard {
+        Text("This week", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = tokens.colors.textPrimary)
+        listOfNotNull(
+            "${formatWatchHours(recap.watchedMs)} watched",
+            recap.finishedSeries.takeIf { it.isNotEmpty() }?.let { "Finished: ${it.joinToString()}" },
+            recap.skippedMs.takeIf { it > 0L }?.let { "${formatWatchHours(it)} saved by skipping intros, recaps and credits" },
+        ).forEach { line ->
+            Text(line, style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textPrimary)
         }
     }
 }

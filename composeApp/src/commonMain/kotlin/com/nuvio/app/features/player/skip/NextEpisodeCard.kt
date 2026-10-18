@@ -222,6 +222,19 @@ fun NextEpisodeCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                // Keeps the credits playing; the next episode then starts when the video ends.
+                Text(
+                    text = "Watch credits",
+                    color = Color.White,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .padding(top = 3.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable(enabled = visible) { currentOnDismiss() }
+                        .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
             }
 
             // Play badge

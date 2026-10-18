@@ -50,6 +50,7 @@ import org.jetbrains.compose.resources.getString
 
 @Composable
 internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
+    BindSleepTimerEffect()
     val currentFeedback = liveGestureFeedback ?: gestureFeedback
     LaunchedEffect(currentFeedback) {
         if (currentFeedback != null) {
@@ -675,6 +676,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                 val seekPositionMs = if (durationMs > 0L) rawMs.coerceAtMost(durationMs - 1) else rawMs
                 val notification = current.autoSkipNotificationMessage(seekPositionMs)
                 autoSkippedIntervals.add(current)
+                com.nuvio.app.features.stats.WatchStats.recordSkip(seekPositionMs - (positionSec * 1000).toLong())
                 controller.seekTo(seekPositionMs)
                 scheduleProgressSyncAfterSeek()
                 publishPartyPlayback(positionMs = seekPositionMs)
@@ -794,7 +796,10 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
             }
             if (shouldShow && !showNextEpisodeCard) {
                 showNextEpisodeCard = true
-                if (playerSettingsUiState.streamAutoPlayNextEpisodeEnabled && nextEpisodeInfo?.hasAired == true && !isPartyControlLocked) {
+                if (playerSettingsUiState.streamAutoPlayNextEpisodeEnabled && nextEpisodeInfo?.hasAired == true && !isPartyControlLocked &&
+                    // "End of episode" sleep: stop here instead of rolling on.
+                    PlayerSleepTimer.choice.value != SleepTimerChoice.EndOfEpisode
+                ) {
                     playNextEpisode(automatic = true)
                 }
             } else if (!shouldShow) {

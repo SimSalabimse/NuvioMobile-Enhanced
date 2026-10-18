@@ -78,6 +78,8 @@ internal enum class PlayerGestureMode {
     HorizontalSeek,
     Brightness,
     Volume,
+    /** Swipe up in the middle: the episode list opens over playback. */
+    EpisodesSwipe,
 }
 
 internal data class PlayerAccumulatedSeekState(

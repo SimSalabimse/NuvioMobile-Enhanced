@@ -4,11 +4,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,11 +56,14 @@ internal fun PlayerSpeedPopup(
         Column(
             modifier = Modifier
                 .width(76.dp)
+                .heightIn(max = 300.dp)
                 .clip(RoundedCornerShape(14.dp))
                 .background(Color.Black.copy(alpha = 0.6f))
+                .verticalScroll(rememberScrollState())
                 .padding(vertical = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            PlayerSleepTimerOptions(accent)
             PlayerPlaybackSpeedOptions.asReversed().forEach { speed ->
                 val selected = abs(currentSpeed - speed) < 0.01f
                 Text(
@@ -75,6 +83,41 @@ internal fun PlayerSpeedPopup(
             }
         }
     }
+}
+
+/** Sleep timer choices on top of the speed list (one popup for both player layouts). */
+@Composable
+private fun PlayerSleepTimerOptions(accent: Color) {
+    val current by PlayerSleepTimer.choice.collectAsState()
+    Text(
+        text = "Sleep",
+        color = Color.White.copy(alpha = 0.6f),
+        style = MaterialTheme.typography.labelSmall,
+        modifier = Modifier.padding(vertical = 2.dp),
+    )
+    SleepTimerChoice.entries.forEach { choice ->
+        val selected = choice == current
+        Text(
+            text = choice.label,
+            color = if (selected) accent else Color.White,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .padding(horizontal = 6.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (selected) Color.White.copy(alpha = 0.14f) else Color.Transparent)
+                .clickable { PlayerSleepTimer.set(choice) }
+                .padding(vertical = 4.dp)
+                .width(64.dp),
+        )
+    }
+    Text(
+        text = "Speed",
+        color = Color.White.copy(alpha = 0.6f),
+        style = MaterialTheme.typography.labelSmall,
+        modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+    )
 }
 
 private class AboveAnchorPositionProvider(private val gapPx: Int) : PopupPositionProvider {

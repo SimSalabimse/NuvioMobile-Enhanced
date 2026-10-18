@@ -237,6 +237,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 clearLiveGestureFeedbackState = gestureCallbacks.clearLiveGestureFeedback,
                 revealLockedOverlayState = gestureCallbacks.revealLockedOverlay,
                 commitHorizontalSeekState = gestureCallbacks.commitHorizontalSeek,
+                openEpisodesState = gestureCallbacks.openEpisodes,
             ),
     ) {
         val playerSurfaceSourceUrl = if (isP2pPlaybackActive) p2pResolvedSourceUrl else activePlaybackSourceUrl
@@ -705,6 +706,7 @@ private fun BoxScope.RenderPlaybackOverlays(
                         "startSec=${interval.startTime} endSec=${interval.endTime}",
                 )
                 if (seekMs != null) {
+                    com.nuvio.app.features.stats.WatchStats.recordSkip(seekMs - playbackClock.positionMs)
                     playerController?.seekTo(seekMs)
                     scheduleProgressSyncAfterSeek()
                     publishPartyPlayback(positionMs = seekMs)

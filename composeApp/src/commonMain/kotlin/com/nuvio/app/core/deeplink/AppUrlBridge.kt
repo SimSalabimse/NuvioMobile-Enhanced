@@ -26,6 +26,10 @@ internal sealed interface AppDeepLink {
     data class Party(
         val code: String,
     ) : AppDeepLink
+
+    data class SkipMark(
+        val mark: com.nuvio.app.features.player.skip.SharedSkipMark,
+    ) : AppDeepLink
 }
 
 internal object AppDeepLinkRepository {
@@ -103,6 +107,8 @@ internal fun parseAppDeepLink(url: String): AppDeepLink? {
         "downloads" -> AppDeepLink.Downloads
 
         "party" -> partyDeepLink(pathSegments.firstOrNull() ?: firstParameter(parsedUrl, "code"))
+
+        "skip" -> com.nuvio.app.features.player.skip.parseSkipMarkLink(parsedUrl)?.let(AppDeepLink::SkipMark)
 
         "auth" -> null
 

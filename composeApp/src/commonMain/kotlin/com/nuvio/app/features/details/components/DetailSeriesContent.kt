@@ -1147,6 +1147,7 @@ private fun EpisodeHorizontalCard(
                     color = Color.White.copy(alpha = 0.86f),
                     maxLines = metrics.overviewMaxLines,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.spoilerBlur(blurUnwatchedEpisodes && !isWatched),
                 )
             }
 
@@ -1658,6 +1659,7 @@ private fun EpisodeListCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = sizing.overviewMaxLines,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.spoilerBlur(blurUnwatchedEpisodes && !isWatched),
                     )
                 }
             }
@@ -1856,3 +1858,6 @@ private fun formatEpisodeRating(rating: Double): String {
     val tenth = (roundedTenths % 10).absoluteValue
     return "$whole.$tenth"
 }
+
+/** Spoiler-safe mode: an unwatched episode's description is blurred like its picture. */
+private fun Modifier.spoilerBlur(enabled: Boolean): Modifier = if (enabled) blur(6.dp) else this
