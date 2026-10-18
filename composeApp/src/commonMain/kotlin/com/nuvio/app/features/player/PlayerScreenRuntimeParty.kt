@@ -361,6 +361,7 @@ internal fun PlayerScreenRuntime.BindPartyEffects() {
                 applyPartyPaused(playback.paused, force = forced)
                 val own = playback.memberId == party.memberId && !forced
                 if ((!own || playback.paused) && abs(snapshot.positionMs - expected) > PartySync.PAUSED_TOLERANCE_MS) {
+                    noteSeek()
                     controller.seekTo(if (playback.paused) expected else expected + seekLeadMs)
                     measureSeekLead = !playback.paused
                 }
@@ -415,6 +416,7 @@ internal fun PlayerScreenRuntime.BindPartyEffects() {
                     partyLog.i { "Seeking $drift ms back into sync with ${seekLeadMs} ms lead" }
                     clearPartyNudge(playback)
                     val target = if (playback.paused) correction.positionMs else correction.positionMs + seekLeadMs
+                    noteSeek()
                     controller.seekTo(if (snapshot.durationMs > 0L) target.coerceAtMost(snapshot.durationMs) else target)
                     lastSeek = clock.markNow()
                     measureSeekLead = !playback.paused

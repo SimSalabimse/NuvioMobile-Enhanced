@@ -247,6 +247,8 @@ internal class PlayerScreenRuntime(
     var partyAppInBackground = false
     var playbackSnapshotMark: TimeMark? = null
     var pendingSeekTarget: Pair<Long, TimeMark>? = null
+    /** When the app last asked the player to seek (see PlayerDamagedDownload). */
+    var lastSeekMark: TimeMark? = null
     var streamMediaInfo by mutableStateOf(PlayerMediaInfo())
     var playbackEngineOverride by mutableStateOf<AndroidPlaybackEngine?>(null)
     var audioTracks by mutableStateOf<List<AudioTrack>>(emptyList())

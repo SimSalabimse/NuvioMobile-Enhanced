@@ -658,6 +658,18 @@ private class IosForegroundSessionDelegate : NSObject(), NSURLSessionDataDelegat
                     httpFailure(status)
                 }
             }
+            // A ranged answer that does not continue the bytes on disk (another offset, file or
+            // size): ignore it and fetch the file again from byte 0.
+            status == 206 && job.rangedRequest && partialPrefixDisposition(
+                statusCode = status,
+                requestedRange = job.flushedBytes,
+                prefixLength = job.flushedBytes,
+                contentRange = http?.let { headerValue(it, "Content-Range") },
+                expectedTotal = DownloadsRepository.knownTotalBytes(job.request.item.id),
+            ) == PartialPrefixDisposition.Restart -> {
+                job.ignoreBody = true
+                job.retryFromZero = true
+            }
             else -> {
                 if (status == 200 && job.rangedRequest) {
                     val disposition = partialPrefixDisposition(
@@ -916,7 +928,7 @@ private fun contentRangeTotal(header: String?): Long? {
 }
 
 @OptIn(ExperimentalForeignApi::class)
-private fun headerValue(response: NSHTTPURLResponse, name: String): String? {
+internal fun headerValue(response: NSHTTPURLResponse, name: String): String? {
     val fields = response.allHeaderFields
     for (key in fields.keys) {
         if (key?.toString()?.equals(name, ignoreCase = true) == true) {

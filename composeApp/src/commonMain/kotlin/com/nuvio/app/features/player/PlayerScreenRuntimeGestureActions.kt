@@ -176,6 +176,7 @@ internal fun PlayerScreenRuntime.togglePlayback() {
         playerController?.pause()
     } else {
         if (playbackSnapshot.isEnded) {
+            noteSeek()
             playerController?.seekTo(0L)
         }
         shouldPlay = true
@@ -196,6 +197,7 @@ internal fun PlayerScreenRuntime.seekBy(offsetMs: Long) {
     val targetMs = if (isPartyControlLocked) ownSeekTarget(requestedMs) ?: return else requestedMs
     lastManualSkipSeekPositions = fromMs to targetMs
     pendingSeekTarget = targetMs to TimeSource.Monotonic.markNow()
+    noteSeek()
     if (isPartySynced) playerController?.seekTo(targetMs) else playerController?.seekBy(offsetMs)
     scheduleProgressSyncAfterSeek()
     publishPartyPlayback(positionMs = targetMs)
@@ -252,6 +254,7 @@ internal fun PlayerScreenRuntime.handleDoubleTapSeek(direction: PlayerSeekDirect
     val targetPositionMs = if (isPartyControlLocked) ownSeekTarget(requestedPositionMs) ?: return else requestedPositionMs
     accumulatedSeekState = nextState
     lastManualSkipSeekPositions = currentPositionMs to targetPositionMs
+    noteSeek()
     playerController?.seekTo(targetPositionMs)
     scheduleProgressSyncAfterSeek()
     publishPartyPlayback(positionMs = targetPositionMs)
@@ -439,6 +442,7 @@ internal fun PlayerScreenRuntime.rememberSurfaceGestureCallbacks(): PlayerSurfac
             }
             val fromPositionMs = playbackClock.positionMs.coerceAtLeast(0L)
             lastManualSkipSeekPositions = playbackClock.positionMs to targetPositionMs
+            noteSeek()
             playerController?.seekTo(targetPositionMs)
             scheduleProgressSyncAfterSeek()
             publishPartyPlayback(positionMs = targetPositionMs)

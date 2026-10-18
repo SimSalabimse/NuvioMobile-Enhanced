@@ -605,6 +605,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
                     scrubbingPositionMs = null
                 } else {
                     finishTimelineScrub(targetMs)
+                    noteSeek()
                     playerController?.seekTo(targetMs)
                     scheduleProgressSyncAfterSeek()
                     publishPartyPlayback(positionMs = targetMs)
@@ -707,6 +708,7 @@ private fun BoxScope.RenderPlaybackOverlays(
                 )
                 if (seekMs != null) {
                     com.nuvio.app.features.stats.WatchStats.recordSkip(seekMs - playbackClock.positionMs)
+                    noteSeek()
                     playerController?.seekTo(seekMs)
                     scheduleProgressSyncAfterSeek()
                     publishPartyPlayback(positionMs = seekMs)
@@ -771,6 +773,7 @@ private fun BoxScope.RenderPlaybackOverlays(
         )
         if (!playerControlsLocked) RenderSkipFeedbackPrompt(runtime)
         RenderAnalysisPlayPrompt(runtime)
+        RenderDamagedDownloadPrompt(runtime)
     }
 }
 
@@ -1014,6 +1017,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
         onChapterSelected = { chapter ->
             val targetMs = chapter.startMs.coerceAtLeast(0L)
             finishTimelineScrub(targetMs)
+            noteSeek()
             playerController?.seekTo(targetMs)
             scheduleProgressSyncAfterSeek()
             showChaptersPanel = false

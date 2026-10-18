@@ -180,7 +180,7 @@ private fun PromptButton(label: String, onClick: () -> Unit) {
     )
 }
 
-private fun playingDownload(sourceUrl: String?, parentMetaId: String, season: Int?, episode: Int?): DownloadItem? {
+internal fun playingDownload(sourceUrl: String?, parentMetaId: String, season: Int?, episode: Int?): DownloadItem? {
     val url = sourceUrl?.trim().orEmpty()
     if (!url.startsWith("file://") && !url.startsWith("/")) return null
     return DownloadsRepository.uiState.value.items.firstOrNull {

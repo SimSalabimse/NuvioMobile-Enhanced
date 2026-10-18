@@ -389,6 +389,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
             return@LaunchedEffect
         }
 
+        noteSeek()
         controller.seekTo(targetPositionMs)
         initialSeekApplied = true
     }
@@ -677,6 +678,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                 val notification = current.autoSkipNotificationMessage(seekPositionMs)
                 autoSkippedIntervals.add(current)
                 com.nuvio.app.features.stats.WatchStats.recordSkip(seekPositionMs - (positionSec * 1000).toLong())
+                noteSeek()
                 controller.seekTo(seekPositionMs)
                 scheduleProgressSyncAfterSeek()
                 publishPartyPlayback(positionMs = seekPositionMs)

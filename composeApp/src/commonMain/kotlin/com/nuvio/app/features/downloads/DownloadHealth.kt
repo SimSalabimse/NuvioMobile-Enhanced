@@ -11,12 +11,15 @@ internal data class DownloadProblem(val message: String)
 /** Files under this share of the expected size are cut off. */
 private const val TRUNCATED_SIZE_RATIO = 0.97
 
+/** Files over this share of the expected size had other bytes glued on. */
+private const val OVERSIZED_RATIO = 1.01
+
 /** A probed length under this share of the episode's runtime means a damaged file. */
 private const val SHORT_DURATION_RATIO = 0.7
 
 /**
- * Health of one finished file: smaller on disk than the size the server announced (cut off), or a
- * probed length well under the listed runtime (damaged).
+ * Health of one finished file: smaller on disk than the size the server announced (cut off) or
+ * larger (other bytes appended), or a probed length well under the listed runtime (damaged).
  * Unknown figures give no verdict.
  */
 internal fun downloadProblem(
@@ -30,6 +33,13 @@ internal fun downloadProblem(
     ) {
         return DownloadProblem(
             "File incomplete: ${formatDownloadBytes(actualBytes)} of ${formatDownloadBytes(expectedBytes)}"
+        )
+    }
+    if (actualBytes != null && expectedBytes != null && expectedBytes > 0L &&
+        actualBytes > expectedBytes * OVERSIZED_RATIO
+    ) {
+        return DownloadProblem(
+            "File damaged: ${formatDownloadBytes(actualBytes)} instead of ${formatDownloadBytes(expectedBytes)}"
         )
     }
     if (probedDurationMs != null && probedDurationMs > 0L && expectedDurationMs != null && expectedDurationMs > 0L &&
@@ -46,19 +56,24 @@ internal fun downloadProblem(
 internal fun downloadProblems(items: List<DownloadItem>): Map<String, DownloadProblem> {
     val finished = items.filter { it.status == DownloadStatus.Completed }
     if (finished.isEmpty()) return emptyMap()
-    val sizes = runCatching { DownloadDiskInfo.listDownloadFiles() }.getOrDefault(emptyList())
-        .associate { it.name to it.sizeBytes }
-    return finished.mapNotNull { item ->
-        val probed = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item))
-            ?.takeIf { it.fileName == item.fileName } // measured on this very file
-            ?.durationMs
-        downloadProblem(
-            expectedBytes = item.totalBytes,
-            actualBytes = sizes[item.fileName],
-            probedDurationMs = probed,
-            expectedDurationMs = item.listedRuntimeMs(),
-        )?.let { item.id to it }
-    }.toMap()
+    val sizes = downloadFileSizes()
+    return finished.mapNotNull { item -> item.healthProblem(sizes)?.let { item.id to it } }.toMap()
+}
+
+internal fun downloadFileSizes(): Map<String, Long> =
+    runCatching { DownloadDiskInfo.listDownloadFiles() }.getOrDefault(emptyList()).associate { it.name to it.sizeBytes }
+
+/** One finished file against [expectedBytes] (what the server announced) and its analysed length. */
+internal fun DownloadItem.healthProblem(sizes: Map<String, Long>, expectedBytes: Long? = totalBytes): DownloadProblem? {
+    val probed = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(this))
+        ?.takeIf { it.fileName == fileName } // measured on this very file
+        ?.durationMs
+    return downloadProblem(
+        expectedBytes = expectedBytes,
+        actualBytes = sizes[fileName],
+        probedDurationMs = probed,
+        expectedDurationMs = listedRuntimeMs(),
+    )
 }
 
 private fun DownloadItem.listedRuntimeMs(): Long? {

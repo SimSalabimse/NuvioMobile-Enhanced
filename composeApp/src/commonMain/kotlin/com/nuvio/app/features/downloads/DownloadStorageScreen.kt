@@ -236,6 +236,19 @@ internal fun DownloadStorageCard(
                     Text("Delete", color = if (summary.incompleteIds.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            // The health check on demand: damaged files are downloaded again (through the space check).
+            androidx.compose.material3.TextButton(
+                onClick = {
+                    val damaged = DownloadsRepository.verifyDownloads()
+                    com.nuvio.app.core.ui.NuvioToastController.show(
+                        if (damaged == 0) "Downloads checked: none damaged" else "$damaged damaged, re-downloading",
+                    )
+                    onCleaned()
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Verify downloads")
+            }
         }
     }
 }

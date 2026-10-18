@@ -363,11 +363,15 @@ object DownloadsRepository {
         applyStarts(toStart)
     }
 
-    /** Health check: a cut-off or damaged finished file is deleted and downloaded again. */
-    fun redownload(downloadId: String) {
+    /**
+     * Health check: a cut-off or damaged finished file is deleted and downloaded again (through
+     * the space gate). [reason] is shown as "<reason>, re-downloading S1E2".
+     */
+    fun redownload(downloadId: String, reason: String? = null) {
         ensureLoaded()
         val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
         if (item.status != DownloadStatus.Completed) return
+        reason?.let { com.nuvio.app.core.ui.NuvioToastController.show("$it, re-downloading ${if (item.isEpisode) "${item.title} S${item.seasonNumber}E${item.episodeNumber}" else item.title}") }
         com.nuvio.app.features.analysis.MediaAnalysisScheduler.releaseFile(item.id)
         com.nuvio.app.features.analysis.MediaAnalysisStore.forgetFileData(com.nuvio.app.features.analysis.MediaAnalysisStore.keyFor(item))
         deleteFilesOf(item)
@@ -1005,6 +1009,9 @@ object DownloadsRepository {
             // A finished file owes nothing any more: a waiting one may fit now.
             if (after?.status == DownloadStatus.Completed) retrySpaceFailures()
         }
+        if (statusChanged && after?.status == DownloadStatus.Completed) {
+            verifyFinished(after, expectedBytes = before?.totalBytes ?: after.totalBytes)
+        }
     }
 
     private fun replaceItem(item: DownloadItem) {
@@ -1185,6 +1192,38 @@ object DownloadsRepository {
         waitForSpace(item.id, shortfall)
         return false
     }
+
+    private val autoRedownloaded = mutableSetOf<String>()
+
+    /**
+     * A file that just finished is checked against the size the server announced (and its analysed
+     * length, see DownloadHealth). A damaged one is downloaded again once; if that copy is damaged
+     * too it stays, with the problem and Re-download on its row.
+     */
+    private fun verifyFinished(item: DownloadItem, expectedBytes: Long?) {
+        val problem = item.healthProblem(downloadFileSizes(), expectedBytes) ?: return
+        if (!autoRedownloaded.add(item.id)) return
+        com.nuvio.app.core.logging.InAppLogger.warn("Downloads", "damaged on finish id=${item.id}: ${problem.message}")
+        linkRefreshScope.launch { redownload(item.id, "Damaged") }
+    }
+
+    /** Settings "Verify downloads": every finished file through the health check. Returns the damaged count. */
+    fun verifyDownloads(): Int {
+        ensureLoaded()
+        val problems = downloadProblems(_uiState.value.items)
+        problems.keys.forEach { redownload(it) }
+        return problems.size
+    }
+
+    /** The player saw it break (time jumps, decode errors): download it again once it is let go. */
+    fun redownloadDamaged(downloadId: String) {
+        autoRedownloaded += downloadId
+        redownload(downloadId, "Damaged")
+    }
+
+    /** Size of the file as the server announced it, for checking a resumed answer (any thread). */
+    internal fun knownTotalBytes(downloadId: String): Long? =
+        _uiState.value.items.firstOrNull { it.id == downloadId }?.totalBytes?.takeIf { it > 0L }
 
     /** iOS is about to restart a tracked task (no live system task left): same gate. */
     internal fun admitRestart(downloadId: String): Boolean {

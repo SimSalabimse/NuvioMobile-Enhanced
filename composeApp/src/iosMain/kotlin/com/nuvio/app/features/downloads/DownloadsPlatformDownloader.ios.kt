@@ -985,7 +985,22 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
                 statusCode = statusCode,
                 requestedRange = requestedRange,
                 prefixLength = prefixLength,
+                contentRange = (downloadTask.response as? NSHTTPURLResponse)?.let { headerValue(it, "Content-Range") },
+                expectedTotal = DownloadsRepository.knownTotalBytes(downloadId),
             )
+            if (disposition == PartialPrefixDisposition.Restart) {
+                // Not the continuation of `.part`: drop both and fetch the file again from byte 0.
+                removePathIfExists(didFinishDownloadingToURL.path.orEmpty())
+                removePathIfExists(tempPath)
+                val callbacks = active.callbacks
+                activeDownloads.remove(downloadId)
+                tasksByDownloadId.remove(downloadId)
+                if (!startOrResume(downloadId = downloadId, request = request, rangeStart = 0L, callbacks = callbacks)) {
+                    IosWriterOwnership.release(downloadId, DownloadWriterKind.Background)
+                    callbacks?.onFailure(runBlocking { getString(Res.string.downloads_error_finalize_file_failed) })
+                }
+                return
+            }
             if (disposition == PartialPrefixDisposition.Keep) {
                 removePathIfExists(didFinishDownloadingToURL.path.orEmpty())
                 finishWithFailure(
@@ -1151,9 +1166,17 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
                 statusCode = statusCode,
                 requestedRange = resumeOffset(task),
                 prefixLength = fileSizeOrNull(partPath) ?: 0L,
+                contentRange = (task.response as? NSHTTPURLResponse)?.let { headerValue(it, "Content-Range") },
+                expectedTotal = DownloadsRepository.knownTotalBytes(downloadId),
             )
             if (disposition == PartialPrefixDisposition.Keep) {
                 removePathIfExists(tempPath)
+                return
+            }
+            if (disposition == PartialPrefixDisposition.Restart) {
+                // Not the continuation of `.part`: the row starts again from byte 0 when it loads.
+                removePathIfExists(tempPath)
+                removePathIfExists(partPath)
                 return
             }
             if (disposition == PartialPrefixDisposition.Replace) removePathIfExists(partPath)

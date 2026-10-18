@@ -46,18 +46,38 @@ internal enum class PartialPrefixDisposition {
     Keep,
     Append,
     Replace,
+    /** The ranged bytes do not continue `.part` (another offset, file or size): start again at 0. */
+    Restart,
 }
 
+/**
+ * A 206 is appended only when it continues `.part` exactly: `.part` is [requestedRange] long and
+ * Content-Range starts there, for a file of the size seen before ([expectedTotal], when known).
+ * Bytes of another file (a refreshed link to a different encode) or from another offset would
+ * otherwise be glued on and play as noise and jumps.
+ */
 internal fun partialPrefixDisposition(
     statusCode: Int,
     requestedRange: Long,
     prefixLength: Long,
+    contentRange: String? = null,
+    expectedTotal: Long? = null,
 ): PartialPrefixDisposition {
     if (statusCode == 200 && requestedRange > 0L && prefixLength > 0L) {
         return PartialPrefixDisposition.Keep
     }
     if (statusCode == 206 && requestedRange > 0L) {
-        return PartialPrefixDisposition.Append
+        val continues = prefixLength == requestedRange && rangedResumeMatches(contentRange, requestedRange, expectedTotal)
+        return if (continues) PartialPrefixDisposition.Append else PartialPrefixDisposition.Restart
     }
     return PartialPrefixDisposition.Replace
+}
+
+/** "bytes 1000-1999/5000" starts at [requestedRange] and (when both are known) has [expectedTotal]. */
+internal fun rangedResumeMatches(contentRange: String?, requestedRange: Long, expectedTotal: Long?): Boolean {
+    val range = contentRange?.trim()?.removePrefix("bytes")?.trim() ?: return false
+    val start = range.substringBefore('-').trim().toLongOrNull() ?: return false
+    if (start != requestedRange) return false
+    val total = range.substringAfter('/', "").trim().toLongOrNull()
+    return total == null || expectedTotal == null || expectedTotal <= 0L || total == expectedTotal
 }
