@@ -36,6 +36,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -1378,6 +1379,10 @@ private fun PlaybackSettingsSection(
                         onCheckedChange = { com.nuvio.app.features.analysis.MediaAnalysisSettings.set(feedbackFlag, it) },
                     )
                     val importStatus by com.nuvio.app.features.player.skip.SkipImportStatus.status.collectAsState()
+                    val theIntroDbKey = autoPlayPlayerSettings.theIntroDbApiKey
+                    val importScope = rememberCoroutineScope()
+                    // Checked on v4 when the screen opens and on tap, so an old error does not linger.
+                    LaunchedEffect(theIntroDbKey) { com.nuvio.app.features.player.skip.SkipImportStatus.check(theIntroDbKey) }
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
                         title = "TheIntroDB import",
@@ -1387,7 +1392,7 @@ private fun PlaybackSettingsSection(
                         ),
                         isTablet = isTablet,
                         trailingContent = {},
-                        onClick = {},
+                        onClick = { importScope.launch { com.nuvio.app.features.player.skip.SkipImportStatus.check(theIntroDbKey) } },
                     )
                     val playChoice by com.nuvio.app.features.analysis.AnalysisPlayChoice.current.collectAsState()
                     SettingsGroupDivider(isTablet = isTablet)

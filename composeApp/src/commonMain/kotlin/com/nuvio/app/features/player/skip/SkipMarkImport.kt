@@ -72,6 +72,8 @@ internal object SkipImportStatus {
         val imported: Int,
         val totalImported: Int,
         val error: String?,
+        /** An account check from the settings screen, not an import (kept in memory only). */
+        val accountCheck: Boolean = false,
     )
 
     private val state = kotlinx.coroutines.flow.MutableStateFlow<Status?>(null)
@@ -100,6 +102,24 @@ internal object SkipImportStatus {
         )
     }
 
+    /**
+     * Asks TheIntroDB (v4) for this key's submissions so the row shows the current result, not a
+     * stale one (like a v3 404). Imports still happen per show when it plays.
+     */
+    suspend fun check(apiKey: String) {
+        if (apiKey.isBlank()) return
+        ensureLoaded()
+        val rows = TheIntroDb.listMySubmissions(apiKey)
+        state.value = Status(
+            atMs = com.nuvio.app.features.streams.epochMs(),
+            found = rows.size,
+            imported = 0,
+            totalImported = state.value?.totalImported ?: 0,
+            error = TheIntroDb.lastListError,
+            accountCheck = true,
+        )
+    }
+
     private fun decode(raw: String): Status? {
         val parts = raw.split("|", limit = 5)
         if (parts.size < 5) return null
@@ -116,6 +136,10 @@ internal object SkipImportStatus {
         if (status == null) return "Not run yet. It runs when you play a show with your TheIntroDB key set."
         val ago = agoText(nowMs - status.atMs)
         status.error?.let { return "$it · $ago" }
+        if (status.accountCheck) {
+            return "${status.found} submissions on your account · they are imported when you play that title · " +
+                "${status.totalImported} imported in total"
+        }
         val last = when {
             status.imported > 0 -> "Imported ${status.imported} of your TheIntroDB submissions"
             status.found > 0 -> "${status.found} submissions found, all already on the phone"
