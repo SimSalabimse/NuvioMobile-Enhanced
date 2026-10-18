@@ -748,10 +748,23 @@ object DownloadsRepository {
 
         publish(_uiState.value.items.filterNot { it.id == downloadId })
         persistStatus()
+        forgetAnalysedFile(item)
         applyStarts(startQueue.release(downloadId, DownloadThermalGate.blocksNextFile()))
         appUsageDirty = true
         scheduleSpaceRetry()
         SmartDownloads.retryPending()
+    }
+
+    /**
+     * The analysed file is gone and no download of any profile (the saved lists, this one already
+     * without [item]) still uses it: drop its preview thumbnails and other file-only data. The
+     * skip times, the user's marks and the fingerprints stay with the episode.
+     */
+    private fun forgetAnalysedFile(item: DownloadItem) {
+        val key = com.nuvio.app.features.analysis.MediaAnalysisStore.keyFor(item)
+        if (com.nuvio.app.features.analysis.MediaAnalysisStore.load(key)?.fileName != item.fileName) return
+        if (item.fileName in storedFileNames(DownloadDiskInfo.allProfilePayloads())) return
+        com.nuvio.app.features.analysis.MediaAnalysisStore.forgetFileData(key)
     }
 
     /**
