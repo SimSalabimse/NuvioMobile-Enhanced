@@ -894,7 +894,7 @@
     <string name="settings_show_secret">Show value</string>
     <string name="settings_continue_watching_resume_prompt_description">Show a popup to continue where you left off when opening the app after leaving from the player.</string>
     <string name="settings_continue_watching_resume_prompt_title">Resume prompt on launch</string>
-    <string name="settings_continue_watching_blur_next_up_description">Blur unwatched episode thumbnails in Continue Watching to avoid spoilers.</string>
+    <string name="settings_continue_watching_blur_next_up_description">Blur pictures and titles of unwatched episodes in Continue Watching, Up next tonight and Finish a series.</string>
     <string name="settings_continue_watching_blur_next_up_title">Blur Unwatched in Continue Watching</string>
     <string name="settings_continue_watching_show_unaired_next_up_description">Include upcoming episodes in Continue Watching before they air.</string>
     <string name="settings_continue_watching_show_unaired_next_up_title">Show Unaired Next Up Episodes</string>
@@ -1147,7 +1147,7 @@
     <string name="settings_meta_episodes">Episodes</string>
     <string name="settings_meta_episodes_description">Seasons and episode list for series.</string>
     <string name="settings_meta_blur_unwatched_episodes">Blur Unwatched Episodes</string>
-    <string name="settings_meta_blur_unwatched_episodes_description">Spoiler-safe: blur episode pictures and descriptions until watched.</string>
+    <string name="settings_meta_blur_unwatched_episodes_description">Blur pictures and descriptions of unwatched episodes on the details screen, in Download Season and in the player episode list.</string>
     <string name="settings_meta_group_label">Group %1$d</string>
     <string name="settings_meta_more_like_this">More like this</string>
     <string name="settings_meta_more_like_this_description">TMDB recommendation backdrops on detail page</string>

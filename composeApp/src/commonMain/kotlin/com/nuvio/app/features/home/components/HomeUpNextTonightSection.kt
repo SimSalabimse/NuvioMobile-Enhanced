@@ -67,6 +67,7 @@ internal fun HomeUpNextTonightSection(
     modifier: Modifier = Modifier,
     onItemClick: ((ContinueWatchingItem) -> Unit)?,
     onItemLongPress: ((ContinueWatchingItem) -> Unit)?,
+    blurNextUp: Boolean = false,
 ) {
     var minutes by remember { mutableStateOf(tonightMinutes(DownloadsSettingsStorage.loadString(TONIGHT_MINUTES_KEY))) }
     val plan = remember(items, minutes) {
@@ -108,6 +109,7 @@ internal fun HomeUpNextTonightSection(
             title = "${plan.size} for tonight · ${formatFinishMinutes(plan.sumOf(::remainingMs) / 60_000L)}",
             sectionPadding = sectionPadding,
             layout = layout,
+            blurNextUp = blurNextUp,
             onItemClick = onItemClick,
             onItemLongPress = onItemLongPress,
         )

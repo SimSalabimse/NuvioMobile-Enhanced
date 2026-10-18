@@ -1310,6 +1310,7 @@ private fun LazyListScope.homeContinueWatchingSections(
                 modifier = Modifier.padding(bottom = HomeContinueWatchingSectionBottomPadding),
                 onItemClick = onItemClick,
                 onItemLongPress = onItemLongPress,
+                blurNextUp = preferences.blurNextUp,
             )
         }
     }
@@ -1325,6 +1326,7 @@ private fun LazyListScope.homeContinueWatchingSections(
                 modifier = Modifier.padding(bottom = HomeContinueWatchingSectionBottomPadding),
                 onItemClick = onItemClick,
                 onItemLongPress = onItemLongPress,
+                blurNextUp = preferences.blurNextUp,
             )
         }
     }

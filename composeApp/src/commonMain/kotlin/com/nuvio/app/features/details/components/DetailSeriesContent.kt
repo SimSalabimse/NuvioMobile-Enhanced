@@ -59,6 +59,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.nuvio.app.core.ui.spoilerBlur
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -1866,4 +1867,3 @@ private fun formatEpisodeRating(rating: Double): String {
 }
 
 /** Spoiler-safe mode: an unwatched episode's description is blurred like its picture. */
-private fun Modifier.spoilerBlur(enabled: Boolean): Modifier = if (enabled) blur(6.dp) else this

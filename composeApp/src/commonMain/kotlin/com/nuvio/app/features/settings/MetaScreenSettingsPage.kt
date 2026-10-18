@@ -97,6 +97,8 @@ import nuvio.composeapp.generated.resources.settings_meta_episode_style_list
 import nuvio.composeapp.generated.resources.settings_meta_episode_style_list_description
 import nuvio.composeapp.generated.resources.settings_meta_episodes
 import nuvio.composeapp.generated.resources.settings_meta_episodes_description
+import nuvio.composeapp.generated.resources.settings_continue_watching_blur_next_up_description
+import nuvio.composeapp.generated.resources.settings_continue_watching_blur_next_up_title
 import nuvio.composeapp.generated.resources.settings_meta_blur_unwatched_episodes
 import nuvio.composeapp.generated.resources.settings_meta_blur_unwatched_episodes_description
 import nuvio.composeapp.generated.resources.settings_meta_background_mode
@@ -251,6 +253,17 @@ internal fun LazyListScope.metaScreenSettingsContent(
                     checked = uiState.blurUnwatchedEpisodes,
                     isTablet = isTablet,
                     onCheckedChange = { MetaScreenSettingsRepository.setBlurUnwatchedEpisodes(it) },
+                )
+                // Both spoiler blurs side by side (Home cards have their own switch).
+                SettingsGroupDivider(isTablet = isTablet)
+                val continueWatching by com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepository.uiState
+                    .collectAsStateWithLifecycle()
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_continue_watching_blur_next_up_title),
+                    description = stringResource(Res.string.settings_continue_watching_blur_next_up_description),
+                    checked = continueWatching.blurNextUp,
+                    isTablet = isTablet,
+                    onCheckedChange = com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepository::setBlurNextUp,
                 )
             }
         }

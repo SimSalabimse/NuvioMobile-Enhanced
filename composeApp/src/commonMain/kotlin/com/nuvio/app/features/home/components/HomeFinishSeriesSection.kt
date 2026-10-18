@@ -24,6 +24,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -153,6 +154,7 @@ internal fun HomeFinishSeriesSection(
     modifier: Modifier = Modifier,
     onItemClick: ((ContinueWatchingItem) -> Unit)?,
     onItemLongPress: ((ContinueWatchingItem) -> Unit)? = null,
+    blurNextUp: Boolean = false,
 ) {
     var metaVersion by remember { mutableStateOf(0) }
     val (entries, missing) = remember(items, metaVersion) {
@@ -198,6 +200,7 @@ internal fun HomeFinishSeriesSection(
             onClick = onItemClick?.let { click -> { click(entry.item) } },
             // Same hold menu as Continue Watching (Download, details, remove, ...).
             onLongClick = onItemLongPress?.let { press -> { press(entry.item) } },
+            blurNextUp = blurNextUp,
         )
     }
 }
@@ -207,6 +210,7 @@ private fun FinishSeriesCard(
     entry: FinishSeriesEntry,
     onClick: (() -> Unit)?,
     onLongClick: (() -> Unit)?,
+    blurNextUp: Boolean,
 ) {
     val item = entry.item
     val shape = RoundedCornerShape(12.dp)
@@ -232,7 +236,9 @@ private fun FinishSeriesCard(
                     model = image,
                     contentDescription = item.title,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(if (item.shouldBlurContinueWatchingArtwork(blurNextUp, true, image)) Modifier.blur(18.dp) else Modifier),
                 )
             }
             FinishSeriesGoalBadge(item.parentMetaType, item.parentMetaId, Modifier.align(Alignment.TopEnd))

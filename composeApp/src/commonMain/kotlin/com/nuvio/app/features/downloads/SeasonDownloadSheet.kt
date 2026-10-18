@@ -36,6 +36,7 @@ import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.dismissNuvioBottomSheet
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
+import com.nuvio.app.core.ui.spoilerBlur
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.debrid.DebridSettingsRepository
@@ -677,8 +678,6 @@ private fun EpisodeSelectRow(
     detail: String?,
     onCheckedChange: (Boolean) -> Unit,
 ) {
-    val code = localizedSeasonEpisodeCode(row.video.season, row.video.episode)
-    val title = listOfNotNull(code, row.video.title.takeIf { it.isNotBlank() }).joinToString(" · ")
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -692,13 +691,7 @@ private fun EpisodeSelectRow(
             enabled = row.canPick,
         )
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title.ifBlank { row.video.id },
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            EpisodeRowTitle(row)
             if (detail != null) {
                 Text(
                     text = detail,
@@ -827,8 +820,6 @@ private fun EpisodeDownloadRow(
 ) {
     val unmatched = row.match is SeasonStreamMatch.Unmatched && row.existing == null
     val checked = row.userChecked && row.selectable
-    val code = localizedSeasonEpisodeCode(row.video.season, row.video.episode)
-    val title = listOfNotNull(code, row.video.title.takeIf { it.isNotBlank() }).joinToString(" · ")
     val sized = row.displayBytes()
     val baseDetail = when {
         reason != null -> reason
@@ -853,13 +844,7 @@ private fun EpisodeDownloadRow(
             enabled = row.selectable,
         )
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title.ifBlank { row.video.id },
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            EpisodeRowTitle(row)
             Text(
                 text = detail,
                 style = MaterialTheme.typography.bodyMedium,
@@ -943,6 +928,35 @@ internal fun unairedLabel(released: String?): String {
     val month = parts[1].toIntOrNull()?.takeIf { it in 1..12 } ?: return "Not aired yet"
     val day = parts[2].toIntOrNull() ?: return "Not aired yet"
     return "Airs $day ${AIR_MONTHS[month - 1]} ${parts[0]}"
+}
+
+/** "S1E2 · Title"; the title is blurred while unwatched when Blur unwatched episodes is on. */
+@Composable
+private fun EpisodeRowTitle(row: SeasonEpisodeRowState) {
+    val blur by com.nuvio.app.features.details.MetaScreenSettingsRepository.uiState.collectAsState()
+    val code = localizedSeasonEpisodeCode(row.video.season, row.video.episode)
+    val name = row.video.title.takeIf { it.isNotBlank() }
+    val prefix = when {
+        code != null && name != null -> "$code · "
+        code != null -> code
+        name == null -> row.video.id
+        else -> ""
+    }
+    Row {
+        if (prefix.isNotEmpty()) {
+            Text(prefix, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
+        }
+        if (name != null) {
+            Text(
+                text = name,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.spoilerBlur(blur.blurUnwatchedEpisodes && !row.watched),
+            )
+        }
+    }
 }
 
 private fun MetaVideo.seasonEpisode(): Pair<Int, Int>? = season?.let { s -> episode?.let { s to it } }

@@ -40,8 +40,6 @@ import com.nuvio.app.features.watchprogress.ContinueWatchingSortMode
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.settings_continue_watching_resume_prompt_description
 import nuvio.composeapp.generated.resources.settings_continue_watching_resume_prompt_title
-import nuvio.composeapp.generated.resources.settings_continue_watching_blur_next_up_description
-import nuvio.composeapp.generated.resources.settings_continue_watching_blur_next_up_title
 import nuvio.composeapp.generated.resources.settings_continue_watching_show_unaired_next_up_description
 import nuvio.composeapp.generated.resources.settings_continue_watching_show_unaired_next_up_title
 import nuvio.composeapp.generated.resources.settings_continue_watching_section_card_style
@@ -78,7 +76,6 @@ internal fun LazyListScope.continueWatchingSettingsContent(
     upNextFromFurthestEpisode: Boolean,
     useEpisodeThumbnails: Boolean,
     showUnairedNextUp: Boolean,
-    blurNextUp: Boolean,
     showResumePromptOnLaunch: Boolean,
     sortMode: ContinueWatchingSortMode,
     showFinishSeries: Boolean = true,
@@ -161,16 +158,6 @@ internal fun LazyListScope.continueWatchingSettingsContent(
                     isTablet = isTablet,
                     onCheckedChange = ContinueWatchingPreferencesRepository::setShowUnairedNextUp,
                 )
-                if (style != ContinueWatchingSectionStyle.Poster && useEpisodeThumbnails) {
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsSwitchRow(
-                        title = stringResource(Res.string.settings_continue_watching_blur_next_up_title),
-                        description = stringResource(Res.string.settings_continue_watching_blur_next_up_description),
-                        checked = blurNextUp,
-                        isTablet = isTablet,
-                        onCheckedChange = ContinueWatchingPreferencesRepository::setBlurNextUp,
-                    )
-                }
             }
         }
     }
