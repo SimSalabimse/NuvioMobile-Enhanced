@@ -13,7 +13,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
@@ -21,12 +20,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.nuvio.app.features.downloads.DownloadsSettingsStorage
 import com.nuvio.app.features.downloads.SmartDownloadSettings
 import com.nuvio.app.features.watchprogress.ContinueWatchingItem
 import com.nuvio.app.features.watchprogress.ContinueWatchingSectionStyle
 import com.nuvio.app.features.tracking.WatchProgressSource
 
 internal val TONIGHT_CHOICES_MINUTES = listOf(30, 60, 90, 120)
+private const val TONIGHT_MINUTES_KEY = "home_tonight_minutes"
+
+/** The last time budget picked, else 1h, so the picks show right away. */
+internal fun tonightMinutes(saved: String?): Int =
+    saved?.toIntOrNull()?.takeIf { it in TONIGHT_CHOICES_MINUTES } ?: 60
 
 /** Picks what fits in [budgetMs]: Finish-a-series goals first, then Continue Watching order. */
 internal fun planTonight(
@@ -63,11 +68,9 @@ internal fun HomeUpNextTonightSection(
     onItemClick: ((ContinueWatchingItem) -> Unit)?,
     onItemLongPress: ((ContinueWatchingItem) -> Unit)?,
 ) {
-    var minutes by rememberSaveable { mutableStateOf<Int?>(null) }
+    var minutes by remember { mutableStateOf(tonightMinutes(DownloadsSettingsStorage.loadString(TONIGHT_MINUTES_KEY))) }
     val plan = remember(items, minutes) {
-        minutes?.let { budget ->
-            planTonight(items, budget * 60_000L) { SmartDownloadSettings.isGoal(it.parentMetaType, it.parentMetaId) }
-        }.orEmpty()
+        planTonight(items, minutes * 60_000L) { SmartDownloadSettings.isGoal(it.parentMetaType, it.parentMetaId) }
     }
     Column(modifier = modifier.fillMaxWidth()) {
         Row(
@@ -81,15 +84,17 @@ internal fun HomeUpNextTonightSection(
             TONIGHT_CHOICES_MINUTES.forEach { choice ->
                 FilterChip(
                     selected = minutes == choice,
-                    onClick = { minutes = choice.takeIf { minutes != it } },
+                    onClick = {
+                        minutes = choice
+                        DownloadsSettingsStorage.saveString(TONIGHT_MINUTES_KEY, choice.toString())
+                    },
                     label = { Text(tonightLabel(choice)) },
                 )
             }
         }
-        val budget = minutes ?: return@Column
         if (plan.isEmpty()) {
             Text(
-                "Nothing in Continue Watching fits in ${tonightLabel(budget)}",
+                "Nothing in Continue Watching fits in ${tonightLabel(minutes)}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = sectionPadding, vertical = 4.dp),
