@@ -1,6 +1,7 @@
 package com.nuvio.app.features.downloads
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -8,10 +9,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -28,7 +31,7 @@ internal object FinishSeriesGoal {
         val pinned = !SmartDownloadSettings.isGoal(type, id)
         SmartDownloadSettings.setGoal(type, id, pinned)
         NuvioToastController.show(
-            if (pinned) "Finishing this series: the next 2 episodes stay downloaded" else "Stopped finishing this series",
+            if (pinned) "Finishing this series: getting the next 2 episodes…" else "Stopped finishing this series",
         )
     }
 }
@@ -39,17 +42,28 @@ internal fun rememberIsGoal(type: String, id: String): Boolean {
     return SmartDownloadSettings.isGoal(state, type, id)
 }
 
-/** The details screen toggle, above the seasons. */
+/** The details screen toggle, above the seasons, with what the goal is doing next to it. */
 @Composable
 internal fun FinishSeriesGoalChip(type: String, id: String, modifier: Modifier = Modifier) {
     val pinned = rememberIsGoal(type, id)
-    FilterChip(
-        selected = pinned,
-        onClick = { FinishSeriesGoal.toggle(type, id) },
-        label = { Text(if (pinned) "Finishing this series" else "Finish this series") },
-        leadingIcon = { Icon(Icons.Rounded.Flag, contentDescription = null, modifier = Modifier.size(18.dp)) },
-        modifier = modifier,
-    )
+    val statuses by SmartDownloads.goalStatus.collectAsStateWithLifecycle()
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+        FilterChip(
+            selected = pinned,
+            onClick = { FinishSeriesGoal.toggle(type, id) },
+            label = { Text(if (pinned) "Finishing this series" else "Finish this series") },
+            leadingIcon = { Icon(Icons.Rounded.Flag, contentDescription = null, modifier = Modifier.size(18.dp)) },
+        )
+        statuses[id]?.takeIf { pinned }?.let { status ->
+            Text(
+                text = status,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+    }
 }
 
 /** Small flag on a card whose show is pinned; nothing otherwise. */
