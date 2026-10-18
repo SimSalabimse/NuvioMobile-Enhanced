@@ -4,6 +4,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
@@ -67,7 +68,7 @@ internal fun Modifier.playerSurfaceDragGestures(
     clearLiveGestureFeedbackState: State<() -> Unit>,
     revealLockedOverlayState: State<() -> Unit>,
     commitHorizontalSeekState: State<(Long) -> Unit>,
-    openEpisodesState: State<(() -> Unit)?>,
+    openEpisodesState: State<(() -> Unit)?> = NoEpisodesSwipe,
 ): Modifier =
     pointerInput(
         gestureController,
@@ -238,3 +239,6 @@ internal fun Modifier.playerSurfaceDragGestures(
             }
         }
     }
+
+/** No swipe-up episode list (movies, locked controls, tests). */
+private val NoEpisodesSwipe: State<(() -> Unit)?> = mutableStateOf(null)
