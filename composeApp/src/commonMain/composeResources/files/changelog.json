@@ -2,6 +2,21 @@
   "releases": [
     {
       "version": "0.6.1.1",
+      "build": 183,
+      "date": "2026-10-18",
+      "improved": [
+        "Your TheIntroDB submissions: grouped by show with poster, a card per episode, coloured status and totals. Pull down to refresh, tap to open the show.",
+        "Finish a series: pinning gets the 2 episodes after the last one you watched, and says what it is doing next to the chip on the show page.",
+        "Download Season: tap a queued episode to unqueue it."
+      ],
+      "fixed": [
+        "Download Season: queued episodes line up with the others and can be tapped.",
+        "Keep free space: the note no longer covers the button, and the button shows Apply or Done.",
+        "TheIntroDB import in Playback settings shows the current result instead of an old error."
+      ]
+    },
+    {
+      "version": "0.6.1.1",
       "build": 182,
       "date": "2026-10-18",
       "improved": [
