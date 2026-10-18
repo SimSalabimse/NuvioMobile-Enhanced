@@ -152,7 +152,7 @@ object SmartDownloadSettings {
         val key = goalKey(type, id)
         update { it.copy(goals = if (pinned) it.goals + key else it.goals - key) }
         DownloadsSettingsStorage.saveString(GOALS_KEY, _state.value.goals.joinToString("\n").ifEmpty { null })
-        if (pinned) SmartDownloads.checkGoal(type, id, announce = true)
+        if (pinned) SmartDownloads.checkGoal(type, id, announce = true) else SmartDownloads.dropGoal(id)
     }
 
     private fun goalKey(type: String, id: String) = "$type|$id"
@@ -229,9 +229,23 @@ internal object SmartDownloads {
     private val announceGoals = mutableSetOf<String>()
 
     private fun reportGoal(metaId: String, text: String) {
+        com.nuvio.app.core.logging.InAppLogger.info("SmartDownloads", "goal $metaId: $text")
         _goalStatus.value = _goalStatus.value + (metaId to text)
         if (announceGoals.remove(metaId)) NuvioToastController.show(text)
     }
+
+    /** Unpinned: no new goal downloads for the show (files already downloading keep going). */
+    fun dropGoal(metaId: String) {
+        announceGoals.remove(metaId)
+        _goalStatus.value = _goalStatus.value - metaId
+        scope.launch {
+            mutex.withLock { savePending(loadPending().filterNot { it.count != null && it.parentMetaId == metaId }) }
+        }
+    }
+
+    /** A goal request whose show was unpinned meanwhile (a run can outlast the pin). */
+    private fun SmartDownloadRequest.goalDropped(): Boolean =
+        count != null && !SmartDownloadSettings.isGoal(parentMetaType, parentMetaId)
 
     private fun SmartDownloadRequest.report(text: String) {
         if (count != null) reportGoal(parentMetaId, text)
@@ -350,7 +364,8 @@ internal object SmartDownloads {
 
     private fun add(request: SmartDownloadRequest) {
         scope.launch {
-            mutex.withLock { savePending(loadPending().filterNot { it.sameTarget(request) } + request) }
+            // Newest first, so a pin runs before older waiting requests.
+            mutex.withLock { savePending(listOf(request) + loadPending().filterNot { it.sameTarget(request) }) }
             runPending()
         }
     }
@@ -396,6 +411,7 @@ internal object SmartDownloads {
         val settings = SmartDownloadSettings.snapshot()
         // Plain smart downloads follow the switch; queued and goal episodes were asked for directly.
         if (!settings.enabled && !request.exact && request.count == null) return null
+        if (request.goalDropped()) return null
         if (request.notBeforeEpochMs > EpisodeReleaseDatePlatform.nowEpochMs()) return request
         DownloadsRepository.ensureLoaded()
         val meta = MetaDetailsRepository.fetch(request.parentMetaType, request.parentMetaId) ?: return request
@@ -427,6 +443,7 @@ internal object SmartDownloads {
         val reference = items
             .filter { it.parentMetaId == meta.id && it.isEpisode }
             .maxByOrNull { it.updatedAtEpochMs }
+        request.report("Looking for sources…")
         val picked = missing.mapNotNull { video ->
             pickStream(meta, video, reference)?.let { SeasonEnqueueRow(video, it) }
         }
@@ -446,6 +463,7 @@ internal object SmartDownloads {
                 .sumOf { item -> item.totalBytes?.takeIf { it > 0L }?.let { (it - item.downloadedBytes).coerceAtLeast(0L) } ?: 0L },
         )
         if (fit.isEmpty()) return noSpace(request)
+        if (request.goalDropped()) return null
         val result = enqueueSeasonDownloads(meta, fit)
         if (result.queued > 0) {
             val codes = fit.take(result.queued).joinToString(", ") { "S${it.video.season}E${it.video.episode}" }

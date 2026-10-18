@@ -30,8 +30,16 @@ internal object FinishSeriesGoal {
     fun toggle(type: String, id: String) {
         val pinned = !SmartDownloadSettings.isGoal(type, id)
         SmartDownloadSettings.setGoal(type, id, pinned)
+        val running = DownloadsRepository.uiState.value.items.count {
+            it.parentMetaId == id && (it.status == DownloadStatus.Downloading || it.status == DownloadStatus.Queued)
+        }
         NuvioToastController.show(
-            if (pinned) "Finishing this series: getting the next 2 episodes…" else "Stopped finishing this series",
+            when {
+                pinned -> "Finishing this series: getting the next 2 episodes…"
+                running > 0 -> "Stopped finishing this series. " +
+                    if (running == 1) "The download already running keeps going." else "The $running downloads already running keep going."
+                else -> "Stopped finishing this series"
+            },
         )
     }
 }
