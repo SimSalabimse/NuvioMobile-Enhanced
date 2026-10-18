@@ -50,7 +50,7 @@ import kotlinx.coroutines.delay
  * Cached metadata only; a missing season list is fetched quietly in the background.
  */
 
-private const val TYPICAL_EPISODE_MINUTES = 45
+internal const val TYPICAL_EPISODE_MINUTES = 45
 
 internal data class FinishSeriesEntry(
     /** The Continue Watching / Next Up item of the show: tapping it plays the next unwatched episode. */

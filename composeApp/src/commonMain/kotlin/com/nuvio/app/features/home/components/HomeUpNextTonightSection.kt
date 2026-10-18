@@ -22,7 +22,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.features.downloads.SmartDownloadSettings
-import com.nuvio.app.features.stats.formatWatchHours
 import com.nuvio.app.features.watchprogress.ContinueWatchingItem
 import com.nuvio.app.features.watchprogress.ContinueWatchingSectionStyle
 import com.nuvio.app.features.tracking.WatchProgressSource
@@ -48,9 +47,7 @@ internal fun planTonight(
 }
 
 internal fun remainingMs(item: ContinueWatchingItem): Long =
-    if (item.durationMs > 0L) (item.durationMs - item.resumePositionMs).coerceAtLeast(0L) else GUESSED_RUNTIME_MS
-
-private const val GUESSED_RUNTIME_MS = 45 * 60_000L
+    if (item.durationMs > 0L) (item.durationMs - item.resumePositionMs).coerceAtLeast(0L) else TYPICAL_EPISODE_MINUTES * 60_000L
 
 private fun tonightLabel(minutes: Int): String =
     if (minutes % 60 == 0) "${minutes / 60}h" else if (minutes > 60) "${minutes / 60}h${minutes % 60}" else "${minutes}m"
@@ -103,7 +100,7 @@ internal fun HomeUpNextTonightSection(
             items = plan,
             style = style,
             dataSourceKey = dataSourceKey,
-            title = "${plan.size} for tonight · ${formatWatchHours(plan.sumOf(::remainingMs))}",
+            title = "${plan.size} for tonight · ${formatFinishMinutes(plan.sumOf(::remainingMs) / 60_000L)}",
             sectionPadding = sectionPadding,
             layout = layout,
             onItemClick = onItemClick,
