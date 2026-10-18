@@ -272,11 +272,25 @@ internal object SmartDownloads {
         add(SmartDownloadRequest(entry.parentMetaId, entry.parentMetaType, season, episode))
     }
 
-    /** "Queue" on an episode that has not aired yet: it downloads once it airs and a source is found. */
-    fun queueUnaired(metaType: String, metaId: String, season: Int, episode: Int) {
-        add(SmartDownloadRequest(metaId, metaType, season, episode, exact = true))
-        NuvioToastController.show("Queued S${season}E$episode: it downloads once it airs")
+    /** Queues unaired episodes (season to episode); each downloads once it airs and a source is found. */
+    fun queueUnaired(metaType: String, metaId: String, episodes: List<Pair<Int, Int>>) {
+        if (episodes.isEmpty()) return
+        scope.launch {
+            mutex.withLock {
+                val requests = episodes.map { (season, episode) -> SmartDownloadRequest(metaId, metaType, season, episode, exact = true) }
+                savePending(loadPending().filterNot { old -> requests.any(old::sameTarget) } + requests)
+            }
+            runPending()
+        }
+        NuvioToastController.show(
+            if (episodes.size == 1) "Queued S${episodes[0].first}E${episodes[0].second}: it downloads once it airs"
+            else "Queued ${episodes.size} episodes: they download once they air",
+        )
     }
+
+    /** Whether this exact episode is queued to download once it airs. */
+    fun isQueued(metaId: String, season: Int?, episode: Int?): Boolean =
+        loadPending().any { it.exact && it.parentMetaId == metaId && it.season == season && it.episode == episode }
 
     /**
      * Finish a series goal: keeps the [GOAL_EPISODES] episodes from the first unwatched one
@@ -433,7 +447,7 @@ internal object SmartDownloads {
             if (match is SeasonStreamMatch.Matched) return match.stream
         }
         val streams = SeasonStreamCatalog.load(meta.type, videoId, video.season, video.episode, annotateDebridCache = true)
-        return autoPickSeasonStream(streams.orderedForQuality(quality), currentAutoPickSettings(meta.id), installedAddonNames())
+        return pickWithoutReference(streams.orderedForQuality(quality), currentAutoPickSettings(meta.id), installedAddonNames())
     }
 
     private fun loadPending(): List<SmartDownloadRequest> =
@@ -455,6 +469,18 @@ private const val DAY_MS = 24 * HOUR_MS
 
 /** Below this much free space Smart Downloads don't even look for streams. */
 private const val SMART_DOWNLOAD_MIN_FREE_BYTES = 1_000_000_000L
+
+/**
+ * The source for an episode with no earlier download to copy: the auto-play pick, else (auto-play
+ * set to manual, the default) the first downloadable source in [ordered] quality order. Without
+ * that fallback a queued episode never found a source.
+ */
+internal fun pickWithoutReference(
+    ordered: List<StreamItem>,
+    settings: SeasonAutoPickSettings,
+    installedAddonNames: Set<String>,
+): StreamItem? = autoPickSeasonStream(ordered, settings, installedAddonNames)
+    ?: ordered.firstOrNull { it.isSeasonDownloadCandidate() }
 
 /** When to look again for queued unaired episodes: the next air date, else tomorrow. */
 internal fun nextAirCheckEpochMs(upcoming: List<MetaVideo>, now: Long = EpisodeReleaseDatePlatform.nowEpochMs()): Long {

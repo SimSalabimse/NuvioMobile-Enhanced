@@ -61,8 +61,12 @@ private data class SeasonEpisodeRowState(
     val video: MetaVideo,
     val existing: SeasonExistingDownload? = null,
     val watched: Boolean = false,
-    /** Not aired yet (or no air date): shown disabled with its date; can be queued for when it airs. */
+    /** Not aired yet (or no air date): shown with its date; ticking it queues it for when it airs. */
     val unaired: Boolean = false,
+    /** Unaired and Queue unaired episodes is on, so it can be ticked. */
+    val queueable: Boolean = false,
+    /** Already queued to download once it airs. */
+    val queued: Boolean = false,
     val userChecked: Boolean = existing == null && !watched && !unaired,
     /** The user chose this episode's source in its own list; a season-level change leaves it. */
     val overridden: Boolean = false,
@@ -72,9 +76,9 @@ private data class SeasonEpisodeRowState(
     val probeDone: Boolean = false,
 )
 
-/** Can be ticked in step 1: not already downloaded or queued, and aired. */
+/** Can be ticked in step 1: not already downloaded or queued, and aired (or queueable). */
 private val SeasonEpisodeRowState.canPick: Boolean
-    get() = existing == null && !unaired
+    get() = existing == null && !queued && (!unaired || queueable)
 
 private val SeasonEpisodeRowState.selectable: Boolean
     get() = canPick && match !is SeasonStreamMatch.Unmatched
@@ -150,7 +154,7 @@ internal fun SeasonDownloadSheet(
             if (existing == row.existing) {
                 row
             } else {
-                row.copy(existing = existing, userChecked = existing == null && !row.unaired && row.userChecked)
+                row.copy(existing = existing, userChecked = existing == null && row.canPick && row.userChecked)
             }
         }
     }
@@ -449,6 +453,8 @@ internal fun SeasonDownloadSheet(
                         detail = when {
                             row.existing == SeasonExistingDownload.Downloaded -> downloadedText
                             row.existing == SeasonExistingDownload.InProgress -> inDownloadsText
+                            row.queued -> "Queued · ${unairedLabel(row.video.released)}"
+                            row.queueable -> "${unairedLabel(row.video.released)} · tick to queue"
                             row.unaired -> unairedLabel(row.video.released)
                             row.watched -> watchedText
                             else -> null
@@ -461,23 +467,8 @@ internal fun SeasonDownloadSheet(
                 item(key = "fill-by-size") {
                     val estimate = remember(downloads.items) { typicalEpisodeBytes(meta.id, downloads.items) ?: GUESSED_EPISODE_BYTES }
                     SeasonFillBySizeRow(estimateBytes = estimate) { budgetBytes ->
-                        val picked = fillSelection(rows.filter { it.canPick && !it.watched }.map { it.key }, estimate, budgetBytes).toSet()
+                        val picked = fillSelection(rows.filter { it.canPick && !it.watched && !it.unaired }.map { it.key }, estimate, budgetBytes).toSet()
                         rows = rows.map { if (it.canPick) it.copy(userChecked = it.key in picked) else it }
-                    }
-                }
-                val unaired = rows.filter { it.unaired && it.existing == null }
-                if (unaired.isNotEmpty() && SmartDownloadSettings.snapshot().queueUnaired) {
-                    item(key = "queue-unaired") {
-                        TextButton(
-                            onClick = {
-                                unaired.forEach { row ->
-                                    SmartDownloads.queueUnaired(meta.type, meta.id, row.video.season ?: return@forEach, row.video.episode ?: return@forEach)
-                                }
-                            },
-                            modifier = Modifier.padding(horizontal = 8.dp),
-                        ) {
-                            Text("Queue ${unaired.size} unaired episode${if (unaired.size == 1) "" else "s"}: they download once they air")
-                        }
                     }
                 }
                 return@LazyColumn
@@ -631,8 +622,12 @@ internal fun SeasonDownloadSheet(
             if (!selectionConfirmed) {
                 Button(
                     onClick = {
-                        val picked = rows.filter { it.canPick && it.userChecked }
-                        if (picked.isEmpty()) return@Button
+                        val (toQueue, picked) = rows.filter { it.canPick && it.userChecked }.partition { it.unaired }
+                        SmartDownloads.queueUnaired(meta.type, meta.id, toQueue.mapNotNull { it.video.seasonEpisode() })
+                        if (picked.isEmpty()) {
+                            if (toQueue.isNotEmpty()) onDismiss()
+                            return@Button
+                        }
                         confirmedKeys = picked.map { it.key }.toSet()
                         anchorKey = picked.first().key
                         pendingSources = 1
@@ -904,6 +899,7 @@ private fun List<MetaVideo>.toSeasonRows(
     parentMetaId: String,
     downloads: List<DownloadItem>,
     isWatched: (MetaVideo) -> Boolean,
+    queueUnaired: Boolean = SmartDownloadSettings.snapshot().queueUnaired,
 ): List<SeasonEpisodeRowState> =
     mapIndexed { index, video ->
         SeasonEpisodeRowState(
@@ -912,6 +908,8 @@ private fun List<MetaVideo>.toSeasonRows(
             existing = seasonExistingDownload(video.existingStatus(parentMetaId, downloads)),
             watched = isWatched(video),
             unaired = !video.hasAiredForDownload(),
+            queueable = queueUnaired && !video.hasAiredForDownload(),
+            queued = queueUnaired && SmartDownloads.isQueued(parentMetaId, video.season, video.episode),
         )
     }
 
@@ -946,6 +944,8 @@ internal fun unairedLabel(released: String?): String {
     val day = parts[2].toIntOrNull() ?: return "Not aired yet"
     return "Airs $day ${AIR_MONTHS[month - 1]} ${parts[0]}"
 }
+
+private fun MetaVideo.seasonEpisode(): Pair<Int, Int>? = season?.let { s -> episode?.let { s to it } }
 
 /** "Fill X GB" choices in Download Season. */
 private val SEASON_FILL_CHOICES_GB = listOf(5, 10, 20, 50)

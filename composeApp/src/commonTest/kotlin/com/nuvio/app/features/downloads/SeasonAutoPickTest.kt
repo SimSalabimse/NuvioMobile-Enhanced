@@ -35,6 +35,14 @@ class SeasonAutoPickTest {
     }
 
     @Test
+    fun queuedEpisodeGetsASourceWhenAutoPlayIsManual() {
+        val streams = listOf(direct("1080p", "https://a.example/1.mkv"))
+        assertNull(evaluateSeasonAutoPick(streams, settings(StreamAutoPlayMode.MANUAL), setOf("Addon")).stream)
+        assertEquals(streams[0], pickWithoutReference(streams, settings(StreamAutoPlayMode.MANUAL), setOf("Addon")))
+        assertNull(pickWithoutReference(emptyList(), settings(StreamAutoPlayMode.MANUAL), setOf("Addon")))
+    }
+
+    @Test
     fun noStreamsYetIsNotAGiveUp() {
         val result = evaluateSeasonAutoPick(emptyList(), settings(), emptySet())
         assertNull(result.stream)
