@@ -1449,6 +1449,19 @@ private fun PlaybackSettingsSection(
                             onDismiss = { showTheIntroDbApiKeyDialog = false },
                         )
                     }
+                    if (autoPlayPlayerSettings.theIntroDbApiKey.isNotBlank()) {
+                        SettingsGroupDivider(isTablet = isTablet)
+                        var showSubmissions by remember { mutableStateOf(false) }
+                        SettingsNavigationRow(
+                            title = "Your TheIntroDB submissions",
+                            description = "Everything you sent, with its review status. Per title: the flag button in the player.",
+                            isTablet = isTablet,
+                            onClick = { showSubmissions = true },
+                        )
+                        if (showSubmissions) {
+                            TheIntroDbSubmissionsSheet(autoPlayPlayerSettings.theIntroDbApiKey) { showSubmissions = false }
+                        }
+                    }
                 }
             }
         }
