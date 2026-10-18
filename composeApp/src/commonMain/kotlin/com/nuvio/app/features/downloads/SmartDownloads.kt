@@ -144,6 +144,9 @@ object SmartDownloadSettings {
         StorageAutopilot.run()
     }
 
+    /** Episodes a Finish a series goal keeps downloaded: the Smart Downloads episode count. */
+    fun goalCount(): Int = snapshot().count.coerceAtLeast(1)
+
     fun isGoal(type: String, id: String): Boolean = isGoal(snapshot(), type, id)
 
     fun isGoal(state: State, type: String, id: String): Boolean = goalKey(type, id) in state.goals
@@ -293,7 +296,7 @@ internal object SmartDownloads {
         if (!handledVideoIds.add(entry.videoId)) return
         if (SmartDownloadSettings.isGoal(entry.parentMetaType, entry.parentMetaId)) {
             // The goal counts from the next episode on, as if this one were watched.
-            add(SmartDownloadRequest(entry.parentMetaId, entry.parentMetaType, season, episode, count = GOAL_EPISODES))
+            add(SmartDownloadRequest(entry.parentMetaId, entry.parentMetaType, season, episode, count = SmartDownloadSettings.goalCount()))
         }
         if (!isEnabled()) return
         val hasDownloadsOfShow = DownloadsRepository.uiState.value.items.any { it.parentMetaId == entry.parentMetaId }
@@ -332,7 +335,7 @@ internal object SmartDownloads {
         loadPending().any { it.exact && it.parentMetaId == metaId && it.season == season && it.episode == episode }
 
     /**
-     * Finish a series goal: keeps the [GOAL_EPISODES] episodes from the first unwatched one
+     * Finish a series goal: keeps [SmartDownloadSettings.goalCount] episodes (the Smart Downloads count) from the first unwatched one
      * downloaded. Checked at launch, when pinned and after each watched episode; a finished show
      * is unpinned.
      */
@@ -358,7 +361,7 @@ internal object SmartDownloads {
                 reportGoal(id, "Up to date · ${unairedLabel(first.released)}")
                 return@launch
             }
-            add(SmartDownloadRequest(id, type, first.season ?: return@launch, (first.episode ?: return@launch) - 1, count = GOAL_EPISODES))
+            add(SmartDownloadRequest(id, type, first.season ?: return@launch, (first.episode ?: return@launch) - 1, count = SmartDownloadSettings.goalCount()))
         }
     }
 
@@ -523,7 +526,6 @@ internal object SmartDownloads {
     }
 }
 
-private const val GOAL_EPISODES = 2
 private const val HOUR_MS = 60 * 60_000L
 private const val DAY_MS = 24 * HOUR_MS
 

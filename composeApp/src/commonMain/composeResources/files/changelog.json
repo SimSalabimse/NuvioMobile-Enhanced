@@ -6,7 +6,7 @@
       "date": "2026-10-18",
       "improved": [
         "Your TheIntroDB submissions: grouped by show with poster, a card per episode, coloured status and totals. Pull down to refresh, tap to open the show.",
-        "Finish a series: pinning starts right away on the 2 episodes after the last one you watched, and says what it is doing next to the chip on the show page. Unpinning stops new downloads; ones already running keep going.",
+        "Finish a series: pinning starts right away on the episodes after the last one you watched, as many as your Smart Downloads episode count, and says what it is doing next to the chip on the show page. Unpinning stops new downloads; ones already running keep going.",
         "Download Season: tap a queued episode to unqueue it."
       ],
       "fixed": [
