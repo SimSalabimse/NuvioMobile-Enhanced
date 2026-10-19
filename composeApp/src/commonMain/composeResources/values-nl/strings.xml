@@ -77,7 +77,6 @@
     <string name="cd_selected">Geselecteerd</string>
     <string name="collections_copy_json">JSON kopiëren</string>
     <string name="collections_copy_json_error">De collectiegegevens zijn te groot voor het klembord op dit apparaat.</string>
-    <string name="collections_count_summary">%1$d collectie(s), %2$d map(pen)</string>
     <string name="collections_delete_message">"%1$s" verwijderen? Dit kan niet ongedaan worden gemaakt.</string>
     <string name="collections_delete_title">Collectie verwijderen</string>
     <string name="collections_editor_add_catalog">Catalogus toevoegen</string>
@@ -126,7 +125,9 @@
     <string name="collections_editor_show_all_tab">Tabblad \"Alles\" tonen</string>
     <string name="collections_editor_show_gif_when_configured_desc">Speel de ingestelde GIF af in plaats van de statische omslag wanneer beschikbaar.</string>
     <string name="collections_editor_show_gif_when_configured">GIF tonen wanneer ingesteld</string>
-    <string name="collections_editor_source_count">%1$d bron(nen) · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d bron(nen) · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">Tegelvorm</string>
     <string name="collections_editor_view_mode_rows">Rijen</string>
     <string name="collections_editor_view_mode_tabs">Tabbladen</string>
@@ -322,7 +323,9 @@
     <string name="collections_editor_tmdb_subtitle_discover">TMDB Ontdekken</string>
     <string name="collections_empty_subtitle">Maak er een aan om je catalogi te organiseren.</string>
     <string name="collections_empty_title">Nog geen collecties</string>
-    <string name="collections_folder_count">%1$d map(pen)</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">%1$d map(pen)</item>
+    </plurals>
     <string name="collections_folder_empty_items">Geen items gevonden</string>
     <string name="collections_folder_not_found">Map niet gevonden</string>
     <string name="collections_header">Collecties</string>

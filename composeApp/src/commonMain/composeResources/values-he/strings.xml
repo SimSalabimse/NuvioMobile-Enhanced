@@ -86,7 +86,9 @@
     <string name="collections_editor_shape_square">מרובע</string>
     <string name="collections_editor_shape_wide">רוחב</string>
     <string name="collections_editor_show_all_tab">הצג לשונית \"הכל\"</string>
-    <string name="collections_editor_source_count">%1$d מקורות</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d מקורות</item>
+    </plurals>
     <string name="collections_editor_tile_shape">צורת אריח</string>
     <string name="collections_editor_view_mode_rows">שורות</string>
     <string name="collections_editor_view_mode_tabs">לשוניות</string>

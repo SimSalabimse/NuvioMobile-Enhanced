@@ -62,7 +62,6 @@
     <string name="addons_version_format">Versi %1$s</string>
     <string name="cd_selected">Dipilih</string>
     <string name="collections_copy_json">Salin JSON</string>
-    <string name="collections_count_summary">%1$d koleksi, %2$d folder</string>
     <string name="collections_delete_message">Hapus \"%1$s\"? Tindakan ini tidak dapat dibatalkan.</string>
     <string name="collections_delete_title">Hapus Koleksi</string>
     <string name="collections_editor_add_catalog">Tambah Katalog</string>
@@ -111,7 +110,9 @@
     <string name="collections_editor_show_all_tab">Tampilkan Tab \"Semua\"</string>
     <string name="collections_editor_show_gif_when_configured_desc">Putar GIF yang dikonfigurasi sebagai pengganti sampul statis jika tersedia.</string>
     <string name="collections_editor_show_gif_when_configured">Tampilkan GIF Jika Dikonfigurasi</string>
-    <string name="collections_editor_source_count">%1$d sumber · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d sumber · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">Bentuk Tile</string>
     <string name="collections_editor_view_mode_rows">Baris</string>
     <string name="collections_editor_view_mode_tabs">Tab</string>
@@ -279,7 +280,9 @@
     <string name="collections_editor_tmdb_subtitle_discover">Temukan TMDB</string>
     <string name="collections_empty_subtitle">Buat satu untuk mengorganisir katalog Anda.</string>
     <string name="collections_empty_title">Belum ada koleksi</string>
-    <string name="collections_folder_count">%1$d folder</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">%1$d folder</item>
+    </plurals>
     <string name="collections_folder_empty_items">Tidak ada item ditemukan</string>
     <string name="collections_folder_not_found">Folder tidak ditemukan</string>
     <string name="collections_header">Koleksi</string>

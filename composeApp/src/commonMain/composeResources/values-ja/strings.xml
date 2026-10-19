@@ -63,7 +63,6 @@
     <string name="addons_version_format">バージョン %1$s</string>
     <string name="cd_selected">選択済み</string>
     <string name="collections_copy_json">JSONをコピー</string>
-    <string name="collections_count_summary">%1$d コレクション、%2$d フォルダー</string>
     <string name="collections_delete_message">「%1$s」を削除しますか？この操作は取り消せません。</string>
     <string name="collections_delete_title">コレクションを削除</string>
     <string name="collections_editor_add_catalog">カタログを追加</string>
@@ -112,7 +111,9 @@
     <string name="collections_editor_show_all_tab">「すべて」タブを表示</string>
     <string name="collections_editor_show_gif_when_configured_desc">設定されている場合、静止カバーの代わりにGIFを再生します。</string>
     <string name="collections_editor_show_gif_when_configured">設定時にGIFを表示</string>
-    <string name="collections_editor_source_count">%1$d ソース · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d ソース · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">タイルの形状</string>
     <string name="collections_editor_view_mode_rows">行</string>
     <string name="collections_editor_view_mode_tabs">タブ</string>
@@ -296,7 +297,9 @@
     <string name="collections_editor_tmdb_subtitle_discover">TMDBディスカバー</string>
     <string name="collections_empty_subtitle">コレクションを作成してカタログを整理しましょう。</string>
     <string name="collections_empty_title">コレクションがありません</string>
-    <string name="collections_folder_count">%1$d フォルダー</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">%1$d フォルダー</item>
+    </plurals>
     <string name="collections_folder_empty_items">アイテムが見つかりません</string>
     <string name="collections_folder_not_found">フォルダーが見つかりません</string>
     <string name="collections_header">コレクション</string>

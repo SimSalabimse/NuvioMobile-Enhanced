@@ -63,7 +63,6 @@
     <string name="addons_version_format">Versiunea %1$s</string>
     <string name="cd_selected">Selectat</string>
     <string name="collections_copy_json">Copiază JSON</string>
-    <string name="collections_count_summary">%1$d colecție(i), %2$d dosar(e)</string>
     <string name="collections_delete_message">Ștergi „%1$s”? Această acțiune este ireversibilă.</string>
     <string name="collections_delete_title">Șterge colecția</string>
     <string name="collections_editor_add_catalog">Adaugă catalog</string>
@@ -112,7 +111,9 @@
     <string name="collections_editor_show_all_tab">Afișează fila „Toate”</string>
     <string name="collections_editor_show_gif_when_configured_desc">Redă GIF-ul configurat în locul copertei statice, atunci când este disponibil.</string>
     <string name="collections_editor_show_gif_when_configured">Afișează GIF-ul când este configurat</string>
-    <string name="collections_editor_source_count">%1$d sursă(e) · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d sursă(e) · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">Formă casetă</string>
     <string name="collections_editor_view_mode_rows">Rânduri</string>
     <string name="collections_editor_view_mode_tabs">File</string>
@@ -296,7 +297,9 @@
     <string name="collections_editor_tmdb_subtitle_discover">Descoperire TMDB</string>
     <string name="collections_empty_subtitle">Creează una pentru a-ți organiza cataloagele.</string>
     <string name="collections_empty_title">Nu există încă colecții</string>
-    <string name="collections_folder_count">%1$d dosar(e)</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">%1$d dosar(e)</item>
+    </plurals>
     <string name="collections_folder_empty_items">Nu s-au găsit elemente</string>
     <string name="collections_folder_not_found">Dosarul nu a fost găsit</string>
     <string name="collections_header">Colecții</string>

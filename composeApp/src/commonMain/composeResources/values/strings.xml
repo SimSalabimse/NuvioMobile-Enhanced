@@ -85,7 +85,6 @@
     <string name="cd_selected">Selected</string>
     <string name="collections_copy_json">Copy JSON</string>
     <string name="collections_copy_json_error">The collection data is too large for the clipboard on this device.</string>
-    <string name="collections_count_summary">%1$d collection(s), %2$d folder(s)</string>
     <string name="collections_delete_message">Delete "%1$s"? This cannot be undone.</string>
     <string name="collections_delete_title">Delete Collection</string>
     <string name="collections_editor_add_catalog">Add Catalog</string>
@@ -134,7 +133,10 @@
     <string name="collections_editor_show_all_tab">Show &quot;All&quot; Tab</string>
     <string name="collections_editor_show_gif_when_configured_desc">Play the configured GIF instead of the static cover when available.</string>
     <string name="collections_editor_show_gif_when_configured">Show GIF When Configured</string>
-    <string name="collections_editor_source_count">%1$d source(s) · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="one">%1$d source · %2$s</item>
+        <item quantity="other">%1$d sources · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">Tile Shape</string>
     <string name="collections_editor_view_mode_rows">Rows</string>
     <string name="collections_editor_view_mode_tabs">Tabs</string>
@@ -330,7 +332,14 @@
     <string name="collections_editor_tmdb_subtitle_discover">TMDB Discover</string>
     <string name="collections_empty_subtitle">Create one to organize your catalogs.</string>
     <string name="collections_empty_title">No collections yet</string>
-    <string name="collections_folder_count">%1$d folder(s)</string>
+    <plurals name="collections_count">
+        <item quantity="one">%1$d collection</item>
+        <item quantity="other">%1$d collections</item>
+    </plurals>
+    <plurals name="collections_folder_count">
+        <item quantity="one">%1$d folder</item>
+        <item quantity="other">%1$d folders</item>
+    </plurals>
     <string name="collections_folder_empty_items">No items found</string>
     <string name="collections_folder_not_found">Folder not found</string>
     <string name="collections_header">Collections</string>
@@ -1751,14 +1760,20 @@
     <string name="season_download_no_match">No matching source</string>
     <string name="season_download_unsupported">Unsupported format</string>
     <string name="season_download_choose_streams">Choose streams</string>
-    <string name="season_download_queued">Queued %1$d episodes</string>
+    <plurals name="season_download_queued">
+        <item quantity="one">Queued %1$d episode</item>
+        <item quantity="other">Queued %1$d episodes</item>
+    </plurals>
     <string name="season_download_none_queued">Nothing queued</string>
     <string name="season_download_already_downloaded">Downloaded</string>
     <string name="season_download_in_downloads">Already in Downloads</string>
     <string name="season_download_matching">Finding this source…</string>
     <string name="season_download_change_source">Change</string>
     <string name="season_download_auto_picked">Picked by your auto-play settings</string>
-    <string name="season_download_sources_pending">Still loading %1$d sources…</string>
+    <plurals name="season_download_sources_pending">
+        <item quantity="one">Still loading %1$d source…</item>
+        <item quantity="other">Still loading %1$d sources…</item>
+    </plurals>
     <string name="season_download_nothing_left">Every episode is already downloaded.</string>
     <string name="season_download_watched">Watched</string>
     <string name="season_download_episode_source">Source for %1$s</string>
@@ -1766,7 +1781,10 @@
     <string name="downloads_group_pause_all">Pause all</string>
     <string name="downloads_group_resume_all">Resume all</string>
     <string name="downloads_group_cancel_all">Cancel all</string>
-    <string name="downloads_group_cancel_title">Cancel %1$d downloads?</string>
+    <plurals name="downloads_group_cancel_title">
+        <item quantity="one">Cancel %1$d download?</item>
+        <item quantity="other">Cancel %1$d downloads?</item>
+    </plurals>
     <string name="downloads_group_cancel_message">This stops every download of %1$s and deletes their partial files.</string>
     <string name="downloads_season_cancel">Cancel season</string>
     <string name="downloads_not_enough_space">Not enough space</string>
@@ -1778,18 +1796,26 @@
     <string name="downloads_storage_used_by_downloads">Downloads use %1$s</string>
     <string name="downloads_storage_unknown_space">Free space unknown</string>
     <string name="downloads_storage_low">Low on space. Downloads stop with less than %1$s free.</string>
-    <string name="downloads_storage_count">%1$d downloads</string>
+    <plurals name="downloads_storage_count">
+        <item quantity="one">%1$d download</item>
+        <item quantity="other">%1$d downloads</item>
+    </plurals>
     <string name="downloads_storage_by_title">By title</string>
     <string name="downloads_storage_season">Season %1$d</string>
     <string name="downloads_storage_specials">Specials</string>
     <string name="downloads_storage_delete">Delete</string>
     <string name="downloads_storage_delete_title">Delete %1$s?</string>
-    <string name="downloads_storage_delete_message">This deletes %1$d downloads (%2$s), including partial files.</string>
+    <plurals name="downloads_storage_delete_message">
+        <item quantity="one">This deletes %1$d download (%2$s), including partial files.</item>
+        <item quantity="other">This deletes %1$d downloads (%2$s), including partial files.</item>
+    </plurals>
     <string name="downloads_storage_leftovers">Leftover files</string>
-    <string name="downloads_storage_leftovers_hint">%1$d files (%2$s) that no download owns, such as partial files from removed downloads.</string>
     <string name="downloads_storage_leftovers_clear">Clear</string>
     <string name="downloads_storage_leftovers_confirm_title">Clear leftover files?</string>
-    <string name="downloads_storage_leftovers_confirm_message">This deletes %1$d files (%2$s).</string>
+    <plurals name="downloads_storage_leftovers_confirm_message">
+        <item quantity="one">This deletes %1$d file (%2$s).</item>
+        <item quantity="other">This deletes %1$d files (%2$s).</item>
+    </plurals>
     <string name="downloads_storage_empty">No downloads yet.</string>
     <string name="downloads_season_sheet_low_space">Not enough space: %1$s selected, %2$s free (keeping %3$s spare). Downloads that do not fit will stop with Not enough space.</string>
     <string name="downloads_season_pause">Pause season</string>
@@ -3015,7 +3041,10 @@
     <string name="analysis_ago_hours">%1$d h ago</string>
     <string name="analysis_ago_days">%1$d days ago</string>
     <string name="analysis_summary_title">On-device analysis</string>
-    <string name="analysis_summary_count">%1$d of %2$d downloads analysed</string>
+    <plurals name="analysis_summary_count">
+        <item quantity="one">%1$d of %2$d download analysed</item>
+        <item quantity="other">%1$d of %2$d downloads analysed</item>
+    </plurals>
     <string name="analysis_summary_failed">%1$d failed. Tap Analyse now to try again.</string>
     <string name="analysis_summary_running">Analysing %1$s: %2$s %3$d%</string>
     <string name="analysis_summary_in_background">in the background</string>

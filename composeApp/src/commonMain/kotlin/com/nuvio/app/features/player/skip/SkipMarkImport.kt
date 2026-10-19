@@ -1,5 +1,6 @@
 package com.nuvio.app.features.player.skip
 
+import com.nuvio.app.core.format.countText
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.features.analysis.MediaAnalysisStatus
 import com.nuvio.app.features.analysis.MediaAnalysisStore
@@ -137,12 +138,12 @@ internal object SkipImportStatus {
         val ago = agoText(nowMs - status.atMs)
         status.error?.let { return "$it · $ago" }
         if (status.accountCheck) {
-            return "${status.found} submissions on your account · they are imported when you play that title · " +
+            return "${countText(status.found, "submission")} on your account · they are imported when you play that title · " +
                 "${status.totalImported} imported in total"
         }
         val last = when {
             status.imported > 0 -> "Imported ${status.imported} of your TheIntroDB submissions"
-            status.found > 0 -> "${status.found} submissions found, all already on the phone"
+            status.found > 0 -> "${countText(status.found, "submission")} found, all already on the phone"
             else -> "No submissions of yours for that title"
         }
         return "$last · $ago · ${status.totalImported} imported in total"

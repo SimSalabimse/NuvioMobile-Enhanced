@@ -77,7 +77,6 @@
     <string name="cd_selected">Seleccionado</string>
     <string name="collections_copy_json">Copiar JSON</string>
     <string name="collections_copy_json_error">Los datos de la colección son demasiado grandes para el portapapeles de este dispositivo.</string>
-    <string name="collections_count_summary">%1$d colección(es), %2$d carpeta(s)</string>
     <string name="collections_delete_message">¿Eliminar "%1$s"? Esto no se puede deshacer.</string>
     <string name="collections_delete_title">Eliminar colección</string>
     <string name="collections_editor_add_catalog">Añadir catálogo</string>
@@ -126,7 +125,9 @@
     <string name="collections_editor_show_all_tab">Mostrar pestaña "Todo"</string>
     <string name="collections_editor_show_gif_when_configured_desc">Reproducir el GIF configurado en lugar de la portada estática cuando esté disponible.</string>
     <string name="collections_editor_show_gif_when_configured">Mostrar GIF cuando esté configurado</string>
-    <string name="collections_editor_source_count">%1$d fuente(s) · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d fuente · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">Forma del mosaico</string>
     <string name="collections_editor_view_mode_rows">Filas</string>
     <string name="collections_editor_view_mode_tabs">Pestañas</string>
@@ -322,7 +323,9 @@
     <string name="collections_editor_tmdb_subtitle_discover">Descubrir de TMDB</string>
     <string name="collections_empty_subtitle">Crea una para organizar tus catálogos.</string>
     <string name="collections_empty_title">Aún no hay colecciones</string>
-    <string name="collections_folder_count">%1$d carpeta(s)</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">%1$d carpeta</item>
+    </plurals>
     <string name="collections_folder_empty_items">No se encontraron elementos</string>
     <string name="collections_folder_not_found">Carpeta no encontrada</string>
     <string name="collections_header">Colecciones</string>

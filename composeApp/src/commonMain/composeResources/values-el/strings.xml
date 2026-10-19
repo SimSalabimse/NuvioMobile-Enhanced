@@ -59,7 +59,6 @@
     <string name="cd_selected">Επιλεγμένο</string>
     <string name="collections_copy_json">Αντιγραφή JSON</string>
     <string name="collections_copy_json_error">Τα δεδομένα συλλογής είναι πολύ μεγάλα για το πρόχειρο αυτής της συσκευής.</string>
-    <string name="collections_count_summary">%1$d συλλογή(ές), %2$d φάκελος(οι)</string>
     <string name="collections_delete_message">Διαγραφή «%1$s»; Αυτή η ενέργεια δεν μπορεί να αναιρεθεί.</string>
     <string name="collections_delete_title">Διαγραφή συλλογής</string>
     <string name="collections_editor_add_catalog">Προσθήκη καταλόγου</string>
@@ -105,14 +104,18 @@
     <string name="collections_editor_show_all_tab">Εμφάνιση καρτέλας «Όλα»</string>
     <string name="collections_editor_show_gif_when_configured_desc">Αναπαραγωγή του διαμορφωμένου GIF αντί για το στατικό εξώφυλλο όταν είναι διαθέσιμο.</string>
     <string name="collections_editor_show_gif_when_configured">Εμφάνιση GIF όταν είναι διαμορφωμένο</string>
-    <string name="collections_editor_source_count">%1$d πηγή(ές) · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d πηγή(ές) · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">Σχήμα πλακιδίου</string>
     <string name="collections_editor_view_mode_rows">Γραμμές</string>
     <string name="collections_editor_view_mode_tabs">Καρτέλες</string>
     <string name="collections_editor_view_mode">Λειτουργία προβολής</string>
     <string name="collections_empty_subtitle">Δημιουργήστε μία για να οργανώσετε τους καταλόγους σας.</string>
     <string name="collections_empty_title">Δεν υπάρχουν συλλογές ακόμα</string>
-    <string name="collections_folder_count">%1$d φάκελος(οι)</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">%1$d φάκελος(οι)</item>
+    </plurals>
     <string name="collections_folder_empty_items">Δεν βρέθηκαν στοιχεία</string>
     <string name="collections_folder_not_found">Ο φάκελος δεν βρέθηκε</string>
     <string name="collections_header">Συλλογές</string>

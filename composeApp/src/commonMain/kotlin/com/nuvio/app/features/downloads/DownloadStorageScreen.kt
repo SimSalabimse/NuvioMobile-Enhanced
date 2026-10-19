@@ -1,5 +1,7 @@
 package com.nuvio.app.features.downloads
 
+import com.nuvio.app.core.format.countText
+import org.jetbrains.compose.resources.pluralStringResource
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -94,7 +96,7 @@ internal fun DownloadStorageCard(
     if (confirmIncomplete && summary.incompleteIds.isNotEmpty()) {
         NuvioStatusModal(
             title = "Delete failed / incomplete downloads?",
-            message = "${summary.incompleteIds.size} downloads that stopped part way (failed or paused) and their " +
+            message = "${countText(summary.incompleteIds.size, "download")} that stopped part way (failed or paused) and their " +
                 "${formatDownloadBytes(summary.incompleteBytes)} on disk will be deleted.",
             isVisible = true,
             destructive = true,
@@ -114,8 +116,9 @@ internal fun DownloadStorageCard(
     if (confirmCleanUp && leftoverCount > 0) {
         NuvioStatusModal(
             title = stringResource(Res.string.downloads_storage_leftovers_confirm_title),
-            message = stringResource(
-                Res.string.downloads_storage_leftovers_confirm_message,
+            message = pluralStringResource(
+                Res.plurals.downloads_storage_leftovers_confirm_message,
+                leftoverCount,
                 leftoverCount,
                 formatDownloadBytes(leftoverBytes),
             ),
@@ -357,7 +360,7 @@ internal fun DownloadStorageScreen(
             item(key = "storage-title:$titleKey") {
                 StorageRow(
                     title = title.title,
-                    subtitle = stringResource(Res.string.downloads_storage_count, title.downloadIds.size) +
+                    subtitle = pluralStringResource(Res.plurals.downloads_storage_count, title.downloadIds.size, title.downloadIds.size) +
                         " · " + formatDownloadBytes(title.bytes),
                     onClick = if (title.isShow) {
                         { expanded = if (isExpanded) expanded - titleKey else expanded + titleKey }
@@ -381,7 +384,7 @@ internal fun DownloadStorageScreen(
                         }
                         StorageRow(
                             title = label,
-                            subtitle = stringResource(Res.string.downloads_storage_count, season.downloadIds.size) +
+                            subtitle = pluralStringResource(Res.plurals.downloads_storage_count, season.downloadIds.size, season.downloadIds.size) +
                                 " · " + formatDownloadBytes(season.bytes),
                             indent = true,
                             trailing = {
@@ -404,7 +407,7 @@ internal fun DownloadStorageScreen(
     pendingDelete?.let { pending ->
         NuvioStatusModal(
             title = stringResource(Res.string.downloads_storage_delete_title, pending.label),
-            message = stringResource(Res.string.downloads_storage_delete_message, pending.ids.size, formatDownloadBytes(pending.bytes)),
+            message = pluralStringResource(Res.plurals.downloads_storage_delete_message, pending.ids.size, pending.ids.size, formatDownloadBytes(pending.bytes)),
             isVisible = true,
             destructive = true,
             confirmText = stringResource(Res.string.action_yes),

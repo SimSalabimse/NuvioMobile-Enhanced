@@ -1,5 +1,6 @@
 package com.nuvio.app.features.analysis
 
+import org.jetbrains.compose.resources.pluralStringResource
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.analysis_stage_audio
 import nuvio.composeapp.generated.resources.analysis_stage_matching
@@ -247,7 +248,7 @@ internal fun AnalysisSummarySection(isTablet: Boolean) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = stringResource(Res.string.analysis_summary_count, summary.analysed, summary.total),
+                    text = pluralStringResource(Res.plurals.analysis_summary_count, summary.total, summary.analysed, summary.total),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = textColor,

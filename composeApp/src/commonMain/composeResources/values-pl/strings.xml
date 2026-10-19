@@ -62,7 +62,6 @@
     <string name="addons_version_format">Wersja %1$s</string>
     <string name="cd_selected">Wybrano</string>
     <string name="collections_copy_json">Kopiuj JSON</string>
-    <string name="collections_count_summary">%1$d kolekcji, %2$d folderów</string>
     <string name="collections_delete_message">Usunąć „%1$s"? Tej operacji nie można cofnąć.</string>
     <string name="collections_delete_title">Usuń kolekcję</string>
     <string name="collections_editor_add_catalog">Dodaj katalog</string>
@@ -111,7 +110,9 @@
     <string name="collections_editor_show_all_tab">Pokaż kartę \"Wszystko\"</string>
     <string name="collections_editor_show_gif_when_configured_desc">Odtwarzaj skonfigurowany GIF zamiast statycznej okładki, gdy jest dostępny.</string>
     <string name="collections_editor_show_gif_when_configured">Pokaż GIF gdy skonfigurowany</string>
-    <string name="collections_editor_source_count">%1$d źródeł · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d źródeł · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">Kształt kafelka</string>
     <string name="collections_editor_view_mode_rows">Wiersze</string>
     <string name="collections_editor_view_mode_tabs">Karty</string>
@@ -279,7 +280,9 @@
     <string name="collections_editor_tmdb_subtitle_discover">TMDB Discover</string>
     <string name="collections_empty_subtitle">Utwórz jedną, aby uporządkować katalogi.</string>
     <string name="collections_empty_title">Brak kolekcji</string>
-    <string name="collections_folder_count">%1$d folderów</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">%1$d folderów</item>
+    </plurals>
     <string name="collections_folder_empty_items">Nie znaleziono elementów</string>
     <string name="collections_folder_not_found">Nie znaleziono folderu</string>
     <string name="collections_header">Kolekcje</string>

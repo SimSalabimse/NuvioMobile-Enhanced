@@ -1,5 +1,7 @@
 package com.nuvio.app.features.downloads
 
+import org.jetbrains.compose.resources.getPluralString
+import org.jetbrains.compose.resources.pluralStringResource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -657,7 +659,7 @@ internal fun SeasonDownloadSheet(
                             }
                             val result = enqueueSeasonDownloads(meta, ready)
                             val message = when {
-                                result.queued > 0 -> getString(Res.string.season_download_queued, result.queued)
+                                result.queued > 0 -> getPluralString(Res.plurals.season_download_queued, result.queued, result.queued)
                                 result.failureMessage != null -> result.failureMessage
                                 else -> getString(Res.string.season_download_none_queued)
                             }
@@ -722,7 +724,7 @@ private fun PendingSourcesRow(pending: Int) {
     ) {
         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
         Text(
-            text = stringResource(Res.string.season_download_sources_pending, pending),
+            text = pluralStringResource(Res.plurals.season_download_sources_pending, pending, pending),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

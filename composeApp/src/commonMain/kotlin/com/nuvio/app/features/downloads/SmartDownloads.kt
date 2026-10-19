@@ -483,7 +483,7 @@ internal object SmartDownloads {
             seasonExistingDownload(items.firstOrNull { it.logicalContentKey == key }?.status) == null
         }
         if (missing.isEmpty()) {
-            request.report("The next ${next.size} episodes are downloaded")
+            request.report(if (next.size == 1) "The next episode is downloaded" else "The next ${next.size} episodes are downloaded")
             return later
         }
         // Disk nearly full: don't ask the addons for streams that could not be saved anyway.

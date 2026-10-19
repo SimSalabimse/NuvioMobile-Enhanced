@@ -62,7 +62,6 @@
     <string name="addons_version_format">Versão %1$s</string>
     <string name="cd_selected">Selecionado</string>
     <string name="collections_copy_json">Copiar JSON</string>
-    <string name="collections_count_summary">Coleções: %1$d · Pastas: %2$d</string>
     <string name="collections_delete_message">Eliminar \"%1$s\"? Esta ação não pode ser desfeita.</string>
     <string name="collections_delete_title">Eliminar coleção</string>
     <string name="collections_editor_add_catalog">Adicionar catálogo</string>
@@ -111,7 +110,9 @@
     <string name="collections_editor_show_all_tab">Mostrar separador \"Tudo\"</string>
     <string name="collections_editor_show_gif_when_configured_desc">Reproduzir o GIF configurado em vez da capa estática, quando disponível.</string>
     <string name="collections_editor_show_gif_when_configured">Mostrar GIF quando configurado</string>
-    <string name="collections_editor_source_count">Fontes: %1$d · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">Fontes: %1$d · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">Formato do mosaico</string>
     <string name="collections_editor_view_mode_rows">Linhas</string>
     <string name="collections_editor_view_mode_tabs">Separadores</string>
@@ -295,7 +296,9 @@
     <string name="collections_editor_tmdb_subtitle_discover">Explorar TMDB</string>
     <string name="collections_empty_subtitle">Cria uma para organizares os teus catálogos.</string>
     <string name="collections_empty_title">Ainda sem coleções</string>
-    <string name="collections_folder_count">Pastas: %1$d</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">Pastas: %1$d</item>
+    </plurals>
     <string name="collections_folder_empty_items">Nenhum item encontrado</string>
     <string name="collections_folder_not_found">Pasta não encontrada</string>
     <string name="collections_header">Coleções</string>

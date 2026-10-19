@@ -79,7 +79,6 @@
     <string name="cd_selected">Selecionado</string>
     <string name="collections_copy_json">Copiar JSON</string>
     <string name="collections_copy_json_error">Os dados da coleção são grandes demais para a área de transferência deste dispositivo.</string>
-    <string name="collections_count_summary">%1$d coleção(ões), %2$d pasta(s)</string>
     <string name="collections_delete_message">Excluir "%1$s"? Isso não pode ser desfeito.</string>
     <string name="collections_delete_title">Excluir Coleção</string>
     <string name="collections_editor_add_catalog">Adicionar Catálogo</string>
@@ -128,7 +127,9 @@
     <string name="collections_editor_show_all_tab">Mostrar Aba \"Todos\"</string>
     <string name="collections_editor_show_gif_when_configured_desc">Reproduzir o GIF configurado em vez da capa estática quando disponível.</string>
     <string name="collections_editor_show_gif_when_configured">Mostrar GIF Quando Configurado</string>
-    <string name="collections_editor_source_count">%1$d fonte(s) · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d fonte · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">Formato do Tile</string>
     <string name="collections_editor_view_mode_rows">Linhas</string>
     <string name="collections_editor_view_mode_tabs">Abas</string>
@@ -324,7 +325,9 @@
     <string name="collections_editor_tmdb_subtitle_discover">TMDB Discover</string>
     <string name="collections_empty_subtitle">Crie uma para organizar seus catálogos.</string>
     <string name="collections_empty_title">Nenhuma coleção ainda</string>
-    <string name="collections_folder_count">%1$d pasta(s)</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">%1$d pasta</item>
+    </plurals>
     <string name="collections_folder_empty_items">Nenhum item encontrado</string>
     <string name="collections_folder_not_found">Pasta não encontrada</string>
     <string name="collections_header">Coleções</string>

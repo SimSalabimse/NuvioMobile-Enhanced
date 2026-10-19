@@ -58,7 +58,6 @@
   <string name="addons_version_format">Versione %1$s</string>
   <string name="cd_selected">Selezionato</string>
   <string name="collections_copy_json">Copia JSON</string>
-  <string name="collections_count_summary">%1$d collezioni, %2$d cartelle</string>
   <string name="collections_delete_message">Eliminare "%1$s"? L'azione è irreversibile.</string>
   <string name="collections_delete_title">Elimina Collezione</string>
   <string name="collections_editor_add_catalog">Aggiungi Catalogo</string>
@@ -104,14 +103,18 @@
   <string name="collections_editor_show_all_tab">Mostra scheda "Tutti"</string>
   <string name="collections_editor_show_gif_when_configured_desc">Riproduci la GIF configurata al posto della copertina statica quando disponibile.</string>
   <string name="collections_editor_show_gif_when_configured">Mostra GIF se configurata</string>
-  <string name="collections_editor_source_count">%1$d sorgenti · %2$s</string>
+  <plurals name="collections_editor_source_count">
+      <item quantity="other">%1$d sorgenti · %2$s</item>
+  </plurals>
   <string name="collections_editor_tile_shape">Forma riquadro</string>
   <string name="collections_editor_view_mode_rows">Righe</string>
   <string name="collections_editor_view_mode_tabs">Schede</string>
   <string name="collections_editor_view_mode">Modalità visualizzazione</string>
   <string name="collections_empty_subtitle">Creane una per organizzare i tuoi cataloghi.</string>
   <string name="collections_empty_title">Ancora nessuna collezione</string>
-  <string name="collections_folder_count">%1$d cartelle</string>
+  <plurals name="collections_folder_count">
+      <item quantity="other">%1$d cartelle</item>
+  </plurals>
   <string name="collections_folder_empty_items">Nessun elemento trovato</string>
   <string name="collections_folder_not_found">Cartella non trovata</string>
   <string name="collections_header">Collezioni</string>

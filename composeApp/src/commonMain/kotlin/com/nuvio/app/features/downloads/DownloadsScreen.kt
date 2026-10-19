@@ -276,7 +276,7 @@ fun DownloadsScreen(
     val pendingGroup = groupPendingCancel
     if (pendingGroup != null) {
         NuvioStatusModal(
-            title = stringResource(Res.string.downloads_group_cancel_title, pendingGroup.items.size),
+            title = pluralStringResource(Res.plurals.downloads_group_cancel_title, pendingGroup.items.size, pendingGroup.items.size),
             message = stringResource(Res.string.downloads_group_cancel_message, pendingGroup.label),
             isVisible = true,
             destructive = true,

@@ -54,7 +54,6 @@
     <string name="addons_version_format">Verzió: %1$s</string>
     <string name="cd_selected">Kiválasztva</string>
     <string name="collections_copy_json">JSON másolása</string>
-    <string name="collections_count_summary">%1$d gyűjtemény, %2$d mappa</string>
     <string name="collections_delete_message">Biztosan törlöd a(z) \"%1$s\" elemet? Ez a művelet nem vonható vissza.</string>
     <string name="collections_delete_title">Gyűjtemény törlése</string>
     <string name="collections_editor_add_catalog">Katalógus hozzáadása</string>
@@ -103,7 +102,9 @@
     <string name="collections_editor_show_all_tab">\"Összes\" fül megjelenítése</string>
     <string name="collections_editor_show_gif_when_configured_desc">A beállított GIF lejátszása a statikus borító helyett, ha elérhető.</string>
     <string name="collections_editor_show_gif_when_configured">GIF megjelenítése, ha be van állítva</string>
-    <string name="collections_editor_source_count">%1$d forrás · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d forrás · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">Csempe formája</string>
     <string name="collections_editor_view_mode_rows">Sorok</string>
     <string name="collections_editor_view_mode_tabs">Fülek</string>
@@ -271,7 +272,9 @@
     <string name="collections_editor_tmdb_subtitle_discover">TMDB Felfedezés</string>
     <string name="collections_empty_subtitle">Hozz létre egyet a katalógusaid rendszerezéséhez.</string>
     <string name="collections_empty_title">Még nincsenek gyűjtemények</string>
-    <string name="collections_folder_count">%1$d mappa</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">%1$d mappa</item>
+    </plurals>
     <string name="collections_folder_empty_items">Nem találhatók elemek</string>
     <string name="collections_folder_not_found">A mappa nem található</string>
     <string name="collections_header">Gyűjtemények</string>

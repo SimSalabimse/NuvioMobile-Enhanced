@@ -80,7 +80,6 @@
     <string name="cd_selected">নির্বাচিত</string>
     <string name="collections_copy_json">JSON কপি করুন</string>
     <string name="collections_copy_json_error">এই ডিভাইসে ক্লিপবোর্ডের জন্য কালেকশনের ডেটা খুবই বড়।</string>
-    <string name="collections_count_summary">%1$d কালেকশনগুলি, %2$d ফোল্ডারগুলি</string>
     <string name="collections_delete_message">"%1$s" মুছবেন? এটি আর পূর্বাবস্থায় ফিরিয়ে আনা যাবে না।</string>
     <string name="collections_delete_title">কালেকশন মুছুন</string>
     <string name="collections_editor_add_catalog">ক্যাটালগ যোগ করুন</string>
@@ -129,7 +128,9 @@
     <string name="collections_editor_show_all_tab">"সমস্ত" ট্যাব দেখান</string>
     <string name="collections_editor_show_gif_when_configured_desc">উপলব্ধ হলে স্ট্যাটিক কভারের পরিবর্তে কনফিগার করা GIF চালান।</string>
     <string name="collections_editor_show_gif_when_configured">কনফিগার করা হলে GIF দেখান</string>
-    <string name="collections_editor_source_count">%1$d সোর্সগুলি · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d সোর্সগুলি · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">টালি আকৃতি</string>
     <string name="collections_editor_view_mode_rows">সারি</string>
     <string name="collections_editor_view_mode_tabs">ট্যাব</string>
@@ -325,7 +326,9 @@
     <string name="collections_editor_tmdb_subtitle_discover">TMDB আবিষ্কার</string>
     <string name="collections_empty_subtitle">আপনার ক্যাটালগগুলি সংগঠিত করতে একটি তৈরি করুন।</string>
     <string name="collections_empty_title">এখনো কোনো কালেকশন নেই</string>
-    <string name="collections_folder_count">%1$d ফোল্ডারগুলি</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">%1$d ফোল্ডারগুলি</item>
+    </plurals>
     <string name="collections_folder_empty_items">কোনো আইটেম পাওয়া যায়নি</string>
     <string name="collections_folder_not_found">ফোল্ডার পাওয়া যায়নি</string>
     <string name="collections_header">কালেকশন</string>

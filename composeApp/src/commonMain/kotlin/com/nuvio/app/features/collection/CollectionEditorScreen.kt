@@ -1,5 +1,6 @@
 package com.nuvio.app.features.collection
 
+import org.jetbrains.compose.resources.pluralStringResource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -558,8 +559,9 @@ private fun FolderListItem(
                 Spacer(modifier = Modifier.width(12.dp))
             }
             Column(modifier = Modifier.weight(1f)) {
-                val summary = stringResource(
-                    Res.string.collections_editor_source_count,
+                val summary = pluralStringResource(
+                    Res.plurals.collections_editor_source_count,
+                    folder.resolvedSources.size,
                     folder.resolvedSources.size,
                     posterShapeLabel(folder.posterShape),
                 )

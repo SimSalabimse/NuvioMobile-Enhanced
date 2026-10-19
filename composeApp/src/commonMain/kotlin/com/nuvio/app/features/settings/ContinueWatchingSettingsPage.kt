@@ -1,5 +1,6 @@
 package com.nuvio.app.features.settings
 
+import com.nuvio.app.core.format.countText
 import com.nuvio.app.features.watchprogress.CONTINUE_WATCHING_PAUSE_CHOICES_DAYS
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.clickable
@@ -105,7 +106,7 @@ internal fun LazyListScope.continueWatchingSettingsContent(
                 val pauseAfterDays = ContinueWatchingPreferencesRepository.uiState.collectAsStateWithLifecycle().value.pauseStaleAfterDays
                 SettingsNavigationRow(
                     title = "Pause untouched items",
-                    description = if (pauseAfterDays == 0) "Never" else "After $pauseAfterDays days they move to a Paused row on Home",
+                    description = if (pauseAfterDays == 0) "Never" else "After ${countText(pauseAfterDays, "day")} they move to a Paused row on Home",
                     isTablet = isTablet,
                     onClick = {
                         val choices = CONTINUE_WATCHING_PAUSE_CHOICES_DAYS
