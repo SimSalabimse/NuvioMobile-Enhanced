@@ -22,6 +22,7 @@ import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import com.nuvio.app.features.downloads.DetailsDownloadProgressKind
 import androidx.compose.foundation.layout.Spacer
@@ -1491,7 +1492,7 @@ private fun TmdbEpisodeRatingBadge(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun EpisodeListCard(
     parentMetaId: String,
@@ -1630,13 +1631,15 @@ private fun EpisodeListCard(
                 }
 
                 if (formattedDate != null || hasAnyRating) {
-                    Row(
+                    // Wraps the ratings under the date on narrow cards instead of crushing them.
+                    FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         formattedDate?.let { date ->
                             Text(
                                 text = date,
+                                modifier = Modifier.align(Alignment.CenterVertically),
                                 style = MaterialTheme.typography.labelMedium.copy(
                                     fontSize = sizing.metaTextSize,
                                     fontWeight = FontWeight.Medium,
@@ -1652,6 +1655,7 @@ private fun EpisodeListCard(
                             userRating = userRating,
                             logoSize = 12.dp,
                             textSize = sizing.metaTextSize,
+                            modifier = Modifier.align(Alignment.CenterVertically),
                         )
                     }
                 }

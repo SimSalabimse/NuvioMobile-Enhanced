@@ -13,6 +13,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -67,6 +68,7 @@ import kotlinx.coroutines.runBlocking
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun DetailMetaInfo(
     meta: MetaDetails,
@@ -92,13 +94,16 @@ fun DetailMetaInfo(
             ageBadge != null ||
             validImdbRating != null
         if (hasMetaRow) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
+            // Wraps instead of squeezing the rating when year, runtime and age don't fit one line.
+            FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
+                val centered = Modifier.align(Alignment.CenterVertically)
                 releaseLine?.let { line ->
                     Text(
                         text = line,
+                        modifier = centered,
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onBackground,
                         fontWeight = FontWeight.Bold,
@@ -107,13 +112,14 @@ fun DetailMetaInfo(
                 runtimeText?.let { rt ->
                     Text(
                         text = rt,
+                        modifier = centered,
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onBackground,
                         fontWeight = FontWeight.Bold,
                     )
                 }
                 ageBadge?.let { badge ->
-                    DetailHeroMetaBadge(text = badge)
+                    DetailHeroMetaBadge(text = badge, modifier = centered)
                 }
                 if (validImdbRating != null) {
                     val imdbTextStyle = MaterialTheme.typography.titleMedium.copy(
@@ -121,6 +127,7 @@ fun DetailMetaInfo(
                         letterSpacing = 0.sp,
                     )
                     Row(
+                        modifier = centered,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         ImdbRatingSourceLabel(
@@ -287,9 +294,10 @@ internal fun MetaLabelValueRow(
 internal fun DetailHeroMetaBadge(
     text: String,
     contentColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    modifier: Modifier = Modifier,
 ) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .border(
                 border = BorderStroke(1.dp, contentColor.copy(alpha = 0.55f)),
                 shape = RoundedCornerShape(6.dp),
