@@ -131,7 +131,7 @@ internal fun LazyListScope.watchStatsContent(isTablet: Boolean) {
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = tokens.colors.textPrimary,
                                 )
-                                Text(formatWatchHours(show.watchedMs), style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted)
+                                Text(formatWatchHours(show.watchedMs), modifier = Modifier.padding(start = 8.dp), style = MaterialTheme.typography.bodySmall, color = tokens.colors.textMuted)
                             }
                         }
                     }
@@ -188,7 +188,8 @@ private fun minutesLabel(ms: Long): String {
     val minutes = ms / 60_000L
     return when {
         ms <= 0L -> "–"
-        minutes >= 60 -> "${minutes / 60}h${(minutes % 60).takeIf { it > 0 }?.let { " ${it}m" } ?: ""}"
+        // Compact ("1h30") so it fits a seventh of a 320pt-wide screen.
+        minutes >= 60 -> "${minutes / 60}h${(minutes % 60).takeIf { it > 0 }?.toString()?.padStart(2, '0') ?: ""}"
         else -> "${minutes.coerceAtLeast(1)}m"
     }
 }
@@ -201,7 +202,7 @@ private fun Last7DaysChart(days: List<Pair<String, Long>>) {
     val barArea = 88.dp
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.Bottom,
     ) {
         days.forEach { (day, ms) ->
