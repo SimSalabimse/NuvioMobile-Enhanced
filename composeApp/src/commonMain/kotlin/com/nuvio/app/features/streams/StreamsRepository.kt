@@ -305,9 +305,63 @@ object StreamsRepository {
                         )
                     }
                 }
-                val hash = persistedInfoHash ?: return null
-                return allStreams.firstOrNull { stream ->
-                    stream.behaviorHints.bingeGroup == group && stream.infoHash?.equals(hash, ignoreCase = true) == true
+            }
+
+            fun updateAutoPlayAfterStreamsChanged() {
+                if (!isDirectAutoPlayFlow || autoSelectTriggered) return
+
+                // Try binge group + filename first (most precise), then infoHash
+                if (persistedBingeGroup != null && !timeoutElapsed) {
+                    val allStreams = _uiState.value.groups.flatMap { it.streams }
+                    // Filename match
+                    if (persistedFilename != null) {
+                        val nextFilename = run {
+                            val extracted = FilenameEpisodeMatcher.extractSeasonEpisode(persistedFilename)
+                            if (extracted != null) {
+                                FilenameEpisodeMatcher.buildNextFilename(
+                                    persistedFilename, extracted.first, extracted.second, season, episode ?: 0
+                                ) ?: persistedFilename
+                            } else persistedFilename
+                        }
+                        val bingeAndFilename = allStreams.firstOrNull { stream ->
+                            stream.behaviorHints.bingeGroup == persistedBingeGroup &&
+                                FilenameEpisodeMatcher.matches(stream.behaviorHints.filename, nextFilename)
+                        }
+                        if (bingeAndFilename != null) {
+                            settleAutoPlay(StreamAutoPlayEvaluation(bingeAndFilename, allStreams))
+                            return
+                        }
+                    }
+                    // InfoHash match (fallback when filename didn't match or was null)
+                    if (persistedInfoHash != null) {
+                        val bingeAndInfoHash = allStreams.firstOrNull { stream ->
+                            stream.behaviorHints.bingeGroup == persistedBingeGroup &&
+                                stream.infoHash?.equals(persistedInfoHash, ignoreCase = true) == true
+                        }
+                        if (bingeAndInfoHash != null) {
+                            settleAutoPlay(StreamAutoPlayEvaluation(bingeAndInfoHash, allStreams))
+                            return
+                        }
+                    }
+                }
+
+                val earlyEvaluation = when {
+                    timeoutElapsed -> evaluateAutoPlay()
+                    persistedBingeGroup != null -> evaluateAutoPlay(bingeGroupOnly = true)
+                    else -> null
+                }
+                if (earlyEvaluation?.stream != null) {
+                    settleAutoPlay(earlyEvaluation)
+                    return
+                }
+
+                if (
+                    _uiState.value.groups.areAutoPlaySourcesLoaded(
+                        source = playerSettings.streamAutoPlaySource,
+                        installedAddonIds = installedAddonIds,
+                    )
+                ) {
+                    settleAutoPlay(evaluateAutoPlay())
                 }
             }
 
