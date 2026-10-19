@@ -48,13 +48,14 @@ internal object MediaAnalysisStore {
     }
 
     /** Other episodes of the same season that have fingerprints. */
-    fun seasonSiblings(parentMetaId: String, season: Int, exceptKey: String): List<MediaAnalysisResult> {
-        val prefix = "${sanitize(parentMetaId.trim())}__s${season}e"
-        return MediaAnalysisFiles.list(prefix)
-            .filter { it != exceptKey }
-            .mapNotNull(::load)
+    fun seasonSiblings(parentMetaId: String, season: Int, exceptKey: String): List<MediaAnalysisResult> =
+        seasonResults(parentMetaId, season)
+            .filter { it.key != exceptKey }
             .filter { !it.headFingerprint.isNullOrEmpty() || !it.tailFingerprint.isNullOrEmpty() }
-    }
+
+    /** Everything stored for the episodes of a season (marks without a download included). */
+    fun seasonResults(parentMetaId: String, season: Int): List<MediaAnalysisResult> =
+        MediaAnalysisFiles.list("${sanitize(parentMetaId.trim())}__s${season}e").mapNotNull(::load)
 
     /** The download is gone: drop what only applies to that file, keep fingerprints and segments. */
     fun forgetFileData(key: String) {

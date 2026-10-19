@@ -11,6 +11,8 @@ interface NuvioMediaAnalyzerBridge {
     fun analyze(fileUri: String, onDone: (String?) -> Unit)
     /** Thumbnail sheets every [intervalMs] to `<outputPrefix><n>.jpg`; [onDone] gets their layout JSON. */
     fun makeThumbnails(fileUri: String, outputPrefix: String, durationMs: Long, intervalMs: Long, tileWidth: Int, onDone: (String?) -> Unit)
+    /** Fingerprints [startMs]..[endMs] of the stream at [url] in memory; [onDone] gets the JSON or null. */
+    fun fingerprintClip(url: String, headers: Map<String, String>, startMs: Long, endMs: Long, onDone: (String?) -> Unit)
     fun cancel()
     /** 0..1 for the running call, negative when unknown. */
     fun currentProgress(): Double
@@ -45,6 +47,16 @@ internal actual object MediaAnalyzerPlatform {
         return suspendCancellableCoroutine { continuation ->
             continuation.invokeOnCancellation { bridge.cancel() }
             bridge.makeThumbnails(fileUri, outputPrefix, durationMs, intervalMs, tileWidth) { result ->
+                if (continuation.isActive) continuation.resume(result)
+            }
+        }
+    }
+
+    actual suspend fun fingerprintClip(url: String, headers: Map<String, String>, startMs: Long, endMs: Long): String? {
+        val bridge = NuvioMediaAnalyzerRegistry.bridge ?: return null
+        return suspendCancellableCoroutine { continuation ->
+            continuation.invokeOnCancellation { bridge.cancel() }
+            bridge.fingerprintClip(url, headers, startMs, endMs) { result ->
                 if (continuation.isActive) continuation.resume(result)
             }
         }

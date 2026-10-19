@@ -545,7 +545,7 @@ internal object SmartDownloads {
         return request
     }
 
-    private suspend fun pickStream(meta: MetaDetails, video: MetaVideo, reference: DownloadItem?): StreamItem? {
+    internal suspend fun pickStream(meta: MetaDetails, video: MetaVideo, reference: DownloadItem?): StreamItem? {
         val videoId = seasonStreamVideoId(meta.id, video)
         val quality = SmartDownloadSettings.snapshot().quality
         // Same source and quality as the episode already downloaded, when that addon has it.
@@ -580,7 +580,7 @@ private const val HOUR_MS = 60 * 60_000L
 private const val DAY_MS = 24 * HOUR_MS
 
 /** Below this much free space Smart Downloads don't even look for streams. */
-private const val SMART_DOWNLOAD_MIN_FREE_BYTES = 1_000_000_000L
+internal const val SMART_DOWNLOAD_MIN_FREE_BYTES = 1_000_000_000L
 
 /**
  * The source for an episode with no earlier download to copy: the auto-play pick, else (auto-play

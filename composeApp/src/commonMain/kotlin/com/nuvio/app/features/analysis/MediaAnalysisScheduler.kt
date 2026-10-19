@@ -45,7 +45,19 @@ internal expect object MediaAnalyzerPlatform {
      * their layout as JSON ([RawThumbnailSheets]); null when it failed or was cancelled.
      */
     suspend fun makeThumbnails(fileUri: String, outputPrefix: String, durationMs: Long, intervalMs: Long, tileWidth: Int): String?
+    /**
+     * Fingerprints [startMs]..[endMs] of a remote stream, in memory only, as JSON ([RawClipFingerprint]);
+     * null when it failed or was cancelled.
+     */
+    suspend fun fingerprintClip(url: String, headers: Map<String, String>, startMs: Long, endMs: Long): String?
 }
+
+@Serializable
+internal data class RawClipFingerprint(
+    val startMs: Long = 0L,
+    val stepMs: Int = 100,
+    val fingerprint: String? = null,
+)
 
 @Serializable
 internal data class RawThumbnailSheets(
@@ -424,6 +436,11 @@ internal object MediaAnalysisScheduler {
             if (references.isNotEmpty()) {
                 stage(AnalysisStage.Matching)
                 result = withContext(Dispatchers.Default) { SkipLearning.learnFromReferences(result, references) }
+            }
+            // No stored episode to match: fingerprint a clip of the nearest episode with known times.
+            if (siblings.isEmpty() && references.isEmpty()) {
+                stage(AnalysisStage.Matching)
+                result = SiblingClipReference.apply(item, result)
             }
         }
         MediaAnalysisStore.save(result)

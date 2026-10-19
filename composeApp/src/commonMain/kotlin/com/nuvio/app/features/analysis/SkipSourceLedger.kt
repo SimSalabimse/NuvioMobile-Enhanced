@@ -86,7 +86,11 @@ internal fun skipSourcesFor(item: DownloadItem): List<Pair<String, String>> {
         val source = when {
             externalSkipSource(key, result, kind) != null -> externalSkipSource(key, result, kind)
             result != null && result.fileName == item.fileName && result.hasOnDevice(kind) ->
-                if (kind in result.learnedTypes) "From your mark" else skipSourceTag(ON_DEVICE_SKIP_PROVIDER)
+                when {
+                    kind in result.learnedTypes -> "From your mark"
+                    kind in result.foundUsing -> "Found using E${result.foundUsing.getValue(kind)}"
+                    else -> skipSourceTag(ON_DEVICE_SKIP_PROVIDER)
+                }
             else -> null
         }
         source?.let { label to it }

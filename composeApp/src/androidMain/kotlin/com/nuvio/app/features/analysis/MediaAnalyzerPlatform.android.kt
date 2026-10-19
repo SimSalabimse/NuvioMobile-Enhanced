@@ -9,4 +9,5 @@ internal actual object MediaAnalyzerPlatform {
     actual fun progress(): Double = -1.0
     actual fun lastError(): String? = null
     actual suspend fun makeThumbnails(fileUri: String, outputPrefix: String, durationMs: Long, intervalMs: Long, tileWidth: Int): String? = null
+    actual suspend fun fingerprintClip(url: String, headers: Map<String, String>, startMs: Long, endMs: Long): String? = null
 }

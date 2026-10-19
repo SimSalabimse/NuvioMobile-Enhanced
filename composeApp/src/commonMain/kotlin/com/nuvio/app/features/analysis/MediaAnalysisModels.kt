@@ -55,6 +55,8 @@ internal data class MediaAnalysisResult(
     val userSegments: Map<String, UserSegment> = emptyMap(),
     /** Segment types found by matching another episode's user mark. */
     val learnedTypes: Set<String> = emptySet(),
+    /** Segment types found from a clip of another episode ([SiblingClipReference]): type to episode. */
+    val foundUsing: Map<String, Int> = emptyMap(),
 )
 
 @Serializable

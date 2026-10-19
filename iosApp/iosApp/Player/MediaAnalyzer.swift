@@ -79,6 +79,23 @@ final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
         }
     }
 
+    /// Fingerprints [startMs, endMs] of another episode's stream at [url]; the audio is decoded in
+    /// memory only (nothing is written to disk). [onDone] gets `{"startMs","stepMs","fingerprint"}`.
+    func fingerprintClip(
+        url: String,
+        headers: [String: String],
+        startMs: Int64,
+        endMs: Int64,
+        onDone: @escaping (String?) -> Void
+    ) {
+        abort.reset()
+        let flag = abort
+        queue.async {
+            let result = ClipFingerprintRun(url: url, headers: headers, startMs: startMs, endMs: endMs, abort: flag).run()
+            DispatchQueue.main.async { onDone(result) }
+        }
+    }
+
     func cancel() {
         abort.set()
     }
@@ -371,6 +388,120 @@ private final class MediaAnalysisRun {
         }
         guard let data = try? JSONSerialization.data(withJSONObject: output) else { return nil }
         log("done durationMs=\(measuredMs) steps=\(acc.energyLevels.count) head=\(acc.headSamples.count) tail=\(acc.tailSamples.count)")
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func log(_ message: String) {
+        InAppLogBridge.shared.info(tag: "Analysis/iOS", message: message)
+    }
+}
+
+/// One time window of a remote episode, fingerprinted like the head of a downloaded file.
+private final class ClipFingerprintRun {
+    private static let noPtsValue = Int64.min
+
+    private let url: String
+    private let headers: [String: String]
+    private let startMs: Int64
+    private let endMs: Int64
+    private let abort: MediaAnalyzerAbortFlag
+
+    init(url: String, headers: [String: String], startMs: Int64, endMs: Int64, abort: MediaAnalyzerAbortFlag) {
+        self.url = url
+        self.headers = headers
+        self.startMs = startMs
+        self.endMs = min(endMs, startMs + MediaAnalysisRun.headMs)
+        self.abort = abort
+    }
+
+    func run() -> String? {
+        guard endMs > startMs, let allocated = avformat_alloc_context() else { return nil }
+        allocated.pointee.interrupt_callback.callback = { opaque in
+            guard let opaque else { return 0 }
+            return Unmanaged<MediaAnalyzerAbortFlag>.fromOpaque(opaque).takeUnretainedValue().isSet ? 1 : 0
+        }
+        allocated.pointee.interrupt_callback.opaque = Unmanaged.passUnretained(abort).toOpaque()
+        var options: OpaquePointer?
+        defer { av_dict_free(&options) }
+        _ = av_dict_set(&options, "rw_timeout", "10000000", 0)
+        var headerLines = ""
+        for (name, value) in headers {
+            if name.caseInsensitiveCompare("User-Agent") == .orderedSame {
+                _ = av_dict_set(&options, "user_agent", value, 0)
+            } else {
+                headerLines += "\(name): \(value)\r\n"
+            }
+        }
+        if !headerLines.isEmpty { _ = av_dict_set(&options, "headers", headerLines, 0) }
+        var contextPointer: UnsafeMutablePointer<AVFormatContext>? = allocated
+        guard avformat_open_input(&contextPointer, url, nil, &options) >= 0, let context = contextPointer else {
+            log("clip open failed")
+            return nil
+        }
+        defer { avformat_close_input(&contextPointer) }
+        _ = avformat_find_stream_info(context, nil)
+
+        let audioIndex = av_find_best_stream(context, AVMEDIA_TYPE_AUDIO, -1, -1, nil, 0)
+        guard audioIndex >= 0, let stream = context.pointee.streams[Int(audioIndex)],
+              let parameters = stream.pointee.codecpar,
+              let decoder = avcodec_find_decoder(parameters.pointee.codec_id),
+              let codecContext = avcodec_alloc_context3(decoder) else { return nil }
+        var codecPointer: UnsafeMutablePointer<AVCodecContext>? = codecContext
+        defer { avcodec_free_context(&codecPointer) }
+        guard avcodec_parameters_to_context(codecContext, parameters) >= 0,
+              avcodec_open2(codecContext, decoder, nil) >= 0 else { return nil }
+        for index in 0..<Int(context.pointee.nb_streams) where index != Int(audioIndex) {
+            context.pointee.streams[index]?.pointee.discard = AVDISCARD_ALL
+        }
+
+        var seekTarget = startMs * 1000
+        if context.pointee.start_time != Self.noPtsValue { seekTarget += context.pointee.start_time }
+        guard av_seek_frame(context, -1, seekTarget, AVSEEK_FLAG_BACKWARD) >= 0 else {
+            log("clip seek failed")
+            return nil
+        }
+        avcodec_flush_buffers(codecContext)
+        let timeBase = stream.pointee.time_base
+        let streamStart = stream.pointee.start_time != Self.noPtsValue ? stream.pointee.start_time : 0
+
+        var accumulator: Accumulator?
+        var originMs: Int64 = -1
+        var reachedEnd = false
+        guard let packet = av_packet_alloc(), let frame = av_frame_alloc() else { return nil }
+        var packetPointer: UnsafeMutablePointer<AVPacket>? = packet
+        var framePointer: UnsafeMutablePointer<AVFrame>? = frame
+        defer {
+            av_packet_free(&packetPointer)
+            av_frame_free(&framePointer)
+        }
+        while !abort.isSet, !reachedEnd, av_read_frame(context, packet) >= 0 {
+            if packet.pointee.stream_index == audioIndex, avcodec_send_packet(codecContext, packet) >= 0 {
+                while avcodec_receive_frame(codecContext, frame) >= 0 {
+                    defer { av_frame_unref(frame) }
+                    let pts = frame.pointee.best_effort_timestamp
+                    let frameMs = pts == Self.noPtsValue ? nil : av_rescale_q(pts - streamStart, timeBase, AVRational(num: 1, den: 1000))
+                    if let frameMs, frameMs > endMs { reachedEnd = true; break }
+                    if originMs < 0 {
+                        // Audio before the window (the seek lands on an earlier keyframe) is skipped.
+                        guard let frameMs, frameMs >= startMs else { continue }
+                        originMs = frameMs
+                    }
+                    let rate = Int(frame.pointee.sample_rate)
+                    let channels = Int(frame.pointee.ch_layout.nb_channels)
+                    guard rate > 0, channels > 0 else { continue }
+                    if accumulator == nil {
+                        accumulator = Accumulator(rate: rate, channels: channels, durationMs: 0, tailStartMs: 0)
+                    }
+                    accumulator?.consume(frame: frame)
+                }
+            }
+            av_packet_unref(packet)
+        }
+        guard !abort.isSet, let acc = accumulator,
+              let print = Fingerprinter.fingerprint(samples: acc.headSamples, rate: acc.fingerprintRate) else { return nil }
+        let output: [String: Any] = ["startMs": originMs, "stepMs": MediaAnalysisRun.stepMs, "fingerprint": print]
+        guard let data = try? JSONSerialization.data(withJSONObject: output) else { return nil }
+        log("clip done startMs=\(originMs) decodedMs=\(acc.decodedMs)")
         return String(data: data, encoding: .utf8)
     }
 
