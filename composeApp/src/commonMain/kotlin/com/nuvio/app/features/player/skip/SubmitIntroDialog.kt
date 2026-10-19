@@ -386,10 +386,12 @@ fun SubmitIntroDialog(
             ) {
                 Text(
                     text = stringResource(Res.string.submit_intro_title),
+                    modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Box(
                     modifier = Modifier
