@@ -713,8 +713,10 @@ private fun DownloadRow(
                     )
                     Text(
                         text = statusText(item),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TABULAR_DIGITS),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                     LocalDownloadProblems.current[item.id]?.let { problem ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -795,11 +797,17 @@ private fun DownloadRow(
 
             if (item.status == DownloadStatus.Downloading) {
                 val speeds by DownloadSpeeds.speeds.collectAsState()
-                speedAndEta(speeds[item.id], item.remainingBytesOrNull())?.let { line ->
+                val progressLine = listOfNotNull(
+                    item.downloadsScreenProgressPercent()?.let { "$it%" },
+                    speedAndEta(speeds[item.id], item.remainingBytesOrNull()),
+                ).joinToString(" · ")
+                if (progressLine.isNotEmpty()) {
                     Text(
-                        text = line,
-                        style = MaterialTheme.typography.bodySmall,
+                        text = progressLine,
+                        style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = TABULAR_DIGITS),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 if (item.totalBytes != null && item.totalBytes > 0L) {
@@ -982,6 +990,9 @@ private fun SectionTitle(title: String) {
     )
 }
 
+/** Digits of equal width, so changing numbers don't shift the text. */
+private const val TABULAR_DIGITS = "tnum"
+
 @Composable
 private fun statusText(item: DownloadItem): String {
     val size = if (item.totalBytes != null && item.totalBytes > 0L) {
@@ -994,9 +1005,7 @@ private fun statusText(item: DownloadItem): String {
         DownloadStatus.Downloading -> if (item.needsLinkRefresh && item.errorMessage != null) {
             item.errorMessage
         } else {
-            val label = stringResource(Res.string.downloads_status_downloading, size)
-            val percent = item.downloadsScreenProgressPercent()
-            if (percent != null) "$label • $percent%" else label
+            stringResource(Res.string.downloads_status_downloading, size)
         }
         DownloadStatus.Paused -> if (item.errorMessage != null && (item.waitingForAppOpen || item.errorMessage.startsWith(WAITING_FOR_SPACE_PREFIX))) item.errorMessage else stringResource(Res.string.downloads_status_paused, size)
         DownloadStatus.Queued -> stringResource(Res.string.downloads_status_queued)

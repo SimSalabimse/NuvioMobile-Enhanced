@@ -10,7 +10,8 @@
         "Greek and Italian translations, plus wording fixes in several other languages. Library sections show proper titles.",
         "Settings > Downloads storage: new \"Verify downloads\" checks every finished download and re-downloads the damaged ones.",
         "Finished downloads are checked right away. A damaged file is re-downloaded by itself with the message \"Damaged, re-downloading\".",
-        "If a download plays with errors or keeps jumping ahead, the player offers to stream instead and re-downloads the file afterwards."
+        "If a download plays with errors or keeps jumping ahead, the player offers to stream instead and re-downloads the file afterwards.",
+        "Download rows show a steady status: size on the first line, percent, speed and time left on the second, with fixed-width digits so nothing jumps while it counts."
       ],
       "fixed": [
         "Finish a series never goes back to earlier episodes: it remembers the furthest episode you reached, and at the end of the show it removes the goal (\"Finished <show>, goal removed\") instead of starting again at S1E1.",
