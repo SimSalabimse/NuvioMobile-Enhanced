@@ -769,8 +769,7 @@ private fun ContinueWatchingCard(
                 contentScale = ContentScale.Crop,
             )
         }
-        if (item.shufflePlayback) ShuffleBadge(Modifier.align(Alignment.TopStart).padding(8.dp))
-        FinishSeriesGoalBadge(item.parentMetaType, item.parentMetaId, Modifier.align(Alignment.BottomEnd).padding(bottom = 6.dp))
+        ArtworkBadges(item, Modifier.align(Alignment.TopStart))
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -856,6 +855,15 @@ private fun ContinueWatchingCard(
                 )
             }
         }
+    }
+}
+
+/** Shuffle and Finish-a-series badges, top-left so they never cover the title or progress bar. */
+@Composable
+private fun ArtworkBadges(item: ContinueWatchingItem, modifier: Modifier) {
+    Row(modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (item.shufflePlayback) ShuffleBadge()
+        FinishSeriesGoalBadge(item.parentMetaType, item.parentMetaId)
     }
 }
 
@@ -1083,8 +1091,7 @@ private fun ContinueWatchingPosterCard(
                     contentScale = if (item.isCloudLibraryItem()) ContentScale.Fit else ContentScale.Crop,
                 )
             }
-            if (item.shufflePlayback) ShuffleBadge(Modifier.align(Alignment.TopStart).padding(8.dp))
-            FinishSeriesGoalBadge(item.parentMetaType, item.parentMetaId, Modifier.align(Alignment.BottomEnd).padding(bottom = 6.dp))
+            ArtworkBadges(item, Modifier.align(Alignment.TopStart))
             if (item.progressFraction <= 0f && item.seasonNumber != null && item.episodeNumber != null) {
                 Box(
                     modifier = Modifier
