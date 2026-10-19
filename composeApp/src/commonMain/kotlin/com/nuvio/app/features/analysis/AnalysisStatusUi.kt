@@ -169,7 +169,7 @@ private fun PartChips(item: DownloadItem, parts: AnalysisParts) {
                 else -> null
             }?.takeIf { part != AnalysisPart.Ready }
             if (externalSource != null) {
-                PartChip("$label from $externalSource ✓", ready = true)
+                PartChip("$label · $externalSource ✓", ready = true)
                 return@forEach
             }
             if (label == recapLabel && part == AnalysisPart.NotFound) {

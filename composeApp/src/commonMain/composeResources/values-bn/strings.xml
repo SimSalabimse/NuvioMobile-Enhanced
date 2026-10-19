@@ -626,7 +626,6 @@
     <string name="detail_trailers_title">ট্রেলার</string>
     <string name="downloads_empty_episodes">কোনো সম্পূর্ণ পর্ব নেই</string>
     <string name="downloads_empty_title">এখনো কোনো ডাউনলোড হয়নি</string>
-    <string name="downloads_episode_count">%1$d ডাউনলোড করা পর্বগুলি</string>
     <string name="downloads_open_directory">ডাউনলোড ফোল্ডার খুলুন</string>
     <string name="downloads_open_directory_failed">ডাউনলোড ফোল্ডার খুলতে পারেনি</string>
     <string name="downloads_section_active">সক্রিয়</string>
@@ -634,7 +633,6 @@
     <string name="downloads_section_shows">শো</string>
     <string name="downloads_show_downloads">ডাউনলোড দেখান</string>
     <string name="downloads_status_completed">সম্পূর্ণ হয়েছে • %1$s</string>
-    <string name="downloads_status_downloading">ডাউনলোড হচ্ছে • %1$s</string>
     <string name="downloads_status_failed">ব্যর্থ</string>
     <string name="downloads_status_paused">বিরাম দেওয়া হয়েছে • %1$s</string>
     <string name="episodes_cd_watched">দেখেছি</string>

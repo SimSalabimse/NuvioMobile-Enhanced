@@ -616,7 +616,6 @@
     <string name="detail_trailers_title">Trailers</string>
     <string name="downloads_empty_episodes">Geen voltooide afleveringen</string>
     <string name="downloads_empty_title">Nog geen downloads</string>
-    <string name="downloads_episode_count">%1$d gedownloade aflevering(en)</string>
     <string name="downloads_open_directory">Downloadsmap openen</string>
     <string name="downloads_open_directory_failed">Kan de downloadsmap niet openen</string>
     <string name="downloads_section_active">Actief</string>
@@ -624,7 +623,6 @@
     <string name="downloads_section_shows">Series</string>
     <string name="downloads_show_downloads">Downloads tonen</string>
     <string name="downloads_status_completed">Voltooid • %1$s</string>
-    <string name="downloads_status_downloading">Downloaden • %1$s</string>
     <string name="downloads_status_failed">Mislukt</string>
     <string name="downloads_status_paused">Gepauzeerd • %1$s</string>
     <string name="episodes_cd_watched">Bekeken</string>

@@ -1,7 +1,9 @@
 package com.nuvio.app.features.analysis
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.FastForward
@@ -11,9 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.downloads.DownloadItem
@@ -86,7 +86,7 @@ internal fun skipSourcesFor(item: DownloadItem): List<Pair<String, String>> {
         val source = when {
             externalSkipSource(key, result, kind) != null -> externalSkipSource(key, result, kind)
             result != null && result.fileName == item.fileName && result.hasOnDevice(kind) ->
-                if (kind in result.learnedTypes) "On-device (from your mark)" else skipSourceTag(ON_DEVICE_SKIP_PROVIDER)
+                if (kind in result.learnedTypes) "From your mark" else skipSourceTag(ON_DEVICE_SKIP_PROVIDER)
             else -> null
         }
         source?.let { label to it }
@@ -99,7 +99,7 @@ internal fun skipSourcesFor(item: DownloadItem): List<Pair<String, String>> {
  */
 private fun externalSkipSource(key: String, result: MediaAnalysisResult?, kind: String): String? {
     val mark = result?.userSegments?.get(kind)?.takeIf { it.endMs > it.startMs }
-    if (mark != null) return skipSourceTag(if (mark.imported) SkipLearning.PROVIDER_IMPORTED else SkipLearning.PROVIDER)
+    if (mark != null) return if (mark.imported) "Your submission" else "Your mark"
     val online = SkipSourceLedger.online(key)[kind] ?: return null
     return skipSourceTag(online) ?: online
 }
@@ -123,7 +123,7 @@ private fun MediaAnalysisResult.hasOnDevice(kind: String): Boolean = when (kind)
     else -> false
 }
 
-/** "Skip: Intro · TheIntroDB  Recap · On-device …" on a downloaded episode card. */
+/** One line per segment ("Intro · Your mark", "Recap · TheIntroDB") on a downloaded episode card. */
 @Composable
 fun SkipSourcesRow(item: DownloadItem) {
     if (item.status != DownloadStatus.Completed || item.seasonNumber == null || item.episodeNumber == null) return
@@ -132,14 +132,12 @@ fun SkipSourcesRow(item: DownloadItem) {
     val sources = remember(item.id, item.fileName, ledger, analysis) { skipSourcesFor(item) }
     if (sources.isEmpty()) return
     val color = MaterialTheme.colorScheme.onSurfaceVariant
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Icon(Icons.Rounded.FastForward, contentDescription = null, tint = color, modifier = Modifier.size(14.dp))
-        Text(
-            text = sources.joinToString("  ·  ") { (kind, source) -> "$kind: $source" },
-            style = MaterialTheme.typography.labelSmall,
-            color = color,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Icon(Icons.Rounded.FastForward, contentDescription = null, tint = color, modifier = Modifier.padding(top = 1.dp).size(14.dp))
+        Column {
+            sources.forEach { (kind, source) ->
+                Text(text = "$kind · $source", style = MaterialTheme.typography.labelSmall, color = color)
+            }
+        }
     }
 }

@@ -513,13 +513,11 @@
     <string name="detail_trailers_title">予告編</string>
     <string name="downloads_empty_episodes">完了したエピソードがありません</string>
     <string name="downloads_empty_title">ダウンロードがありません</string>
-    <string name="downloads_episode_count">%1$d 件のエピソードをダウンロード済み</string>
     <string name="downloads_section_active">ダウンロード中</string>
     <string name="downloads_section_movies">映画</string>
     <string name="downloads_section_shows">シリーズ</string>
     <string name="downloads_show_downloads">ダウンロードを表示</string>
     <string name="downloads_status_completed">完了 • %1$s</string>
-    <string name="downloads_status_downloading">ダウンロード中 • %1$s</string>
     <string name="downloads_status_failed">失敗</string>
     <string name="downloads_status_paused">一時停止中 • %1$s</string>
     <string name="episodes_cd_watched">視聴済み</string>

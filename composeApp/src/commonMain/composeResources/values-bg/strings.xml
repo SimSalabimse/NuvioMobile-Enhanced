@@ -616,7 +616,6 @@
     <string name="detail_trailers_title">Трейлъри</string>
     <string name="downloads_empty_episodes">Няма завършени епизоди</string>
     <string name="downloads_empty_title">Все още няма изтегляния</string>
-    <string name="downloads_episode_count">%1$d изтеглен(и) епизод(а)</string>
     <string name="downloads_open_directory">Отвори папката за изтегляния</string>
     <string name="downloads_open_directory_failed">Неуспешно отваряне на папката за изтегляния</string>
     <string name="downloads_section_active">Активни</string>
@@ -624,7 +623,6 @@
     <string name="downloads_section_shows">Сериали</string>
     <string name="downloads_show_downloads">Покажи изтеглянията</string>
     <string name="downloads_status_completed">Завършено • %1$s</string>
-    <string name="downloads_status_downloading">Изтегляне • %1$s</string>
     <string name="downloads_status_failed">Неуспешно</string>
     <string name="downloads_status_paused">Паузирано • %1$s</string>
     <string name="episodes_cd_watched">Гледано</string>

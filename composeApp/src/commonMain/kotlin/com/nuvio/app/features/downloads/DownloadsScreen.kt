@@ -1,5 +1,7 @@
 package com.nuvio.app.features.downloads
 
+import androidx.compose.foundation.layout.PaddingValues
+import org.jetbrains.compose.resources.pluralStringResource
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -439,27 +441,28 @@ private fun LazyListScope.downloadsRootContent(
                         val unfinishedCount = episodes.size - doneCount
                         Text(
                             text = listOfNotNull(
-                                stringResource(Res.string.downloads_episode_count, doneCount),
-                                if (unfinishedCount > 0) {
-                                    stringResource(Res.string.downloads_in_progress_count, unfinishedCount)
-                                } else {
-                                    null
-                                },
+                                doneCount.takeIf { it > 0 }?.let { pluralStringResource(Res.plurals.downloads_episodes, it, it) },
+                                unfinishedCount.takeIf { it > 0 }?.let { stringResource(Res.string.downloads_in_progress_count, it) },
                             ).joinToString(" · "),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                    }
-                    // One season in progress: stop it right here. Several: each season has its own
-                    // Cancel season inside the show.
-                    val unfinishedSeasons = unfinishedSeasonGroupsOfShow(uiState.items, item.parentMetaId)
-                    if (unfinishedSeasons.size == 1) {
-                        val group = unfinishedSeasons.first()
-                        TextButton(onClick = { onCancelSeasonGroup(group) }) {
-                            Text(
-                                text = stringResource(Res.string.downloads_season_cancel),
-                                color = MaterialTheme.colorScheme.error,
-                            )
+                        // One season in progress: stop it right here, under the counts so neither
+                        // squeezes the other. Several: each season has its own Cancel season inside.
+                        val unfinishedSeasons = unfinishedSeasonGroupsOfShow(uiState.items, item.parentMetaId)
+                        if (unfinishedSeasons.size == 1) {
+                            val group = unfinishedSeasons.first()
+                            TextButton(
+                                onClick = { onCancelSeasonGroup(group) },
+                                contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier.height(32.dp),
+                            ) {
+                                Text(
+                                    text = stringResource(Res.string.downloads_season_cancel),
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.labelLarge,
+                                )
+                            }
                         }
                     }
                     Icon(
@@ -800,8 +803,8 @@ private fun DownloadRow(
                 val progressLine = listOfNotNull(
                     item.downloadsScreenProgressPercent()?.let { "$it%" },
                     speedAndEta(speeds[item.id], item.remainingBytesOrNull()),
-                ).joinToString(" · ")
-                if (progressLine.isNotEmpty()) {
+                ).joinToString(" · ").ifEmpty { stringResource(Res.string.downloads_status_downloading_short) }
+                if (!item.needsLinkRefresh || item.errorMessage == null) {
                     Text(
                         text = progressLine,
                         style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = TABULAR_DIGITS),
@@ -898,7 +901,7 @@ private fun ActiveSeasonGroupHeader(
                         ?.sumOf { it ?: 0L }
                     Text(
                         text = listOfNotNull(
-                            stringResource(Res.string.downloads_group_count, group.items.size),
+                            pluralStringResource(Res.plurals.downloads_episodes, group.items.size, group.items.size),
                             percent?.let { "$it%" },
                             speedAndEta(groupSpeed, groupRemaining),
                         ).joinToString(" · "),
@@ -996,28 +999,45 @@ private const val TABULAR_DIGITS = "tnum"
 @Composable
 private fun statusText(item: DownloadItem): String {
     val size = if (item.totalBytes != null && item.totalBytes > 0L) {
-        "${formatBytes(item.downloadedBytes)} / ${formatBytes(item.totalBytes)}"
+        "${compactDownloadBytes(item.downloadedBytes)} / ${compactDownloadBytes(item.totalBytes)}"
     } else {
-        formatBytes(item.downloadedBytes)
+        compactDownloadBytes(item.downloadedBytes)
     }
 
     return when (item.status) {
         DownloadStatus.Downloading -> if (item.needsLinkRefresh && item.errorMessage != null) {
             item.errorMessage
         } else {
-            stringResource(Res.string.downloads_status_downloading, size)
+            // The progress line below says it is downloading.
+            size
         }
         DownloadStatus.Paused -> if (item.errorMessage != null && (item.waitingForAppOpen || item.errorMessage.startsWith(WAITING_FOR_SPACE_PREFIX))) item.errorMessage else stringResource(Res.string.downloads_status_paused, size)
         DownloadStatus.Queued -> stringResource(Res.string.downloads_status_queued)
         DownloadStatus.Completed -> stringResource(
             Res.string.downloads_status_completed,
-            formatBytes(item.totalBytes ?: item.downloadedBytes),
+            compactDownloadBytes(item.totalBytes ?: item.downloadedBytes),
         )
         DownloadStatus.Failed -> item.errorMessage ?: stringResource(Res.string.downloads_status_failed)
     }
 }
 
 private fun formatBytes(bytes: Long): String = formatDownloadBytes(bytes)
+
+/**
+ * Sizes for lines that must fit: whole KB/MB and one decimal from a GB up ("134 MB", "1.9 GB",
+ * in the phone's number format).
+ */
+internal fun compactDownloadBytes(bytes: Long): String = formatDownloadBytes(compactByteCount(bytes))
+
+internal fun compactByteCount(bytes: Long): Long {
+    val step = when {
+        bytes >= 1_000_000_000L -> 100_000_000L
+        bytes >= 1_000_000L -> 1_000_000L
+        bytes >= 1_000L -> 1_000L
+        else -> return bytes
+    }
+    return (bytes + step / 2) / step * step
+}
 
 internal fun formatDownloadBytes(bytes: Long): String {
     platformByteCountString(bytes)?.let { return it }

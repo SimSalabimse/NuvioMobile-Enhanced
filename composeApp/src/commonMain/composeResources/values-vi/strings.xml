@@ -625,7 +625,6 @@
     <string name="detail_trailers_title">Trailer</string>
     <string name="downloads_empty_episodes">Không có tập phim đã hoàn tất nào</string>
     <string name="downloads_empty_title">Không có tải xuống nào</string>
-    <string name="downloads_episode_count">%1$d tập đã tải xuống</string>
     <string name="downloads_open_directory">Mở thư mục tải xuống</string>
     <string name="downloads_open_directory_failed">Không thể mở thư mục tải xuống</string>
     <string name="downloads_section_active">Đang hoạt động</string>
@@ -633,7 +632,6 @@
     <string name="downloads_section_shows">Chương trình</string>
     <string name="downloads_show_downloads">Hiển thị nội dung tải xuống</string>
     <string name="downloads_status_completed">Đã hoàn tất • %1$s</string>
-    <string name="downloads_status_downloading">Đang tải • %1$s</string>
     <string name="downloads_status_failed">Thất bại</string>
     <string name="downloads_status_paused">Đã tạm dừng • %1$s</string>
     <string name="episodes_cd_watched">Đã xem</string>

@@ -625,7 +625,6 @@
     <string name="detail_trailers_title">Trailers</string>
     <string name="downloads_empty_episodes">Nenhum episódio concluído</string>
     <string name="downloads_empty_title">Nenhum download ainda</string>
-    <string name="downloads_episode_count">%1$d episódio(s) baixado(s)</string>
     <string name="downloads_open_directory">Abrir pasta de downloads</string>
     <string name="downloads_open_directory_failed">Não foi possível abrir a pasta de downloads</string>
     <string name="downloads_section_active">Ativo</string>
@@ -633,7 +632,6 @@
     <string name="downloads_section_shows">Séries</string>
     <string name="downloads_show_downloads">Mostrar Downloads</string>
     <string name="downloads_status_completed">Concluído • %1$s</string>
-    <string name="downloads_status_downloading">Baixando • %1$s</string>
     <string name="downloads_status_failed">Falhou</string>
     <string name="downloads_status_paused">Pausado • %1$s</string>
     <string name="episodes_cd_watched">Assistido</string>

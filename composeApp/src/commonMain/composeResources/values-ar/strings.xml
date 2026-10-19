@@ -553,7 +553,6 @@
     <string name="detail_trailers_title">الإعلانات</string>
     <string name="downloads_empty_episodes">لا توجد حلقات مكتملة التنزيل</string>
     <string name="downloads_empty_title">لا توجد تنزيلات بعد</string>
-    <string name="downloads_episode_count">%1$d حلقة منزّلة</string>
     <string name="downloads_open_directory">فتح مجلد التنزيلات</string>
     <string name="downloads_open_directory_failed">تعذر فتح مجلد التنزيلات</string>
     <string name="downloads_section_active">نشط</string>
@@ -561,7 +560,6 @@
     <string name="downloads_section_shows">مسلسلات</string>
     <string name="downloads_show_downloads">إظهار التنزيلات</string>
     <string name="downloads_status_completed">مكتمل • %1$s</string>
-    <string name="downloads_status_downloading">جارٍ التنزيل • %1$s</string>
     <string name="downloads_status_failed">فشل</string>
     <string name="downloads_status_paused">متوقف مؤقتًا • %1$s</string>
     <string name="episodes_cd_watched">تمت المشاهدة</string>

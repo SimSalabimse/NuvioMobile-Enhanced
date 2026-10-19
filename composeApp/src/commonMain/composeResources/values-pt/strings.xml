@@ -508,13 +508,11 @@
     <string name="detail_trailers_title">Trailers</string>
     <string name="downloads_empty_episodes">Nenhum episódio concluído</string>
     <string name="downloads_empty_title">Ainda sem transferências</string>
-    <string name="downloads_episode_count">Episódios transferidos: %1$d</string>
     <string name="downloads_section_active">Ativas</string>
     <string name="downloads_section_movies">Filmes</string>
     <string name="downloads_section_shows">Séries</string>
     <string name="downloads_show_downloads">Mostrar transferências</string>
     <string name="downloads_status_completed">Concluído • %1$s</string>
-    <string name="downloads_status_downloading">A transferir • %1$s</string>
     <string name="downloads_status_failed">Falhou</string>
     <string name="downloads_status_paused">Em pausa • %1$s</string>
     <string name="episodes_cd_watched">Visto</string>

@@ -457,13 +457,11 @@
     <string name="detail_trailers_title">Előzetesek</string>
     <string name="downloads_empty_episodes">Nincsenek befejezett epizódok</string>
     <string name="downloads_empty_title">Még nincsenek letöltések</string>
-    <string name="downloads_episode_count">%1$d letöltött epizód</string>
     <string name="downloads_section_active">Aktív</string>
     <string name="downloads_section_movies">Filmek</string>
     <string name="downloads_section_shows">Sorozatok</string>
     <string name="downloads_show_downloads">Letöltések megjelenítése</string>
     <string name="downloads_status_completed">Befejezve • %1$s</string>
-    <string name="downloads_status_downloading">Letöltés • %1$s</string>
     <string name="downloads_status_failed">Sikertelen</string>
     <string name="downloads_status_paused">Szüneteltetve • %1$s</string>
     <string name="episodes_cd_watched">Megtekintett</string>

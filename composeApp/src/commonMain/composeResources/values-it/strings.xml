@@ -284,13 +284,11 @@
   <string name="detail_trailers_title">Trailer</string>
   <string name="downloads_empty_episodes">Nessun episodio completato</string>
   <string name="downloads_empty_title">Ancora nessun download</string>
-  <string name="downloads_episode_count">%1$d episodi scaricati</string>
   <string name="downloads_section_active">Attivi</string>
   <string name="downloads_section_movies">Film</string>
   <string name="downloads_section_shows">Serie TV</string>
   <string name="downloads_show_downloads">Mostra download</string>
   <string name="downloads_status_completed">Completato • %1$s</string>
-  <string name="downloads_status_downloading">Download in corso • %1$s</string>
   <string name="downloads_status_failed">Fallito</string>
   <string name="downloads_status_paused">In pausa • %1$s</string>
   <string name="episodes_cd_watched">Visto</string>

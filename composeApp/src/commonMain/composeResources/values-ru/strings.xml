@@ -616,7 +616,6 @@
     <string name="detail_trailers_title">Трейлеры</string>
     <string name="downloads_empty_episodes">Нет завершенных серий</string>
     <string name="downloads_empty_title">Пока нет загрузок</string>
-    <string name="downloads_episode_count">%1$d скачанные эпизоды</string>
     <string name="downloads_open_directory">Открыть папку загрузок</string>
     <string name="downloads_open_directory_failed">Не удалось открыть папку загрузок</string>
     <string name="downloads_section_active">Активный</string>
@@ -624,7 +623,6 @@
     <string name="downloads_section_shows">Шоу</string>
     <string name="downloads_show_downloads">Показать загрузки</string>
     <string name="downloads_status_completed">Завершено • %1$s</string>
-    <string name="downloads_status_downloading">Загрузка • %1$s</string>
     <string name="downloads_status_failed">Не удалось</string>
     <string name="downloads_status_paused">Приостановлено • %1$s</string>
     <string name="episodes_cd_watched">Смотрел</string>

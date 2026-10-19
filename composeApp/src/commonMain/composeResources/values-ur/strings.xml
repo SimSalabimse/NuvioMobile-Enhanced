@@ -625,7 +625,6 @@
     <string name="detail_trailers_title">ٹریلرز</string>
     <string name="downloads_empty_episodes">کوئی مکمل شدہ قسط نہیں</string>
     <string name="downloads_empty_title">ابھی کوئی ڈاؤن لوڈ نہیں</string>
-    <string name="downloads_episode_count">%1$d ڈاؤن لوڈ شدہ اقساط</string>
     <string name="downloads_open_directory">ڈاؤن لوڈز فولڈر کھولیں</string>
     <string name="downloads_open_directory_failed">ڈاؤن لوڈز فولڈر نہیں کھل سکا</string>
     <string name="downloads_section_active">فعال</string>
@@ -633,7 +632,6 @@
     <string name="downloads_section_shows">سیریز</string>
     <string name="downloads_show_downloads">ڈاؤن لوڈز دکھائیں</string>
     <string name="downloads_status_completed">مکمل • %1$s</string>
-    <string name="downloads_status_downloading">ڈاؤن لوڈ ہو رہا ہے • %1$s</string>
     <string name="downloads_status_failed">ناکام</string>
     <string name="downloads_status_paused">روکا گیا • %1$s</string>
     <string name="episodes_cd_watched">دیکھا ہوا</string>

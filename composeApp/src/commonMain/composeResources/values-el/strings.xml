@@ -329,7 +329,6 @@
     <string name="detail_trailers_title">Τρέιλερ</string>
     <string name="downloads_empty_episodes">Δεν υπάρχουν ολοκληρωμένα επεισόδια</string>
     <string name="downloads_empty_title">Δεν υπάρχουν λήψεις ακόμα</string>
-    <string name="downloads_episode_count">%1$d ληφθέν(τα) επεισόδιο(α)</string>
     <string name="downloads_open_directory">Άνοιγμα φακέλου λήψεων</string>
     <string name="downloads_open_directory_failed">Δεν ήταν δυνατό το άνοιγμα του φακέλου λήψεων</string>
     <string name="downloads_section_active">Ενεργές</string>
@@ -337,7 +336,6 @@
     <string name="downloads_section_shows">Σειρές</string>
     <string name="downloads_show_downloads">Εμφάνιση λήψεων</string>
     <string name="downloads_status_completed">Ολοκληρώθηκε • %1$s</string>
-    <string name="downloads_status_downloading">Γίνεται λήψη • %1$s</string>
     <string name="downloads_status_failed">Απέτυχε</string>
     <string name="downloads_status_paused">Σε παύση • %1$s</string>
     <string name="episodes_cd_watched">Παρακολουθήθηκε</string>

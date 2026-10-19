@@ -670,7 +670,6 @@
     <string name="detail_trailers_title">Trailers</string>
     <string name="downloads_empty_episodes">No completed episodes</string>
     <string name="downloads_empty_title">No downloads yet</string>
-    <string name="downloads_episode_count">%1$d downloaded episode(s)</string>
     <string name="downloads_open_directory">Open downloads folder</string>
     <string name="downloads_open_directory_failed">Couldn&apos;t open downloads folder</string>
     <string name="downloads_section_active">Active</string>
@@ -678,7 +677,6 @@
     <string name="downloads_section_shows">Shows</string>
     <string name="downloads_show_downloads">Show Downloads</string>
     <string name="downloads_status_completed">Completed • %1$s</string>
-    <string name="downloads_status_downloading">Downloading • %1$s</string>
     <string name="downloads_status_failed">Failed</string>
     <string name="downloads_status_paused">Paused • %1$s</string>
     <string name="downloads_status_queued">Waiting</string>
@@ -1765,7 +1763,6 @@
     <string name="season_download_watched">Watched</string>
     <string name="season_download_episode_source">Source for %1$s</string>
     <string name="season_download_back">Back</string>
-    <string name="downloads_group_count">%1$d episodes</string>
     <string name="downloads_group_pause_all">Pause all</string>
     <string name="downloads_group_resume_all">Resume all</string>
     <string name="downloads_group_cancel_all">Cancel all</string>
@@ -1797,7 +1794,12 @@
     <string name="downloads_season_sheet_low_space">Not enough space: %1$s selected, %2$s free (keeping %3$s spare). Downloads that do not fit will stop with Not enough space.</string>
     <string name="downloads_season_pause">Pause season</string>
     <string name="downloads_season_resume">Resume season</string>
-    <string name="downloads_in_progress_count">%1$d in progress</string>
+    <string name="downloads_in_progress_count">%1$d downloading</string>
+    <string name="downloads_status_downloading_short">Downloading</string>
+    <plurals name="downloads_episodes">
+        <item quantity="one">%1$d episode</item>
+        <item quantity="other">%1$d episodes</item>
+    </plurals>
     <string name="downloads_cancel_season_hint">Long-press an episode to cancel its whole season.</string>
     <string name="download_mark_waiting">Waiting to download</string>
     <string name="download_mark_paused">Paused</string>

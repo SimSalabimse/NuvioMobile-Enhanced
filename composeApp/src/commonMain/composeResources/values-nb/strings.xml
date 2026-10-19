@@ -806,7 +806,6 @@
     <string name="downloads_enqueue_replaced">Erstattet tidligere nedlasting</string>
     <string name="downloads_enqueue_started">Nedlasting startet</string>
     <string name="downloads_enqueue_unsupported_format">Ikke støttet strømformat for nedlastinger</string>
-    <string name="downloads_episode_count">%1$d nedlastet episode(r)</string>
     <string name="downloads_error_empty_body">Tom svarbody</string>
     <string name="downloads_error_finalize_failed">Kunne ikke fullføre nedlastingsfil</string>
     <string name="downloads_error_finalize_file_failed">Kunne ikke fullføre nedlastingsfil</string>
@@ -831,7 +830,6 @@
     <string name="downloads_section_shows">Serier</string>
     <string name="downloads_show_downloads">Vis nedlastinger</string>
     <string name="downloads_status_completed">Fullført • %1$s</string>
-    <string name="downloads_status_downloading">Laster ned • %1$s</string>
     <string name="downloads_status_failed">Mislyktes</string>
     <string name="downloads_status_paused">Pauset • %1$s</string>
     <string name="entity_browse_about">Om</string>

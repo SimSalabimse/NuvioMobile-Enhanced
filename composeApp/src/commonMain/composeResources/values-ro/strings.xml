@@ -529,7 +529,6 @@
     <string name="detail_trailers_title">Trailere</string>
     <string name="downloads_empty_episodes">Niciun episod finalizat</string>
     <string name="downloads_empty_title">Nicio descărcare încă</string>
-    <string name="downloads_episode_count">%1$d episod(e) descărcat(e)</string>
     <string name="downloads_open_directory">Deschide dosarul de descărcări</string>
     <string name="downloads_open_directory_failed">Nu s-a putut deschide dosarul de descărcări</string>
     <string name="downloads_section_active">Active</string>
@@ -537,7 +536,6 @@
     <string name="downloads_section_shows">Seriale</string>
     <string name="downloads_show_downloads">Afișează descărcările</string>
     <string name="downloads_status_completed">Finalizat • %1$s</string>
-    <string name="downloads_status_downloading">Se descarcă • %1$s</string>
     <string name="downloads_status_failed">Eșuat</string>
     <string name="downloads_status_paused">Pus pe pauză • %1$s</string>
     <string name="episodes_cd_watched">Vizionat</string>

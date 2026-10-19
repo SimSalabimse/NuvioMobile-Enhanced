@@ -540,7 +540,6 @@
     <string name="detail_trailers_title">Fragmanlar</string>
     <string name="downloads_empty_episodes">Tamamlanmış bölüm yok</string>
     <string name="downloads_empty_title">Henüz indirme yok</string>
-    <string name="downloads_episode_count">%1$d indirilmiş bölüm</string>
     <string name="downloads_open_directory">İndirilenler klasörünü aç</string>
     <string name="downloads_open_directory_failed">İndirilenler klasörü açılamadı</string>
     <string name="downloads_section_active">Aktif</string>
@@ -548,7 +547,6 @@
     <string name="downloads_section_shows">Diziler</string>
     <string name="downloads_show_downloads">İndirilenleri göster</string>
     <string name="downloads_status_completed">Tamamlandı • %1$s</string>
-    <string name="downloads_status_downloading">İndiriliyor • %1$s</string>
     <string name="downloads_status_failed">Olmadı</string>
     <string name="downloads_status_paused">Duraklatıldı • %1$s</string>
     <string name="episodes_cd_watched">İzlendi</string>

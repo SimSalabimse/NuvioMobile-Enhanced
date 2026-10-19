@@ -503,13 +503,11 @@
     <string name="detail_trailers_title">Trailery</string>
     <string name="downloads_empty_episodes">Žiadne dokončené epizódy</string>
     <string name="downloads_empty_title">Zatiaľ žiadne stiahnuté súbory</string>
-    <string name="downloads_episode_count">%1$d stiahnutá(-é) epizóda(-y)</string>
     <string name="downloads_section_active">Aktívne</string>
     <string name="downloads_section_movies">Filmy</string>
     <string name="downloads_section_shows">Seriály</string>
     <string name="downloads_show_downloads">Zobraziť stiahnuté</string>
     <string name="downloads_status_completed">Dokončené • %1$s</string>
-    <string name="downloads_status_downloading">Sťahovanie • %1$s</string>
     <string name="downloads_status_failed">Zlyhalo</string>
     <string name="downloads_status_paused">Pozastavené • %1$s</string>
     <string name="episodes_cd_watched">Pozreté</string>
