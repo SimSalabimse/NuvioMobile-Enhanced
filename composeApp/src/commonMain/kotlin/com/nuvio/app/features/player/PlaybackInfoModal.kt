@@ -120,6 +120,7 @@ internal fun PlaybackInfoModal(
                         ) {
                             Text(
                                 text = stringResource(Res.string.compose_player_playback_info),
+                                modifier = Modifier.weight(1f),
                                 color = Color.White,
                                 fontSize = 20.sp,
                                 fontWeight = FontWeight.Bold,

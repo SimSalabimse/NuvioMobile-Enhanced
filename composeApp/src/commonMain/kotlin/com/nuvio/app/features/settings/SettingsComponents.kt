@@ -226,7 +226,7 @@ internal fun SettingsSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            NuvioSectionLabel(text = title)
+            NuvioSectionLabel(text = title, modifier = Modifier.weight(1f, fill = false))
             Row(
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,

@@ -121,6 +121,7 @@ fun DetailTrailersSection(
                         ) {
                             Text(
                                 text = selectedCategory,
+                                modifier = Modifier.weight(1f, fill = false),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 style = MaterialTheme.typography.labelLarge.copy(

@@ -184,6 +184,7 @@ fun NuvioScreenHeader(
             verticalAlignment = Alignment.Bottom,
         ) {
             Row(
+                modifier = Modifier.weight(1f, fill = false),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(tokens.spacing.controlGap),
             ) {
@@ -205,6 +206,8 @@ fun NuvioScreenHeader(
                         text = currentTitle,
                         style = MaterialTheme.typography.displayLarge,
                         color = tokens.colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
