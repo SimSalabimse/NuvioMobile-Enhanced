@@ -335,13 +335,18 @@ final class RootComposeViewController: UIViewController {
 
     func prepareForPictureInPictureParking() {
         setNavigationBarPassthroughEnabled(false)
-        setInteractiveContentPopGestureEnabled(true)
+        // The parked player must not keep the edge swipe locked.
+        if disablesInteractiveContentPopGesture, let navigationController {
+            let coordinator = navigationController.nuvioEdgePop
+            coordinator.allowsEdgePop = true
+            coordinator.applyEnabledState()
+        }
     }
 
     func restoreAfterPictureInPictureParking() {
         refreshContainingTabBarVisibility()
         refreshImmersiveSystemUI()
-        setInteractiveContentPopGestureEnabled(false)
+        updateInteractivePopGesture()
         setNavigationBarPassthroughEnabled(true)
     }
 
