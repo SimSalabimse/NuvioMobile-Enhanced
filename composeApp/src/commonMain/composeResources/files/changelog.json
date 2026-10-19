@@ -2,6 +2,21 @@
   "releases": [
     {
       "version": "0.6.2.1",
+      "build": 187,
+      "date": "2026-10-19",
+      "improved": [
+        "Downloads: the size line of an active download is short and never cut off (\"134 MB / 1.9 GB\"); percent, speed and time left are on the line below.",
+        "Downloads: a show says \"3 episodes · 1 downloading\" and its Cancel season button sits under that line instead of squeezing it.",
+        "Downloaded episodes list where each skip time comes from on its own short line, like \"Intro · Your mark\" or \"Recap · TheIntroDB\"."
+      ],
+      "fixed": [
+        "Counts read properly everywhere they were wrong: no more \"1 downloads\", \"1 submissions\" or \"folder(s)\" (downloads, storage, Download Season, analysis, collections, TheIntroDB import, Continue Watching settings).",
+        "Download storage: the Nuvio / Other / Free sizes wrap to a second line on small phones instead of the last one being cut off.",
+        "TheIntroDB submit screen: \"Your submissions\" and \"Copy share link\" wrap instead of overflowing."
+      ]
+    },
+    {
+      "version": "0.6.2.1",
       "build": 186,
       "date": "2026-10-19",
       "improved": [
