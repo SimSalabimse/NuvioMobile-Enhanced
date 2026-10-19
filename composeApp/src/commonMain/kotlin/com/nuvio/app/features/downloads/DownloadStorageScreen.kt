@@ -84,6 +84,7 @@ internal fun rememberDownloadStorageSummary(items: List<DownloadItem>, refresh: 
 }
 
 /** Top of Downloads: a bar with what Nuvio uses, everything else, and free space. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 internal fun DownloadStorageCard(
     summary: DownloadStorageSummary,
@@ -196,7 +197,8 @@ internal fun DownloadStorageCard(
                     free = volume.availableBytes,
                     modifier = Modifier.padding(top = 10.dp),
                 )
-                Row(
+                // Wraps on narrow phones instead of cutting the last size off.
+                androidx.compose.foundation.layout.FlowRow(
                     modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {

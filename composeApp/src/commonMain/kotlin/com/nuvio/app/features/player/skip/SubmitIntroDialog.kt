@@ -1019,6 +1019,7 @@ private fun normalizeSegmentTypeForSubmit(type: String): String? {
 }
 
 /** Read-only list of what this account already sent TheIntroDB for the title, with each review status. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun MySubmissionsSection(
     submissions: List<TheIntroDbUserSubmission>?,
@@ -1026,7 +1027,7 @@ private fun MySubmissionsSection(
     onCopyShareLink: (() -> Unit)?,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    androidx.compose.foundation.layout.FlowRow {
         if (submissions != null) {
             TextButton(onClick = { expanded = !expanded }) {
                 Text(if (expanded) "Hide your submissions" else "Your submissions (${submissions.size})")
