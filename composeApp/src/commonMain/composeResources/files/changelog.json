@@ -2,6 +2,26 @@
   "releases": [
     {
       "version": "0.6.2.1",
+      "build": 189,
+      "date": "2026-10-19",
+      "new": [
+        "Brings in the latest Nuvio Enhanced (0.6.2-beta): a mini player on iOS, pinch to zoom and a real Fill mode on the MPV player, and a button to switch a portrait video between portrait and landscape.",
+        "Optional Liquid Glass look across Android and an iPad tab bar option, with live values while you drag a settings slider.",
+        "Downloaded episodes can find their intro even when no other episode of the season is downloaded: Nuvio listens to just the intro of the nearest episode whose times are known (your own mark first, then TheIntroDB) and finds the same music in your download. It shows as \"Intro · Found using E12\"."
+      ],
+      "improved": [
+        "Subtitles: an optional libmpv renderer draws styled ASS/SSA subtitles on the Android player.",
+        "Anime: better matching of anime titles across Trakt, Simkl, MDBList and ratings; Brazilian Portuguese is more complete.",
+        "No new changes from the main Nuvio project since the last update."
+      ],
+      "fixed": [
+        "Simkl: a series you marked as watched moves to Completed.",
+        "iOS: external players are still offered when the app can't check which ones are installed.",
+        "Watch Party: guests see the shared stream and the episode picker properly, and no wrong \"no addons\" message."
+      ]
+    },
+    {
+      "version": "0.6.2.1",
       "build": 188,
       "date": "2026-10-19",
       "improved": [
