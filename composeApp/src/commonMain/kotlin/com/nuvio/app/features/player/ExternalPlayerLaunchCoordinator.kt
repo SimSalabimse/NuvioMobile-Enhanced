@@ -3,6 +3,7 @@ package com.nuvio.app.features.player
 import com.nuvio.app.features.downloads.DownloadSubtitles
 import com.nuvio.app.features.player.skip.SkipInterval
 import com.nuvio.app.features.player.skip.SkipIntroRepository
+import com.nuvio.app.features.player.skip.resolveSkipImdbId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -129,7 +130,7 @@ private suspend fun resolveSkipSegmentsJson(
                     SkipIntroRepository.getSkipIntervalsForKitsu(kitsuId, ep, requireSkipIntroEnabled = false, imdbId = imdbFromContent, imdbSeason = season, imdbEpisode = episode)
                 }
                 else -> {
-                    val imdbId = videoId.substringBefore(':').takeIf { it.startsWith("tt") } ?: return@withTimeoutOrNull null
+                    val imdbId = resolveSkipImdbId(contentId, videoId, "tv") ?: return@withTimeoutOrNull null
                     val s = season ?: return@withTimeoutOrNull null
                     SkipIntroRepository.getSkipIntervals(imdbId, s, ep, requireSkipIntroEnabled = false)
                 }

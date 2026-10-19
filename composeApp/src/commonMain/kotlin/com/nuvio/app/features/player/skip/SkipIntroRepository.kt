@@ -50,11 +50,7 @@ object SkipIntroRepository {
         if (requireSkipIntroEnabled && !PlayerSettingsRepository.uiState.value.skipIntroEnabled) {
             return@coroutineScope emptyList()
         }
-        val imdbId = resolveMovieSkipImdbId(
-            contentId, videoId,
-            resolveTmdb = { TmdbService.tmdbToImdb(it, "movie") },
-            resolveAnime = { source, id -> SimklIdResolver.resolveIds(source, id)?.imdb },
-        )
+        val imdbId = resolveSkipImdbId(contentId, videoId, "movie")
         if (imdbId == null) return@coroutineScope emptyList()
         val cacheKey = "movie:$imdbId"
         skipIntervalCache.lookup(cacheKey)?.let { return@coroutineScope it }
@@ -534,6 +530,14 @@ object SkipIntroRepository {
         animeSkipShowIdCache.clear()
     }
 }
+
+/** The IMDb id skip providers are keyed by, from an IMDb, TMDB, MAL or Kitsu content/video id. */
+internal suspend fun resolveSkipImdbId(contentId: String?, videoId: String?, mediaType: String): String? =
+    resolveMovieSkipImdbId(
+        contentId, videoId,
+        resolveTmdb = { TmdbService.tmdbToImdb(it, mediaType) },
+        resolveAnime = { source, id -> SimklIdResolver.resolveIds(source, id)?.imdb },
+    )
 
 internal suspend fun resolveMovieSkipImdbId(
     contentId: String?,

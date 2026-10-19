@@ -81,20 +81,39 @@ internal fun skipKind(type: String): String = when (type.lowercase()) {
 internal fun skipSourcesFor(item: DownloadItem): List<Pair<String, String>> {
     val key = MediaAnalysisStore.keyFor(item)
     val result = MediaAnalysisStore.load(key)
-    val marks = result?.userSegments.orEmpty()
-    val online = SkipSourceLedger.online(key)
     val kinds = listOf("intro" to "Intro", "recap" to "Recap", "outro" to "Credits", "preview" to "Preview")
     return kinds.mapNotNull { (kind, label) ->
-        val mark = marks[kind]?.takeIf { it.endMs > it.startMs }
         val source = when {
-            mark != null -> skipSourceTag(if (mark.imported) SkipLearning.PROVIDER_IMPORTED else SkipLearning.PROVIDER)
-            online[kind] != null -> skipSourceTag(online[kind]) ?: online[kind]
+            externalSkipSource(key, result, kind) != null -> externalSkipSource(key, result, kind)
             result != null && result.fileName == item.fileName && result.hasOnDevice(kind) ->
                 if (kind in result.learnedTypes) "On-device (from your mark)" else skipSourceTag(ON_DEVICE_SKIP_PROVIDER)
             else -> null
         }
         source?.let { label to it }
     }
+}
+
+/**
+ * The non-on-device source of one kind's times for an episode: your mark (typed or imported from
+ * your TheIntroDB submissions), else the online provider the player last used. Stored data only.
+ */
+private fun externalSkipSource(key: String, result: MediaAnalysisResult?, kind: String): String? {
+    val mark = result?.userSegments?.get(kind)?.takeIf { it.endMs > it.startMs }
+    if (mark != null) return skipSourceTag(if (mark.imported) SkipLearning.PROVIDER_IMPORTED else SkipLearning.PROVIDER)
+    val online = SkipSourceLedger.online(key)[kind] ?: return null
+    return skipSourceTag(online) ?: online
+}
+
+/** Intro/credits and recap sources from marks or online providers, for the analysis chips. */
+internal data class ExternalSkipSources(val introCredits: String?, val recap: String?)
+
+internal fun externalSkipSources(item: DownloadItem): ExternalSkipSources {
+    val key = MediaAnalysisStore.keyFor(item)
+    val result = MediaAnalysisStore.load(key)
+    return ExternalSkipSources(
+        introCredits = externalSkipSource(key, result, "intro") ?: externalSkipSource(key, result, "outro"),
+        recap = externalSkipSource(key, result, "recap"),
+    )
 }
 
 private fun MediaAnalysisResult.hasOnDevice(kind: String): Boolean = when (kind) {

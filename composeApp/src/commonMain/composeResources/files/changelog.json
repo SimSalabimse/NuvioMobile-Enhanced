@@ -11,12 +11,14 @@
         "Settings > Downloads storage: new \"Verify downloads\" checks every finished download and re-downloads the damaged ones.",
         "Finished downloads are checked right away. A damaged file is re-downloaded by itself with the message \"Damaged, re-downloading\".",
         "If a download plays with errors or keeps jumping ahead, the player offers to stream instead and re-downloads the file afterwards.",
-        "Download rows show a steady status: size on the first line, percent, speed and time left on the second, with fixed-width digits so nothing jumps while it counts."
+        "Download rows show a steady status: size on the first line, percent, speed and time left on the second, with fixed-width digits so nothing jumps while it counts.",
+        "Downloads: when TheIntroDB, IntroDB or your own submitted times cover an episode, its analysis tags say so (\"Intro/credits from TheIntroDB ✓\") instead of \"needs another episode\"."
       ],
       "fixed": [
         "Finish a series never goes back to earlier episodes: it remembers the furthest episode you reached, and at the end of the show it removes the goal (\"Finished <show>, goal removed\") instead of starting again at S1E1.",
         "Downloads: the \"Failed / incomplete downloads\" header no longer sits under the top bar.",
-        "Resumed downloads could glue on bytes from a different copy of the file, giving noise and jumps during playback. A resume now only continues when the server confirms the exact same file and position; otherwise it starts over."
+        "Resumed downloads could glue on bytes from a different copy of the file, giving noise and jumps during playback. A resume now only continues when the server confirms the exact same file and position; otherwise it starts over.",
+        "Skip times from TheIntroDB and IntroDB now also load for shows opened from a TMDB-based catalog; before, those episodes never asked the skip services."
       ]
     },
     {

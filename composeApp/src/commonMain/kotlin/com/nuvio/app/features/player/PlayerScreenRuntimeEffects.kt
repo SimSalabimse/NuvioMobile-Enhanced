@@ -622,8 +622,10 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                     val kitsuId = vid.removePrefix("kitsu:").substringBefore(':')
                     SkipIntroRepository.getSkipIntervalsForKitsu(kitsuId = kitsuId, episode = episode, imdbId = imdbFromContent, imdbSeason = season, imdbEpisode = episode)
                 }
+                // A TMDB-keyed show (tmdb:…) still gets TheIntroDB/IntroDB times via its IMDb id.
                 else -> SkipIntroRepository.getSkipIntervals(
-                    imdbId = vid.substringBefore(':').takeIf { it.startsWith("tt") },
+                    imdbId = vid.substringBefore(':').takeIf { it.startsWith("tt") } ?: imdbFromContent
+                        ?: com.nuvio.app.features.player.skip.resolveSkipImdbId(parentMetaId, vid, "tv"),
                     season = season,
                     episode = episode,
                 )
