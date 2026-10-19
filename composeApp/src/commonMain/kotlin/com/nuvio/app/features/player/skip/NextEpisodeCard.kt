@@ -218,7 +218,7 @@ fun NextEpisodeCard(
                         text = autoPlayStatus,
                         color = Color.White.copy(alpha = 0.78f),
                         fontSize = 10.sp,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }

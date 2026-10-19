@@ -1135,9 +1135,11 @@ private fun StreamSectionHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            // Tap or long-press opens the pin sheet; headers that can't be pinned don't react at all.
             .combinedClickable(
-                onClick = {},
-                onLongClick = { if (pinTarget != null) pinSheetVisible = true },
+                enabled = pinTarget != null,
+                onClick = { pinSheetVisible = true },
+                onLongClick = { pinSheetVisible = true },
             )
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1193,9 +1195,11 @@ private fun StreamSourceHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            // Tap or long-press opens the pin sheet; headers that can't be pinned don't react at all.
             .combinedClickable(
-                onClick = {},
-                onLongClick = { if (pinTarget != null) pinSheetVisible = true },
+                enabled = pinTarget != null,
+                onClick = { pinSheetVisible = true },
+                onLongClick = { pinSheetVisible = true },
             )
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
