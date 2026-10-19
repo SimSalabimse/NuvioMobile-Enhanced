@@ -184,7 +184,7 @@ private fun weekdayLabel(isoDay: String): String {
     return WEEKDAYS[((n % 7) + 7 + 3) % 7]
 }
 
-private fun minutesLabel(ms: Long): String {
+internal fun minutesLabel(ms: Long): String {
     val minutes = ms / 60_000L
     return when {
         ms <= 0L -> "–"
