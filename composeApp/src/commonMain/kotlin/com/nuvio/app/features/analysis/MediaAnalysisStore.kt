@@ -66,6 +66,19 @@ internal object MediaAnalysisStore {
         save(current.copy(energy = null, fileName = null, integratedLufs = null, thumbnails = null))
     }
 
+    /**
+     * The show is finished: drop the fingerprints kept to match later episodes, keep each
+     * episode's skip times for a rewatch.
+     */
+    fun forgetReferences(parentMetaId: String) {
+        if (parentMetaId.isBlank()) return
+        MediaAnalysisFiles.list("${sanitize(parentMetaId.trim())}__").forEach { key ->
+            val current = load(key) ?: return@forEach
+            if (current.headFingerprint == null && current.tailFingerprint == null) return@forEach
+            save(current.copy(headFingerprint = null, tailFingerprint = null))
+        }
+    }
+
     /** Deletes everything stored for [key] (analysis JSON and thumbnail sheets). */
     fun reset(key: String) {
         val marks = load(key)?.userSegments.orEmpty()

@@ -395,6 +395,7 @@ internal object SmartDownloads {
             if (first == null) {
                 if (!SmartDownloadSettings.isGoal(type, id)) return@launch
                 SmartDownloadSettings.setGoal(type, id, pinned = false)
+                com.nuvio.app.features.analysis.MediaAnalysisStore.forgetReferences(id)
                 NuvioToastController.show("Finished ${meta.name}, goal removed")
                 return@launch
             }
