@@ -980,6 +980,7 @@ private val SEASON_FILL_CHOICES_GB = listOf(5, 10, 20, 50)
 internal fun fillSelection(keys: List<String>, episodeBytes: Long, budgetBytes: Long): List<String> =
     keys.take((budgetBytes / episodeBytes.coerceAtLeast(1L)).toInt().coerceAtLeast(0))
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun SeasonFillBySizeRow(estimateBytes: Long, onFill: (Long) -> Unit) {
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
@@ -988,7 +989,8 @@ private fun SeasonFillBySizeRow(estimateBytes: Long, onFill: (Long) -> Unit) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Four buttons don't fit one line on a 320pt screen; wrap instead of squeezing the last one.
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SEASON_FILL_CHOICES_GB.forEach { gb ->
                 TextButton(onClick = { onFill(gb * 1_000_000_000L) }) { Text("$gb GB") }
             }
