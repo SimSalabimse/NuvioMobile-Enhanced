@@ -2,6 +2,24 @@
   "releases": [
     {
       "version": "0.6.2.1",
+      "build": 188,
+      "date": "2026-10-19",
+      "improved": [
+        "Home: row titles like \"Paused · tap to restore\" and \"2 for tonight · 1h 30m\" use the full width instead of being cut short next to an empty space.",
+        "Watch stats: the last-7-days chart shows compact times (\"1h30\") that fit small phones instead of being cut off.",
+        "Detail page: year, runtime, age rating and IMDb score wrap to a second line on small phones instead of squeezing the score; episode dates and ratings do the same."
+      ],
+      "fixed": [
+        "Continue Watching: the shuffle and Finish-a-series badges moved to the top-left corner, so they no longer cover long titles or the progress bar.",
+        "Screen and settings headers keep their buttons visible next to long or translated titles.",
+        "Player: the next-episode card keeps the \"Playing via … in 5s\" countdown visible, and the submit-times and sync-by-ear panels keep their close button next to long titles.",
+        "Streams: tapping a source header opens the pin options (it used to flash and do nothing); headers that can't be pinned no longer react.",
+        "Download Season: the 5/10/20/50 GB buttons wrap on small phones instead of the last one being squeezed; long episode details show two lines.",
+        "Collections editor, card-depth settings, trailers picker and the seasons header keep their check, icon or arrow visible next to long text."
+      ]
+    },
+    {
+      "version": "0.6.2.1",
       "build": 187,
       "date": "2026-10-19",
       "improved": [
