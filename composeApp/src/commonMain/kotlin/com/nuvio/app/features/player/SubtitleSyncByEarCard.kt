@@ -89,6 +89,7 @@ fun SubtitleSyncByEarCard(
             ) {
                 Text(
                     text = stringResource(Res.string.compose_player_sync_by_ear),
+                    modifier = Modifier.weight(1f),
                     color = Color.White,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,

@@ -603,6 +603,7 @@ private fun SeriesSeasonSelector(
         ) {
             Text(
                 text = stringResource(Res.string.details_seasons),
+                modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.titleLarge.copy(
                     fontSize = sizing.seasonHeaderSize,
                     fontWeight = FontWeight.SemiBold,
