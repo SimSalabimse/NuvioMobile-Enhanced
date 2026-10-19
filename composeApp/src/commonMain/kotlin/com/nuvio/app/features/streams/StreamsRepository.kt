@@ -271,17 +271,39 @@ object StreamsRepository {
             val debridAvailabilityJobs = mutableListOf<Job>()
             var autoSelectTriggered = false
             var timeoutElapsed = false
-            // The exact next file of the last binge group: its filename (season/episode moved on),
-            // else the same infoHash. Tried before the general binge-group pick.
-            fun preciseBingeMatch(allStreams: List<StreamItem>): StreamItem? {
-                val group = persistedBingeGroup ?: return null
-                persistedFilename?.let { last ->
-                    val next = FilenameEpisodeMatcher.extractSeasonEpisode(last)?.let { (s, e) ->
-                        FilenameEpisodeMatcher.buildNextFilename(last, s, e, season, episode ?: 0)
-                    } ?: last
-                    allStreams.firstOrNull { stream ->
-                        stream.behaviorHints.bingeGroup == group && FilenameEpisodeMatcher.matches(stream.behaviorHints.filename, next)
-                    }?.let { return it }
+            fun evaluateAutoPlay(bingeGroupOnly: Boolean = false): StreamAutoPlayEvaluation =
+                StreamAutoPlaySelector.evaluateAutoPlayStream(
+                    streams = _uiState.value.groups.flatMap { it.streams },
+                    mode = autoPlayMode,
+                    regexPattern = playerSettings.streamAutoPlayRegex,
+                    source = playerSettings.streamAutoPlaySource,
+                    installedAddonNames = installedAddonNames,
+                    selectedAddons = playerSettings.streamAutoPlaySelectedAddons,
+                    selectedPlugins = playerSettings.streamAutoPlaySelectedPlugins,
+                    preferredBingeGroup = persistedBingeGroup,
+                    preferBingeGroupInSelection = persistedBingeGroup != null,
+                    bingeGroupOnly = bingeGroupOnly,
+                    debridEnabled = debridSettings.canResolvePlayableLinks,
+                    activeResolverProviderId = debridSettings.activeResolverProviderId,
+                )
+
+            fun settleAutoPlay(evaluation: StreamAutoPlayEvaluation) {
+                if (autoSelectTriggered) return
+                autoSelectTriggered = true
+                _uiState.update { current ->
+                    if (evaluation.stream == null) {
+                        current.copy(
+                            autoPlayStream = null,
+                            autoPlayCandidates = emptyList(),
+                            isDirectAutoPlayFlow = false,
+                            showDirectAutoPlayOverlay = false,
+                        )
+                    } else {
+                        current.copy(
+                            autoPlayStream = evaluation.stream,
+                            autoPlayCandidates = evaluation.readyStreams,
+                        )
+                    }
                 }
                 val hash = persistedInfoHash ?: return null
                 return allStreams.firstOrNull { stream ->
@@ -294,6 +316,7 @@ object StreamsRepository {
                     log.d { "Ignoring late stream load completion after channel close" }
                 }
             }
+
             fun presentStreamGroup(group: AddonStreamGroup): AddonStreamGroup {
                 val badgeGroup = StreamBadgePresentation.apply(
                     groups = listOf(group),
@@ -321,6 +344,7 @@ object StreamsRepository {
                         emptyStateReason = updated.toEmptyStateReason(anyLoading),
                     )
                 }
+                updateAutoPlayAfterStreamsChanged()
             }
 
             fun publishAddonGroupAfterCacheCheck(group: AddonStreamGroup) {
@@ -350,34 +374,11 @@ object StreamsRepository {
                         eligibleGroupIds = eligibleGroupIds,
                     ).firstOrNull() ?: checkingGroup
                     publishAddonGroup(presentStreamGroup(availabilityGroup))
-
-                    // Early binge-group match right after this addon's availability is resolved
-                    if (isDirectAutoPlayFlow && !autoSelectTriggered && persistedBingeGroup != null && !timeoutElapsed) {
-                        val allStreams = _uiState.value.groups.flatMap { it.streams }
-                        if (allStreams.isNotEmpty()) {
-                            val earlyMatch = preciseBingeMatch(allStreams) ?: StreamAutoPlaySelector.selectAutoPlayStream(
-                                streams = allStreams,
-                                mode = autoPlayMode,
-                                regexPattern = playerSettings.streamAutoPlayRegex,
-                                source = playerSettings.streamAutoPlaySource,
-                                installedAddonNames = installedAddonNames,
-                                selectedAddons = playerSettings.streamAutoPlaySelectedAddons,
-                                selectedPlugins = playerSettings.streamAutoPlaySelectedPlugins,
-                                preferredBingeGroup = persistedBingeGroup,
-                                preferBingeGroupInSelection = true,
-                                bingeGroupOnly = true,
-                                debridEnabled = debridSettings.canResolvePlayableLinks,
-                                activeResolverProviderId = debridSettings.activeResolverProviderId,
-                            )
-                            if (earlyMatch != null) {
-                                autoSelectTriggered = true
-                                _uiState.update { it.copy(autoPlayStream = earlyMatch) }
-                            }
-                        }
-                    }
                 }
                 debridAvailabilityJobs += availabilityJob
             }
+
+            updateAutoPlayAfterStreamsChanged()
 
             val timeoutJob = if (isDirectAutoPlayFlow) {
                 val timeoutSeconds = playerSettings.streamAutoPlayTimeoutSeconds
@@ -394,33 +395,7 @@ object StreamsRepository {
                         launch {
                             delay(60_000L)
                             if (!autoSelectTriggered) {
-                                autoSelectTriggered = true
-                                val allStreams = _uiState.value.groups.flatMap { it.streams }
-                                if (allStreams.isNotEmpty()) {
-                                    val selected = StreamAutoPlaySelector.selectAutoPlayStream(
-                                        streams = allStreams,
-                                        mode = autoPlayMode,
-                                        regexPattern = playerSettings.streamAutoPlayRegex,
-                                        source = playerSettings.streamAutoPlaySource,
-                                        installedAddonNames = installedAddonNames,
-                                        selectedAddons = playerSettings.streamAutoPlaySelectedAddons,
-                                        selectedPlugins = playerSettings.streamAutoPlaySelectedPlugins,
-                                        preferredBingeGroup = persistedBingeGroup,
-                                        preferBingeGroupInSelection = persistedBingeGroup != null,
-                                        bingeGroupOnly = false,
-                                        debridEnabled = debridSettings.canResolvePlayableLinks,
-                                        activeResolverProviderId = debridSettings.activeResolverProviderId,
-                                    )
-                                    _uiState.update { it.copy(autoPlayStream = selected) }
-                                }
-                                if (_uiState.value.autoPlayStream == null) {
-                                    _uiState.update {
-                                        it.copy(
-                                            isDirectAutoPlayFlow = false,
-                                            showDirectAutoPlayOverlay = false,
-                                        )
-                                    }
-                                }
+                                settleAutoPlay(evaluateAutoPlay())
                             }
                         }
                     } else {
@@ -434,36 +409,9 @@ object StreamsRepository {
                         if (!autoSelectTriggered) {
                             val allStreams = _uiState.value.groups.flatMap { it.streams }
                             if (allStreams.isNotEmpty()) {
-                                val evaluation = StreamAutoPlaySelector.evaluateAutoPlayStream(
-                                    streams = allStreams,
-                                    mode = autoPlayMode,
-                                    regexPattern = playerSettings.streamAutoPlayRegex,
-                                    source = playerSettings.streamAutoPlaySource,
-                                    installedAddonNames = installedAddonNames,
-                                    selectedAddons = playerSettings.streamAutoPlaySelectedAddons,
-                                    selectedPlugins = playerSettings.streamAutoPlaySelectedPlugins,
-                                    preferredBingeGroup = persistedBingeGroup,
-                                    preferBingeGroupInSelection = persistedBingeGroup != null,
-                                    bingeGroupOnly = false,
-                                    debridEnabled = debridSettings.canResolvePlayableLinks,
-                                    activeResolverProviderId = debridSettings.activeResolverProviderId,
-                                )
+                                val evaluation = evaluateAutoPlay()
                                 if (evaluation.stream != null || !evaluation.hasPendingDebridCandidate) {
-                                    autoSelectTriggered = true
-                                    _uiState.update {
-                                        it.copy(
-                                            autoPlayStream = evaluation.stream,
-                                            autoPlayCandidates = evaluation.readyStreams,
-                                        )
-                                    }
-                                }
-                                if (evaluation.stream == null && !evaluation.hasPendingDebridCandidate) {
-                                    _uiState.update {
-                                        it.copy(
-                                            isDirectAutoPlayFlow = false,
-                                            showDirectAutoPlayOverlay = false,
-                                        )
-                                    }
+                                    settleAutoPlay(evaluation)
                                 }
                             }
                         }
@@ -626,6 +574,7 @@ object StreamsRepository {
                                 emptyStateReason = updated.toEmptyStateReason(anyLoading),
                             )
                         }
+                        updateAutoPlayAfterStreamsChanged()
                     }
 
                 }
@@ -633,32 +582,6 @@ object StreamsRepository {
 
             for (availabilityJob in debridAvailabilityJobs) {
                 availabilityJob.join()
-
-                // Early binge-group match after each availability job completes
-                if (isDirectAutoPlayFlow && !autoSelectTriggered && persistedBingeGroup != null) {
-                    val allStreams = _uiState.value.groups.flatMap { it.streams }
-                    if (allStreams.isNotEmpty()) {
-                        val earlyMatch = preciseBingeMatch(allStreams) ?: StreamAutoPlaySelector.selectAutoPlayStream(
-                            streams = allStreams,
-                            mode = autoPlayMode,
-                            regexPattern = playerSettings.streamAutoPlayRegex,
-                            source = playerSettings.streamAutoPlaySource,
-                            installedAddonNames = installedAddonNames,
-                            selectedAddons = playerSettings.streamAutoPlaySelectedAddons,
-                            selectedPlugins = playerSettings.streamAutoPlaySelectedPlugins,
-                            preferredBingeGroup = persistedBingeGroup,
-                            preferBingeGroupInSelection = true,
-                            bingeGroupOnly = !timeoutElapsed,
-                            debridEnabled = debridSettings.canResolvePlayableLinks,
-                            activeResolverProviderId = debridSettings.activeResolverProviderId,
-                        )
-                        if (earlyMatch != null) {
-                            autoSelectTriggered = true
-                            _uiState.update { it.copy(autoPlayStream = earlyMatch) }
-                            break
-                        }
-                    }
-                }
             }
 
             launch {
@@ -681,119 +604,17 @@ object StreamsRepository {
                             ),
                         )
                     }
-
-                    // Early binge-group match after each debrid-prepared stream
-                    if (isDirectAutoPlayFlow && !autoSelectTriggered && persistedBingeGroup != null) {
-                        val allStreams = _uiState.value.groups.flatMap { it.streams }
-                        if (allStreams.isNotEmpty()) {
-                            val earlyMatch = preciseBingeMatch(allStreams) ?: StreamAutoPlaySelector.selectAutoPlayStream(
-                                streams = allStreams,
-                                mode = autoPlayMode,
-                                regexPattern = playerSettings.streamAutoPlayRegex,
-                                source = playerSettings.streamAutoPlaySource,
-                                installedAddonNames = installedAddonNames,
-                                selectedAddons = playerSettings.streamAutoPlaySelectedAddons,
-                                selectedPlugins = playerSettings.streamAutoPlaySelectedPlugins,
-                                preferredBingeGroup = persistedBingeGroup,
-                                preferBingeGroupInSelection = true,
-                                bingeGroupOnly = !timeoutElapsed,
-                                debridEnabled = debridSettings.canResolvePlayableLinks,
-                                activeResolverProviderId = debridSettings.activeResolverProviderId,
-                            )
-                            if (earlyMatch != null) {
-                                autoSelectTriggered = true
-                                _uiState.update { it.copy(autoPlayStream = earlyMatch) }
-                            }
-                        }
-                    }
-                }
-
-                // Early match / timeout-elapsed auto-select on each addon response
-                if (isDirectAutoPlayFlow && !autoSelectTriggered) {
-                    val allStreams = _uiState.value.groups.flatMap { it.streams }
-                    if (allStreams.isNotEmpty()) {
-                        if (timeoutElapsed) {
-                            // After timeout: full fallback (bingeGroupOnly = false)
-                            val selected = StreamAutoPlaySelector.selectAutoPlayStream(
-                                streams = allStreams,
-                                mode = autoPlayMode,
-                                regexPattern = playerSettings.streamAutoPlayRegex,
-                                source = playerSettings.streamAutoPlaySource,
-                                installedAddonNames = installedAddonNames,
-                                selectedAddons = playerSettings.streamAutoPlaySelectedAddons,
-                                selectedPlugins = playerSettings.streamAutoPlaySelectedPlugins,
-                                preferredBingeGroup = persistedBingeGroup,
-                                preferBingeGroupInSelection = persistedBingeGroup != null,
-                                bingeGroupOnly = false,
-                                debridEnabled = debridSettings.canResolvePlayableLinks,
-                                activeResolverProviderId = debridSettings.activeResolverProviderId,
-                            )
-                            if (selected != null) {
-                                autoSelectTriggered = true
-                                _uiState.update { it.copy(autoPlayStream = selected) }
-                            }
-                        } else if (persistedBingeGroup != null) {
-                            // Before timeout: try binge-group-only early match
-                            val earlyMatch = preciseBingeMatch(allStreams) ?: StreamAutoPlaySelector.selectAutoPlayStream(
-                                streams = allStreams,
-                                mode = autoPlayMode,
-                                regexPattern = playerSettings.streamAutoPlayRegex,
-                                source = playerSettings.streamAutoPlaySource,
-                                installedAddonNames = installedAddonNames,
-                                selectedAddons = playerSettings.streamAutoPlaySelectedAddons,
-                                selectedPlugins = playerSettings.streamAutoPlaySelectedPlugins,
-                                preferredBingeGroup = persistedBingeGroup,
-                                preferBingeGroupInSelection = true,
-                                bingeGroupOnly = true,
-                                debridEnabled = debridSettings.canResolvePlayableLinks,
-                                activeResolverProviderId = debridSettings.activeResolverProviderId,
-                            )
-                            if (earlyMatch != null) {
-                                autoSelectTriggered = true
-                                _uiState.update { it.copy(autoPlayStream = earlyMatch) }
-                            }
-                        }
-                    }
+                    updateAutoPlayAfterStreamsChanged()
                 }
             }
 
-            // All addons finished — run final auto-select if not yet triggered
             if (isDirectAutoPlayFlow && !autoSelectTriggered) {
-                autoSelectTriggered = true
-                val allStreams = _uiState.value.groups.flatMap { it.streams }
-                val evaluation = StreamAutoPlaySelector.evaluateAutoPlayStream(
-                    streams = allStreams,
-                    mode = autoPlayMode,
-                    regexPattern = playerSettings.streamAutoPlayRegex,
-                    source = playerSettings.streamAutoPlaySource,
-                    installedAddonNames = installedAddonNames,
-                    selectedAddons = playerSettings.streamAutoPlaySelectedAddons,
-                    selectedPlugins = playerSettings.streamAutoPlaySelectedPlugins,
-                    preferredBingeGroup = persistedBingeGroup,
-                    preferBingeGroupInSelection = persistedBingeGroup != null,
-                    bingeGroupOnly = false,
-                    debridEnabled = debridSettings.canResolvePlayableLinks,
-                    activeResolverProviderId = debridSettings.activeResolverProviderId,
-                )
-                _uiState.update {
-                    it.copy(
-                        autoPlayStream = evaluation.stream,
-                        autoPlayCandidates = evaluation.readyStreams,
-                    )
-                }
+                settleAutoPlay(evaluateAutoPlay())
             }
             InAppLogger.info(
                 "Streams/StreamsRepository",
                 "Finished loading streams type=$type id=$videoId groups=${_uiState.value.groups.size} streams=${_uiState.value.groups.sumOf { it.streams.size }}",
             )
-            if (isDirectAutoPlayFlow && _uiState.value.autoPlayStream == null) {
-                _uiState.update {
-                    it.copy(
-                        isDirectAutoPlayFlow = false,
-                        showDirectAutoPlayOverlay = false,
-                    )
-                }
-            }
             timeoutJob?.cancel()
         }
     }

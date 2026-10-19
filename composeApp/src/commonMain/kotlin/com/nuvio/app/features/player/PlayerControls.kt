@@ -106,6 +106,7 @@ import org.jetbrains.compose.resources.stringResource
 import kotlin.math.abs
 import kotlin.math.roundToLong
 import com.nuvio.app.core.i18n.localizedEpisodeTitle
+import com.nuvio.app.core.ui.glass.ambientLiquidGlass
 
 @Composable
 internal fun PlayerControlsShell(
@@ -148,6 +149,8 @@ internal fun PlayerControlsShell(
     isCasting: Boolean = false,
     downloadAction: (@Composable (buttonSize: Dp, iconSize: Dp) -> Unit)? = null,
     onPictureInPictureClick: (() -> Unit)? = null,
+    onOrientationToggleClick: (() -> Unit)? = null,
+    isPortraitPlayback: Boolean = false,
     onInfoClick: (() -> Unit)? = null,
     onRateClick: (() -> Unit)? = null,
     userRating: Int? = null,
@@ -232,6 +235,8 @@ internal fun PlayerControlsShell(
                     isCasting = isCasting,
                     downloadAction = downloadAction,
                     onPictureInPictureClick = onPictureInPictureClick,
+                    onOrientationToggleClick = onOrientationToggleClick,
+                    isPortraitPlayback = isPortraitPlayback,
                     onInfoClick = onInfoClick,
                     onRateClick = onRateClick,
                     userRating = userRating,
@@ -261,6 +266,8 @@ internal fun PlayerControlsShell(
                         downloadAction = downloadAction,
                         onPartyClick = onPartyClick,
                         partyActive = partyActive,
+                        onOrientationToggleClick = onOrientationToggleClick,
+                        isPortraitPlayback = isPortraitPlayback,
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .windowInsetsPadding(WindowInsets.safeContent.only(WindowInsetsSides.Top))
@@ -438,6 +445,8 @@ private fun PlayerHeader(
     isCasting: Boolean,
     downloadAction: (@Composable (buttonSize: Dp, iconSize: Dp) -> Unit)? = null,
     onPictureInPictureClick: (() -> Unit)?,
+    onOrientationToggleClick: (() -> Unit)? = null,
+    isPortraitPlayback: Boolean = false,
     onInfoClick: (() -> Unit)?,
     onRateClick: (() -> Unit)? = null,
     userRating: Int? = null,
@@ -611,6 +620,15 @@ private fun PlayerHeader(
                             onClick = onPictureInPictureClick,
                         )
                     }
+                    if (onOrientationToggleClick != null) {
+                        PlayerHeaderIconButton(
+                            icon = playerOrientationToggleIcon(isPortraitPlayback),
+                            contentDescription = stringResource(playerOrientationToggleLabel(isPortraitPlayback)),
+                            buttonSize = metrics.headerIconSize + 16.dp,
+                            iconSize = metrics.headerIconSize,
+                            onClick = onOrientationToggleClick,
+                        )
+                    }
                     if (onRateClick != null) {
                         PlayerHeaderIconButton(
                             icon = if (userRating != null) Icons.Rounded.Star else Icons.Rounded.StarBorder,
@@ -653,6 +671,8 @@ private fun PlayerHeader(
     }
 }
 
+
+private const val PlayerControlGlassOpacity = 0.35f
 
 @Composable
 internal fun PlayerHeaderIconButton(
@@ -729,6 +749,15 @@ private fun SideControlButton(
     Box(
         modifier = Modifier
             .clip(CircleShape)
+            .ambientLiquidGlass(
+                shape = CircleShape,
+                tint = Color.White.copy(alpha = 0.06f),
+                fallback = Color.Transparent,
+                blurRadius = 14.dp,
+                backdropOpacity = PlayerControlGlassOpacity,
+                refractionHeight = 8.dp,
+                refractionAmount = 12.dp,
+            )
             .clickable(onClick = onClick)
             .padding(metrics.sideButtonPadding),
         contentAlignment = Alignment.Center,
@@ -756,6 +785,15 @@ internal fun PlayPauseControlButton(
     Box(
         modifier = Modifier
             .clip(CircleShape)
+            .ambientLiquidGlass(
+                shape = CircleShape,
+                tint = Color.White.copy(alpha = 0.06f),
+                fallback = Color.Transparent,
+                blurRadius = 16.dp,
+                backdropOpacity = PlayerControlGlassOpacity,
+                refractionHeight = 10.dp,
+                refractionAmount = 14.dp,
+            )
             .clickable(onClick = onClick)
             .padding(metrics.playButtonPadding),
         contentAlignment = Alignment.Center,

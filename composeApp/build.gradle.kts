@@ -522,6 +522,7 @@ kotlin {
                 implementation("com.squareup.okhttp3:okhttp:4.12.0")
                 implementation("com.google.code.gson:gson:2.11.0")
                 implementation("io.github.peerless2012:ass-media:0.5.1")
+                implementation("io.github.peerless2012:ass-kt:0.5.1")
                 implementation(libs.ktor.client.okhttp)
                 implementation(libs.sentry.android)
                 implementation(libs.play.services.cast.framework)
@@ -572,7 +573,7 @@ kotlin {
             implementation("io.coil-kt.coil3:coil-svg:${libs.versions.coil.get()}") {
                 exclude(group = "org.jetbrains.skiko", module = "skiko")
             }
-            implementation("dev.chrisbanes.haze:haze:1.7.2")
+            implementation(libs.kyant.backdrop)
             implementation(libs.compose.runtime)
             implementation(libs.compose.foundation)
             implementation(libs.compose.material3)

@@ -35,6 +35,7 @@ interface NuvioPlayerBridge {
     fun retry()
     fun isPictureInPictureSupported(): Boolean
     fun startPictureInPicture()
+    fun setVideoZoom(scale: Double)
     fun setExperimentalSinglePrimaryPictureInPictureEnabled(enabled: Boolean)
     fun updateNowPlayingMetadata(
         title: String,

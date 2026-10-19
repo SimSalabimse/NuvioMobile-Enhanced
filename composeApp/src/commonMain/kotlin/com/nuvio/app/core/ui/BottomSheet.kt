@@ -35,14 +35,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeTint
-import dev.chrisbanes.haze.hazeEffect
-import dev.chrisbanes.haze.hazeSource
+import com.nuvio.app.core.ui.glass.NuvioBackdrop
+import com.nuvio.app.core.ui.glass.isLiquidGlassSupported
+import com.nuvio.app.core.ui.glass.liquidGlassSurface
+import com.nuvio.app.core.ui.glass.nuvioBackdropSource
 
 private val SheetShape = RoundedCornerShape(NuvioTokens.Space.s28)
 
@@ -71,23 +72,43 @@ internal fun flagSheetCardWidth(containerWidth: Double): Double {
     return minOf(FLAG_SHEET_CARD_WIDTH, containerWidth)
 }
 
+// Keep the sheet background treatment consistent between the sheet and pinned content inside it.
+internal fun Modifier.nuvioSheetSurface(
+    backdrop: NuvioBackdrop?,
+    shape: Shape,
+    containerColor: Color,
+    withHighlight: Boolean = true,
+): Modifier {
+    val readyBackdrop = backdrop?.takeIf { it.isReady && isLiquidGlassSupported() }
+    return liquidGlassSurface(
+        backdrop = readyBackdrop,
+        shape = shape,
+        tint = containerColor.copy(alpha = containerColor.alpha * 0.65f),
+        fallback = containerColor,
+        blurRadius = 24.dp,
+        refractionHeight = 16.dp,
+        refractionAmount = 32.dp,
+        withHighlight = withHighlight,
+    )
+}
+
 @Stable
-class NuvioSheetHaze(val state: HazeState) {
+class NuvioSheetBackdrop(val backdrop: NuvioBackdrop) {
     var activeSheets by mutableIntStateOf(0)
 }
 
-val LocalNuvioSheetHaze = staticCompositionLocalOf<NuvioSheetHaze?> { null }
+val LocalNuvioSheetBackdrop = staticCompositionLocalOf<NuvioSheetBackdrop?> { null }
 
 @Composable
-fun NuvioSheetHazeHost(
-    sheetHaze: NuvioSheetHaze,
+fun NuvioSheetBackdropHost(
+    sheetBackdrop: NuvioSheetBackdrop,
     content: @Composable () -> Unit,
 ) {
-    CompositionLocalProvider(LocalNuvioSheetHaze provides sheetHaze) {
+    CompositionLocalProvider(LocalNuvioSheetBackdrop provides sheetBackdrop) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .then(if (sheetHaze.activeSheets > 0) Modifier.hazeSource(state = sheetHaze.state) else Modifier),
+                .then(if (sheetBackdrop.activeSheets > 0 && isLiquidGlassSupported()) Modifier.nuvioBackdropSource(sheetBackdrop.backdrop) else Modifier),
         ) {
             content()
         }
@@ -120,14 +141,14 @@ fun NuvioModalBottomSheet(
         )
     } else {
         val tokens = MaterialTheme.nuvio
-        val sheetHaze = LocalNuvioSheetHaze.current
-        if (sheetHaze != null) {
-            DisposableEffect(sheetHaze) {
-                sheetHaze.activeSheets += 1
-                onDispose { sheetHaze.activeSheets -= 1 }
+        val sheetBackdrop = LocalNuvioSheetBackdrop.current
+        if (sheetBackdrop != null) {
+            DisposableEffect(sheetBackdrop) {
+                sheetBackdrop.activeSheets += 1
+                onDispose { sheetBackdrop.activeSheets -= 1 }
             }
         }
-        val sheetHazeReady = sheetHaze != null && sheetHaze.state.areas.isNotEmpty()
+        val sheetGlassReady = sheetBackdrop != null && sheetBackdrop.backdrop.isReady && isLiquidGlassSupported()
         ModalBottomSheet(
             onDismissRequest = onDismissRequest,
             sheetState = sheetState,
@@ -142,20 +163,12 @@ fun NuvioModalBottomSheet(
                     modifier = modifier
                         .padding(NuvioTokens.Space.s10)
                         .clip(SheetShape)
-                        .then(
-                            if (sheetHazeReady && sheetHaze != null) {
-                                Modifier.hazeEffect(state = sheetHaze.state) {
-                                    blurRadius = 24.dp
-                                    backgroundColor = containerColor
-                                    tints = listOf(HazeTint(containerColor.copy(alpha = containerColor.alpha * 0.65f)))
-                                    fallbackTint = HazeTint(containerColor)
-                                    noiseFactor = 0f
-                                }
-                            } else {
-                                Modifier.background(containerColor)
-                            },
+                        .nuvioSheetSurface(
+                            backdrop = sheetBackdrop?.backdrop,
+                            shape = SheetShape,
+                            containerColor = containerColor,
                         )
-                        .border(tokens.borders.thin, SurfaceEdge, SheetShape),
+                        .then(if (sheetGlassReady) Modifier else Modifier.border(tokens.borders.thin, SurfaceEdge, SheetShape)),
                 ) {
                     if (showDragHandle) {
                         NuvioBottomSheetDragHandle(Modifier.align(Alignment.CenterHorizontally))

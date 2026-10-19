@@ -77,6 +77,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.foundation.lazy.itemsIndexed
 import com.nuvio.app.core.ui.NuvioBottomSheetDivider
+import com.nuvio.app.core.ui.glass.isLiquidGlassAvailable
+import nuvio.composeapp.generated.resources.settings_appearance_liquid_glass_effects
+import nuvio.composeapp.generated.resources.settings_appearance_liquid_glass_effects_description
 
 internal fun LazyListScope.appearanceSettingsContent(
     isTablet: Boolean,
@@ -130,6 +133,11 @@ internal fun LazyListScope.appearanceSettingsContent(
         var showAppIconPicker by remember { mutableStateOf(false) }
         val glowEnabled by ThemeSettingsRepository.navBarGlowEnabled.collectAsStateWithLifecycle()
         val navBarPosition by ThemeSettingsRepository.navBarPosition.collectAsStateWithLifecycle()
+        val navBarGlass by ThemeSettingsRepository.navBarGlass.collectAsStateWithLifecycle()
+        val liquidGlassEffectsEnabled by ThemeSettingsRepository.liquidGlassEffectsEnabled.collectAsStateWithLifecycle()
+        val navBarDefaultIconColorEnabled by ThemeSettingsRepository.navBarDefaultIconColorEnabled.collectAsStateWithLifecycle()
+        val navBarDefaultIconColor by ThemeSettingsRepository.navBarDefaultIconColor.collectAsStateWithLifecycle()
+        val navBarLiquidGlassEnabled by ThemeSettingsRepository.navBarLiquidGlassEnabled.collectAsStateWithLifecycle()
         // Upstream pins tablets to COMPACT because there the bar is a top rail. This fork puts
         // the floating pill at the bottom on every size, so the chosen style still applies.
         val effectiveNavBarStyle = selectedNavBarStyle
@@ -171,6 +179,16 @@ internal fun LazyListScope.appearanceSettingsContent(
                     isTablet = isTablet,
                     onCheckedChange = onPosterFadeToggle,
                 )
+                if (isLiquidGlassAvailable()) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_appearance_liquid_glass_effects),
+                        description = stringResource(Res.string.settings_appearance_liquid_glass_effects_description),
+                        checked = liquidGlassEffectsEnabled,
+                        isTablet = isTablet,
+                        onCheckedChange = ThemeSettingsRepository::setLiquidGlassEffectsEnabled,
+                    )
+                }
                 if (liquidGlassNativeTabBarSupported) {
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
@@ -205,10 +223,7 @@ internal fun LazyListScope.appearanceSettingsContent(
                     isTablet = isTablet,
                     onClick = { showLanguageSheet = true },
                 )
-                // Relevant wherever the Compose pill is the navigation bar: Android, iPad, and
-                // iPhone before iOS 26. Only an iPhone on iOS 26 hides it, because there the tab
-                // bar is native and governed by the Liquid Glass row above instead.
-                if (!liquidGlassNativeTabBarSupported) {
+                if (!liquidGlassNativeTabBarSupported || !tabBarBehavior.isEnabled) {
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
                         title = stringResource(Res.string.settings_appearance_nav_bar_style),
@@ -272,19 +287,35 @@ internal fun LazyListScope.appearanceSettingsContent(
         }
 
         if (showNavBarStyleSheet) {
-            NavigationBarSettingsSheet(
-                // Passing false keeps the style list visible on tablets: the sheet hides it when
-                // isTablet is true, which only fits upstream's tablet top rail.
-                isTablet = false,
-                tabletLayout = LocalNuvioTabletNavLayout.current,
-                selectedStyle = effectiveNavBarStyle,
-                onStyleSelected = onNavBarStyleSelected,
-                glowEnabled = glowEnabled,
-                onGlowChanged = ThemeSettingsRepository::setNavBarGlowEnabled,
-                selectedPosition = navBarPosition,
-                onPositionSelected = ThemeSettingsRepository::setNavBarPosition,
-                onDismiss = { showNavBarStyleSheet = false },
-            )
+            NavigationBarLiquidGlassEffectDrafts { barEffects, selectionEffects ->
+                NavigationBarSettingsSheet(
+                    // Passing false keeps the style list visible on tablets: the sheet hides it when
+                    // isTablet is true, which only fits upstream's tablet top rail.
+                    isTablet = false,
+                    tabletLayout = LocalNuvioTabletNavLayout.current,
+                    selectedStyle = effectiveNavBarStyle,
+                    onStyleSelected = onNavBarStyleSelected,
+                    glowEnabled = glowEnabled,
+                    onGlowChanged = ThemeSettingsRepository::setNavBarGlowEnabled,
+                    selectedPosition = navBarPosition,
+                    onPositionSelected = ThemeSettingsRepository::setNavBarPosition,
+                    glassStyle = navBarGlass,
+                    onGlassStyleChanged = ThemeSettingsRepository::setNavBarGlass,
+                    defaultIconColorEnabled = navBarDefaultIconColorEnabled,
+                    onDefaultIconColorEnabledChanged = ThemeSettingsRepository::setNavBarDefaultIconColorEnabled,
+                    defaultIconColor = navBarDefaultIconColor,
+                    onDefaultIconColorChanged = ThemeSettingsRepository::updateNavBarDefaultIconColor,
+                    onSaveDefaultIconColor = ThemeSettingsRepository::saveNavBarDefaultIconColorSettings,
+                    liquidGlassEnabled = navBarLiquidGlassEnabled,
+                    onLiquidGlassChanged = ThemeSettingsRepository::setNavBarLiquidGlassEnabled,
+                    floatingBarEffects = barEffects,
+                    onFloatingBarEffectsChanged = ThemeSettingsRepository::updateNavBarLiquidGlassBarEffects,
+                    selectionLensEffects = selectionEffects,
+                    onSelectionLensEffectsChanged = ThemeSettingsRepository::updateNavBarLiquidGlassSelectionEffects,
+                    onSaveLiquidGlassEffectSettings = ThemeSettingsRepository::saveNavBarLiquidGlassEffectSettings,
+                    onDismiss = { showNavBarStyleSheet = false },
+                )
+            }
         }
     }
 

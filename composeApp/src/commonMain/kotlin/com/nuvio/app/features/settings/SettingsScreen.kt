@@ -746,9 +746,9 @@ private fun MobileSettingsScreen(
             }
         }
 
+        val watchPartyRowClick = watchPartyRow(onWatchPartyClick)
         val profileDrawsOwnChrome = page == SettingsPage.Profile && showInternalHeader && !LocalUseNativeNavigation.current
         ProfileInsightsPullToRefresh(enabled = page == SettingsPage.Profile) {
-        val watchPartyRowClick = watchPartyRow(onWatchPartyClick)
         NuvioScreen(
             modifier = Modifier.nestedScroll(rootSearchRevealConnection),
             listState = listState,
@@ -1250,8 +1250,8 @@ private fun TabletSettingsScreen(
                     listState.animateScrollToItem(0)
                 }
             }
-            ProfileInsightsPullToRefresh(enabled = page == SettingsPage.Profile) {
             val watchPartyRowClick = watchPartyRow(onWatchPartyClick)
+            ProfileInsightsPullToRefresh(enabled = page == SettingsPage.Profile) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier

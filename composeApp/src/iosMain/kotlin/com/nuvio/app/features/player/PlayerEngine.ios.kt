@@ -97,6 +97,9 @@ actual fun PlatformPlayerSurface(
 
     val controller = remember(bridge) {
         object : PlayerEngineController, PlayerSystemControlSource {
+            private var lastAppliedVolume: Float? = null
+            private var lastLoggedAudioTracks: String? = null
+
             override val keepsPlaybackInBackground: Boolean
                 get() = bridge.getKeepsPlaybackInBackground()
 
@@ -158,6 +161,10 @@ actual fun PlatformPlayerSurface(
                 bridge.startPictureInPicture()
             }
 
+            override fun setVideoZoom(scale: Float) {
+                bridge.setVideoZoom(scale.toDouble())
+            }
+
             override fun configureIosVideoOutput(settings: PlayerSettingsUiState) {
                 bridge.applyIosVideoOutputSettings(settings)
             }
@@ -177,8 +184,10 @@ actual fun PlatformPlayerSurface(
 
             override fun setPlayerVolume(level: Float): PlayerAudioLevel {
                 val target = level.coerceIn(0f, 2f)
-                InAppLogger.debug("Player/iOS", "control volume target=$target muted=${target <= 0.001f}")
-                bridge.setVolume(target)
+                if (target != lastAppliedVolume) {
+                    lastAppliedVolume = target
+                    bridge.setVolume(target)
+                }
                 return PlayerAudioLevel(
                     fraction = target,
                     isMuted = target <= 0.001f,
@@ -205,10 +214,12 @@ actual fun PlatformPlayerSurface(
                         isSelected = bridge.isAudioTrackSelected(i),
                     )
                 }
-                InAppLogger.debug(
-                    "Player/iOS",
-                    "getAudioTracks count=${tracks.size} selected=${tracks.firstOrNull { it.isSelected }?.index ?: -1}",
-                )
+                val tracksLog =
+                    "getAudioTracks count=${tracks.size} selected=${tracks.firstOrNull { it.isSelected }?.index ?: -1}"
+                if (tracksLog != lastLoggedAudioTracks) {
+                    lastLoggedAudioTracks = tracksLog
+                    InAppLogger.debug("Player/iOS", tracksLog)
+                }
                 return tracks
             }
 

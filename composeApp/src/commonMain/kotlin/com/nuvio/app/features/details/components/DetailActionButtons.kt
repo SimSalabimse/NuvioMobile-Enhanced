@@ -79,6 +79,8 @@ import nuvio.composeapp.generated.resources.details_action_start_from_beginning
 import nuvio.composeapp.generated.resources.sidebar_library
 import nuvio.composeapp.generated.resources.streams_open_external_player
 import org.jetbrains.compose.resources.stringResource
+import com.nuvio.app.core.ui.glass.ambientLiquidGlass
+import com.nuvio.app.core.ui.glass.isAmbientLiquidGlassActive
 
 data class DetailSecondaryAction(
     val label: String,
@@ -240,11 +242,26 @@ fun DetailActionButtons(
             }
 
             if (hasSecondaryActions) {
+                val moreGlassActive = !actionsExpanded && isAmbientLiquidGlassActive()
                 Surface(
-                    modifier = Modifier.size(iconButtonSize),
+                    modifier = Modifier
+                        .size(iconButtonSize)
+                        .then(
+                            if (moreGlassActive) {
+                                Modifier.ambientLiquidGlass(
+                                    shape = CircleShape,
+                                    tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    fallback = Color.Transparent,
+                                )
+                            } else {
+                                Modifier
+                            },
+                        ),
                     shape = CircleShape,
                     color = if (actionsExpanded) {
                         MaterialTheme.colorScheme.onBackground
+                    } else if (moreGlassActive) {
+                        Color.Transparent
                     } else {
                         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.82f)
                     },
@@ -279,12 +296,24 @@ fun DetailActionButtons(
     }
 
         if (onDownloadClick != null) {
+            val downloadGlassActive = isAmbientLiquidGlassActive()
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(buttonHeight),
+                    .height(buttonHeight)
+                    .then(
+                        if (downloadGlassActive) {
+                            Modifier.ambientLiquidGlass(
+                                shape = playShape,
+                                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                                fallback = Color.Transparent,
+                            )
+                        } else {
+                            Modifier
+                        },
+                    ),
                 shape = playShape,
-                color = MaterialTheme.colorScheme.surfaceVariant,
+                color = if (downloadGlassActive) Color.Transparent else MaterialTheme.colorScheme.surfaceVariant,
                 contentColor = MaterialTheme.colorScheme.onSurface,
             ) {
                 Box(
@@ -631,15 +660,30 @@ internal fun DetailIconAction(
     onLongClick: (() -> Unit)? = null,
     downloadProgress: DetailsDownloadProgress = DetailsDownloadProgress.None,
 ) {
+    val glassActive = !active && isAmbientLiquidGlassActive()
     Surface(
-        modifier = modifier.graphicsLayer {
-            alpha = progress
-            scaleX = 0.86f + (0.14f * progress)
-            scaleY = 0.86f + (0.14f * progress)
-        },
+        modifier = modifier
+            .graphicsLayer {
+                alpha = progress
+                scaleX = 0.86f + (0.14f * progress)
+                scaleY = 0.86f + (0.14f * progress)
+            }
+            .then(
+                if (glassActive) {
+                    Modifier.ambientLiquidGlass(
+                        shape = CircleShape,
+                        tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                        fallback = Color.Transparent,
+                    )
+                } else {
+                    Modifier
+                },
+            ),
         shape = CircleShape,
         color = if (active) {
             MaterialTheme.colorScheme.onBackground
+        } else if (glassActive) {
+            Color.Transparent
         } else {
             MaterialTheme.colorScheme.surfaceVariant
         },

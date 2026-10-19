@@ -5,7 +5,6 @@ import CoreVideo
 import Metal
 
 class MetalLayer: CAMetalLayer {
-    // Upstream VideoToolbox PiP handoff: libmpv pushes decoded frames here while PiP owns video.
     weak var pictureInPictureSink: PlayerPictureInPictureController?
     private let pictureInPictureLock = NSLock()
     private var consumesVideo = false
@@ -26,29 +25,28 @@ class MetalLayer: CAMetalLayer {
         pictureInPictureLock.unlock()
     }
 
-    // Upstream PiP handoff: tell the observer when the next acquired drawable is presented.
-    // Called from the enhanced nextDrawable() override below (only one override is allowed).
-    private func attachPresentationObserver(to drawable: CAMetalDrawable) {
+    private func attachPresentationObserver(to drawable: CAMetalDrawable, generation: UInt?) {
+        guard let generation else { return }
         pictureInPictureLock.lock()
-        let observer = presentationObserver
+        let observer = presentationObserver?.generation == generation ? presentationObserver : nil
         if observer != nil { presentationObserver = nil }
         pictureInPictureLock.unlock()
-        guard let observer else { return }
-        let generation = observer.generation
-        let notify: (TimeInterval) -> Void = { [weak self] time in
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.pictureInPictureLock.lock()
-                let current = self.presentationGeneration == generation
-                self.pictureInPictureLock.unlock()
-                if current { observer.callback(time) }
+        if let observer {
+            let notify: (TimeInterval) -> Void = { [weak self] time in
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.pictureInPictureLock.lock()
+                    let current = self.presentationGeneration == generation
+                    self.pictureInPictureLock.unlock()
+                    if current { observer.callback(time) }
+                }
             }
-        }
 #if targetEnvironment(simulator)
-        notify(CACurrentMediaTime())
+            notify(CACurrentMediaTime())
 #else
-        drawable.addPresentedHandler { notify($0.presentedTime) }
+            drawable.addPresentedHandler { notify($0.presentedTime) }
 #endif
+        }
     }
 
     @objc var nuvioPiPConsumesVideo: Bool {
@@ -190,11 +188,12 @@ class MetalLayer: CAMetalLayer {
             captureLock.unlock()
         }
 
+        pictureInPictureLock.lock()
+        let observerGeneration = presentationObserver?.generation
+        pictureInPictureLock.unlock()
         let drawable = super.nextDrawable()
+        if let drawable { attachPresentationObserver(to: drawable, generation: observerGeneration) }
         let acquisitionFailed = drawable == nil
-        #if !targetEnvironment(simulator)
-        if let drawable { attachPresentationObserver(to: drawable) }
-        #endif
 
         captureLock.lock()
         var didSuspend = false
