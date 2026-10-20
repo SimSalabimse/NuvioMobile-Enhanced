@@ -12,7 +12,8 @@
         "Importing your TheIntroDB submissions now finds which ones belong to the show more reliably, and retries on the next play when the list failed instead of waiting for an app restart.",
         "Submissions without a known video length no longer teach intro/credits to the other episodes.",
         "Shared nuvio://skip marks are saved as your marks, not labelled as TheIntroDB submissions.",
-        "Two analysis jobs finishing at the same time can no longer overwrite each other's results or a mark you just made."
+        "Two analysis jobs finishing at the same time can no longer overwrite each other's results or a mark you just made.",
+        "Imported submissions made on a different length of the episode are no longer shown, applied or labelled as yours there; the 191 clean-up runs once more, and every imported row is logged (Settings › Logs) so a wrong one can be traced."
       ]
     },
     {

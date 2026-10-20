@@ -102,7 +102,8 @@ internal fun skipSourcesFor(item: DownloadItem): List<Pair<String, String>> {
  * your TheIntroDB submissions), else the online provider the player last used. Stored data only.
  */
 private fun externalSkipSource(key: String, result: MediaAnalysisResult?, kind: String): String? {
-    val mark = result?.userSegments?.get(kind)?.takeIf { it.endMs > it.startMs }
+    val mark = result?.userSegments?.get(kind)
+        ?.takeIf { it.endMs > it.startMs && com.nuvio.app.features.player.sameCut(it.durationMs, result.durationMs) }
     if (mark != null) return if (mark.imported) "Your submission" else "Your mark"
     val online = SkipSourceLedger.online(key)[kind] ?: return null
     return skipSourceTag(online) ?: online

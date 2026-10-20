@@ -5,6 +5,7 @@ import com.nuvio.app.features.settings.groupSubmissions
 import com.nuvio.app.features.settings.segmentChipText
 import com.nuvio.app.features.settings.statusTotals
 
+import com.nuvio.app.features.analysis.withUserSegmentsApplied
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -29,6 +30,32 @@ class TheIntroDbV4Test {
         val unnamed = TheIntroDbUserSubmission(season = 1, episode = 16, segment = "recap", startMs = 0, endMs = 190_000)
         assertTrue(submissionsOfTitle(listOf(otherShow, unnamed), tmdbId = 1, tvdbId = null).isEmpty())
         assertTrue(submissionsOfTitle(listOf(otherShow, unnamed), tmdbId = 1, tvdbId = 10).isEmpty())
+    }
+
+    @Test
+    fun v4SubmissionRowsDecodeWithTheShowTvdbIdAndTheirOwnLength() {
+        // Shape of GET /v4/submissions rows (the site maps tvdb_id to the content, i.e. the series).
+        val page = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString(
+            TheIntroDbSubmissionsPage.serializer(),
+            """{"submissions":[{"id":"a","user_id":"u","tvdb_id":99,"type":"tv","season":1,"episode":16,
+            "video_duration_ms":1380000,"segment":"credits","start_ms":1245000,"end_ms":1335000,"status":"accepted"}],
+            "total":1,"limit":100,"offset":0}""",
+        )
+        val row = page.submissions.single()
+        assertEquals(99, row.tvdbId)
+        assertEquals(1_380_000L, row.videoDurationMs)
+        // Another show's row never passes for this title, and its 23-minute cut never fits a 44-minute file.
+        assertTrue(submissionsOfTitle(page.submissions, tmdbId = 1, tvdbId = 10).isEmpty())
+        kotlin.test.assertFalse(com.nuvio.app.features.player.sameCut(row.videoDurationMs!!, 2_647_700L))
+    }
+
+    @Test
+    fun aMarkFromAnotherCutIsNotAppliedToThisFile() {
+        val stored = com.nuvio.app.features.analysis.MediaAnalysisResult(
+            key = "tt1__s1e16", analyzedAtMs = 0L, durationMs = 2_647_700L,
+            userSegments = mapOf("outro" to com.nuvio.app.features.analysis.UserSegment(1_245_000L, 1_335_000L, imported = true, durationMs = 1_380_000L)),
+        ).withUserSegmentsApplied()
+        kotlin.test.assertNull(stored.creditsStartMs)
     }
 
     @Test

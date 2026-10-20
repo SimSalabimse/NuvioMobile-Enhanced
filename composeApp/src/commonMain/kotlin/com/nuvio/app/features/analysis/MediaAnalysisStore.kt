@@ -25,7 +25,7 @@ internal expect object MediaAnalysisFiles {
  * segments only, see [forgetFileData]).
  */
 private const val ALIASES_FILE = "show-aliases"
-private const val IMPORT_CLEANUP_FLAG = "migration-191-imported-marks"
+private const val IMPORT_CLEANUP_FLAG = "migration-192-imported-marks"
 
 /** Without imported marks, and without the times they had been copied into. */
 internal fun MediaAnalysisResult.withoutImportedMarks(): MediaAnalysisResult {
@@ -120,7 +120,7 @@ internal object MediaAnalysisStore {
     private var importCleanupDone = false
 
     /**
-     * Build 191, once: imports up to 190 could put another show's TheIntroDB submissions on an
+     * Build 192, once (again, as 191 re-imported the same rows): imports up to 190 could put another show's TheIntroDB submissions on an
      * episode with the same number. Drops every imported mark (and what was copied or learned
      * from it in that show); the fixed import brings the real ones back on the next play.
      * Marks made on this phone are kept.

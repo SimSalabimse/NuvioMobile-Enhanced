@@ -55,6 +55,12 @@ internal object SkipMarkImport {
             val end = submission.endMs ?: submission.videoDurationMs ?: continue
             val season = if (isMovie) null else submission.season ?: continue
             val episode = if (isMovie) null else submission.episode ?: continue
+            InAppLogger.info(
+                "SkipLearning",
+                "submission tmdb=${submission.tmdbId} tvdb=${submission.tvdbId} s=$season e=$episode " +
+                    "$segment $start-$end dur=${submission.videoDurationMs} status=${submission.status}",
+            )
+            if (submission.videoDurationMs != null && end > submission.videoDurationMs) continue
             if (SkipLearning.importMark(parentMetaId, season, episode, segment, start, end, submission.videoDurationMs ?: 0L)) {
                 imported++
                 season?.let { seasons += it }
