@@ -51,7 +51,7 @@ internal fun describeSharedSkipMark(mark: SharedSkipMark): String {
  * win), then lets the season learn from it like an imported TheIntroDB submission.
  */
 internal suspend fun importSharedSkipMark(mark: SharedSkipMark) {
-    val saved = SkipLearning.importMark(mark.parentMetaId, mark.season, mark.episode, mark.type, mark.startMs, mark.endMs)
+    val saved = SkipLearning.importMark(mark.parentMetaId, mark.season, mark.episode, mark.type, mark.startMs, mark.endMs, fromTheIntroDb = false)
     val where = if (mark.season != null && mark.episode != null) " for S${mark.season}E${mark.episode}" else ""
     if (!saved) {
         NuvioToastController.show("You already have a ${mark.type} mark$where")

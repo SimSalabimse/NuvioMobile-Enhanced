@@ -94,7 +94,7 @@ internal fun PlayerScreenRuntime.onDeviceSkipIntervals(): List<SkipInterval> {
 /** Segments the user marked or confirmed for the episode on screen (streamed or downloaded). */
 internal fun PlayerScreenRuntime.userMarkedSkipIntervals(): List<SkipInterval> =
     com.nuvio.app.features.analysis.SkipLearning.userMarks(parentMetaId, activeSeasonNumber, activeEpisodeNumber)
-        .filter { (_, mark) -> mark.endMs > mark.startMs }
+        .filter { (_, mark) -> mark.endMs > mark.startMs && sameCut(mark.durationMs, playbackSnapshot.durationMs) }
         .map { (type, mark) ->
             SkipInterval(
                 mark.startMs / 1000.0,

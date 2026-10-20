@@ -16,6 +16,7 @@ internal object TheIntroDb {
     const val MEDIA_URL = "$API_BASE/media"
     const val SUBMIT_URL = "$API_BASE/submit"
     const val SUBMISSIONS_URL = "$API_BASE/submissions"
+    private const val MAX_TVDB_PROBES = 4
     const val USER_STATS_URL = "$API_BASE/user/stats"
     const val PROVIDER = "theintrodb"
 
@@ -129,9 +130,14 @@ internal object TheIntroDb {
     ): List<TheIntroDbUserSubmission> {
         val rows = listPages(apiKey, tmdbId, mediaType)
         if (tmdbId == null) return rows
-        // v4 rows name the show by tvdb_id only; keep the ones of this title, whatever the filter did.
-        val sample = rows.firstOrNull { it.tmdbId == null && it.tvdbId != null } ?: return rows
-        val titleTvdbId = getMedia(tmdbId = tmdbId, season = sample.season, episode = sample.episode)?.tvdbId
+        // v4 rows name the show by its (series) tvdb_id only and the list ignores tmdb_id, so it can
+        // hold every show. The title's tvdb_id comes from /media, which needs an episode that exists
+        // for this title: try the episodes the rows name until one resolves.
+        val tvdbRows = rows.filter { it.tmdbId == null && it.tvdbId != null }
+        if (tvdbRows.isEmpty()) return submissionsOfTitle(rows, tmdbId, null)
+        val titleTvdbId = tvdbRows.map { it.season to it.episode }.distinct().take(MAX_TVDB_PROBES)
+            .firstNotNullOfOrNull { (season, episode) -> getMedia(tmdbId = tmdbId, season = season, episode = episode)?.tvdbId }
+        if (titleTvdbId == null) lastListError = "Couldn't tell which of your submissions belong to this title"
         return submissionsOfTitle(rows, tmdbId, titleTvdbId)
     }
 

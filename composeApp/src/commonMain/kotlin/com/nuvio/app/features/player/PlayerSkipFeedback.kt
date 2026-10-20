@@ -63,6 +63,9 @@ internal fun PlayerScreenRuntime.saveUserSkipMark(type: String, startSec: Double
             type = category,
             startMs = (startSec * 1000).toLong(),
             endMs = (endSec * 1000).toLong(),
+            durationMs = durationMs.takeIf {
+                activeSeasonNumber == season && activeEpisodeNumber == episode && parentMetaId == metaId
+            } ?: 0L,
         )
         // Use the mark at once in this episode.
         if (activeSeasonNumber == season && activeEpisodeNumber == episode && parentMetaId == metaId) {

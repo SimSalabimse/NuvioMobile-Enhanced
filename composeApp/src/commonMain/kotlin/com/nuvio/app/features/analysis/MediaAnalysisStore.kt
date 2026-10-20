@@ -1,6 +1,10 @@
 package com.nuvio.app.features.analysis
 
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import com.nuvio.app.features.downloads.DownloadItem
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 /** Raw per-key text files (iOS: Application Support/NuvioAnalysis). Android keeps nothing yet. */
@@ -20,6 +24,7 @@ internal expect object MediaAnalysisFiles {
  * of a season are a prefix listing away. Kept after the download is deleted (fingerprints and
  * segments only, see [forgetFileData]).
  */
+private const val ALIASES_FILE = "show-aliases"
 private const val IMPORT_CLEANUP_FLAG = "migration-191-imported-marks"
 
 /** Without imported marks, and without the times they had been copied into. */
@@ -45,21 +50,71 @@ internal object MediaAnalysisStore {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val cache = mutableMapOf<String, MediaAnalysisResult?>()
 
+    private val lock = SynchronizedObject()
+
     fun keyFor(parentMetaId: String, season: Int?, episode: Int?): String {
-        val show = sanitize(parentMetaId.trim())
+        val show = showKey(parentMetaId)
         return if (season != null && episode != null) "${show}__s${season}e$episode" else "${show}__movie"
     }
 
     fun keyFor(item: DownloadItem): String = keyFor(item.parentMetaId, item.seasonNumber, item.episodeNumber)
 
-    fun load(key: String): MediaAnalysisResult? {
+    fun load(key: String): MediaAnalysisResult? = synchronized(lock) {
         dropMisimportedMarksOnce()
         if (cache.containsKey(key)) return cache[key]
         val result = MediaAnalysisFiles.read(key)?.let { text ->
             runCatching { json.decodeFromString(MediaAnalysisResult.serializer(), text) }.getOrNull()
         }?.takeIf { it.version == MEDIA_ANALYSIS_VERSION }
         cache[key] = result
-        return result
+        result
+    }
+
+    /** Read-modify-write of one episode under the lock, so concurrent jobs can't drop each other's changes. */
+    fun update(key: String, transform: (MediaAnalysisResult?) -> MediaAnalysisResult?): MediaAnalysisResult? =
+        synchronized(lock) { transform(load(key))?.also(::save) }
+
+    /** Show ids that name the same title (tmdb:1, tt…) share one stored key: the first one seen. */
+    private val aliases: MutableMap<String, String> by lazy {
+        MediaAnalysisFiles.read(ALIASES_FILE)?.let { text ->
+            runCatching { json.decodeFromString<Map<String, String>>(text) }.getOrNull()
+        }.orEmpty().toMutableMap()
+    }
+
+    private fun showKey(parentMetaId: String): String {
+        val id = sanitize(parentMetaId.trim())
+        return synchronized(lock) { aliases[id]?.let { aliases[it] ?: it } } ?: id
+    }
+
+    /**
+     * Records that [parentMetaId] is TMDB title [tmdbId]. The first id seen for a title owns its
+     * store; episodes stored under a later id are merged into it (marks already there win).
+     */
+    fun linkShow(parentMetaId: String, tmdbId: Int) = synchronized(lock) {
+        val id = sanitize(parentMetaId.trim())
+        if (id.isEmpty() || tmdbId <= 0 || id in aliases) return@synchronized
+        val group = "tmdb#$tmdbId"
+        val owner = aliases[group]
+        if (owner == id) return@synchronized
+        if (owner == null) {
+            aliases[group] = id
+        } else {
+            aliases[id] = group
+            MediaAnalysisFiles.list("${id}__").forEach { oldKey -> mergeInto(oldKey, owner + oldKey.removePrefix(id)) }
+        }
+        MediaAnalysisFiles.write(ALIASES_FILE, json.encodeToString(aliases.toMap()))
+    }
+
+    private fun mergeInto(oldKey: String, newKey: String) {
+        val old = load(oldKey)
+        if (old != null) {
+            val target = load(newKey)
+            save(
+                target?.copy(userSegments = old.userSegments + target.userSegments)
+                    ?: old.copy(key = newKey),
+            )
+        }
+        cache.remove(oldKey)
+        MediaAnalysisFiles.delete("$oldKey.json")
     }
 
     private var importCleanupDone = false
@@ -88,7 +143,7 @@ internal object MediaAnalysisStore {
         MediaAnalysisFiles.write(IMPORT_CLEANUP_FLAG, "1")
     }
 
-    fun save(result: MediaAnalysisResult) {
+    fun save(result: MediaAnalysisResult) = synchronized(lock) {
         // User marks always win over whatever was detected.
         val applied = result.withUserSegmentsApplied()
         cache[applied.key] = applied
@@ -103,7 +158,7 @@ internal object MediaAnalysisStore {
 
     /** Everything stored for the episodes of a season (marks without a download included). */
     fun seasonResults(parentMetaId: String, season: Int): List<MediaAnalysisResult> =
-        MediaAnalysisFiles.list("${sanitize(parentMetaId.trim())}__s${season}e").mapNotNull(::load)
+        MediaAnalysisFiles.list("${showKey(parentMetaId)}__s${season}e").mapNotNull(::load)
 
     /** The download is gone: drop what only applies to that file, keep fingerprints and segments. */
     fun forgetFileData(key: String) {
@@ -121,7 +176,7 @@ internal object MediaAnalysisStore {
      */
     fun forgetReferences(parentMetaId: String) {
         if (parentMetaId.isBlank()) return
-        MediaAnalysisFiles.list("${sanitize(parentMetaId.trim())}__").forEach { key ->
+        MediaAnalysisFiles.list("${showKey(parentMetaId)}__").forEach { key ->
             val current = load(key) ?: return@forEach
             if (current.headFingerprint == null && current.tailFingerprint == null) return@forEach
             save(current.copy(headFingerprint = null, tailFingerprint = null))

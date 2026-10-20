@@ -66,7 +66,12 @@ internal data class UserSegment(
     val markedAtMs: Long = 0L,
     /** Brought in from the user's own TheIntroDB submissions, not marked on this phone. */
     val imported: Boolean = false,
+    /** Length of the video the mark was made on (0: unknown). */
+    val durationMs: Long = 0L,
 )
+
+/** A mark on an unknown cut can be wrong for every other file, so it never teaches other episodes. */
+internal val UserSegment.canTeach: Boolean get() = !imported || durationMs > 0L
 
 /** The user's marks override what was detected for this episode. */
 internal fun MediaAnalysisResult.withUserSegmentsApplied(): MediaAnalysisResult {

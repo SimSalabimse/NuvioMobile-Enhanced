@@ -101,8 +101,8 @@ internal object SiblingClipReference {
     private fun ownMarks(parentMetaId: String, season: Int): List<SiblingTimes> =
         MediaAnalysisStore.seasonResults(parentMetaId, season).mapNotNull { stored ->
             val episode = Regex("e(\\d+)$").find(stored.key)?.groupValues?.get(1)?.toIntOrNull() ?: return@mapNotNull null
-            val intro = stored.userSegments["intro"]?.takeIf { it.endMs > it.startMs } ?: return@mapNotNull null
-            val outro = stored.userSegments["outro"]?.takeIf { it.endMs > it.startMs }
+            val intro = stored.userSegments["intro"]?.takeIf { it.endMs > it.startMs && it.canTeach } ?: return@mapNotNull null
+            val outro = stored.userSegments["outro"]?.takeIf { it.endMs > it.startMs && it.canTeach }
             SiblingTimes(episode, intro.startMs to intro.endMs, outro?.let { it.startMs to it.endMs })
         }
 

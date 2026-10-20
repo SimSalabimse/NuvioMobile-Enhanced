@@ -11,17 +11,24 @@ import com.nuvio.app.features.tmdb.TmdbService
 /**
  * Brings the user's earlier TheIntroDB submissions for a show onto the phone as their own marks,
  * so they are used for skipping and as trusted references for the on-device detector.
- * Runs at most once per show per app session. Rejected submissions and ones without times
+ * Runs once per show per app session after a list that went through (a failed one retries on the next play). Rejected submissions and ones without times
  * are skipped; marks already on the phone are kept.
  */
 internal object SkipMarkImport {
     private val done = mutableSetOf<String>()
 
+    private val running = mutableSetOf<String>()
+
     suspend fun importForShow(parentMetaId: String, videoId: String?, isMovie: Boolean): Int {
-        if (parentMetaId.isBlank() || !done.add(parentMetaId)) return 0
-        val settings = PlayerSettingsRepository.uiState.value
-        val key = savedKeyForService(IntroSubmitService.THE_INTRODB, settings.introDbApiKey, settings.theIntroDbApiKey)
-        if (key.isBlank()) return 0
+        if (parentMetaId.isBlank() || parentMetaId in done || !running.add(parentMetaId)) return 0
+        return try {
+            importOnce(parentMetaId, videoId, isMovie)
+        } finally {
+            running -= parentMetaId
+        }
+    }
+
+    private suspend fun importOnce(parentMetaId: String, videoId: String?, isMovie: Boolean): Int {
         val mediaType = if (isMovie) "movie" else "tv"
         val tmdbId = runCatching {
             TmdbService.ensureTmdbId(
@@ -30,8 +37,15 @@ internal object SkipMarkImport {
                 fallbackImdbId = parentMetaId.takeIf { it.startsWith("tt", ignoreCase = true) },
             )?.toIntOrNull()
         }.getOrNull() ?: return 0
+        // However the show was opened (tmdb:…, tt…), its marks and analysis live under one key.
+        MediaAnalysisStore.linkShow(parentMetaId, tmdbId)
+        val settings = PlayerSettingsRepository.uiState.value
+        val key = savedKeyForService(IntroSubmitService.THE_INTRODB, settings.introDbApiKey, settings.theIntroDbApiKey)
+        if (key.isBlank()) { done += parentMetaId; return 0 }
         val submissions = TheIntroDb.listMySubmissions(key, tmdbId, mediaType)
         val error = TheIntroDb.lastListError
+        // Only a complete, attributable list counts; otherwise the next play of the show retries.
+        if (error == null) done += parentMetaId
         var imported = 0
         val seasons = mutableSetOf<Int>()
         for (submission in submissions) {
@@ -41,7 +55,7 @@ internal object SkipMarkImport {
             val end = submission.endMs ?: submission.videoDurationMs ?: continue
             val season = if (isMovie) null else submission.season ?: continue
             val episode = if (isMovie) null else submission.episode ?: continue
-            if (SkipLearning.importMark(parentMetaId, season, episode, segment, start, end)) {
+            if (SkipLearning.importMark(parentMetaId, season, episode, segment, start, end, submission.videoDurationMs ?: 0L)) {
                 imported++
                 season?.let { seasons += it }
             }

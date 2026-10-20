@@ -2,6 +2,21 @@
   "releases": [
     {
       "version": "0.6.2.1",
+      "build": 192,
+      "date": "2026-10-20",
+      "improved": [
+        "A show's skip marks and analysis are shared however you opened it (TMDB or IMDb id); episodes stored under the other id are merged in once.",
+        "Your marks and imported submissions remember the video length; they are only used on a version of the episode within 30 s of it."
+      ],
+      "fixed": [
+        "Importing your TheIntroDB submissions now finds which ones belong to the show more reliably, and retries on the next play when the list failed instead of waiting for an app restart.",
+        "Submissions without a known video length no longer teach intro/credits to the other episodes.",
+        "Shared nuvio://skip marks are saved as your marks, not labelled as TheIntroDB submissions.",
+        "Two analysis jobs finishing at the same time can no longer overwrite each other's results or a mark you just made."
+      ]
+    },
+    {
+      "version": "0.6.2.1",
       "build": 191,
       "date": "2026-10-20",
       "improved": [
