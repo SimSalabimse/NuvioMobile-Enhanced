@@ -2,6 +2,18 @@
   "releases": [
     {
       "version": "0.6.2.1",
+      "build": 191,
+      "date": "2026-10-20",
+      "improved": [
+        "Skip source labels are honest everywhere: 'TheIntroDB (yours)' / 'Your submission' only for what you submitted for that exact episode, 'Your mark' for marks made on this phone, 'TheIntroDB', 'IntroDB' and 'On-device' for the rest."
+      ],
+      "fixed": [
+        "Importing your TheIntroDB submissions could put another show's times on an episode with the same number (shown as 'Your submission' on episodes you never submitted). Only submissions that provably belong to the show are imported now.",
+        "Those wrongly imported times are removed once on update; your real submissions are imported again the next time you play the show, and marks made on this phone are kept."
+      ]
+    },
+    {
+      "version": "0.6.2.1",
       "build": 190,
       "date": "2026-10-20",
       "new": [

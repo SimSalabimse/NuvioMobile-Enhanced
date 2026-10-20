@@ -16,9 +16,28 @@ class TheIntroDbV4Test {
     @Test
     fun keepsOnlyTheRowsOfTheTitle() {
         val rows = listOf(row(tmdb = 1), row(tmdb = 2), row(tvdb = 10), row(tvdb = 11), row())
-        assertEquals(listOf(rows[0], rows[2], rows[4]), submissionsOfTitle(rows, tmdbId = 1, tvdbId = 10))
-        // tvdb id of the title unknown: rows naming only a tvdb id are kept.
-        assertEquals(listOf(rows[0], rows[2], rows[3], rows[4]), submissionsOfTitle(rows, tmdbId = 1, tvdbId = null))
+        assertEquals(listOf(rows[0], rows[2]), submissionsOfTitle(rows, tmdbId = 1, tvdbId = 10))
+        // Unknown tvdb id of the title: rows naming only a tvdb id cannot be proven to be this show's.
+        assertEquals(listOf(rows[0]), submissionsOfTitle(rows, tmdbId = 1, tvdbId = null))
+    }
+
+    @Test
+    fun anotherShowsSubmissionNeverBecomesThisEpisodesOwnMark() {
+        // Regression (190): the v4 list held every show's rows; another show's S1E16 times became
+        // "your submission" on this show's S1E16, which nobody had submitted.
+        val otherShow = TheIntroDbUserSubmission(tvdbId = 99, season = 1, episode = 16, segment = "outro", startMs = 1_245_000, endMs = 1_335_000)
+        val unnamed = TheIntroDbUserSubmission(season = 1, episode = 16, segment = "recap", startMs = 0, endMs = 190_000)
+        assertTrue(submissionsOfTitle(listOf(otherShow, unnamed), tmdbId = 1, tvdbId = null).isEmpty())
+        assertTrue(submissionsOfTitle(listOf(otherShow, unnamed), tmdbId = 1, tvdbId = 10).isEmpty())
+    }
+
+    @Test
+    fun communityTheIntroDbTimesAreNotLabelledYours() {
+        assertEquals("TheIntroDB", skipSourceTag(TheIntroDb.PROVIDER))
+        assertEquals("TheIntroDB (yours)", skipSourceTag(com.nuvio.app.features.analysis.SkipLearning.PROVIDER_IMPORTED))
+        assertEquals("Your mark", skipSourceTag(com.nuvio.app.features.analysis.SkipLearning.PROVIDER))
+        assertEquals("On-device", skipSourceTag(com.nuvio.app.features.player.ON_DEVICE_SKIP_PROVIDER))
+        assertEquals("IntroDB", skipSourceTag("introdb"))
     }
 
     @Test

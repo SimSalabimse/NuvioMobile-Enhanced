@@ -331,7 +331,11 @@ internal data class TheIntroDbUserSubmission(
     @kotlinx.serialization.json.JsonNames("video_duration_ms", "videoDurationMs") val videoDurationMs: Long? = null,
 )
 
-/** Rows of one title: same tmdb_id, or same tvdb_id when known (rows naming neither are kept). */
+/**
+ * Rows of one title: same tmdb_id, or same tvdb_id. A row that cannot be proven to belong to the
+ * title (unknown tvdb id, or naming neither) is dropped: the list can hold every show's rows, and
+ * keeping them put another show's times on this show's episode with the same number.
+ */
 internal fun submissionsOfTitle(
     rows: List<TheIntroDbUserSubmission>,
     tmdbId: Int,
@@ -339,8 +343,8 @@ internal fun submissionsOfTitle(
 ): List<TheIntroDbUserSubmission> = rows.filter { row ->
     when {
         row.tmdbId != null -> row.tmdbId == tmdbId
-        row.tvdbId != null && tvdbId != null -> row.tvdbId == tvdbId
-        else -> true
+        row.tvdbId != null -> tvdbId != null && row.tvdbId == tvdbId
+        else -> false
     }
 }
 

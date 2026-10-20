@@ -31,7 +31,7 @@ class PlayerScreenRuntimeStateTest {
     fun debugReadoutShowsSecondsForPositionAndSegments() {
         val credits = com.nuvio.app.features.player.skip.SkipInterval(3_000.0, 3_090.0, "outro", "introdb")
         val text = playerDebugReadoutText(120_000L, 3_100_000L, listOf(credits), credits)
-        assertEquals("pos 120.0 s · dur 3100.0 s\n▶ outro 3000.0–3090.0 s (introdb)", text)
+        assertEquals("pos 120.0 s · dur 3100.0 s\n▶ outro 3000.0–3090.0 s (IntroDB)", text)
     }
 
     @Test

@@ -20,6 +20,27 @@ internal expect object MediaAnalysisFiles {
  * of a season are a prefix listing away. Kept after the download is deleted (fingerprints and
  * segments only, see [forgetFileData]).
  */
+private const val IMPORT_CLEANUP_FLAG = "migration-191-imported-marks"
+
+/** Without imported marks, and without the times they had been copied into. */
+internal fun MediaAnalysisResult.withoutImportedMarks(): MediaAnalysisResult {
+    val dropped = userSegments.filterValues { it.imported }.keys
+    if (dropped.isEmpty()) return this
+    var r = copy(userSegments = userSegments - dropped, learnedTypes = learnedTypes - dropped, derivedVersion = 0)
+    if ("intro" in dropped) r = r.copy(introStartMs = null, introEndMs = null)
+    if ("outro" in dropped) r = r.copy(creditsStartMs = null, creditsEndMs = null)
+    if ("recap" in dropped) r = r.copy(recapStartMs = null, recapEndMs = null)
+    return r
+}
+
+/** Without the intro/credits learned from other episodes' marks (they are learned again). */
+internal fun MediaAnalysisResult.withoutLearnedTypes(): MediaAnalysisResult {
+    var r = copy(learnedTypes = emptySet(), derivedVersion = 0)
+    if ("intro" in learnedTypes && "intro" !in userSegments) r = r.copy(introStartMs = null, introEndMs = null)
+    if ("outro" in learnedTypes && "outro" !in userSegments) r = r.copy(creditsStartMs = null, creditsEndMs = null)
+    return r
+}
+
 internal object MediaAnalysisStore {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private val cache = mutableMapOf<String, MediaAnalysisResult?>()
@@ -32,12 +53,39 @@ internal object MediaAnalysisStore {
     fun keyFor(item: DownloadItem): String = keyFor(item.parentMetaId, item.seasonNumber, item.episodeNumber)
 
     fun load(key: String): MediaAnalysisResult? {
+        dropMisimportedMarksOnce()
         if (cache.containsKey(key)) return cache[key]
         val result = MediaAnalysisFiles.read(key)?.let { text ->
             runCatching { json.decodeFromString(MediaAnalysisResult.serializer(), text) }.getOrNull()
         }?.takeIf { it.version == MEDIA_ANALYSIS_VERSION }
         cache[key] = result
         return result
+    }
+
+    private var importCleanupDone = false
+
+    /**
+     * Build 191, once: imports up to 190 could put another show's TheIntroDB submissions on an
+     * episode with the same number. Drops every imported mark (and what was copied or learned
+     * from it in that show); the fixed import brings the real ones back on the next play.
+     * Marks made on this phone are kept.
+     */
+    private fun dropMisimportedMarksOnce() {
+        if (importCleanupDone) return
+        importCleanupDone = true
+        if (MediaAnalysisFiles.read(IMPORT_CLEANUP_FLAG) != null) return
+        val all = MediaAnalysisFiles.list("").filter { it.contains("__") }.mapNotNull(::load)
+        val affectedShows = mutableSetOf<String>()
+        all.forEach { result ->
+            val cleaned = result.withoutImportedMarks()
+            if (cleaned != result) {
+                affectedShows += result.key.substringBefore("__")
+                save(cleaned)
+            }
+        }
+        all.filter { it.key.substringBefore("__") in affectedShows && it.learnedTypes.isNotEmpty() }
+            .forEach { stored -> load(stored.key)?.let { save(it.withoutLearnedTypes()) } }
+        MediaAnalysisFiles.write(IMPORT_CLEANUP_FLAG, "1")
     }
 
     fun save(result: MediaAnalysisResult) {

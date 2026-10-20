@@ -204,7 +204,7 @@ private fun skipLabel(type: String?, skipsToPostCredits: Boolean): String =
 /** Where the skip times came from, shown as a small tag next to the Skip label. */
 internal fun skipSourceTag(provider: String?): String? = when (provider) {
     null -> null
-    com.nuvio.app.features.analysis.SkipLearning.PROVIDER -> "You"
+    com.nuvio.app.features.analysis.SkipLearning.PROVIDER -> "Your mark"
     com.nuvio.app.features.analysis.SkipLearning.PROVIDER_IMPORTED -> "TheIntroDB (yours)"
     TheIntroDb.PROVIDER -> "TheIntroDB"
     com.nuvio.app.features.player.ON_DEVICE_SKIP_PROVIDER -> "On-device"
