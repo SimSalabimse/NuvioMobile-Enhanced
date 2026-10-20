@@ -98,7 +98,7 @@ data class PlayerSettingsUiState(
     val nextEpisodeThresholdPercent: Float = 99f,
     val nextEpisodeThresholdMinutesBeforeEnd: Float = 2f,
     val preloadNextEpisodeSources: Boolean = false,
-    val miniPlayerEnabled: Boolean = true,
+    val miniPlayerEnabled: Boolean = false,
     val privateViewingEnabled: Boolean = false,
     val useLibass: Boolean = false,
     val libassRenderType: String = "CUES",
@@ -190,7 +190,7 @@ object PlayerSettingsRepository {
     private var nextEpisodeThresholdPercent = 99f
     private var nextEpisodeThresholdMinutesBeforeEnd = 2f
     private var preloadNextEpisodeSources = false
-    private var miniPlayerEnabled = true
+    private var miniPlayerEnabled = false
     private var privateViewingEnabled = false
     private var useLibass = false
     private var libassRenderType = "CUES"
@@ -287,7 +287,7 @@ object PlayerSettingsRepository {
         nextEpisodeThresholdPercent = 99f
         nextEpisodeThresholdMinutesBeforeEnd = 2f
         preloadNextEpisodeSources = false
-        miniPlayerEnabled = true
+        miniPlayerEnabled = false
         privateViewingEnabled = false
         useLibass = false
         libassRenderType = "CUES"

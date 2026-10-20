@@ -359,6 +359,9 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 .align(Alignment.TopCenter)
                 .padding(top = 16.dp, start = horizontalSafePadding, end = horizontalSafePadding),
         )
+        PlayerDebugReadoutOverlay(
+            Modifier.align(Alignment.CenterStart).padding(start = horizontalSafePadding),
+        )
         RenderPlayerModals()
         RenderParty(runtime = runtime)
         }
@@ -422,7 +425,6 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
         enter = fadeIn(),
         exit = fadeOut(),
     ) {
-        val displayedPositionMs = scrubbingPositionMs ?: playbackSnapshot.positionMs
         val orientationToggleSupported = rememberPlayerOrientationToggleSupported()
         val portraitPlayback by PlayerOrientationPreference.portrait.collectAsStateWithLifecycle()
         val pipAvailable = isIos && playerSettingsUiState.miniPlayerEnabled &&
@@ -858,9 +860,9 @@ private fun PlayerScreenRuntime.playbackResolutionLabel(forButton: Boolean): Str
 @Composable
 private fun PlayerScreenRuntime.RenderPlayerModals() {
     val displayedPositionMs = if (showChaptersPanel || showSubmitIntroModal) {
-        scrubbingPositionMs ?: playbackSnapshot.positionMs
+        scrubbingPositionMs ?: playbackClock.positionMs
     } else {
-        Snapshot.withoutReadObservation { scrubbingPositionMs ?: playbackSnapshot.positionMs }
+        Snapshot.withoutReadObservation { scrubbingPositionMs ?: playbackClock.positionMs }
     }
     val snapshotChapters by remember(this) { derivedStateOf { playbackSnapshot.chapters } }
     val snapshotMediaInfoJson by remember(this) { derivedStateOf { playbackSnapshot.mediaInfoJson } }

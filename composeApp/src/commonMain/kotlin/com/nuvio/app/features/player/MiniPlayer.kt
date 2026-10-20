@@ -316,7 +316,7 @@ private fun MiniPlayerFrame(
             val snapshot = runtime?.playbackSnapshot
             val durationMs = snapshot?.durationMs ?: 0L
             val progressFraction = if (snapshot != null && durationMs > 0L) {
-                (snapshot.positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+                ((runtime?.playbackClock?.positionMs ?: 0L).toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
             } else {
                 0f
             }

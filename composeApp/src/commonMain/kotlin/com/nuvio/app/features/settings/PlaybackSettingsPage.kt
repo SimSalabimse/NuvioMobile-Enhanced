@@ -66,6 +66,7 @@ import com.nuvio.app.features.player.IosTargetPrimaries
 import com.nuvio.app.features.player.IosTargetTransfer
 import com.nuvio.app.features.player.PlaybackMemoryInfo
 import com.nuvio.app.features.player.safeBufferLimitMb
+import com.nuvio.app.features.player.PlayerDebugReadout
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.STREAM_AUTO_PLAY_TIMEOUT_VALUES
 import com.nuvio.app.features.player.SubtitleBackgroundColorSwatches
@@ -462,6 +463,15 @@ private fun PlaybackSettingsSection(
                     checked = autoPlayPlayerSettings.privateViewingEnabled,
                     isTablet = isTablet,
                     onCheckedChange = PlayerSettingsRepository::setPrivateViewingEnabled,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                val debugReadout by PlayerDebugReadout.enabled.collectAsStateWithLifecycle()
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_playback_debug_readout),
+                    description = stringResource(Res.string.settings_playback_debug_readout_description),
+                    checked = debugReadout,
+                    isTablet = isTablet,
+                    onCheckedChange = PlayerDebugReadout::setEnabled,
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 // Player preference picker: Internal / External

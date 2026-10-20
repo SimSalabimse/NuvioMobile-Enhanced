@@ -465,7 +465,7 @@ internal fun PlayerScreenRuntime.switchPlaybackEngine() {
     val target = if (engine == AndroidPlaybackEngine.Libmpv) AndroidPlaybackEngine.ExoPlayer else AndroidPlaybackEngine.Libmpv
     flushWatchProgress()
     if (initialSeekApplied) {
-        activeInitialPositionMs = playbackSnapshot.positionMs.coerceAtLeast(0L)
+        activeInitialPositionMs = playbackClock.positionMs.coerceAtLeast(0L)
         activeInitialProgressFraction = null
     }
     playbackEngineOverride = target

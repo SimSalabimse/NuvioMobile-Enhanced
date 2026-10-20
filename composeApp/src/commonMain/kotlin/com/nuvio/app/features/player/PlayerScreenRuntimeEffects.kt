@@ -994,7 +994,7 @@ private fun PlayerScreenRuntime.retryServerSourceAfterError(message: String?): B
     val failedUrl = activeSourceUrl
     if (credentialRefreshAttemptedSourceUrl == failedUrl) return false
     credentialRefreshAttemptedSourceUrl = failedUrl
-    val savedPositionMs = playbackSnapshot.positionMs.coerceAtLeast(0L)
+    val savedPositionMs = playbackClock.positionMs.coerceAtLeast(0L)
     errorMessage = null
     credentialRefreshJob = scope.launch {
         val playback = ServerPlayback.fallback(failedUrl)

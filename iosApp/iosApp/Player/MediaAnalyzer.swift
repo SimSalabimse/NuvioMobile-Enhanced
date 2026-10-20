@@ -16,7 +16,24 @@ import Libavutil
 /// Video and subtitle packets are discarded by the demuxer. Cancellable at any packet.
 final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
     private let queue = DispatchQueue(label: "nuvio.media-analyzer", qos: .utility)
-    private let abort = MediaAnalyzerAbortFlag()
+    /// Every queued or running job has its own flag, so starting a job never un-cancels another.
+    private let flagLock = NSLock()
+    private var liveFlags: [MediaAnalyzerAbortFlag] = []
+
+    private func startJob() -> MediaAnalyzerAbortFlag {
+        let flag = MediaAnalyzerAbortFlag()
+        flagLock.lock(); liveFlags.append(flag); flagLock.unlock()
+        return flag
+    }
+
+    private func endJob(_ flag: MediaAnalyzerAbortFlag) {
+        flagLock.lock(); liveFlags.removeAll { $0 === flag }; flagLock.unlock()
+    }
+
+    private func abortAll() {
+        flagLock.lock(); let flags = liveFlags; flagLock.unlock()
+        flags.forEach { $0.set() }
+    }
 
     func currentProgress() -> Double { MediaAnalyzerStatus.shared.progress }
 
@@ -32,16 +49,16 @@ final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
     /// The file is about to be deleted: stop the run that reads it, so its handle closes.
     func releaseFile(path: String) {
         fileLock.lock(); let current = runningFile; fileLock.unlock()
-        if HeldFileRegistry.samePath(current, path) { abort.set() }
+        if HeldFileRegistry.samePath(current, path) { abortAll() }
     }
 
     func analyze(fileUri: String, onDone: @escaping (String?) -> Void) {
-        abort.reset()
+        let flag = startJob()
         setRunningFile(fileUri)
         MediaAnalyzerStatus.shared.begin()
-        let flag = abort
         queue.async {
             let result = MediaAnalysisRun(fileUri: fileUri, abort: flag).run()
+            self.endJob(flag)
             self.setRunningFile(nil)
             if result == nil, MediaAnalyzerStatus.shared.failure == nil {
                 MediaAnalyzerStatus.shared.fail(flag.isSet ? "Stopped" : "Could not analyse the audio")
@@ -58,12 +75,11 @@ final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
         tileWidth: Int32,
         onDone: @escaping (String?) -> Void
     ) {
-        abort.reset()
+        let flag = startJob()
         setRunningFile(fileUri)
         MediaAnalyzerStatus.shared.begin()
-        let flag = abort
         queue.async {
-            defer { self.setRunningFile(nil) }
+            defer { self.setRunningFile(nil); self.endJob(flag) }
             let result = ThumbnailSheetBuilder(
                 fileUri: fileUri,
                 outputPrefix: outputPrefix,
@@ -88,16 +104,16 @@ final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
         endMs: Int64,
         onDone: @escaping (String?) -> Void
     ) {
-        abort.reset()
-        let flag = abort
+        let flag = startJob()
         queue.async {
             let result = ClipFingerprintRun(url: url, headers: headers, startMs: startMs, endMs: endMs, abort: flag).run()
+            self.endJob(flag)
             DispatchQueue.main.async { onDone(result) }
         }
     }
 
     func cancel() {
-        abort.set()
+        abortAll()
     }
 }
 

@@ -35,7 +35,7 @@ internal fun PlayerScreenRuntime.isAtNextEpisodeThreshold(): Boolean {
         val preloadLeadMs = maxOf(playerSettingsUiState.streamAutoPlayTimeoutSeconds.toLong() * 1_000L, 10_000L)
             .coerceAtMost(30_000L)
         val shouldPreloadByCard = PlayerNextEpisodeRules.shouldShowNextEpisodeCard(
-            positionMs = playbackSnapshot.positionMs + preloadLeadMs,
+            positionMs = playbackClock.positionMs + preloadLeadMs,
             durationMs = playbackSnapshot.durationMs,
             skipIntervals = skipIntervals,
             thresholdMode = playerSettingsUiState.nextEpisodeThresholdMode,
@@ -43,7 +43,7 @@ internal fun PlayerScreenRuntime.isAtNextEpisodeThreshold(): Boolean {
             thresholdMinutesBeforeEnd = playerSettingsUiState.nextEpisodeThresholdMinutesBeforeEnd,
         )
         val shouldPreloadByEnd = playbackSnapshot.durationMs > 0L &&
-            (playbackSnapshot.durationMs - playbackSnapshot.positionMs) <= preloadLeadMs
+            (playbackSnapshot.durationMs - playbackClock.positionMs) <= preloadLeadMs
         if (shouldPreloadByCard || shouldPreloadByEnd) {
             preloadNextEpisodeSources()
         }
