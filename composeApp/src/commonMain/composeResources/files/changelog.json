@@ -2,6 +2,22 @@
   "releases": [
     {
       "version": "0.6.2.1",
+      "build": 190,
+      "date": "2026-10-20",
+      "new": [
+        "Settings › Playback › Playback debug readout: shows the player's live position, duration and the skip segments it is comparing, to pin down wrong skip times."
+      ],
+      "improved": [
+        "The mini player is off by default again; turn it on in Settings › Playback."
+      ],
+      "fixed": [
+        "Next-episode sources preload again before the end of an episode.",
+        "Subtitle sync by ear, the chapters panel, Submit Intro, the mini player progress bar, a server-source retry and switching playback engine use the real playback position instead of 0.",
+        "Starting a new analysis or intro-clip check no longer resumes a cancelled one."
+      ]
+    },
+    {
+      "version": "0.6.2.1",
       "build": 189,
       "date": "2026-10-19",
       "new": [
