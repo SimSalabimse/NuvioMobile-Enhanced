@@ -154,6 +154,7 @@ import com.nuvio.app.features.player.recordExternalPlaybackProgress
 import com.nuvio.app.features.player.ExternalPlayerPlatform
 import com.nuvio.app.features.player.PlayerLaunch
 import com.nuvio.app.features.player.PlayerLaunchStore
+import com.nuvio.app.navigation.launchPlayer
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.SubtitleLanguageOption
 import com.nuvio.app.features.player.prepareExternalPlayerLaunch
@@ -1033,8 +1034,7 @@ internal fun MainAppContent(
                 coroutineScope.launch { openExternalPlayback(playerLaunch) }
                 return
             }
-            val launchId = PlayerLaunchStore.put(playerLaunch)
-            navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title))
+            navController.launchPlayer(playerLaunch)
         }
 
         fun openExternalStreamUrl(url: String): Boolean {
@@ -1084,8 +1084,7 @@ internal fun MainAppContent(
                         openExternalPlayback(playerLaunch)
                         true
                     } else {
-                        val launchId = PlayerLaunchStore.put(playerLaunch)
-                        navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title))
+                        navController.launchPlayer(playerLaunch)
                         true
                     }
                 }
@@ -1160,8 +1159,7 @@ internal fun MainAppContent(
                         coroutineScope.launch { openExternalPlayback(playerLaunch) }
                         return
                     }
-                    val launchId = PlayerLaunchStore.put(playerLaunch)
-                    navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title))
+                    navController.launchPlayer(playerLaunch)
                     return
                 }
             }

@@ -27,7 +27,7 @@ import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.p2p.P2pConsentDialog
 import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.player.PlayerLaunch
-import com.nuvio.app.features.player.PlayerLaunchStore
+import com.nuvio.app.navigation.launchPlayer
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.resolveContentLanguage
 import com.nuvio.app.features.player.sanitizePlaybackHeaders
@@ -247,13 +247,8 @@ internal fun StreamDestination(
         )
 
         autoPlayNavigationStarted = replaceStreamRoute
-        val launchId = PlayerLaunchStore.put(playerLaunch)
         StreamsRepository.cancelLoading()
-        navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title)) {
-            if (replaceStreamRoute) {
-                popUpTo<StreamRoute> { inclusive = true }
-            }
-        }
+        navController.launchPlayer(playerLaunch, replaceStreamRoute)
     }
 
     fun requestOrOpenP2pStream(
@@ -387,10 +382,7 @@ internal fun StreamDestination(
             StreamsRepository.clear()
             reuseNavigated = true
             autoPlayNavigationStarted = true
-            val launchId = PlayerLaunchStore.put(playerLaunch)
-            navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title)) {
-                popUpTo<StreamRoute> { inclusive = true }
-            }
+            navController.launchPlayer(playerLaunch, replaceStreamRoute = true)
         }
     }
 
@@ -544,10 +536,7 @@ internal fun StreamDestination(
         StreamsRepository.consumeAutoPlay()
         StreamsRepository.cancelLoading()
         autoPlayNavigationStarted = true
-        val launchId = PlayerLaunchStore.put(playerLaunch)
-        navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title)) {
-            popUpTo<StreamRoute> { inclusive = true }
-        }
+        navController.launchPlayer(playerLaunch, replaceStreamRoute = true)
     }
 
     if (!hasResolvedVideoId) {
@@ -735,11 +724,9 @@ internal fun StreamDestination(
             return
         }
 
-        val launchId = PlayerLaunchStore.put(playerLaunch)
         StreamsRepository.cancelLoading()
-        navController.navigate(
-            PlayerRoute(launchId = launchId, title = playerLaunch.title)
-        )
+
+        navController.launchPlayer(playerLaunch)
     }
 
     LaunchedEffect(reuseNavigated) {
