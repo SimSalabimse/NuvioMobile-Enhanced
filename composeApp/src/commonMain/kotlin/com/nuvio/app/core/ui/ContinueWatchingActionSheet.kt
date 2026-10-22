@@ -138,7 +138,7 @@ fun NuvioContinueWatchingActionSheet(
                 var autoSkip by remember(item.parentMetaId) { mutableStateOf(ShowPlaybackMemory.autoSkip(item.parentMetaId)) }
                 NuvioBottomSheetActionRow(
                     icon = Icons.Rounded.FastForward,
-                    title = "Auto-skip on this show: ${autoSkip.label}",
+                    title = autoSkip.menuLabel,
                     onClick = {
                         autoSkip = autoSkip.next()
                         ShowPlaybackMemory.setAutoSkip(item.parentMetaId, autoSkip)

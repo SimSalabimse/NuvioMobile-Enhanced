@@ -132,6 +132,27 @@ object MiniPlayerController {
     }
 }
 
+/**
+ * The full-screen player currently open, so app-level jumps (a Live Activity / widget deep link)
+ * can close it first instead of stacking a screen over a player that keeps playing hidden.
+ */
+internal object ActivePlayer {
+    private var close: (() -> Unit)? = null
+
+    internal fun register(onClose: () -> Unit): () -> Unit {
+        close = onClose
+        return { if (close === onClose) close = null }
+    }
+
+    /** Saves progress and closes the open player; false when none is open. */
+    fun closeForNavigation(): Boolean {
+        val action = close ?: return false
+        close = null
+        action()
+        return true
+    }
+}
+
 internal fun PlayerScreenRuntime.canHandOffToMiniPlayer(): Boolean =
     MiniPlayerController.hostedRuntime === this && !isMiniPresentation
 
@@ -147,6 +168,16 @@ internal fun PlayerScreenRuntime.BindMiniPlayerEffects(presentation: Boolean?) {
         DisposableEffect(runtime) {
             MiniPlayerController.attach(runtime)
             onDispose { MiniPlayerController.detach(runtime) }
+        }
+    }
+    if (presentation != true) {
+        DisposableEffect(runtime) {
+            val unregister = ActivePlayer.register {
+                shouldPlay = false
+                flushWatchProgress()
+                args.onBack()
+            }
+            onDispose { unregister() }
         }
     }
     PlatformBackHandler(enabled = presentation == false) {

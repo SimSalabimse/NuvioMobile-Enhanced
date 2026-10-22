@@ -284,7 +284,7 @@ internal object MediaAnalysisScheduler {
 
     private fun nextPending(): DownloadItem? = DownloadsRepository.uiState.value.items
         .filter { it.status == DownloadStatus.Completed && it.id !in failedThisSession && !isBackingOff(it.id) }
-        .sortedWith(compareBy<DownloadItem> { if (it.id == priorityItemId) 0 else 1 }.thenBy { it.updatedAtEpochMs })
+        .sortedWith(compareBy<DownloadItem> { if (it.id == priorityItemId) 0 else 1 }.then(AnalysisOrder))
         .firstOrNull { item ->
             val existing = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item))
             existing == null || existing.fileName != item.fileName || needsDerived(existing)
@@ -512,3 +512,10 @@ object MediaAnalysisBackground {
     fun requiresExternalPower(): Boolean =
         MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.OnlyWhileCharging)
 }
+
+/** Lowest season and episode first (per show, in download order); movies after episodes. */
+internal val AnalysisOrder: Comparator<DownloadItem> =
+    compareBy<DownloadItem> { it.parentMetaId }
+        .thenBy { it.seasonNumber ?: Int.MAX_VALUE }
+        .thenBy { it.episodeNumber ?: Int.MAX_VALUE }
+        .thenBy { it.updatedAtEpochMs }

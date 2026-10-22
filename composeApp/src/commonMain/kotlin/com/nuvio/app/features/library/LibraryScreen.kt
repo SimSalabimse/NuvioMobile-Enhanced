@@ -679,6 +679,7 @@ fun LibraryScreen(
                                     },
                                     onTypeSelected = { type -> selectedLibraryType = type },
                                     onSortSelected = LibraryDisplaySettingsRepository::setSortOption,
+                                    onRandomPick = onPosterClick,
                                     modifier = libraryContentTransitionModifier()
                                         .padding(horizontal = 16.dp)
                                         .padding(top = 8.dp, bottom = 14.dp),
@@ -1987,6 +1988,9 @@ private fun LazyListScope.librarySections(
                 ?.takeIf { it.items.size > LIBRARY_SECTION_PREVIEW_LIMIT }
                 ?.let { source -> onSectionViewAllClick?.let { { it(source, sortOption) } } },
             viewAllPillSize = NuvioViewAllPillSize.Compact,
+            onShuffleClick = onPosterClick?.let { open ->
+                { randomLibraryPick(section.source?.items ?: section.previewEntries.map { it.item })?.let(open) }
+            },
             key = { entry -> entry.globalKey },
             animatePlacement = true,
         ) { entry ->

@@ -112,23 +112,31 @@ internal fun LazyListScope.downloadsSettingsContent(
                         isTablet = isTablet,
                         onClick = { SmartDownloadSettings.setCount(if (smart.count >= 3) 1 else smart.count + 1) },
                     )
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsSwitchRow(
-                        title = stringResource(Res.string.smart_downloads_charging_title),
-                        description = stringResource(Res.string.smart_downloads_charging_description),
-                        checked = smart.onlyWhileCharging,
-                        isTablet = isTablet,
-                        onCheckedChange = SmartDownloadSettings::setOnlyWhileCharging,
-                    )
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsSwitchRow(
-                        title = "Only on Wi-Fi",
-                        description = "Smart Downloads, queued episodes and goals wait for Wi-Fi.",
-                        checked = smart.onlyOnWifi,
-                        isTablet = isTablet,
-                        onCheckedChange = SmartDownloadSettings::setOnlyOnWifi,
-                    )
                 }
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.smart_downloads_charging_title),
+                    description = stringResource(Res.string.smart_downloads_charging_description),
+                    checked = smart.onlyWhileCharging,
+                    isTablet = isTablet,
+                    onCheckedChange = SmartDownloadSettings::setOnlyWhileCharging,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = "Only on Wi-Fi",
+                    description = "Smart Downloads, queued episodes and goals wait for Wi-Fi.",
+                    checked = smart.onlyOnWifi,
+                    isTablet = isTablet,
+                    onCheckedChange = SmartDownloadSettings::setOnlyOnWifi,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = "Finish a series downloads the rest",
+                    description = "Flagging Finish this series downloads every remaining episode, lowest first. Off: only the Smart Downloads count.",
+                    checked = smart.goalDownloadsRest,
+                    isTablet = isTablet,
+                    onCheckedChange = SmartDownloadSettings::setGoalDownloadsRest,
+                )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
                     title = "Queue unaired episodes",

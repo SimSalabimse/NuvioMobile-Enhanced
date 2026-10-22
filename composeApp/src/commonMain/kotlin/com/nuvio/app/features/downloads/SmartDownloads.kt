@@ -53,6 +53,7 @@ object SmartDownloadSettings {
     private const val QUEUE_UNAIRED_KEY = "downloads_queue_unaired"
     private const val KEEP_FREE_GB_KEY = "downloads_keep_free_gb"
     private const val GOALS_KEY = "smart_downloads_goals"
+    private const val GOAL_DOWNLOADS_REST_KEY = "smart_downloads_goal_rest"
     private const val GOAL_ANCHORS_KEY = "smart_downloads_goal_anchors"
 
     /** Choices for "Keep free" (GB); 0 is off. */
@@ -72,6 +73,8 @@ object SmartDownloadSettings {
         val keepFreeGb: Int = 0,
         /** Shows pinned as a Finish a series goal ("type|id"): their next episodes stay downloaded. */
         val goals: Set<String> = emptySet(),
+        /** Finish a series downloads every remaining episode (off: only the Smart Downloads count). */
+        val goalDownloadsRest: Boolean = true,
         /** Per goal, the furthest episode counted as watched (season to episode); it never moves back. */
         val goalAnchors: Map<String, Pair<Int, Int>> = emptyMap(),
     )
@@ -92,6 +95,7 @@ object SmartDownloadSettings {
             pauseDuringPlayback = DownloadsSettingsStorage.loadFlag(PAUSE_DURING_PLAYBACK_KEY) ?: false,
             queueUnaired = DownloadsSettingsStorage.loadFlag(QUEUE_UNAIRED_KEY) ?: true,
             keepFreeGb = DownloadsSettingsStorage.loadString(KEEP_FREE_GB_KEY)?.toIntOrNull()?.coerceAtLeast(0) ?: 0,
+            goalDownloadsRest = DownloadsSettingsStorage.loadFlag(GOAL_DOWNLOADS_REST_KEY) ?: true,
             goals = DownloadsSettingsStorage.loadString(GOALS_KEY).orEmpty().split('\n').filter { it.isNotBlank() }.toSet(),
             goalAnchors = DownloadsSettingsStorage.loadString(GOAL_ANCHORS_KEY).orEmpty().split('\n').mapNotNull { line ->
                 val key = line.substringBeforeLast('=', "")
@@ -153,8 +157,14 @@ object SmartDownloadSettings {
         StorageAutopilot.run()
     }
 
-    /** Episodes a Finish a series goal keeps downloaded: the Smart Downloads episode count. */
-    fun goalCount(): Int = snapshot().count.coerceAtLeast(1)
+    /** Episodes a Finish a series goal keeps downloaded: all the rest, or the Smart Downloads count. */
+    fun goalCount(): Int = snapshot().let { if (it.goalDownloadsRest) Int.MAX_VALUE else it.count.coerceAtLeast(1) }
+
+    fun setGoalDownloadsRest(enabled: Boolean) {
+        update { it.copy(goalDownloadsRest = enabled) }
+        DownloadsSettingsStorage.saveFlag(GOAL_DOWNLOADS_REST_KEY, enabled)
+        snapshot().goals.forEach { key -> SmartDownloads.checkGoal(key.substringBefore('|'), key.substringAfter('|')) }
+    }
 
     fun isGoal(type: String, id: String): Boolean = isGoal(snapshot(), type, id)
 

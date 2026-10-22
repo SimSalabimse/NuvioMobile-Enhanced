@@ -23,6 +23,7 @@ import androidx.compose.foundation.gestures.stopScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -70,6 +71,8 @@ fun <T> NuvioShelfSection(
     itemSpacing: Dp = 10.dp,
     onViewAllClick: (() -> Unit)? = null,
     viewAllPillSize: NuvioViewAllPillSize = NuvioViewAllPillSize.Default,
+    /** Optional "random pick" button next to the title. */
+    onShuffleClick: (() -> Unit)? = null,
     key: ((T) -> Any)? = null,
     animatePlacement: Boolean = false,
     state: LazyListState = rememberLazyListState(),
@@ -89,6 +92,7 @@ fun <T> NuvioShelfSection(
                 modifier = Modifier.padding(horizontal = headerHorizontalPadding),
                 onViewAllClick = onViewAllClick,
                 viewAllPillSize = viewAllPillSize,
+                onShuffleClick = onShuffleClick,
             )
         }
         LazyRow(
@@ -289,6 +293,7 @@ private fun NuvioShelfSectionHeader(
     modifier: Modifier = Modifier,
     onViewAllClick: (() -> Unit)? = null,
     viewAllPillSize: NuvioViewAllPillSize = NuvioViewAllPillSize.Default,
+    onShuffleClick: (() -> Unit)? = null,
 ) {
     val tokens = MaterialTheme.nuvio
     val showAccent by ThemeSettingsRepository.showCatalogAccentEnabled.collectAsState()
@@ -309,6 +314,18 @@ private fun NuvioShelfSectionHeader(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (onShuffleClick != null) {
+                Icon(
+                    imageVector = Icons.Rounded.Shuffle,
+                    contentDescription = "Random pick",
+                    tint = tokens.colors.textPrimary,
+                    modifier = Modifier
+                        .size(viewAllPillSize.actionSize)
+                        .clip(RoundedCornerShape(50))
+                        .clickable(onClick = onShuffleClick)
+                        .padding(NuvioTokens.Space.s6),
+                )
+            }
             if (onViewAllClick != null) {
                 NuvioViewAllPill(onClick = onViewAllClick, size = viewAllPillSize)
             }

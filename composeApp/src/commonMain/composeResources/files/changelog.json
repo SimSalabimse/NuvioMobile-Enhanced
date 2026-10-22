@@ -2,6 +2,25 @@
   "releases": [
     {
       "version": "0.6.2.1",
+      "build": 193,
+      "date": "2026-10-22",
+      "new": [
+        "Library: a shuffle button on each section (and a Random chip in grid view) opens a random title from it.",
+        "Settings › Downloads › Finish a series downloads the rest: flagging Finish this series downloads every remaining episode, lowest first (off: only the Smart downloads count)."
+      ],
+      "improved": [
+        "Analysis works through each show from the lowest season and episode up.",
+        "Downloads: when the picked source isn't cached on debrid (or its link is stale), the next good source is tried automatically.",
+        "Only on Wi-Fi and Only while charging are always shown in Settings › Downloads, since they also hold back Finish a series and queued episodes.",
+        "Hold menus and sheets wrap long rows onto two lines; the per-show row now reads 'Auto-skip: Default' and Finish a series is shortened."
+      ],
+      "fixed": [
+        "The 'isn't fully analysed yet' prompt no longer appears on episodes that are already analysed when only recap/preview data is being refreshed in the background.",
+        "Opening the download Live Activity while watching now closes the player first, instead of leaving it playing hidden and reopening it (with different audio/subtitles) when Home was tapped."
+      ]
+    },
+    {
+      "version": "0.6.2.1",
       "build": 192,
       "date": "2026-10-20",
       "improved": [

@@ -504,7 +504,7 @@ private fun PosterZoomMenuRow(
             style = MaterialTheme.typography.bodyLarge,
             color = contentColor,
             fontWeight = FontWeight.Medium,
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )

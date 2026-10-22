@@ -25,10 +25,14 @@ import com.nuvio.app.core.ui.NuvioToastController
 /** Finish a series goal: one toggle, label and badge shared by the hold menus, details and cards. */
 internal object FinishSeriesGoal {
     fun label(pinned: Boolean): String =
-        if (pinned) "Stop finishing this series" else "Finish this series (keep ${nextEpisodesText(SmartDownloadSettings.goalCount())} downloaded)"
+        if (pinned) "Stop finishing series" else "Finish this series"
 
     /** "the next episode" / "the next 3 episodes". */
-    fun nextEpisodesText(count: Int): String = if (count == 1) "the next episode" else "the next $count episodes"
+    fun nextEpisodesText(count: Int): String = when (count) {
+        1 -> "the next episode"
+        Int.MAX_VALUE -> "the remaining episodes"
+        else -> "the next $count episodes"
+    }
 
     fun toggle(type: String, id: String) {
         val pinned = !SmartDownloadSettings.isGoal(type, id)

@@ -236,7 +236,7 @@ fun NuvioBottomSheetActionRow(
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = if (selected) FontWeight.SemiBold else null,
             color = tokens.colors.textPrimary,
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
         trailingContent?.invoke(this)

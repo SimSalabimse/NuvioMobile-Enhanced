@@ -9,6 +9,9 @@ internal enum class ShowAutoSkip(val label: String) {
     Never("Never"),
     ;
 
+    /** Short enough for one line in the hold menus and sheets. */
+    val menuLabel: String get() = "Auto-skip: $label"
+
     fun next(): ShowAutoSkip = entries[(ordinal + 1) % entries.size]
 
     /** The segment types to auto-skip on this show, given the global [selected] ones. */

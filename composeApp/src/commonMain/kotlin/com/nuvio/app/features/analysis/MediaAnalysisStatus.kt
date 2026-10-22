@@ -203,7 +203,7 @@ object MediaAnalysisStatus {
             analysed = statuses.values.count { it is ItemAnalysisStatus.Done && it.complete },
             queued = statuses.filter { (_, s) ->
                 s is ItemAnalysisStatus.Queued || (s is ItemAnalysisStatus.Done && !s.complete)
-            }.keys.sortedBy { it.updatedAtEpochMs },
+            }.keys.sortedWith(AnalysisOrder),
             failed = statuses.values.count { it is ItemAnalysisStatus.Failed },
         )
     }

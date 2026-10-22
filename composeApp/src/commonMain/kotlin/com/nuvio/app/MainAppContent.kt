@@ -858,6 +858,7 @@ internal fun MainAppContent(
                 when (deepLink) {
                     is AppDeepLink.Meta -> {
                         InAppLogger.info("App/DeepLink", "meta type=${deepLink.type} id=${deepLink.id}")
+                        com.nuvio.app.features.player.ActivePlayer.closeForNavigation()
                         activateTab(AppScreenTab.Home)
                         val routeTitle = runCatching {
                             MetaDetailsRepository.fetch(deepLink.type, deepLink.id)?.name
@@ -902,6 +903,11 @@ internal fun MainAppContent(
 
                     AppDeepLink.Downloads -> {
                         InAppLogger.info("App/DeepLink", "downloads")
+                        // Close an open player first: otherwise it kept playing hidden in its tab
+                        // and came back (reloading the file) when that tab was tapped again.
+                        if (com.nuvio.app.features.player.ActivePlayer.closeForNavigation()) {
+                            InAppLogger.info("App/DeepLink", "closed open player")
+                        }
                         activateTab(AppScreenTab.Library)
                         navController.navigate(DownloadsRoute(downloadsTitle)) {
                             launchSingleTop = true
@@ -2343,7 +2349,7 @@ internal fun MainAppContent(
                                     add(
                                         PosterZoomOverlayAction(
                                             icon = Icons.Rounded.FastForward,
-                                            label = "Auto-skip on this show: ${autoSkip.label}",
+                                            label = autoSkip.menuLabel,
                                             onSelected = {
                                                 val next = autoSkip.next()
                                                 com.nuvio.app.features.player.ShowPlaybackMemory.setAutoSkip(item.parentMetaId, next)

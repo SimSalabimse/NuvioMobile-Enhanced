@@ -32,6 +32,7 @@ import com.nuvio.app.features.analysis.AnalysisPlayChoice
 import com.nuvio.app.features.analysis.ItemAnalysisStatus
 import com.nuvio.app.features.analysis.MediaAnalysisScheduler
 import com.nuvio.app.features.analysis.MediaAnalysisStatus
+import com.nuvio.app.features.analysis.MediaAnalysisStore
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadStatus
 import com.nuvio.app.features.downloads.DownloadsRepository
@@ -79,9 +80,12 @@ internal fun BoxScope.RenderAnalysisPlayPrompt(runtime: PlayerScreenRuntime) {
         }
 
         val needsAnalysis = remember(item.id, revision, job) {
-            when (val status = MediaAnalysisStatus.statusFor(item)) {
-                is ItemAnalysisStatus.Queued, is ItemAnalysisStatus.Running -> true
-                is ItemAnalysisStatus.Done -> !status.complete
+            // Only a file with no stored analysis at all counts. Derived parts (recap, previews)
+            // that are merely being recomputed after a cleanup or version bump are refreshed in
+            // the background and must not bring up the prompt on an already-analysed episode.
+            when (MediaAnalysisStatus.statusFor(item)) {
+                is ItemAnalysisStatus.Queued -> true
+                is ItemAnalysisStatus.Running -> MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item)) == null
                 else -> false
             }
         }
