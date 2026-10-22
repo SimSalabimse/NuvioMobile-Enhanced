@@ -1,6 +1,6 @@
 package com.nuvio.app.features.anilist
 
-import com.nuvio.app.core.network.createApiHttpClient
+import com.nuvio.app.core.network.sharedApiHttpClient
 import com.nuvio.app.core.network.readBoundedResponseBody
 import com.nuvio.app.features.player.skip.SimklIdResolver
 import com.nuvio.app.features.simkl.SimklAnimeIdPreference
@@ -108,7 +108,7 @@ internal fun fallbackAniListMapping(media: AniListMedia): AniListMapping =
 
 internal class AniListIdResolver(
     private val api: AniListApiClient,
-    private val client: HttpClient = createApiHttpClient(),
+    private val client: HttpClient = sharedApiHttpClient,
     private val now: () -> Long = { kotlin.time.Clock.System.now().toEpochMilliseconds() },
 ) {
     private val cacheLock = Mutex()
