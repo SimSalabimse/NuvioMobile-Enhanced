@@ -2,6 +2,21 @@
   "releases": [
     {
       "version": "0.6.2.1",
+      "build": 195,
+      "date": "2026-10-22",
+      "new": [
+        "Add to TorBox now shows up wherever a download or play fails because nothing is cached, including after the download sheet has closed."
+      ],
+      "improved": [
+        "Every download and play button uses the same source check: Continue Watching, episode rows, show page, season sheet, Library, search, smart downloads, finish a series, the player's source list and next episode."
+      ],
+      "fixed": [
+        "Download from the Continue Watching menu said only \"TorBox not cached\". It now switches to another cached source, or offers to add it to TorBox.",
+        "Downloading from the sources list, copying a link and switching source in the player now try other sources too when one isn't cached."
+      ]
+    },
+    {
+      "version": "0.6.2.1",
       "build": 194,
       "date": "2026-10-22",
       "new": [

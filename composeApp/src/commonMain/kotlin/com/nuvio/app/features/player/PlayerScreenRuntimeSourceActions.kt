@@ -22,6 +22,7 @@ import com.nuvio.app.features.streams.YouTubeStreamResolver
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
+import com.nuvio.app.features.debrid.DebridSourceFallback
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
@@ -42,31 +43,25 @@ internal fun PlayerScreenRuntime.resolveDebridForPlayer(
             "s=${season ?: -1} e=${episode ?: -1}",
     )
     scope.launch {
-        val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
-            stream = stream,
-            season = season,
-            episode = episode,
-        )
-        when (resolved) {
-            is DirectDebridPlayableResult.Success -> {
-                InAppLogger.info(
-                    "Streams/Debrid",
-                    "resolve success addon=${stream.addonName} stream=${stream.streamLabel} " +
-                        "url=${InAppLogger.redactUrl(resolved.stream.playableDirectUrl)}",
-                )
-                onResolved(resolved.stream)
-            }
-            else -> {
-                InAppLogger.warn(
-                    "Streams/Debrid",
-                    "resolve result=${resolved::class.simpleName ?: "unknown"} addon=${stream.addonName} " +
-                        "stream=${stream.streamLabel} stale=${resolved == DirectDebridPlayableResult.Stale}",
-                )
-                resolved.toastMessage()?.let { NuvioToastController.show(it) }
-                if (resolved == DirectDebridPlayableResult.Stale) {
-                    onStale()
-                }
-            }
+        val outcome = DebridSourceFallback.playable(stream, season, episode) {
+            (PlayerStreamsRepository.sourceState.value.groups + PlayerStreamsRepository.episodeStreamsState.value.groups)
+                .flatMap { it.streams }
+        }
+        val playable = outcome.stream
+        if (playable != null) {
+            InAppLogger.info(
+                "Streams/Debrid",
+                "resolve success addon=${playable.addonName} stream=${playable.streamLabel} " +
+                    "url=${InAppLogger.redactUrl(playable.playableDirectUrl)}",
+            )
+            onResolved(playable)
+        } else {
+            InAppLogger.warn(
+                "Streams/Debrid",
+                "resolve result=${outcome.failure?.let { it::class.simpleName } ?: "unknown"} addon=${stream.addonName} " +
+                    "stream=${stream.streamLabel}",
+            )
+            if (outcome.failure == DirectDebridPlayableResult.Stale) onStale()
         }
     }
     return true

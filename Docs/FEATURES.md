@@ -1,6 +1,6 @@
 # Nuvio Enhanced (mobile): features and settings
 
-Built from the code at build 194 (0.6.2.1). Each line shows the feature, where it is in the app, and the build or version it was added in when the changelog records it ("upstream" means it came from the base app). Settings pages are under the Settings tab.
+Built from the code at build 195 (0.6.2.1). Each line shows the feature, where it is in the app, and the build or version it was added in when the changelog records it ("upstream" means it came from the base app). Settings pages are under the Settings tab.
 
 ## Playback
 - Player with gestures (swipe to seek, hold for speed and a hold-speed value): Settings › Playback › Player / Touch Gestures. Upstream.
@@ -17,8 +17,8 @@ Built from the code at build 194 (0.6.2.1). Each line shows the feature, where i
 - Seek bar thumbnails: Settings › Playback; downloads use on-device scrub previews. 0.5.10.2.
 - Auto-play next episode, binge group, preloading next-episode sources, threshold mode, and the up-next countdown: Settings › Playback › Next Episode. Upstream.
 - Stream auto-play (first stream or regex, source scope, allowed addons and plugins), reuse last link: Settings › Playback › Stream Auto-Play / Stream Selection. Upstream.
-- Debrid not cached: auto-play moves on to the next candidate. Downloads (193) and tapped sources (194) try the next good source (up to 3, one shared fallback) and show which one they switched to.
-- Add to TorBox: when a tapped source isn't cached and nothing else works, it can be added to TorBox (create torrent, not only-if-cached) to be ready later. 194.
+- Debrid not cached: every play and download entry point (Continue Watching menu, episode rows, show page, season sheet, Library, search, smart downloads, finish a series, sources list, player source switch, next episode, auto-play) goes through one shared fallback that tries the next good source (up to 3) and says which one it switched to. 193–194; all entry points since 195, checked by DebridSourceGuardTest.
+- Add to TorBox: when a source isn't cached and nothing else works, it can be added to TorBox (create torrent, not only-if-cached) to be ready later, from any play or download entry point (one app-wide prompt). 194; everywhere since 195.
 - P2P streaming (torrent profile, cache size, hide stats): Settings › Playback › P2P Streaming. Upstream.
 - Watch Party: Settings › Account › Watch party, nuvio:// party links. 173.
 - Subtitle Auto Sync (subtitles synced to the audio): Settings › Playback › Auto Sync Subtitle; for downloads, Settings › Downloads › Sync subtitles to audio. 0.5.10.1.

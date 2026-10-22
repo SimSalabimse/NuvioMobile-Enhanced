@@ -17,6 +17,7 @@ import com.nuvio.app.features.streams.StreamAutoPlaySelector
 import com.nuvio.app.features.streams.StreamAutoPlaySource
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.watching.domain.isShortPlaceholderDuration
+import com.nuvio.app.features.debrid.DebridSourceFallback
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -313,19 +314,17 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
         }
 
         val selected = selectedStream?.let { stream ->
-            when (val result = DirectDebridPlaybackResolver.resolveToPlayableStream(stream, nextVideo.season, nextVideo.episode)) {
-                is DirectDebridPlayableResult.Success -> result.stream
-                else -> {
-                    result.toastMessage()?.let { NuvioToastController.show(it) }
-                    PlayerStreamsRepository.loadEpisodeStreams(
-                        type = type,
-                        videoId = nextVideo.id,
-                        season = nextVideo.season,
-                        episode = nextVideo.episode,
-                        forceRefresh = true,
-                    )
-                    null
-                }
+            DebridSourceFallback.playable(stream, nextVideo.season, nextVideo.episode) {
+                PlayerStreamsRepository.episodeStreamsState.value.groups.flatMap { it.streams }
+            }.stream ?: run {
+                PlayerStreamsRepository.loadEpisodeStreams(
+                    type = type,
+                    videoId = nextVideo.id,
+                    season = nextVideo.season,
+                    episode = nextVideo.episode,
+                    forceRefresh = true,
+                )
+                null
             }
         }
         onSearchingChanged(false)

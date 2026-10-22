@@ -72,7 +72,10 @@ import com.nuvio.app.core.ui.NuvioBottomSheetDivider
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.dismissNuvioBottomSheet
+import com.nuvio.app.features.debrid.DebridSourceFallback
+import com.nuvio.app.features.downloads.DownloadSheetRequest
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.enqueueDownloadForRequest
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -239,59 +242,24 @@ fun StreamsScreen(
     }
 
     val enqueueStreamDownload: (StreamItem) -> Unit = { stream ->
-
-            if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(stream)) {
-                downloadScope.launch {
-                    val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
-                        stream = stream,
-                        season = seasonNumber,
-                        episode = episodeNumber,
-                    )
-                    when (resolved) {
-                        is DirectDebridPlayableResult.Success -> {
-                            val result = DownloadsRepository.enqueueFromStream(
-                                contentType = type,
-                                videoId = videoId,
-                                parentMetaId = parentMetaId,
-                                parentMetaType = parentMetaType,
-                                title = title,
-                                logo = logo,
-                                poster = poster,
-                                background = background,
-                                seasonNumber = seasonNumber,
-                                episodeNumber = episodeNumber,
-                                episodeTitle = episodeTitle,
-                                episodeThumbnail = episodeThumbnail,
-                                stream = resolved.stream,
-                            )
-                            NuvioToastController.show(result.toastMessage())
-                        }
-                        else -> {
-                            val message = resolved.toastMessage()
-                            if (message != null) {
-                                NuvioToastController.show(message)
-                            }
-                        }
-                    }
-                }
-            } else {
-                val result = DownloadsRepository.enqueueFromStream(
-                    contentType = type,
-                    videoId = videoId,
-                    parentMetaId = parentMetaId,
-                    parentMetaType = parentMetaType,
-                    title = title,
-                    logo = logo,
-                    poster = poster,
-                    background = background,
-                    seasonNumber = seasonNumber,
-                    episodeNumber = episodeNumber,
-                    episodeTitle = episodeTitle,
-                    episodeThumbnail = episodeThumbnail,
-                    stream = stream,
-                )
-                NuvioToastController.show(result.toastMessage())
-            }
+        enqueueDownloadForRequest(
+            request = DownloadSheetRequest(
+                type = type,
+                videoId = videoId,
+                parentMetaId = parentMetaId,
+                parentMetaType = parentMetaType,
+                title = title,
+                logo = logo,
+                poster = poster,
+                background = background,
+                seasonNumber = seasonNumber,
+                episodeNumber = episodeNumber,
+                episodeTitle = episodeTitle,
+                episodeThumbnail = episodeThumbnail,
+            ),
+            stream = stream,
+            scope = downloadScope,
+        )
     }
 
     // Quality picker with a size estimate before a download starts.
@@ -438,27 +406,15 @@ fun StreamsScreen(
                     NuvioToastController.show(streamLinkCopiedText)
                 } else if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(stream)) {
                     downloadScope.launch {
-                        val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
-                            stream = stream,
-                            season = seasonNumber,
-                            episode = episodeNumber,
-                        )
-                        when (resolved) {
-                            is DirectDebridPlayableResult.Success -> {
-                                val resolvedUrl = resolved.stream.playableDirectUrl
-                                if (!resolvedUrl.isNullOrBlank()) {
-                                    clipboardManager.setText(AnnotatedString(resolvedUrl))
-                                    NuvioToastController.show(streamLinkCopiedText)
-                                } else {
-                                    NuvioToastController.show(noDirectStreamLinkText)
-                                }
-                            }
-                            else -> {
-                                val message = resolved.toastMessage()
-                                if (message != null) {
-                                    NuvioToastController.show(message)
-                                }
-                            }
+                        val playable = DebridSourceFallback.playable(stream, seasonNumber, episodeNumber) {
+                            uiState.groups.flatMap { it.streams }
+                        }.stream ?: return@launch
+                        val resolvedUrl = playable.playableDirectUrl
+                        if (!resolvedUrl.isNullOrBlank()) {
+                            clipboardManager.setText(AnnotatedString(resolvedUrl))
+                            NuvioToastController.show(streamLinkCopiedText)
+                        } else {
+                            NuvioToastController.show(noDirectStreamLinkText)
                         }
                     }
                 } else {
