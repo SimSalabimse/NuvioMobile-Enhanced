@@ -22,6 +22,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.analysis.MediaAnalysisSettings
 import com.nuvio.app.features.downloads.DownloadQualityPreference
 import com.nuvio.app.features.downloads.SmartDownloadSettings
+import com.nuvio.app.features.downloads.SmartDownloads
 import com.nuvio.app.features.downloads.downloadQualityLabel
 import com.nuvio.app.features.downloads.DownloadsSettingsRepository
 import nuvio.composeapp.generated.resources.Res
@@ -122,9 +123,11 @@ internal fun LazyListScope.downloadsSettingsContent(
                     onCheckedChange = SmartDownloadSettings::setOnlyWhileCharging,
                 )
                 SettingsGroupDivider(isTablet = isTablet)
+                val waiting by SmartDownloads.waitReason.collectAsStateWithLifecycle()
                 SettingsSwitchRow(
                     title = "Only on Wi-Fi",
-                    description = "Smart Downloads, queued episodes and goals wait for Wi-Fi.",
+                    description = waiting?.let { "Waiting now: ${it.substringBefore(" (")}. Smart downloads, queued episodes and Finish a series start once it's met." }
+                        ?: "Smart downloads, queued episodes and Finish a series wait for Wi-Fi.",
                     checked = smart.onlyOnWifi,
                     isTablet = isTablet,
                     onCheckedChange = SmartDownloadSettings::setOnlyOnWifi,
@@ -132,7 +135,11 @@ internal fun LazyListScope.downloadsSettingsContent(
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
                     title = "Finish a series downloads the rest",
-                    description = "Flagging Finish this series downloads every remaining episode, lowest first. Off: only the Smart Downloads count.",
+                    description = if (smart.enabled) {
+                        "Smart downloads is on, so Finish this series keeps ${smart.count} episode${if (smart.count == 1) "" else "s"} ready (Episodes to keep ready), topped up as you watch. This applies only with Smart downloads off."
+                    } else {
+                        "With Smart downloads off, Finish this series downloads every remaining episode, lowest first. Off: just the next one."
+                    },
                     checked = smart.goalDownloadsRest,
                     isTablet = isTablet,
                     onCheckedChange = SmartDownloadSettings::setGoalDownloadsRest,

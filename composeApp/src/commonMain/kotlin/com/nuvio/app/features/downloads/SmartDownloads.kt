@@ -120,12 +120,14 @@ object SmartDownloadSettings {
         update { it.copy(enabled = enabled) }
         DownloadsSettingsStorage.saveFlag(ENABLED_KEY, enabled)
         if (enabled) SmartDownloads.retryPending()
+        recheckGoals()
     }
 
     fun setCount(count: Int) {
         val value = count.coerceIn(1, 3)
         update { it.copy(count = value) }
         DownloadsSettingsStorage.saveString(COUNT_KEY, value.toString())
+        recheckGoals()
     }
 
     fun setOnlyWhileCharging(enabled: Boolean) {
@@ -157,12 +159,24 @@ object SmartDownloadSettings {
         StorageAutopilot.run()
     }
 
-    /** Episodes a Finish a series goal keeps downloaded: all the rest, or the Smart Downloads count. */
-    fun goalCount(): Int = snapshot().let { if (it.goalDownloadsRest) Int.MAX_VALUE else it.count.coerceAtLeast(1) }
+    /**
+     * Episodes a Finish a series goal keeps downloaded (lowest first, topped up as you watch):
+     * with Smart downloads on, exactly its "Episodes to keep ready"; with it off, every remaining
+     * episode when "Finish a series downloads the rest" is on, else the same count.
+     */
+    fun goalCount(): Int = goalCount(snapshot())
+
+    internal fun goalCount(state: State): Int =
+        if (!state.enabled && state.goalDownloadsRest) Int.MAX_VALUE else state.count.coerceAtLeast(1)
 
     fun setGoalDownloadsRest(enabled: Boolean) {
         update { it.copy(goalDownloadsRest = enabled) }
         DownloadsSettingsStorage.saveFlag(GOAL_DOWNLOADS_REST_KEY, enabled)
+        recheckGoals()
+    }
+
+    /** The goal count changed: every pinned show tops up (or stops) to the new count. */
+    private fun recheckGoals() {
         snapshot().goals.forEach { key -> SmartDownloads.checkGoal(key.substringBefore('|'), key.substringAfter('|')) }
     }
 
@@ -264,6 +278,10 @@ internal object SmartDownloads {
     private val json = Json { ignoreUnknownKeys = true }
     private val handledVideoIds = mutableSetOf<String>()
     private var retryJob: Job? = null
+
+    private val _waitReason = MutableStateFlow<String?>(null)
+    /** Why waiting automatic downloads (goals, queued, smart) can't start right now; null when they can or none wait. */
+    val waitReason: StateFlow<String?> = _waitReason.asStateFlow()
 
     private val _goalStatus = MutableStateFlow<Map<String, String>>(emptyMap())
     /** What each Finish a series goal is doing ("Waiting for Wi-Fi", ...), by show id; shown on its chip. */
@@ -440,8 +458,9 @@ internal object SmartDownloads {
     private suspend fun runPending() {
         mutex.withLock {
             val pending = loadPending()
+            val wait = waitReason().takeIf { pending.isNotEmpty() }
+            _waitReason.value = wait
             if (pending.isEmpty()) return
-            val wait = waitReason()
             if (wait != null) {
                 pending.forEach { it.report(wait) }
                 scheduleRetry()

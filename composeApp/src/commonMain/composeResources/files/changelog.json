@@ -2,6 +2,22 @@
   "releases": [
     {
       "version": "0.6.2.1",
+      "build": 194,
+      "date": "2026-10-22",
+      "new": [
+        "Tapping a debrid source that isn't cached now tries the next good sources (up to 3) and tells you which one it switched to. If none works, you can add it to TorBox so it's ready to play later."
+      ],
+      "improved": [
+        "Finish this series with Smart downloads on keeps exactly your 'Episodes to keep ready' downloaded (lowest first, topped up as you watch). 'Finish a series downloads the rest' only applies with Smart downloads off, and Settings › Downloads says so.",
+        "Changing Smart downloads or its episode count updates the shows you're finishing straight away.",
+        "Settings › Downloads › Only on Wi-Fi shows when automatic downloads are waiting for Wi-Fi (or charging), instead of silently doing nothing."
+      ],
+      "fixed": [
+        "A source that isn't cached on TorBox no longer just shows a message and stops."
+      ]
+    },
+    {
+      "version": "0.6.2.1",
       "build": 193,
       "date": "2026-10-22",
       "new": [

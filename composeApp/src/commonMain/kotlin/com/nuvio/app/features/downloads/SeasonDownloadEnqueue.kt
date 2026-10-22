@@ -1,11 +1,11 @@
 package com.nuvio.app.features.downloads
 
+import com.nuvio.app.features.debrid.DebridSourceFallback
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
 import com.nuvio.app.features.debrid.DirectDebridPlayableResult
 import com.nuvio.app.features.debrid.toastMessage
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaVideo
-import com.nuvio.app.features.streams.StreamDebridCacheState
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
 
@@ -105,16 +105,12 @@ private suspend fun resolveForDownload(stream: StreamItem, season: Int?, episode
 }
 
 /**
- * The picked source wasn't usable (not cached on debrid, stale): try the next downloadable
- * sources for the episode in quality order, skipping ones the cache check already marked uncached.
+ * The picked source wasn't usable (not cached on debrid, stale): the next downloadable sources
+ * for the episode in quality order, through the shared [DebridSourceFallback].
  */
 private suspend fun nextGoodDownloadStream(meta: MetaDetails, row: SeasonEnqueueRow): StreamItem? {
     val video = row.video
     val streams = SeasonStreamCatalog.load(meta.type, seasonStreamVideoId(meta.id, video), video.season, video.episode, annotateDebridCache = true)
-    return streams.orderedForQuality(SmartDownloadSettings.snapshot().quality)
-        .filter { it != row.stream && it.isSeasonDownloadCandidate() && it.debridCacheStatus?.state != StreamDebridCacheState.NOT_CACHED }
-        .take(MAX_FALLBACK_SOURCES)
-        .firstNotNullOfOrNull { resolveForDownload(it, video.season, video.episode) }
+    val candidates = streams.orderedForQuality(SmartDownloadSettings.snapshot().quality).filter { it.isSeasonDownloadCandidate() }
+    return DebridSourceFallback.nextWorking(candidates, row.stream, video.season, video.episode)
 }
-
-private const val MAX_FALLBACK_SOURCES = 3

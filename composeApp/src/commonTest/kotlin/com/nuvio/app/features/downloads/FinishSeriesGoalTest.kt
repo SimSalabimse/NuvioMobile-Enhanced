@@ -38,4 +38,16 @@ class FinishSeriesGoalTest {
         assertEquals(2 to 1, laterEpisode(1 to 13, 2 to 1))
         assertEquals(1 to 0, laterEpisode(null, 1 to 0))
     }
+
+    @Test
+    fun smartDownloadsOnKeepsExactlyTheReadyCount() {
+        val state = SmartDownloadSettings.State(enabled = true, count = 2, goalDownloadsRest = true)
+        assertEquals(2, SmartDownloadSettings.goalCount(state))
+    }
+
+    @Test
+    fun smartDownloadsOffFollowsTheDownloadsTheRestSetting() {
+        assertEquals(Int.MAX_VALUE, SmartDownloadSettings.goalCount(SmartDownloadSettings.State(enabled = false, count = 3, goalDownloadsRest = true)))
+        assertEquals(3, SmartDownloadSettings.goalCount(SmartDownloadSettings.State(enabled = false, count = 3, goalDownloadsRest = false)))
+    }
 }
