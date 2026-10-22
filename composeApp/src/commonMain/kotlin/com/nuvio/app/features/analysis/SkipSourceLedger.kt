@@ -21,7 +21,7 @@ import com.nuvio.app.features.downloads.DownloadStatus
 import com.nuvio.app.features.downloads.DownloadsSettingsStorage
 import com.nuvio.app.features.player.ON_DEVICE_SKIP_PROVIDER
 import com.nuvio.app.features.player.skip.SkipInterval
-import com.nuvio.app.features.player.skip.skipSourceTag
+import com.nuvio.app.features.player.skip.skipSourceLabel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.builtins.MapSerializer
@@ -89,7 +89,7 @@ internal fun skipSourcesFor(item: DownloadItem): List<Pair<String, String>> {
                 when {
                     kind in result.learnedTypes -> "From your mark"
                     kind in result.foundUsing -> "Found using E${result.foundUsing.getValue(kind)}"
-                    else -> skipSourceTag(ON_DEVICE_SKIP_PROVIDER)
+                    else -> skipSourceLabel(ON_DEVICE_SKIP_PROVIDER)
                 }
             else -> null
         }
@@ -104,9 +104,9 @@ internal fun skipSourcesFor(item: DownloadItem): List<Pair<String, String>> {
 private fun externalSkipSource(key: String, result: MediaAnalysisResult?, kind: String): String? {
     val mark = result?.userSegments?.get(kind)
         ?.takeIf { it.endMs > it.startMs && com.nuvio.app.features.player.sameCut(it.durationMs, result.durationMs) }
-    if (mark != null) return if (mark.imported) "Your submission" else "Your mark"
+    if (mark != null) return skipSourceLabel(if (mark.imported) SkipLearning.PROVIDER_IMPORTED else SkipLearning.PROVIDER)
     val online = SkipSourceLedger.online(key)[kind] ?: return null
-    return skipSourceTag(online) ?: online
+    return skipSourceLabel(online) ?: online
 }
 
 /** Intro/credits and recap sources from marks or online providers, for the analysis chips. */

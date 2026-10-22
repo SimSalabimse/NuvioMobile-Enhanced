@@ -38,7 +38,7 @@ internal fun playerDebugReadoutText(
     intervals.forEach { interval ->
         append('\n').append(if (interval == active) "▶ " else "  ")
         append(interval.type).append(' ').append(interval.startTime).append('–').append(interval.endTime)
-        append(" s (").append(com.nuvio.app.features.player.skip.skipSourceTag(interval.provider) ?: interval.provider).append(')')
+        append(" s (").append(com.nuvio.app.features.player.skip.skipSourceLabel(interval.provider) ?: interval.provider).append(')')
     }
 }
 
