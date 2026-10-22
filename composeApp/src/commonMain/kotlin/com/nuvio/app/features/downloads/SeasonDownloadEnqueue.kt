@@ -1,7 +1,6 @@
 package com.nuvio.app.features.downloads
 
 import com.nuvio.app.features.debrid.DebridAddOffer
-import com.nuvio.app.features.debrid.DebridSourceFallback
 import com.nuvio.app.features.debrid.DirectDebridPlayableResult
 import com.nuvio.app.features.debrid.toastMessage
 import com.nuvio.app.features.details.MetaDetails
@@ -39,27 +38,7 @@ internal suspend fun enqueueSeasonDownloads(
             ?.status
         if (seasonExistingDownload(existingStatus) != null) continue
         val videoId = seasonStreamVideoId(meta.id, row.video)
-        val outcome = DebridSourceFallback.playable(row.stream, season, episode, notify = false) {
-            downloadCandidates(meta.type, videoId, season, episode)
-        }
-        val resolved = outcome.stream ?: run {
-            val failure = outcome.failure ?: DirectDebridPlayableResult.Error
-            // One add offer for the batch (the first uncached episode), not one per row.
-            if (failure is DirectDebridPlayableResult.NotCached && !offered) offered = DebridAddOffer.offer(row.stream)
-            failureMessage = failureMessage ?: failure.toastMessage()
-            null
-        } ?: continue
-
-        val url = resolved.playableDirectUrl
-        if (url.isNullOrBlank()) {
-            failureMessage = failureMessage ?: DownloadEnqueueResult.MissingUrl.toastMessage()
-            continue
-        }
-        if (!url.isSupportedDownloadUrl()) {
-            failureMessage = failureMessage ?: DownloadEnqueueResult.UnsupportedFormat.toastMessage()
-            continue
-        }
-        val enqueueResult = DownloadsRepository.enqueueFromStream(
+        val target = DownloadTarget(
             contentType = meta.type,
             videoId = videoId,
             parentMetaId = meta.id,
@@ -72,8 +51,15 @@ internal suspend fun enqueueSeasonDownloads(
             episodeNumber = episode,
             episodeTitle = row.video.title,
             episodeThumbnail = row.video.thumbnail,
-            stream = resolved,
         )
+        val outcome = DownloadEnqueueService.resolveAndEnqueue(target, row.stream, notify = false)
+        val enqueueResult = outcome.result ?: run {
+            val failure = outcome.failure ?: DirectDebridPlayableResult.Error
+            // One add offer for the batch (the first uncached episode), not one per row.
+            if (failure is DirectDebridPlayableResult.NotCached && !offered) offered = DebridAddOffer.offer(row.stream)
+            failureMessage = failureMessage ?: failure.toastMessage()
+            null
+        } ?: continue
         when (enqueueResult) {
             DownloadEnqueueResult.Started,
             DownloadEnqueueResult.Replaced,

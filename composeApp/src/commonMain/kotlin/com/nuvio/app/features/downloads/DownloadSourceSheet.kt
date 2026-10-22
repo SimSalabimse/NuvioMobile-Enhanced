@@ -31,8 +31,6 @@ import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.debrid.DirectDebridPlayableResult
-import com.nuvio.app.features.debrid.DebridSourceFallback
-import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
 import com.nuvio.app.features.debrid.toastMessage
 import com.nuvio.app.features.streams.StreamItem
 import kotlinx.coroutines.CoroutineScope
@@ -55,6 +53,14 @@ internal data class DownloadSheetRequest(
 ) {
     val episodeCode: String?
         get() = if (seasonNumber != null && episodeNumber != null) "S${seasonNumber}E$episodeNumber" else null
+
+    val target: DownloadTarget
+        get() = DownloadTarget(
+            contentType = type, videoId = videoId, parentMetaId = parentMetaId, parentMetaType = parentMetaType,
+            title = title, logo = logo, poster = poster, background = background,
+            seasonNumber = seasonNumber, episodeNumber = episodeNumber,
+            episodeTitle = episodeTitle, episodeThumbnail = episodeThumbnail,
+        )
 }
 
 /**
@@ -66,37 +72,14 @@ internal fun enqueueDownloadForRequest(
     stream: StreamItem,
     scope: CoroutineScope,
 ) {
-    fun enqueue(playable: StreamItem) {
-        val result = DownloadsRepository.enqueueFromStream(
-            contentType = request.type,
-            videoId = request.videoId,
-            parentMetaId = request.parentMetaId,
-            parentMetaType = request.parentMetaType,
-            title = request.title,
-            logo = request.logo,
-            poster = request.poster,
-            background = request.background,
-            seasonNumber = request.seasonNumber,
-            episodeNumber = request.episodeNumber,
-            episodeTitle = request.episodeTitle,
-            episodeThumbnail = request.episodeThumbnail,
-            stream = playable,
-        )
+    scope.launch {
+        val result = DownloadEnqueueService.resolveAndEnqueue(request.target, stream).result ?: return@launch
         val message = if (result == DownloadEnqueueResult.Started || result == DownloadEnqueueResult.Replaced) {
             "Downloading ${request.episodeCode ?: request.title}"
         } else {
             result.toastMessage()
         }
         NuvioToastController.show(message)
-    }
-    if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(stream)) {
-        scope.launch {
-            DebridSourceFallback.playable(stream, request.seasonNumber, request.episodeNumber) {
-                downloadCandidates(request.type, request.videoId, request.seasonNumber, request.episodeNumber)
-            }.stream?.let(::enqueue)
-        }
-    } else {
-        enqueue(stream)
     }
 }
 
