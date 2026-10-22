@@ -20,10 +20,8 @@ import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.debrid.DirectDebridPlayableResult
-import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.features.debrid.DebridSourceFallback
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
-import com.nuvio.app.features.debrid.fallbackLabel
 import com.nuvio.app.features.debrid.toastMessage
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.p2p.P2pConsentDialog
@@ -94,7 +92,6 @@ internal fun StreamDestination(
     var autoPlayNavigationStarted by remember(route.launchId) { mutableStateOf(false) }
     var resolvingDebridStream by rememberSaveable(route.launchId) { mutableStateOf(false) }
     /** A tapped debrid stream that isn't cached and had no working fallback: offer adding it. */
-    var addToCacheOffer by remember(route.launchId) { mutableStateOf<StreamItem?>(null) }
     var resolvingYouTubeStream by rememberSaveable(route.launchId) { mutableStateOf(false) }
     var preparingServerStream by remember(route.launchId) { mutableStateOf(false) }
     var pendingP2pStreamOpen by remember { mutableStateOf<PendingP2pStreamOpen?>(null) }
@@ -442,31 +439,24 @@ internal fun StreamDestination(
                 }
         } else if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(selectedStream)) {
             StreamsRepository.setOverlayVisible(true, getString(Res.string.debrid_resolving_stream))
-            when (
-                val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
-                    stream = selectedStream,
-                    season = launch.seasonNumber,
-                    episode = launch.episodeNumber,
-                )
-            ) {
-                is DirectDebridPlayableResult.Success -> resolved.stream
-                else -> {
-                    val hasNextCandidate = StreamsRepository.skipAutoPlayStream(selectedStream)
-                    if (!hasNextCandidate) {
-                        resolved.toastMessage()?.let { NuvioToastController.show(it) }
-                    }
-                    if (!hasNextCandidate && resolved == DirectDebridPlayableResult.Stale) {
-                        StreamsRepository.reload(
-                            type = launch.type,
-                            videoId = effectiveVideoId,
-                            parentMetaId = launch.parentMetaId,
-                            season = launch.seasonNumber,
-                            episode = launch.episodeNumber,
-                            manualSelection = launch.manualSelection,
-                        )
-                    }
-                    return@LaunchedEffect
+            val outcome = DebridSourceFallback.playable(selectedStream, launch.seasonNumber, launch.episodeNumber, notify = false) {
+                StreamsRepository.uiState.value.groups.flatMap { it.streams }
+            }
+            outcome.stream ?: run {
+                val failure = outcome.failure ?: DirectDebridPlayableResult.Error
+                val hasNextCandidate = StreamsRepository.skipAutoPlayStream(selectedStream)
+                if (!hasNextCandidate) DebridSourceFallback.notifyFailure(selectedStream, failure)
+                if (!hasNextCandidate && failure == DirectDebridPlayableResult.Stale) {
+                    StreamsRepository.reload(
+                        type = launch.type,
+                        videoId = effectiveVideoId,
+                        parentMetaId = launch.parentMetaId,
+                        season = launch.seasonNumber,
+                        episode = launch.episodeNumber,
+                        manualSelection = launch.manualSelection,
+                    )
                 }
+                return@LaunchedEffect
             }
         } else {
             selectedStream
@@ -615,54 +605,28 @@ internal fun StreamDestination(
             if (resolvingDebridStream) return
             streamRouteScope.launch {
                 resolvingDebridStream = true
-                val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
-                    stream = stream,
-                    season = launch.seasonNumber,
-                    episode = launch.episodeNumber,
-                )
-                // Not cached / stale: try the next good sources (shared with downloads) before giving up.
-                val fallback = if (resolved is DirectDebridPlayableResult.NotCached || resolved is DirectDebridPlayableResult.Stale) {
-                    DebridSourceFallback.nextWorking(
-                        candidates = StreamsRepository.uiState.value.groups.flatMap { it.streams },
-                        failed = stream,
-                        season = launch.seasonNumber,
-                        episode = launch.episodeNumber,
-                    )
-                } else {
-                    null
+                val outcome = DebridSourceFallback.playable(stream, launch.seasonNumber, launch.episodeNumber) {
+                    StreamsRepository.uiState.value.groups.flatMap { it.streams }
                 }
                 resolvingDebridStream = false
-                when {
-                    resolved is DirectDebridPlayableResult.Success || fallback != null -> {
-                        val playable = (resolved as? DirectDebridPlayableResult.Success)?.stream ?: fallback!!
-                        if (fallback != null) {
-                            NuvioToastController.show("Not cached, switched to ${fallback.fallbackLabel()}", durationMillis = 4000L)
-                        }
-                        openSelectedStream(
-                            stream = playable,
-                            resolvedResumePositionMs = resolvedResumePositionMs,
-                            resolvedResumeProgressFraction = resolvedResumeProgressFraction,
-                            forceExternal = forceExternal,
-                            forceInternal = forceInternal,
-                        )
-                    }
-                    resolved is DirectDebridPlayableResult.NotCached &&
-                        DirectDebridPlaybackResolver.addToCacheProviderName(stream) != null -> {
-                        addToCacheOffer = stream
-                    }
-                    else -> {
-                        resolved.toastMessage()?.let { NuvioToastController.show(it) }
-                        if (resolved == DirectDebridPlayableResult.Stale) {
-                            StreamsRepository.reload(
-                                type = launch.type,
-                                videoId = effectiveVideoId,
-                                parentMetaId = launch.parentMetaId,
-                                season = launch.seasonNumber,
-                                episode = launch.episodeNumber,
-                                manualSelection = launch.manualSelection,
-                            )
-                        }
-                    }
+                val playable = outcome.stream
+                if (playable != null) {
+                    openSelectedStream(
+                        stream = playable,
+                        resolvedResumePositionMs = resolvedResumePositionMs,
+                        resolvedResumeProgressFraction = resolvedResumeProgressFraction,
+                        forceExternal = forceExternal,
+                        forceInternal = forceInternal,
+                    )
+                } else if (outcome.failure == DirectDebridPlayableResult.Stale) {
+                    StreamsRepository.reload(
+                        type = launch.type,
+                        videoId = effectiveVideoId,
+                        parentMetaId = launch.parentMetaId,
+                        season = launch.seasonNumber,
+                        episode = launch.episodeNumber,
+                        manualSelection = launch.manualSelection,
+                    )
                 }
             }
             return
@@ -883,30 +847,6 @@ internal fun StreamDestination(
                 resolvingYouTubeStream = resolvingYouTubeStream,
                 onBack = onBack,
                 preparingPlayback = preparingServerStream,
-            )
-        }
-        addToCacheOffer?.let { offered ->
-            val provider = DirectDebridPlaybackResolver.addToCacheProviderName(offered) ?: "debrid"
-            var adding by remember(offered) { mutableStateOf(false) }
-            NuvioStatusModal(
-                title = "Not cached on $provider",
-                message = "No other source worked. Add it to $provider so it downloads there and is ready to play later?",
-                isVisible = true,
-                isBusy = adding,
-                confirmText = "Add to $provider",
-                dismissText = "Not now",
-                onConfirm = {
-                    adding = true
-                    streamRouteScope.launch {
-                        val added = DirectDebridPlaybackResolver.addToCache(offered)
-                        addToCacheOffer = null
-                        NuvioToastController.show(
-                            if (added) "Added to $provider. It will be ready to play later." else "$provider didn't accept it. Try again later.",
-                            durationMillis = 4000L,
-                        )
-                    }
-                },
-                onDismiss = { addToCacheOffer = null },
             )
         }
     }

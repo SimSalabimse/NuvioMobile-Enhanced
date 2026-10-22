@@ -31,6 +31,7 @@ import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.debrid.DirectDebridPlayableResult
+import com.nuvio.app.features.debrid.DebridSourceFallback
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
 import com.nuvio.app.features.debrid.toastMessage
 import com.nuvio.app.features.streams.StreamItem
@@ -90,14 +91,9 @@ internal fun enqueueDownloadForRequest(
     }
     if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(stream)) {
         scope.launch {
-            when (val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
-                stream = stream,
-                season = request.seasonNumber,
-                episode = request.episodeNumber,
-            )) {
-                is DirectDebridPlayableResult.Success -> enqueue(resolved.stream)
-                else -> resolved.toastMessage()?.let { NuvioToastController.show(it) }
-            }
+            DebridSourceFallback.playable(stream, request.seasonNumber, request.episodeNumber) {
+                downloadCandidates(request.type, request.videoId, request.seasonNumber, request.episodeNumber)
+            }.stream?.let(::enqueue)
         }
     } else {
         enqueue(stream)
