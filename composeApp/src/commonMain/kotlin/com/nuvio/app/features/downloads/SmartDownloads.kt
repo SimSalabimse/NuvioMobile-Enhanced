@@ -44,16 +44,16 @@ enum class DownloadQualityPreference(val key: String, val maxHeight: Int?) {
 
 /** Device-level settings for automatic downloads (smart downloads, queued and goal episodes, autopilot). */
 object SmartDownloadSettings {
-    private const val ENABLED_KEY = "smart_downloads_enabled"
-    private const val COUNT_KEY = "smart_downloads_count"
-    private const val CHARGING_KEY = "smart_downloads_only_charging"
-    private const val WIFI_KEY = "smart_downloads_only_wifi"
+    private val ENABLED = FlagSetting("smart_downloads_enabled", default = false)
+    private val COUNT = IntSetting("smart_downloads_count", default = 1) { it.coerceIn(1, 3) }
+    private val CHARGING = FlagSetting("smart_downloads_only_charging", default = false)
+    private val WIFI = FlagSetting("smart_downloads_only_wifi", default = true)
     private const val QUALITY_KEY = "download_quality_preference"
-    private const val PAUSE_DURING_PLAYBACK_KEY = "downloads_pause_during_playback"
-    private const val QUEUE_UNAIRED_KEY = "downloads_queue_unaired"
-    private const val KEEP_FREE_GB_KEY = "downloads_keep_free_gb"
+    private val PAUSE_DURING_PLAYBACK = FlagSetting("downloads_pause_during_playback", default = false)
+    private val QUEUE_UNAIRED = FlagSetting("downloads_queue_unaired", default = true)
+    private val KEEP_FREE_GB = IntSetting("downloads_keep_free_gb", default = 0) { it.coerceAtLeast(0) }
     private const val GOALS_KEY = "smart_downloads_goals"
-    private const val GOAL_DOWNLOADS_REST_KEY = "smart_downloads_goal_rest"
+    private val GOAL_DOWNLOADS_REST = FlagSetting("smart_downloads_goal_rest", default = true)
     private const val GOAL_ANCHORS_KEY = "smart_downloads_goal_anchors"
 
     /** Choices for "Keep free" (GB); 0 is off. */
@@ -87,15 +87,15 @@ object SmartDownloadSettings {
         if (loaded) return
         loaded = true
         _state.value = State(
-            enabled = DownloadsSettingsStorage.loadFlag(ENABLED_KEY) ?: false,
-            count = DownloadsSettingsStorage.loadString(COUNT_KEY)?.toIntOrNull()?.coerceIn(1, 3) ?: 1,
-            onlyWhileCharging = DownloadsSettingsStorage.loadFlag(CHARGING_KEY) ?: false,
-            onlyOnWifi = DownloadsSettingsStorage.loadFlag(WIFI_KEY) ?: true,
+            enabled = ENABLED.load(),
+            count = COUNT.load(),
+            onlyWhileCharging = CHARGING.load(),
+            onlyOnWifi = WIFI.load(),
             quality = DownloadQualityPreference.fromKey(DownloadsSettingsStorage.loadString(QUALITY_KEY)),
-            pauseDuringPlayback = DownloadsSettingsStorage.loadFlag(PAUSE_DURING_PLAYBACK_KEY) ?: false,
-            queueUnaired = DownloadsSettingsStorage.loadFlag(QUEUE_UNAIRED_KEY) ?: true,
-            keepFreeGb = DownloadsSettingsStorage.loadString(KEEP_FREE_GB_KEY)?.toIntOrNull()?.coerceAtLeast(0) ?: 0,
-            goalDownloadsRest = DownloadsSettingsStorage.loadFlag(GOAL_DOWNLOADS_REST_KEY) ?: true,
+            pauseDuringPlayback = PAUSE_DURING_PLAYBACK.load(),
+            queueUnaired = QUEUE_UNAIRED.load(),
+            keepFreeGb = KEEP_FREE_GB.load(),
+            goalDownloadsRest = GOAL_DOWNLOADS_REST.load(),
             goals = DownloadsSettingsStorage.loadString(GOALS_KEY).orEmpty().split('\n').filter { it.isNotBlank() }.toSet(),
             goalAnchors = DownloadsSettingsStorage.loadString(GOAL_ANCHORS_KEY).orEmpty().split('\n').mapNotNull { line ->
                 val key = line.substringBeforeLast('=', "")
@@ -118,7 +118,7 @@ object SmartDownloadSettings {
 
     fun setEnabled(enabled: Boolean) {
         update { it.copy(enabled = enabled) }
-        DownloadsSettingsStorage.saveFlag(ENABLED_KEY, enabled)
+        ENABLED.save(enabled)
         if (enabled) SmartDownloads.retryPending()
         recheckGoals()
     }
@@ -126,36 +126,36 @@ object SmartDownloadSettings {
     fun setCount(count: Int) {
         val value = count.coerceIn(1, 3)
         update { it.copy(count = value) }
-        DownloadsSettingsStorage.saveString(COUNT_KEY, value.toString())
+        COUNT.save(value)
         recheckGoals()
     }
 
     fun setOnlyWhileCharging(enabled: Boolean) {
         update { it.copy(onlyWhileCharging = enabled) }
-        DownloadsSettingsStorage.saveFlag(CHARGING_KEY, enabled)
+        CHARGING.save(enabled)
         if (!enabled) SmartDownloads.retryPending()
     }
 
     fun setOnlyOnWifi(enabled: Boolean) {
         update { it.copy(onlyOnWifi = enabled) }
-        DownloadsSettingsStorage.saveFlag(WIFI_KEY, enabled)
+        WIFI.save(enabled)
         if (!enabled) SmartDownloads.retryPending()
     }
 
     fun setPauseDuringPlayback(enabled: Boolean) {
         update { it.copy(pauseDuringPlayback = enabled) }
-        DownloadsSettingsStorage.saveFlag(PAUSE_DURING_PLAYBACK_KEY, enabled)
+        PAUSE_DURING_PLAYBACK.save(enabled)
         PlaybackPriority.reapplyDownloadCap()
     }
 
     fun setQueueUnaired(enabled: Boolean) {
         update { it.copy(queueUnaired = enabled) }
-        DownloadsSettingsStorage.saveFlag(QUEUE_UNAIRED_KEY, enabled)
+        QUEUE_UNAIRED.save(enabled)
     }
 
     fun setKeepFreeGb(gb: Int) {
         update { it.copy(keepFreeGb = gb.coerceAtLeast(0)) }
-        DownloadsSettingsStorage.saveString(KEEP_FREE_GB_KEY, gb.coerceAtLeast(0).toString())
+        KEEP_FREE_GB.save(gb.coerceAtLeast(0))
         StorageAutopilot.run()
     }
 
@@ -171,7 +171,7 @@ object SmartDownloadSettings {
 
     fun setGoalDownloadsRest(enabled: Boolean) {
         update { it.copy(goalDownloadsRest = enabled) }
-        DownloadsSettingsStorage.saveFlag(GOAL_DOWNLOADS_REST_KEY, enabled)
+        GOAL_DOWNLOADS_REST.save(enabled)
         recheckGoals()
     }
 
