@@ -28,7 +28,7 @@ Built from the code at build 195 (0.6.2.1). Each line shows the feature, where i
 - Skip Intro / Automatic Skipping, choosing segment types (intro, recap, credits): Settings › Playback › Skip Segments. Upstream; recaps 0.5.10.2.
 - Per-show auto-skip (Default / Always / Never): Home Continue Watching hold menu › "Auto-skip: …". Shortened label in 193.
 - TheIntroDB community times, "TheIntroDB only", on-device fallback: Settings › Playback › Skip Segments. 0.5.10.3.
-- TheIntroDB import of your own submissions, labelled "TheIntroDB (yours)": Settings › Playback › TheIntroDB import / Your TheIntroDB submissions. 0.5.10.3; same-length check in 192.
+- TheIntroDB import of your own submissions, labelled "TheIntroDB (yours)" (same label in the player and the skip list, 196): Settings › Playback › TheIntroDB import / Your TheIntroDB submissions. 0.5.10.3; same-length check in 192.
 - Intro submission (IntroDB and TheIntroDB API keys): Settings › Playback › Skip Segments. Upstream.
 - AnimeSkip: Settings › Playback › Skip Segments. Upstream.
 - Ask after Skip (Good/Wrong): Settings › Playback › Skip Segments. 0.5.10.3.

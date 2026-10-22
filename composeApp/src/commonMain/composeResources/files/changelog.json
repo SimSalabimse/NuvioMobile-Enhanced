@@ -2,6 +2,18 @@
   "releases": [
     {
       "version": "0.6.2.1",
+      "build": 196,
+      "date": "2026-10-22",
+      "improved": [
+        "Behind-the-scenes cleanup: downloads, player launches, network and settings code now share one path each, so they behave the same everywhere.",
+        "Faster test builds."
+      ],
+      "fixed": [
+        "A skip mark you imported from your own TheIntroDB submission is now labelled \"TheIntroDB (yours)\" everywhere, the same as in the player."
+      ]
+    },
+    {
+      "version": "0.6.2.1",
       "build": 195,
       "date": "2026-10-22",
       "new": [
