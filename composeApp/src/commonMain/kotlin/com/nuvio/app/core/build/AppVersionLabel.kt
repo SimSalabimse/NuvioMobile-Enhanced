@@ -13,12 +13,5 @@ internal fun appVersionDetail(
     gitDirty: Boolean = false,
 ): String = "$versionName ($versionCode)${appVersionRevisionSuffix(gitRevision, gitDirty)}"
 
-internal fun currentAppVersionDetail(): String = appVersionDetail(
-    versionName = AppVersionConfig.VERSION_NAME,
-    versionCode = AppVersionConfig.VERSION_CODE,
-    gitRevision = AppVersionConfig.GIT_REVISION,
-    gitDirty = AppVersionConfig.GIT_DIRTY,
-)
-
 private fun normalizedGitRevision(gitRevision: String): String? =
     gitRevision.trim().lowercase().takeIf { it.matches(Regex("[0-9a-f]{4,40}")) }

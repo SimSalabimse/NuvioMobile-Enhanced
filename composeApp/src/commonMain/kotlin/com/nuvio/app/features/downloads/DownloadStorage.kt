@@ -253,10 +253,6 @@ internal fun summarizeDownloadStorage(
     )
 }
 
-/** Free space after the margin, or null when the platform cannot tell. */
-internal fun usableFreeBytes(volume: VolumeSpace?): Long? =
-    volume?.let { (it.availableBytes - DOWNLOAD_FREE_SPACE_MARGIN_BYTES).coerceAtLeast(0L) }
-
 /** True when [remainingBytes] would not fit with its reserve, or free space is under the floor. */
 internal fun lacksSpaceFor(remainingBytes: Long?, volume: VolumeSpace?): Boolean =
     spaceRunningOut(volume) != null || spaceAdmission(remainingBytes, remainingBytes, 0L, 0L, volume) != null

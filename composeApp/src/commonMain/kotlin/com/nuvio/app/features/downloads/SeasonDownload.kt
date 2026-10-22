@@ -138,8 +138,6 @@ internal fun seasonSelectionTotalText(
 /** Sizes in decimal units like iOS Settings (ByteCountFormatter .file on iOS). */
 internal fun formatSeasonBytes(bytes: Long): String = formatBytesDecimal(bytes)
 
-private fun oneDecimal(value: Double): Double = (value * 10.0).toLong() / 10.0
-
 /**
  * Read a file size from a HEAD response or a one-byte ranged GET.
  * A 206 Content-Length is the range, not the file, unless Content-Range carries the total.
