@@ -64,7 +64,7 @@ fun SkipIntroButton(
     if (canSkip) {
         lastType = interval?.type
         lastSkipsToPostCredits = skipsToPostCredits
-        lastRange = interval?.let { skipRangeLabel(it.startTime, it.endTime) }
+        lastRange = skipRangeLabel(interval.startTime, interval.endTime)
     }
     val shouldShow = canSkip && (!dismissed || controlsVisible)
 

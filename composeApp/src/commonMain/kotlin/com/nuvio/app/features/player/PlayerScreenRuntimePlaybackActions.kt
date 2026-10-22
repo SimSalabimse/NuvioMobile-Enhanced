@@ -49,8 +49,7 @@ internal fun PlayerScreenRuntime.updatePlaybackSnapshot(
     playbackClock.positionMs = downloadSwapHeldPositionMs(incoming.positionMs)
     // The player's buffered end is only its read-ahead cache (mpv: at most demuxer-max-bytes past the
     // playhead). For an in-progress download the bar follows how far the file on disk reaches.
-    val downloadReachMs = activeSourceUrl
-        ?.let(::partialPlaybackDownloadId)
+    val downloadReachMs = partialPlaybackDownloadId(activeSourceUrl)
         ?.let { downloadId -> DownloadsRepository.partialDownloadReachMs(downloadId, incoming.durationMs) }
     playbackClock.bufferedPositionMs = maxOf(incoming.bufferedPositionMs, downloadReachMs ?: 0L)
     val status = incoming.copy(positionMs = 0L, bufferedPositionMs = 0L)

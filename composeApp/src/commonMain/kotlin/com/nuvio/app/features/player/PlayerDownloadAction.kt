@@ -40,7 +40,7 @@ import com.nuvio.app.features.streams.StreamProxyHeaders
 internal fun PlayerScreenRuntime.playerDownloadActionAvailable(): Boolean {
     if (!isDownloadablePlayback) return false
     if (isPlayingSwappedDownload) return true
-    val url = activeSourceUrl?.trim().orEmpty()
+    val url = activeSourceUrl.trim()
     if (url.isEmpty() || url.startsWith("file:") || isLoopbackPartialPlaybackUrl(url)) return false
     return url.isSupportedDownloadUrl()
 }
@@ -82,7 +82,7 @@ private fun PlayerScreenRuntime.onPlayerDownloadClick(row: DownloadItem?) {
 }
 
 private fun PlayerScreenRuntime.startPlayerDownload() {
-    val url = activeSourceUrl ?: return
+    val url = activeSourceUrl
     val stream = StreamItem(
         name = activeStreamTitle,
         description = activeStreamSubtitle,

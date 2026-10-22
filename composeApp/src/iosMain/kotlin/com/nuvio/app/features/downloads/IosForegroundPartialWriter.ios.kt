@@ -437,7 +437,7 @@ internal fun finalizeIosPartialFile(
         }
         callbacks?.onSuccess(fileUri(destination), fileSizeOrNull(destination))
     } finally {
-        if (started) base.scopedUrl?.stopAccessingSecurityScopedResource()
+        if (started) base.scopedUrl.stopAccessingSecurityScopedResource()
         IosWriterOwnership.release(downloadId, DownloadWriterKind.Foreground)
         IosWriterOwnership.release(downloadId, DownloadWriterKind.Background)
     }
@@ -465,7 +465,7 @@ internal fun finishIosPartialPlayback(downloadId: String): String? {
         }
         return fileUri(destination)
     } finally {
-        if (started) base.scopedUrl?.stopAccessingSecurityScopedResource()
+        if (started) base.scopedUrl.stopAccessingSecurityScopedResource()
     }
 }
 
@@ -508,7 +508,7 @@ private class IosForegroundSessionDelegate : NSObject(), NSURLSessionDataDelegat
         }
         val file = fopen(partPath, "ab")
         if (file == null) {
-            if (scopedStarted) base.scopedUrl?.stopAccessingSecurityScopedResource()
+            if (scopedStarted) base.scopedUrl.stopAccessingSecurityScopedResource()
             IosWriterOwnership.release(downloadId, DownloadWriterKind.Foreground)
             return false
         }

@@ -464,7 +464,7 @@ internal fun FloatingNavigationBar(
                                         )
                                     }
                                 }
-                            } else if (upstreamSelectionLensActive && backdrop != null && upstreamBarBackdrop != null) {
+                            } else if (upstreamSelectionLensActive && upstreamBarBackdrop != null) {
                                 JellySelectionLens(
                                     backdrop = rememberCombinedBackdrop(backdrop, upstreamBarBackdrop),
                                     motion = motion,

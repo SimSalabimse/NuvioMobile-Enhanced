@@ -400,7 +400,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
 
     DisposableEffect(activeSourceUrl) {
         val effectSourceUrl = activeSourceUrl
-        val partialDownloadId = effectSourceUrl?.let(::partialPlaybackDownloadId)
+        val partialDownloadId = partialPlaybackDownloadId(effectSourceUrl)
         if (partialDownloadId != null) PartialPlaybackLease.acquire(partialDownloadId)
         onDispose {
             ServerPlayback.stop(effectSourceUrl)
