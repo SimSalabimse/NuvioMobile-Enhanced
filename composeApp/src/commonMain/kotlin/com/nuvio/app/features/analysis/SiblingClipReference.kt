@@ -19,7 +19,7 @@ import com.nuvio.app.features.player.skip.SkipIntroRepository
 import com.nuvio.app.features.player.skip.TheIntroDb
 import com.nuvio.app.features.player.skip.resolveSkipImdbId
 import com.nuvio.app.features.streams.StreamLinkCacheRepository
-import kotlinx.serialization.json.Json
+import com.nuvio.app.core.serialization.LenientJson
 
 /** Known intro (and credits, when there are any) of another episode of the season, in ms. */
 internal data class SiblingTimes(
@@ -39,7 +39,7 @@ internal object SiblingClipReference {
     private const val PAD_MS = 5_000L
     private const val MIN_MATCH_MS = 8_000L
     private const val MAX_ONLINE_LOOKUPS = 4
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = LenientJson
 
     suspend fun apply(item: DownloadItem, result: MediaAnalysisResult): MediaAnalysisResult {
         val season = item.seasonNumber ?: return result

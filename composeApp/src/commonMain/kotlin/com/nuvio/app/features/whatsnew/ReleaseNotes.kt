@@ -65,11 +65,11 @@ import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.downloads.DownloadsSettingsStorage
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_settings_page_whats_new
 import org.jetbrains.compose.resources.ExperimentalResourceApi
 import org.jetbrains.compose.resources.stringResource
+import com.nuvio.app.core.serialization.LenientJson
 
 /**
  * Bundled release notes: composeResources/files/changelog.json, one hand-written entry per build
@@ -98,7 +98,7 @@ internal object ReleaseNotes {
     private const val LAST_SEEN_KEY = "whats_new_last_seen_v1"
     /** The build seen before the current one, so builds since then stay marked after the sheet closes. */
     private const val PREVIOUS_SEEN_KEY = "whats_new_previous_seen_v1"
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = LenientJson
     private var cached: List<BundledRelease>? = null
 
     val currentKey: String get() = "${AppVersionConfig.VERSION_NAME}(${AppVersionConfig.VERSION_CODE})"

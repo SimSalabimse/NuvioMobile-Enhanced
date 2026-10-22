@@ -5,7 +5,7 @@ import kotlinx.atomicfu.locks.synchronized
 import com.nuvio.app.features.downloads.DownloadItem
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import com.nuvio.app.core.serialization.LenientDefaultsJson
 
 /** Raw per-key text files (iOS: Application Support/NuvioAnalysis). Android keeps nothing yet. */
 internal expect object MediaAnalysisFiles {
@@ -47,7 +47,7 @@ internal fun MediaAnalysisResult.withoutLearnedTypes(): MediaAnalysisResult {
 }
 
 internal object MediaAnalysisStore {
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val json = LenientDefaultsJson
     private val cache = mutableMapOf<String, MediaAnalysisResult?>()
 
     private val lock = SynchronizedObject()

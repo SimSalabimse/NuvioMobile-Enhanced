@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
+import com.nuvio.app.core.serialization.LenientJson
 
 @Serializable
 internal data class ShowStat(
@@ -65,7 +65,7 @@ internal object WatchStats {
     const val STREAK_DAY_MIN_MS = 1L
     private const val MAX_SKIP_MS = 30 * 60_000L
 
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = LenientJson
     private val _data = MutableStateFlow(WatchStatsData())
     val data: StateFlow<WatchStatsData> = _data.asStateFlow()
     private var loaded = false

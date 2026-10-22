@@ -26,7 +26,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.json.Json
+import com.nuvio.app.core.serialization.LenientJson
 
 /** Preferred quality for downloads the app picks on its own (smart downloads, season auto-pick). */
 enum class DownloadQualityPreference(val key: String, val maxHeight: Int?) {
@@ -275,7 +275,7 @@ internal object SmartDownloads {
     private const val RETRY_MS = 5 * 60_000L
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutex = Mutex()
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = LenientJson
     private val handledVideoIds = mutableSetOf<String>()
     private var retryJob: Job? = null
 

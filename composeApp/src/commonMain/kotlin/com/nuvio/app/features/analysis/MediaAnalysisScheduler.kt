@@ -14,7 +14,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
+import com.nuvio.app.core.serialization.LenientJson
 
 /** What the platform analyzer returns for one file (see MediaAnalyzer.swift). */
 @Serializable
@@ -88,7 +88,7 @@ internal object MediaAnalysisScheduler {
     private const val THUMBNAIL_TILE_WIDTH = 160
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = LenientJson
     private var job: Job? = null
 
     private val anyFeatureEnabled: Boolean

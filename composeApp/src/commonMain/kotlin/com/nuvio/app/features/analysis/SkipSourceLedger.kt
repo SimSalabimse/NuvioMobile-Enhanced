@@ -26,7 +26,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
-import kotlinx.serialization.json.Json
+import com.nuvio.app.core.serialization.LenientJson
 
 /**
  * Where an episode's skip times came from. Online providers (TheIntroDB, IntroDB, AniSkip…) are
@@ -37,7 +37,7 @@ import kotlinx.serialization.json.Json
 internal object SkipSourceLedger {
     private const val STORE_KEY = "skip_source_ledger_v1"
     private const val MAX_ENTRIES = 2000
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = LenientJson
     private val serializer = MapSerializer(String.serializer(), MapSerializer(String.serializer(), String.serializer()))
     private var loaded: MutableMap<String, Map<String, String>>? = null
     private val _revision = MutableStateFlow(0)

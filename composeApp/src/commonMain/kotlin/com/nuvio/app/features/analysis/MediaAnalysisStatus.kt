@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
+import com.nuvio.app.core.serialization.LenientJson
 
 /** Which step of one file's analysis is running. */
 enum class AnalysisStage { Audio, Matching, Recap, Previews }
@@ -81,7 +81,7 @@ data class AnalysisSummary(
 object MediaAnalysisStatus {
     private const val FAILURES_KEY = "analysis_failures_v1"
     private const val BACKGROUND_KEY = "analysis_background_v1"
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = LenientJson
 
     private val _job = MutableStateFlow<AnalysisJobState>(AnalysisJobState.Idle)
     val job: StateFlow<AnalysisJobState> = _job.asStateFlow()
