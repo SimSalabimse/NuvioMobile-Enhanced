@@ -40,6 +40,7 @@ import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
 
 private const val TAG = "NuvioiOSPlayer"
+private const val NowPlayingArtworkMaxWidthPx = 1_024
 
 @OptIn(ExperimentalForeignApi::class)
 @Composable
@@ -140,7 +141,9 @@ actual fun PlatformPlayerSurface(
                     bridge.updateNowPlayingMetadata(
                         title = info.title,
                         subtitle = info.subtitle,
-                        artworkUrl = info.artworkUrl,
+                        artworkUrl = info.artworkUrl?.let { url ->
+                            com.nuvio.app.core.perf.compactArtworkUrl(url, NowPlayingArtworkMaxWidthPx)
+                        },
                     )
                 }.onFailure { error ->
                     Logger.w(TAG, error) { "Failed to update iOS Now Playing metadata" }

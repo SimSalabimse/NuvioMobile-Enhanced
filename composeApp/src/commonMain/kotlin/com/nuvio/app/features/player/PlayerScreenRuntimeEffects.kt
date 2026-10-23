@@ -1,6 +1,8 @@
 package com.nuvio.app.features.player
 
 import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
+import com.nuvio.app.core.perf.PerformanceMetrics
+import com.nuvio.app.core.perf.PlaybackQuietMode
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.party.PartyRepository
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -431,9 +433,15 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         }
     }
 
+    LaunchedEffect(playbackSnapshot.isPlaying) {
+        if (playbackSnapshot.isPlaying) PerformanceMetrics.recordPlaybackStarted()
+    }
+
     DisposableEffect(Unit) {
         PlayerStreamsRepository.pauseSearchForPlayback()
+        PlaybackQuietMode.playerOpened()
         onDispose {
+            PlaybackQuietMode.playerClosed()
             args.launchId?.let { launchId -> PlayerLaunchStore.update(launchId) { currentLaunch(it) } }
             playerController?.clearNowPlayingInfo()
             P2pStreamingEngine.shutdown()

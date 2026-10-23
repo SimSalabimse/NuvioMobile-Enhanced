@@ -2,9 +2,9 @@ package com.nuvio.app.features.downloads
 
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.features.addons.AddonRepository
-import com.nuvio.app.features.addons.buildAddonResourceUrl
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.fetchAddonResponseText
+import com.nuvio.app.features.streams.addonStreamRequestUrl
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.plugins.PluginRepository
 import com.nuvio.app.features.plugins.pluginContentId
@@ -179,12 +179,7 @@ internal object SeasonStreamCatalog {
                 val addonName = addon.displayTitle.ifBlank { manifest.name }
                 val addonId = addon.streamAddonInstanceId(manifest.id)
                 sources += SeasonCatalogSource(addonId, addonName, preferred = false) {
-                    val url = buildAddonResourceUrl(
-                        manifestUrl = manifest.transportUrl,
-                        resource = "stream",
-                        type = type,
-                        id = videoId,
-                    )
+                    val url = addonStreamRequestUrl(manifest, type, videoId)
                     StreamParser.parse(
                         payload = fetchAddonResponseText(url),
                         addonName = addonName,

@@ -33,6 +33,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_cancel
+import nuvio.composeapp.generated.resources.compose_settings_page_performance
+import nuvio.composeapp.generated.resources.performance_root_description
 import nuvio.composeapp.generated.resources.settings_advanced_clear_cw_cache
 import nuvio.composeapp.generated.resources.settings_advanced_clear_cw_cache_done
 import nuvio.composeapp.generated.resources.settings_advanced_clear_cw_cache_subtitle
@@ -68,6 +70,7 @@ internal fun LazyListScope.advancedSettingsContent(
     isTablet: Boolean,
     rememberLastProfileEnabled: Boolean,
     onDebugLogsClick: () -> Unit,
+    onPerformanceClick: (() -> Unit)? = null,
 ) {
     item {
         SettingsSection(
@@ -181,6 +184,15 @@ internal fun LazyListScope.advancedSettingsContent(
                     isTablet = isTablet,
                     onClick = onDebugLogsClick,
                 )
+                if (onPerformanceClick != null) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.compose_settings_page_performance),
+                        description = stringResource(Res.string.performance_root_description),
+                        isTablet = isTablet,
+                        onClick = onPerformanceClick,
+                    )
+                }
             }
         }
     }

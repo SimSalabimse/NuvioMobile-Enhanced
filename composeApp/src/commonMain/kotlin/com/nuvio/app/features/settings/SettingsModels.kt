@@ -20,6 +20,7 @@ import nuvio.composeapp.generated.resources.compose_settings_page_continue_watch
 import nuvio.composeapp.generated.resources.compose_settings_page_homescreen
 import nuvio.composeapp.generated.resources.compose_settings_page_integrations
 import nuvio.composeapp.generated.resources.compose_settings_page_licenses_attributions
+import nuvio.composeapp.generated.resources.compose_settings_page_performance
 import nuvio.composeapp.generated.resources.compose_settings_page_whats_new
 import nuvio.composeapp.generated.resources.compose_settings_page_live_tv
 import nuvio.composeapp.generated.resources.compose_settings_page_mdblist_ratings
@@ -202,6 +203,11 @@ internal enum class SettingsPage(
         titleRes = Res.string.compose_settings_page_tracking,
         category = SettingsCategory.Account,
         parentPage = Root,
+    ),
+    Performance(
+        titleRes = Res.string.compose_settings_page_performance,
+        category = SettingsCategory.Advanced,
+        parentPage = Advanced,
     ),
 }
 

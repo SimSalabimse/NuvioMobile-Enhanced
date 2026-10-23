@@ -76,6 +76,7 @@ import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.core.perf.rememberPlaybackQuiet
 import com.nuvio.app.core.build.TrailerPlaybackMode
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.ui.atLeastIosHitTarget
@@ -260,8 +261,9 @@ internal fun HomeHeroSection(
         }
     }
 
-    ScreenActivityEffect(autoScrollPage, items.size, effectiveTrailerPlaybackEnabled) { active ->
-        if (!active || items.size <= 1 || effectiveTrailerPlaybackEnabled) return@ScreenActivityEffect
+    val autoScrollPlaybackQuiet = rememberPlaybackQuiet()
+    ScreenActivityEffect(autoScrollPage, items.size, effectiveTrailerPlaybackEnabled, autoScrollPlaybackQuiet) { active ->
+        if (!active || items.size <= 1 || effectiveTrailerPlaybackEnabled || autoScrollPlaybackQuiet) return@ScreenActivityEffect
         delay(HERO_AUTO_SCROLL_INTERVAL_MS)
         while (pagerState.isScrollInProgress) {
             delay(100L)
@@ -357,7 +359,8 @@ internal fun HomeHeroSection(
             LaunchedEffect(onActiveArtworkChange, activeArtworkUrl) {
                 onActiveArtworkChange?.invoke(activeArtworkUrl)
             }
-            if (onActiveArtworkChange != null && rememberDynamicArtworkBackgroundEnabled()) {
+            val playbackQuiet = rememberPlaybackQuiet()
+            if (onActiveArtworkChange != null && rememberDynamicArtworkBackgroundEnabled() && !playbackQuiet) {
                 val heroArtworkUrls = remember(items, effectiveArtworkSource) {
                     items.mapNotNull { item -> heroArtworkUrl(item, effectiveArtworkSource) }
                 }
@@ -365,7 +368,8 @@ internal fun HomeHeroSection(
             }
 
             val platformContext = LocalPlatformContext.current
-            LaunchedEffect(pagerState.settledPage, items, effectiveArtworkSource) {
+            LaunchedEffect(pagerState.settledPage, items, effectiveArtworkSource, playbackQuiet) {
+                if (playbackQuiet) return@LaunchedEffect
                 val settled = pagerState.settledPage
                 val neighbours = listOf(settled + 1, settled - 1)
                     .filter { page -> page >= 0 && items.size > 1 }

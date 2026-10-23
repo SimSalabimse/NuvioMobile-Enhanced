@@ -1,5 +1,6 @@
 package com.nuvio.app.features.mdblist
 
+import com.nuvio.app.core.perf.BoundedCache
 import co.touchlab.kermit.Logger
 import com.nuvio.app.features.details.MetaExternalRating
 import kotlinx.atomicfu.locks.SynchronizedObject
@@ -24,7 +25,7 @@ internal class MdbListRatingsRepository(
 
     private val log = Logger.withTag("MdbListRatings")
     private val lock = SynchronizedObject()
-    private val cache = mutableMapOf<RequestKey, List<MetaExternalRating>>()
+    private val cache = BoundedCache<RequestKey, List<MetaExternalRating>>(maxEntries = 300)
     private val inFlight = mutableMapOf<RequestKey, CompletableDeferred<List<MetaExternalRating>>>()
     private val pending = mutableMapOf<RequestKey, CompletableDeferred<List<MetaExternalRating>>>()
     private var batchScheduled = false

@@ -11,6 +11,8 @@ import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.CachePolicy
 import coil3.request.crossfade
 import coil3.svg.SvgDecoder
+import com.nuvio.app.core.perf.addPerformanceInterceptors
+import com.nuvio.app.core.perf.performanceImageHttpClient
 import com.nuvio.app.core.poster.CustomPosterFallbackInterceptor
 
 /**
@@ -28,9 +30,11 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
             .memoryCachePolicy(CachePolicy.ENABLED)
             .components {
                 add(CustomPosterFallbackInterceptor())
+                addPerformanceInterceptors()
                 add(SvgDecoder.Factory())
                 add(
                     KtorNetworkFetcherFactory(
+                        httpClient = ::performanceImageHttpClient,
                         cacheStrategy = { CacheControlCacheStrategy() },
                     ),
                 )

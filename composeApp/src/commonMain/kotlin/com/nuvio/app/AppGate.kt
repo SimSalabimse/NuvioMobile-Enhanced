@@ -30,6 +30,9 @@ import com.nuvio.app.core.auth.DeviceSessionRegistration
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
+import com.nuvio.app.features.home.HomeRepository
+import com.nuvio.app.core.perf.PerformanceOptimization
+import com.nuvio.app.core.perf.PerformanceSettings
 import com.nuvio.app.core.sync.SyncManager
 import com.nuvio.app.core.ui.NativeProfileSwitcherController
 import com.nuvio.app.core.ui.NativeTabBridge
@@ -48,7 +51,9 @@ import com.nuvio.app.features.profiles.ProfileSelectionScreen
 import com.nuvio.app.features.profiles.profileAvatarImageUrl
 import com.nuvio.app.navigation.AppRoute
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private enum class AppGateScreen {
     Loading,
@@ -125,8 +130,14 @@ internal fun AppGate(
         InAppLogger.info("App/Runtime", "Starting network/profile/avatar services")
         NetworkStatusRepository.ensureStarted()
         MemberAccessRepository.ensureStarted()
+        val parallelStartup = PerformanceSettings.isEnabled(PerformanceOptimization.ParallelStartup)
+        // The avatar catalog fetch does not read profiles, so it need not queue behind them.
+        if (parallelStartup) launch { AvatarRepository.fetchAvatars() }
         ProfileRepository.loadCachedProfiles()
-        AvatarRepository.fetchAvatars()
+        if (PerformanceSettings.isEnabled(PerformanceOptimization.CachedHomeFirst)) {
+            withContext(Dispatchers.Default) { HomeRepository.preloadSnapshotForLaunch() }
+        }
+        if (!parallelStartup) AvatarRepository.fetchAvatars()
     }
 
     val authState by AuthRepository.state.collectAsStateWithLifecycle()

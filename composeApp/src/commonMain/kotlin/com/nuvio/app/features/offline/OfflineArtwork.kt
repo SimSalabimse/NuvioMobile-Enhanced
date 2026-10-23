@@ -3,6 +3,7 @@ package com.nuvio.app.features.offline
 import co.touchlab.kermit.Logger
 import coil3.intercept.Interceptor
 import coil3.request.ImageResult
+import com.nuvio.app.core.perf.compactArtworkUrl
 import com.nuvio.app.features.addons.httpRequestRaw
 import com.nuvio.app.features.analysis.MediaAnalysisFiles
 import com.nuvio.app.features.downloads.DownloadItem
@@ -25,6 +26,7 @@ import com.nuvio.app.core.serialization.LenientJson
 object OfflineArtwork {
     private const val INDEX_KEY = "offline_artwork_index_v1"
     private const val MAX_BYTES = 8 * 1024 * 1024
+    private const val OFFLINE_MAX_WIDTH_PX = 1280
     private val log = Logger.withTag("OfflineArtwork")
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutex = Mutex()
@@ -64,7 +66,8 @@ object OfflineArtwork {
         if (loadedIndex().containsKey(url)) return
         val name = "art_" + url.hashCode().toUInt().toString(16) + "_" + url.length + ".img"
         val bytes = runCatching {
-            val response = httpRequestRaw("GET", url, emptyMap(), "", maxResponseBodyBytes = MAX_BYTES)
+            val source = compactArtworkUrl(url, OFFLINE_MAX_WIDTH_PX)
+            val response = httpRequestRaw("GET", source, emptyMap(), "", maxResponseBodyBytes = MAX_BYTES)
             if (response.status in 200..299) response.bodyBytes else null
         }.onFailure { log.w { "fetch failed: ${it.message}" } }.getOrNull() ?: return
         if (bytes.size < 64) return

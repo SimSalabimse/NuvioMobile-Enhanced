@@ -403,6 +403,26 @@ tasks.withType<KotlinCompilationTask<*>>().configureEach {
     dependsOn(generateRuntimeConfigs)
 }
 
+val generateSwiftExportEntryPoints = tasks.register<GenerateSwiftExportEntryPointsTask>("generateSwiftExportEntryPoints") {
+    group = "build"
+    description = "Writes the Kotlin/Native Swift export allowlist. The performance package is excluded."
+    kotlinRoots.from(
+        project.file("src/commonMain/kotlin"),
+        project.file("src/iosMain/kotlin"),
+        project.file("src/iosFull/kotlin"),
+        project.file("src/iosAppStore/kotlin"),
+        fullCommonSourceDir,
+        generatedRuntimeConfigDir,
+    )
+    swiftRoots.from(rootProject.file("iosApp"))
+    entryPointsFile.set(layout.buildDirectory.file("generated/swift-export/entry-points.txt"))
+    dependsOn(generateRuntimeConfigs)
+}
+
+tasks.withType<Test>().configureEach {
+    dependsOn(generateSwiftExportEntryPoints)
+}
+
 kotlin {
     android {
         namespace = "com.nuvio.app"
@@ -473,7 +493,14 @@ kotlin {
         iosTarget.binaries.framework {
             baseName = "ComposeApp"
             isStatic = true
-            freeCompilerArgs += listOf("-Xbinary=bundleId=$iosFrameworkBundleId")
+            val swiftExportEntryPoints = layout.buildDirectory.file("generated/swift-export/entry-points.txt")
+            freeCompilerArgs += listOf(
+                "-Xbinary=bundleId=$iosFrameworkBundleId",
+                "-Xbinary=objcExportEntryPointsPath=${swiftExportEntryPoints.get().asFile.absolutePath}",
+            )
+            linkTaskProvider.configure {
+                dependsOn("generateSwiftExportEntryPoints")
+            }
 
             // Biometric authentication and the profile PIN cache use Apple Security,
             // LocalAuthentication, and CoreFoundation APIs on every iOS distribution.

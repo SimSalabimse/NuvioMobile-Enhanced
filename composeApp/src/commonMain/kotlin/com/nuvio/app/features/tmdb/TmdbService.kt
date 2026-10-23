@@ -1,5 +1,6 @@
 package com.nuvio.app.features.tmdb
 
+import com.nuvio.app.core.perf.BoundedCache
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.features.addons.httpGetText
@@ -15,7 +16,7 @@ object TmdbService {
     private val imdbToTmdbCache = linkedMapOf<String, String>()
     private val tmdbToImdbCache = linkedMapOf<String, String>()
     private val cacheMutex = Mutex()
-    private val titleCardCache = mutableMapOf<String, TmdbTitleCard?>()
+    private val titleCardCache = BoundedCache<String, TmdbTitleCard?>(maxEntries = 500)
 
     /**
      * Name, poster and ids of a show or movie known by its TMDB or TVDB id (TheIntroDB v4 names

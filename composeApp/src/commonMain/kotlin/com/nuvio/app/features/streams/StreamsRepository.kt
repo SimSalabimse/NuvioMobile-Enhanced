@@ -3,8 +3,8 @@ package com.nuvio.app.features.streams
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.core.perf.PerformanceMetrics
 import com.nuvio.app.features.addons.AddonRepository
-import com.nuvio.app.features.addons.buildAddonResourceUrl
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.fetchAddonResponseText
 import com.nuvio.app.features.debrid.DirectDebridStreamPreparer
@@ -103,6 +103,7 @@ object StreamsRepository {
         activeRequestKey = requestKey
         activeJob?.cancel()
         _uiState.value = StreamsUiState(requestToken = requestToken)
+        PerformanceMetrics.markStreamsRequested(requestToken)
 
         PlayerSettingsRepository.ensureLoaded()
         val playerSettings = PlayerSettingsRepository.uiState.value
@@ -477,12 +478,7 @@ object StreamsRepository {
 
             streamAddons.forEach { addon ->
                 launch {
-                    val url = buildAddonResourceUrl(
-                        manifestUrl = addon.manifest.transportUrl,
-                        resource = "stream",
-                        type = type,
-                        id = videoId,
-                    )
+                    val url = addonStreamRequestUrl(addon.manifest, type, videoId)
                     log.d { "Fetching streams from: $url" }
 
                     val displayName = addon.addonName
@@ -503,6 +499,7 @@ object StreamsRepository {
                         )
                     }.fold(
                         onSuccess = { streams ->
+                            if (streams.isNotEmpty()) PerformanceMetrics.recordStreamsReady(requestToken)
                             log.d { "Got ${streams.size} streams from ${displayName}" }
                             InAppLogger.info("Streams/AddonFetch", "Loaded streams addon=$displayName count=${streams.size}")
                             AddonStreamGroup(

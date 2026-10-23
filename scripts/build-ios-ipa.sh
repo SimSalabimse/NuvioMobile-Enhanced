@@ -46,6 +46,27 @@ fi
 # shellcheck source=ipa-live-status.sh
 source "${ipa_status_helper}"
 
+# Release builds keep a dSYM, so stripping the shipped binary loses nothing for crash reports.
+# Fast builds use plain dwarf without a dSYM and stay unstripped unless asked.
+# NUVIO_IOS_STRIP_SYMBOLS=1/0 overrides the default for either mode.
+if [[ "${build_mode}" == "release" ]]; then
+    strip_symbols="${NUVIO_IOS_STRIP_SYMBOLS:-1}"
+else
+    strip_symbols="${NUVIO_IOS_STRIP_SYMBOLS:-0}"
+fi
+strip_symbols_flags=()
+if [[ "${strip_symbols}" == "1" ]]; then
+    # STRIP_STYLE is left per target: forcing "all" on embedded dynamic frameworks would drop their exports.
+    strip_symbols_flags=(
+        DEPLOYMENT_POSTPROCESSING=YES
+        STRIP_INSTALLED_PRODUCT=YES
+        STRIP_SWIFT_SYMBOLS=YES
+    )
+    echo "Symbol stripping: on (${build_mode})"
+else
+    echo "Symbol stripping: off (${build_mode})"
+fi
+
 ipa_build_cleanup() {
     local code=$?
     if [[ -n "${package_root:-}" ]]; then
@@ -90,6 +111,7 @@ ${caffeinate_cmd[@]+"${caffeinate_cmd[@]}"} "${build_environment[@]}" \
     CODE_SIGN_IDENTITY= \
     ${NUVIO_IOS_SKIP_DSYM:+DEBUG_INFORMATION_FORMAT=dwarf} \
     ${fast_flags[@]+"${fast_flags[@]}"} \
+    ${strip_symbols_flags[@]+"${strip_symbols_flags[@]}"} \
     build
 
 ipa_live_status stage --name checks
@@ -112,6 +134,7 @@ if [[ "${built_version}" != "${version}" ]]; then
 fi
 
 executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "${app_path}/Info.plist")"
+echo "App executable size: $(stat -f%z "${app_path}/${executable}") bytes (symbol stripping ${strip_symbols})"
 architectures="$(xcrun lipo -archs "${app_path}/${executable}")"
 if [[ " ${architectures} " != *" arm64 "* ]]; then
     echo "Built iOS application does not contain arm64." >&2
