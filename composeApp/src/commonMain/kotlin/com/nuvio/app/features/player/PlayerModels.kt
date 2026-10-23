@@ -60,6 +60,7 @@ object PlayerLaunchStore {
     fun put(launch: PlayerLaunch): Long {
         val launchId = nextLaunchId++
         launches[launchId] = launch
+        com.nuvio.app.core.perf.PerformanceMetrics.markPlaybackRequested()
         return launchId
     }
 

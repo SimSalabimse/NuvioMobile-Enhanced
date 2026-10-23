@@ -142,6 +142,7 @@ import com.nuvio.app.features.shuffle.ShuffleSurface
 import com.nuvio.app.features.shuffle.rememberShuffleSave
 import com.nuvio.app.features.shuffle.shufflePrimaryAction
 import com.nuvio.app.features.profiles.ProfileRepository
+import com.nuvio.app.features.streams.NextEpisodeStreamPrefetch
 import com.nuvio.app.features.streams.rememberPlaybackAvailability
 import com.nuvio.app.features.streams.StreamAutoPlayPolicy
 import com.nuvio.app.features.tmdb.TmdbSettingsRepository
@@ -679,6 +680,20 @@ fun MetaDetailsScreen(
                     seriesActionVideo?.id?.takeIf { it.isNotBlank() } ?: action.videoId
                 }
                 val hasEpisodes = meta.videos.any { it.season != null || it.episode != null }
+                val prefetchVideoId = seriesStreamVideoId ?: seriesAction?.videoId
+                LaunchedEffect(meta.type, meta.id, prefetchVideoId, hasEpisodes) {
+                    val action = seriesAction ?: return@LaunchedEffect
+                    if (prefetchVideoId == null || (meta.type != "series" && !hasEpisodes)) return@LaunchedEffect
+                    // Let the details screen finish its own requests first.
+                    delay(1_500L)
+                    NextEpisodeStreamPrefetch.warm(
+                        type = meta.type,
+                        videoId = prefetchVideoId,
+                        parentMetaId = meta.id,
+                        season = action.seasonNumber,
+                        episode = action.episodeNumber,
+                    )
+                }
                 val hasProductionSection = remember(meta) {
                     meta.productionCompanies.isNotEmpty() || meta.networks.isNotEmpty()
                 }

@@ -3,8 +3,8 @@ package com.nuvio.app.features.streams
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.core.perf.PerformanceMetrics
 import com.nuvio.app.features.addons.AddonRepository
-import com.nuvio.app.features.addons.buildAddonResourceUrl
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.fetchAddonResponseText
 import com.nuvio.app.features.debrid.DirectDebridStreamPreparer
@@ -74,29 +74,6 @@ object StreamsRepository {
             forceRefresh = true,
         )
     }
-    
-    /**
-     * Prefetch streams for next episode in background (Item 8: Next episode prefetch).
-     * Silent operation - failures don't affect UI.
-     */
-    fun prefetchStreams(type: String, id: String, season: Int? = null, episode: Int? = null) {
-        scope.launch {
-            try {
-                // Background prefetch to warm the cache
-                load(
-                    type = type,
-                    videoId = id,
-                    parentMetaId = null,
-                    season = season,
-                    episode = episode,
-                    manualSelection = false,
-                    forceRefresh = false,
-                )
-            } catch (e: Exception) {
-                // Silent failure - prefetch is optimization only
-            }
-        }
-    }
 
     private fun load(type: String, videoId: String, parentMetaId: String?, season: Int?, episode: Int?, manualSelection: Boolean, forceRefresh: Boolean) {
         val pluginUiState = if (AppFeaturePolicy.pluginsEnabled) {
@@ -126,6 +103,7 @@ object StreamsRepository {
         activeRequestKey = requestKey
         activeJob?.cancel()
         _uiState.value = StreamsUiState(requestToken = requestToken)
+        PerformanceMetrics.markStreamsRequested(requestToken)
 
         PlayerSettingsRepository.ensureLoaded()
         val playerSettings = PlayerSettingsRepository.uiState.value
@@ -500,12 +478,7 @@ object StreamsRepository {
 
             streamAddons.forEach { addon ->
                 launch {
-                    val url = buildAddonResourceUrl(
-                        manifestUrl = addon.manifest.transportUrl,
-                        resource = "stream",
-                        type = type,
-                        id = videoId,
-                    )
+                    val url = addonStreamRequestUrl(addon.manifest, type, videoId)
                     log.d { "Fetching streams from: $url" }
 
                     val displayName = addon.addonName
@@ -526,6 +499,7 @@ object StreamsRepository {
                         )
                     }.fold(
                         onSuccess = { streams ->
+                            if (streams.isNotEmpty()) PerformanceMetrics.recordStreamsReady(requestToken)
                             log.d { "Got ${streams.size} streams from ${displayName}" }
                             InAppLogger.info("Streams/AddonFetch", "Loaded streams addon=$displayName count=${streams.size}")
                             AddonStreamGroup(
