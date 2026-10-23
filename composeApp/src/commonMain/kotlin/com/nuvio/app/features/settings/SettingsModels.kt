@@ -203,6 +203,11 @@ internal enum class SettingsPage(
         category = SettingsCategory.Account,
         parentPage = Root,
     ),
+    Performance(
+        titleRes = Res.string.compose_settings_page_performance,
+        category = SettingsCategory.Advanced,
+        parentPage = Advanced,
+    ),
 }
 
 internal val SettingsPage.opensInlineOnTablet: Boolean

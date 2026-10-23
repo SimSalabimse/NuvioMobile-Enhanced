@@ -907,6 +907,7 @@ private fun MobileSettingsScreen(
                     isTablet = false,
                     rememberLastProfileEnabled = rememberLastProfileEnabled,
                     onDebugLogsClick = { onPageChange(SettingsPage.DebugLogs) },
+                    onPerformanceClick = { onPageChange(SettingsPage.Performance) },
                 )
                 SettingsPage.DebugLogs -> debugLogsSettingsContent(
                     isTablet = false,
@@ -1002,6 +1003,9 @@ private fun MobileSettingsScreen(
                 SettingsPage.LiveTv -> liveTvSettingsContent(
                     isTablet = false,
                     uiState = liveTvUiState,
+                )
+                SettingsPage.Performance -> performanceSettingsContent(
+                    isTablet = false,
                 )
             }
         }
@@ -1414,6 +1418,7 @@ private fun TabletSettingsScreen(
                         isTablet = true,
                         rememberLastProfileEnabled = rememberLastProfileEnabled,
                         onDebugLogsClick = { openInlinePage(SettingsPage.DebugLogs) },
+                        onPerformanceClick = { openInlinePage(SettingsPage.Performance) },
                     )
                     SettingsPage.DebugLogs -> debugLogsSettingsContent(
                         isTablet = true,
@@ -1509,6 +1514,9 @@ private fun TabletSettingsScreen(
                     SettingsPage.LiveTv -> liveTvSettingsContent(
                         isTablet = true,
                         uiState = liveTvUiState,
+                    )
+                    SettingsPage.Performance -> performanceSettingsContent(
+                        isTablet = true,
                     )
                 }
             }

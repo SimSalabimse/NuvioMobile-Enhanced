@@ -2921,6 +2921,7 @@
     <string name="movie_status_rumored">Rumored</string>
     <string name="movie_status_in_production">In Production</string>
     <string name="movie_status_post_production">Post Production</string>
+    <string name="compose_settings_page_performance">Performance</string>
     <string name="compose_settings_page_whats_new">What&apos;s New</string>
     <string name="whats_new_root_description">See what&apos;s changed in recent releases</string>
     <string name="whats_new_current_version">Current version</string>
@@ -3158,4 +3159,47 @@
     <string name="settings_nav_bar_default_icon_color_change">Change default icon color</string>
     <string name="settings_nav_bar_default_icon_color_expand">Tap to expand the color picker.</string>
     <string name="settings_nav_bar_default_icon_color_collapse">Tap to collapse the color picker.</string>
+    
+    <!-- Performance Settings -->
+    <string name="performance_header">Performance Optimizations</string>
+    <string name="performance_description">Toggle individual optimizations to measure their impact. Implemented by Simsalabim.</string>
+    
+    <string name="performance_metrics_header">Performance Metrics</string>
+    <string name="performance_launch_time">Launch Time</string>
+    <string name="performance_time_to_playback">Time to Playback</string>
+    <string name="performance_memory_usage">Memory Usage</string>
+    
+    <string name="performance_optimization_1">Strip Symbols</string>
+    <string name="performance_optimization_1_desc">Build-time optimization - see Settings note for details</string>
+    <string name="performance_optimization_1_note">Symbol stripping is a build-time optimization. Enable this setting as a reminder to build with symbols stripped. Rebuild required to take effect.</string>
+    
+    <string name="performance_optimization_2">Poster Downsampling</string>
+    <string name="performance_optimization_2_desc">Downsample poster images to reduce memory usage</string>
+    
+    <string name="performance_optimization_3">Parallel Startup</string>
+    <string name="performance_optimization_3_desc">Load app components in parallel during startup</string>
+    
+    <string name="performance_optimization_4">Cached Home First</string>
+    <string name="performance_optimization_4_desc">Show cached home screen while refreshing data</string>
+    
+    <string name="performance_optimization_5">Request Deduplication</string>
+    <string name="performance_optimization_5_desc">Deduplicate identical HTTP requests</string>
+    
+    <string name="performance_optimization_6">Short HTTP Caches</string>
+    <string name="performance_optimization_6_desc">Enable short-lived HTTP caches (TheIntroDB always fresh)</string>
+    
+    <string name="performance_optimization_7">Capped LRU Caches</string>
+    <string name="performance_optimization_7_desc">Limit cache sizes with LRU eviction</string>
+    
+    <string name="performance_optimization_8">Pause Poster Prefetch During Playback</string>
+    <string name="performance_optimization_8_desc">Pause poster prefetch and refreshes during playback. Downloads keep their existing smart throttle.</string>
+    
+    <string name="performance_optimization_9">Prefetch Next Episode</string>
+    <string name="performance_optimization_9_desc">Prefetch next episode link on details screen</string>
+    
+    <string name="performance_optimization_10">Image Compression</string>
+    <string name="performance_optimization_10_desc">Compress images and trim unnecessary Swift exports</string>
+    
+    <string name="performance_poster_cache_size">Poster Cache Size (MB)</string>
+    <string name="performance_http_cache_ttl">HTTP Cache TTL (seconds)</string>
 </resources>

@@ -68,6 +68,7 @@ internal fun LazyListScope.advancedSettingsContent(
     isTablet: Boolean,
     rememberLastProfileEnabled: Boolean,
     onDebugLogsClick: () -> Unit,
+    onPerformanceClick: (() -> Unit)? = null,
 ) {
     item {
         SettingsSection(
@@ -181,6 +182,15 @@ internal fun LazyListScope.advancedSettingsContent(
                     isTablet = isTablet,
                     onClick = onDebugLogsClick,
                 )
+                if (onPerformanceClick != null) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.compose_settings_page_performance),
+                        description = stringResource(Res.string.performance_description),
+                        isTablet = isTablet,
+                        onClick = onPerformanceClick,
+                    )
+                }
             }
         }
     }
