@@ -118,6 +118,7 @@ internal object LocalAccountDataCleaner {
         P2pSettingsRepository.clearLocalState()
         CatalogRepository.clear()
         StreamsRepository.clear()
+        com.nuvio.app.features.addons.addonResponseCache.clear()
         MetaDetailsRepository.clear()
         SearchRepository.reset()
         SubtitleRepository.clear()

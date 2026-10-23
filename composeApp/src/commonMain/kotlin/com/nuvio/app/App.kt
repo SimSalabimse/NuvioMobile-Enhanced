@@ -1,16 +1,23 @@
 package com.nuvio.app
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.ImageLoader
+import coil3.SingletonImageLoader
 import coil3.annotation.ExperimentalCoilApi
+import coil3.compose.LocalPlatformContext
 import coil3.compose.setSingletonImageLoaderFactory
 import coil3.request.CachePolicy
 import coil3.request.crossfade
 import coil3.svg.SvgDecoder
+import com.nuvio.app.core.perf.PerformanceOptimization
+import com.nuvio.app.core.perf.PerformanceSettings
+import com.nuvio.app.core.perf.addPerformanceInterceptors
+import com.nuvio.app.core.perf.applyPosterMemoryCachePolicy
 import com.nuvio.app.core.poster.CustomPosterFallbackInterceptor
 import com.nuvio.app.core.ui.NativeProfileSwitcherController
 import com.nuvio.app.core.ui.NuvioTheme
@@ -68,27 +75,19 @@ fun App(
     }
 }
 
+@OptIn(ExperimentalCoilApi::class)
 @Composable
 internal fun AppEnvironment(content: @Composable () -> Unit) {
-    PerformanceSettingsRepository.ensureLoaded()
-    val posterDownsampling by PerformanceSettingsRepository.posterDownsamplingEnabled.collectAsStateWithLifecycle()
-    val posterCacheSizeMB by PerformanceSettingsRepository.posterCacheSizeMB.collectAsStateWithLifecycle()
-    
     if (!platformProvidesImageLoader) {
         setSingletonImageLoaderFactory { context ->
             ImageLoader.Builder(context)
                 .crossfade(true)
                 .diskCachePolicy(CachePolicy.ENABLED)
                 .memoryCachePolicy(CachePolicy.ENABLED)
-                .apply {
-                    if (posterDownsampling) {
-                        // Optimization #2: Poster downsampling + cache cap
-                        memoryCachePolicy(CachePolicy.ENABLED)
-                    }
-                }
                 .components {
                     add(com.nuvio.app.features.offline.OfflineArtworkInterceptor())
                     add(CustomPosterFallbackInterceptor())
+                    addPerformanceInterceptors()
                     add(SvgDecoder.Factory())
                     add(
                         coil3.network.ktor3.KtorNetworkFetcherFactory(
@@ -99,6 +98,15 @@ internal fun AppEnvironment(content: @Composable () -> Unit) {
                 .configurePlatformImageLoader()
                 .build()
         }
+    }
+    val platformContext = LocalPlatformContext.current
+    val performanceState by remember {
+        PerformanceSettings.ensureLoaded()
+        PerformanceSettings.state
+    }.collectAsStateWithLifecycle()
+    val posterDownsampling = performanceState[PerformanceOptimization.PosterDownsampling] ?: true
+    LaunchedEffect(platformContext, posterDownsampling) {
+        SingletonImageLoader.get(platformContext).applyPosterMemoryCachePolicy(posterDownsampling)
     }
     val selectedTheme by remember {
         ThemeSettingsRepository.ensureLoaded()
