@@ -74,6 +74,29 @@ object StreamsRepository {
             forceRefresh = true,
         )
     }
+    
+    /**
+     * Prefetch streams for next episode in background (Item 8: Next episode prefetch).
+     * Silent operation - failures don't affect UI.
+     */
+    fun prefetchStreams(type: String, id: String, season: Int? = null, episode: Int? = null) {
+        scope.launch {
+            try {
+                // Background prefetch to warm the cache
+                load(
+                    type = type,
+                    videoId = id,
+                    parentMetaId = null,
+                    season = season,
+                    episode = episode,
+                    manualSelection = false,
+                    forceRefresh = false,
+                )
+            } catch (e: Exception) {
+                // Silent failure - prefetch is optimization only
+            }
+        }
+    }
 
     private fun load(type: String, videoId: String, parentMetaId: String?, season: Int?, episode: Int?, manualSelection: Boolean, forceRefresh: Boolean) {
         val pluginUiState = if (AppFeaturePolicy.pluginsEnabled) {

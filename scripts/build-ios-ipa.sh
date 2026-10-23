@@ -46,6 +46,22 @@ fi
 # shellcheck source=ipa-live-status.sh
 source "${ipa_status_helper}"
 
+# Item 1: Strip symbols optimization support
+# Set STRIP_SYMBOLS=true to enable symbol stripping for smaller binary size
+strip_symbols_flags=()
+if [[ "${STRIP_SYMBOLS:-false}" == "true" ]]; then
+    echo "Symbol stripping enabled (Item 1 optimization by Simsalabim)"
+    strip_symbols_flags=(
+        STRIP_INSTALLED_PRODUCT=YES
+        COPY_PHASE_STRIP=YES
+        STRIP_STYLE=all
+        STRIP_SWIFT_SYMBOLS=YES
+        DEPLOYMENT_POSTPROCESSING=YES
+    )
+else
+    echo "Symbol stripping disabled (enable in Settings > Advanced > Performance)"
+fi
+
 ipa_build_cleanup() {
     local code=$?
     if [[ -n "${package_root:-}" ]]; then
@@ -90,6 +106,7 @@ ${caffeinate_cmd[@]+"${caffeinate_cmd[@]}"} "${build_environment[@]}" \
     CODE_SIGN_IDENTITY= \
     ${NUVIO_IOS_SKIP_DSYM:+DEBUG_INFORMATION_FORMAT=dwarf} \
     ${fast_flags[@]+"${fast_flags[@]}"} \
+    ${strip_symbols_flags[@]+"${strip_symbols_flags[@]}"} \
     build
 
 ipa_live_status stage --name checks

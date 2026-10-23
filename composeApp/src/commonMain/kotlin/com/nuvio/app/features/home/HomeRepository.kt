@@ -98,6 +98,20 @@ object HomeRepository {
             return
         }
 
+        // Item 4: Cached home first - show snapshot immediately if available
+        val cachedHomeFirst = com.nuvio.app.features.settings.PerformanceSettingsRepository.cachedHomeFirstEnabled.value
+        if (cachedHomeFirst && preloadedSnapshot != null && !force) {
+            // Show cached content immediately
+            val snapshot = preloadedSnapshot
+            if (snapshot != null) {
+                cachedSections = snapshot.sections
+                publishCurrentState(
+                    isLoading = true,  // Still loading fresh data
+                    requestKey = requestKey,
+                )
+            }
+        }
+
         activeJob?.cancel()
         _uiState.update { it.copy(isLoading = true, errorMessage = null) }
         activeJob = scope.launch {

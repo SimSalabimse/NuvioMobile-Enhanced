@@ -116,17 +116,12 @@ internal fun AppGate(
 
     LaunchedEffect(Unit) {
         if (!ownsAppRuntime) return@LaunchedEffect
-        InAppLogger.info("App", "Application started")
-        AuthRepository.initialize()
+        com.nuvio.app.core.startup.AppStartup.initialize()
     }
 
     LaunchedEffect(Unit) {
         if (!ownsAppRuntime) return@LaunchedEffect
-        InAppLogger.info("App/Runtime", "Starting network/profile/avatar services")
-        NetworkStatusRepository.ensureStarted()
-        MemberAccessRepository.ensureStarted()
-        ProfileRepository.loadCachedProfiles()
-        AvatarRepository.fetchAvatars()
+        com.nuvio.app.core.startup.AppStartup.startServices()
     }
 
     val authState by AuthRepository.state.collectAsStateWithLifecycle()
