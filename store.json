@@ -20,6 +20,16 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "0.6.2.1",
+          "buildVersion": "196",
+          "date": "2026-10-23T00:52:40Z",
+          "localizedDescription": "Unsigned sideload IPA 0.6.2.1 (196), cleanup/196 9bc9da2e. Sign with SideStore, AltStore, or TrollStore. No Apple certificate is embedded.\n\nImproved:\n- Behind-the-scenes cleanup: downloads, player launches, network and settings code now share one path each, so they behave the same everywhere.\n- Faster test builds.\n\nFixed:\n- A skip mark you imported from your own TheIntroDB submission is now labelled \"TheIntroDB (yours)\" everywhere, the same as in the player.\n",
+          "downloadURL": "https://github.com/SimSalabimse/NuvioMobile-Enhanced/releases/download/sideload-0.6.2.1-9bc9da2e/nuvio-0.6.2.1-full-release.ipa",
+          "size": 74983480,
+          "sha256": "c4e4f39a56e65fdcb6f0e7e1a6d27abb0dd228948f3e198c84962b163aef11e4",
+          "minOSVersion": "16.1"
+        },
+        {
           "version": "0.6.1.1",
           "buildVersion": "175",
           "date": "2026-10-17T09:56:47Z",
