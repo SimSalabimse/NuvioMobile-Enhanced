@@ -19,6 +19,7 @@ import android.os.SystemClock
 import android.util.Log
 import com.nuvio.app.R
 import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.core.perf.compactArtworkUrl
 import java.io.ByteArrayOutputStream
 import java.lang.ref.WeakReference
 import java.net.HttpURLConnection
@@ -461,7 +462,8 @@ private fun buildContentIntent(context: Context): PendingIntent? {
 }
 
 private fun downloadArtwork(urlString: String): Bitmap? {
-    val connection = (URL(urlString).openConnection() as HttpURLConnection).apply {
+    val source = compactArtworkUrl(urlString, MAX_ARTWORK_EDGE_PX)
+    val connection = (URL(source).openConnection() as HttpURLConnection).apply {
         connectTimeout = 10_000
         readTimeout = 15_000
         instanceFollowRedirects = true
