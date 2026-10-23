@@ -12,8 +12,11 @@ import java.io.File
  * Kotlin/Native exports every public declaration to Swift unless an entry-point allowlist says
  * otherwise (`-Xbinary=objcExportEntryPointsPath`). This writes that allowlist.
  *
- * Kept: the iOS bridge (iosMain / iosFull / iosAppStore) and any other public type Swift names,
- * plus subclasses of those types so overridden properties still dispatch.
+ * Kept: the iOS bridge (iosMain / iosFull / iosAppStore), any other public type Swift names,
+ * subclasses of those types, and public types that appear in their signatures (so a returned
+ * data class still has its properties). Interfaces are listed member by member. A `callable
+ * Interface.*` wildcard also matches the fake `equals` override, and Kotlin/Native then emits
+ * that as a required `equals(other:)` which Swift implementors do not have.
  * Dropped: everything else, including the performance package, so image compression and the other
  * perf helpers never become Swift entry points. Kotlin code reachable from the kept entry points
  * stays in the binary; only the unused Swift/ObjC thunks are eligible for removal.
@@ -26,7 +29,7 @@ object SwiftExportEntryPoints {
      * Kotlin/Native 2.4.10 does not expand entry points to overrides, so every route type has to
      * be listed or the base getter is what Swift sees.
      */
-    val navigationRouteEntryPoints = listOf(
+    val navigationRouteSimpleNames = listOf(
         "AppRoute",
         "SettingsDestinationRoute",
         "TabsRoute",
@@ -56,7 +59,22 @@ object SwiftExportEntryPoints {
         "StreamRoute",
         "CatalogRoute",
         "PlayerRoute",
-    ).map { "callable com.nuvio.app.navigation.$it.*" }
+    )
+
+    val navigationRouteEntryPoints =
+        listOf(
+            "property com.nuvio.app.navigation.AppRoute.preferredTabName",
+            "property com.nuvio.app.navigation.AppRoute.navigationIdentity",
+            "property com.nuvio.app.navigation.AppRoute.hidesNavigationBar",
+            "property com.nuvio.app.navigation.AppRoute.title",
+            "property com.nuvio.app.navigation.AppRoute.subtitle",
+            "property com.nuvio.app.navigation.SettingsDestinationRoute.preferredTabName",
+        ) + navigationRouteSimpleNames
+            .filter { it != "AppRoute" && it != "SettingsDestinationRoute" }
+            .map { "callable com.nuvio.app.navigation.$it.*" }
+
+    /** Any.equals / hashCode / toString must not be listed on a protocol Swift implements. */
+    private val anyMethodNames = setOf("equals", "hashCode", "toString")
 
     val requiredEntryPoints = listOf(
         "function com.nuvio.app.MainViewController",
@@ -73,18 +91,20 @@ object SwiftExportEntryPoints {
         "function com.nuvio.app.features.downloads.handleDownloadsBackgroundEvents",
         "function com.nuvio.app.features.downloads.prepareDownloadsForAppBackground",
         "function com.nuvio.app.features.downloads.pauseDownloadsForAppBackground",
-        "callable com.nuvio.app.features.player.NuvioPlayerBridge.*",
-        "callable com.nuvio.app.features.player.NuvioPlayerBridgeCreator.*",
+        "function com.nuvio.app.features.player.NuvioPlayerBridge.loadFile",
+        "function com.nuvio.app.features.player.NuvioPlayerBridgeCreator.createBridge",
         "callable com.nuvio.app.features.player.NuvioPlayerBridgeFactory.*",
-        "callable com.nuvio.app.features.player.seekpreview.NuvioSeekPreviewGenerator.*",
-        "callable com.nuvio.app.features.player.seekpreview.NuvioSeekPreviewGeneratorCreator.*",
+        "function com.nuvio.app.features.player.seekpreview.NuvioSeekPreviewGenerator.frameJpeg",
+        "function com.nuvio.app.features.player.seekpreview.NuvioSeekPreviewGeneratorCreator.createGenerator",
         "callable com.nuvio.app.features.player.seekpreview.NuvioSeekPreviewRegistry.*",
-        "callable com.nuvio.app.features.analysis.NuvioMediaAnalyzerBridge.*",
+        "function com.nuvio.app.features.analysis.NuvioMediaAnalyzerBridge.analyze",
         "callable com.nuvio.app.features.analysis.NuvioMediaAnalyzerRegistry.*",
-        "callable com.nuvio.app.features.downloads.NuvioFileReleaseBridge.*",
+        "function com.nuvio.app.features.downloads.NuvioFileReleaseBridge.releaseFile",
         "callable com.nuvio.app.features.downloads.NuvioFileReleaseRegistry.*",
         "callable com.nuvio.app.core.logging.InAppLogBridge.*",
         "callable com.nuvio.app.features.player.AudioEnergySample.*",
+        "callable com.nuvio.app.features.player.PcmCapturePlan.*",
+        "callable com.nuvio.app.features.profiles.PinVerifyResult.*",
     ) + navigationRouteEntryPoints
 
     fun generate(kotlinRoots: List<File>, swiftRoots: List<File>): String {
@@ -98,12 +118,30 @@ object SwiftExportEntryPoints {
         }
         val included = select(parsed, swiftNames)
         val lines = linkedSetOf<String>()
-        included.filterIsInstance<TypeDecl>().forEach { lines += "callable ${it.fqName}.*" }
+        val includedTypes = included.filterIsInstance<TypeDecl>()
+        includedTypes.forEach { type ->
+            if (type.isInterface) {
+                type.members.filter { it.exported && it.simpleName !in anyMethodNames }.forEach { member ->
+                    val kind = if (member.isProperty) "property" else "function"
+                    lines += "$kind ${type.fqName}.${member.simpleName}"
+                }
+            } else {
+                lines += "callable ${type.fqName}.*"
+            }
+        }
         included.filterIsInstance<CallableDecl>().forEach { decl ->
             val kind = if (decl.isProperty) "property" else "function"
             lines += "$kind ${decl.fqName}"
         }
         val sorted = lines.sorted()
+        val interfaceNames = includedTypes.filter { it.isInterface }.map { it.fqName }.toSet()
+        require(sorted.none { line ->
+            line.startsWith("callable ") && line.removePrefix("callable ").removeSuffix(".*") in interfaceNames
+        }) { "Interface wildcard would export Any.equals as a required Swift protocol method" }
+        require(sorted.none { line ->
+            val owner = line.substringAfter(' ').substringBeforeLast('.')
+            owner in interfaceNames && line.substringAfterLast('.') in anyMethodNames
+        }) { "Any.equals/hashCode/toString leaked onto an exported protocol" }
         val missing = requiredEntryPoints.filter { it !in lines }
         require(missing.isEmpty()) {
             "Swift export allowlist is missing the bridge Swift calls: ${missing.joinToString()}"
@@ -134,23 +172,31 @@ object SwiftExportEntryPoints {
         }
         types.filter { it.bridgeFile }.forEach(::keep)
         types.filter { it.simpleName in swiftNames }.forEach(::keep)
+        fun callableKept(decl: CallableDecl) =
+            decl.exported && !decl.excluded && (decl.bridgeFile || decl.simpleName in swiftNames)
         var grew = true
         while (grew) {
             grew = false
-            val includedSimple = types.filter { it.fqName in included }.map { it.simpleName }.toSet()
+            val includedTypes = types.filter { it.fqName in included }
+            val includedSimple = includedTypes.map { it.simpleName }.toSet()
+            val referenced = HashSet<String>()
+            includedTypes.forEach { type ->
+                referenced += type.referencedTypes
+                type.members.filter { it.exported }.forEach { referenced += it.referencedTypes }
+            }
+            parsed.filterIsInstance<CallableDecl>().filter(::callableKept).forEach { referenced += it.referencedTypes }
             for (type in types) {
                 if (type.fqName in included || type.excluded || !type.exported) continue
                 val parentIncluded = type.supertypes.any { it in includedSimple }
                 val enclosingIncluded = type.enclosingFq?.let { it in included } == true
-                if (parentIncluded || enclosingIncluded) {
+                val usedInSignature = type.simpleName in referenced
+                if (parentIncluded || enclosingIncluded || usedInSignature) {
                     included += type.fqName
                     grew = true
                 }
             }
         }
-        val callables = parsed.filterIsInstance<CallableDecl>().filter { decl ->
-            decl.exported && !decl.excluded && (decl.bridgeFile || decl.simpleName in swiftNames)
-        }
+        val callables = parsed.filterIsInstance<CallableDecl>().filter(::callableKept)
         return types.filter { it.fqName in included } + callables
     }
 }
@@ -170,7 +216,17 @@ internal data class TypeDecl(
     val exported: Boolean,
     val enclosingFq: String?,
     val supertypes: List<String>,
+    val isInterface: Boolean = false,
+    val referencedTypes: List<String> = emptyList(),
+    val members: MutableList<MemberDecl> = mutableListOf(),
 ) : Decl
+
+internal data class MemberDecl(
+    val simpleName: String,
+    val isProperty: Boolean,
+    val exported: Boolean,
+    val referencedTypes: List<String>,
+)
 
 internal data class CallableDecl(
     override val fqName: String,
@@ -179,6 +235,7 @@ internal data class CallableDecl(
     override val excluded: Boolean,
     val exported: Boolean,
     val isProperty: Boolean,
+    val referencedTypes: List<String> = emptyList(),
 ) : Decl
 
 internal fun swiftIdentifiers(roots: List<File>): Set<String> {
@@ -264,7 +321,7 @@ internal fun parseSource(source: String, path: String): List<Decl> {
                     i = parsed.second.index
                     if (parsed.second.opened) {
                         depth++
-                        classes.addLast(OpenClass(depth, parsed.first.exported, parsed.first.fqName))
+                        classes.addLast(openClass(depth, parsed.first))
                     }
                     ready = parsed.second.opened
                     continue
@@ -276,14 +333,16 @@ internal fun parseSource(source: String, path: String): List<Decl> {
                         i = parsed.second.index
                         if (parsed.second.opened) {
                             depth++
-                            classes.addLast(OpenClass(depth, parsed.first.exported, parsed.first.fqName))
+                            classes.addLast(openClass(depth, parsed.first))
                         }
                         ready = parsed.second.opened
                         continue
                     }
-                    if (classes.isEmpty() && headerVisibility(text, i) == "public") {
-                        val named = readCallableName(text, next)
-                        if (named != null) {
+                    val named = readCallableName(text, next)
+                    if (named != null && headerVisibility(text, i) == "public") {
+                        val refs = signatureTypeNames(text, named.second)
+                        val owner = classes.lastOrNull()
+                        if (owner == null) {
                             val fq = if (packageName.isEmpty()) named.first else "$packageName.${named.first}"
                             decls += CallableDecl(
                                 fqName = fq,
@@ -292,6 +351,14 @@ internal fun parseSource(source: String, path: String): List<Decl> {
                                 excluded = excluded(fq),
                                 exported = true,
                                 isProperty = word.first != "fun",
+                                referencedTypes = refs,
+                            )
+                        } else {
+                            owner.members += MemberDecl(
+                                simpleName = named.first,
+                                isProperty = word.first != "fun",
+                                exported = true,
+                                referencedTypes = refs,
                             )
                         }
                     }
@@ -317,7 +384,15 @@ internal fun parseSource(source: String, path: String): List<Decl> {
     return decls
 }
 
-private data class OpenClass(val bodyDepth: Int, val exported: Boolean, val fqName: String)
+private data class OpenClass(
+    val bodyDepth: Int,
+    val exported: Boolean,
+    val fqName: String,
+    val members: MutableList<MemberDecl>,
+)
+
+private fun openClass(depth: Int, decl: TypeDecl) =
+    OpenClass(depth, decl.exported, decl.fqName, decl.members)
 
 private data class ParseCursor(val index: Int, val depth: Int, val paren: Int, val opened: Boolean)
 
@@ -386,6 +461,8 @@ private fun parseType(
         exported = outerExported && visibility == "public",
         enclosingFq = enclosing,
         supertypes = supertypeNames(header.toString()),
+        isInterface = keyword.first == "interface",
+        referencedTypes = typeNamesIn(header.toString()),
     )
     return decl to ParseCursor(i, depth, 0, opened)
 }
@@ -506,6 +583,46 @@ private fun readCallableName(text: String, at: Int): Pair<String, Int>? {
     }
     val resolved = name ?: return null
     return resolved to end
+}
+
+private val TYPE_NAME = Regex("""\b[A-Z][A-Za-z0-9_]*""")
+
+private fun typeNamesIn(text: String): List<String> =
+    TYPE_NAME.findAll(text).map { it.value }.distinct().toList()
+
+/** Type names in a callable signature, stopping before the body. */
+private fun signatureTypeNames(text: String, at: Int): List<String> = typeNamesIn(signatureSlice(text, at))
+
+private fun signatureSlice(text: String, at: Int): String {
+    var paren = 0
+    var angle = 0
+    val buf = StringBuilder()
+    var i = at
+    while (i < text.length) {
+        val c = text[i]
+        if (paren == 0 && angle == 0 && (c == '{' || c == '=' || c == '}')) break
+        if (c == '\n' && paren == 0 && angle == 0) {
+            var lookAt = i + 1
+            while (lookAt < text.length && text[lookAt].isWhitespace()) lookAt++
+            if (
+                lookAt >= text.length ||
+                text[lookAt] == '@' ||
+                text[lookAt] == '}' ||
+                peekIdentifier(text, lookAt) in NEXT_DECLARATION
+            ) {
+                break
+            }
+        }
+        when (c) {
+            '(' -> paren++
+            ')' -> if (paren > 0) paren--
+            '<' -> angle++
+            '>' -> if (angle > 0) angle--
+        }
+        buf.append(c)
+        i++
+    }
+    return buf.toString()
 }
 
 private fun skipAngles(text: String, at: Int): Int {

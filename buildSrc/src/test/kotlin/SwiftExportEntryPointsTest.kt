@@ -60,9 +60,7 @@ class SwiftExportEntryPointsTest {
         val tabs = parsed.filterIsInstance<TypeDecl>().single { it.simpleName == "TabsRoute" }
         check(tabs.supertypes == listOf("AppRoute")) { tabs.toString() }
         val selected = SwiftExportEntryPoints.select(parsed, setOf("AppRoute")).map { it.simpleName }.toSet()
-        val expected = SwiftExportEntryPoints.navigationRouteEntryPoints.map {
-            it.removeSuffix(".*").substringAfterLast('.')
-        }
+        val expected = SwiftExportEntryPoints.navigationRouteSimpleNames
         check(selected == expected.toSet()) { "selected=$selected expected=$expected" }
     }
 
@@ -105,5 +103,64 @@ class SwiftExportEntryPointsTest {
             }
         }
         check(bad.isEmpty()) { bad.joinToString("\n") }
+    }
+
+    @Test
+    fun interfaceMembersOmitEqualsAndSignatureTypesAreKept() {
+        val source = """
+            package demo
+            interface Bridge {
+                fun loadFile(url: String)
+                fun stop(): Sample
+            }
+            class Engine {
+                fun plan(): Sample
+            }
+            data class Sample(val energy: Double)
+            class Unused
+        """.trimIndent()
+        val parsed = parseSource(source, "src/commonMain/kotlin/Demo.kt")
+        val selected = SwiftExportEntryPoints.select(parsed, setOf("Bridge", "Engine"))
+        val names = selected.map { it.simpleName }.toSet()
+        assertTrue("Sample" in names)
+        assertFalse("Unused" in names)
+        val bridge = parsed.filterIsInstance<TypeDecl>().single { it.simpleName == "Bridge" }
+        assertTrue(bridge.isInterface)
+        assertTrue(bridge.members.map { it.simpleName }.containsAll(listOf("loadFile", "stop")))
+        val lines = linkedSetOf<String>()
+        selected.filterIsInstance<TypeDecl>().forEach { type ->
+            if (type.isInterface) {
+                type.members.forEach { lines += "function ${type.fqName}.${it.simpleName}" }
+            } else {
+                lines += "callable ${type.fqName}.*"
+            }
+        }
+        assertTrue("function demo.Bridge.loadFile" in lines)
+        assertFalse(lines.any { it.endsWith(".equals") || it.startsWith("callable demo.Bridge") })
+        assertTrue("callable demo.Sample.*" in lines)
+    }
+
+    @Test
+    fun realAllowlistExportsPlansWithoutProtocolEquals() {
+        val text = SwiftExportEntryPoints.generate(
+            listOf(
+                java.io.File("../composeApp/src/commonMain/kotlin"),
+                java.io.File("../composeApp/src/iosMain/kotlin"),
+                java.io.File("../composeApp/src/iosFull/kotlin"),
+                java.io.File("../composeApp/src/iosAppStore/kotlin"),
+            ),
+            listOf(java.io.File("../iosApp")),
+        )
+        val lines = text.lines().filter { it.isNotBlank() && !it.startsWith("//") }
+        assertTrue("callable com.nuvio.app.features.player.PcmCapturePlan.*" in lines)
+        assertTrue("callable com.nuvio.app.features.profiles.PinVerifyResult.*" in lines)
+        assertTrue("function com.nuvio.app.features.player.NuvioPlayerBridge.loadFile" in lines)
+        assertTrue("function com.nuvio.app.features.player.seekpreview.NuvioSeekPreviewGenerator.frameJpeg" in lines)
+        assertTrue("function com.nuvio.app.features.downloads.NuvioFileReleaseBridge.releaseFile" in lines)
+        assertTrue("function com.nuvio.app.features.analysis.NuvioMediaAnalyzerBridge.analyze" in lines)
+        assertTrue("property com.nuvio.app.navigation.AppRoute.preferredTabName" in lines)
+        assertFalse(lines.any { it == "callable com.nuvio.app.features.player.NuvioPlayerBridge.*" })
+        assertFalse(lines.any { it.endsWith(".equals") || it.endsWith(".hashCode") || it.endsWith(".toString") })
+        assertFalse(lines.any { "com.nuvio.app.core.perf" in it || "compactArtworkUrl" in it })
     }
 }
