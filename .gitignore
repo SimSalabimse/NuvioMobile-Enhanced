@@ -40,6 +40,9 @@ scripts/*
 !scripts/builds_request.py
 !scripts/builds_page/
 !scripts/builds_page/**
+!scripts/check-ios-objc-export.sh
+!scripts/objc-export-check/
+!scripts/objc-export-check/**
 iosApp/Configuration/DeviceSigning.local.json
 
 # Local MPVKit iOS build environment (sparse APFS image, see MPVKit docs)
