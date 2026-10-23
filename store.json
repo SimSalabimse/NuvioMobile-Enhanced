@@ -20,6 +20,26 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "0.6.2.1",
+          "buildVersion": "196",
+          "date": "2026-10-23T00:52:40Z",
+          "localizedDescription": "Unsigned sideload IPA 0.6.2.1 (196), cleanup/196 9bc9da2e. Sign with SideStore, AltStore, or TrollStore. No Apple certificate is embedded.\n\nImproved:\n- Behind-the-scenes cleanup: downloads, player launches, network and settings code now share one path each, so they behave the same everywhere.\n- Faster test builds.\n\nFixed:\n- A skip mark you imported from your own TheIntroDB submission is now labelled \"TheIntroDB (yours)\" everywhere, the same as in the player.\n",
+          "downloadURL": "https://github.com/SimSalabimse/NuvioMobile-Enhanced/releases/download/sideload-0.6.2.1-9bc9da2e/nuvio-0.6.2.1-full-release.ipa",
+          "size": 74983480,
+          "sha256": "c4e4f39a56e65fdcb6f0e7e1a6d27abb0dd228948f3e198c84962b163aef11e4",
+          "minOSVersion": "16.1"
+        },
+        {
+          "version": "0.6.1.1",
+          "buildVersion": "175",
+          "date": "2026-10-17T09:56:47Z",
+          "localizedDescription": "Unsigned sideload IPA 0.6.1.1 (175), sync/upstream-0.6.1 f9a2da5f. Sign with SideStore, AltStore, or TrollStore. No Apple certificate is embedded.\n\nNew:\n- Watch Party from the latest upstream Nuvio (0.6.1): watch in sync with friends, share invites as nuvio.tv links, see the party before you join (experimental).\n- MDBList dynamic and liked lists in the library.\n- Download from the hold menu on Continue Watching and Next Up cards: it downloads that exact episode or movie with auto-pick and Change source. If it's already downloaded or downloading, the item opens Downloads instead.\n- What's new now loads the latest release notes from GitHub Releases, so notes fixed after a build still show up. It's cached for offline use, falls back to the notes built into the app, and never delays launch.\n\nImproved:\n- Updated to the latest upstream Nuvio (0.6.1-beta), with the updated p2p streaming engine (0.1.5), better picture-in-picture on iOS and new translations.\n- Skip buttons, auto-skip and seeking follow the Watch Party's control rules, and a skip is shared with the party.\n- In a Watch Party, an episode that isn't fully analysed is analysed in the background without asking, so you never pause and drop out of sync. Auto-play next episode waits for the party.\n- Smart Downloads start the next episode while you watch, not after: about 3 minutes before the credits (your own mark, then TheIntroDB, then on-device), or 8 minutes before the end / at 85 % without credit times, and at half-way for large episodes. Once per episode, throttled while you watch, never unaired or already downloaded episodes.\n- Downloaded episodes show where their skip times come from, for each of intro, recap and credits: You, TheIntroDB (yours), TheIntroDB, On-device, and so on. Online sources show up after the episode has been played once.\n- Downloading a single episode or movie picks its source automatically when auto-pick is on, the same way Download Season does (including TorBox cached torrents). Tap Change source to choose from the list.\n- The Good / Wrong prompt after Skip now shows about 4 seconds after the skip lands, so you can see where it landed. It stays for 8 seconds, can be closed, and Wrong has a Rewind 5s button to check again.\n\nFixed:\n- Holding for 2x speed while playback switched to the downloaded file no longer leaves it stuck at 2x. Letting go, a cancelled hold, or the player switching or reloading always goes back to your normal speed.\n- Download Season with auto-pick on now picks a source the same way auto-play does, including TorBox cached torrents, instead of opening the full source list. It waits for the sources and the TorBox cache check, and shows the list only if nothing matches.\n- Download Season no longer selects or queues episodes that haven't aired yet. They're shown greyed out with their air date.\n- The Skip Intro button no longer appears 10 seconds before the intro. It shows exactly when the segment starts, with its start and end times (for example Skip Intro 1:12–2:41).\n- Tapping Good or Wrong after a skip no longer brings up the \"isn't fully analysed yet\" prompt. That prompt only shows when an episode starts.\n\n",
+          "downloadURL": "https://github.com/SimSalabimse/NuvioMobile-Enhanced/releases/download/sideload-0.6.1.1-f9a2da5f/nuvio-0.6.1.1-full-release.ipa",
+          "size": 73887154,
+          "sha256": "7fefa4db426bcebd4306f4e2ba9c7358e9fe89ab642c71f864ee010725c7d07e",
+          "minOSVersion": "16.1"
+        },
+        {
           "version": "0.5.10.3",
           "buildVersion": "168",
           "date": "2026-10-15T16:07:35Z",
