@@ -5,6 +5,9 @@ import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.catalog.CatalogTarget
 import com.nuvio.app.features.catalog.fetchCatalogPage
+import com.nuvio.app.core.perf.PerformanceOptimization
+import com.nuvio.app.core.perf.PerformanceSettings
+import com.nuvio.app.core.perf.PlaybackQuietMode
 import com.nuvio.app.core.poster.CustomPosterUrlRepository
 import com.nuvio.app.core.poster.reapplyCustomPosterUrls
 import com.nuvio.app.core.poster.withCustomPosterUrls
@@ -34,6 +37,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.absoluteValue
+import kotlin.concurrent.Volatile
 import kotlin.random.Random
 import kotlin.time.Clock
 import kotlin.time.TimeSource
@@ -54,18 +58,39 @@ object HomeRepository {
     private var lastPublishedCatalogHeroEmpty: Boolean = true
     private var lastErrorMessage: String? = null
     private var lastPublishedEntries: List<Pair<String, HomeCatalogSection>> = emptyList()
-    private var preloadedSnapshot: HomeSnapshot? = null
+    @Volatile private var preloadedSnapshot: HomeSnapshot? = null
     private var snapshotGeneration = 0
+    private var restoreGeneration = 0
+    private var showingSnapshot = false
     private var snapshotSaveJob: Job? = null
     private var lastRefreshAddonSignature: List<String>? = null
     private var collectionHeroResolving: Boolean = false
+    private var deferredRefreshForce: Boolean = false
 
     fun preloadSnapshot() {
         val profileKey = HomeSnapshotStore.currentProfileKey() ?: return
         preloadedSnapshot = HomeSnapshotStore.load(profileKey)
     }
 
+    /** Reads the launch snapshot ahead of profile selection unless a restore already ran. */
+    fun preloadSnapshotForLaunch() {
+        if (restoreGeneration != 0 || preloadedSnapshot != null) return
+        preloadSnapshot()
+    }
+
+    /** True while the rows on screen still come from the saved snapshot rather than the network. */
+    val isShowingSnapshot: Boolean get() = showingSnapshot
+
     fun refresh(addons: List<ManagedAddon>, force: Boolean = false) {
+        val deferred = PlaybackQuietMode.deferWhilePlaying("home/refresh") {
+            val deferredForce = deferredRefreshForce
+            deferredRefreshForce = false
+            refresh(addons, deferredForce)
+        }
+        if (deferred) {
+            deferredRefreshForce = deferredRefreshForce || force
+            return
+        }
         val activeAddons = addons.enabledAddons()
         lastRefreshAddonSignature = buildAddonCatalogRefreshSignature(addons)
         val requests = buildHomeCatalogDefinitions(activeAddons)
@@ -98,22 +123,9 @@ object HomeRepository {
             return
         }
 
-        // Item 4: Cached home first - show snapshot immediately if available
-        val cachedHomeFirst = com.nuvio.app.features.settings.PerformanceSettingsRepository.cachedHomeFirstEnabled.value
-        if (cachedHomeFirst && preloadedSnapshot != null && !force) {
-            // Show cached content immediately
-            val snapshot = preloadedSnapshot
-            if (snapshot != null) {
-                cachedSections = snapshot.sections
-                publishCurrentState(
-                    isLoading = true,  // Still loading fresh data
-                    requestKey = requestKey,
-                )
-            }
-        }
-
         activeJob?.cancel()
         _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+        val cachedHomeFirst = PerformanceSettings.isEnabled(PerformanceOptimization.CachedHomeFirst)
         activeJob = scope.launch {
             val prioritizedRequests = prioritizeDefinitions(
                 definitions = requests,
@@ -145,7 +157,16 @@ object HomeRepository {
                 val (request, result) = completions.receive()
                 if (activeRequestKey != requestKey) return@launch
 
-                result.getOrNull()?.let { section -> loadedSections[request.cacheKey] = section }
+                result.getOrNull()?.let { section ->
+                    loadedSections[request.cacheKey] = section
+                    showingSnapshot = false
+                }
+                if (cachedHomeFirst) {
+                    // A snapshot restored after this refresh started still fills rows not loaded yet.
+                    cachedSections.forEach { (key, section) ->
+                        if (key in requestCacheKeys && key !in loadedSections) loadedSections[key] = section
+                    }
+                }
                 if (firstErrorMessage == null) {
                     firstErrorMessage = result.exceptionOrNull()?.message
                 }
@@ -211,6 +232,7 @@ object HomeRepository {
         snapshotSaveJob = null
         lastRefreshAddonSignature = null
         collectionHeroResolving = false
+        showingSnapshot = false
         _uiState.value = HomeUiState()
         restoreSnapshot()
     }
@@ -218,6 +240,7 @@ object HomeRepository {
     private fun restoreSnapshot() {
         val profileKey = HomeSnapshotStore.currentProfileKey() ?: return
         val generation = ++snapshotGeneration
+        val restore = ++restoreGeneration
         val preloaded = preloadedSnapshot?.takeIf { it.profileKey == profileKey }
         preloadedSnapshot = null
         if (preloaded != null) {
@@ -226,13 +249,21 @@ object HomeRepository {
         }
         scope.launch {
             val loaded = HomeSnapshotStore.load(profileKey) ?: return@launch
-            if (generation != snapshotGeneration || cachedSections.isNotEmpty()) return@launch
+            val stillWanted = if (PerformanceSettings.isEnabled(PerformanceOptimization.CachedHomeFirst)) {
+                // A catalog refresh starting first must not throw the snapshot away; only a newer
+                // restore (profile change) or rows already loaded from the network should.
+                restore == restoreGeneration && lastPublishedEntries.isEmpty()
+            } else {
+                generation == snapshotGeneration
+            }
+            if (!stillWanted || cachedSections.isNotEmpty()) return@launch
             applySnapshot(loaded)
         }
     }
 
     private fun applySnapshot(snapshot: HomeSnapshot) {
         if (snapshot.sections.isEmpty()) return
+        showingSnapshot = true
         cachedSections = snapshot.sections.toMap()
         _uiState.value = HomeUiState(
             isLoading = true,

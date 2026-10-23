@@ -608,6 +608,11 @@ internal fun MainAppContent(
     ) {
         if (ownsAppRuntime) {
             onRootContentReady?.invoke(rootContentReady)
+            if (rootContentReady) {
+                com.nuvio.app.core.perf.PerformanceMetrics.recordLaunchReady(
+                    fromCachedHome = HomeRepository.isShowingSnapshot,
+                )
+            }
         }
     }
 

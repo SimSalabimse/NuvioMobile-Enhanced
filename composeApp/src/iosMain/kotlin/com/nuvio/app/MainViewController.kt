@@ -104,10 +104,13 @@ fun AppGateViewController(
 
 private fun nuvioComposeViewController(
     content: @androidx.compose.runtime.Composable () -> Unit,
-): UIViewController = ComposeUIViewController(
-    configure = { onFocusBehavior = OnFocusBehavior.DoNothing },
-    content = content,
- ).apply {
-    ProfileBiometricAuth.initialize(this)
-    view.backgroundColor = nuvioBackgroundColor
+): UIViewController {
+    com.nuvio.app.core.perf.PerformanceMetrics.markProcessStart()
+    return ComposeUIViewController(
+        configure = { onFocusBehavior = OnFocusBehavior.DoNothing },
+        content = content,
+    ).apply {
+        ProfileBiometricAuth.initialize(this)
+        view.backgroundColor = nuvioBackgroundColor
+    }
 }
