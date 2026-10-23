@@ -35,6 +35,7 @@ import androidx.compose.material.icons.automirrored.rounded.ListAlt
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Flag
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.StarBorder
@@ -105,6 +106,7 @@ import org.jetbrains.compose.resources.stringResource
 import kotlin.math.abs
 import kotlin.math.roundToLong
 import com.nuvio.app.core.i18n.localizedEpisodeTitle
+import com.nuvio.app.core.ui.glass.ambientLiquidGlass
 
 @Composable
 internal fun PlayerControlsShell(
@@ -130,6 +132,8 @@ internal fun PlayerControlsShell(
     showPlaybackControls: Boolean = true,
     onLockToggle: () -> Unit,
     onBack: () -> Unit,
+    onPartyClick: (() -> Unit)? = null,
+    partyActive: Boolean = false,
     onTogglePlayback: () -> Unit,
     onSeekBack: () -> Unit,
     onSeekForward: () -> Unit,
@@ -145,6 +149,8 @@ internal fun PlayerControlsShell(
     isCasting: Boolean = false,
     downloadAction: (@Composable (buttonSize: Dp, iconSize: Dp) -> Unit)? = null,
     onPictureInPictureClick: (() -> Unit)? = null,
+    onOrientationToggleClick: (() -> Unit)? = null,
+    isPortraitPlayback: Boolean = false,
     onInfoClick: (() -> Unit)? = null,
     onRateClick: (() -> Unit)? = null,
     userRating: Int? = null,
@@ -229,10 +235,14 @@ internal fun PlayerControlsShell(
                     isCasting = isCasting,
                     downloadAction = downloadAction,
                     onPictureInPictureClick = onPictureInPictureClick,
+                    onOrientationToggleClick = onOrientationToggleClick,
+                    isPortraitPlayback = isPortraitPlayback,
                     onInfoClick = onInfoClick,
                     onRateClick = onRateClick,
                     userRating = userRating,
                     onOpenInExternalPlayer = onOpenInExternalPlayer,
+                    onPartyClick = onPartyClick,
+                    partyActive = partyActive,
                     onBack = onBack,
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -254,6 +264,10 @@ internal fun PlayerControlsShell(
                         onCastClick = onCastClick,
                         isCasting = isCasting,
                         downloadAction = downloadAction,
+                        onPartyClick = onPartyClick,
+                        partyActive = partyActive,
+                        onOrientationToggleClick = onOrientationToggleClick,
+                        isPortraitPlayback = isPortraitPlayback,
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .windowInsetsPadding(WindowInsets.safeContent.only(WindowInsetsSides.Top))
@@ -431,10 +445,14 @@ private fun PlayerHeader(
     isCasting: Boolean,
     downloadAction: (@Composable (buttonSize: Dp, iconSize: Dp) -> Unit)? = null,
     onPictureInPictureClick: (() -> Unit)?,
+    onOrientationToggleClick: (() -> Unit)? = null,
+    isPortraitPlayback: Boolean = false,
     onInfoClick: (() -> Unit)?,
     onRateClick: (() -> Unit)? = null,
     userRating: Int? = null,
     onOpenInExternalPlayer: (() -> Unit)?,
+    onPartyClick: (() -> Unit)?,
+    partyActive: Boolean,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -553,6 +571,16 @@ private fun PlayerHeader(
                             onClick = onSubmitIntroClick,
                         )
                     }
+                    if (onPartyClick != null) {
+                        PlayerHeaderIconButton(
+                            icon = Icons.Rounded.Groups,
+                            contentDescription = stringResource(Res.string.party_title),
+                            buttonSize = metrics.headerIconSize + 16.dp,
+                            iconSize = metrics.headerIconSize,
+                            onClick = onPartyClick,
+                            tint = if (partyActive) MaterialTheme.colorScheme.primary else Color.White,
+                        )
+                    }
                     PlayerHeaderIconButton(
                         icon = if (isLocked) Icons.Rounded.LockOpen else Icons.Rounded.Lock,
                         contentDescription = if (isLocked) {
@@ -590,6 +618,15 @@ private fun PlayerHeader(
                             buttonSize = metrics.headerIconSize + 16.dp,
                             iconSize = metrics.headerIconSize,
                             onClick = onPictureInPictureClick,
+                        )
+                    }
+                    if (onOrientationToggleClick != null) {
+                        PlayerHeaderIconButton(
+                            icon = playerOrientationToggleIcon(isPortraitPlayback),
+                            contentDescription = stringResource(playerOrientationToggleLabel(isPortraitPlayback)),
+                            buttonSize = metrics.headerIconSize + 16.dp,
+                            iconSize = metrics.headerIconSize,
+                            onClick = onOrientationToggleClick,
                         )
                     }
                     if (onRateClick != null) {
@@ -635,6 +672,8 @@ private fun PlayerHeader(
 }
 
 
+private const val PlayerControlGlassOpacity = 0.35f
+
 @Composable
 internal fun PlayerHeaderIconButton(
     icon: ImageVector,
@@ -642,6 +681,7 @@ internal fun PlayerHeaderIconButton(
     buttonSize: androidx.compose.ui.unit.Dp,
     iconSize: androidx.compose.ui.unit.Dp,
     onClick: () -> Unit,
+    tint: Color = Color.White,
 ) {
     Box(
         modifier = Modifier
@@ -658,7 +698,7 @@ internal fun PlayerHeaderIconButton(
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            tint = Color.White,
+            tint = tint,
             modifier = Modifier.size(iconSize),
         )
     }
@@ -709,6 +749,15 @@ private fun SideControlButton(
     Box(
         modifier = Modifier
             .clip(CircleShape)
+            .ambientLiquidGlass(
+                shape = CircleShape,
+                tint = Color.White.copy(alpha = 0.06f),
+                fallback = Color.Transparent,
+                blurRadius = 14.dp,
+                backdropOpacity = PlayerControlGlassOpacity,
+                refractionHeight = 8.dp,
+                refractionAmount = 12.dp,
+            )
             .clickable(onClick = onClick)
             .padding(metrics.sideButtonPadding),
         contentAlignment = Alignment.Center,
@@ -736,6 +785,15 @@ internal fun PlayPauseControlButton(
     Box(
         modifier = Modifier
             .clip(CircleShape)
+            .ambientLiquidGlass(
+                shape = CircleShape,
+                tint = Color.White.copy(alpha = 0.06f),
+                fallback = Color.Transparent,
+                blurRadius = 16.dp,
+                backdropOpacity = PlayerControlGlassOpacity,
+                refractionHeight = 10.dp,
+                refractionAmount = 14.dp,
+            )
             .clickable(onClick = onClick)
             .padding(metrics.playButtonPadding),
         contentAlignment = Alignment.Center,

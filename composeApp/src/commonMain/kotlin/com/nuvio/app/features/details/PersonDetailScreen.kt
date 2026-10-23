@@ -187,6 +187,7 @@ private fun PersonDetailContent(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
 ) {
+    val ownedTitles = rememberOwnedTitles()
     val posterCardStyle = rememberPosterCardStyleUiState()
     val isLandscapeShelfMode = posterCardStyle.catalogLandscapeModeEnabled
     val skeletonPosterWidth = if (isLandscapeShelfMode) {
@@ -320,6 +321,7 @@ private fun PersonDetailContent(
                                 fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
                                 headerHorizontalPadding = 20.dp,
                                 onPosterClick = onOpenMeta,
+                                statusLabel = ownedTitles::statusLabel,
                             )
                         }
 
@@ -332,6 +334,7 @@ private fun PersonDetailContent(
                                 fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
                                 headerHorizontalPadding = 20.dp,
                                 onPosterClick = onOpenMeta,
+                                statusLabel = ownedTitles::statusLabel,
                             )
                         }
 
@@ -344,6 +347,7 @@ private fun PersonDetailContent(
                                 fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
                                 headerHorizontalPadding = 20.dp,
                                 onPosterClick = onOpenMeta,
+                                statusLabel = ownedTitles::statusLabel,
                             )
                         }
 
@@ -376,6 +380,7 @@ private fun WidePersonDetailContent(
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
 ) {
+    val ownedTitles = rememberOwnedTitles()
     Row(
         modifier = Modifier
             .fillMaxSize()
@@ -415,6 +420,7 @@ private fun WidePersonDetailContent(
                     fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
                     headerHorizontalPadding = 0.dp,
                     onPosterClick = onOpenMeta,
+                    statusLabel = ownedTitles::statusLabel,
                 )
             }
 
@@ -426,6 +432,7 @@ private fun WidePersonDetailContent(
                     fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
                     headerHorizontalPadding = 0.dp,
                     onPosterClick = onOpenMeta,
+                    statusLabel = ownedTitles::statusLabel,
                 )
             }
 
@@ -437,6 +444,7 @@ private fun WidePersonDetailContent(
                     fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
                     headerHorizontalPadding = 0.dp,
                     onPosterClick = onOpenMeta,
+                    statusLabel = ownedTitles::statusLabel,
                 )
             }
         }

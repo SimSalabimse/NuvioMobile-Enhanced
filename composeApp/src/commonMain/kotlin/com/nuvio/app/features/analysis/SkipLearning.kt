@@ -47,6 +47,7 @@ internal object SkipLearning {
         type: String,
         startMs: Long,
         endMs: Long,
+        durationMs: Long = 0L,
     ): Int {
         val category = canonicalType(type) ?: return 0
         if (parentMetaId.isBlank() || endMs <= startMs || startMs < 0L) return 0
@@ -55,7 +56,7 @@ internal object SkipLearning {
             ?: MediaAnalysisResult(key = key, analyzedAtMs = 0L, durationMs = 0L)
         val updated = existing.copy(
             userSegments = existing.userSegments +
-                (category to UserSegment(startMs, endMs, com.nuvio.app.features.streams.epochMs())),
+                (category to UserSegment(startMs, endMs, com.nuvio.app.features.streams.epochMs(), durationMs = durationMs)),
             learnedTypes = existing.learnedTypes - category,
             // A new intro bounds the recap search, so run it again.
             derivedVersion = if (category == "intro") 0 else existing.derivedVersion,
@@ -71,37 +72,51 @@ internal object SkipLearning {
      * Stores an earlier mark (for example one of the user's TheIntroDB submissions) unless the
      * episode already has a mark of that type. Returns true when it was new.
      */
-    fun importMark(parentMetaId: String, season: Int?, episode: Int?, type: String, startMs: Long, endMs: Long): Boolean {
+    fun importMark(
+        parentMetaId: String,
+        season: Int?,
+        episode: Int?,
+        type: String,
+        startMs: Long,
+        endMs: Long,
+        durationMs: Long = 0L,
+        fromTheIntroDb: Boolean = true,
+    ): Boolean {
         val category = canonicalType(type) ?: return false
         if (parentMetaId.isBlank() || endMs <= startMs || startMs < 0L) return false
         val key = MediaAnalysisStore.keyFor(parentMetaId, season, episode)
-        val existing = MediaAnalysisStore.load(key)
-            ?: MediaAnalysisResult(key = key, analyzedAtMs = 0L, durationMs = 0L)
-        if (existing.userSegments.containsKey(category)) return false
-        MediaAnalysisStore.save(
+        var added = false
+        MediaAnalysisStore.update(key) { stored ->
+            val existing = stored ?: MediaAnalysisResult(key = key, analyzedAtMs = 0L, durationMs = 0L)
+            if (existing.userSegments.containsKey(category)) return@update null
+            added = true
             existing.copy(
-                userSegments = existing.userSegments + (category to UserSegment(startMs, endMs, 0L, imported = true)),
+                userSegments = existing.userSegments + (category to UserSegment(startMs, endMs, 0L, imported = fromTheIntroDb, durationMs = durationMs)),
                 learnedTypes = existing.learnedTypes - category,
                 derivedVersion = if (category == "intro") 0 else existing.derivedVersion,
-            ),
-        )
-        return true
+            )
+        }
+        return added
     }
 
     /** Re-matches every other episode of the season against the marks of [referenceKey]. */
     suspend fun teachSeason(parentMetaId: String, season: Int, referenceKey: String): Int {
         val reference = MediaAnalysisStore.load(referenceKey) ?: return 0
         if (reference.headFingerprint.isNullOrEmpty() && reference.tailFingerprint.isNullOrEmpty()) return 0
-        if (!reference.userSegments.containsKey("intro") && !reference.userSegments.containsKey("outro")) return 0
+        if (listOf("intro", "outro").none { reference.userSegments[it]?.canTeach == true }) return 0
         val siblings = MediaAnalysisStore.seasonSiblings(parentMetaId, season, referenceKey)
         if (siblings.isEmpty()) return 0
         val changed = withContext(Dispatchers.Default) {
             siblings.mapNotNull { sibling ->
                 val learned = learnFromReferences(sibling, listOf(reference))
-                learned.takeIf { it != sibling }
+                (sibling to learned).takeIf { learned != sibling }
             }
         }
-        changed.forEach { MediaAnalysisStore.save(it) }
+        // Saved only when the episode is unchanged since it was read, so a mark or analysis
+        // that landed meanwhile isn't overwritten (it is matched again on the next teach).
+        changed.forEach { (before, learned) ->
+            MediaAnalysisStore.update(before.key) { current -> if (current == before) learned else current }
+        }
         if (changed.isNotEmpty()) {
             InAppLogger.info("SkipLearning", "taught ${changed.size} episode(s) from $referenceKey")
         }
@@ -142,7 +157,8 @@ internal object SkipLearning {
         category: String,
         target: MediaAnalysisResult,
     ): Triple<Long, Long, Int>? {
-        val mark = reference.userSegments[category] ?: return null
+        val mark = reference.userSegments[category]?.takeIf { it.canTeach } ?: return null
+        if (!com.nuvio.app.features.player.sameCut(mark.durationMs, reference.durationMs)) return null
         if (reference.fingerprintStepMs != target.fingerprintStepMs) return null
         val step = reference.fingerprintStepMs.coerceAtLeast(1).toLong()
         val isIntro = category == "intro"

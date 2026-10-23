@@ -64,7 +64,6 @@
     <string name="addons_version_format">Sürüm %1$s</string>
     <string name="cd_selected">Seçili</string>
     <string name="collections_copy_json">JSON'u kopyala</string>
-    <string name="collections_count_summary">%1$d koleksiyon, %2$d klasör</string>
     <string name="collections_delete_message">"%1$s" silinsin mi? Bu işlem geri alınamaz.</string>
     <string name="collections_delete_title">Koleksiyonu sil</string>
     <string name="collections_editor_add_catalog">Katalog ekle</string>
@@ -113,7 +112,9 @@
     <string name="collections_editor_show_all_tab">"Tümü" sekmesini göster</string>
     <string name="collections_editor_show_gif_when_configured_desc">Varsa statik kapak yerine ayarlanan GIF'i oynat.</string>
     <string name="collections_editor_show_gif_when_configured">Ayarlanmışsa GIF'i göster</string>
-    <string name="collections_editor_source_count">%1$d kaynak · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d kaynak · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">Kart şekli</string>
     <string name="collections_editor_view_mode_rows">Satırlar</string>
     <string name="collections_editor_view_mode_tabs">Sekmeler</string>
@@ -297,7 +298,9 @@
     <string name="collections_editor_tmdb_subtitle_discover">TMDB Keşfet</string>
     <string name="collections_empty_subtitle">Kataloglarını düzenlemek için bir tane oluştur.</string>
     <string name="collections_empty_title">Henüz koleksiyon yok</string>
-    <string name="collections_folder_count">%1$d klasör</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">%1$d klasör</item>
+    </plurals>
     <string name="collections_folder_empty_items">Hiçbir şey bulunamadı</string>
     <string name="collections_folder_not_found">Klasör bulunamadı</string>
     <string name="collections_header">Koleksiyonlar</string>
@@ -540,7 +543,6 @@
     <string name="detail_trailers_title">Fragmanlar</string>
     <string name="downloads_empty_episodes">Tamamlanmış bölüm yok</string>
     <string name="downloads_empty_title">Henüz indirme yok</string>
-    <string name="downloads_episode_count">%1$d indirilmiş bölüm</string>
     <string name="downloads_open_directory">İndirilenler klasörünü aç</string>
     <string name="downloads_open_directory_failed">İndirilenler klasörü açılamadı</string>
     <string name="downloads_section_active">Aktif</string>
@@ -548,7 +550,6 @@
     <string name="downloads_section_shows">Diziler</string>
     <string name="downloads_show_downloads">İndirilenleri göster</string>
     <string name="downloads_status_completed">Tamamlandı • %1$s</string>
-    <string name="downloads_status_downloading">İndiriliyor • %1$s</string>
     <string name="downloads_status_failed">Olmadı</string>
     <string name="downloads_status_paused">Duraklatıldı • %1$s</string>
     <string name="episodes_cd_watched">İzlendi</string>

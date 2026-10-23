@@ -11,10 +11,12 @@ import kotlinx.serialization.json.put
 
 internal object TheIntroDb {
 
-    const val API_BASE = "https://api.theintrodb.org/v3"
+    /** API v4 (2026-10-17): TVDB is the identity; tmdb_id/imdb_id still address a media. */
+    const val API_BASE = "https://api.theintrodb.org/v4"
     const val MEDIA_URL = "$API_BASE/media"
     const val SUBMIT_URL = "$API_BASE/submit"
     const val SUBMISSIONS_URL = "$API_BASE/submissions"
+    private const val MAX_TVDB_PROBES = 4
     const val USER_STATS_URL = "$API_BASE/user/stats"
     const val PROVIDER = "theintrodb"
 
@@ -108,67 +110,92 @@ internal object TheIntroDb {
         }
     }
 
-    /**
-     * This account's submissions for one title. TheIntroDB has no per-episode filter,
-     * so callers keep the rows that match the episode they are flagging.
-     */
     /** Why the last [listMySubmissions] call stopped early, or null when it went through. */
     var lastListError: String? = null
         private set
 
+    /** Why the last [submitTimestamp] failed, or null when it went through. */
+    var lastSubmitError: String? = null
+        private set
+
+    /**
+     * This account's submissions: for one title when [tmdbId] is given (callers keep the rows of the
+     * episode they need), or all of them. `/submissions` is not in the public v4 spec, so a refusal
+     * is reported in [lastListError] rather than guessed around.
+     */
     suspend fun listMySubmissions(
         apiKey: String,
-        tmdbId: Int,
-        mediaType: String,
+        tmdbId: Int? = null,
+        mediaType: String = "tv",
     ): List<TheIntroDbUserSubmission> {
+        val rows = listPages(apiKey, tmdbId, mediaType)
+        if (tmdbId == null) return rows
+        // v4 rows name the show by its (series) tvdb_id only and the list ignores tmdb_id, so it can
+        // hold every show. The title's tvdb_id comes from /media, which needs an episode that exists
+        // for this title: try the episodes the rows name until one resolves.
+        val tvdbRows = rows.filter { it.tmdbId == null && it.tvdbId != null }
+        if (tvdbRows.isEmpty()) return submissionsOfTitle(rows, tmdbId, null)
+        val titleTvdbId = tvdbRows.map { it.season to it.episode }.distinct().take(MAX_TVDB_PROBES)
+            .firstNotNullOfOrNull { (season, episode) -> getMedia(tmdbId = tmdbId, season = season, episode = episode)?.tvdbId }
+        if (titleTvdbId == null) lastListError = "Couldn't tell which of your submissions belong to this title"
+        return submissionsOfTitle(rows, tmdbId, titleTvdbId)
+    }
+
+    private suspend fun listPages(apiKey: String, tmdbId: Int?, mediaType: String): List<TheIntroDbUserSubmission> {
         lastListError = null
-        if (apiKey.isBlank() || tmdbId <= 0) return emptyList()
-        val type = if (mediaType.equals("movie", ignoreCase = true)) "movie" else "tv"
+        if (apiKey.isBlank() || (tmdbId != null && tmdbId <= 0)) return emptyList()
+        val filter = tmdbId?.let { "tmdb_id=$it&type=${if (mediaType.equals("movie", ignoreCase = true)) "movie" else "tv"}&" }.orEmpty()
         val collected = mutableListOf<TheIntroDbUserSubmission>()
         var offset = 0
         val pageSize = 100
         repeat(10) {
-            val url = "$SUBMISSIONS_URL?tmdb_id=$tmdbId&type=$type&limit=$pageSize&offset=$offset"
-            val response = try {
-                httpRequestRaw(
-                    method = "GET",
-                    url = url,
-                    headers = mapOf(
-                        "Authorization" to "Bearer $apiKey",
-                        "Accept" to "application/json",
-                    ),
-                    body = "",
-                )
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                lastListError = "Couldn't reach TheIntroDB"
-                return collected
-            }
-            if (response.status == 401 || response.status == 403) {
-                lastListError = "TheIntroDB refused the API key (${response.status})"
-                return collected
-            }
-            if (response.status !in 200..299) {
-                lastListError = "TheIntroDB error ${response.status}"
+            val response = authorizedRequest("GET", "$SUBMISSIONS_URL?${filter}limit=$pageSize&offset=$offset", apiKey)
+            if (response == null || response.status !in 200..299) {
+                lastListError = errorMessage(response)
                 return collected
             }
             if (response.body.isBlank()) return collected
-            val page = try {
-                json.decodeFromString<TheIntroDbSubmissionsPage>(response.body)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
+            val page = runCatching { json.decodeFromString<TheIntroDbSubmissionsPage>(response.body) }.getOrNull()
+            if (page == null) {
+                lastListError = "TheIntroDB sent a list Nuvio can't read"
                 return collected
             }
             collected += page.submissions
             val next = offset + page.submissions.size
-            if (page.submissions.isEmpty() || page.submissions.size < pageSize || (page.total > 0 && next >= page.total)) {
-                return collected
-            }
+            if (page.submissions.size < pageSize || (page.total > 0 && next >= page.total)) return collected
             offset = next
         }
         return collected
+    }
+
+    private suspend fun authorizedRequest(method: String, url: String, apiKey: String, body: String = "") = try {
+        httpRequestRaw(
+            method = method,
+            url = url,
+            headers = buildMap {
+                put("Authorization", "Bearer $apiKey")
+                put("Accept", "application/json")
+                if (body.isNotEmpty()) put("Content-Type", "application/json")
+            },
+            body = body,
+        )
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        null
+    }
+
+    /** A plain message for a failed call: TheIntroDB's own `error` text when it sends one. */
+    private fun errorMessage(response: com.nuvio.app.features.addons.RawHttpResponse?): String {
+        if (response == null) return "Couldn't reach TheIntroDB"
+        val reason = runCatching { json.decodeFromString<TheIntroDbError>(response.body).error }.getOrNull()
+            ?.takeIf { it.isNotBlank() }
+        return when (response.status) {
+            401, 403 -> "TheIntroDB refused the API key" + (reason?.let { ": $it" } ?: "")
+            404 -> "TheIntroDB doesn't offer this (404)"
+            429 -> "TheIntroDB limit reached, try again later"
+            else -> "TheIntroDB error ${response.status}" + (reason?.let { ": $it" } ?: "")
+        }
     }
 
     suspend fun submitTimestamp(
@@ -195,27 +222,16 @@ internal object TheIntroDb {
             endSec = endSec,
             videoDurationMs = videoDurationMs,
         ) ?: return false
-        return try {
-            val response = httpRequestRaw(
-                method = "POST",
-                url = SUBMIT_URL,
-                headers = mapOf(
-                    "Authorization" to "Bearer $apiKey",
-                    "Content-Type" to "application/json",
-                ),
-                body = body,
-            )
-            response.status == 200 || response.status == 201
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            false
-        }
+        lastSubmitError = null
+        val response = authorizedRequest("POST", SUBMIT_URL, apiKey, body)
+        if (response != null && response.status in 200..299) return true
+        lastSubmitError = errorMessage(response)
+        return false
     }
 }
 
 /**
- * Body for `POST /v3/submit`.
+ * Body for `POST /v4/submit` (tmdb_id addresses the media; the server resolves the TVDB id).
  * A segment that is not in the media is `start_ms` 0 and `end_ms` 0.
  * `video_duration_ms` stays the real stream length when it is known.
  */
@@ -258,7 +274,7 @@ internal fun theIntroDbSubmitPayload(
 
 @Serializable
 data class TheIntroDbMediaResponse(
-    @SerialName("tmdb_id") val tmdbId: Int? = null,
+    @SerialName("tvdb_id") val tvdbId: Int? = null,
     @SerialName("type") val type: String? = null,
     @SerialName("season") val season: Int? = null,
     @SerialName("episode") val episode: Int? = null,
@@ -304,7 +320,9 @@ internal data class TheIntroDbSubmissionsPage(
 @Serializable
 internal data class TheIntroDbUserSubmission(
     val id: String? = null,
+    /** v3 rows only; v4 rows carry [tvdbId] instead. */
     @SerialName("tmdb_id") val tmdbId: Int? = null,
+    @SerialName("tvdb_id") val tvdbId: Int? = null,
     val type: String? = null,
     val season: Int? = null,
     val episode: Int? = null,
@@ -319,8 +337,26 @@ internal data class TheIntroDbUserSubmission(
     @kotlinx.serialization.json.JsonNames("video_duration_ms", "videoDurationMs") val videoDurationMs: Long? = null,
 )
 
-internal fun TheIntroDbUserSubmission.toFlagRecord(): FlagSubmissionRecord? {
-    val id = tmdbId ?: return null
+/**
+ * Rows of one title: same tmdb_id, or same tvdb_id. A row that cannot be proven to belong to the
+ * title (unknown tvdb id, or naming neither) is dropped: the list can hold every show's rows, and
+ * keeping them put another show's times on this show's episode with the same number.
+ */
+internal fun submissionsOfTitle(
+    rows: List<TheIntroDbUserSubmission>,
+    tmdbId: Int,
+    tvdbId: Int?,
+): List<TheIntroDbUserSubmission> = rows.filter { row ->
+    when {
+        row.tmdbId != null -> row.tmdbId == tmdbId
+        row.tvdbId != null -> tvdbId != null && row.tvdbId == tvdbId
+        else -> false
+    }
+}
+
+/** [listedForTmdbId]: the title the list was asked for (v4 rows have no tmdb_id). */
+internal fun TheIntroDbUserSubmission.toFlagRecord(listedForTmdbId: Int): FlagSubmissionRecord? {
+    val id = tmdbId ?: listedForTmdbId
     val segmentName = segment?.takeIf { it.isNotBlank() } ?: return null
     return FlagSubmissionRecord(
         tmdbId = id,
@@ -341,3 +377,6 @@ private fun List<TheIntroDbSegment>?.toTheIntroDbIntervals(type: String): List<S
         else SkipInterval(start, end, type, TheIntroDb.PROVIDER)
     }
 }
+
+@Serializable
+private data class TheIntroDbError(val error: String? = null)

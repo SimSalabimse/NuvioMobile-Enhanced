@@ -119,6 +119,7 @@ import nuvio.composeapp.generated.resources.settings_debrid_prepare_instant_play
 import nuvio.composeapp.generated.resources.settings_debrid_prepare_stream_count
 import nuvio.composeapp.generated.resources.settings_debrid_prepare_stream_count_warning
 import nuvio.composeapp.generated.resources.settings_debrid_key_invalid
+import nuvio.composeapp.generated.resources.settings_debrid_use_api_key
 import nuvio.composeapp.generated.resources.settings_debrid_name_template
 import nuvio.composeapp.generated.resources.settings_debrid_name_template_description
 import nuvio.composeapp.generated.resources.settings_debrid_not_set
@@ -204,9 +205,7 @@ import nuvio.composeapp.generated.resources.settings_debrid_rule_required_releas
 import nuvio.composeapp.generated.resources.settings_debrid_rule_required_release_groups_desc
 import nuvio.composeapp.generated.resources.settings_debrid_rule_excluded_release_groups
 import nuvio.composeapp.generated.resources.settings_debrid_rule_excluded_release_groups_desc
-import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
-import kotlinx.coroutines.runBlocking
 
 private const val CLOUD_SERVICES_FAQ_URL = "https://nuvioapp.space/faq#common-cloud-library-and-cloud-services"
 
@@ -334,6 +333,14 @@ internal fun LazyListScope.debridSettingsContent(
                     onConnected = { token -> DebridSettingsRepository.setProviderApiKey(provider.id, token) },
                     onDisconnect = { DebridSettingsRepository.setProviderApiKey(provider.id, "") },
                     onDismiss = { activeDeviceAuthProviderId = null },
+                    onUseApiKey = if (provider.id == DebridProviders.TORBOX_ID) {
+                        {
+                            activeDeviceAuthProviderId = null
+                            activeApiKeyProviderId = provider.id
+                        }
+                    } else {
+                        null
+                    },
                 )
             }
 
@@ -581,9 +588,10 @@ private enum class DebridTemplateField {
     DESCRIPTION,
 }
 
+@Composable
 private fun templatePreview(value: String, defaultValue: String): String {
-    val defaultFormat = runBlocking { getString(Res.string.settings_debrid_template_default_format) }
-    val originalFormat = runBlocking { getString(Res.string.settings_debrid_template_original_format) }
+    val defaultFormat = stringResource(Res.string.settings_debrid_template_default_format)
+    val originalFormat = stringResource(Res.string.settings_debrid_template_original_format)
     val trimmed = value.trim()
     if (trimmed.isBlank()) return originalFormat
     if (trimmed == defaultValue.trim()) return defaultFormat
@@ -1304,6 +1312,7 @@ private fun DebridDeviceAuthDialog(
     onConnected: (String) -> Unit,
     onDisconnect: () -> Unit,
     onDismiss: () -> Unit,
+    onUseApiKey: (() -> Unit)? = null,
 ) {
     val uriHandler = LocalUriHandler.current
     val clipboardManager = LocalClipboardManager.current
@@ -1523,6 +1532,15 @@ private fun DebridDeviceAuthDialog(
                     onClick = {
                         clearPendingDeviceAuthorization(provider.id)
                         restartNonce += 1
+                    },
+                )
+            }
+            if (!isConnected && onUseApiKey != null) {
+                DialogButton(
+                    text = stringResource(Res.string.settings_debrid_use_api_key),
+                    onClick = {
+                        clearPendingDeviceAuthorization(provider.id)
+                        onUseApiKey()
                     },
                 )
             }

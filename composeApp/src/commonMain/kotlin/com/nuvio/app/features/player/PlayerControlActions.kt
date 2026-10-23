@@ -23,10 +23,13 @@ import androidx.compose.material.icons.rounded.Cast
 import androidx.compose.material.icons.rounded.CastConnected
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.HighQuality
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.PictureInPictureAlt
+import androidx.compose.material.icons.rounded.StayCurrentLandscape
+import androidx.compose.material.icons.rounded.StayCurrentPortrait
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Star
@@ -59,7 +62,14 @@ import com.nuvio.app.core.ui.NuvioBackButton
 import com.nuvio.app.core.ui.appIconPainter
 import com.nuvio.app.core.ui.nuvioTypeScale
 import nuvio.composeapp.generated.resources.*
+import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
+
+internal fun playerOrientationToggleIcon(isPortraitPlayback: Boolean): ImageVector =
+    if (isPortraitPlayback) Icons.Rounded.StayCurrentLandscape else Icons.Rounded.StayCurrentPortrait
+
+internal fun playerOrientationToggleLabel(isPortraitPlayback: Boolean): StringResource =
+    if (isPortraitPlayback) Res.string.player_action_rotate_landscape else Res.string.player_action_rotate_portrait
 
 @Composable
 internal fun PlayerToolbar(
@@ -71,6 +81,10 @@ internal fun PlayerToolbar(
     isCasting: Boolean = false,
     downloadAction: (@Composable (buttonSize: Dp, iconSize: Dp) -> Unit)? = null,
     modifier: Modifier = Modifier,
+    onPartyClick: (() -> Unit)? = null,
+    partyActive: Boolean = false,
+    onOrientationToggleClick: (() -> Unit)? = null,
+    isPortraitPlayback: Boolean = false,
 ) {
     Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Spacer(Modifier.weight(1f))
@@ -82,11 +96,26 @@ internal fun PlayerToolbar(
                 onClick = onSubmitIntroClick,
             )
         }
-        if (onCastClick != null) {
+        onOrientationToggleClick?.let {
+            PlayerAction(
+                description = stringResource(playerOrientationToggleLabel(isPortraitPlayback)),
+                icon = playerOrientationToggleIcon(isPortraitPlayback),
+                onClick = it,
+            )
+        }
+        if (onPartyClick != null) {
+            PlayerAction(
+                description = stringResource(Res.string.party_title),
+                icon = Icons.Rounded.Groups,
+                onClick = onPartyClick,
+                tint = if (partyActive) MaterialTheme.colorScheme.primary else Color.White,
+            )
+        }
+        onCastClick?.let {
             PlayerAction(
                 description = stringResource(Res.string.player_cast),
                 icon = if (isCasting) Icons.Rounded.CastConnected else Icons.Rounded.Cast,
-                onClick = onCastClick,
+                onClick = it,
             )
         }
         PlayerAction(
@@ -343,12 +372,13 @@ private fun PlayerAction(
     icon: ImageVector? = null,
     painter: Painter? = null,
     iconSize: Dp = 24.dp,
+    tint: Color = Color.White,
 ) {
     IconButton(onClick = onClick, modifier = Modifier.size(48.dp)) {
         if (painter != null) {
-            Icon(painter, description, tint = Color.White, modifier = Modifier.size(iconSize))
+            Icon(painter, description, tint = tint, modifier = Modifier.size(iconSize))
         } else if (icon != null) {
-            Icon(icon, description, tint = Color.White, modifier = Modifier.size(iconSize))
+            Icon(icon, description, tint = tint, modifier = Modifier.size(iconSize))
         }
     }
 }

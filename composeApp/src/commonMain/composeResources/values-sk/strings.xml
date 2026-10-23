@@ -55,7 +55,6 @@
     <string name="addons_version_format">Verzia %1$s</string>
     <string name="cd_selected">Vybrané</string>
     <string name="collections_copy_json">Kopírovať JSON</string>
-    <string name="collections_count_summary">%1$d kolekcia(-í), %2$d priečinok(-kov)</string>
     <string name="collections_delete_message">Odstrániť „%1$s"? Túto akciu nie je možné vrátiť späť.</string>
     <string name="collections_delete_title">Odstrániť kolekciu</string>
     <string name="collections_editor_add_catalog">Pridať katalóg</string>
@@ -104,7 +103,9 @@
     <string name="collections_editor_show_all_tab">Zobraziť záložku „Všetko"</string>
     <string name="collections_editor_show_gif_when_configured_desc">Prehrávať nakonfigurovaný GIF namiesto statického obalu, ak je dostupný.</string>
     <string name="collections_editor_show_gif_when_configured">Zobraziť GIF, ak je nakonfigurovaný</string>
-    <string name="collections_editor_source_count">%1$d zdroj(-ov) · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d zdroj(-ov) · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">Tvar dlaždice</string>
     <string name="collections_editor_view_mode_rows">Riadky</string>
     <string name="collections_editor_view_mode_tabs">Záložky</string>
@@ -288,7 +289,9 @@
     <string name="collections_editor_tmdb_subtitle_discover">Objavovanie TMDB</string>
     <string name="collections_empty_subtitle">Vytvorte jednu na usporiadanie katalógov.</string>
     <string name="collections_empty_title">Zatiaľ žiadne kolekcie</string>
-    <string name="collections_folder_count">%1$d priečinok(-kov)</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">%1$d priečinok(-kov)</item>
+    </plurals>
     <string name="collections_folder_empty_items">Nenašli sa žiadne položky</string>
     <string name="collections_folder_not_found">Priečinok sa nenašiel</string>
     <string name="collections_header">Kolekcie</string>
@@ -503,13 +506,11 @@
     <string name="detail_trailers_title">Trailery</string>
     <string name="downloads_empty_episodes">Žiadne dokončené epizódy</string>
     <string name="downloads_empty_title">Zatiaľ žiadne stiahnuté súbory</string>
-    <string name="downloads_episode_count">%1$d stiahnutá(-é) epizóda(-y)</string>
     <string name="downloads_section_active">Aktívne</string>
     <string name="downloads_section_movies">Filmy</string>
     <string name="downloads_section_shows">Seriály</string>
     <string name="downloads_show_downloads">Zobraziť stiahnuté</string>
     <string name="downloads_status_completed">Dokončené • %1$s</string>
-    <string name="downloads_status_downloading">Sťahovanie • %1$s</string>
     <string name="downloads_status_failed">Zlyhalo</string>
     <string name="downloads_status_paused">Pozastavené • %1$s</string>
     <string name="episodes_cd_watched">Pozreté</string>
@@ -2411,4 +2412,7 @@
     <string name="stream_info_subtitle_source_addon">Doplnok</string>
     <string name="stream_info_subtitle_source_embedded">Vstavané</string>
     <string name="stream_info_player_engine">Engine prehrávača</string>
+<string name="settings_nav_bar_liquid_glass">Materiál Liquid Glass</string>
+<string name="settings_nav_bar_liquid_glass_description">Pridá lom svetla a rozmazanie na plávajúcu navigačnú lištu.</string>
+<string name="settings_nav_bar_liquid_glass_unsupported_description">Vyžaduje Android 13 alebo novší. Toto zariadenie ponechá existujúci sklenený štýl.</string>
 </resources>

@@ -8,7 +8,7 @@
 
 ## Critical Discovery
 
-Simen tested IPA from Actions run 36163363845 (commit `ab6737b4`) and reported: **"Didn't work"**
+Simsalabim tested IPA from Actions run 36163363845 (commit `ab6737b4`) and reported: **"Didn't work"**
 
 This means AVAsset dual-decode either:
 1. Was never attempted (URL resolution failed)
@@ -274,7 +274,7 @@ if let mediaURL = playerViewController?.getCurrentMediaURL(),
 
 ## Diagnostic Log Keys for Next Test
 
-When Simen retests with IPA from commit `ec49e7b8`, look for these log messages:
+When Simsalabim retests with IPA from commit `ec49e7b8`, look for these log messages:
 
 ### 1. URL Resolution Logs (Tag: `MPV/iOS/AudioCapture`)
 
@@ -383,7 +383,7 @@ Successfully captured 150 energy samples using AVAsset decode
 ```
 → **Diagnosis:** AVAsset worked!
 
-## What Simen Should Test
+## What Simsalabim Should Test
 
 ### Test 1: Basic File Playback
 

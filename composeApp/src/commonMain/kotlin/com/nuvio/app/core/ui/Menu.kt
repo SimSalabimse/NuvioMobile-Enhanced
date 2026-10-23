@@ -80,7 +80,7 @@ fun MenuItem(
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = if (selected) FontWeight.SemiBold else null,
             color = if (enabled) tokens.colors.textPrimary else tokens.colors.textDisabled,
-            maxLines = 1,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
         if (selected) {

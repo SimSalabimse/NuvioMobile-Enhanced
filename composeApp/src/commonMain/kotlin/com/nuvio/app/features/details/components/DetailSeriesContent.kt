@@ -22,6 +22,7 @@ import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import com.nuvio.app.features.downloads.DetailsDownloadProgressKind
 import androidx.compose.foundation.layout.Spacer
@@ -59,6 +60,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.nuvio.app.core.ui.spoilerBlur
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -108,6 +110,7 @@ import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
+import com.nuvio.app.core.ui.glass.ambientLiquidGlass
 
 private val log = Logger.withTag("SeriesContent")
 
@@ -200,6 +203,9 @@ fun DetailSeriesContent(
         Column(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            if (meta.type == "series") {
+                com.nuvio.app.features.downloads.FinishSeriesGoalChip(meta.type, meta.id)
+            }
             SeriesSeasonSelector(
                 meta = meta,
                 seasons = seasons,
@@ -462,6 +468,9 @@ internal fun DetailSeriesListHeader(
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val sizing = seriesContentSizing(maxWidth.value)
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            if (meta.type == "series") {
+                com.nuvio.app.features.downloads.FinishSeriesGoalChip(meta.type, meta.id)
+            }
             SeriesSeasonSelector(
                 meta = meta,
                 seasons = seasons,
@@ -595,6 +604,7 @@ private fun SeriesSeasonSelector(
         ) {
             Text(
                 text = stringResource(Res.string.details_seasons),
+                modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.titleLarge.copy(
                     fontSize = sizing.seasonHeaderSize,
                     fontWeight = FontWeight.SemiBold,
@@ -672,7 +682,12 @@ private fun SeasonViewModeToggle(
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+            .ambientLiquidGlass(
+                shape = RoundedCornerShape(8.dp),
+                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                fallback = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                refractionHeight = 6.dp,
+            )
             .border(
                 width = 1.dp,
                 color = Color.White.copy(alpha = 0.2f),
@@ -735,11 +750,15 @@ private fun SeasonTextChipScrollRow(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(sizing.seasonChipRadius))
-                    .background(
+                    .then(
                         if (isSelected) {
-                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                            Modifier.ambientLiquidGlass(
+                                shape = RoundedCornerShape(sizing.seasonChipRadius),
+                                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                fallback = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            )
                         } else {
-                            Color.Transparent
+                            Modifier.background(Color.Transparent)
                         },
                     )
                     .combinedClickable(
@@ -1049,7 +1068,12 @@ private fun EpisodeHorizontalCard(
             .width(metrics.cardWidth)
             .height(metrics.cardHeight)
             .clip(cardShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+            .ambientLiquidGlass(
+                shape = cardShape,
+                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                fallback = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                blurRadius = 18.dp,
+            )
             .nuvioCardDepth(
                 shape = cardShape,
                 surface = NuvioCardDepthSurface.EpisodeCards,
@@ -1147,6 +1171,7 @@ private fun EpisodeHorizontalCard(
                     color = Color.White.copy(alpha = 0.86f),
                     maxLines = metrics.overviewMaxLines,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.spoilerBlur(blurUnwatchedEpisodes && !isWatched),
                 )
             }
 
@@ -1483,7 +1508,7 @@ private fun TmdbEpisodeRatingBadge(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun EpisodeListCard(
     parentMetaId: String,
@@ -1528,7 +1553,12 @@ private fun EpisodeListCard(
             .fillMaxWidth()
             .height(sizing.cardHeight)
             .clip(cardShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+            .ambientLiquidGlass(
+                shape = cardShape,
+                tint = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                fallback = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                blurRadius = 18.dp,
+            )
             .border(
                 width = 1.dp,
                 color = Color.White.copy(alpha = 0.1f),
@@ -1622,13 +1652,15 @@ private fun EpisodeListCard(
                 }
 
                 if (formattedDate != null || hasAnyRating) {
-                    Row(
+                    // Wraps the ratings under the date on narrow cards instead of crushing them.
+                    FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         formattedDate?.let { date ->
                             Text(
                                 text = date,
+                                modifier = Modifier.align(Alignment.CenterVertically),
                                 style = MaterialTheme.typography.labelMedium.copy(
                                     fontSize = sizing.metaTextSize,
                                     fontWeight = FontWeight.Medium,
@@ -1644,6 +1676,7 @@ private fun EpisodeListCard(
                             userRating = userRating,
                             logoSize = 12.dp,
                             textSize = sizing.metaTextSize,
+                            modifier = Modifier.align(Alignment.CenterVertically),
                         )
                     }
                 }
@@ -1658,6 +1691,7 @@ private fun EpisodeListCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = sizing.overviewMaxLines,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.spoilerBlur(blurUnwatchedEpisodes && !isWatched),
                     )
                 }
             }
@@ -1856,3 +1890,5 @@ private fun formatEpisodeRating(rating: Double): String {
     val tenth = (roundedTenths % 10).absoluteValue
     return "$whole.$tenth"
 }
+
+/** Spoiler-safe mode: an unwatched episode's description is blurred like its picture. */

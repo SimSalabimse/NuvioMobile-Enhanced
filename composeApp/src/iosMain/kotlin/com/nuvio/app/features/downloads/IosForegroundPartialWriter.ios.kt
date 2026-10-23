@@ -437,7 +437,7 @@ internal fun finalizeIosPartialFile(
         }
         callbacks?.onSuccess(fileUri(destination), fileSizeOrNull(destination))
     } finally {
-        if (started) base.scopedUrl?.stopAccessingSecurityScopedResource()
+        if (started) base.scopedUrl.stopAccessingSecurityScopedResource()
         IosWriterOwnership.release(downloadId, DownloadWriterKind.Foreground)
         IosWriterOwnership.release(downloadId, DownloadWriterKind.Background)
     }
@@ -465,7 +465,7 @@ internal fun finishIosPartialPlayback(downloadId: String): String? {
         }
         return fileUri(destination)
     } finally {
-        if (started) base.scopedUrl?.stopAccessingSecurityScopedResource()
+        if (started) base.scopedUrl.stopAccessingSecurityScopedResource()
     }
 }
 
@@ -508,7 +508,7 @@ private class IosForegroundSessionDelegate : NSObject(), NSURLSessionDataDelegat
         }
         val file = fopen(partPath, "ab")
         if (file == null) {
-            if (scopedStarted) base.scopedUrl?.stopAccessingSecurityScopedResource()
+            if (scopedStarted) base.scopedUrl.stopAccessingSecurityScopedResource()
             IosWriterOwnership.release(downloadId, DownloadWriterKind.Foreground)
             return false
         }
@@ -657,6 +657,18 @@ private class IosForegroundSessionDelegate : NSObject(), NSURLSessionDataDelegat
                 } else {
                     httpFailure(status)
                 }
+            }
+            // A ranged answer that does not continue the bytes on disk (another offset, file or
+            // size): ignore it and fetch the file again from byte 0.
+            status == 206 && job.rangedRequest && partialPrefixDisposition(
+                statusCode = status,
+                requestedRange = job.flushedBytes,
+                prefixLength = job.flushedBytes,
+                contentRange = http?.let { headerValue(it, "Content-Range") },
+                expectedTotal = DownloadsRepository.knownTotalBytes(job.request.item.id),
+            ) == PartialPrefixDisposition.Restart -> {
+                job.ignoreBody = true
+                job.retryFromZero = true
             }
             else -> {
                 if (status == 200 && job.rangedRequest) {
@@ -916,7 +928,7 @@ private fun contentRangeTotal(header: String?): Long? {
 }
 
 @OptIn(ExperimentalForeignApi::class)
-private fun headerValue(response: NSHTTPURLResponse, name: String): String? {
+internal fun headerValue(response: NSHTTPURLResponse, name: String): String? {
     val fields = response.allHeaderFields
     for (key in fields.keys) {
         if (key?.toString()?.equals(name, ignoreCase = true) == true) {

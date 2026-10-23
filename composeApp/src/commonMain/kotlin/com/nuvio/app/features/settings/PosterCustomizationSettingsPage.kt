@@ -370,6 +370,7 @@ private fun CardDepthStyleControls(
             ) {
                 Text(
                     text = stringResource(Res.string.settings_card_depth_fine_tune),
+                    modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Medium,

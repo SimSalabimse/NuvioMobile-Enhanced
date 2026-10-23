@@ -1,5 +1,7 @@
 package com.nuvio.app.features.downloads
 
+import androidx.compose.foundation.layout.PaddingValues
+import org.jetbrains.compose.resources.pluralStringResource
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -52,6 +54,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.i18n.localizedByteUnit
 import com.nuvio.app.core.ui.NuvioScreen
+import com.nuvio.app.core.ui.dismissKeyboardOnScrollOrTap
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioToastController
@@ -85,6 +88,8 @@ fun DownloadsScreen(
     var groupPendingCancel by remember { mutableStateOf<ActiveSeasonGroup?>(null) }
     var reanalyzeTarget by remember { mutableStateOf<ReanalyzeTarget?>(null) }
     var unwatchedOnly by remember { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var sort by rememberSaveable { mutableStateOf(DownloadsSort.Name) }
     val watchedState by com.nuvio.app.features.watched.WatchedRepository.uiState.collectAsState()
     val progressState by com.nuvio.app.features.watchprogress.WatchProgressRepository.uiState.collectAsState()
     val watchedIds = remember(uiState.items, watchedState, progressState) {
@@ -126,24 +131,34 @@ fun DownloadsScreen(
         return
     }
 
-    val storageSummary = rememberDownloadStorageSummary(uiState.items)
+    var storageRefresh by remember { mutableStateOf(0) }
+    val storageSummary = rememberDownloadStorageSummary(uiState.items, storageRefresh)
+    // Health check of the finished files (sizes on disk, analysed lengths), off the main thread.
+    val problems by androidx.compose.runtime.produceState(emptyMap<String, DownloadProblem>(), uiState.completedItems, storageRefresh) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { downloadProblems(uiState.items) }
+    }
     val tokens = MaterialTheme.nuvio
 
-    // Under the native iOS navigation bar the header collapses to its actions, so the list has to
-    // clear the bar itself (status bar + 44 pt), or the first row ("Season 2") sits behind Back.
+    // Under the native iOS navigation bar the header collapses to its actions. The list starts
+    // below the bar (status bar + 44 pt), so nothing scrolls up behind the see-through bar and
+    // the status bar, and the actions scroll with the list instead of sticking over the rows.
     val underNativeNavigationBar = com.nuvio.app.navigation.LocalUseNativeNavigation.current &&
         !com.nuvio.app.navigation.LocalNativeNavigationBarHidden.current
     val statusBarTop = androidx.compose.foundation.layout.WindowInsets.statusBars
         .asPaddingValues().calculateTopPadding()
+    androidx.compose.runtime.CompositionLocalProvider(LocalDownloadProblems provides problems) {
     NuvioScreen(
+        modifier = Modifier.dismissKeyboardOnScrollOrTap().then(
+            if (underNativeNavigationBar) {
+                Modifier.padding(top = statusBarTop + com.nuvio.app.core.ui.nuvioPlatformExtraTopPadding + 44.dp)
+            } else {
+                Modifier
+            },
+        ),
         listState = listState,
-        topPadding = if (underNativeNavigationBar) {
-            tokens.spacing.screenTop + statusBarTop + com.nuvio.app.core.ui.nuvioPlatformExtraTopPadding + 44.dp
-        } else {
-            null
-        },
+        topPadding = if (underNativeNavigationBar) tokens.spacing.screenTop else null,
     ) {
-        stickyHeader {
+        val header: @Composable () -> Unit = {
             NuvioScreenHeader(
                 title = if (selectedShowId == null) {
                     stringResource(Res.string.compose_settings_root_downloads_title)
@@ -185,6 +200,7 @@ fun DownloadsScreen(
                 },
             )
         }
+        if (underNativeNavigationBar) item(key = "header") { header() } else stickyHeader { header() }
 
         if (selectedShowId == null) {
             storageSummary?.let { summary ->
@@ -192,11 +208,19 @@ fun DownloadsScreen(
                     DownloadStorageCard(
                         summary = summary,
                         onClick = { onOpenStorage?.invoke() ?: run { showStorage = true } },
+                        onCleaned = { storageRefresh++ },
                     )
+                }
+            }
+            if (uiState.completedItems.isNotEmpty()) {
+                item(key = "search-sort") {
+                    DownloadsSearchBar(query = query, onQueryChange = { query = it }, sort = sort, onSortChange = { sort = it })
                 }
             }
             downloadsRootContent(
                 uiState = uiState,
+                query = query,
+                sort = sort,
                 onOpenDownload = onOpenDownload,
                 onOpenShow = { showId, title ->
                     onNavigateToShow?.invoke(showId, title) ?: run { selectedShowId = showId }
@@ -228,6 +252,7 @@ fun DownloadsScreen(
             )
         }
     }
+    }
 
     ReanalyzeModal(target = reanalyzeTarget, onDismiss = { reanalyzeTarget = null })
 
@@ -251,7 +276,7 @@ fun DownloadsScreen(
     val pendingGroup = groupPendingCancel
     if (pendingGroup != null) {
         NuvioStatusModal(
-            title = stringResource(Res.string.downloads_group_cancel_title, pendingGroup.items.size),
+            title = pluralStringResource(Res.plurals.downloads_group_cancel_title, pendingGroup.items.size, pendingGroup.items.size),
             message = stringResource(Res.string.downloads_group_cancel_message, pendingGroup.label),
             isVisible = true,
             destructive = true,
@@ -269,6 +294,8 @@ fun DownloadsScreen(
 @OptIn(ExperimentalFoundationApi::class)
 private fun LazyListScope.downloadsRootContent(
     uiState: DownloadsUiState,
+    query: String,
+    sort: DownloadsSort,
     onOpenDownload: (DownloadItem) -> Unit,
     onOpenShow: (showId: String, title: String) -> Unit,
     onDeleteDownload: (String) -> Unit,
@@ -277,17 +304,19 @@ private fun LazyListScope.downloadsRootContent(
     onCancelSeasonGroup: (ActiveSeasonGroup) -> Unit,
     onReanalyze: (ReanalyzeTarget) -> Unit,
 ) {
-    val activeItems = uiState.activeItems
+    val activeItems = uiState.activeItems.matchingDownloadsQuery(query)
     val completedMovies = uiState.completedItems.filterNot(DownloadItem::isEpisode)
+        .matchingDownloadsQuery(query)
+        .map(::listOf)
+        .sortedDownloadGroups(sort)
+        .map { it.first() }
     val completedShows = uiState.items
         .filter(DownloadItem::isEpisode)
+        .matchingDownloadsQuery(query)
         .groupBy { it.parentMetaId }
-        .mapNotNull { (_, episodes) ->
-            episodes.firstOrNull()?.let { first ->
-                first to episodes
-            }
-        }
-        .sortedBy { (item, _) -> item.title.lowercase() }
+        .values.toList()
+        .sortedDownloadGroups(sort)
+        .map { episodes -> episodes.first() to episodes }
 
     if (activeItems.isNotEmpty()) {
         item {
@@ -412,27 +441,28 @@ private fun LazyListScope.downloadsRootContent(
                         val unfinishedCount = episodes.size - doneCount
                         Text(
                             text = listOfNotNull(
-                                stringResource(Res.string.downloads_episode_count, doneCount),
-                                if (unfinishedCount > 0) {
-                                    stringResource(Res.string.downloads_in_progress_count, unfinishedCount)
-                                } else {
-                                    null
-                                },
+                                doneCount.takeIf { it > 0 }?.let { pluralStringResource(Res.plurals.downloads_episodes, it, it) },
+                                unfinishedCount.takeIf { it > 0 }?.let { stringResource(Res.string.downloads_in_progress_count, it) },
                             ).joinToString(" · "),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                    }
-                    // One season in progress: stop it right here. Several: each season has its own
-                    // Cancel season inside the show.
-                    val unfinishedSeasons = unfinishedSeasonGroupsOfShow(uiState.items, item.parentMetaId)
-                    if (unfinishedSeasons.size == 1) {
-                        val group = unfinishedSeasons.first()
-                        TextButton(onClick = { onCancelSeasonGroup(group) }) {
-                            Text(
-                                text = stringResource(Res.string.downloads_season_cancel),
-                                color = MaterialTheme.colorScheme.error,
-                            )
+                        // One season in progress: stop it right here, under the counts so neither
+                        // squeezes the other. Several: each season has its own Cancel season inside.
+                        val unfinishedSeasons = unfinishedSeasonGroupsOfShow(uiState.items, item.parentMetaId)
+                        if (unfinishedSeasons.size == 1) {
+                            val group = unfinishedSeasons.first()
+                            TextButton(
+                                onClick = { onCancelSeasonGroup(group) },
+                                contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier.height(32.dp),
+                            ) {
+                                Text(
+                                    text = stringResource(Res.string.downloads_season_cancel),
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.labelLarge,
+                                )
+                            }
                         }
                     }
                     Icon(
@@ -686,10 +716,26 @@ private fun DownloadRow(
                     )
                     Text(
                         text = statusText(item),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TABULAR_DIGITS),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
+                    LocalDownloadProblems.current[item.id]?.let { problem ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = problem.message,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            TextButton(onClick = { DownloadsRepository.redownload(item.id) }) {
+                                Text("Re-download")
+                            }
+                        }
+                    }
                     com.nuvio.app.features.analysis.AnalysisStatusRow(item)
+                    com.nuvio.app.features.analysis.SkipSourcesRow(item)
                     if (item.playsWhenDownloadFinishes && item.status != DownloadStatus.Completed) {
                         Text(
                             text = stringResource(Res.string.downloads_plays_when_finished),
@@ -754,11 +800,17 @@ private fun DownloadRow(
 
             if (item.status == DownloadStatus.Downloading) {
                 val speeds by DownloadSpeeds.speeds.collectAsState()
-                speedAndEta(speeds[item.id], item.remainingBytesOrNull())?.let { line ->
+                val progressLine = listOfNotNull(
+                    item.downloadsScreenProgressPercent()?.let { "$it%" },
+                    speedAndEta(speeds[item.id], item.remainingBytesOrNull()),
+                ).joinToString(" · ").ifEmpty { stringResource(Res.string.downloads_status_downloading_short) }
+                if (!item.needsLinkRefresh || item.errorMessage == null) {
                     Text(
-                        text = line,
-                        style = MaterialTheme.typography.bodySmall,
+                        text = progressLine,
+                        style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = TABULAR_DIGITS),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 if (item.totalBytes != null && item.totalBytes > 0L) {
@@ -849,7 +901,7 @@ private fun ActiveSeasonGroupHeader(
                         ?.sumOf { it ?: 0L }
                     Text(
                         text = listOfNotNull(
-                            stringResource(Res.string.downloads_group_count, group.items.size),
+                            pluralStringResource(Res.plurals.downloads_episodes, group.items.size, group.items.size),
                             percent?.let { "$it%" },
                             speedAndEta(groupSpeed, groupRemaining),
                         ).joinToString(" · "),
@@ -941,27 +993,29 @@ private fun SectionTitle(title: String) {
     )
 }
 
+/** Digits of equal width, so changing numbers don't shift the text. */
+private const val TABULAR_DIGITS = "tnum"
+
 @Composable
 private fun statusText(item: DownloadItem): String {
     val size = if (item.totalBytes != null && item.totalBytes > 0L) {
-        "${formatBytes(item.downloadedBytes)} / ${formatBytes(item.totalBytes)}"
+        "${compactDownloadBytes(item.downloadedBytes)} / ${compactDownloadBytes(item.totalBytes)}"
     } else {
-        formatBytes(item.downloadedBytes)
+        compactDownloadBytes(item.downloadedBytes)
     }
 
     return when (item.status) {
         DownloadStatus.Downloading -> if (item.needsLinkRefresh && item.errorMessage != null) {
             item.errorMessage
         } else {
-            val label = stringResource(Res.string.downloads_status_downloading, size)
-            val percent = item.downloadsScreenProgressPercent()
-            if (percent != null) "$label • $percent%" else label
+            // The progress line below says it is downloading.
+            size
         }
-        DownloadStatus.Paused -> if (item.waitingForAppOpen && item.errorMessage != null) item.errorMessage else stringResource(Res.string.downloads_status_paused, size)
+        DownloadStatus.Paused -> if (item.errorMessage != null && (item.waitingForAppOpen || item.errorMessage.startsWith(WAITING_FOR_SPACE_PREFIX))) item.errorMessage else stringResource(Res.string.downloads_status_paused, size)
         DownloadStatus.Queued -> stringResource(Res.string.downloads_status_queued)
         DownloadStatus.Completed -> stringResource(
             Res.string.downloads_status_completed,
-            formatBytes(item.totalBytes ?: item.downloadedBytes),
+            compactDownloadBytes(item.totalBytes ?: item.downloadedBytes),
         )
         DownloadStatus.Failed -> item.errorMessage ?: stringResource(Res.string.downloads_status_failed)
     }
@@ -969,16 +1023,61 @@ private fun statusText(item: DownloadItem): String {
 
 private fun formatBytes(bytes: Long): String = formatDownloadBytes(bytes)
 
+/**
+ * Sizes for lines that must fit: whole KB/MB and one decimal from a GB up ("134 MB", "1.9 GB",
+ * in the phone's number format).
+ */
+internal fun compactDownloadBytes(bytes: Long): String = formatDownloadBytes(compactByteCount(bytes))
+
+internal fun compactByteCount(bytes: Long): Long {
+    val step = when {
+        bytes >= 1_000_000_000L -> 100_000_000L
+        bytes >= 1_000_000L -> 1_000_000L
+        bytes >= 1_000L -> 1_000L
+        else -> return bytes
+    }
+    return (bytes + step / 2) / step * step
+}
+
 internal fun formatDownloadBytes(bytes: Long): String {
+    platformByteCountString(bytes)?.let { return it }
     if (bytes <= 0L) return "0 ${localizedByteUnit("B")}"
-    val kib = 1024.0
-    val mib = kib * 1024.0
-    val gib = mib * 1024.0
     val value = bytes.toDouble()
     return when {
-        value >= gib -> "${((value / gib) * 10.0).toInt() / 10.0} ${localizedByteUnit("GB")}"
-        value >= mib -> "${((value / mib) * 10.0).toInt() / 10.0} ${localizedByteUnit("MB")}"
-        value >= kib -> "${((value / kib) * 10.0).toInt() / 10.0} ${localizedByteUnit("KB")}"
+        value >= 1e9 -> "${((value / 1e9) * 10.0).toLong() / 10.0} ${localizedByteUnit("GB")}"
+        value >= 1e6 -> "${((value / 1e6) * 10.0).toLong() / 10.0} ${localizedByteUnit("MB")}"
+        value >= 1e3 -> "${((value / 1e3) * 10.0).toLong() / 10.0} ${localizedByteUnit("KB")}"
         else -> "$bytes ${localizedByteUnit("B")}"
+    }
+}
+
+@Composable
+private fun DownloadsSearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    sort: DownloadsSort,
+    onSortChange: (DownloadsSort) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
+        com.nuvio.app.core.ui.NuvioSearchField(
+            query = query,
+            onQueryChange = onQueryChange,
+            placeholder = "Search downloads",
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(
+            modifier = Modifier.padding(top = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Sort", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            DownloadsSort.entries.forEach { option ->
+                androidx.compose.material3.FilterChip(
+                    selected = option == sort,
+                    onClick = { onSortChange(option) },
+                    label = { Text(option.label) },
+                )
+            }
+        }
     }
 }

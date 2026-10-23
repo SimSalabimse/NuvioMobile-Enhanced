@@ -13,8 +13,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.json.Json
 import okio.Path.Companion.toPath
+import com.nuvio.app.core.serialization.LenientJson
 
 /**
  * Local copies of the artwork (poster, backdrop, logo, episode still) of downloaded items, so the
@@ -28,7 +28,7 @@ object OfflineArtwork {
     private val log = Logger.withTag("OfflineArtwork")
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutex = Mutex()
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = LenientJson
     private var index: MutableMap<String, String>? = null
 
     private fun loadedIndex(): MutableMap<String, String> {

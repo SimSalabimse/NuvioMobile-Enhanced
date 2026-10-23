@@ -22,6 +22,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.analysis.MediaAnalysisSettings
 import com.nuvio.app.features.downloads.DownloadQualityPreference
 import com.nuvio.app.features.downloads.SmartDownloadSettings
+import com.nuvio.app.features.downloads.SmartDownloads
 import com.nuvio.app.features.downloads.downloadQualityLabel
 import com.nuvio.app.features.downloads.DownloadsSettingsRepository
 import nuvio.composeapp.generated.resources.Res
@@ -57,6 +58,7 @@ internal fun LazyListScope.downloadsSettingsContent(
         val deleteWhenFinished by DownloadsSettingsRepository.deleteWhenFinished.collectAsStateWithLifecycle()
         val switchToDownload by DownloadsSettingsRepository.switchToDownloadWhileWatching.collectAsStateWithLifecycle()
         var showPicker by remember { mutableStateOf(false) }
+        var showKeepFree by remember { mutableStateOf(false) }
 
         SettingsSection(
             title = stringResource(Res.string.compose_settings_root_downloads_title),
@@ -111,15 +113,65 @@ internal fun LazyListScope.downloadsSettingsContent(
                         isTablet = isTablet,
                         onClick = { SmartDownloadSettings.setCount(if (smart.count >= 3) 1 else smart.count + 1) },
                     )
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsSwitchRow(
-                        title = stringResource(Res.string.smart_downloads_charging_title),
-                        description = stringResource(Res.string.smart_downloads_charging_description),
-                        checked = smart.onlyWhileCharging,
-                        isTablet = isTablet,
-                        onCheckedChange = SmartDownloadSettings::setOnlyWhileCharging,
-                    )
                 }
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.smart_downloads_charging_title),
+                    description = stringResource(Res.string.smart_downloads_charging_description),
+                    checked = smart.onlyWhileCharging,
+                    isTablet = isTablet,
+                    onCheckedChange = SmartDownloadSettings::setOnlyWhileCharging,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                val waiting by SmartDownloads.waitReason.collectAsStateWithLifecycle()
+                SettingsSwitchRow(
+                    title = "Only on Wi-Fi",
+                    description = waiting?.let { "Waiting now: ${it.substringBefore(" (")}. Smart downloads, queued episodes and Finish a series start once it's met." }
+                        ?: "Smart downloads, queued episodes and Finish a series wait for Wi-Fi.",
+                    checked = smart.onlyOnWifi,
+                    isTablet = isTablet,
+                    onCheckedChange = SmartDownloadSettings::setOnlyOnWifi,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = "Finish a series downloads the rest",
+                    description = if (smart.enabled) {
+                        "Smart downloads is on, so Finish this series keeps ${smart.count} episode${if (smart.count == 1) "" else "s"} ready (Episodes to keep ready), topped up as you watch. This applies only with Smart downloads off."
+                    } else {
+                        "With Smart downloads off, Finish this series downloads every remaining episode, lowest first. Off: just the next one."
+                    },
+                    checked = smart.goalDownloadsRest,
+                    isTablet = isTablet,
+                    onCheckedChange = SmartDownloadSettings::setGoalDownloadsRest,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = "Queue unaired episodes",
+                    description = "Episodes that haven't aired can be queued in Download Season and download once they air.",
+                    checked = smart.queueUnaired,
+                    isTablet = isTablet,
+                    onCheckedChange = SmartDownloadSettings::setQueueUnaired,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = "Pause downloads while watching",
+                    description = "Stop all downloads while the player is open, instead of slowing them to one at a time.",
+                    checked = smart.pauseDuringPlayback,
+                    isTablet = isTablet,
+                    onCheckedChange = SmartDownloadSettings::setPauseDuringPlayback,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsNavigationRow(
+                    title = "Keep free space",
+                    description = if (smart.keepFreeGb == 0) {
+                        "Off"
+                    } else {
+                        "${keepFreeLabel(smart.keepFreeGb)}: delete watched downloads, oldest first"
+                    },
+                    isTablet = isTablet,
+                    onClick = { showKeepFree = true },
+                )
+                if (showKeepFree) KeepFreeSpaceSheet(current = smart.keepFreeGb, onDismiss = { showKeepFree = false })
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsNavigationRow(
                     title = stringResource(Res.string.download_quality_title),

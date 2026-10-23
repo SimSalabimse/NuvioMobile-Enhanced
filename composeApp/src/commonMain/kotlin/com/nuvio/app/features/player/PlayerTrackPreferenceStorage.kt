@@ -12,6 +12,10 @@ data class PersistedPlayerTrackPreference(
     val audioName: String? = null,
     val audioTrackId: String? = null,
     val subtitleIsForced: Boolean? = null,
+    /** Per show: the last speed picked (never a hold-to-speed boost). */
+    val playbackSpeed: String? = null,
+    /** Per show: auto-skip override, a [ShowAutoSkip] name; null = follow the setting. */
+    val autoSkip: String? = null,
 )
 
 object PersistedSubtitleSelectionType {

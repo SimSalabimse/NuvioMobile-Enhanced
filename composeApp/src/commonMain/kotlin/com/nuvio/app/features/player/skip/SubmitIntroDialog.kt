@@ -1,5 +1,6 @@
 package com.nuvio.app.features.player.skip
 
+import com.nuvio.app.features.player.formatPlaybackTime
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -124,8 +125,11 @@ fun SubmitIntroDialog(
     parentMetaType: String = "",
     existingSegments: List<SkipInterval> = emptyList(),
     submittedTypesInSession: Set<String> = emptySet(),
+    /** Show/movie id for "Copy share link"; null hides it. */
+    shareMetaId: String? = null,
 ) {
     val scope = rememberCoroutineScope()
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val dismissKeyboard = rememberDismissSoftwareKeyboard()
     val scrollState = rememberScrollState()
     var isSubmitting by remember { mutableStateOf(false) }
@@ -204,6 +208,9 @@ fun SubmitIntroDialog(
     var remoteTypes by remember(contentKey) {
         mutableStateOf(remoteFlagTypesByContentKey[contentKey].orEmpty())
     }
+    /** Null until listed (no TheIntroDB key, or the title has no TMDB id): the button stays hidden. */
+    var mySubmissions by remember(contentKey) { mutableStateOf<List<TheIntroDbUserSubmission>?>(null) }
+    var mySubmissionsError by remember(contentKey) { mutableStateOf<String?>(null) }
     androidx.compose.runtime.LaunchedEffect(
         contentKey,
         imdbId,
@@ -233,7 +240,12 @@ fun SubmitIntroDialog(
             null
         } ?: return@LaunchedEffect
         val records = try {
-            TheIntroDb.listMySubmissions(apiKey, tmdbId, mediaType).mapNotNull { it.toFlagRecord() }
+            TheIntroDb.listMySubmissions(apiKey, tmdbId, mediaType)
+                .also {
+                    mySubmissions = it
+                    mySubmissionsError = TheIntroDb.lastListError
+                }
+                .mapNotNull { it.toFlagRecord(tmdbId) }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
@@ -349,7 +361,8 @@ fun SubmitIntroDialog(
                     errorMessage = if (keyWasNew) {
                         keySavedSubmitFailedMessage
                     } else {
-                        "Submit failed. Check the selected service and try again."
+                        TheIntroDb.lastSubmitError.takeIf { service == IntroSubmitService.THE_INTRODB }
+                            ?: "Submit failed. Check the selected service and try again."
                     }
                 }
             } finally {
@@ -373,10 +386,12 @@ fun SubmitIntroDialog(
             ) {
                 Text(
                     text = stringResource(Res.string.submit_intro_title),
+                    modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Box(
                     modifier = Modifier
@@ -394,6 +409,31 @@ fun SubmitIntroDialog(
                 }
             }
             val submitIntroBody: @Composable () -> Unit = {
+                // At the top so they are found: this account's submissions and the share link.
+                MySubmissionsSection(
+                    submissions = mySubmissions,
+                    error = mySubmissionsError,
+                    onCopyShareLink = shareMetaId?.let { metaId ->
+                        {
+                            val start = parseTimeToSeconds(startTimeStr)
+                            val end = parseTimeToSeconds(endTimeStr)
+                            if (start == null || end == null || end <= start) {
+                                errorMessage = "Set a start and end time first"
+                            } else {
+                                val link = SharedSkipMark(
+                                    parentMetaId = metaId,
+                                    season = season.takeIf { !isMovie },
+                                    episode = episode.takeIf { !isMovie },
+                                    type = segmentType,
+                                    startMs = (start * 1000).toLong(),
+                                    endMs = (end * 1000).toLong(),
+                                ).toLink()
+                                clipboard.setText(androidx.compose.ui.text.AnnotatedString(link))
+                                com.nuvio.app.core.ui.NuvioToastController.show("Link copied: open it on another Nuvio to import this mark")
+                            }
+                        }
+                    },
+                )
                 if (showServiceSection) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
@@ -978,4 +1018,50 @@ private fun normalizeSegmentTypeForSubmit(type: String): String? {
         "preview" -> "preview"
         else -> null
     }
+}
+
+/** Read-only list of what this account already sent TheIntroDB for the title, with each review status. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun MySubmissionsSection(
+    submissions: List<TheIntroDbUserSubmission>?,
+    error: String?,
+    onCopyShareLink: (() -> Unit)?,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    androidx.compose.foundation.layout.FlowRow {
+        if (submissions != null) {
+            TextButton(onClick = { expanded = !expanded }) {
+                Text(if (expanded) "Hide your submissions" else "Your submissions (${submissions.size})")
+            }
+        }
+        if (onCopyShareLink != null) {
+            TextButton(onClick = onCopyShareLink) { Text("Copy share link") }
+        }
+    }
+    if (!expanded || submissions == null) return
+    if (submissions.isEmpty() || error != null) {
+        Text(
+            text = error ?: "None for this title yet",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    submissions.sortedWith(compareBy({ it.season ?: 0 }, { it.episode ?: 0 })).forEach { submission ->
+        Text(
+            text = submissionLine(submission),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+internal fun submissionLine(submission: TheIntroDbUserSubmission): String {
+    val episode = if (submission.season != null && submission.episode != null) {
+        "S${submission.season}E${submission.episode} · "
+    } else ""
+    val start = submission.startMs?.let(::formatPlaybackTime) ?: "start"
+    val end = submission.endMs?.let(::formatPlaybackTime) ?: "end"
+    val status = submission.status?.takeIf { it.isNotBlank() } ?: "pending"
+    return "$episode${submission.segment.orEmpty()} $start–$end · $status"
 }

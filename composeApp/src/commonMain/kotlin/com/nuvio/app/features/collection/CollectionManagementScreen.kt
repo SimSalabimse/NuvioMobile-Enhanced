@@ -1,5 +1,6 @@
 package com.nuvio.app.features.collection
 
+import org.jetbrains.compose.resources.pluralStringResource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -110,11 +111,10 @@ fun CollectionManagementScreen(
         item {
             NuvioSurfaceCard {
                 Text(
-                    text = stringResource(
-                        Res.string.collections_count_summary,
-                        collections.size,
-                        collections.sumOf { it.folders.size },
-                    ),
+                    text = collections.sumOf { it.folders.size }.let { folders ->
+                        pluralStringResource(Res.plurals.collections_count, collections.size, collections.size) + ", " +
+                            pluralStringResource(Res.plurals.collections_folder_count, folders, folders)
+                    },
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -288,7 +288,7 @@ private fun CollectionListItem(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 val summary = buildString {
-                    append(stringResource(Res.string.collections_folder_count, collection.folders.size))
+                    append(pluralStringResource(Res.plurals.collections_folder_count, collection.folders.size, collection.folders.size))
                     if (collection.pinToTop) {
                         append(" · ")
                         append(stringResource(Res.string.collections_pinned))

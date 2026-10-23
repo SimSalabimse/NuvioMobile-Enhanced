@@ -47,6 +47,7 @@ fun DetailPosterRailSection(
     onViewAllClick: (() -> Unit)? = null,
     onPosterClick: ((MetaPreview) -> Unit)? = null,
     onPosterLongClick: ((MetaPreview) -> Unit)? = null,
+    statusLabel: (MetaPreview) -> String? = { null },
 ) {
     if (items.isEmpty()) return
     val posterCardStyle = rememberPosterCardStyleUiState()
@@ -96,6 +97,7 @@ fun DetailPosterRailSection(
                     ),
                     onClick = onPosterClick?.let { { it(item) } },
                     onLongClick = onPosterLongClick?.let { { it(item) } },
+                    statusLabel = statusLabel(item),
                 )
             }
         }

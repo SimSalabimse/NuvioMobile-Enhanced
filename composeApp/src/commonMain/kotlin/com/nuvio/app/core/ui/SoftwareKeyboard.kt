@@ -1,6 +1,18 @@
 package com.nuvio.app.core.ui
 
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.withFrameNanos
@@ -34,4 +46,23 @@ internal fun rememberDismissSoftwareKeyboard(): () -> Unit {
             }
         }
     }
+}
+
+/**
+ * For a screen with a search field: a drag that scrolls it, or a tap on empty space, puts the
+ * keyboard away (taps on buttons and rows still go to them).
+ */
+@Composable
+internal fun Modifier.dismissKeyboardOnScrollOrTap(): Modifier {
+    val dismiss = rememberDismissSoftwareKeyboard()
+    val imeVisible by rememberUpdatedState(WindowInsets.ime.getBottom(LocalDensity.current) > 0)
+    val connection = remember(dismiss) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (imeVisible && source == NestedScrollSource.UserInput && available.y != 0f) dismiss()
+                return Offset.Zero
+            }
+        }
+    }
+    return nestedScroll(connection).pointerInput(dismiss) { detectTapGestures { if (imeVisible) dismiss() } }
 }

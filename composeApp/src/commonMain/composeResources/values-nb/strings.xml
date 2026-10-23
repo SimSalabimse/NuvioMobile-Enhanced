@@ -128,7 +128,6 @@
     <string name="cloud_library_type_web">Web</string>
     <string name="collections_copy_json">Kopier JSON</string>
     <string name="collections_copy_json_error">Samlingsdataene er for store for utklippstavlen på denne enheten.</string>
-    <string name="collections_count_summary">%1$d samling(er), %2$d mappe(r)</string>
     <string name="collections_delete_message">Slette «%1$s»? Dette kan ikke angres.</string>
     <string name="collections_delete_title">Slett samling</string>
     <string name="collections_editor_add_catalog">Legg til katalog</string>
@@ -183,7 +182,9 @@
     <string name="collections_editor_show_all_tab_desc">Kombiner alle kataloger i én fane</string>
     <string name="collections_editor_show_gif_when_configured">Vis GIF når konfigurert</string>
     <string name="collections_editor_show_gif_when_configured_desc">Spill av konfigurert GIF i stedet for statisk forside når tilgjengelig.</string>
-    <string name="collections_editor_source_count">%1$d kilde(r) · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d kilde(r) · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">Flisform</string>
     <string name="collections_editor_tmdb_both">Begge</string>
     <string name="collections_editor_tmdb_collection">TMDB-samling</string>
@@ -398,7 +399,9 @@
     <string name="collections_empty_subtitle">Opprett en for å organisere katalogene dine.</string>
     <string name="collections_empty_title">Ingen samlinger ennå</string>
     <string name="collections_folder_addon_not_found">Tillegg ikke funnet: %1$s</string>
-    <string name="collections_folder_count">%1$d mappe(r)</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">%1$d mappe(r)</item>
+    </plurals>
     <string name="collections_folder_empty_items">Ingen elementer funnet</string>
     <string name="collections_folder_not_found">Mappe ikke funnet</string>
     <string name="collections_folder_trakt_movie_list">Trakt-filmliste</string>
@@ -806,7 +809,6 @@
     <string name="downloads_enqueue_replaced">Erstattet tidligere nedlasting</string>
     <string name="downloads_enqueue_started">Nedlasting startet</string>
     <string name="downloads_enqueue_unsupported_format">Ikke støttet strømformat for nedlastinger</string>
-    <string name="downloads_episode_count">%1$d nedlastet episode(r)</string>
     <string name="downloads_error_empty_body">Tom svarbody</string>
     <string name="downloads_error_finalize_failed">Kunne ikke fullføre nedlastingsfil</string>
     <string name="downloads_error_finalize_file_failed">Kunne ikke fullføre nedlastingsfil</string>
@@ -831,7 +833,6 @@
     <string name="downloads_section_shows">Serier</string>
     <string name="downloads_show_downloads">Vis nedlastinger</string>
     <string name="downloads_status_completed">Fullført • %1$s</string>
-    <string name="downloads_status_downloading">Laster ned • %1$s</string>
     <string name="downloads_status_failed">Mislyktes</string>
     <string name="downloads_status_paused">Pauset • %1$s</string>
     <string name="entity_browse_about">Om</string>
@@ -2326,4 +2327,7 @@ Du bruker denne funksjonen helt på eget ansvar. P2P kan deaktiveres når som he
     <string name="movie_status_rumored">Ryktet</string>
     <string name="movie_status_in_production">I produksjon</string>
     <string name="movie_status_post_production">Postproduksjon</string>
+<string name="settings_nav_bar_liquid_glass">Liquid Glass-materiale</string>
+<string name="settings_nav_bar_liquid_glass_description">Legger til lysbrytning og uskarphet på den flytende navigasjonslinjen.</string>
+<string name="settings_nav_bar_liquid_glass_unsupported_description">Krever Android 13 eller nyere. Denne enheten beholder den eksisterende glassstilen.</string>
 </resources>

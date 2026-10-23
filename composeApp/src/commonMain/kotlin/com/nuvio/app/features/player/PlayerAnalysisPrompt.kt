@@ -32,6 +32,7 @@ import com.nuvio.app.features.analysis.AnalysisPlayChoice
 import com.nuvio.app.features.analysis.ItemAnalysisStatus
 import com.nuvio.app.features.analysis.MediaAnalysisScheduler
 import com.nuvio.app.features.analysis.MediaAnalysisStatus
+import com.nuvio.app.features.analysis.MediaAnalysisStore
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadStatus
 import com.nuvio.app.features.downloads.DownloadsRepository
@@ -79,15 +80,29 @@ internal fun BoxScope.RenderAnalysisPlayPrompt(runtime: PlayerScreenRuntime) {
         }
 
         val needsAnalysis = remember(item.id, revision, job) {
-            when (val status = MediaAnalysisStatus.statusFor(item)) {
-                is ItemAnalysisStatus.Queued, is ItemAnalysisStatus.Running -> true
-                is ItemAnalysisStatus.Done -> !status.complete
+            // Only a file with no stored analysis at all counts. Derived parts (recap, previews)
+            // that are merely being recomputed after a cleanup or version bump are refreshed in
+            // the background and must not bring up the prompt on an already-analysed episode.
+            when (MediaAnalysisStatus.statusFor(item)) {
+                is ItemAnalysisStatus.Queued -> true
+                is ItemAnalysisStatus.Running -> MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item)) == null
                 else -> false
             }
         }
 
+        // The prompt is only for starting an episode: decide once, from the status when this file
+        // started playing. Later changes (a Good/Wrong mark re-queues derived analysis, a season
+        // re-match, a background pass) must never bring it up mid-playback.
+        val askedAtStart = remember(item.id) { needsAnalysis }
+
         LaunchedEffect(item.id) {
-            if (decided || !needsAnalysis) return@LaunchedEffect
+            if (decided || !askedAtStart) return@LaunchedEffect
+            // Watch Party: never pause for analysis (it would pull this member out of sync).
+            // Analyse in the background instead, without asking.
+            if (isPartySynced) {
+                choose(AnalysisPlayChoice.Background)
+                return@LaunchedEffect
+            }
             when (val saved = AnalysisPlayChoice.get()) {
                 AnalysisPlayChoice.Ask -> Unit
                 else -> choose(saved)
@@ -121,7 +136,7 @@ internal fun BoxScope.RenderAnalysisPlayPrompt(runtime: PlayerScreenRuntime) {
             return
         }
 
-        if (decided || !needsAnalysis || AnalysisPlayChoice.get() != AnalysisPlayChoice.Ask) return
+        if (decided || !askedAtStart || !needsAnalysis || AnalysisPlayChoice.get() != AnalysisPlayChoice.Ask) return
         PromptCard(Modifier.align(Alignment.TopCenter).padding(top = 72.dp)) {
             Text("This episode isn't fully analysed yet", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             Text(
@@ -169,7 +184,7 @@ private fun PromptButton(label: String, onClick: () -> Unit) {
     )
 }
 
-private fun playingDownload(sourceUrl: String?, parentMetaId: String, season: Int?, episode: Int?): DownloadItem? {
+internal fun playingDownload(sourceUrl: String?, parentMetaId: String, season: Int?, episode: Int?): DownloadItem? {
     val url = sourceUrl?.trim().orEmpty()
     if (!url.startsWith("file://") && !url.startsWith("/")) return null
     return DownloadsRepository.uiState.value.items.firstOrNull {

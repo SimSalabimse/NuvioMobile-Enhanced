@@ -1,6 +1,6 @@
 package com.nuvio.app.features.downloads
 
-import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
+import com.nuvio.app.features.debrid.DebridAddOffer
 import com.nuvio.app.features.debrid.DirectDebridPlayableResult
 import com.nuvio.app.features.debrid.toastMessage
 import com.nuvio.app.features.details.MetaDetails
@@ -24,6 +24,7 @@ internal suspend fun enqueueSeasonDownloads(
 ): SeasonEnqueueResult {
     var queued = 0
     var failureMessage: String? = null
+    var offered = false
     DownloadsRepository.ensureLoaded()
     // Lowest episode first, whatever order the sheet listed them in.
     val ordered = rows.sortedWith(compareBy({ it.video.season ?: Int.MAX_VALUE }, { it.video.episode ?: Int.MAX_VALUE }))
@@ -36,29 +37,8 @@ internal suspend fun enqueueSeasonDownloads(
             .firstOrNull { it.logicalContentKey == existingKey }
             ?.status
         if (seasonExistingDownload(existingStatus) != null) continue
-        val resolved = if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(row.stream)) {
-            when (val result = DirectDebridPlaybackResolver.resolveToPlayableStream(row.stream, season, episode)) {
-                is DirectDebridPlayableResult.Success -> result.stream
-                else -> {
-                    failureMessage = failureMessage ?: result.toastMessage()
-                    null
-                }
-            }
-        } else {
-            row.stream
-        } ?: continue
-
-        val url = resolved.playableDirectUrl
-        if (url.isNullOrBlank()) {
-            failureMessage = failureMessage ?: DownloadEnqueueResult.MissingUrl.toastMessage()
-            continue
-        }
-        if (!url.isSupportedDownloadUrl()) {
-            failureMessage = failureMessage ?: DownloadEnqueueResult.UnsupportedFormat.toastMessage()
-            continue
-        }
         val videoId = seasonStreamVideoId(meta.id, row.video)
-        val enqueueResult = DownloadsRepository.enqueueFromStream(
+        val target = DownloadTarget(
             contentType = meta.type,
             videoId = videoId,
             parentMetaId = meta.id,
@@ -71,8 +51,15 @@ internal suspend fun enqueueSeasonDownloads(
             episodeNumber = episode,
             episodeTitle = row.video.title,
             episodeThumbnail = row.video.thumbnail,
-            stream = resolved,
         )
+        val outcome = DownloadEnqueueService.resolveAndEnqueue(target, row.stream, notify = false)
+        val enqueueResult = outcome.result ?: run {
+            val failure = outcome.failure ?: DirectDebridPlayableResult.Error
+            // One add offer for the batch (the first uncached episode), not one per row.
+            if (failure is DirectDebridPlayableResult.NotCached && !offered) offered = DebridAddOffer.offer(row.stream)
+            failureMessage = failureMessage ?: failure.toastMessage()
+            null
+        } ?: continue
         when (enqueueResult) {
             DownloadEnqueueResult.Started,
             DownloadEnqueueResult.Replaced,
@@ -92,3 +79,9 @@ internal fun seasonStreamVideoId(parentMetaId: String, video: MetaVideo): String
     )
     return video.id.takeIf { it.isNotBlank() } ?: playbackVideoId
 }
+
+/** Other sources for an episode to fall back to when a download's pick isn't usable, best quality first. */
+internal suspend fun downloadCandidates(type: String, videoId: String, season: Int?, episode: Int?): List<StreamItem> =
+    SeasonStreamCatalog.load(type, videoId, season, episode, annotateDebridCache = true)
+        .orderedForQuality(SmartDownloadSettings.snapshot().quality)
+        .filter { it.isSeasonDownloadCandidate() }

@@ -4,8 +4,16 @@ set -euo pipefail
 
 repository_root="$(cd "$(dirname "$0")/.." && pwd -P)"
 version_file="${repository_root}/iosApp/Configuration/Version.xcconfig"
-version="${1:-$(sed -nE 's/^[[:space:]]*MARKETING_VERSION[[:space:]]*=[[:space:]]*([^[:space:]#]+).*$/\1/p' "${version_file}" | head -n 1)}"
+version_default="$(sed -nE 's/^[[:space:]]*MARKETING_VERSION[[:space:]]*=[[:space:]]*([^[:space:]#]+).*$/\1/p' "${version_file}" | head -n 1)"
 configuration="${IOS_CONFIGURATION:-Release}"
+# fast (default): Release Swift + debug Kotlin framework, arm64 only, dwarf.
+# release: full optimized Kotlin framework (use --release or IOS_BUILD_MODE=release).
+build_mode="${IOS_BUILD_MODE:-fast}"
+if [[ "${1:-}" == "--release" ]]; then
+    build_mode="release"
+    shift
+fi
+version="${1:-${version_default:-}}"
 case "${configuration}" in
     Debug)
         configuration_slug="debug"
@@ -18,7 +26,7 @@ case "${configuration}" in
         exit 1
         ;;
 esac
-derived_data="${IOS_DERIVED_DATA_PATH:-${repository_root}/build/ios-derived-full-${configuration_slug}}"
+derived_data="${IOS_DERIVED_DATA_PATH:-${repository_root}/build/ios-derived-full-${configuration_slug}${build_mode/#release/}}"
 output_directory="${IOS_IPA_OUTPUT_DIR:-${repository_root}/build/ios-ipa}"
 clang_module_cache="${CLANG_MODULE_CACHE_PATH:-${derived_data}/ModuleCache.noindex}"
 swiftpm_module_cache="${SWIFTPM_MODULECACHE_OVERRIDE:-${derived_data}/SwiftPMModuleCache.noindex}"
@@ -59,7 +67,17 @@ build_environment=(
 if [[ -n "${NUVIO_KOTLIN_NATIVE_JVMARGS:-}" ]]; then
     build_environment+=("ORG_GRADLE_PROJECT_kotlin.native.jvmArgs=${NUVIO_KOTLIN_NATIVE_JVMARGS}")
 fi
-"${build_environment[@]}" \
+fast_flags=()
+caffeinate_cmd=()
+if [[ "${build_mode}" == "fast" ]]; then
+    build_environment+=(KOTLIN_FRAMEWORK_BUILD_TYPE=debug)
+    fast_flags=(ARCHS=arm64 ONLY_ACTIVE_ARCH=YES DEBUG_INFORMATION_FORMAT=dwarf -parallelizeTargets -jobs "$(sysctl -n hw.ncpu)")
+elif [[ "${build_mode}" != "release" ]]; then
+    echo "Unsupported IOS_BUILD_MODE: ${build_mode}" >&2
+    exit 1
+fi
+command -v caffeinate >/dev/null && caffeinate_cmd=(caffeinate -dims)
+${caffeinate_cmd[@]+"${caffeinate_cmd[@]}"} "${build_environment[@]}" \
     xcodebuild \
     -project iosApp/iosApp.xcodeproj \
     -scheme iosApp \
@@ -71,6 +89,7 @@ fi
     CODE_SIGNING_REQUIRED=NO \
     CODE_SIGN_IDENTITY= \
     ${NUVIO_IOS_SKIP_DSYM:+DEBUG_INFORMATION_FORMAT=dwarf} \
+    ${fast_flags[@]+"${fast_flags[@]}"} \
     build
 
 ipa_live_status stage --name checks

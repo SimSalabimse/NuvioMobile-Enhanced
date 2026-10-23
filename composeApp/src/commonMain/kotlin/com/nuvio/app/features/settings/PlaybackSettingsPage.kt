@@ -36,6 +36,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -65,6 +66,7 @@ import com.nuvio.app.features.player.IosTargetPrimaries
 import com.nuvio.app.features.player.IosTargetTransfer
 import com.nuvio.app.features.player.PlaybackMemoryInfo
 import com.nuvio.app.features.player.safeBufferLimitMb
+import com.nuvio.app.features.player.PlayerDebugReadout
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.STREAM_AUTO_PLAY_TIMEOUT_VALUES
 import com.nuvio.app.features.player.SubtitleBackgroundColorSwatches
@@ -225,12 +227,13 @@ fun ValueBox(
 internal fun SettingsSliderRow(
     title: String,
     value: Int,
-    valueText: String,
+    valueText: String? = null,
     valueRange: IntRange,
     step: Int,
     isTablet: Boolean,
     enabled: Boolean = true,
     description: String? = null,
+    formatValue: (@Composable (Int) -> String)? = null,
     onValueChange: (Int) -> Unit,
 ) {
     val horizontalPadding = if (isTablet) 20.dp else 16.dp
@@ -254,7 +257,11 @@ internal fun SettingsSliderRow(
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.weight(1f),
             )
-            ValueBox(text = valueText, modifier = Modifier.wrapContentWidth())
+            val liveValue = sliderValue.roundToInt().coerceIn(valueRange.first, valueRange.last)
+            ValueBox(
+                text = formatValue?.invoke(liveValue) ?: valueText ?: liveValue.toString(),
+                modifier = Modifier.wrapContentWidth(),
+            )
         }
         if (description != null) {
             Text(
@@ -440,17 +447,15 @@ private fun PlaybackSettingsSection(
                     isTablet = isTablet,
                     onCheckedChange = PlayerSettingsRepository::setMovieRecommendationsEnabled,
                 )
-                if (!isIos) {
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsSwitchRow(
-                        title = stringResource(Res.string.settings_playback_mini_player),
-                        description = stringResource(Res.string.settings_playback_mini_player_description),
-                        checked = autoPlayPlayerSettings.miniPlayerEnabled,
-                        enabled = !autoPlayPlayerSettings.externalPlayerEnabled,
-                        isTablet = isTablet,
-                        onCheckedChange = PlayerSettingsRepository::setMiniPlayerEnabled,
-                    )
-                }
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_playback_mini_player),
+                    description = stringResource(Res.string.settings_playback_mini_player_description),
+                    checked = autoPlayPlayerSettings.miniPlayerEnabled,
+                    enabled = !autoPlayPlayerSettings.externalPlayerEnabled,
+                    isTablet = isTablet,
+                    onCheckedChange = PlayerSettingsRepository::setMiniPlayerEnabled,
+                )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
                     title = stringResource(Res.string.settings_playback_private_viewing),
@@ -458,6 +463,15 @@ private fun PlaybackSettingsSection(
                     checked = autoPlayPlayerSettings.privateViewingEnabled,
                     isTablet = isTablet,
                     onCheckedChange = PlayerSettingsRepository::setPrivateViewingEnabled,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                val debugReadout by PlayerDebugReadout.enabled.collectAsStateWithLifecycle()
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_playback_debug_readout),
+                    description = stringResource(Res.string.settings_playback_debug_readout_description),
+                    checked = debugReadout,
+                    isTablet = isTablet,
+                    onCheckedChange = PlayerDebugReadout::setEnabled,
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 // Player preference picker: Internal / External
@@ -687,7 +701,7 @@ private fun PlaybackSettingsSection(
                 SettingsSliderRow(
                     title = stringResource(Res.string.settings_playback_subtitle_size),
                     value = subtitleStyle.fontSizeSp,
-                    valueText = stringResource(Res.string.compose_player_font_size_value, subtitleStyle.fontSizeSp),
+                    formatValue = { stringResource(Res.string.compose_player_font_size_value, it) },
                     valueRange = subtitleFontSizeRangeSp,
                     step = 2,
                     isTablet = isTablet,
@@ -700,7 +714,7 @@ private fun PlaybackSettingsSection(
                 SettingsSliderRow(
                     title = stringResource(Res.string.settings_playback_subtitle_vertical_offset),
                     value = subtitleStyle.bottomOffset,
-                    valueText = subtitleStyle.bottomOffset.toString(),
+                    formatValue = { it.toString() },
                     valueRange = 0..200,
                     step = 5,
                     isTablet = isTablet,
@@ -778,6 +792,15 @@ private fun PlaybackSettingsSection(
                             onClick = { showLibassRenderTypeDialog = true },
                         )
                     }
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_playback_enable_libmpv_ass),
+                        description = stringResource(Res.string.settings_playback_enable_libmpv_ass_description),
+                        checked = autoPlayPlayerSettings.useLibmpvAss,
+                        enabled = subtitleRenderingEnabled,
+                        isTablet = isTablet,
+                        onCheckedChange = PlayerSettingsRepository::setUseLibmpvAss,
+                    )
                 }
             }
         }
@@ -1136,7 +1159,7 @@ private fun PlaybackSettingsSection(
                         SettingsSliderRow(
                             title = stringResource(Res.string.settings_playback_min_buffer),
                             value = autoPlayPlayerSettings.playbackMinBufferSeconds,
-                            valueText = "${autoPlayPlayerSettings.playbackMinBufferSeconds}s",
+                            formatValue = { "${it}s" },
                             valueRange = 5..1200,
                             step = 5,
                             isTablet = isTablet,
@@ -1146,7 +1169,7 @@ private fun PlaybackSettingsSection(
                         SettingsSliderRow(
                             title = stringResource(Res.string.settings_playback_max_buffer),
                             value = autoPlayPlayerSettings.playbackMaxBufferSeconds,
-                            valueText = "${autoPlayPlayerSettings.playbackMaxBufferSeconds}s",
+                            formatValue = { "${it}s" },
                             valueRange = 5..1200,
                             step = 5,
                             isTablet = isTablet,
@@ -1156,7 +1179,7 @@ private fun PlaybackSettingsSection(
                         SettingsSliderRow(
                             title = stringResource(Res.string.settings_playback_start_buffer),
                             value = autoPlayPlayerSettings.playbackStartBufferSeconds,
-                            valueText = "${autoPlayPlayerSettings.playbackStartBufferSeconds}s",
+                            formatValue = { "${it}s" },
                             valueRange = 1..30,
                             step = 1,
                             isTablet = isTablet,
@@ -1166,7 +1189,7 @@ private fun PlaybackSettingsSection(
                         SettingsSliderRow(
                             title = stringResource(Res.string.settings_playback_buffer_after_stall),
                             value = autoPlayPlayerSettings.playbackRebufferSeconds,
-                            valueText = "${autoPlayPlayerSettings.playbackRebufferSeconds}s",
+                            formatValue = { "${it}s" },
                             valueRange = 1..60,
                             step = 1,
                             isTablet = isTablet,
@@ -1176,7 +1199,7 @@ private fun PlaybackSettingsSection(
                         SettingsSliderRow(
                             title = stringResource(Res.string.settings_playback_back_buffer),
                             value = autoPlayPlayerSettings.playbackBackBufferSeconds,
-                            valueText = "${autoPlayPlayerSettings.playbackBackBufferSeconds}s",
+                            formatValue = { "${it}s" },
                             valueRange = 0..120,
                             step = 5,
                             isTablet = isTablet,
@@ -1186,7 +1209,7 @@ private fun PlaybackSettingsSection(
                         SettingsSliderRow(
                             title = stringResource(Res.string.settings_playback_target_buffer_size),
                             value = autoPlayPlayerSettings.playbackTargetBufferMb.coerceIn(50, targetBufferLimitMb),
-                            valueText = "${autoPlayPlayerSettings.playbackTargetBufferMb.coerceIn(50, targetBufferLimitMb)} MB",
+                            formatValue = { "$it MB" },
                             valueRange = 50..targetBufferLimitMb,
                             step = 50,
                             isTablet = isTablet,
@@ -1217,7 +1240,7 @@ private fun PlaybackSettingsSection(
                             SettingsSliderRow(
                                 title = stringResource(Res.string.settings_playback_vod_disk_cache_size),
                                 value = autoPlayPlayerSettings.vodDiskCacheSizeMb,
-                                valueText = "${autoPlayPlayerSettings.vodDiskCacheSizeMb} MB",
+                                formatValue = { "$it MB" },
                                 valueRange = 256..20480,
                                 step = 256,
                                 isTablet = isTablet,
@@ -1378,6 +1401,10 @@ private fun PlaybackSettingsSection(
                         onCheckedChange = { com.nuvio.app.features.analysis.MediaAnalysisSettings.set(feedbackFlag, it) },
                     )
                     val importStatus by com.nuvio.app.features.player.skip.SkipImportStatus.status.collectAsState()
+                    val theIntroDbKey = autoPlayPlayerSettings.theIntroDbApiKey
+                    val importScope = rememberCoroutineScope()
+                    // Checked on v4 when the screen opens and on tap, so an old error does not linger.
+                    LaunchedEffect(theIntroDbKey) { com.nuvio.app.features.player.skip.SkipImportStatus.check(theIntroDbKey) }
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
                         title = "TheIntroDB import",
@@ -1387,7 +1414,7 @@ private fun PlaybackSettingsSection(
                         ),
                         isTablet = isTablet,
                         trailingContent = {},
-                        onClick = {},
+                        onClick = { importScope.launch { com.nuvio.app.features.player.skip.SkipImportStatus.check(theIntroDbKey) } },
                     )
                     val playChoice by com.nuvio.app.features.analysis.AnalysisPlayChoice.current.collectAsState()
                     SettingsGroupDivider(isTablet = isTablet)
@@ -1448,6 +1475,19 @@ private fun PlaybackSettingsSection(
                             },
                             onDismiss = { showTheIntroDbApiKeyDialog = false },
                         )
+                    }
+                    if (autoPlayPlayerSettings.theIntroDbApiKey.isNotBlank()) {
+                        SettingsGroupDivider(isTablet = isTablet)
+                        var showSubmissions by remember { mutableStateOf(false) }
+                        SettingsNavigationRow(
+                            title = "Your TheIntroDB submissions",
+                            description = "Everything you sent, with its review status. Per title: the flag button in the player.",
+                            isTablet = isTablet,
+                            onClick = { showSubmissions = true },
+                        )
+                        if (showSubmissions) {
+                            TheIntroDbSubmissionsSheet(autoPlayPlayerSettings.theIntroDbApiKey) { showSubmissions = false }
+                        }
                     }
                 }
             }

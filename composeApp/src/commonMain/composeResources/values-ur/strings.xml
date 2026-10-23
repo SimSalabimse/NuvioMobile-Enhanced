@@ -79,7 +79,6 @@
     <string name="cd_selected">منتخب شدہ</string>
     <string name="collections_copy_json">JSON کاپی کریں</string>
     <string name="collections_copy_json_error">اس ڈیوائس کے clipboard کے لیے کلیکشن کا ڈیٹا بہت بڑا ہے۔</string>
-    <string name="collections_count_summary">%1$d کلیکشن، %2$d فولڈر</string>
     <string name="collections_delete_message">"%1$s" حذف کریں؟ اسے واپس نہیں کیا جا سکے گا۔</string>
     <string name="collections_delete_title">کلیکشن حذف کریں</string>
     <string name="collections_editor_add_catalog">کیٹلاگ شامل کریں</string>
@@ -128,7 +127,9 @@
     <string name="collections_editor_show_all_tab">"تمام" ٹیب دکھائیں</string>
     <string name="collections_editor_show_gif_when_configured_desc">دستیاب ہونے پر static cover کے بجائے ترتیب دیا گیا GIF چلائیں۔</string>
     <string name="collections_editor_show_gif_when_configured">ترتیب دیا گیا GIF دکھائیں</string>
-    <string name="collections_editor_source_count">%1$d ذرائع · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d ذرائع · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">ٹائل کی شکل</string>
     <string name="collections_editor_view_mode_rows">قطاریں</string>
     <string name="collections_editor_view_mode_tabs">ٹیبز</string>
@@ -324,7 +325,9 @@
     <string name="collections_editor_tmdb_subtitle_discover">TMDB Discover</string>
     <string name="collections_empty_subtitle">اپنے کیٹلاگز منظم کرنے کے لیے ایک کلیکشن بنائیں۔</string>
     <string name="collections_empty_title">ابھی کوئی کلیکشن نہیں</string>
-    <string name="collections_folder_count">%1$d فولڈر</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">%1$d فولڈر</item>
+    </plurals>
     <string name="collections_folder_empty_items">کوئی آئٹم نہیں ملا</string>
     <string name="collections_folder_not_found">فولڈر نہیں ملا</string>
     <string name="collections_header">کلیکشنز</string>
@@ -625,7 +628,6 @@
     <string name="detail_trailers_title">ٹریلرز</string>
     <string name="downloads_empty_episodes">کوئی مکمل شدہ قسط نہیں</string>
     <string name="downloads_empty_title">ابھی کوئی ڈاؤن لوڈ نہیں</string>
-    <string name="downloads_episode_count">%1$d ڈاؤن لوڈ شدہ اقساط</string>
     <string name="downloads_open_directory">ڈاؤن لوڈز فولڈر کھولیں</string>
     <string name="downloads_open_directory_failed">ڈاؤن لوڈز فولڈر نہیں کھل سکا</string>
     <string name="downloads_section_active">فعال</string>
@@ -633,7 +635,6 @@
     <string name="downloads_section_shows">سیریز</string>
     <string name="downloads_show_downloads">ڈاؤن لوڈز دکھائیں</string>
     <string name="downloads_status_completed">مکمل • %1$s</string>
-    <string name="downloads_status_downloading">ڈاؤن لوڈ ہو رہا ہے • %1$s</string>
     <string name="downloads_status_failed">ناکام</string>
     <string name="downloads_status_paused">روکا گیا • %1$s</string>
     <string name="episodes_cd_watched">دیکھا ہوا</string>
@@ -2371,4 +2372,7 @@
     <string name="movie_status_rumored">افواہ</string>
     <string name="movie_status_in_production">زیرِ تیاری</string>
     <string name="movie_status_post_production">بعد از تیاری</string>
+<string name="settings_nav_bar_liquid_glass">Liquid Glass میٹیریل</string>
+<string name="settings_nav_bar_liquid_glass_description">فلوٹنگ نیویگیشن بار میں روشنی کے انعطاف اور دھندلاہٹ کا اثر شامل کرتا ہے۔</string>
+<string name="settings_nav_bar_liquid_glass_unsupported_description">اس کے لیے Android 13 یا بعد کا ورژن درکار ہے۔ اس ڈیوائس پر موجودہ گلاس اسٹائل برقرار رہے گا۔</string>
 </resources>

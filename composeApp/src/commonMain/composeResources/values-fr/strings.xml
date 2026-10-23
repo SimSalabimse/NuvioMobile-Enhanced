@@ -64,7 +64,6 @@
     <string name="addons_version_format">Version %1$s</string>
     <string name="cd_selected">Sélectionné</string>
     <string name="collections_copy_json">Copier le JSON</string>
-    <string name="collections_count_summary">%1$d collection(s), %2$d dossier(s)</string>
     <string name="collections_delete_message">Supprimer « %1$s » ? Cette action est irréversible.</string>
     <string name="collections_delete_title">Supprimer la collection</string>
     <string name="collections_editor_add_catalog">Ajouter un catalogue</string>
@@ -113,7 +112,9 @@
     <string name="collections_editor_show_all_tab">Afficher l’onglet « Tout »</string>
     <string name="collections_editor_show_gif_when_configured_desc">Lire le GIF configuré à la place de la couverture statique lorsqu’il est disponible.</string>
     <string name="collections_editor_show_gif_when_configured">Afficher le GIF si configuré</string>
-    <string name="collections_editor_source_count">%1$d source(s) · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d source · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">Forme de la tuile</string>
     <string name="collections_editor_view_mode_rows">Lignes</string>
     <string name="collections_editor_view_mode_tabs">Onglets</string>
@@ -288,7 +289,9 @@
     <string name="collections_editor_tmdb_subtitle_discover">TMDB Discover</string>
     <string name="collections_empty_subtitle">Créez-en une pour organiser vos catalogues.</string>
     <string name="collections_empty_title">Aucune collection</string>
-    <string name="collections_folder_count">%1$d dossier(s)</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">%1$d dossier</item>
+    </plurals>
     <string name="collections_folder_empty_items">Aucun élément trouvé</string>
     <string name="collections_folder_not_found">Dossier introuvable</string>
     <string name="collections_header">Collections</string>
@@ -521,7 +524,6 @@
     <string name="detail_trailers_title">Bandes-annonces</string>
     <string name="downloads_empty_episodes">Aucun épisode terminé</string>
     <string name="downloads_empty_title">Aucun téléchargement</string>
-    <string name="downloads_episode_count">%1$d épisode(s) téléchargé(s)</string>
     <string name="downloads_open_directory">Ouvrir le dossier des téléchargements</string>
     <string name="downloads_open_directory_failed">Impossible d’ouvrir le dossier des téléchargements</string>
     <string name="downloads_section_active">Actifs</string>
@@ -529,7 +531,6 @@
     <string name="downloads_section_shows">Séries</string>
     <string name="downloads_show_downloads">Afficher les téléchargements</string>
     <string name="downloads_status_completed">Terminé • %1$s</string>
-    <string name="downloads_status_downloading">Téléchargement • %1$s</string>
     <string name="downloads_status_failed">Échoué</string>
     <string name="downloads_status_paused">En pause • %1$s</string>
     <string name="episodes_cd_watched">Vu</string>

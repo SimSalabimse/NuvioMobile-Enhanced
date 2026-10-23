@@ -22,6 +22,7 @@ import com.nuvio.app.features.streams.YouTubeStreamResolver
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
+import com.nuvio.app.features.debrid.DebridSourceFallback
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
@@ -42,31 +43,25 @@ internal fun PlayerScreenRuntime.resolveDebridForPlayer(
             "s=${season ?: -1} e=${episode ?: -1}",
     )
     scope.launch {
-        val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
-            stream = stream,
-            season = season,
-            episode = episode,
-        )
-        when (resolved) {
-            is DirectDebridPlayableResult.Success -> {
-                InAppLogger.info(
-                    "Streams/Debrid",
-                    "resolve success addon=${stream.addonName} stream=${stream.streamLabel} " +
-                        "url=${InAppLogger.redactUrl(resolved.stream.playableDirectUrl)}",
-                )
-                onResolved(resolved.stream)
-            }
-            else -> {
-                InAppLogger.warn(
-                    "Streams/Debrid",
-                    "resolve result=${resolved::class.simpleName ?: "unknown"} addon=${stream.addonName} " +
-                        "stream=${stream.streamLabel} stale=${resolved == DirectDebridPlayableResult.Stale}",
-                )
-                resolved.toastMessage()?.let { NuvioToastController.show(it) }
-                if (resolved == DirectDebridPlayableResult.Stale) {
-                    onStale()
-                }
-            }
+        val outcome = DebridSourceFallback.playable(stream, season, episode) {
+            (PlayerStreamsRepository.sourceState.value.groups + PlayerStreamsRepository.episodeStreamsState.value.groups)
+                .flatMap { it.streams }
+        }
+        val playable = outcome.stream
+        if (playable != null) {
+            InAppLogger.info(
+                "Streams/Debrid",
+                "resolve success addon=${playable.addonName} stream=${playable.streamLabel} " +
+                    "url=${InAppLogger.redactUrl(playable.playableDirectUrl)}",
+            )
+            onResolved(playable)
+        } else {
+            InAppLogger.warn(
+                "Streams/Debrid",
+                "resolve result=${outcome.failure?.let { it::class.simpleName } ?: "unknown"} addon=${stream.addonName} " +
+                    "stream=${stream.streamLabel}",
+            )
+            if (outcome.failure == DirectDebridPlayableResult.Stale) onStale()
         }
     }
     return true
@@ -253,13 +248,17 @@ internal fun PlayerScreenRuntime.switchToP2pSourceStream(stream: StreamItem) {
     activeTorrentInfoHash = infoHash
     activeTorrentFileIdx = stream.p2pFileIdx
     activeTorrentFilename = stream.behaviorHints.filename
+    activeSourceFilename = stream.behaviorHints.filename
     activeTorrentTrackers = stream.p2pTrackers
     activeSourceIdentityKey = stream.playerSourceIdentityKey()
     activeStreamTitle = stream.streamLabel
     activeStreamSubtitle = stream.streamSubtitle
     activeProviderName = stream.addonName
     activeProviderAddonId = stream.addonId
+    activeStream = stream
     currentStreamBingeGroup = stream.behaviorHints.bingeGroup
+    currentStreamFilename = stream.behaviorHints.filename
+    currentStreamInfoHash = stream.infoHash
     activeInitialPositionMs = currentPositionMs
     activeInitialProgressFraction = null
     showSourcesPanel = false
@@ -440,11 +439,15 @@ internal fun PlayerScreenRuntime.switchToSource(
     activeSourceResponseHeaders = sanitizePlaybackResponseHeaders(stream.behaviorHints.proxyHeaders?.response)
     activeStreamType = stream.streamType
     activeSourceIdentityKey = sourceIdentityKey
+    activeSourceFilename = stream.behaviorHints.filename
     activeStreamTitle = stream.streamLabel
     activeStreamSubtitle = stream.streamSubtitle
     activeProviderName = stream.addonName
     activeProviderAddonId = stream.addonId
+    activeStream = stream
     currentStreamBingeGroup = stream.behaviorHints.bingeGroup
+    currentStreamFilename = stream.behaviorHints.filename
+    currentStreamInfoHash = stream.infoHash
     activeInitialPositionMs = currentPositionMs
     activeInitialProgressFraction = null
     showSourcesPanel = false
@@ -550,13 +553,17 @@ internal fun PlayerScreenRuntime.switchToDownloadedEpisode(downloadItem: Downloa
     activeSourceResponseHeaders = emptyMap()
     activeStreamType = null
     activeSourceIdentityKey = null
+    activeSourceFilename = null
     activeStreamTitle = downloadItem.streamTitle.ifBlank {
         episode.title.ifBlank { title }
     }
     activeStreamSubtitle = downloadItem.streamSubtitle
     activeProviderName = downloadItem.providerName.ifBlank { downloadedLabel }
     activeProviderAddonId = downloadItem.providerAddonId
+    activeStream = null
     currentStreamBingeGroup = null
+    currentStreamFilename = null
+    currentStreamInfoHash = null
     activeSeasonNumber = episode.season
     activeEpisodeNumber = episode.episode
     activeEpisodeTitle = episode.title
@@ -712,11 +719,15 @@ private fun PlayerScreenRuntime.applyEpisodeStreamMetadata(
     resume: EpisodeResume,
 ) {
     activeSourceIdentityKey = stream.playerSourceIdentityKey()
+    activeSourceFilename = stream.behaviorHints.filename
     activeStreamTitle = stream.streamLabel
     activeStreamSubtitle = stream.streamSubtitle
     activeProviderName = stream.addonName
     activeProviderAddonId = stream.addonId
+    activeStream = stream
     currentStreamBingeGroup = stream.behaviorHints.bingeGroup
+    currentStreamFilename = stream.behaviorHints.filename
+    currentStreamInfoHash = stream.infoHash
     activeSeasonNumber = episode.season
     activeEpisodeNumber = episode.episode
     activeEpisodeTitle = episode.title

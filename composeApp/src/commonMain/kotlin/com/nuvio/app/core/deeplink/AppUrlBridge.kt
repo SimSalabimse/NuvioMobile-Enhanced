@@ -1,6 +1,8 @@
 package com.nuvio.app.core.deeplink
 
 import com.nuvio.app.core.tracking.ensureTrackingProvidersRegistered
+import com.nuvio.app.features.party.PARTY_CODE_LENGTH
+import com.nuvio.app.features.party.normalizePartyCode
 import com.nuvio.app.features.player.infusePlaybackCallbacks
 import com.nuvio.app.features.tracking.TrackingProviderRegistry
 import io.ktor.http.Url
@@ -20,6 +22,14 @@ internal sealed interface AppDeepLink {
     ) : AppDeepLink
 
     data object Downloads : AppDeepLink
+
+    data class Party(
+        val code: String,
+    ) : AppDeepLink
+
+    data class SkipMark(
+        val mark: com.nuvio.app.features.player.skip.SharedSkipMark,
+    ) : AppDeepLink
 }
 
 internal object AppDeepLinkRepository {
@@ -71,10 +81,13 @@ internal fun parseAppDeepLink(url: String): AppDeepLink? {
             null
         }
     }
-    if (scheme != "nuvio") return null
-
     val host = parsedUrl.host.lowercase()
     val pathSegments = parsedUrl.pathSegments.map(String::trim).filter(String::isNotBlank)
+    if (scheme == "https") {
+        return if (host == "nuvio.tv" && pathSegments.firstOrNull() == "party") partyDeepLink(pathSegments.getOrNull(1)) else null
+    }
+    if (scheme != "nuvio") return null
+
     return when (host) {
         "meta" -> {
             parseMetaFromParameters(parsedUrl)
@@ -93,6 +106,10 @@ internal fun parseAppDeepLink(url: String): AppDeepLink? {
 
         "downloads" -> AppDeepLink.Downloads
 
+        "party" -> partyDeepLink(pathSegments.firstOrNull() ?: firstParameter(parsedUrl, "code"))
+
+        "skip" -> com.nuvio.app.features.player.skip.parseSkipMarkLink(parsedUrl)?.let(AppDeepLink::SkipMark)
+
         "auth" -> null
 
         else -> {
@@ -104,6 +121,9 @@ internal fun parseAppDeepLink(url: String): AppDeepLink? {
         }
     }
 }
+
+private fun partyDeepLink(code: String?): AppDeepLink.Party? =
+    code?.let(::normalizePartyCode)?.takeIf { it.length == PARTY_CODE_LENGTH }?.let(AppDeepLink::Party)
 
 private fun parseMetaFromParameters(parsedUrl: Url): AppDeepLink.Meta? {
     val type = firstParameter(parsedUrl, "type", "mediaType", "media_type")

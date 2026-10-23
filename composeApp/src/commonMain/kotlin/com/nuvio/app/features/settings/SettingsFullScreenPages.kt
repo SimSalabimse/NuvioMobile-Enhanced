@@ -137,7 +137,7 @@ fun ContinueWatchingSettingsScreen(
             upNextFromFurthestEpisode = continueWatchingPreferencesUiState.upNextFromFurthestEpisode,
             useEpisodeThumbnails = continueWatchingPreferencesUiState.useEpisodeThumbnails,
             showUnairedNextUp = continueWatchingPreferencesUiState.showUnairedNextUp,
-            blurNextUp = continueWatchingPreferencesUiState.blurNextUp,
+            showFinishSeries = continueWatchingPreferencesUiState.showFinishSeries,
             showResumePromptOnLaunch = continueWatchingPreferencesUiState.showResumePromptOnLaunch,
             sortMode = continueWatchingPreferencesUiState.sortMode,
         )

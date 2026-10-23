@@ -119,12 +119,33 @@ class IosResumeChoiceTest {
     fun `a ranged 206 still appends and a full 200 may replace an empty prefix`() {
         assertEquals(
             PartialPrefixDisposition.Append,
-            partialPrefixDisposition(statusCode = 206, requestedRange = 4_000_000L, prefixLength = 4_000_000L),
+            partialPrefixDisposition(
+                statusCode = 206,
+                requestedRange = 4_000_000L,
+                prefixLength = 4_000_000L,
+                contentRange = "bytes 4000000-9999999/10000000",
+                expectedTotal = 10_000_000L,
+            ),
         )
         assertEquals(
             PartialPrefixDisposition.Replace,
             partialPrefixDisposition(statusCode = 200, requestedRange = 0L, prefixLength = 0L),
         )
+    }
+
+    @Test
+    fun `a ranged 206 that does not continue the prefix starts again from zero`() {
+        fun disposition(contentRange: String?, prefix: Long = 4_000_000L, total: Long? = 10_000_000L) =
+            partialPrefixDisposition(206, requestedRange = 4_000_000L, prefixLength = prefix, contentRange = contentRange, expectedTotal = total)
+        // Another file behind a refreshed link (other size), another offset, no Content-Range, a
+        // `.part` of another length: none of them are glued on.
+        assertEquals(PartialPrefixDisposition.Restart, disposition("bytes 4000000-12999999/13000000"))
+        assertEquals(PartialPrefixDisposition.Restart, disposition("bytes 0-9999999/10000000"))
+        assertEquals(PartialPrefixDisposition.Restart, disposition(null))
+        assertEquals(PartialPrefixDisposition.Restart, disposition("bytes 4000000-9999999/10000000", prefix = 5_000_000L))
+        // Unknown totals on either side only need the offset to match.
+        assertEquals(PartialPrefixDisposition.Append, disposition("bytes 4000000-9999999/*"))
+        assertEquals(PartialPrefixDisposition.Append, disposition("bytes 4000000-9999999/10000000", total = null))
     }
 
     @Test

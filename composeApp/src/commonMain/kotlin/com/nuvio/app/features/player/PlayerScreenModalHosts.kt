@@ -279,6 +279,7 @@ internal fun PlayerScreenModalHosts(
             parentMetaType = parentMetaType.ifBlank { metaUiState.meta?.type.orEmpty() },
             existingSegments = skipIntervals,
             submittedTypesInSession = submittedSegmentTypesInSession,
+            shareMetaId = parentMetaId.ifBlank { metaUiState.meta?.id }?.takeIf { it.isNotBlank() },
         )
     }
 

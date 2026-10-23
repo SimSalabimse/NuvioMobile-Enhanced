@@ -15,6 +15,26 @@ import kotlin.test.assertTrue
 class PlayerScreenRuntimeStateTest {
 
     @Test
+    fun positionReadersUseTheLiveClockNotTheStatusSnapshot() {
+        // The status snapshot always holds position 0; the live position lives in the clock.
+        val runtime = PlayerScreenRuntime(testPlayerScreenArgs())
+        runtime.updatePlaybackSnapshot(PlayerPlaybackSnapshot(
+            isLoading = false, isPlaying = true, positionMs = 42_000L, durationMs = 3_000_000L,
+        ))
+        assertEquals(0L, runtime.playbackSnapshot.positionMs)
+        assertEquals(42_000L, runtime.playbackClock.positionMs)
+        runtime.captureSubtitleSyncHeard()
+        assertEquals(42_000L, runtime.subtitleSyncHeardPositionMs)
+    }
+
+    @Test
+    fun debugReadoutShowsSecondsForPositionAndSegments() {
+        val credits = com.nuvio.app.features.player.skip.SkipInterval(3_000.0, 3_090.0, "outro", "introdb")
+        val text = playerDebugReadoutText(120_000L, 3_100_000L, listOf(credits), credits)
+        assertEquals("pos 120.0 s · dur 3100.0 s\n▶ outro 3000.0–3090.0 s (IntroDB)", text)
+    }
+
+    @Test
     fun controlsStartHidden() {
         assertFalse(PlayerScreenRuntime(testPlayerScreenArgs()).controlsVisible)
     }

@@ -28,14 +28,16 @@ class FingerprintMatcherTest {
         assertNull(FingerprintMatcher.longestSharedSegment(noise(random, 1200), noise(random, 1200), minFrames = 150))
     }
 
-    @Test
-    fun seasonDetectorReportsIntroAndCreditsTimes() {
-        val random = Random(3)
-        val intro = noise(random, 400)
-        val credits = noise(random, 500)
+    /** Episodes of one season sharing an intro and credits at the given 100 ms frames. */
+    private class Season(seed: Int) {
+        private val random = Random(seed)
+        private val intro = IntArray(400) { random.nextInt() }
+        private val credits = IntArray(500) { random.nextInt() }
+        private fun noise(size: Int) = IntArray(size) { random.nextInt() }
+
         fun episode(key: String, introAt: Int, creditsAt: Int): MediaAnalysisResult {
-            val head = noise(random, introAt) + intro + noise(random, 6000 - introAt - intro.size)
-            val tail = noise(random, creditsAt) + credits + noise(random, 4800 - creditsAt - credits.size)
+            val head = noise(introAt) + intro + noise(6000 - introAt - intro.size)
+            val tail = noise(creditsAt) + credits + noise(4800 - creditsAt - credits.size)
             return MediaAnalysisResult(
                 key = key,
                 analyzedAtMs = 0L,
@@ -45,14 +47,42 @@ class FingerprintMatcherTest {
                 tailStartMs = 2_400_000L - TAIL_FINGERPRINT_MS,
             )
         }
-        val one = episode("s1e1", introAt = 900, creditsAt = 4300)
-        val two = episode("s1e2", introAt = 30, creditsAt = 4000)
+    }
+
+    @Test
+    fun seasonDetectorReportsIntroAndCreditsTimes() {
+        val season = Season(3)
+        val one = season.episode("s1e1", introAt = 900, creditsAt = 4300)
+        val two = season.episode("s1e2", introAt = 30, creditsAt = 4000)
         val found = SeasonSegmentDetector.detect(one, listOf(two))
         assertEquals(90_000L, found.introStartMs)
         assertEquals(130_000L, found.introEndMs)
         assertEquals(one.tailStartMs + 430_000L, found.creditsStartMs)
         // The credits run to the end of the tail window, so they end at the file's duration.
         assertEquals(2_400_000L, found.creditsEndMs)
+    }
+
+    @Test
+    fun deletedEpisodeStillTeachesTheNextDownload() {
+        // Download E1, analyse it, delete it; then download E2 alone.
+        val season = Season(5)
+        val key = "seqtest__s1e1"
+        MediaAnalysisStore.save(
+            season.episode(key, introAt = 900, creditsAt = 4300)
+                .copy(fileName = "e1.mkv", energy = "AAAA", integratedLufs = -20.0),
+        )
+        MediaAnalysisStore.forgetFileData(key)
+        val kept = assertNotNull(MediaAnalysisStore.load(key))
+        assertNull(kept.fileName)
+        assertNull(kept.energy)
+        assertNotNull(kept.headFingerprint)
+        assertNotNull(kept.tailFingerprint)
+
+        val two = season.episode("seqtest__s1e2", introAt = 30, creditsAt = 4000)
+        val found = SeasonSegmentDetector.detect(two, listOf(kept))
+        assertEquals(3_000L, found.introStartMs)
+        assertEquals(43_000L, found.introEndMs)
+        assertEquals(two.tailStartMs + 400_000L, found.creditsStartMs)
     }
 
     @Test

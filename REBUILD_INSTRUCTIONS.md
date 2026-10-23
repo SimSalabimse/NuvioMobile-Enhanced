@@ -127,7 +127,7 @@ if (audioSamples.isEmpty()) {
 ## Commit Timeline
 
 ```
-ab6737b4 - Fix type error in getCurrentMediaURL() (Simen tested this - FAILED)
+ab6737b4 - Fix type error in getCurrentMediaURL() (Simsalabim tested this - FAILED)
     ↓
 838e1fdf - Remove sideload gate (fix misleading error message)
     ↓

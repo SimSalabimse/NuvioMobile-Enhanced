@@ -79,7 +79,6 @@
     <string name="cd_selected">Odabrano</string>
     <string name="collections_copy_json">Kopiraj JSON</string>
     <string name="collections_copy_json_error">Podaci zbirke su preveliki za međuspremnik na ovom uređaju.</string>
-    <string name="collections_count_summary">%1$d zbirka/e, %2$d mapa/e</string>
     <string name="collections_delete_message">Izbrisati „%1$s”? Ova se radnja ne može poništiti.</string>
     <string name="collections_delete_title">Izbriši zbirku</string>
     <string name="collections_editor_add_catalog">Dodaj katalog</string>
@@ -128,7 +127,9 @@
     <string name="collections_editor_show_all_tab">Prikaži karticu &quot;Sve&quot;</string>
     <string name="collections_editor_show_gif_when_configured_desc">Reproduciraj konfigurirani GIF umjesto statične naslovnice kada je dostupan.</string>
     <string name="collections_editor_show_gif_when_configured">Prikaži GIF kada je konfiguriran</string>
-    <string name="collections_editor_source_count">%1$d izvor(a) · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d izvor(a) · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">Oblik pločice</string>
     <string name="collections_editor_view_mode_rows">Redovi</string>
     <string name="collections_editor_view_mode_tabs">Kartice</string>
@@ -324,7 +325,9 @@
     <string name="collections_editor_tmdb_subtitle_discover">TMDB otkrivanje</string>
     <string name="collections_empty_subtitle">Stvorite jednu kako biste organizirali svoje kataloge.</string>
     <string name="collections_empty_title">Još nema zbirki</string>
-    <string name="collections_folder_count">%1$d mapa/e</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">%1$d mapa/e</item>
+    </plurals>
     <string name="collections_folder_empty_items">Nema pronađenih stavki</string>
     <string name="collections_folder_not_found">Mapa nije pronađena</string>
     <string name="collections_header">Zbirke</string>
@@ -625,7 +628,6 @@
     <string name="detail_trailers_title">Najave</string>
     <string name="downloads_empty_episodes">Nema dovršenih epizoda</string>
     <string name="downloads_empty_title">Još nema preuzimanja</string>
-    <string name="downloads_episode_count">%1$d preuzetih epizoda</string>
     <string name="downloads_open_directory">Otvori mapu s preuzimanjima</string>
     <string name="downloads_open_directory_failed">Nije uspjelo otvaranje mape s preuzimanjima</string>
     <string name="downloads_section_active">Aktivno</string>
@@ -633,7 +635,6 @@
     <string name="downloads_section_shows">Serije</string>
     <string name="downloads_show_downloads">Prikaži preuzimanja</string>
     <string name="downloads_status_completed">Dovršeno • %1$s</string>
-    <string name="downloads_status_downloading">Preuzimanje • %1$s</string>
     <string name="downloads_status_failed">Neuspjelo</string>
     <string name="downloads_status_paused">Pauzirano • %1$s</string>
     <string name="episodes_cd_watched">Pogledano</string>
@@ -2411,4 +2412,7 @@
     <string name="movie_status_rumored">Govorka se</string>
     <string name="movie_status_in_production">U produkciji</string>
     <string name="movie_status_post_production">Postprodukcija</string>
+<string name="settings_nav_bar_liquid_glass">Materijal Liquid Glass</string>
+<string name="settings_nav_bar_liquid_glass_description">Dodaje lom svjetlosti i zamućenje plutajućoj navigacijskoj traci.</string>
+<string name="settings_nav_bar_liquid_glass_unsupported_description">Potreban je Android 13 ili noviji. Ovaj uređaj zadržat će postojeći stil stakla.</string>
 </resources>

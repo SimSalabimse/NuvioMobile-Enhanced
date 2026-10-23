@@ -1,5 +1,8 @@
 package com.nuvio.app.features.settings
 
+import com.nuvio.app.core.format.countText
+import com.nuvio.app.features.watchprogress.CONTINUE_WATCHING_PAUSE_CHOICES_DAYS
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,8 +41,6 @@ import com.nuvio.app.features.watchprogress.ContinueWatchingSortMode
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.settings_continue_watching_resume_prompt_description
 import nuvio.composeapp.generated.resources.settings_continue_watching_resume_prompt_title
-import nuvio.composeapp.generated.resources.settings_continue_watching_blur_next_up_description
-import nuvio.composeapp.generated.resources.settings_continue_watching_blur_next_up_title
 import nuvio.composeapp.generated.resources.settings_continue_watching_show_unaired_next_up_description
 import nuvio.composeapp.generated.resources.settings_continue_watching_show_unaired_next_up_title
 import nuvio.composeapp.generated.resources.settings_continue_watching_section_card_style
@@ -76,9 +77,9 @@ internal fun LazyListScope.continueWatchingSettingsContent(
     upNextFromFurthestEpisode: Boolean,
     useEpisodeThumbnails: Boolean,
     showUnairedNextUp: Boolean,
-    blurNextUp: Boolean,
     showResumePromptOnLaunch: Boolean,
     sortMode: ContinueWatchingSortMode,
+    showFinishSeries: Boolean = true,
 ) {
     item {
         SettingsSection(
@@ -92,6 +93,25 @@ internal fun LazyListScope.continueWatchingSettingsContent(
                     checked = isVisible,
                     isTablet = isTablet,
                     onCheckedChange = ContinueWatchingPreferencesRepository::setVisible,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                SettingsSwitchRow(
+                    title = "Finish a series",
+                    description = "A Home row with the shows you've started, shortest to finish first (all remaining episodes).",
+                    checked = showFinishSeries,
+                    isTablet = isTablet,
+                    onCheckedChange = ContinueWatchingPreferencesRepository::setShowFinishSeries,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                val pauseAfterDays = ContinueWatchingPreferencesRepository.uiState.collectAsStateWithLifecycle().value.pauseStaleAfterDays
+                SettingsNavigationRow(
+                    title = "Pause untouched items",
+                    description = if (pauseAfterDays == 0) "Never" else "After ${countText(pauseAfterDays, "day")} they move to a Paused row on Home",
+                    isTablet = isTablet,
+                    onClick = {
+                        val choices = CONTINUE_WATCHING_PAUSE_CHOICES_DAYS
+                        ContinueWatchingPreferencesRepository.setPauseStaleAfterDays(choices[(choices.indexOf(pauseAfterDays) + 1) % choices.size])
+                    },
                 )
             }
         }
@@ -139,16 +159,6 @@ internal fun LazyListScope.continueWatchingSettingsContent(
                     isTablet = isTablet,
                     onCheckedChange = ContinueWatchingPreferencesRepository::setShowUnairedNextUp,
                 )
-                if (style != ContinueWatchingSectionStyle.Poster && useEpisodeThumbnails) {
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsSwitchRow(
-                        title = stringResource(Res.string.settings_continue_watching_blur_next_up_title),
-                        description = stringResource(Res.string.settings_continue_watching_blur_next_up_description),
-                        checked = blurNextUp,
-                        isTablet = isTablet,
-                        onCheckedChange = ContinueWatchingPreferencesRepository::setBlurNextUp,
-                    )
-                }
             }
         }
     }

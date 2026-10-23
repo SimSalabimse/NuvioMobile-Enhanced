@@ -21,7 +21,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.features.downloads.DownloadEnqueueService
 import com.nuvio.app.features.downloads.DownloadItem
+import com.nuvio.app.features.downloads.DownloadTarget
 import com.nuvio.app.features.downloads.DownloadStatus
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.downloadLogicalContentKey
@@ -40,7 +42,7 @@ import com.nuvio.app.features.streams.StreamProxyHeaders
 internal fun PlayerScreenRuntime.playerDownloadActionAvailable(): Boolean {
     if (!isDownloadablePlayback) return false
     if (isPlayingSwappedDownload) return true
-    val url = activeSourceUrl?.trim().orEmpty()
+    val url = activeSourceUrl.trim()
     if (url.isEmpty() || url.startsWith("file:") || isLoopbackPartialPlaybackUrl(url)) return false
     return url.isSupportedDownloadUrl()
 }
@@ -82,7 +84,7 @@ private fun PlayerScreenRuntime.onPlayerDownloadClick(row: DownloadItem?) {
 }
 
 private fun PlayerScreenRuntime.startPlayerDownload() {
-    val url = activeSourceUrl ?: return
+    val url = activeSourceUrl
     val stream = StreamItem(
         name = activeStreamTitle,
         description = activeStreamSubtitle,
@@ -98,7 +100,7 @@ private fun PlayerScreenRuntime.startPlayerDownload() {
             ),
         ),
     )
-    val result = DownloadsRepository.enqueueFromStream(
+    val target = DownloadTarget(
         contentType = contentType ?: parentMetaType,
         videoId = activeVideoId ?: videoId ?: parentMetaId,
         parentMetaId = parentMetaId,
@@ -111,9 +113,8 @@ private fun PlayerScreenRuntime.startPlayerDownload() {
         episodeNumber = activeEpisodeNumber,
         episodeTitle = activeEpisodeTitle,
         episodeThumbnail = activeEpisodeThumbnail,
-        stream = stream,
     )
-    NuvioToastController.show(result.toastMessage())
+    NuvioToastController.show(DownloadEnqueueService.enqueue(target, stream).toastMessage())
 }
 
 @Composable

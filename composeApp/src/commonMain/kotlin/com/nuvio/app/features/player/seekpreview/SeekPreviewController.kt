@@ -16,6 +16,7 @@ import kotlinx.coroutines.IO
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
@@ -27,13 +28,16 @@ import kotlin.time.TimeSource
 
 private const val FrameMaxWidthPx = 320
 
-private const val MaxCachedFrames = 40
+private const val MaxCachedFrames = 100
 
-private const val MinBucketMs = 2_000L
-private const val MaxBucketMs = 10_000L
-private const val BucketsPerTitle = 500L
+private const val MinBucketMs = 1_000L
+private const val MaxBucketMs = 5_000L
+private const val BucketsPerTitle = 1_000L
 
 private const val MaxInitialFailures = 3
+
+private const val WarmUpDelayMs = 1_200L
+private const val IdleReleaseMs = 30_000L
 
 private const val LogTag = "Player/SeekPreview"
 
@@ -53,6 +57,9 @@ internal class SeekPreviewController(
 
     private val cache = LinkedHashMap<Long, ImageBitmap>()
     private var worker: Job? = null
+    private var warmJob: Job? = null
+    private var releaseJob: Job? = null
+    private var scrubbing = false
     private var consecutiveFailures = 0
     private var hasSucceeded = false
 
@@ -70,6 +77,9 @@ internal class SeekPreviewController(
 
     fun request(positionMs: Long, durationMs: Long) {
         if (isUnavailable || durationMs <= 0L) return
+        scrubbing = true
+        warmJob?.cancel()
+        releaseJob?.cancel()
         val bucket = bucketFor(positionMs.coerceIn(0L, durationMs), durationMs)
         val cached = cache.remove(bucket)?.also { cache[bucket] = it }
         if (cached != null) {
@@ -81,9 +91,35 @@ internal class SeekPreviewController(
         if (worker == null) worker = scope.launch { decodeRequests() }
     }
 
+    fun warmUp(positionMs: Long, durationMs: Long) {
+        if (isUnavailable || durationMs <= 0L || scrubbing) return
+        releaseJob?.cancel()
+        warmJob?.cancel()
+        warmJob = scope.launch {
+            delay(WarmUpDelayMs)
+            if (scrubbing || isUnavailable) return@launch
+            val bucket = bucketFor(positionMs.coerceIn(0L, durationMs), durationMs)
+            cache[bucket]?.let { frame = SeekPreviewFrame(bucket, it) }
+            requests.value = bucket
+            if (worker == null) worker = scope.launch { decodeRequests() }
+            scheduleRelease()
+        }
+    }
+
     fun endScrub() {
+        scrubbing = false
         requests.value = null
-        releaseConnection()
+        scheduleRelease()
+    }
+
+    private fun scheduleRelease() {
+        releaseJob?.cancel()
+        releaseJob = scope.launch {
+            delay(IdleReleaseMs)
+            if (scrubbing) return@launch
+            requests.value = null
+            releaseConnection()
+        }
     }
 
     private fun releaseConnection() {
@@ -109,7 +145,7 @@ internal class SeekPreviewController(
 
     private suspend fun decodeRequests() {
         requests.filterNotNull().collect { bucket ->
-            if (cache.containsKey(bucket)) return@collect
+            if (cache.containsKey(bucket) && source != null) return@collect
             val started = TimeSource.Monotonic.markNow()
             val generation = connectionGeneration
             val bitmap = try {
@@ -196,7 +232,7 @@ internal class SeekPreviewController(
 
 internal fun bucketFor(positionMs: Long, durationMs: Long): Long {
     val bucketMs = (durationMs / BucketsPerTitle).coerceIn(MinBucketMs, MaxBucketMs)
-    return (positionMs / bucketMs) * bucketMs
+    return ((positionMs + bucketMs / 2) / bucketMs * bucketMs).coerceAtMost(durationMs)
 }
 
 @Composable

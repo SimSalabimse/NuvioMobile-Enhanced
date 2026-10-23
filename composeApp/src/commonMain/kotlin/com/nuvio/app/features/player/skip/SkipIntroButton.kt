@@ -45,6 +45,7 @@ import nuvio.composeapp.generated.resources.player_skip_recap
 import nuvio.composeapp.generated.resources.player_skip_movie_credits
 import nuvio.composeapp.generated.resources.player_skip_to_post_credits
 import org.jetbrains.compose.resources.stringResource
+import com.nuvio.app.core.ui.glass.ambientLiquidGlass
 
 @Composable
 fun SkipIntroButton(
@@ -59,9 +60,11 @@ fun SkipIntroButton(
     var lastType by remember { mutableStateOf(interval?.type) }
     var lastSkipsToPostCredits by remember { mutableStateOf(skipsToPostCredits) }
     val canSkip = interval?.internalSkipAction(emptyList()) != null
+    var lastRange by remember { mutableStateOf<String?>(null) }
     if (canSkip) {
         lastType = interval?.type
         lastSkipsToPostCredits = skipsToPostCredits
+        lastRange = skipRangeLabel(interval.startTime, interval.endTime)
     }
     val shouldShow = canSkip && (!dismissed || controlsVisible)
 
@@ -112,7 +115,14 @@ fun SkipIntroButton(
             modifier = Modifier
                 .width(IntrinsicSize.Max)
                 .clip(shape)
-                .background(Color(0xFF1E1E1E).copy(alpha = 0.85f))
+                .ambientLiquidGlass(
+                    shape = shape,
+                    tint = Color(0xFF1E1E1E).copy(alpha = 0.6f),
+                    fallback = Color(0xFF1E1E1E).copy(alpha = 0.85f),
+                    blurRadius = 18.dp,
+                    refractionHeight = 10.dp,
+                    refractionAmount = 14.dp,
+                )
                 .clickable(enabled = canSkip) { onSkip() },
         ) {
             Row(
@@ -131,7 +141,16 @@ fun SkipIntroButton(
                     fontSize = 14.sp,
                     modifier = Modifier.padding(start = 8.dp),
                 )
-                skipSourceTag(interval?.provider)?.let { tag ->
+                lastRange?.let { range ->
+                    Text(
+                        text = range,
+                        color = Color.White.copy(alpha = 0.75f),
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        modifier = Modifier.padding(start = 6.dp),
+                    )
+                }
+                skipSourceLabel(interval?.provider)?.let { tag ->
                     Text(
                         text = tag,
                         color = Color.White.copy(alpha = 0.6f),
@@ -182,16 +201,17 @@ private fun skipLabel(type: String?, skipsToPostCredits: Boolean): String =
         else -> stringResource(Res.string.player_skip)
     }
 
-/** Where the skip times came from, shown as a small tag next to the Skip label. */
-internal fun skipSourceTag(provider: String?): String? = when (provider) {
-    null -> null
-    com.nuvio.app.features.analysis.SkipLearning.PROVIDER -> "You"
-    com.nuvio.app.features.analysis.SkipLearning.PROVIDER_IMPORTED -> "TheIntroDB (yours)"
-    TheIntroDb.PROVIDER -> "TheIntroDB"
-    com.nuvio.app.features.player.ON_DEVICE_SKIP_PROVIDER -> "On-device"
-    "introdb" -> "IntroDB"
-    "aniskip" -> "AniSkip"
-    "animeskip" -> "Anime-Skip"
-    "heuristic" -> "Guess"
-    else -> null
+/** "1:12–2:41" (or "1:02:05–1:03:40" past an hour) for the Skip button. */
+internal fun skipRangeLabel(startSec: Double, endSec: Double): String? {
+    if (endSec <= startSec || startSec < 0) return null
+    return "${compactTime(startSec)}\u2013${compactTime(endSec)}"
+}
+
+private fun compactTime(seconds: Double): String {
+    val total = seconds.toLong().coerceAtLeast(0)
+    val h = total / 3600
+    val m = (total % 3600) / 60
+    val s = total % 60
+    val ss = s.toString().padStart(2, '0')
+    return if (h > 0) "$h:${m.toString().padStart(2, '0')}:$ss" else "$m:$ss"
 }

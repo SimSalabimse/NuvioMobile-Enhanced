@@ -170,6 +170,55 @@ internal actual object DownloadsPlatformDownloader {
         }
     }
 
+    /**
+     * Deletes a finished file wherever it may be: the saved path, then `<folder>/<name>` in the
+     * active (custom) folder and in the default one. Whatever holds the file open (preview reader,
+     * analysis, audio capture, a player) is told to let go first, or iOS keeps the space in use.
+     * Checked afterwards: a file that is still there, or was found nowhere, is not "deleted".
+     */
+    actual fun removeFileVerified(candidates: List<String?>, fileName: String): FileDeleteOutcome {
+        val names = buildList {
+            fileName.trim().takeIf { it.isNotBlank() && !it.contains('/') }?.let(::add)
+            candidates.forEach { uri ->
+                uri?.trim()?.takeIf { it.startsWith("file:") || it.startsWith("/") }
+                    ?.toLocalPath()?.substringAfterLast('/')?.takeIf { it.isNotBlank() }?.let(::add)
+            }
+        }.distinct()
+        val active = resolveDownloadsBaseDirectory()
+        val defaultDir = downloadsDirectoryPath()
+        return active.withAccess { activeDir ->
+            val paths = buildList {
+                candidates.forEach { uri ->
+                    val path = uri?.trim()?.takeIf { it.startsWith("file:") || it.startsWith("/") }?.toLocalPath()
+                    if (path != null) add(path)
+                }
+                names.forEach { name ->
+                    add("$activeDir/$name")
+                    add("$defaultDir/$name")
+                }
+            }.distinct()
+            val manager = NSFileManager.defaultManager
+            val existing = paths.filter { manager.fileExistsAtPath(it) }
+            existing.forEach { path ->
+                releaseHeldDownloadFile(path)
+                manager.removeItemAtPath(path, null)
+            }
+            when {
+                existing.any { manager.fileExistsAtPath(it) } -> FileDeleteOutcome.StillThere
+                existing.isNotEmpty() -> FileDeleteOutcome.Deleted
+                else -> FileDeleteOutcome.NotFound
+            }
+        }
+    }
+
+    /** The row is being deleted: stop every writer and cancel without keeping resume data. */
+    actual fun discardTransfer(downloadId: String) {
+        cancelDownloadSubtitles(downloadId)
+        IosTransferControl.suppress(downloadId)
+        IosForegroundDownloads.cancel(downloadId)
+        IosBackgroundDownloadCoordinator.cancelWithoutResumeData(downloadId)
+    }
+
     actual fun removePartialFile(destinationFileName: String): Boolean =
         resolveDownloadsBaseDirectory().withAccess { downloadsDirectory ->
             val destinationPath = "$downloadsDirectory/$destinationFileName"
@@ -403,10 +452,11 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
                         reportReattachedBytes(downloadId, live, partLength)
                     }
                     IosResumeAction.StayPaused -> Unit
-                    IosResumeAction.RangeFromPrefix -> if (live == null) {
+                    // A restart fetches bytes again: through the same space gate as any start.
+                    IosResumeAction.RangeFromPrefix -> if (live == null && DownloadsRepository.admitRestart(downloadId)) {
                         restartTracked(downloadId, active, partLength)
                     }
-                    IosResumeAction.StartAtZero -> if (live == null && partLength <= 0L) {
+                    IosResumeAction.StartAtZero -> if (live == null && partLength <= 0L && DownloadsRepository.admitRestart(downloadId)) {
                         restartTracked(downloadId, active, 0L)
                     }
                 }
@@ -526,6 +576,14 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
             partLength
         } else {
             rangeStart
+        }
+        // Resume data means bytes in the system temp file: continue that task in the background
+        // instead of starting the in-app writer, which threw the resume data (and those bytes) away.
+        if (rangeStart == null && iosResumeBlobExists(request.destinationFileName) &&
+            !IosForegroundDownloads.isRunning(downloadId)
+        ) {
+            startOrResume(downloadId, request, null, callbacks)
+            return
         }
         if (IosForegroundDownloads.shouldUseForeground()) {
             stopKeepingPartial(downloadId) {
@@ -769,18 +827,68 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
                 if (pendingPauses[downloadId] === pending) pendingPauses.remove(downloadId)
                 if (resumeData != null && !pending.discard) {
                     writeResumeData(fileName, resumeData)
+                } else if (resumeData != null) {
+                    releaseResumeBytes(resumeData)
                 }
                 pending.deferredStart?.invoke()
             }
         }
     }
 
+    /**
+     * Drops the stored resume data of [fileName]. Deleting only the blob used to leave the bytes it
+     * points at in Library/Caches/com.apple.nsurlsessiond (often gigabytes): the system keeps that
+     * temp file for as long as resume data could use it. A task made from the blob and cancelled
+     * without new resume data makes the system delete it.
+     */
     fun discardResumeData(fileName: String) {
         pendingPauses.values
             .filter { it.fileName == fileName }
             .forEach { it.discard = true }
+        val data = takeResumeData(fileName)
+        if (data != null) releaseResumeBytes(data)
         removePathIfExists(resumeDataPath(fileName))
     }
+
+    private fun releaseResumeBytes(data: NSData) {
+        runCatching {
+            val task = ensureSessionCreated().downloadTaskWithResumeData(data)
+            task.taskDescription = DISCARD_TASK_DESCRIPTION
+            task.cancel()
+        }
+    }
+
+    /** Row deleted: cancel the task outright (no resume data), also a task the system relaunched. */
+    fun cancelWithoutResumeData(downloadId: String) {
+        IosBackgroundTaskFiles.forget(downloadId)
+        pendingPauses[downloadId]?.discard = true
+        val active = activeDownloads.remove(downloadId)
+        active?.deliberatelyCancelled = true
+        if (active != null) IosWriterOwnership.release(downloadId, DownloadWriterKind.Background)
+        tasksByDownloadId.remove(downloadId)?.cancel()
+        ensureSessionCreated().getAllTasksWithCompletionHandler { tasks ->
+            tasks.orEmpty()
+                .mapNotNull { it as? NSURLSessionTask }
+                .filter { it.taskDescription == downloadId }
+                .forEach { it.cancel() }
+        }
+    }
+
+    /** True when nothing runs on the background session or in this process (refreshed asynchronously). */
+    @kotlin.concurrent.Volatile
+    var systemSessionIdle: Boolean = false
+        private set
+
+    fun refreshSystemSessionIdle() {
+        ensureSessionCreated().getAllTasksWithCompletionHandler { tasks ->
+            val live = tasks.orEmpty().mapNotNull { it as? NSURLSessionTask }
+                .any { it.state != NSURLSessionTaskStateCompleted && it.state != NSURLSessionTaskStateCanceling }
+            systemSessionIdle = !live && activeDownloads.isEmpty() && tasksByDownloadId.isEmpty() && pendingPauses.isEmpty()
+        }
+    }
+
+    fun hasTrackedTransfers(): Boolean =
+        activeDownloads.isNotEmpty() || tasksByDownloadId.isNotEmpty() || pendingPauses.isNotEmpty()
 
     private fun activeFor(task: NSURLSessionTask): Pair<String, ActiveDownload>? {
         val downloadId = task.taskDescription ?: return null
@@ -877,7 +985,22 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
                 statusCode = statusCode,
                 requestedRange = requestedRange,
                 prefixLength = prefixLength,
+                contentRange = (downloadTask.response as? NSHTTPURLResponse)?.let { headerValue(it, "Content-Range") },
+                expectedTotal = DownloadsRepository.knownTotalBytes(downloadId),
             )
+            if (disposition == PartialPrefixDisposition.Restart) {
+                // Not the continuation of `.part`: drop both and fetch the file again from byte 0.
+                removePathIfExists(didFinishDownloadingToURL.path.orEmpty())
+                removePathIfExists(tempPath)
+                val callbacks = active.callbacks
+                activeDownloads.remove(downloadId)
+                tasksByDownloadId.remove(downloadId)
+                if (!startOrResume(downloadId = downloadId, request = request, rangeStart = 0L, callbacks = callbacks)) {
+                    IosWriterOwnership.release(downloadId, DownloadWriterKind.Background)
+                    callbacks?.onFailure(runBlocking { getString(Res.string.downloads_error_finalize_file_failed) })
+                }
+                return
+            }
             if (disposition == PartialPrefixDisposition.Keep) {
                 removePathIfExists(didFinishDownloadingToURL.path.orEmpty())
                 finishWithFailure(
@@ -1043,9 +1166,17 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
                 statusCode = statusCode,
                 requestedRange = resumeOffset(task),
                 prefixLength = fileSizeOrNull(partPath) ?: 0L,
+                contentRange = (task.response as? NSHTTPURLResponse)?.let { headerValue(it, "Content-Range") },
+                expectedTotal = DownloadsRepository.knownTotalBytes(downloadId),
             )
             if (disposition == PartialPrefixDisposition.Keep) {
                 removePathIfExists(tempPath)
+                return
+            }
+            if (disposition == PartialPrefixDisposition.Restart) {
+                // Not the continuation of `.part`: the row starts again from byte 0 when it loads.
+                removePathIfExists(tempPath)
+                removePathIfExists(partPath)
                 return
             }
             if (disposition == PartialPrefixDisposition.Replace) removePathIfExists(partPath)
@@ -1163,7 +1294,7 @@ private fun copyByAppending(fromPath: String, toPath: String): Boolean {
 internal data class DownloadsBaseDirectory(val path: String, val scopedUrl: NSURL?)
 
 @OptIn(ExperimentalForeignApi::class)
-private fun downloadsDirectoryPath(): String {
+internal fun downloadsDirectoryPath(): String {
     val root = NSHomeDirectory().trimEnd('/')
     val path = "$root/Documents/nuvio_downloads"
     NSFileManager.defaultManager.createDirectoryAtPath(
@@ -1235,6 +1366,24 @@ private fun resumeDataDirectoryPath(): String {
 
 private fun resumeDataPath(fileName: String): String =
     "${resumeDataDirectoryPath()}/$fileName.resumedata"
+
+internal const val DISCARD_TASK_DESCRIPTION = "nuvio-discard"
+
+/** Temp file names (CFNetworkDownload_*.tmp) that stored resume data still points at. */
+@OptIn(ExperimentalForeignApi::class)
+internal fun iosResumeReferencedTempNames(): Set<String> {
+    val dir = resumeDataDirectoryPath()
+    return NSFileManager.defaultManager.contentsOfDirectoryAtPath(dir, null).orEmpty()
+        .mapNotNull { it as? String }
+        .filter { it.endsWith(".resumedata") }
+        .mapNotNull { name ->
+            val data = NSData.dataWithContentsOfFile("$dir/$name") ?: return@mapNotNull null
+            val plist = platform.Foundation.NSPropertyListSerialization.propertyListWithData(data, 0uL, null, null)
+            ((plist as? Map<*, *>)?.get("NSURLSessionResumeInfoTempFileName") as? String)
+                ?: ((plist as? Map<*, *>)?.get("NSURLSessionResumeInfoLocalPath") as? String)?.substringAfterLast('/')
+        }
+        .toSet()
+}
 
 @OptIn(ExperimentalForeignApi::class)
 internal fun iosResumeBlobExists(fileName: String): Boolean {

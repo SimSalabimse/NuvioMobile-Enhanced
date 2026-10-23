@@ -106,7 +106,7 @@ private fun PlayerScreenRuntime.restartServerStream(
 ) {
     if (serverTrackSwitchJob?.isActive == true) return
     val url = activeSourceUrl
-    val positionMs = if (initialSeekApplied) playbackSnapshot.positionMs.coerceAtLeast(0L) else activeInitialPositionMs
+    val positionMs = if (initialSeekApplied) playbackClock.positionMs.coerceAtLeast(0L) else activeInitialPositionMs
     serverTrackSwitchJob = scope.launch {
         val playback = restart(url)
         if (playback == null) {

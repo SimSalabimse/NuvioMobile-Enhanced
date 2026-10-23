@@ -9,6 +9,12 @@ import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -43,6 +49,7 @@ internal fun LibrarySavedControls(
     onSectionSelected: (String) -> Unit,
     onTypeSelected: (String?) -> Unit,
     onSortSelected: (LibrarySortOption) -> Unit,
+    onRandomPick: ((LibraryItem) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val sortOptions = availableLibrarySortOptions(sourceMode)
@@ -57,10 +64,10 @@ internal fun LibrarySavedControls(
                 .firstOrNull { section -> section.type == verticalProjection.selectedSectionKey }
             NuvioDropdownChip(
                 title = stringResource(Res.string.library_filter_list),
-                label = selectedSection?.displayTitle.orEmpty(),
+                label = selectedSection?.let { section -> localizedLibrarySectionTitle(section.type, section.displayTitle) }.orEmpty(),
                 selectedKey = verticalProjection.selectedSectionKey,
                 options = verticalProjection.availableSections.map { section ->
-                    NuvioDropdownOption(key = section.type, label = section.displayTitle)
+                    NuvioDropdownOption(key = section.type, label = localizedLibrarySectionTitle(section.type, section.displayTitle))
                 },
                 enabled = verticalProjection.availableSections.size > 1,
                 onSelected = { option -> onSectionSelected(option.key) },
@@ -85,6 +92,15 @@ internal fun LibrarySavedControls(
                 options = typeOptions,
                 enabled = typeOptions.size > 1,
                 onSelected = { option -> onTypeSelected(option.key.ifBlank { null }) },
+            )
+        }
+
+        if (layoutMode == LibraryLayoutMode.VERTICAL && onRandomPick != null && verticalProjection.entries.isNotEmpty()) {
+            FilterChip(
+                selected = false,
+                onClick = { randomLibraryPick(verticalProjection.entries.map { it.item })?.let(onRandomPick) },
+                label = { Text("Random") },
+                leadingIcon = { Icon(Icons.Rounded.Shuffle, contentDescription = null, modifier = Modifier.size(18.dp)) },
             )
         }
 
@@ -182,3 +198,6 @@ private fun librarySortOptionLabel(option: LibrarySortOption): String =
 
 private fun List<LibraryVerticalEntry>.findEntry(preview: MetaPreview): LibraryVerticalEntry? =
     firstOrNull { entry -> entry.item.id == preview.id && entry.item.type == preview.type }
+
+/** "Random pick" for a Library section: any one of its items, or null when it's empty. */
+internal fun randomLibraryPick(items: List<LibraryItem>): LibraryItem? = items.randomOrNull()

@@ -78,8 +78,7 @@
     <string name="addons_version_format">Phiên bản %1$s</string>
     <string name="cd_selected">Đã chọn</string>
     <string name="collections_copy_json">Sao chép JSON</string>
-    <string name="collections_copy_json_error">Dữ liệu bộ sưu tập quá lớn so với khả năng của bảng nhớ tạm trên thiết bị này.</string>
-    <string name="collections_count_summary">%1$d bộ sưu tập, %2$d thư mục</string>
+    <string name="collections_copy_json_error">Dữ liệu bộ sưu tập quá lớn so với khả năng của bảng nhớ tạm trên thiết bị này.</string>
     <string name="collections_delete_message">Xóa "%1$s"? Hành động này không thể hoàn tác</string>
     <string name="collections_delete_title">Xóa bộ sưu tập</string>
     <string name="collections_editor_add_catalog">Thêm danh mục</string>
@@ -128,7 +127,9 @@
     <string name="collections_editor_show_all_tab">Hiển thị thẻ &quot;Tất cả&quot;</string>
     <string name="collections_editor_show_gif_when_configured_desc">Phát ảnh động GIF đã thiết lập thay cho ảnh bìa tĩnh khi có sẵn.</string>
     <string name="collections_editor_show_gif_when_configured">Hiển thị GIF đã thiết lập</string>
-    <string name="collections_editor_source_count">%1$d nguồn · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d nguồn · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">Hình dạng ô</string>
     <string name="collections_editor_view_mode_rows">Hàng</string>
     <string name="collections_editor_view_mode_tabs">Thẻ</string>
@@ -324,7 +325,9 @@
     <string name="collections_editor_tmdb_subtitle_discover">Khám phá TMDB</string>
     <string name="collections_empty_subtitle">Tạo bộ sưu tập để sắp xếp các danh mục</string>
     <string name="collections_empty_title">Chưa có bộ sưu tập nào</string>
-    <string name="collections_folder_count">%1$d thư mục</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">%1$d thư mục</item>
+    </plurals>
     <string name="collections_folder_empty_items">Không tìm thấy mục nào</string>
     <string name="collections_folder_not_found">Không tìm thấy thư mục nào</string>
     <string name="collections_header">Bộ sưu tập</string>
@@ -625,7 +628,6 @@
     <string name="detail_trailers_title">Trailer</string>
     <string name="downloads_empty_episodes">Không có tập phim đã hoàn tất nào</string>
     <string name="downloads_empty_title">Không có tải xuống nào</string>
-    <string name="downloads_episode_count">%1$d tập đã tải xuống</string>
     <string name="downloads_open_directory">Mở thư mục tải xuống</string>
     <string name="downloads_open_directory_failed">Không thể mở thư mục tải xuống</string>
     <string name="downloads_section_active">Đang hoạt động</string>
@@ -633,7 +635,6 @@
     <string name="downloads_section_shows">Chương trình</string>
     <string name="downloads_show_downloads">Hiển thị nội dung tải xuống</string>
     <string name="downloads_status_completed">Đã hoàn tất • %1$s</string>
-    <string name="downloads_status_downloading">Đang tải • %1$s</string>
     <string name="downloads_status_failed">Thất bại</string>
     <string name="downloads_status_paused">Đã tạm dừng • %1$s</string>
     <string name="episodes_cd_watched">Đã xem</string>
@@ -2459,4 +2460,7 @@
     <string name="stream_info_subtitle_source_embedded">Nhúng</string>
     <string name="stream_info_player_engine">Lõi trình phát</string>
     <string name="stream_info_server">Máy chủ</string>
+<string name="settings_nav_bar_liquid_glass">Chất liệu Liquid Glass</string>
+<string name="settings_nav_bar_liquid_glass_description">Thêm hiệu ứng khúc xạ và làm mờ cho thanh điều hướng nổi.</string>
+<string name="settings_nav_bar_liquid_glass_unsupported_description">Yêu cầu Android 13 trở lên. Thiết bị này sẽ tiếp tục dùng kiểu kính hiện tại.</string>
 </resources>

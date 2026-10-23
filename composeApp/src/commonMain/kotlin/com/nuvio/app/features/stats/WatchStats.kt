@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
+import com.nuvio.app.core.serialization.LenientJson
 
 @Serializable
 internal data class ShowStat(
@@ -26,6 +26,17 @@ internal data class WatchStatsData(
     val shows: Map<String, ShowStat> = emptyMap(),
     val yearShowMs: Map<String, Map<String, Long>> = emptyMap(),
     val yearCompleted: Map<String, Int> = emptyMap(),
+    /** Time jumped over by intro/recap/credits skips, per day. */
+    val daySkippedMs: Map<String, Long> = emptyMap(),
+    /** Titles with an episode or movie completed that day (for "series finished this week"). */
+    val dayCompletedShows: Map<String, Set<String>> = emptyMap(),
+)
+
+/** The last seven days: watch time, series finished and time saved by skipping. */
+internal data class WeeklyRecap(
+    val watchedMs: Long,
+    val finishedSeries: List<String>,
+    val skippedMs: Long,
 )
 
 internal data class WatchStatsSummary(
@@ -52,8 +63,9 @@ internal object WatchStats {
     /** A day counts towards a streak with at least this much watched. */
     /** Any watching on a day counts for the streak (a watched day is a streak of at least 1). */
     const val STREAK_DAY_MIN_MS = 1L
+    private const val MAX_SKIP_MS = 30 * 60_000L
 
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = LenientJson
     private val _data = MutableStateFlow(WatchStatsData())
     val data: StateFlow<WatchStatsData> = _data.asStateFlow()
     private var loaded = false
@@ -105,8 +117,39 @@ internal object WatchStats {
             ),
             yearShowMs = current.yearShowMs + (year to yearShows + (showId to (yearShows[showId] ?: 0L) + watched)),
             yearCompleted = if (completedNow) current.yearCompleted + (year to (current.yearCompleted[year] ?: 0) + 1) else current.yearCompleted,
+            dayCompletedShows = if (completedNow) {
+                current.dayCompletedShows + (day to current.dayCompletedShows[day].orEmpty() + showId)
+            } else current.dayCompletedShows,
         )
         if (completedNow || now - lastSavedAt >= SAVE_EVERY_MS) save(now)
+    }
+
+    /** A skip jumped [savedMs] ahead; anything over [MAX_SKIP_MS] is a seek, not a skip. */
+    fun recordSkip(savedMs: Long) {
+        if (savedMs !in 1L..MAX_SKIP_MS) return
+        ensureLoaded()
+        val day = CurrentDateProvider.todayIsoDate()
+        val current = _data.value
+        _data.value = current.copy(daySkippedMs = current.daySkippedMs + (day to (current.daySkippedMs[day] ?: 0L) + savedMs))
+        save(epochMs())
+    }
+
+    /** [isSeriesFinished] tells whether a show id (with its type) is now fully watched. */
+    fun weeklyRecap(
+        data: WatchStatsData,
+        isSeriesFinished: (id: String, type: String) -> Boolean,
+        today: String = CurrentDateProvider.todayIsoDate(),
+    ): WeeklyRecap {
+        val todayNumber = isoDayNumber(today) ?: 0
+        val days = (0..6).map { dayFromNumber(todayNumber - it) }
+        val finished = days.flatMap { data.dayCompletedShows[it].orEmpty() }.distinct().mapNotNull { id ->
+            data.shows[id]?.takeIf { it.type != "movie" && isSeriesFinished(id, it.type) }?.title
+        }
+        return WeeklyRecap(
+            watchedMs = days.sumOf { data.dayMs[it] ?: 0L },
+            finishedSeries = finished,
+            skippedMs = days.sumOf { data.daySkippedMs[it] ?: 0L },
+        )
     }
 
     fun flush() {

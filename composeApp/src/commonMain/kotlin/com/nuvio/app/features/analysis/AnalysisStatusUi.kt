@@ -1,5 +1,6 @@
 package com.nuvio.app.features.analysis
 
+import org.jetbrains.compose.resources.pluralStringResource
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.analysis_stage_audio
 import nuvio.composeapp.generated.resources.analysis_stage_matching
@@ -155,10 +156,23 @@ private fun PartChips(item: DownloadItem, parts: AnalysisParts) {
         add(stringResource(Res.string.analysis_part_previews) to parts.previews)
     }.filter { it.second != AnalysisPart.Off }
     if (entries.isEmpty()) return
+    val ledger by SkipSourceLedger.revision.collectAsStateWithLifecycle()
+    val external = remember(item.id, item.fileName, parts, ledger) { externalSkipSources(item) }
+    val introCreditsLabel = stringResource(Res.string.analysis_part_intro_credits)
     val recapLabel = stringResource(Res.string.analysis_part_recap)
     val noRecapText = stringResource(Res.string.analysis_part_recap_none)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         entries.forEach { (label, part) ->
+            // Times from TheIntroDB, IntroDB or your marks count even when this file found none.
+            val externalSource = when (label) {
+                introCreditsLabel -> external.introCredits
+                recapLabel -> external.recap
+                else -> null
+            }?.takeIf { part != AnalysisPart.Ready }
+            if (externalSource != null) {
+                PartChip("$label · $externalSource ✓", ready = true)
+                return@forEach
+            }
             if (label == recapLabel && part == AnalysisPart.NotFound) {
                 Text(
                     text = noRecapText,
@@ -178,19 +192,24 @@ private fun PartChips(item: DownloadItem, parts: AnalysisParts) {
                 AnalysisPart.Pending -> "…" to false
                 AnalysisPart.Off -> "" to false
             }
-            val bg = if (ready) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)
-            val fg = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-            Text(
-                text = "$label $suffix",
-                style = MaterialTheme.typography.labelSmall,
-                color = fg,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(bg)
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
-            )
+            PartChip("$label $suffix", ready)
         }
     }
+}
+
+@Composable
+private fun PartChip(text: String, ready: Boolean) {
+    val bg = if (ready) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)
+    val fg = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelSmall,
+        color = fg,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(bg)
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    )
 }
 
 @Composable
@@ -229,7 +248,7 @@ internal fun AnalysisSummarySection(isTablet: Boolean) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = stringResource(Res.string.analysis_summary_count, summary.analysed, summary.total),
+                    text = pluralStringResource(Res.plurals.analysis_summary_count, summary.total, summary.analysed, summary.total),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = textColor,

@@ -34,6 +34,7 @@ final class FFmpegSeekPreviewGenerator: NSObject, NuvioSeekPreviewGenerator {
         self.url = url
         self.headers = headers
         super.init()
+        HeldFileRegistry.shared.track(self, url: url)
     }
 
     deinit {

@@ -70,11 +70,18 @@ import com.nuvio.app.core.ui.NativeTabBridge
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.NuvioCardDepthSurface
 import com.nuvio.app.core.ui.NuvioContinueWatchingActionSheet
+import com.nuvio.app.core.ui.ContinueWatchingDownloadState
+import com.nuvio.app.core.ui.continueWatchingDownloadState
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.FastForward
+import androidx.compose.material.icons.rounded.Flag
+import androidx.compose.material.icons.rounded.DownloadDone
 import com.nuvio.app.core.ui.NuvioFloatingPrompt
 import com.nuvio.app.core.ui.NuvioPosterZoomActionOverlay
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.NuvioToastHost
+import com.nuvio.app.features.debrid.DebridAddOfferHost
 import com.nuvio.app.core.ui.PosterZoomAnchor
 import com.nuvio.app.core.ui.PosterZoomAnchorHolder
 import com.nuvio.app.core.ui.PosterZoomOverlayAction
@@ -102,6 +109,7 @@ import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.collection.CollectionSyncService
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
+import com.nuvio.app.features.downloads.SmartDownloadSettings
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadSubtitles
 import com.nuvio.app.features.downloads.DownloadsRepository
@@ -118,6 +126,7 @@ import com.nuvio.app.features.library.warmLibraryReleaseSchedule
 import com.nuvio.app.features.library.LibraryItem
 import com.nuvio.app.features.library.LibraryRepository
 import com.nuvio.app.features.library.LibrarySection
+import com.nuvio.app.features.library.rememberLibrarySectionTitleResolver
 import com.nuvio.app.features.library.LibrarySortOption
 import com.nuvio.app.features.library.LibrarySourceMode
 import com.nuvio.app.features.library.PendingTrackingMembershipRemoval
@@ -132,6 +141,12 @@ import com.nuvio.app.features.livetv.LiveTvRepository
 import com.nuvio.app.features.membership.MemberAccessRepository
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsRepository
 import com.nuvio.app.features.p2p.P2pSettingsRepository
+import com.nuvio.app.features.party.PartyEvent
+import com.nuvio.app.features.party.PartyMedia
+import com.nuvio.app.features.party.PartyRepository
+import com.nuvio.app.features.party.PartyScreen
+import com.nuvio.app.features.party.PartySync
+import com.nuvio.app.features.party.partyMediaKey
 import com.nuvio.app.features.player.ExternalPlayerIntentResult
 import com.nuvio.app.features.player.externalPlaybackSession
 import com.nuvio.app.features.player.infusePlaybackCallbacks
@@ -139,6 +154,7 @@ import com.nuvio.app.features.player.recordExternalPlaybackProgress
 import com.nuvio.app.features.player.ExternalPlayerPlatform
 import com.nuvio.app.features.player.PlayerLaunch
 import com.nuvio.app.features.player.PlayerLaunchStore
+import com.nuvio.app.navigation.launchPlayer
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.SubtitleLanguageOption
 import com.nuvio.app.features.player.prepareExternalPlayerLaunch
@@ -188,12 +204,13 @@ import com.nuvio.app.features.watchprogress.continueWatchingItemKey
 import com.nuvio.app.features.watchprogress.nextUpDismissKey
 import com.nuvio.app.features.watchprogress.toContinueWatchingItem
 import com.nuvio.app.navigation.*
-import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.rememberHazeState
+import com.nuvio.app.core.ui.glass.nuvioBackdropSource
+import com.nuvio.app.core.ui.glass.rememberNuvioBackdrop
 import com.nuvio.app.features.servers.ServerMatcher
 import com.nuvio.app.features.servers.ServerRepository
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
@@ -283,10 +300,14 @@ internal fun MainAppContent(
         }.collectAsStateWithLifecycle()
         val liquidGlassNativeTabBarSupported = remember { isLiquidGlassNativeTabBarSupported() }
         var showExitConfirmation by rememberSaveable { mutableStateOf(false) }
+        /** A nuvio://skip link waiting for Import / Cancel. */
+        var pendingSkipMark by remember { mutableStateOf<com.nuvio.app.features.player.skip.SharedSkipMark?>(null) }
         var selectedPosterActionTarget by remember { mutableStateOf<PosterActionTarget?>(null) }
         var selectedPosterAnchor by remember { mutableStateOf<PosterZoomAnchor?>(null) }
-        val posterOverlayHazeState = rememberHazeState()
+        val posterOverlayBackdrop = rememberNuvioBackdrop()
         var selectedContinueWatchingForActions by remember { mutableStateOf<ContinueWatchingItem?>(null) }
+        // Enhanced: single-episode / movie download as a sheet over the current screen.
+        var downloadSheetRequest by remember { mutableStateOf<com.nuvio.app.features.downloads.DownloadSheetRequest?>(null) }
         var selectedContinueWatchingZoomAnchor by remember { mutableStateOf<PosterZoomAnchor?>(null) }
         val libraryDisintegrationRequests = remember { DisintegrationRequestController<String>() }
         val continueWatchingDisintegrationRequests = remember { DisintegrationRequestController<String>() }
@@ -389,6 +410,7 @@ internal fun MainAppContent(
     val collectionsTitle = stringResource(Res.string.collections_header)
     val newCollectionTitle = stringResource(Res.string.collections_new)
     val detailsFallbackTitle = stringResource(Res.string.meta_section_details_title)
+    val watchPartyTitle = stringResource(Res.string.party_title)
     val isRemoteLibrarySource = libraryUiState.sourceMode != LibrarySourceMode.LOCAL
     val appContentGeneration = if (ownsAppRuntime && appGateController != null) {
         val generation by appGateController.contentGeneration.collectAsStateWithLifecycle()
@@ -783,7 +805,10 @@ internal fun MainAppContent(
                             SyncManager.stopPeriodicNuvioSyncPull()
                         }
                     }
-                    AppVisibility.Background -> SyncManager.stopPeriodicNuvioSyncPull()
+                    AppVisibility.Background -> {
+                        SyncManager.stopPeriodicNuvioSyncPull()
+                        WatchProgressRepository.flushPendingWrites()
+                    }
                 }
             }
         } finally {
@@ -816,13 +841,14 @@ internal fun MainAppContent(
         if (!ownsAppRuntime) return@LaunchedEffect
         if (!initialHomeReady || profileSwitchLoading) return@LaunchedEffect
         if (resumePromptItem != null) return@LaunchedEffect
+        if (currentRoute is StreamRoute || currentRoute is PlayerRoute || currentRoute is PartyRoute) return@LaunchedEffect
         if (continueWatchingPreferencesUiState.showResumePromptOnLaunch) {
             resumePromptItem = ResumePromptRepository.consumeResumePrompt()
         }
     }
 
     LaunchedEffect(currentRoute) {
-        val inPlaybackFlow = currentRoute is StreamRoute || currentRoute is PlayerRoute
+        val inPlaybackFlow = currentRoute is StreamRoute || currentRoute is PlayerRoute || currentRoute is PartyRoute
         if (inPlaybackFlow) {
             resumePromptItem = null
         }
@@ -834,6 +860,7 @@ internal fun MainAppContent(
                 when (deepLink) {
                     is AppDeepLink.Meta -> {
                         InAppLogger.info("App/DeepLink", "meta type=${deepLink.type} id=${deepLink.id}")
+                        com.nuvio.app.features.player.ActivePlayer.closeForNavigation()
                         activateTab(AppScreenTab.Home)
                         val routeTitle = runCatching {
                             MetaDetailsRepository.fetch(deepLink.type, deepLink.id)?.name
@@ -878,12 +905,30 @@ internal fun MainAppContent(
 
                     AppDeepLink.Downloads -> {
                         InAppLogger.info("App/DeepLink", "downloads")
+                        // Close an open player first: otherwise it kept playing hidden in its tab
+                        // and came back (reloading the file) when that tab was tapped again.
+                        if (com.nuvio.app.features.player.ActivePlayer.closeForNavigation()) {
+                            InAppLogger.info("App/DeepLink", "closed open player")
+                        }
                         activateTab(AppScreenTab.Library)
                         navController.navigate(DownloadsRoute(downloadsTitle)) {
                             launchSingleTop = true
                         }
                         InAppLogger.info("App/DeepLink", "downloads consumed")
                         AppDeepLinkRepository.markConsumed(deepLink)
+                    }
+
+                    is AppDeepLink.Party -> {
+                        appGateController?.appReady?.first { it }
+                        navController.navigate(PartyRoute(code = deepLink.code, title = watchPartyTitle)) {
+                            launchSingleTop = true
+                        }
+                        AppDeepLinkRepository.markConsumed(deepLink)
+                    }
+
+                    is AppDeepLink.SkipMark -> {
+                        AppDeepLinkRepository.markConsumed(deepLink)
+                        pendingSkipMark = deepLink.mark
                     }
 
                     null -> Unit
@@ -989,8 +1034,7 @@ internal fun MainAppContent(
                 coroutineScope.launch { openExternalPlayback(playerLaunch) }
                 return
             }
-            val launchId = PlayerLaunchStore.put(playerLaunch)
-            navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title))
+            navController.launchPlayer(playerLaunch)
         }
 
         fun openExternalStreamUrl(url: String): Boolean {
@@ -1040,8 +1084,7 @@ internal fun MainAppContent(
                         openExternalPlayback(playerLaunch)
                         true
                     } else {
-                        val launchId = PlayerLaunchStore.put(playerLaunch)
-                        navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title))
+                        navController.launchPlayer(playerLaunch)
                         true
                     }
                 }
@@ -1116,13 +1159,14 @@ internal fun MainAppContent(
                         coroutineScope.launch { openExternalPlayback(playerLaunch) }
                         return
                     }
-                    val launchId = PlayerLaunchStore.put(playerLaunch)
-                    navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title))
+                    navController.launchPlayer(playerLaunch)
                     return
                 }
             }
 
-            if (!PlaybackAvailability.current().canStream(type, videoId)) {
+            val isPartyMedia = PartyRepository.state.value.party?.media?.key ==
+                partyMediaKey(parentMetaType, parentMetaId, seasonNumber, episodeNumber)
+            if (!isPartyMedia && !PlaybackAvailability.current().canStream(type, videoId)) {
                 NuvioToastController.show(playbackUnavailableMessage)
                 return
             }
@@ -1153,6 +1197,32 @@ internal fun MainAppContent(
             )
             navController.navigate(
                 StreamRoute(launchId = streamLaunchId, title = title),
+            )
+        }
+
+        fun openPartyMedia(media: PartyMedia) {
+            if (navController.currentRoute is PlayerRoute) navController.popBackStack()
+            val resumePositionMs = PartyRepository.playback.value
+                ?.takeIf { it.mediaKey == null || it.mediaKey == media.key }
+                ?.let { PartySync.expectedPositionMs(it, PartyRepository.nowMs()) }
+            launchPlaybackWithDownloadPreference(
+                type = media.type,
+                videoId = media.videoId ?: media.metaId,
+                parentMetaId = media.metaId,
+                parentMetaType = media.metaType,
+                title = media.title,
+                logo = media.logo,
+                poster = media.poster,
+                background = media.background,
+                seasonNumber = media.season,
+                episodeNumber = media.episode,
+                episodeTitle = media.episodeTitle,
+                episodeThumbnail = null,
+                pauseDescription = null,
+                resumePositionMs = resumePositionMs,
+                resumeProgressFraction = null,
+                manualSelection = true,
+                startFromBeginning = resumePositionMs == null,
             )
         }
 
@@ -1202,9 +1272,12 @@ internal fun MainAppContent(
                 )
             }
 
+        // Enhanced: every single download button (details, episode rows, the Continue Watching /
+        // Next Up hold menu) opens the shared download sheet over the current screen instead of
+        // pushing the stream screen; after Download the user stays where they were.
         val onDownloadContent: ContentPlayAction =
-            { type, videoId, parentMetaId, parentMetaType, title, logo, poster, background, seasonNumber, episodeNumber, episodeTitle, episodeThumbnail, pauseDescription, resumePositionMs ->
-                launchPlaybackWithDownloadPreference(
+            { type, videoId, parentMetaId, parentMetaType, title, logo, poster, background, seasonNumber, episodeNumber, episodeTitle, episodeThumbnail, _, _ ->
+                downloadSheetRequest = com.nuvio.app.features.downloads.DownloadSheetRequest(
                     type = type,
                     videoId = videoId,
                     parentMetaId = parentMetaId,
@@ -1217,12 +1290,6 @@ internal fun MainAppContent(
                     episodeNumber = episodeNumber,
                     episodeTitle = episodeTitle,
                     episodeThumbnail = episodeThumbnail,
-                    pauseDescription = pauseDescription,
-                    resumePositionMs = resumePositionMs,
-                    resumeProgressFraction = null,
-                    manualSelection = true,
-                    startFromBeginning = false,
-                    downloadMode = true,
                 )
             }
 
@@ -1273,6 +1340,23 @@ internal fun MainAppContent(
                 )
             }
 
+        LaunchedEffect(Unit) {
+            if (!ownsAppRuntime) return@LaunchedEffect
+            PartyRepository.events.collect { event ->
+                val message = when (event) {
+                    is PartyEvent.MemberJoined -> getString(Res.string.party_member_joined, event.name)
+                    is PartyEvent.MemberLeft -> getString(Res.string.party_member_left, event.name)
+                    PartyEvent.Removed -> getString(Res.string.party_removed)
+                    PartyEvent.Ended -> getString(Res.string.party_ended)
+                    is PartyEvent.MediaChanged -> getString(Res.string.party_media_changed, event.media.title)
+                    is PartyEvent.ControlChanged -> getString(
+                        if (event.hostOnly) Res.string.party_control_host_only else Res.string.party_control_everyone,
+                    )
+                }
+                NuvioToastController.show(message)
+            }
+        }
+
         val onCatalogClick: (HomeCatalogSection) -> Unit = { section ->
             val launchId = CatalogLaunchStore.put(
                 CatalogLaunch(
@@ -1317,10 +1401,13 @@ internal fun MainAppContent(
             )
         }
 
+        val resolveLibrarySectionTitle = rememberLibrarySectionTitleResolver()
+
         val onLibrarySectionViewAllClick: (LibrarySection, LibrarySortOption) -> Unit = { section, sortOption ->
+            val sectionTitle = resolveLibrarySectionTitle(section.type, section.displayTitle)
             val launchId = CatalogLaunchStore.put(
                 CatalogLaunch(
-                    title = section.displayTitle,
+                    title = sectionTitle,
                     subtitle = librarySectionSubtitle,
                     target = CatalogTarget.Library(
                         contentType = section.items.firstOrNull()?.type ?: "movie",
@@ -1332,7 +1419,7 @@ internal fun MainAppContent(
             navController.navigate(
                 CatalogRoute(
                     launchId = launchId,
-                    title = section.displayTitle,
+                    title = sectionTitle,
                     subtitle = librarySectionSubtitle,
                 ),
             )
@@ -1428,6 +1515,25 @@ internal fun MainAppContent(
             openContinueWatching(item, true, false)
         }
 
+        // Enhanced: Download from the Continue Watching / Next Up hold menu. Same flow as a
+        // single-episode download (auto-pick, TorBox check, Change source).
+        val onContinueWatchingDownload: (ContinueWatchingItem) -> Unit = { item ->
+            onDownloadContent(
+                item.parentMetaType, item.videoId, item.parentMetaId, item.parentMetaType,
+                item.title, item.logo, item.poster, item.background,
+                item.seasonNumber, item.episodeNumber, item.episodeTitle, item.episodeThumbnail,
+                item.pauseDescription, 0L,
+            )
+        }
+        val continueWatchingDownloadStateOf: (ContinueWatchingItem) -> ContinueWatchingDownloadState = { item ->
+            continueWatchingDownloadState(
+                item = item,
+                downloads = downloadsUiState.items,
+                canDownload = !item.isCloudLibraryContinueWatchingItem() &&
+                    !item.parentMetaType.equals("live", ignoreCase = true),
+            )
+        }
+
         val onContinueWatchingRemove: (ContinueWatchingItem) -> Unit = { item ->
             continueWatchingDisintegrationRequests.arm(continueWatchingItemKey(item))
             if (item.isNextUp) {
@@ -1483,7 +1589,7 @@ internal fun MainAppContent(
         ) {
             val nativeTabBarOwnsChrome = useNativeNavigation && useNativeTabBar
             val settingsRouteBarVisible = currentRoute is SettingsDestinationRoute && !nativeTabBarOwnsChrome
-            val settingsRouteBarHazeState = rememberHazeState()
+            val settingsRouteBarBackdrop = rememberNuvioBackdrop()
             var settingsRouteBarOverlay by remember { mutableStateOf(0.dp) }
             val settingsRouteBottomOverlay = when {
                 currentRoute !is SettingsDestinationRoute -> 0.dp
@@ -1500,7 +1606,7 @@ internal fun MainAppContent(
                     .fillMaxSize()
                     .then(
                         if (selectedPosterActionTarget != null || selectedContinueWatchingZoomAnchor != null) {
-                            Modifier.hazeSource(state = posterOverlayHazeState)
+                            Modifier.nuvioBackdropSource(posterOverlayBackdrop)
                         } else {
                             Modifier
                         },
@@ -1518,7 +1624,7 @@ internal fun MainAppContent(
                     backStack = navBackStack,
                     modifier = Modifier
                         .fillMaxSize()
-                        .then(if (settingsRouteBarVisible) Modifier.hazeSource(state = settingsRouteBarHazeState) else Modifier),
+                        .then(if (settingsRouteBarVisible) Modifier.nuvioBackdropSource(settingsRouteBarBackdrop) else Modifier),
                     onBack = { navController.popBackStack() },
                     entryDecorators = listOf(
                         rememberSaveableStateHolderNavEntryDecorator<NavKey>(),
@@ -1681,6 +1787,7 @@ internal fun MainAppContent(
                                     null
                                 },
                                 onCollectionsSettingsClick = { navController.navigate(CollectionsRoute(collectionsTitle)) },
+                                onWatchPartySettingsClick = { navController.navigate(PartyRoute(title = watchPartyTitle)) },
                                 onFolderClick = { collectionId, folderId ->
                                     val folderTitle = CollectionRepository.collections.value
                                         .firstOrNull { it.id == collectionId }
@@ -1787,6 +1894,7 @@ internal fun MainAppContent(
                         onExternalPlayerLaunch = { launch -> lastExternalPlayerLaunch = launch },
                         launchExternalPlayer = launchExternalPlayer,
                         openExternalStreamUrl = ::openExternalStreamUrl,
+                        onOpenPartyMedia = ::openPartyMedia,
                     )
                     }
                 }
@@ -1876,6 +1984,15 @@ internal fun MainAppContent(
                         }
                     }
                 }
+                entry<PartyRoute> { route ->
+                    SettingsDestination(route, navController) { onBack ->
+                        PartyScreen(
+                            initialCode = route.code,
+                            onBack = onBack,
+                            onWatch = ::openPartyMedia,
+                        )
+                    }
+                }
                 entry<AccountSettingsRoute> { route ->
                     SettingsDestination(route, navController) { onBack ->
                         AccountSettingsScreen(onBack = onBack)
@@ -1947,7 +2064,7 @@ internal fun MainAppContent(
                     SettingsRouteNavigationBar(
                         isTabletLayout = useTabletFloatingTabBar || maxWidth >= 768.dp,
                         showLiveTv = showLiveTvInNavigation,
-                        hazeState = settingsRouteBarHazeState,
+                        backdrop = settingsRouteBarBackdrop,
                         onTabSelected = ::selectTabFromSettingsRoute,
                         onProfileSelected = onNavigationProfileSelected,
                         onAddProfileRequested = onSwitchProfile,
@@ -1971,6 +2088,7 @@ internal fun MainAppContent(
                     onExternalPlayerLaunch = { launch -> lastExternalPlayerLaunch = launch },
                     launchExternalPlayer = launchExternalPlayer,
                     openExternalStreamUrl = ::openExternalStreamUrl,
+                    onOpenPartyMedia = ::openPartyMedia,
                     onBackOverride = {
                         if (navController.currentRoute == route) {
                             navController.popBackStack(expectedRoute = route)
@@ -2135,7 +2253,7 @@ internal fun MainAppContent(
                                 },
                             ),
                         ),
-                        hazeState = posterOverlayHazeState,
+                        backdrop = posterOverlayBackdrop,
                         onDismissed = {
                             selectedPosterActionTarget = null
                             selectedPosterAnchor = null
@@ -2196,6 +2314,49 @@ internal fun MainAppContent(
                                         ),
                                     )
                                 }
+                                when (val downloadState = continueWatchingDownloadStateOf(item)) {
+                                    ContinueWatchingDownloadState.Available -> add(
+                                        PosterZoomOverlayAction(
+                                            icon = Icons.Rounded.Download,
+                                            label = downloadState.label,
+                                            onSelected = { onContinueWatchingDownload(item) },
+                                        ),
+                                    )
+                                    ContinueWatchingDownloadState.Downloading,
+                                    ContinueWatchingDownloadState.Downloaded -> add(
+                                        PosterZoomOverlayAction(
+                                            icon = Icons.Rounded.DownloadDone,
+                                            label = downloadState.label,
+                                            onSelected = { navController.navigate(DownloadsRoute(downloadsTitle)) },
+                                        ),
+                                    )
+                                    ContinueWatchingDownloadState.Unavailable -> Unit
+                                }
+                                // The same show actions as the bottom sheet (this overlay replaces it on Home cards).
+                                if (item.seasonNumber != null) {
+                                    val pinned = SmartDownloadSettings.isGoal(item.parentMetaType, item.parentMetaId)
+                                    add(
+                                        PosterZoomOverlayAction(
+                                            icon = Icons.Rounded.Flag,
+                                            label = com.nuvio.app.features.downloads.FinishSeriesGoal.label(pinned),
+                                            onSelected = {
+                                                com.nuvio.app.features.downloads.FinishSeriesGoal.toggle(item.parentMetaType, item.parentMetaId)
+                                            },
+                                        ),
+                                    )
+                                    val autoSkip = com.nuvio.app.features.player.ShowPlaybackMemory.autoSkip(item.parentMetaId)
+                                    add(
+                                        PosterZoomOverlayAction(
+                                            icon = Icons.Rounded.FastForward,
+                                            label = autoSkip.menuLabel,
+                                            onSelected = {
+                                                val next = autoSkip.next()
+                                                com.nuvio.app.features.player.ShowPlaybackMemory.setAutoSkip(item.parentMetaId, next)
+                                                NuvioToastController.show("Auto-skip on this show: ${next.label}")
+                                            },
+                                        ),
+                                    )
+                                }
                                 add(
                                     PosterZoomOverlayAction(
                                         icon = Icons.Default.DeleteOutline,
@@ -2205,7 +2366,7 @@ internal fun MainAppContent(
                                     ),
                                 )
                             },
-                            hazeState = posterOverlayHazeState,
+                            backdrop = posterOverlayBackdrop,
                             onDismissed = {
                                 selectedContinueWatchingForActions = null
                                 selectedContinueWatchingZoomAnchor = null
@@ -2237,10 +2398,31 @@ internal fun MainAppContent(
                     ?.let { item -> { onContinueWatchingStartFromBeginning(item) } },
                 onPlayManually = selectedContinueWatchingForActions
                     ?.let { item -> { onContinueWatchingPlayManually(item) } },
+                goalPinned = selectedContinueWatchingForActions
+                    ?.takeIf { it.seasonNumber != null }
+                    ?.let { SmartDownloadSettings.isGoal(it.parentMetaType, it.parentMetaId) },
+                onToggleGoal = {
+                    selectedContinueWatchingForActions?.let { item ->
+                        com.nuvio.app.features.downloads.FinishSeriesGoal.toggle(item.parentMetaType, item.parentMetaId)
+                    }
+                },
                 onRemove = {
                     selectedContinueWatchingForActions?.let(onContinueWatchingRemove)
                 },
+                downloadState = selectedContinueWatchingForActions
+                    ?.let(continueWatchingDownloadStateOf)
+                    ?: ContinueWatchingDownloadState.Unavailable,
+                onDownload = selectedContinueWatchingForActions
+                    ?.let { item -> { onContinueWatchingDownload(item) } },
+                onOpenDownloads = { navController.navigate(DownloadsRoute(downloadsTitle)) },
             )
+
+            downloadSheetRequest?.let { request ->
+                com.nuvio.app.features.downloads.DownloadSourceSheet(
+                    request = request,
+                    onDismiss = { downloadSheetRequest = null },
+                )
+            }
 
             TrackingListPickerDialog(
                 visible = showLibraryListPicker,
@@ -2329,6 +2511,21 @@ internal fun MainAppContent(
                 },
             )
 
+            pendingSkipMark?.let { mark ->
+                NuvioStatusModal(
+                    title = "Import skip mark?",
+                    message = com.nuvio.app.features.player.skip.describeSharedSkipMark(mark),
+                    isVisible = true,
+                    confirmText = "Import",
+                    dismissText = "Cancel",
+                    onConfirm = {
+                        pendingSkipMark = null
+                        coroutineScope.launch { com.nuvio.app.features.player.skip.importSharedSkipMark(mark) }
+                    },
+                    onDismiss = { pendingSkipMark = null },
+                )
+            }
+
             androidx.compose.animation.AnimatedVisibility(
                 visibleState = launchOverlayState,
                 enter = fadeIn(),
@@ -2370,6 +2567,7 @@ internal fun MainAppContent(
                     .align(Alignment.TopCenter)
                     .zIndex(20f),
             )
+            DebridAddOfferHost()
 
             }
         }

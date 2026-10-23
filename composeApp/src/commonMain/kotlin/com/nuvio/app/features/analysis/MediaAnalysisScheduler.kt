@@ -14,7 +14,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
+import com.nuvio.app.core.serialization.LenientJson
 
 /** What the platform analyzer returns for one file (see MediaAnalyzer.swift). */
 @Serializable
@@ -45,7 +45,19 @@ internal expect object MediaAnalyzerPlatform {
      * their layout as JSON ([RawThumbnailSheets]); null when it failed or was cancelled.
      */
     suspend fun makeThumbnails(fileUri: String, outputPrefix: String, durationMs: Long, intervalMs: Long, tileWidth: Int): String?
+    /**
+     * Fingerprints [startMs]..[endMs] of a remote stream, in memory only, as JSON ([RawClipFingerprint]);
+     * null when it failed or was cancelled.
+     */
+    suspend fun fingerprintClip(url: String, headers: Map<String, String>, startMs: Long, endMs: Long): String?
 }
+
+@Serializable
+internal data class RawClipFingerprint(
+    val startMs: Long = 0L,
+    val stepMs: Int = 100,
+    val fingerprint: String? = null,
+)
 
 @Serializable
 internal data class RawThumbnailSheets(
@@ -76,7 +88,7 @@ internal object MediaAnalysisScheduler {
     private const val THUMBNAIL_TILE_WIDTH = 160
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = LenientJson
     private var job: Job? = null
 
     private val anyFeatureEnabled: Boolean
@@ -148,6 +160,18 @@ internal object MediaAnalysisScheduler {
         job?.cancel()
         job = null
         MediaAnalyzerPlatform.cancel()
+    }
+
+    /**
+     * [downloadId] is being deleted: stop the run that reads it, so the analyser closes the file
+     * (iOS frees a deleted file's space only when nothing has it open), and carry on with the rest.
+     */
+    fun releaseFile(downloadId: String) {
+        val runningId = (MediaAnalysisStatus.job.value as? AnalysisJobState.Running)?.itemId
+        if (runningId != downloadId && currentItem?.id != downloadId) return
+        if (priorityItemId == downloadId) priorityItemId = null
+        cancel()
+        kick()
     }
 
     /** True when every pending file was analysed (false: stopped, cancelled or not allowed). */
@@ -260,7 +284,7 @@ internal object MediaAnalysisScheduler {
 
     private fun nextPending(): DownloadItem? = DownloadsRepository.uiState.value.items
         .filter { it.status == DownloadStatus.Completed && it.id !in failedThisSession && !isBackingOff(it.id) }
-        .sortedWith(compareBy<DownloadItem> { if (it.id == priorityItemId) 0 else 1 }.thenBy { it.updatedAtEpochMs })
+        .sortedWith(compareBy<DownloadItem> { if (it.id == priorityItemId) 0 else 1 }.then(AnalysisOrder))
         .firstOrNull { item ->
             val existing = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item))
             existing == null || existing.fileName != item.fileName || needsDerived(existing)
@@ -338,7 +362,12 @@ internal object MediaAnalysisScheduler {
                 }
             }
         }
-        if (!scopeActive()) return false
+        if (!scopeActive()) {
+            // Stopped (the download is being deleted): keep the recap already found; the step
+            // counts as not done, so it runs again if the file comes back.
+            MediaAnalysisStore.save(result)
+            return false
+        }
         MediaAnalysisStore.save(result.copy(derivedVersion = MEDIA_ANALYSIS_DERIVED_VERSION))
         return thumbsOk
     }
@@ -407,6 +436,11 @@ internal object MediaAnalysisScheduler {
             if (references.isNotEmpty()) {
                 stage(AnalysisStage.Matching)
                 result = withContext(Dispatchers.Default) { SkipLearning.learnFromReferences(result, references) }
+            }
+            // No stored episode to match: fingerprint a clip of the nearest episode with known times.
+            if (siblings.isEmpty() && references.isEmpty()) {
+                stage(AnalysisStage.Matching)
+                result = SiblingClipReference.apply(item, result)
             }
         }
         MediaAnalysisStore.save(result)
@@ -478,3 +512,10 @@ object MediaAnalysisBackground {
     fun requiresExternalPower(): Boolean =
         MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.OnlyWhileCharging)
 }
+
+/** Lowest season and episode first (per show, in download order); movies after episodes. */
+internal val AnalysisOrder: Comparator<DownloadItem> =
+    compareBy<DownloadItem> { it.parentMetaId }
+        .thenBy { it.seasonNumber ?: Int.MAX_VALUE }
+        .thenBy { it.episodeNumber ?: Int.MAX_VALUE }
+        .thenBy { it.updatedAtEpochMs }

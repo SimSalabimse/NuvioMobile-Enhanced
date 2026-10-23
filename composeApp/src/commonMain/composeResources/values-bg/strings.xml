@@ -77,7 +77,6 @@
     <string name="cd_selected">Избрано</string>
     <string name="collections_copy_json">Копирай JSON</string>
     <string name="collections_copy_json_error">Данните от колекцията са прекалено големи за клипборда на това устройство.</string>
-    <string name="collections_count_summary">%1$d колекции, %2$d папки</string>
     <string name="collections_delete_message">Изтрий „%1$s"? Това не може да бъде отменено.</string>
     <string name="collections_delete_title">Изтрий колекцията</string>
     <string name="collections_editor_add_catalog">Добави каталог</string>
@@ -126,7 +125,9 @@
     <string name="collections_editor_show_all_tab">Покажи раздел „Всички"</string>
     <string name="collections_editor_show_gif_when_configured_desc">Пусни конфигурирания GIF вместо статичната корица, когато е наличен.</string>
     <string name="collections_editor_show_gif_when_configured">Покажи GIF при конфигуриране</string>
-    <string name="collections_editor_source_count">%1$d източник(ци) · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d източник(ци) · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">Форма на плочката</string>
     <string name="collections_editor_view_mode_rows">Редове</string>
     <string name="collections_editor_view_mode_tabs">Раздели</string>
@@ -322,7 +323,9 @@
     <string name="collections_editor_tmdb_subtitle_discover">TMDB Discover</string>
     <string name="collections_empty_subtitle">Създайте колекция, за да организирате каталозите си.</string>
     <string name="collections_empty_title">Все още няма колекции</string>
-    <string name="collections_folder_count">%1$d папки</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">%1$d папки</item>
+    </plurals>
     <string name="collections_folder_empty_items">Не са намерени елементи</string>
     <string name="collections_folder_not_found">Папката не е намерена</string>
     <string name="collections_header">Колекции</string>
@@ -616,7 +619,6 @@
     <string name="detail_trailers_title">Трейлъри</string>
     <string name="downloads_empty_episodes">Няма завършени епизоди</string>
     <string name="downloads_empty_title">Все още няма изтегляния</string>
-    <string name="downloads_episode_count">%1$d изтеглен(и) епизод(а)</string>
     <string name="downloads_open_directory">Отвори папката за изтегляния</string>
     <string name="downloads_open_directory_failed">Неуспешно отваряне на папката за изтегляния</string>
     <string name="downloads_section_active">Активни</string>
@@ -624,7 +626,6 @@
     <string name="downloads_section_shows">Сериали</string>
     <string name="downloads_show_downloads">Покажи изтеглянията</string>
     <string name="downloads_status_completed">Завършено • %1$s</string>
-    <string name="downloads_status_downloading">Изтегляне • %1$s</string>
     <string name="downloads_status_failed">Неуспешно</string>
     <string name="downloads_status_paused">Паузирано • %1$s</string>
     <string name="episodes_cd_watched">Гледано</string>

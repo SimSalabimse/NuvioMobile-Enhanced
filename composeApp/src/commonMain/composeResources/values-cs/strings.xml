@@ -63,7 +63,6 @@
     <string name="addons_version_format">Verze %1$s</string>
     <string name="cd_selected">Vybráno</string>
     <string name="collections_copy_json">Kopírovat JSON</string>
-    <string name="collections_count_summary">%1$d sbírka(y), %2$d složka(y)</string>
     <string name="collections_delete_message">Smazat \"%1$s\"? Tuto akci nelze vrátit zpět.</string>
     <string name="collections_delete_title">Smazat sbírku</string>
     <string name="collections_editor_add_catalog">Přidat katalog</string>
@@ -112,7 +111,9 @@
     <string name="collections_editor_show_all_tab">Zobrazit kartu \"Vše\"</string>
     <string name="collections_editor_show_gif_when_configured_desc">Přehrát nakonfigurovaný GIF místo statického obalu, je-li k dispozici.</string>
     <string name="collections_editor_show_gif_when_configured">Zobrazit GIF, když je nakonfigurován</string>
-    <string name="collections_editor_source_count">%1$d zdroj(ů) · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d zdroj(ů) · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">Tvar dlaždice</string>
     <string name="collections_editor_view_mode_rows">Řádky</string>
     <string name="collections_editor_view_mode_tabs">Karty</string>
@@ -296,7 +297,9 @@
     <string name="collections_editor_tmdb_subtitle_discover">Objevovat na TMDB (Discover)</string>
     <string name="collections_empty_subtitle">Vytvořte ji a uspořádejte si své katalogy.</string>
     <string name="collections_empty_title">Zatím žádné sbírky</string>
-    <string name="collections_folder_count">%1$d složka(y)</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">%1$d složka(y)</item>
+    </plurals>
     <string name="collections_folder_empty_items">Nebyly nalezeny žádné položky</string>
     <string name="collections_folder_not_found">Složka nebyla nalezena</string>
     <string name="collections_header">Sbírky</string>
@@ -513,13 +516,11 @@
     <string name="detail_trailers_title">Trailery</string>
     <string name="downloads_empty_episodes">Žádné dokončené epizody</string>
     <string name="downloads_empty_title">Zatím žádné stažené položky</string>
-    <string name="downloads_episode_count">%1$d stažených epizod</string>
     <string name="downloads_section_active">Aktivní</string>
     <string name="downloads_section_movies">Filmy</string>
     <string name="downloads_section_shows">Seriály</string>
     <string name="downloads_show_downloads">Zobrazit stahování</string>
     <string name="downloads_status_completed">Dokončeno • %1$s</string>
-    <string name="downloads_status_downloading">Stahování • %1$s</string>
     <string name="downloads_status_failed">Selhalo</string>
     <string name="downloads_status_paused">Pozastaveno • %1$s</string>
     <string name="episodes_cd_watched">Zhlédnuto</string>

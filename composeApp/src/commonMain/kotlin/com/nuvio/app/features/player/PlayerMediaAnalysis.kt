@@ -22,10 +22,9 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
 /**
- * Uses the on-device analysis of the downloaded file being played (see features/analysis):
- * loudness gain, subtitle-to-audio sync from the stored speech energy, and intro/credits
- * found by matching the season's episodes as a fallback skip source.
- * Everything here applies only when the file on screen is the one that was analysed.
+ * Uses the on-device analysis (see features/analysis). Loudness gain, subtitle-to-audio sync and
+ * scrub previews apply only when the file on screen is the one that was analysed. Intro, recap and
+ * credits are kept per episode, so they also apply to a stream of it ([episodeSkipAnalysis]).
  */
 internal fun PlayerScreenRuntime.currentLocalAnalysis(): MediaAnalysisResult? {
     val url = activeSourceUrl.trim()
@@ -34,6 +33,23 @@ internal fun PlayerScreenRuntime.currentLocalAnalysis(): MediaAnalysisResult? {
     val result = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item)) ?: return null
     return result.takeIf { it.fileName == item.fileName }
 }
+
+/**
+ * The analysis to take skip times from: the downloaded file on screen, else what is stored for the
+ * episode (kept after its download is deleted), unless the stream's length shows another cut.
+ */
+private fun PlayerScreenRuntime.episodeSkipAnalysis(): MediaAnalysisResult? {
+    currentLocalAnalysis()?.let { return it }
+    if (parentMetaId.isBlank()) return null
+    val stored = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(parentMetaId, activeSeasonNumber, activeEpisodeNumber))
+    return stored?.takeIf { sameCut(it.durationMs, playbackSnapshot.durationMs) }
+}
+
+/** True unless both lengths are known and differ by more than 30 s (another cut of the episode). */
+internal fun sameCut(analysedMs: Long, playingMs: Long): Boolean =
+    analysedMs <= 0L || playingMs <= 0L || abs(analysedMs - playingMs) <= SAME_CUT_TOLERANCE_MS
+
+private const val SAME_CUT_TOLERANCE_MS = 30_000L
 
 /** Skip sources the user allows: everything, or TheIntroDB only (Settings > Playback). */
 internal fun filterSkipSources(intervals: List<SkipInterval>): List<SkipInterval> =
@@ -51,7 +67,7 @@ internal const val ON_DEVICE_SKIP_PROVIDER = "on-device"
  */
 internal fun PlayerScreenRuntime.onDeviceSkipIntervals(): List<SkipInterval> {
     if (!MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.OnDeviceSkipFallback)) return emptyList()
-    val analysis = currentLocalAnalysis() ?: return emptyList()
+    val analysis = episodeSkipAnalysis() ?: return emptyList()
     val out = mutableListOf<SkipInterval>()
     if (MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.RecapDetection)) {
         val recapStart = analysis.recapStartMs
@@ -78,7 +94,7 @@ internal fun PlayerScreenRuntime.onDeviceSkipIntervals(): List<SkipInterval> {
 /** Segments the user marked or confirmed for the episode on screen (streamed or downloaded). */
 internal fun PlayerScreenRuntime.userMarkedSkipIntervals(): List<SkipInterval> =
     com.nuvio.app.features.analysis.SkipLearning.userMarks(parentMetaId, activeSeasonNumber, activeEpisodeNumber)
-        .filter { (_, mark) -> mark.endMs > mark.startMs }
+        .filter { (_, mark) -> mark.endMs > mark.startMs && sameCut(mark.durationMs, playbackSnapshot.durationMs) }
         .map { (type, mark) ->
             SkipInterval(
                 mark.startMs / 1000.0,
@@ -100,7 +116,13 @@ private fun skipCategory(type: String): String = when (type.lowercase()) {
  * The allowed online segments, plus on-device ones for each kind (intro, recap, credits) the
  * online sources did not cover. An on-device intro pre-fills Submit Timestamps.
  */
-internal fun PlayerScreenRuntime.withOnDeviceSkips(online: List<SkipInterval>): List<SkipInterval> {
+internal fun PlayerScreenRuntime.withOnDeviceSkips(online: List<SkipInterval>): List<SkipInterval> =
+    mergeOnDeviceSkips(online).also { used ->
+        // Downloads cards show where each segment's times came from.
+        com.nuvio.app.features.analysis.SkipSourceLedger.record(parentMetaId, activeSeasonNumber, activeEpisodeNumber, used)
+    }
+
+private fun PlayerScreenRuntime.mergeOnDeviceSkips(online: List<SkipInterval>): List<SkipInterval> {
     // The user's own marks for this episode replace every other source of that kind.
     val mine = userMarkedSkipIntervals()
     val mineCovered = mine.map { skipCategory(it.type) }.toSet()

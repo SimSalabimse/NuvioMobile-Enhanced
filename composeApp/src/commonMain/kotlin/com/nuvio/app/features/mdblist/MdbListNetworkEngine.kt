@@ -1,6 +1,6 @@
 package com.nuvio.app.features.mdblist
 
-import com.nuvio.app.core.network.createApiHttpClient
+import com.nuvio.app.core.network.sharedApiHttpClient
 import com.nuvio.app.core.network.readBoundedResponseBody
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
@@ -17,7 +17,7 @@ import io.ktor.http.formUrlEncode
 
 internal class MdbListNetworkEngine(
     private val configuration: MdbListConfiguration,
-    private val client: HttpClient = createApiHttpClient(),
+    private val client: HttpClient = sharedApiHttpClient,
 ) : MdbListHttpEngine {
     override suspend fun execute(request: MdbListHttpRequest): MdbListHttpResponse =
         client.prepareRequest(mdbListRequestUrl(configuration, request)) {

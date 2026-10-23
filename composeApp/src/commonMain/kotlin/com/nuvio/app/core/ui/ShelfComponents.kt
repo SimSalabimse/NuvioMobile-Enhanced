@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -22,6 +23,7 @@ import androidx.compose.foundation.gestures.stopScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -32,13 +34,11 @@ import androidx.compose.runtime.remember
 import com.nuvio.app.features.settings.ThemeSettingsRepository
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -71,6 +71,8 @@ fun <T> NuvioShelfSection(
     itemSpacing: Dp = 10.dp,
     onViewAllClick: (() -> Unit)? = null,
     viewAllPillSize: NuvioViewAllPillSize = NuvioViewAllPillSize.Default,
+    /** Optional "random pick" button next to the title. */
+    onShuffleClick: (() -> Unit)? = null,
     key: ((T) -> Any)? = null,
     animatePlacement: Boolean = false,
     state: LazyListState = rememberLazyListState(),
@@ -90,6 +92,7 @@ fun <T> NuvioShelfSection(
                 modifier = Modifier.padding(horizontal = headerHorizontalPadding),
                 onViewAllClick = onViewAllClick,
                 viewAllPillSize = viewAllPillSize,
+                onShuffleClick = onShuffleClick,
             )
         }
         LazyRow(
@@ -134,6 +137,8 @@ fun NuvioPosterCard(
     bottomLeftLogoUrl: String? = null,
     bottomLeftText: String? = null,
     isWatched: Boolean = false,
+    /** Small top-start badge such as "In library"; null shows none. */
+    statusLabel: String? = null,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
 ) {
@@ -243,6 +248,19 @@ fun NuvioPosterCard(
             }
 
             NuvioPosterWatchedOverlay(isWatched = isWatched)
+            if (statusLabel != null) {
+                Text(
+                    text = statusLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
+                        .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+            }
         }
         if (shouldShowTitleBelow) {
             Text(
@@ -275,6 +293,7 @@ private fun NuvioShelfSectionHeader(
     modifier: Modifier = Modifier,
     onViewAllClick: (() -> Unit)? = null,
     viewAllPillSize: NuvioViewAllPillSize = NuvioViewAllPillSize.Default,
+    onShuffleClick: (() -> Unit)? = null,
 ) {
     val tokens = MaterialTheme.nuvio
     val showAccent by ThemeSettingsRepository.showCatalogAccentEnabled.collectAsState()
@@ -282,7 +301,8 @@ private fun NuvioShelfSectionHeader(
         modifier = modifier.fillMaxWidth(),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            // Same height with or without the pill, but the title gets the full width when there is none.
+            modifier = Modifier.fillMaxWidth().heightIn(min = viewAllPillSize.actionSize),
             horizontalArrangement = Arrangement.spacedBy(tokens.spacing.controlGap),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -294,18 +314,21 @@ private fun NuvioShelfSectionHeader(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            val viewAllPlaceholderModifier = if (onViewAllClick == null) {
-                Modifier
-                    .alpha(0f)
-                    .clearAndSetSemantics { }
-            } else {
-                Modifier
+            if (onShuffleClick != null) {
+                Icon(
+                    imageVector = Icons.Rounded.Shuffle,
+                    contentDescription = "Random pick",
+                    tint = tokens.colors.textPrimary,
+                    modifier = Modifier
+                        .size(viewAllPillSize.actionSize)
+                        .clip(RoundedCornerShape(50))
+                        .clickable(onClick = onShuffleClick)
+                        .padding(NuvioTokens.Space.s6),
+                )
             }
-            NuvioViewAllPill(
-                onClick = onViewAllClick,
-                size = viewAllPillSize,
-                modifier = viewAllPlaceholderModifier,
-            )
+            if (onViewAllClick != null) {
+                NuvioViewAllPill(onClick = onViewAllClick, size = viewAllPillSize)
+            }
         }
         if (showAccent) {
             Box(
@@ -319,25 +342,27 @@ private fun NuvioShelfSectionHeader(
     }
 }
 
+private val NuvioViewAllPillSize.actionSize: Dp
+    get() = if (this == NuvioViewAllPillSize.Compact) NuvioTokens.Space.s32 else NuvioTokens.Space.s40
+
 @Composable
 private fun NuvioViewAllPill(
-    onClick: (() -> Unit)?,
+    onClick: () -> Unit,
     size: NuvioViewAllPillSize,
-    modifier: Modifier = Modifier,
 ) {
     val tokens = MaterialTheme.nuvio
-    val actionSize = if (size == NuvioViewAllPillSize.Compact) NuvioTokens.Space.s32 else NuvioTokens.Space.s40
+    val actionSize = size.actionSize
     val iconSize = if (size == NuvioViewAllPillSize.Compact) NuvioTokens.Icon.sm else tokens.icons.md
     val viewAllText = stringResource(Res.string.home_view_all)
 
     Box(
-        modifier = modifier
+        modifier = Modifier
             .size(actionSize)
             .background(
                 color = tokens.colors.surface,
                 shape = RoundedCornerShape(NuvioTokens.Radius.xl),
             )
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(

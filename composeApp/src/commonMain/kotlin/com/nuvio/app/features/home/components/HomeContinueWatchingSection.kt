@@ -1,5 +1,6 @@
 package com.nuvio.app.features.home.components
 
+import com.nuvio.app.features.downloads.FinishSeriesGoalBadge
 import com.nuvio.app.features.settings.ThemeSettingsRepository
 import androidx.compose.runtime.collectAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -34,6 +35,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.nuvio.app.core.ui.spoilerBlur
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
@@ -262,12 +264,15 @@ internal fun ContinueWatchingItem.shouldBlurContinueWatchingArtwork(
     useEpisodeThumbnails: Boolean,
     artworkUrl: String?,
 ): Boolean {
-    if (!blurUnwatchedEpisodes || !useEpisodeThumbnails || isWatched) return false
+    if (!useEpisodeThumbnails || !isUnwatchedSpoiler(blurUnwatchedEpisodes)) return false
     val thumbnail = episodeThumbnail?.trim()?.takeIf { it.isNotBlank() } ?: return false
     val artwork = artworkUrl?.trim()?.takeIf { it.isNotBlank() } ?: return false
-    val isUnwatched = isNextUp || progressFraction < WatchProgressCompletionPercentThreshold / 100f
-    return isUnwatched && artwork == thumbnail
+    return artwork == thumbnail
 }
+
+/** Blur Next Up is on and this episode is not watched yet: its picture and title are hidden. */
+internal fun ContinueWatchingItem.isUnwatchedSpoiler(blurNextUp: Boolean): Boolean =
+    blurNextUp && !isWatched && (isNextUp || progressFraction < WatchProgressCompletionPercentThreshold / 100f)
 
 @Composable
 internal fun HomeContinueWatchingSection(
@@ -764,7 +769,7 @@ private fun ContinueWatchingCard(
                 contentScale = ContentScale.Crop,
             )
         }
-        if (item.shufflePlayback) ShuffleBadge(Modifier.align(Alignment.TopStart).padding(8.dp))
+        ArtworkBadges(item, Modifier.align(Alignment.TopStart))
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -803,6 +808,7 @@ private fun ContinueWatchingCard(
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.72f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.spoilerBlur(item.isUnwatchedSpoiler(blurNextUp)),
                 )
             }
         }
@@ -849,6 +855,15 @@ private fun ContinueWatchingCard(
                 )
             }
         }
+    }
+}
+
+/** Shuffle and Finish-a-series badges, top-left so they never cover the title or progress bar. */
+@Composable
+private fun ArtworkBadges(item: ContinueWatchingItem, modifier: Modifier) {
+    Row(modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (item.shufflePlayback) ShuffleBadge()
+        FinishSeriesGoalBadge(item.parentMetaType, item.parentMetaId)
     }
 }
 
@@ -957,6 +972,7 @@ private fun ContinueWatchingWideCard(
                         overflow = TextOverflow.Ellipsis,
                     )
                     if (item.shufflePlayback) ShuffleBadge()
+                    FinishSeriesGoalBadge(item.parentMetaType, item.parentMetaId)
                     if (item.progressFraction <= 0f && item.seasonNumber != null && item.episodeNumber != null) {
                         val todayIsoDate = CurrentDateProvider.todayIsoDate()
                         val badgeText = when {
@@ -992,6 +1008,7 @@ private fun ContinueWatchingWideCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.spoilerBlur(item.isUnwatchedSpoiler(blurNextUp)),
                     )
                 }
             }
@@ -1074,7 +1091,7 @@ private fun ContinueWatchingPosterCard(
                     contentScale = if (item.isCloudLibraryItem()) ContentScale.Fit else ContentScale.Crop,
                 )
             }
-            if (item.shufflePlayback) ShuffleBadge(Modifier.align(Alignment.TopStart).padding(8.dp))
+            ArtworkBadges(item, Modifier.align(Alignment.TopStart))
             if (item.progressFraction <= 0f && item.seasonNumber != null && item.episodeNumber != null) {
                 Box(
                     modifier = Modifier

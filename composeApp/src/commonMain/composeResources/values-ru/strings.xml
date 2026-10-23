@@ -77,7 +77,6 @@
     <string name="cd_selected">Выбрано</string>
     <string name="collections_copy_json">Копировать JSON</string>
     <string name="collections_copy_json_error">Собранные данные слишком велики для буфера обмена на этом устройстве.</string>
-    <string name="collections_count_summary">%1$d коллекций, %2$d папок</string>
     <string name="collections_delete_message">Удалить "%1$s"? Это невозможно отменить.</string>
     <string name="collections_delete_title">Удалить коллекцию</string>
     <string name="collections_editor_add_catalog">Добавить каталог</string>
@@ -126,7 +125,9 @@
     <string name="collections_editor_show_all_tab">Показать вкладку \"Все\"</string>
     <string name="collections_editor_show_gif_when_configured_desc">Воспроизводите настроенный GIF-файл вместо статической обложки, если она доступна.</string>
     <string name="collections_editor_show_gif_when_configured">Показывать GIF при настройке</string>
-    <string name="collections_editor_source_count">%1$d источников · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d источников · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">Форма плитки</string>
     <string name="collections_editor_view_mode_rows">Строки</string>
     <string name="collections_editor_view_mode_tabs">Вкладки</string>
@@ -322,7 +323,9 @@
     <string name="collections_editor_tmdb_subtitle_discover">TMDB Discover</string>
     <string name="collections_empty_subtitle">Создайте его для организации своих каталогов.</string>
     <string name="collections_empty_title">Коллекций пока нет</string>
-    <string name="collections_folder_count">Папка(и) %1$d</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">Папка(и) %1$d</item>
+    </plurals>
     <string name="collections_folder_empty_items">Элементы не найдены</string>
     <string name="collections_folder_not_found">Папка не найдена</string>
     <string name="collections_header">Коллекции</string>
@@ -616,7 +619,6 @@
     <string name="detail_trailers_title">Трейлеры</string>
     <string name="downloads_empty_episodes">Нет завершенных серий</string>
     <string name="downloads_empty_title">Пока нет загрузок</string>
-    <string name="downloads_episode_count">%1$d скачанные эпизоды</string>
     <string name="downloads_open_directory">Открыть папку загрузок</string>
     <string name="downloads_open_directory_failed">Не удалось открыть папку загрузок</string>
     <string name="downloads_section_active">Активный</string>
@@ -624,7 +626,6 @@
     <string name="downloads_section_shows">Шоу</string>
     <string name="downloads_show_downloads">Показать загрузки</string>
     <string name="downloads_status_completed">Завершено • %1$s</string>
-    <string name="downloads_status_downloading">Загрузка • %1$s</string>
     <string name="downloads_status_failed">Не удалось</string>
     <string name="downloads_status_paused">Приостановлено • %1$s</string>
     <string name="episodes_cd_watched">Смотрел</string>

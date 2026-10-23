@@ -55,6 +55,8 @@ internal data class MediaAnalysisResult(
     val userSegments: Map<String, UserSegment> = emptyMap(),
     /** Segment types found by matching another episode's user mark. */
     val learnedTypes: Set<String> = emptySet(),
+    /** Segment types found from a clip of another episode ([SiblingClipReference]): type to episode. */
+    val foundUsing: Map<String, Int> = emptyMap(),
 )
 
 @Serializable
@@ -64,15 +66,22 @@ internal data class UserSegment(
     val markedAtMs: Long = 0L,
     /** Brought in from the user's own TheIntroDB submissions, not marked on this phone. */
     val imported: Boolean = false,
+    /** Length of the video the mark was made on (0: unknown). */
+    val durationMs: Long = 0L,
 )
+
+/** A mark on an unknown cut can be wrong for every other file, so it never teaches other episodes. */
+internal val UserSegment.canTeach: Boolean get() = !imported || durationMs > 0L
 
 /** The user's marks override what was detected for this episode. */
 internal fun MediaAnalysisResult.withUserSegmentsApplied(): MediaAnalysisResult {
     if (userSegments.isEmpty()) return this
     var r = this
-    userSegments["intro"]?.let { r = r.copy(introStartMs = it.startMs, introEndMs = it.endMs) }
-    userSegments["outro"]?.let { r = r.copy(creditsStartMs = it.startMs, creditsEndMs = it.endMs) }
-    userSegments["recap"]?.let { r = r.copy(recapStartMs = it.startMs, recapEndMs = it.endMs) }
+    // A mark made on another cut of the episode doesn't replace what was found in this file.
+    val marks = userSegments.filterValues { com.nuvio.app.features.player.sameCut(it.durationMs, durationMs) }
+    marks["intro"]?.let { r = r.copy(introStartMs = it.startMs, introEndMs = it.endMs) }
+    marks["outro"]?.let { r = r.copy(creditsStartMs = it.startMs, creditsEndMs = it.endMs) }
+    marks["recap"]?.let { r = r.copy(recapStartMs = it.startMs, recapEndMs = it.endMs) }
     return r
 }
 

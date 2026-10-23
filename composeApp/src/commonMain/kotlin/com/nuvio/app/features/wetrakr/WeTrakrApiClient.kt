@@ -1,6 +1,6 @@
 package com.nuvio.app.features.wetrakr
 
-import com.nuvio.app.core.network.createApiHttpClient
+import com.nuvio.app.core.network.sharedApiHttpClient
 import com.nuvio.app.core.network.readBoundedResponseBody
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
@@ -65,7 +65,7 @@ internal data class WeTrakrResponse(
 
 internal class WeTrakrApiClient(
     private val store: WeTrakrAuthStore,
-    private val client: HttpClient = createApiHttpClient(),
+    private val client: HttpClient = sharedApiHttpClient,
     private val now: () -> Long = { kotlin.time.Clock.System.now().toEpochMilliseconds() },
 ) {
     private val throttle = Mutex()

@@ -85,7 +85,6 @@
     <string name="cd_selected">Selected</string>
     <string name="collections_copy_json">Copy JSON</string>
     <string name="collections_copy_json_error">The collection data is too large for the clipboard on this device.</string>
-    <string name="collections_count_summary">%1$d collection(s), %2$d folder(s)</string>
     <string name="collections_delete_message">Delete "%1$s"? This cannot be undone.</string>
     <string name="collections_delete_title">Delete Collection</string>
     <string name="collections_editor_add_catalog">Add Catalog</string>
@@ -134,7 +133,10 @@
     <string name="collections_editor_show_all_tab">Show &quot;All&quot; Tab</string>
     <string name="collections_editor_show_gif_when_configured_desc">Play the configured GIF instead of the static cover when available.</string>
     <string name="collections_editor_show_gif_when_configured">Show GIF When Configured</string>
-    <string name="collections_editor_source_count">%1$d source(s) · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="one">%1$d source · %2$s</item>
+        <item quantity="other">%1$d sources · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">Tile Shape</string>
     <string name="collections_editor_view_mode_rows">Rows</string>
     <string name="collections_editor_view_mode_tabs">Tabs</string>
@@ -330,7 +332,14 @@
     <string name="collections_editor_tmdb_subtitle_discover">TMDB Discover</string>
     <string name="collections_empty_subtitle">Create one to organize your catalogs.</string>
     <string name="collections_empty_title">No collections yet</string>
-    <string name="collections_folder_count">%1$d folder(s)</string>
+    <plurals name="collections_count">
+        <item quantity="one">%1$d collection</item>
+        <item quantity="other">%1$d collections</item>
+    </plurals>
+    <plurals name="collections_folder_count">
+        <item quantity="one">%1$d folder</item>
+        <item quantity="other">%1$d folders</item>
+    </plurals>
     <string name="collections_folder_empty_items">No items found</string>
     <string name="collections_folder_not_found">Folder not found</string>
     <string name="collections_header">Collections</string>
@@ -622,6 +631,9 @@
     <string name="settings_licenses_attributions_haze_title">Haze 1.7.2</string>
     <string name="settings_licenses_attributions_haze_body">Used for background blur effects. Created by Chris Banes.</string>
     <string name="settings_licenses_attributions_haze_license">Licensed under the Apache License, Version 2.0.</string>
+    <string name="settings_licenses_attributions_backdrop_title">Backdrop 2.0.1</string>
+    <string name="settings_licenses_attributions_backdrop_body">Used for liquid glass effects. Created by Kyant.</string>
+    <string name="settings_licenses_attributions_backdrop_license">Licensed under the Apache License, Version 2.0.</string>
     <string name="settings_licenses_attributions_nuvio_title">Nuvio Mobile</string>
     <string name="settings_licenses_attributions_nuvio_body">Source code and license terms are available in the project repository.</string>
     <string name="settings_licenses_attributions_nuvio_license">Licensed under the GNU General Public License v3.0.</string>
@@ -670,7 +682,6 @@
     <string name="detail_trailers_title">Trailers</string>
     <string name="downloads_empty_episodes">No completed episodes</string>
     <string name="downloads_empty_title">No downloads yet</string>
-    <string name="downloads_episode_count">%1$d downloaded episode(s)</string>
     <string name="downloads_open_directory">Open downloads folder</string>
     <string name="downloads_open_directory_failed">Couldn&apos;t open downloads folder</string>
     <string name="downloads_section_active">Active</string>
@@ -678,7 +689,6 @@
     <string name="downloads_section_shows">Shows</string>
     <string name="downloads_show_downloads">Show Downloads</string>
     <string name="downloads_status_completed">Completed • %1$s</string>
-    <string name="downloads_status_downloading">Downloading • %1$s</string>
     <string name="downloads_status_failed">Failed</string>
     <string name="downloads_status_paused">Paused • %1$s</string>
     <string name="downloads_status_queued">Waiting</string>
@@ -894,7 +904,7 @@
     <string name="settings_show_secret">Show value</string>
     <string name="settings_continue_watching_resume_prompt_description">Show a popup to continue where you left off when opening the app after leaving from the player.</string>
     <string name="settings_continue_watching_resume_prompt_title">Resume prompt on launch</string>
-    <string name="settings_continue_watching_blur_next_up_description">Blur unwatched episode thumbnails in Continue Watching to avoid spoilers.</string>
+    <string name="settings_continue_watching_blur_next_up_description">Blur pictures and titles of unwatched episodes in Continue Watching, Up next tonight and Finish a series.</string>
     <string name="settings_continue_watching_blur_next_up_title">Blur Unwatched in Continue Watching</string>
     <string name="settings_continue_watching_show_unaired_next_up_description">Include upcoming episodes in Continue Watching before they air.</string>
     <string name="settings_continue_watching_show_unaired_next_up_title">Show Unaired Next Up Episodes</string>
@@ -948,6 +958,8 @@
     <string name="live_tv_filter_favorites">Favorites</string>
     <string name="live_tv_filter_choose_category">Choose Category</string>
     <string name="live_tv_categories">Categories</string>
+    <string name="live_tv_search_categories_placeholder">Search categories</string>
+    <string name="live_tv_no_matching_categories">No matching categories</string>
     <string name="live_tv_section_channels">Channels</string>
     <string name="live_tv_last_watched_title">Last Watched Channel</string>
     <string name="live_tv_action_back_to_top">Back to top</string>
@@ -1015,6 +1027,12 @@
     <string name="live_tv_settings_epg_none">No guides added yet.</string>
     <string name="live_tv_settings_epg_loading">Loading guide…</string>
     <string name="live_tv_settings_epg_status">Guide available for %1$d of %2$d channels.</string>
+    <string name="live_tv_settings_section_reload">MANUAL RELOAD</string>
+    <string name="live_tv_settings_reload_description">Channels and the TV guide are saved on your device and reused when you open the app. Reload them here to fetch the latest from your providers.</string>
+    <string name="live_tv_settings_reload_channels">Reload channels</string>
+    <string name="live_tv_settings_reload_epg">Reload EPG</string>
+    <string name="live_tv_settings_reload_channels_loading">Loading channels…</string>
+    <string name="live_tv_settings_reload_channels_status">%1$d channels loaded.</string>
     <string name="settings_debrid_section_title">CONNECTED SERVICES</string>
     <string name="settings_debrid_experimental_notice">These integrations are experimental and may be kept, changed, or removed later.</string>
     <string name="settings_debrid_cloud_library">Cloud library</string>
@@ -1102,6 +1120,7 @@
     <string name="settings_fusion_badge_other_group_title">Other Fusion badges</string>
     <string name="settings_debrid_key_valid">API key validated.</string>
     <string name="settings_debrid_key_invalid">Could not validate this API key.</string>
+    <string name="settings_debrid_use_api_key">Use API key instead</string>
     <string name="settings_mdb_add_api_key_first">Add your MDBList API key below before turning ratings on.</string>
     <string name="settings_mdb_api_key_description">Required to fetch ratings from MDBList</string>
     <string name="settings_mdb_api_key_label">API Key</string>
@@ -1147,7 +1166,7 @@
     <string name="settings_meta_episodes">Episodes</string>
     <string name="settings_meta_episodes_description">Seasons and episode list for series.</string>
     <string name="settings_meta_blur_unwatched_episodes">Blur Unwatched Episodes</string>
-    <string name="settings_meta_blur_unwatched_episodes_description">Blur episode thumbnails until watched to avoid spoilers.</string>
+    <string name="settings_meta_blur_unwatched_episodes_description">Blur pictures and descriptions of unwatched episodes on the details screen, in Download Season and in the player episode list.</string>
     <string name="settings_meta_group_label">Group %1$d</string>
     <string name="settings_meta_more_like_this">More like this</string>
     <string name="settings_meta_more_like_this_description">TMDB recommendation backdrops on detail page</string>
@@ -1254,6 +1273,8 @@
     <string name="settings_playback_duration_hours">%1$d hours</string>
     <string name="settings_playback_enable_libass">Use libass for ASS/SSA subtitles</string>
     <string name="settings_playback_enable_libass_description">Experimental: advanced ASS/SSA rendering (styles, positioning, animations)</string>
+    <string name="settings_playback_enable_libmpv_ass">Use libmpv&apos;s libass for ASS/SSA subtitles</string>
+    <string name="settings_playback_enable_libmpv_ass_description">Experimental: draws ASS/SSA with the libass bundled in libmpv on a frame-synced overlay, replacing ExoPlayer&apos;s ASS rendering</string>
     <string name="settings_playback_external_player">External Player</string>
     <string name="settings_playback_external_player_app">External Player App</string>
     <string name="settings_playback_external_player_description_android">Open new playback with Android&apos;s default video app or system chooser.</string>
@@ -1286,6 +1307,8 @@
     <string name="settings_playback_last_link_cache_duration">Last Link Cache Duration</string>
     <string name="settings_playback_map_dv7_to_hevc">DV7 - HEVC Fallback</string>
     <string name="settings_playback_map_dv7_to_hevc_description">Map Dolby Vision Profile 7 to standard HEVC for devices without DV hardware support</string>
+    <string name="settings_playback_debug_readout">Playback debug readout</string>
+    <string name="settings_playback_debug_readout_description">Shows the position, duration and skip segments in the player.</string>
     <string name="settings_playback_minutes_before_end">Threshold Minutes</string>
     <string name="settings_playback_minutes_before_end_description">Fallback when no outro timestamp exists.</string>
     <string name="settings_playback_minutes_value">%1$s min</string>
@@ -1311,7 +1334,7 @@
     <string name="settings_playback_preload_next_episode">Preload Next Episode Sources</string>
     <string name="settings_playback_preload_next_episode_description">Start searching for sources in the background before the next episode button appears.</string>
     <string name="settings_playback_mini_player">Mini Player</string>
-    <string name="settings_playback_mini_player_description">Leaving the player keeps playback going in a small floating window. Tap it to return to full screen.</string>
+    <string name="settings_playback_mini_player_description">Shows the mini player button in the player so you can keep watching in a floating window while you browse. Picture in Picture when leaving the app works either way.</string>
     <string name="settings_playback_private_viewing">Private Viewing</string>
     <string name="settings_playback_private_viewing_description">Don\'t save watch progress, Continue Watching or watched status, and don\'t sync playback to connected trackers.</string>
     <string name="mini_player_play">Play</string>
@@ -1753,23 +1776,31 @@
     <string name="season_download_no_match">No matching source</string>
     <string name="season_download_unsupported">Unsupported format</string>
     <string name="season_download_choose_streams">Choose streams</string>
-    <string name="season_download_queued">Queued %1$d episodes</string>
+    <plurals name="season_download_queued">
+        <item quantity="one">Queued %1$d episode</item>
+        <item quantity="other">Queued %1$d episodes</item>
+    </plurals>
     <string name="season_download_none_queued">Nothing queued</string>
     <string name="season_download_already_downloaded">Downloaded</string>
     <string name="season_download_in_downloads">Already in Downloads</string>
     <string name="season_download_matching">Finding this source…</string>
     <string name="season_download_change_source">Change</string>
     <string name="season_download_auto_picked">Picked by your auto-play settings</string>
-    <string name="season_download_sources_pending">Still loading %1$d sources…</string>
+    <plurals name="season_download_sources_pending">
+        <item quantity="one">Still loading %1$d source…</item>
+        <item quantity="other">Still loading %1$d sources…</item>
+    </plurals>
     <string name="season_download_nothing_left">Every episode is already downloaded.</string>
     <string name="season_download_watched">Watched</string>
     <string name="season_download_episode_source">Source for %1$s</string>
     <string name="season_download_back">Back</string>
-    <string name="downloads_group_count">%1$d episodes</string>
     <string name="downloads_group_pause_all">Pause all</string>
     <string name="downloads_group_resume_all">Resume all</string>
     <string name="downloads_group_cancel_all">Cancel all</string>
-    <string name="downloads_group_cancel_title">Cancel %1$d downloads?</string>
+    <plurals name="downloads_group_cancel_title">
+        <item quantity="one">Cancel %1$d download?</item>
+        <item quantity="other">Cancel %1$d downloads?</item>
+    </plurals>
     <string name="downloads_group_cancel_message">This stops every download of %1$s and deletes their partial files.</string>
     <string name="downloads_season_cancel">Cancel season</string>
     <string name="downloads_not_enough_space">Not enough space</string>
@@ -1781,23 +1812,36 @@
     <string name="downloads_storage_used_by_downloads">Downloads use %1$s</string>
     <string name="downloads_storage_unknown_space">Free space unknown</string>
     <string name="downloads_storage_low">Low on space. Downloads stop with less than %1$s free.</string>
-    <string name="downloads_storage_count">%1$d downloads</string>
+    <plurals name="downloads_storage_count">
+        <item quantity="one">%1$d download</item>
+        <item quantity="other">%1$d downloads</item>
+    </plurals>
     <string name="downloads_storage_by_title">By title</string>
     <string name="downloads_storage_season">Season %1$d</string>
     <string name="downloads_storage_specials">Specials</string>
     <string name="downloads_storage_delete">Delete</string>
     <string name="downloads_storage_delete_title">Delete %1$s?</string>
-    <string name="downloads_storage_delete_message">This deletes %1$d downloads (%2$s), including partial files.</string>
+    <plurals name="downloads_storage_delete_message">
+        <item quantity="one">This deletes %1$d download (%2$s), including partial files.</item>
+        <item quantity="other">This deletes %1$d downloads (%2$s), including partial files.</item>
+    </plurals>
     <string name="downloads_storage_leftovers">Leftover files</string>
-    <string name="downloads_storage_leftovers_hint">%1$d files (%2$s) that no download owns, such as partial files from removed downloads.</string>
     <string name="downloads_storage_leftovers_clear">Clear</string>
     <string name="downloads_storage_leftovers_confirm_title">Clear leftover files?</string>
-    <string name="downloads_storage_leftovers_confirm_message">This deletes %1$d files (%2$s).</string>
+    <plurals name="downloads_storage_leftovers_confirm_message">
+        <item quantity="one">This deletes %1$d file (%2$s).</item>
+        <item quantity="other">This deletes %1$d files (%2$s).</item>
+    </plurals>
     <string name="downloads_storage_empty">No downloads yet.</string>
     <string name="downloads_season_sheet_low_space">Not enough space: %1$s selected, %2$s free (keeping %3$s spare). Downloads that do not fit will stop with Not enough space.</string>
     <string name="downloads_season_pause">Pause season</string>
     <string name="downloads_season_resume">Resume season</string>
-    <string name="downloads_in_progress_count">%1$d in progress</string>
+    <string name="downloads_in_progress_count">%1$d downloading</string>
+    <string name="downloads_status_downloading_short">Downloading</string>
+    <plurals name="downloads_episodes">
+        <item quantity="one">%1$d episode</item>
+        <item quantity="other">%1$d episodes</item>
+    </plurals>
     <string name="downloads_cancel_season_hint">Long-press an episode to cancel its whole season.</string>
     <string name="download_mark_waiting">Waiting to download</string>
     <string name="download_mark_paused">Paused</string>
@@ -2277,7 +2321,12 @@
     <string name="library_sort_released_asc">Oldest released</string>
     <string name="library_sort_released_desc">Recently released</string>
     <string name="library_sort_title_asc">Title A–Z</string>
-    <string name="library_error_sort_failed">Couldn\'t load sort order. Showing provider order.</string>
+    <string name="library_status_watching">Watching</string>
+    <string name="library_status_plan_to_watch">Plan to Watch</string>
+    <string name="library_status_on_hold">On Hold</string>
+    <string name="library_status_completed">Completed</string>
+    <string name="library_status_dropped">Dropped</string>
+    <string name="library_error_sort_failed">Couldn't load sort order. Showing provider order.</string>
     <string name="library_sort_title_desc">Title Z–A</string>
     <string name="library_sort_provider_order">Tracker order</string>
     <string name="library_source_cloud">Cloud</string>
@@ -2294,6 +2343,8 @@
     <string name="cloud_library_connect_action">Connect account</string>
     <string name="cloud_library_connect_message">Connect an account in Connected Services settings to browse playable files from your cloud library.</string>
     <string name="cloud_library_connect_title">No cloud account connected</string>
+    <string name="cloud_library_connect_torbox_api_key">Connect Torbox with API key</string>
+    <string name="cloud_library_torbox_api_key_hint">Find your API key at torbox.app/settings</string>
     <string name="cloud_library_disabled_action">Open Connected Services</string>
     <string name="cloud_library_disabled_message">Turn on Cloud library in Connected Services settings to browse files from connected accounts.</string>
     <string name="cloud_library_disabled_title">Cloud library is off</string>
@@ -2354,6 +2405,8 @@
     <!-- PlayerControls a11y -->
     <string name="player_action_submit_intro">Submit Intro</string>
     <string name="player_action_video_settings">Video settings</string>
+    <string name="player_action_rotate_portrait">Watch in portrait</string>
+    <string name="player_action_rotate_landscape">Watch in landscape</string>
     <!-- CloudLibrary -->
     <string name="cloud_library_provider_unavailable">Cloud library is not available for %1$s.</string>
     <!-- Player iOS video settings modal -->
@@ -2786,6 +2839,31 @@
     <string name="settings_nav_bar_position">Position</string>
     <string name="settings_nav_bar_position_bottom">Bottom</string>
     <string name="settings_nav_bar_position_top">Top</string>
+    <string name="settings_appearance_liquid_glass_effects">Liquid glass effects</string>
+    <string name="settings_appearance_liquid_glass_effects_description">Glass on the navigation bar, sheets, player controls and cinematic screens. Turn off for solid surfaces.</string>
+    <string name="settings_nav_bar_glass">Liquid glass</string>
+    <string name="settings_nav_bar_glass_legacy_description">These options control a separate glass style for the navigation bar. They only apply when Liquid Glass material is turned off.</string>
+    
+    <string name="settings_nav_bar_glass_material_liquid">Liquid</string>
+    <string name="settings_nav_bar_glass_material_frosted">Frosted</string>
+    <string name="settings_nav_bar_glass_material_clear">Clear</string>
+    <string name="settings_nav_bar_glass_material_solid">Solid</string>
+    <string name="settings_nav_bar_glass_blur">Blur</string>
+    <string name="settings_nav_bar_glass_refraction">Refraction</string>
+    <string name="settings_nav_bar_glass_tint">Tint</string>
+    <string name="settings_nav_bar_glass_value_dp">%1$d dp</string>
+    <string name="settings_nav_bar_glass_value_percent">%1$d%</string>
+    <string name="settings_nav_bar_glass_vibrancy">Vibrancy</string>
+    <string name="settings_nav_bar_glass_vibrancy_description">Boosts the colors showing through the glass.</string>
+    <string name="settings_nav_bar_glass_highlight">Edge highlight</string>
+    <string name="settings_nav_bar_glass_highlight_description">Lights the rim of the bar.</string>
+    <string name="settings_nav_bar_glass_shadow">Shadow</string>
+    <string name="settings_nav_bar_glass_shadow_description">Lifts the bar off the content with a soft shadow.</string>
+    <string name="settings_nav_bar_glass_dispersion">Chromatic aberration</string>
+    <string name="settings_nav_bar_glass_dispersion_description">Splits colors at the edges of the glass like a real lens.</string>
+    <string name="settings_nav_bar_glass_selection_lens">Liquid selection</string>
+    <string name="settings_nav_bar_glass_selection_lens_description">Magnifies the glass under the selected tab.</string>
+    <string name="settings_nav_bar_glass_reset">Reset glass to default</string>
     <string name="random_episode_title">Shuffle</string>
     <string name="layout_random_episode_sub">Shuffle episodes from any series. Turning this off pauses shuffle.</string>
     <string name="random_episode_unwatched">Unwatched episodes</string>
@@ -2951,7 +3029,7 @@
     <string name="smart_downloads_charging_title">Only while charging</string>
     <string name="smart_downloads_charging_description">Start smart downloads only while the phone is charging.</string>
     <string name="download_quality_title">Download quality</string>
-    <string name="download_quality_best">Best available</string>
+    <string name="download_quality_best">Auto (best available)</string>
     <string name="download_quality_2160">Up to 4K (2160p)</string>
     <string name="download_quality_1080">Up to 1080p</string>
     <string name="download_quality_720">Up to 720p</string>
@@ -3008,7 +3086,10 @@
     <string name="analysis_ago_hours">%1$d h ago</string>
     <string name="analysis_ago_days">%1$d days ago</string>
     <string name="analysis_summary_title">On-device analysis</string>
-    <string name="analysis_summary_count">%1$d of %2$d downloads analysed</string>
+    <plurals name="analysis_summary_count">
+        <item quantity="one">%1$d of %2$d download analysed</item>
+        <item quantity="other">%1$d of %2$d downloads analysed</item>
+    </plurals>
     <string name="analysis_summary_failed">%1$d failed. Tap Analyse now to try again.</string>
     <string name="analysis_summary_running">Analysing %1$s: %2$s %3$d%</string>
     <string name="analysis_summary_in_background">in the background</string>
@@ -3052,4 +3133,29 @@
     </plurals>
     <string name="watch_stats_last_7_days">Last 7 days</string>
     <string name="analysis_part_recap_none">No recap found</string>
+    <string name="settings_nav_bar_liquid_glass">Liquid Glass material</string>
+    <string name="settings_nav_bar_liquid_glass_description">Adds refraction and blur to the floating navigation bar.</string>
+    <string name="settings_nav_bar_liquid_glass_unsupported_description">Requires Android 13 or later. This device will keep the existing glass style.</string>
+    <string name="settings_nav_bar_liquid_glass_floating_bar">Floating bar</string>
+    <string name="settings_nav_bar_liquid_glass_selection_lens">Selected-tab lens</string>
+    <string name="settings_nav_bar_liquid_glass_reset_bar">Reset floating bar effects to defaults</string>
+    <string name="settings_nav_bar_liquid_glass_reset_lens">Reset selected-tab lens effects to defaults</string>
+    <string name="settings_nav_bar_glass_lens_affect_tab_icons">Lens affects tab icons</string>
+    <string name="settings_nav_bar_glass_lens_affect_tab_icons_description">Refract the tab icons and labels as the lens moves.</string>
+    <string name="settings_nav_bar_glass_lens_affect_floating_bar">Lens affects floating bar</string>
+    <string name="settings_nav_bar_glass_lens_affect_floating_bar_description">Refract the floating bar's glass surface as the lens moves.</string>
+    <string name="settings_nav_bar_glass_corner_radius">Corner radius</string>
+    <string name="settings_nav_bar_glass_blur_radius">Blur radius</string>
+    <string name="settings_nav_bar_glass_refraction_height">Refraction height</string>
+    <string name="settings_nav_bar_glass_refraction_amount">Refraction amount</string>
+    <string name="settings_nav_bar_glass_tint_opacity">Tint opacity</string>
+    <string name="settings_nav_bar_glass_chromatic_aberration">Chromatic aberration</string>
+    <string name="settings_nav_bar_glass_chromatic_aberration_description">Adds subtle colour fringing around refracted edges.</string>
+    <string name="settings_nav_bar_glass_depth_effect">Depth effect</string>
+    <string name="settings_nav_bar_glass_depth_effect_description">Adds depth shading to the refracted surface.</string>
+    <string name="settings_nav_bar_default_icon_color">Default icon color</string>
+    <string name="settings_nav_bar_default_icon_color_description">Override the default grey used by unselected navigation icons and labels.</string>
+    <string name="settings_nav_bar_default_icon_color_change">Change default icon color</string>
+    <string name="settings_nav_bar_default_icon_color_expand">Tap to expand the color picker.</string>
+    <string name="settings_nav_bar_default_icon_color_collapse">Tap to collapse the color picker.</string>
 </resources>

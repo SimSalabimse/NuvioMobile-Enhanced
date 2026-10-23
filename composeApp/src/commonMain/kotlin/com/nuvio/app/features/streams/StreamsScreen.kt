@@ -72,7 +72,10 @@ import com.nuvio.app.core.ui.NuvioBottomSheetDivider
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.dismissNuvioBottomSheet
+import com.nuvio.app.features.debrid.DebridSourceFallback
+import com.nuvio.app.features.downloads.DownloadSheetRequest
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.enqueueDownloadForRequest
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -95,6 +98,10 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
+import com.nuvio.app.core.ui.glass.LocalLiquidGlassBackdrop
+import com.nuvio.app.core.ui.glass.ambientLiquidGlass
+import com.nuvio.app.core.ui.glass.nuvioBackdropSource
+import com.nuvio.app.core.ui.glass.rememberNuvioBackdrop
 
 // ---------------------------------------------------------------------------
 // Streams Screen
@@ -235,59 +242,24 @@ fun StreamsScreen(
     }
 
     val enqueueStreamDownload: (StreamItem) -> Unit = { stream ->
-
-            if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(stream)) {
-                downloadScope.launch {
-                    val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
-                        stream = stream,
-                        season = seasonNumber,
-                        episode = episodeNumber,
-                    )
-                    when (resolved) {
-                        is DirectDebridPlayableResult.Success -> {
-                            val result = DownloadsRepository.enqueueFromStream(
-                                contentType = type,
-                                videoId = videoId,
-                                parentMetaId = parentMetaId,
-                                parentMetaType = parentMetaType,
-                                title = title,
-                                logo = logo,
-                                poster = poster,
-                                background = background,
-                                seasonNumber = seasonNumber,
-                                episodeNumber = episodeNumber,
-                                episodeTitle = episodeTitle,
-                                episodeThumbnail = episodeThumbnail,
-                                stream = resolved.stream,
-                            )
-                            NuvioToastController.show(result.toastMessage())
-                        }
-                        else -> {
-                            val message = resolved.toastMessage()
-                            if (message != null) {
-                                NuvioToastController.show(message)
-                            }
-                        }
-                    }
-                }
-            } else {
-                val result = DownloadsRepository.enqueueFromStream(
-                    contentType = type,
-                    videoId = videoId,
-                    parentMetaId = parentMetaId,
-                    parentMetaType = parentMetaType,
-                    title = title,
-                    logo = logo,
-                    poster = poster,
-                    background = background,
-                    seasonNumber = seasonNumber,
-                    episodeNumber = episodeNumber,
-                    episodeTitle = episodeTitle,
-                    episodeThumbnail = episodeThumbnail,
-                    stream = stream,
-                )
-                NuvioToastController.show(result.toastMessage())
-            }
+        enqueueDownloadForRequest(
+            request = DownloadSheetRequest(
+                type = type,
+                videoId = videoId,
+                parentMetaId = parentMetaId,
+                parentMetaType = parentMetaType,
+                title = title,
+                logo = logo,
+                poster = poster,
+                background = background,
+                seasonNumber = seasonNumber,
+                episodeNumber = episodeNumber,
+                episodeTitle = episodeTitle,
+                episodeThumbnail = episodeThumbnail,
+            ),
+            stream = stream,
+            scope = downloadScope,
+        )
     }
 
     // Quality picker with a size estimate before a download starts.
@@ -307,6 +279,17 @@ fun StreamsScreen(
 
     if (showLoadingScreen) return
 
+    val downloadAutoPick = com.nuvio.app.features.downloads.rememberDownloadAutoPick(
+        type = type,
+        videoId = videoId,
+        parentMetaId = parentMetaId,
+        season = seasonNumber,
+        episode = episodeNumber,
+        enabled = downloadMode,
+    )
+    // Auto-pick on: only the picked-source card shows until "Change source" / "Choose myself".
+    val hideSourceList = downloadMode && downloadAutoPick.hidesSourceList
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
@@ -314,7 +297,9 @@ fun StreamsScreen(
     ) {
         val isTabletLayout = maxWidth >= 768.dp
 
-        if (isTabletLayout) {
+        if (hideSourceList) {
+            // Source list hidden while auto-pick decides.
+        } else CompositionLocalProvider(com.nuvio.app.features.downloads.LocalDownloadSourceChips provides downloadMode) { if (isTabletLayout) {
             TabletStreamsLayout(
                 isEpisode = isEpisode,
                 showSearchField = streamDisplaySettings.showStreamSearch,
@@ -372,7 +357,7 @@ fun StreamsScreen(
                 onStreamLongPress = { stream -> streamActionsTarget = stream },
                 onRefresh = reloadStreams,
             )
-        }
+        } }
 
         Row(
             modifier = Modifier
@@ -394,6 +379,22 @@ fun StreamsScreen(
         }
 
 
+        if (downloadMode) {
+            // Shared picked-source card (same for every download entry point).
+            com.nuvio.app.features.downloads.DownloadAutoPickCard(
+                controller = downloadAutoPick,
+                heading = listOfNotNull(
+                    title.takeIf { it.isNotBlank() },
+                    if (seasonNumber != null && episodeNumber != null) "S${seasonNumber}E${episodeNumber}" else null,
+                    episodeTitle?.takeIf { it.isNotBlank() },
+                ).joinToString(" · "),
+                onDownload = enqueueStreamDownload,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .windowInsetsPadding(WindowInsets.safeDrawing),
+            )
+        }
+
         StreamActionsSheet(
             stream = streamActionsTarget,
             externalPlayerEnabled = playerSettings.externalPlayerEnabled,
@@ -405,27 +406,15 @@ fun StreamsScreen(
                     NuvioToastController.show(streamLinkCopiedText)
                 } else if (DirectDebridPlaybackResolver.shouldResolveToPlayableStream(stream)) {
                     downloadScope.launch {
-                        val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
-                            stream = stream,
-                            season = seasonNumber,
-                            episode = episodeNumber,
-                        )
-                        when (resolved) {
-                            is DirectDebridPlayableResult.Success -> {
-                                val resolvedUrl = resolved.stream.playableDirectUrl
-                                if (!resolvedUrl.isNullOrBlank()) {
-                                    clipboardManager.setText(AnnotatedString(resolvedUrl))
-                                    NuvioToastController.show(streamLinkCopiedText)
-                                } else {
-                                    NuvioToastController.show(noDirectStreamLinkText)
-                                }
-                            }
-                            else -> {
-                                val message = resolved.toastMessage()
-                                if (message != null) {
-                                    NuvioToastController.show(message)
-                                }
-                            }
+                        val playable = DebridSourceFallback.playable(stream, seasonNumber, episodeNumber) {
+                            uiState.groups.flatMap { it.streams }
+                        }.stream ?: return@launch
+                        val resolvedUrl = playable.playableDirectUrl
+                        if (!resolvedUrl.isNullOrBlank()) {
+                            clipboardManager.setText(AnnotatedString(resolvedUrl))
+                            NuvioToastController.show(streamLinkCopiedText)
+                        } else {
+                            NuvioToastController.show(noDirectStreamLinkText)
                         }
                     }
                 } else {
@@ -469,6 +458,8 @@ private fun MobileStreamsLayout(
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val streamsGlassBackdrop = rememberNuvioBackdrop()
+    val streamsGlassEnabled = backgroundMode == StreamBackgroundMode.Cinematic && heroArtwork != null
     Box(modifier = modifier.fillMaxSize()) {
         if (backgroundMode == StreamBackgroundMode.Cinematic && heroArtwork != null) {
             AsyncImage(
@@ -476,97 +467,102 @@ private fun MobileStreamsLayout(
                 contentDescription = null,
                 modifier = Modifier
                     .fillMaxSize()
-                    .blur(22.dp),
+                    .blur(12.dp)
+                    .nuvioBackdropSource(streamsGlassBackdrop),
                 contentScale = ContentScale.Crop,
             )
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = if (isEpisode) 0.9f else 0.82f)),
+                    .background(Color.Black.copy(alpha = if (isEpisode) 0.72f else 0.62f)),
             )
         }
 
         val streamBlendColor = MaterialTheme.colorScheme.background
 
-        Column(modifier = Modifier.fillMaxSize()) {
-            if (isEpisode && seasonNumber != null && episodeNumber != null) {
-                EpisodeHeroBlock(
-                    seasonNumber = seasonNumber,
-                    episodeNumber = episodeNumber,
-                    episodeTitle = episodeTitle ?: title,
-                    thumbnail = heroArtwork,
-                    blurred = blurEpisodeThumbnail,
-                    showTitle = title,
-                )
-            } else {
-                MovieHeroBlock(
-                    title = title,
-                    logo = logo,
-                )
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-            ) {
-                if (isEpisode && backgroundMode == StreamBackgroundMode.Cinematic) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(132.dp)
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        streamBlendColor.copy(alpha = 0.98f),
-                                        streamBlendColor.copy(alpha = 0.84f),
-                                        streamBlendColor.copy(alpha = 0.52f),
-                                        Color.Transparent,
-                                    ),
-                                ),
-                            ),
+        CompositionLocalProvider(
+            LocalLiquidGlassBackdrop provides if (streamsGlassEnabled) streamsGlassBackdrop else null,
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                if (isEpisode && seasonNumber != null && episodeNumber != null) {
+                    EpisodeHeroBlock(
+                        seasonNumber = seasonNumber,
+                        episodeNumber = episodeNumber,
+                        episodeTitle = episodeTitle ?: title,
+                        thumbnail = heroArtwork,
+                        blurred = blurEpisodeThumbnail,
+                        showTitle = title,
+                    )
+                } else {
+                    MovieHeroBlock(
+                        title = title,
+                        logo = logo,
                     )
                 }
 
-                Column(modifier = Modifier.fillMaxSize()) {
-                    if ((resumePositionMs != null && resumePositionMs > 0L) || (resumeProgressFraction != null && resumeProgressFraction > 0f)) {
-                        ResumeBanner(
-                            positionMs = resumePositionMs,
-                            progressFraction = resumeProgressFraction,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                ) {
+                    if (isEpisode && backgroundMode == StreamBackgroundMode.Cinematic) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(132.dp)
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            streamBlendColor.copy(alpha = 0.98f),
+                                            streamBlendColor.copy(alpha = 0.84f),
+                                            streamBlendColor.copy(alpha = 0.52f),
+                                            Color.Transparent,
+                                        ),
+                                    ),
+                                ),
                         )
                     }
-                    ProviderFilterRow(
-                        groups = uiState.groups,
-                        selectedFilter = uiState.selectedFilter,
-                        onFilterSelected = { addonId -> StreamsRepository.selectFilter(addonId) },
-                        onRefresh = onRefresh,
-                    )
 
-                    if (showSearchField) {
-                        StreamSearchField(
-                            query = searchQuery,
-                            onQueryChange = onSearchQueryChange,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        if ((resumePositionMs != null && resumePositionMs > 0L) || (resumeProgressFraction != null && resumeProgressFraction > 0f)) {
+                            ResumeBanner(
+                                positionMs = resumePositionMs,
+                                progressFraction = resumeProgressFraction,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                            )
+                        }
+                        ProviderFilterRow(
+                            groups = uiState.groups,
+                            selectedFilter = uiState.selectedFilter,
+                            onFilterSelected = { addonId -> StreamsRepository.selectFilter(addonId) },
+                            onRefresh = onRefresh,
+                        )
+
+                        if (showSearchField) {
+                            StreamSearchField(
+                                query = searchQuery,
+                                onQueryChange = onSearchQueryChange,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                            )
+                        }
+
+                        val listUiState = rememberStreamSearchResult(uiState, searchQuery, showSearchField)
+                        if (listUiState.isEmptyBecauseOfSearch) {
+                            StreamSearchEmptyBlock(modifier = Modifier.weight(1f))
+                            return@Column
+                        }
+
+                        StreamList(
+                            uiState = listUiState.uiState,
+                            debridEnabled = debridEnabled,
+                            appendInstantServiceToDefaultName = appendInstantServiceToDefaultName,
+                            onStreamSelected = onStreamSelected,
+                            onStreamLongPress = onStreamLongPress,
+                            resumePositionMs = resumePositionMs,
+                            resumeProgressFraction = resumeProgressFraction,
+                            modifier = Modifier.weight(1f),
                         )
                     }
-
-                    val listUiState = rememberStreamSearchResult(uiState, searchQuery, showSearchField)
-                    if (listUiState.isEmptyBecauseOfSearch) {
-                        StreamSearchEmptyBlock(modifier = Modifier.weight(1f))
-                        return@Column
-                    }
-
-                    StreamList(
-                        uiState = listUiState.uiState,
-                        debridEnabled = debridEnabled,
-                        appendInstantServiceToDefaultName = appendInstantServiceToDefaultName,
-                        onStreamSelected = onStreamSelected,
-                        onStreamLongPress = onStreamLongPress,
-                        resumePositionMs = resumePositionMs,
-                        resumeProgressFraction = resumeProgressFraction,
-                        modifier = Modifier.weight(1f),
-                    )
                 }
             }
         }
@@ -613,7 +609,11 @@ internal fun ResumeBanner(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.72f))
+            .ambientLiquidGlass(
+                shape = RoundedCornerShape(18.dp),
+                tint = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
+                fallback = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
+            )
             .padding(horizontal = 14.dp, vertical = 10.dp),
     ) {
         Text(
@@ -801,6 +801,7 @@ internal fun StreamList(
     val findingStreamsText = stringResource(Res.string.streams_finding_streams)
     val checkingMoreAddonsText = stringResource(Res.string.streams_checking_more_addons)
     val formatStreamSize = rememberStreamSizeLabelFormat()
+    val sharedStream = LocalSharedStream.current
     val streamBadgeSettings by remember {
         StreamBadgeSettingsRepository.ensureLoaded()
         StreamBadgeSettingsRepository.uiState
@@ -819,6 +820,31 @@ internal fun StreamList(
         ),
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
+        sharedStream?.let { shared ->
+            item(key = "shared_stream") {
+                Column {
+                    StreamSectionHeader(
+                        group = AddonStreamGroup(
+                            addonName = shared.label,
+                            addonId = "party-shared-stream",
+                            streams = emptyList(),
+                        ),
+                        fetchingText = fetchingText,
+                    )
+                    StreamCard(
+                        stream = shared.stream,
+                        enabled = true,
+                        appendInstantServiceToDefaultName = false,
+                        showFileSizeBadges = streamBadgeSettings.showFileSizeBadges,
+                        showAddonLogo = streamBadgeSettings.showAddonLogo,
+                        badgePlacement = streamBadgeSettings.badgePlacement,
+                        onClick = { onStreamSelected(shared.stream, resumePositionMs, resumeProgressFraction) },
+                        isCurrent = true,
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+            }
+        }
         when {
             hasGroups && anyLoading && !hasAnyStreams -> {
                 item {
@@ -827,8 +853,10 @@ internal fun StreamList(
             }
 
             !hasAnyStreams && !uiState.isAnyLoading -> {
-                item {
-                    EmptyStateBlock(reason = uiState.emptyStateReason)
+                if (sharedStream == null) {
+                    item {
+                        EmptyStateBlock(reason = uiState.emptyStateReason)
+                    }
                 }
             }
 
@@ -1084,9 +1112,11 @@ private fun StreamSectionHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            // Tap or long-press opens the pin sheet; headers that can't be pinned don't react at all.
             .combinedClickable(
-                onClick = {},
-                onLongClick = { if (pinTarget != null) pinSheetVisible = true },
+                enabled = pinTarget != null,
+                onClick = { pinSheetVisible = true },
+                onLongClick = { pinSheetVisible = true },
             )
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1142,9 +1172,11 @@ private fun StreamSourceHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            // Tap or long-press opens the pin sheet; headers that can't be pinned don't react at all.
             .combinedClickable(
-                onClick = {},
-                onLongClick = { if (pinTarget != null) pinSheetVisible = true },
+                enabled = pinTarget != null,
+                onClick = { pinSheetVisible = true },
+                onLongClick = { pinSheetVisible = true },
             )
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,

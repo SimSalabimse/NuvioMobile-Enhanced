@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
+import com.nuvio.app.core.serialization.LenientJson
 
 /** Which step of one file's analysis is running. */
 enum class AnalysisStage { Audio, Matching, Recap, Previews }
@@ -81,7 +81,7 @@ data class AnalysisSummary(
 object MediaAnalysisStatus {
     private const val FAILURES_KEY = "analysis_failures_v1"
     private const val BACKGROUND_KEY = "analysis_background_v1"
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = LenientJson
 
     private val _job = MutableStateFlow<AnalysisJobState>(AnalysisJobState.Idle)
     val job: StateFlow<AnalysisJobState> = _job.asStateFlow()
@@ -164,7 +164,7 @@ object MediaAnalysisStatus {
             !on(MediaAnalysisSettings.Flag.IntroDetection) -> AnalysisPart.Off
             !isEpisode -> AnalysisPart.NotFound
             r.introEndMs != null || r.creditsStartMs != null -> AnalysisPart.Ready
-            MediaAnalysisStore.seasonSiblings(item.parentMetaId, item.seasonNumber!!, r.key).isEmpty() -> AnalysisPart.NeedsMoreEpisodes
+            MediaAnalysisStore.seasonSiblings(item.parentMetaId, item.seasonNumber, r.key).isEmpty() -> AnalysisPart.NeedsMoreEpisodes
             else -> AnalysisPart.NotFound
         }
         val recap = when {
@@ -174,7 +174,7 @@ object MediaAnalysisStatus {
             r.recapEndMs != null -> AnalysisPart.Ready
             // Only "needs another episode" when there truly is no analysed sibling; with siblings
             // present and derived data current, a missing recap simply means none was found.
-            MediaAnalysisStore.seasonSiblings(item.parentMetaId, item.seasonNumber!!, r.key).isEmpty() -> AnalysisPart.NeedsMoreEpisodes
+            MediaAnalysisStore.seasonSiblings(item.parentMetaId, item.seasonNumber, r.key).isEmpty() -> AnalysisPart.NeedsMoreEpisodes
             else -> AnalysisPart.NotFound
         }
         val subtitleSync = when {
@@ -203,7 +203,7 @@ object MediaAnalysisStatus {
             analysed = statuses.values.count { it is ItemAnalysisStatus.Done && it.complete },
             queued = statuses.filter { (_, s) ->
                 s is ItemAnalysisStatus.Queued || (s is ItemAnalysisStatus.Done && !s.complete)
-            }.keys.sortedBy { it.updatedAtEpochMs },
+            }.keys.sortedWith(AnalysisOrder),
             failed = statuses.values.count { it is ItemAnalysisStatus.Failed },
         )
     }

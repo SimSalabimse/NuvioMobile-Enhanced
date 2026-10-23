@@ -1,6 +1,6 @@
 package com.nuvio.app.features.downloads
 
-import com.nuvio.app.core.network.createApiHttpClient
+import com.nuvio.app.core.network.sharedApiHttpClient
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.head
 import io.ktor.client.request.header
@@ -11,7 +11,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.utils.io.cancel
 
 internal object RemoteContentLengthProbe {
-    private val client by lazy { createApiHttpClient() }
+    private val client get() = sharedApiHttpClient
 
     suspend fun probe(target: SeasonProbeTarget): Long? {
         probeOnce(target, ranged = false)?.let { return it }

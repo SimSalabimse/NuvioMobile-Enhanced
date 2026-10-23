@@ -21,6 +21,11 @@ internal interface DebridProviderApi {
         season: Int?,
         episode: Int?,
     ): DirectDebridResolveResult
+
+    /** Queues an uncached torrent on the account so it is cached later; false when unsupported or refused. */
+    suspend fun addToCache(apiKey: String, magnet: String): Boolean = false
+
+    val supportsAddToCache: Boolean get() = false
 }
 
 internal object DebridProviderApis {
@@ -59,6 +64,16 @@ private class TorboxDebridProviderApi(
     private val fileSelector: TorboxFileSelector = TorboxFileSelector(),
 ) : DebridProviderApi {
     override val provider: DebridProvider = DebridProviders.Torbox
+
+    override val supportsAddToCache: Boolean get() = true
+
+    override suspend fun addToCache(apiKey: String, magnet: String): Boolean = try {
+        val response = TorboxApiClient.createTorrent(apiKey = apiKey, magnet = magnet, onlyIfCached = false)
+        response.isSuccessful && response.body?.success != false
+    } catch (error: Exception) {
+        if (error is CancellationException) throw error
+        false
+    }
 
     override suspend fun validateApiKey(apiKey: String): Boolean =
         TorboxApiClient.validateApiKey(apiKey)
@@ -264,7 +279,7 @@ private class RealDebridProviderApi(
     }
 }
 
-private fun buildMagnetUri(resolve: StreamClientResolve): String? {
+internal fun buildMagnetUri(resolve: StreamClientResolve): String? {
     val hash = resolve.infoHash?.takeIf { it.isNotBlank() } ?: return null
     return buildString {
         append("magnet:?xt=urn:btih:")

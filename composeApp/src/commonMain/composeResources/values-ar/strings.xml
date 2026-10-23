@@ -65,7 +65,6 @@
     <string name="addons_version_format">الإصدار %1$s</string>
     <string name="cd_selected">محدد</string>
     <string name="collections_copy_json">نسخ JSON</string>
-    <string name="collections_count_summary">%1$d مجموعة، %2$d مجلد</string>
     <string name="collections_delete_message">حذف "%1$s"؟ لا يمكن التراجع عن هذا الإجراء.</string>
     <string name="collections_delete_title">حذف المجموعة</string>
     <string name="collections_editor_add_catalog">إضافة كتالوج</string>
@@ -114,7 +113,9 @@
     <string name="collections_editor_show_all_tab">عرض علامة "الكل"</string>
     <string name="collections_editor_show_gif_when_configured_desc">شغّل صورة GIF المضبوطة بدل الغلاف الثابت عند توفرها.</string>
     <string name="collections_editor_show_gif_when_configured">إظهار GIF عند ضبطه</string>
-    <string name="collections_editor_source_count">%1$d مصدر · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d مصدر · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">شكل البطاقة</string>
     <string name="collections_editor_view_mode_rows">صفوف</string>
     <string name="collections_editor_view_mode_tabs">تبويبات</string>
@@ -310,7 +311,9 @@
     <string name="collections_editor_tmdb_subtitle_discover">استكشاف TMDB</string>
     <string name="collections_empty_subtitle">أنشئ مجموعة لتنظيم كتالوجاتك.</string>
     <string name="collections_empty_title">لا توجد مجموعات بعد</string>
-    <string name="collections_folder_count">%1$d مجلد</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">%1$d مجلد</item>
+    </plurals>
     <string name="collections_folder_empty_items">لم يتم العثور على عناصر</string>
     <string name="collections_folder_not_found">المجلد غير موجود</string>
     <string name="collections_header">المجموعات</string>
@@ -553,7 +556,6 @@
     <string name="detail_trailers_title">الإعلانات</string>
     <string name="downloads_empty_episodes">لا توجد حلقات مكتملة التنزيل</string>
     <string name="downloads_empty_title">لا توجد تنزيلات بعد</string>
-    <string name="downloads_episode_count">%1$d حلقة منزّلة</string>
     <string name="downloads_open_directory">فتح مجلد التنزيلات</string>
     <string name="downloads_open_directory_failed">تعذر فتح مجلد التنزيلات</string>
     <string name="downloads_section_active">نشط</string>
@@ -561,7 +563,6 @@
     <string name="downloads_section_shows">مسلسلات</string>
     <string name="downloads_show_downloads">إظهار التنزيلات</string>
     <string name="downloads_status_completed">مكتمل • %1$s</string>
-    <string name="downloads_status_downloading">جارٍ التنزيل • %1$s</string>
     <string name="downloads_status_failed">فشل</string>
     <string name="downloads_status_paused">متوقف مؤقتًا • %1$s</string>
     <string name="episodes_cd_watched">تمت المشاهدة</string>

@@ -77,7 +77,6 @@
     <string name="cd_selected">Seleccionado</string>
     <string name="collections_copy_json">Copiar JSON</string>
     <string name="collections_copy_json_error">Los datos de la colección son demasiado grandes para el portapapeles de este dispositivo.</string>
-    <string name="collections_count_summary">%1$d colección(es), %2$d carpeta(s)</string>
     <string name="collections_delete_message">¿Eliminar "%1$s"? Esto no se puede deshacer.</string>
     <string name="collections_delete_title">Eliminar colección</string>
     <string name="collections_editor_add_catalog">Añadir catálogo</string>
@@ -126,7 +125,9 @@
     <string name="collections_editor_show_all_tab">Mostrar pestaña "Todo"</string>
     <string name="collections_editor_show_gif_when_configured_desc">Reproducir el GIF configurado en lugar de la portada estática cuando esté disponible.</string>
     <string name="collections_editor_show_gif_when_configured">Mostrar GIF cuando esté configurado</string>
-    <string name="collections_editor_source_count">%1$d fuente(s) · %2$s</string>
+    <plurals name="collections_editor_source_count">
+        <item quantity="other">%1$d fuente · %2$s</item>
+    </plurals>
     <string name="collections_editor_tile_shape">Forma del mosaico</string>
     <string name="collections_editor_view_mode_rows">Filas</string>
     <string name="collections_editor_view_mode_tabs">Pestañas</string>
@@ -322,7 +323,9 @@
     <string name="collections_editor_tmdb_subtitle_discover">Descubrir de TMDB</string>
     <string name="collections_empty_subtitle">Crea una para organizar tus catálogos.</string>
     <string name="collections_empty_title">Aún no hay colecciones</string>
-    <string name="collections_folder_count">%1$d carpeta(s)</string>
+    <plurals name="collections_folder_count">
+        <item quantity="other">%1$d carpeta</item>
+    </plurals>
     <string name="collections_folder_empty_items">No se encontraron elementos</string>
     <string name="collections_folder_not_found">Carpeta no encontrada</string>
     <string name="collections_header">Colecciones</string>
@@ -623,7 +626,6 @@
     <string name="detail_trailers_title">Tráilers</string>
     <string name="downloads_empty_episodes">No hay episodios completados</string>
     <string name="downloads_empty_title">Aún no hay descargas</string>
-    <string name="downloads_episode_count">%1$d episodio(s) descargado(s)</string>
     <string name="downloads_open_directory">Abrir carpeta de descargas</string>
     <string name="downloads_open_directory_failed">No se pudo abrir la carpeta de descargas</string>
     <string name="downloads_section_active">Activas</string>
@@ -631,7 +633,6 @@
     <string name="downloads_section_shows">Series</string>
     <string name="downloads_show_downloads">Mostrar descargas</string>
     <string name="downloads_status_completed">Completado • %1$s</string>
-    <string name="downloads_status_downloading">Descargando • %1$s</string>
     <string name="downloads_status_failed">Falló</string>
     <string name="downloads_status_paused">Pausado • %1$s</string>
     <string name="episodes_cd_watched">Visto</string>
@@ -1786,13 +1787,13 @@
     <string name="action_resume_episode">Reanudar %1$s</string>
     <string name="collections_import_error_empty_json">El JSON está vacío.</string>
     <string name="collections_import_error_collection_blank_id">La colección %1$d tiene el id vacío.</string>
-    <string name="collections_import_error_collection_duplicate_id">El ID de colección \'%1$s\' se usa más de una vez.</string>
+    <string name="collections_import_error_collection_duplicate_id">El ID de colección '%1$s' se usa más de una vez.</string>
     <string name="collections_import_error_collection_blank_title">La colección '%1$s' tiene el título vacío.</string>
     <string name="collections_import_error_folder_blank_id">La carpeta %1$d en '%2$s' tiene el id vacío.</string>
-    <string name="collections_import_error_folder_duplicate_id">La identificación de carpeta \'%1$s\' se usa más de una vez en \'%2$s\'.</string>
+    <string name="collections_import_error_folder_duplicate_id">La identificación de carpeta '%1$s' se usa más de una vez en '%2$s'.</string>
     <string name="collections_import_error_folder_blank_title">La carpeta '%1$s' en '%2$s' tiene el título vacío.</string>
     <string name="collections_import_error_source_blank_fields">La fuente %1$d en la carpeta '%2$s' tiene campos vacíos.</string>
-    <string name="collections_import_error_trakt_list_id">A la fuente %1$d en la carpeta \'%2$s\' le falta un ID de lista de Trakt.</string>
+    <string name="collections_import_error_trakt_list_id">A la fuente %1$d en la carpeta '%2$s' le falta un ID de lista de Trakt.</string>
     <string name="collections_import_error_invalid_json">JSON inválido: %1$s</string>
     <string name="collections_folder_addon_not_found">Complemento no encontrado: %1$s</string>
     <string name="collections_folder_trakt_movie_list">Lista de películas de Trakt</string>
@@ -2352,4 +2353,11 @@ Utilizas esta función bajo tu propia responsabilidad. P2P se puede desactivar e
     <string name="stream_info_subtitle_source_addon">Complemento</string>
     <string name="stream_info_subtitle_source_embedded">Integrado</string>
     <string name="stream_info_player_engine">Motor de reproducción</string>
+<string name="settings_nav_bar_liquid_glass">Material Liquid Glass</string>
+<string name="settings_nav_bar_liquid_glass_description">Añade refracción y desenfoque a la barra de navegación flotante.</string>
+<string name="settings_nav_bar_liquid_glass_unsupported_description">Requiere Android 13 o posterior. Este dispositivo mantendrá el estilo de vidrio actual.</string>
+<string name="settings_nav_bar_glass_lens_affect_tab_icons">La lente afecta a los iconos de las pestañas</string>
+<string name="settings_nav_bar_glass_lens_affect_tab_icons_description">Refracta y amplía los iconos y las etiquetas al mover la lente.</string>
+<string name="settings_nav_bar_glass_lens_affect_floating_bar">La lente afecta a la barra flotante</string>
+<string name="settings_nav_bar_glass_lens_affect_floating_bar_description">Refracta la superficie de cristal de la barra flotante al mover la lente.</string>
 </resources>

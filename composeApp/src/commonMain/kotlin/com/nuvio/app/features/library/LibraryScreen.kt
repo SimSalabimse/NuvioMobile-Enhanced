@@ -120,6 +120,10 @@ import com.nuvio.app.features.cloud.CloudLibraryItem
 import com.nuvio.app.features.cloud.CloudLibraryItemType
 import com.nuvio.app.features.cloud.CloudLibraryRepository
 import com.nuvio.app.features.cloud.CloudLibraryUiState
+import com.nuvio.app.features.cloud.TorboxCloudConnectDialog
+import com.nuvio.app.core.ui.DialogButton
+import com.nuvio.app.core.ui.DialogButtonStyle
+import com.nuvio.app.features.debrid.DebridProviders
 import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.details.MetaVideo
@@ -257,6 +261,8 @@ fun LibraryScreen(
         selectedTypeName?.let { runCatching { CloudLibraryItemType.valueOf(it) }.getOrNull() }
     }
     var selectedCloudItemKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var showTorboxConnectDialog by rememberSaveable { mutableStateOf(false) }
+    val torboxConnected = cloudSettings.apiKeyFor(DebridProviders.TORBOX_ID).isNotBlank()
     var selectedLibrarySectionKey by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedLibraryType by rememberSaveable { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
@@ -571,6 +577,9 @@ fun LibraryScreen(
                     onBackToItems = { selectedCloudItemKey = null },
                     onRefresh = { CloudLibraryRepository.refresh() },
                     onConnectCloudClick = onConnectCloudClick,
+                    onConnectTorboxApiKeyClick = if (torboxConnected) null else {
+                        { showTorboxConnectDialog = true }
+                    },
                 )
             } else if (sourceMode == LibraryViewMode.Servers) {
                 serverLibraryContent(
@@ -670,6 +679,7 @@ fun LibraryScreen(
                                     },
                                     onTypeSelected = { type -> selectedLibraryType = type },
                                     onSortSelected = LibraryDisplaySettingsRepository::setSortOption,
+                                    onRandomPick = onPosterClick,
                                     modifier = libraryContentTransitionModifier()
                                         .padding(horizontal = 16.dp)
                                         .padding(top = 8.dp, bottom = 14.dp),
@@ -732,6 +742,13 @@ fun LibraryScreen(
             },
         )
     }
+
+    if (showTorboxConnectDialog) {
+        TorboxCloudConnectDialog(
+            onDismiss = { showTorboxConnectDialog = false },
+            onConnected = { selectedCloudItemKey = null },
+        )
+    }
 }
 
 private fun LazyListScope.cloudLibraryContent(
@@ -748,6 +765,7 @@ private fun LazyListScope.cloudLibraryContent(
     onBackToItems: () -> Unit,
     onRefresh: () -> Unit,
     onConnectCloudClick: (() -> Unit)?,
+    onConnectTorboxApiKeyClick: (() -> Unit)? = null,
 ) {
     when {
         !uiState.isLoaded -> {
@@ -764,6 +782,11 @@ private fun LazyListScope.cloudLibraryContent(
                     onActionClick = onConnectCloudClick,
                 )
             }
+            cloudLibraryTorboxApiKeyConnectItem(onConnectTorboxApiKeyClick)
+        }
+
+        !uiState.hasConnectedProvider && uiState.isRefreshing -> {
+            cloudLibrarySkeletonItems()
         }
 
         !uiState.hasConnectedProvider -> {
@@ -776,6 +799,7 @@ private fun LazyListScope.cloudLibraryContent(
                     onActionClick = onConnectCloudClick,
                 )
             }
+            cloudLibraryTorboxApiKeyConnectItem(onConnectTorboxApiKeyClick)
         }
 
         else -> {
@@ -918,6 +942,22 @@ private fun CloudLibrarySearchField(
             }
         },
     )
+}
+
+private fun LazyListScope.cloudLibraryTorboxApiKeyConnectItem(
+    onClick: (() -> Unit)?,
+) {
+    if (onClick == null) return
+    item(key = "cloud-library-connect-torbox-api-key") {
+        DialogButton(
+            text = stringResource(Res.string.cloud_library_connect_torbox_api_key),
+            onClick = onClick,
+            modifier = Modifier
+                .padding(start = 16.dp, end = 16.dp, top = 12.dp)
+                .fillMaxWidth(),
+            style = DialogButtonStyle.Secondary,
+        )
+    }
 }
 
 private fun LazyListScope.cloudLibrarySkeletonItems() {
@@ -1939,7 +1979,7 @@ private fun LazyListScope.librarySections(
         key = { section -> "library-horizontal:${section.type}" },
     ) { section ->
         NuvioShelfSection(
-            title = section.displayTitle,
+            title = localizedLibrarySectionTitle(section.type, section.displayTitle),
             entries = section.previewEntries,
             modifier = libraryContentTransitionModifier(),
             headerHorizontalPadding = 16.dp,
@@ -1948,6 +1988,9 @@ private fun LazyListScope.librarySections(
                 ?.takeIf { it.items.size > LIBRARY_SECTION_PREVIEW_LIMIT }
                 ?.let { source -> onSectionViewAllClick?.let { { it(source, sortOption) } } },
             viewAllPillSize = NuvioViewAllPillSize.Compact,
+            onShuffleClick = onPosterClick?.let { open ->
+                { randomLibraryPick(section.source?.items ?: section.previewEntries.map { it.item })?.let(open) }
+            },
             key = { entry -> entry.globalKey },
             animatePlacement = true,
         ) { entry ->

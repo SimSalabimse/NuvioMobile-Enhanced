@@ -17,6 +17,7 @@ import com.nuvio.app.features.streams.StreamAutoPlaySelector
 import com.nuvio.app.features.streams.StreamAutoPlaySource
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.watching.domain.isShortPlaceholderDuration
+import com.nuvio.app.features.debrid.DebridSourceFallback
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -32,9 +33,10 @@ internal fun PlayerScreenRuntime.isAtNextEpisodeThreshold(): Boolean {
     ) return false
     // Preload: trigger source fetch before the button appears
     if (playerSettingsUiState.preloadNextEpisodeSources && !nextEpisodePreloadTriggered && nextEpisodeInfo != null) {
-        val preloadLeadMs = playerSettingsUiState.streamAutoPlayTimeoutSeconds.toLong() * 1_000L
+        val preloadLeadMs = maxOf(playerSettingsUiState.streamAutoPlayTimeoutSeconds.toLong() * 1_000L, 10_000L)
+            .coerceAtMost(30_000L)
         val shouldPreloadByCard = PlayerNextEpisodeRules.shouldShowNextEpisodeCard(
-            positionMs = playbackSnapshot.positionMs + preloadLeadMs,
+            positionMs = playbackClock.positionMs + preloadLeadMs,
             durationMs = playbackSnapshot.durationMs,
             skipIntervals = skipIntervals,
             thresholdMode = playerSettingsUiState.nextEpisodeThresholdMode,
@@ -42,7 +44,7 @@ internal fun PlayerScreenRuntime.isAtNextEpisodeThreshold(): Boolean {
             thresholdMinutesBeforeEnd = playerSettingsUiState.nextEpisodeThresholdMinutesBeforeEnd,
         )
         val shouldPreloadByEnd = playbackSnapshot.durationMs > 0L &&
-            (playbackSnapshot.durationMs - playbackSnapshot.positionMs) <= preloadLeadMs
+            (playbackSnapshot.durationMs - playbackClock.positionMs) <= preloadLeadMs
         if (shouldPreloadByCard || shouldPreloadByEnd) {
             preloadNextEpisodeSources()
         }
@@ -312,19 +314,17 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
         }
 
         val selected = selectedStream?.let { stream ->
-            when (val result = DirectDebridPlaybackResolver.resolveToPlayableStream(stream, nextVideo.season, nextVideo.episode)) {
-                is DirectDebridPlayableResult.Success -> result.stream
-                else -> {
-                    result.toastMessage()?.let { NuvioToastController.show(it) }
-                    PlayerStreamsRepository.loadEpisodeStreams(
-                        type = type,
-                        videoId = nextVideo.id,
-                        season = nextVideo.season,
-                        episode = nextVideo.episode,
-                        forceRefresh = true,
-                    )
-                    null
-                }
+            DebridSourceFallback.playable(stream, nextVideo.season, nextVideo.episode) {
+                PlayerStreamsRepository.episodeStreamsState.value.groups.flatMap { it.streams }
+            }.stream ?: run {
+                PlayerStreamsRepository.loadEpisodeStreams(
+                    type = type,
+                    videoId = nextVideo.id,
+                    season = nextVideo.season,
+                    episode = nextVideo.episode,
+                    forceRefresh = true,
+                )
+                null
             }
         }
         onSearchingChanged(false)

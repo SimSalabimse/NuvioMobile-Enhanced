@@ -64,6 +64,7 @@ import nuvio.composeapp.generated.resources.player_next_episode_playing_via_coun
 import nuvio.composeapp.generated.resources.player_next_episode_thumbnail
 import nuvio.composeapp.generated.resources.player_next_episode_unaired
 import org.jetbrains.compose.resources.stringResource
+import com.nuvio.app.core.ui.glass.ambientLiquidGlass
 
 @Composable
 fun NextEpisodeCard(
@@ -112,7 +113,14 @@ fun NextEpisodeCard(
                 .widthIn(max = 292.dp)
                 .graphicsLayer { translationX = animatedOffsetX }
                 .clip(shape)
-                .background(Color(0xFF191919).copy(alpha = 0.89f))
+                .ambientLiquidGlass(
+                    shape = shape,
+                    tint = Color(0xFF191919).copy(alpha = 0.64f),
+                    fallback = Color(0xFF191919).copy(alpha = 0.89f),
+                    blurRadius = 20.dp,
+                    refractionHeight = 10.dp,
+                    refractionAmount = 14.dp,
+                )
                 .border(1.dp, Color.White.copy(alpha = 0.12f), shape)
                 .pointerInput(nextEpisode.videoId, visible, dismissThreshold) {
                     if (!visible) return@pointerInput
@@ -218,10 +226,23 @@ fun NextEpisodeCard(
                         text = autoPlayStatus,
                         color = Color.White.copy(alpha = 0.78f),
                         fontSize = 10.sp,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                // Keeps the credits playing; the next episode then starts when the video ends.
+                Text(
+                    text = "Watch credits",
+                    color = Color.White,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .padding(top = 3.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable(enabled = visible) { currentOnDismiss() }
+                        .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
             }
 
             // Play badge

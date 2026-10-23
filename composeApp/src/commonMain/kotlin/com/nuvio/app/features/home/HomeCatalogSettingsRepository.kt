@@ -1,5 +1,6 @@
 package com.nuvio.app.features.home
 
+import org.jetbrains.compose.resources.getPluralString
 import androidx.compose.ui.text.intl.Locale
 import com.nuvio.app.features.addons.ManagedAddon
 import com.nuvio.app.features.collection.Collection
@@ -764,7 +765,7 @@ internal fun buildCollectionDefinitions(collections: List<Collection>): List<Col
             key = "collection_${collection.id}",
             collectionId = collection.id,
             title = collection.title,
-            subtitle = runBlocking { getString(Res.string.collections_folder_count, collection.folders.size) },
+            subtitle = runBlocking { getPluralString(Res.plurals.collections_folder_count, collection.folders.size, collection.folders.size) },
             isPinnedToTop = collection.pinToTop,
         )
     }

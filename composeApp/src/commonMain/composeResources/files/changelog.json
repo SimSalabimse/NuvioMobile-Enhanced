@@ -1,6 +1,413 @@
 {
   "releases": [
     {
+      "version": "0.6.2.1",
+      "build": 196,
+      "date": "2026-10-22",
+      "improved": [
+        "Behind-the-scenes cleanup: downloads, player launches, network and settings code now share one path each, so they behave the same everywhere.",
+        "Faster test builds."
+      ],
+      "fixed": [
+        "A skip mark you imported from your own TheIntroDB submission is now labelled \"TheIntroDB (yours)\" everywhere, the same as in the player."
+      ]
+    },
+    {
+      "version": "0.6.2.1",
+      "build": 195,
+      "date": "2026-10-22",
+      "new": [
+        "Add to TorBox now shows up wherever a download or play fails because nothing is cached, including after the download sheet has closed."
+      ],
+      "improved": [
+        "Every download and play button uses the same source check: Continue Watching, episode rows, show page, season sheet, Library, search, smart downloads, finish a series, the player's source list and next episode."
+      ],
+      "fixed": [
+        "Download from the Continue Watching menu said only \"TorBox not cached\". It now switches to another cached source, or offers to add it to TorBox.",
+        "Downloading from the sources list, copying a link and switching source in the player now try other sources too when one isn't cached."
+      ]
+    },
+    {
+      "version": "0.6.2.1",
+      "build": 194,
+      "date": "2026-10-22",
+      "new": [
+        "Tapping a debrid source that isn't cached now tries the next good sources (up to 3) and tells you which one it switched to. If none works, you can add it to TorBox so it's ready to play later."
+      ],
+      "improved": [
+        "Finish this series with Smart downloads on keeps exactly your 'Episodes to keep ready' downloaded (lowest first, topped up as you watch). 'Finish a series downloads the rest' only applies with Smart downloads off, and Settings › Downloads says so.",
+        "Changing Smart downloads or its episode count updates the shows you're finishing straight away.",
+        "Settings › Downloads › Only on Wi-Fi shows when automatic downloads are waiting for Wi-Fi (or charging), instead of silently doing nothing."
+      ],
+      "fixed": [
+        "A source that isn't cached on TorBox no longer just shows a message and stops."
+      ]
+    },
+    {
+      "version": "0.6.2.1",
+      "build": 193,
+      "date": "2026-10-22",
+      "new": [
+        "Library: a shuffle button on each section (and a Random chip in grid view) opens a random title from it.",
+        "Settings › Downloads › Finish a series downloads the rest: flagging Finish this series downloads every remaining episode, lowest first (off: only the Smart downloads count)."
+      ],
+      "improved": [
+        "Analysis works through each show from the lowest season and episode up.",
+        "Downloads: when the picked source isn't cached on debrid (or its link is stale), the next good source is tried automatically.",
+        "Only on Wi-Fi and Only while charging are always shown in Settings › Downloads, since they also hold back Finish a series and queued episodes.",
+        "Hold menus and sheets wrap long rows onto two lines; the per-show row now reads 'Auto-skip: Default' and Finish a series is shortened."
+      ],
+      "fixed": [
+        "The 'isn't fully analysed yet' prompt no longer appears on episodes that are already analysed when only recap/preview data is being refreshed in the background.",
+        "Opening the download Live Activity while watching now closes the player first, instead of leaving it playing hidden and reopening it (with different audio/subtitles) when Home was tapped."
+      ]
+    },
+    {
+      "version": "0.6.2.1",
+      "build": 192,
+      "date": "2026-10-20",
+      "improved": [
+        "A show's skip marks and analysis are shared however you opened it (TMDB or IMDb id); episodes stored under the other id are merged in once.",
+        "Your marks and imported submissions remember the video length; they are only used on a version of the episode within 30 s of it."
+      ],
+      "fixed": [
+        "Importing your TheIntroDB submissions now finds which ones belong to the show more reliably, and retries on the next play when the list failed instead of waiting for an app restart.",
+        "Submissions without a known video length no longer teach intro/credits to the other episodes.",
+        "Shared nuvio://skip marks are saved as your marks, not labelled as TheIntroDB submissions.",
+        "Two analysis jobs finishing at the same time can no longer overwrite each other's results or a mark you just made.",
+        "Imported submissions made on a different length of the episode are no longer shown, applied or labelled as yours there; the 191 clean-up runs once more, and every imported row is logged (Settings › Logs) so a wrong one can be traced."
+      ]
+    },
+    {
+      "version": "0.6.2.1",
+      "build": 191,
+      "date": "2026-10-20",
+      "improved": [
+        "Skip source labels are honest everywhere: 'TheIntroDB (yours)' / 'Your submission' only for what you submitted for that exact episode, 'Your mark' for marks made on this phone, 'TheIntroDB', 'IntroDB' and 'On-device' for the rest."
+      ],
+      "fixed": [
+        "Importing your TheIntroDB submissions could put another show's times on an episode with the same number (shown as 'Your submission' on episodes you never submitted). Only submissions that provably belong to the show are imported now.",
+        "Those wrongly imported times are removed once on update; your real submissions are imported again the next time you play the show, and marks made on this phone are kept."
+      ]
+    },
+    {
+      "version": "0.6.2.1",
+      "build": 190,
+      "date": "2026-10-20",
+      "new": [
+        "Settings › Playback › Playback debug readout: shows the player's live position, duration and the skip segments it is comparing, to pin down wrong skip times."
+      ],
+      "improved": [
+        "The mini player is off by default again; turn it on in Settings › Playback."
+      ],
+      "fixed": [
+        "Next-episode sources preload again before the end of an episode.",
+        "Subtitle sync by ear, the chapters panel, Submit Intro, the mini player progress bar, a server-source retry and switching playback engine use the real playback position instead of 0.",
+        "Starting a new analysis or intro-clip check no longer resumes a cancelled one."
+      ]
+    },
+    {
+      "version": "0.6.2.1",
+      "build": 189,
+      "date": "2026-10-19",
+      "new": [
+        "Brings in the latest Nuvio Enhanced (0.6.2-beta): a mini player on iOS, pinch to zoom and a real Fill mode on the MPV player, and a button to switch a portrait video between portrait and landscape.",
+        "Optional Liquid Glass look across Android and an iPad tab bar option, with live values while you drag a settings slider.",
+        "Downloaded episodes can find their intro even when no other episode of the season is downloaded: Nuvio listens to just the intro of the nearest episode whose times are known (your own mark first, then TheIntroDB) and finds the same music in your download. It shows as \"Intro · Found using E12\"."
+      ],
+      "improved": [
+        "Subtitles: an optional libmpv renderer draws styled ASS/SSA subtitles on the Android player.",
+        "Anime: better matching of anime titles across Trakt, Simkl, MDBList and ratings; Brazilian Portuguese is more complete.",
+        "No new changes from the main Nuvio project since the last update."
+      ],
+      "fixed": [
+        "Simkl: a series you marked as watched moves to Completed.",
+        "iOS: external players are still offered when the app can't check which ones are installed.",
+        "Watch Party: guests see the shared stream and the episode picker properly, and no wrong \"no addons\" message."
+      ]
+    },
+    {
+      "version": "0.6.2.1",
+      "build": 188,
+      "date": "2026-10-19",
+      "improved": [
+        "Home: row titles like \"Paused · tap to restore\" and \"2 for tonight · 1h 30m\" use the full width instead of being cut short next to an empty space.",
+        "Watch stats: the last-7-days chart shows compact times (\"1h30\") that fit small phones instead of being cut off.",
+        "Detail page: year, runtime, age rating and IMDb score wrap to a second line on small phones instead of squeezing the score; episode dates and ratings do the same."
+      ],
+      "fixed": [
+        "Continue Watching: the shuffle and Finish-a-series badges moved to the top-left corner, so they no longer cover long titles or the progress bar.",
+        "Screen and settings headers keep their buttons visible next to long or translated titles.",
+        "Player: the next-episode card keeps the \"Playing via … in 5s\" countdown visible, and the submit-times and sync-by-ear panels keep their close button next to long titles.",
+        "Streams: tapping a source header opens the pin options (it used to flash and do nothing); headers that can't be pinned no longer react.",
+        "Download Season: the 5/10/20/50 GB buttons wrap on small phones instead of the last one being squeezed; long episode details show two lines.",
+        "Collections editor, card-depth settings, trailers picker and the seasons header keep their check, icon or arrow visible next to long text."
+      ]
+    },
+    {
+      "version": "0.6.2.1",
+      "build": 187,
+      "date": "2026-10-19",
+      "improved": [
+        "Downloads: the size line of an active download is short and never cut off (\"134 MB / 1.9 GB\"); percent, speed and time left are on the line below.",
+        "Downloads: a show says \"3 episodes · 1 downloading\" and its Cancel season button sits under that line instead of squeezing it.",
+        "Downloaded episodes list where each skip time comes from on its own short line, like \"Intro · Your mark\" or \"Recap · TheIntroDB\"."
+      ],
+      "fixed": [
+        "Counts read properly everywhere they were wrong: no more \"1 downloads\", \"1 submissions\" or \"folder(s)\" (downloads, storage, Download Season, analysis, collections, TheIntroDB import, Continue Watching settings).",
+        "Download storage: the Nuvio / Other / Free sizes wrap to a second line on small phones instead of the last one being cut off.",
+        "TheIntroDB submit screen: \"Your submissions\" and \"Copy share link\" wrap instead of overflowing."
+      ]
+    },
+    {
+      "version": "0.6.2.1",
+      "build": 186,
+      "date": "2026-10-19",
+      "improved": [
+        "Updated to Nuvio 0.6.2: chat in Watch Party; on iPhone a party stays in sync in Picture in Picture and the lock-screen controls follow the party rules.",
+        "Autoplay of the next episode picks the exact next file from the same release (matching file name, then the same torrent) before any other source.",
+        "Greek and Italian translations, plus wording fixes in several other languages. Library sections show proper titles.",
+        "Settings > Downloads storage: new \"Verify downloads\" checks every finished download and re-downloads the damaged ones.",
+        "Finished downloads are checked right away. A damaged file is re-downloaded by itself with the message \"Damaged, re-downloading\".",
+        "If a download plays with errors or keeps jumping ahead, the player offers to stream instead and re-downloads the file afterwards.",
+        "Download rows show a steady status: size on the first line, percent, speed and time left on the second, with fixed-width digits so nothing jumps while it counts.",
+        "Downloads: when TheIntroDB, IntroDB or your own submitted times cover an episode, its analysis tags say so (\"Intro/credits from TheIntroDB ✓\") instead of \"needs another episode\".",
+        "When Finish a series completes a show, the audio fingerprints kept for matching its episodes are removed; the skip times stay for a rewatch."
+      ],
+      "fixed": [
+        "Finish a series never goes back to earlier episodes: it remembers the furthest episode you reached, and at the end of the show it removes the goal (\"Finished <show>, goal removed\") instead of starting again at S1E1.",
+        "Downloads: the \"Failed / incomplete downloads\" header no longer sits under the top bar.",
+        "Resumed downloads could glue on bytes from a different copy of the file, giving noise and jumps during playback. A resume now only continues when the server confirms the exact same file and position; otherwise it starts over.",
+        "Skip times from TheIntroDB and IntroDB now also load for shows opened from a TMDB-based catalog; before, those episodes never asked the skip services."
+      ]
+    },
+    {
+      "version": "0.6.1.1",
+      "build": 185,
+      "date": "2026-10-19",
+      "improved": [
+        "Deleting a download also frees its scrub preview images (skip times are kept)."
+      ],
+      "fixed": [
+        "Skip times from analysed episodes now work when streaming after the download was deleted."
+      ]
+    },
+    {
+      "version": "0.6.1.1",
+      "build": 184,
+      "date": "2026-10-18",
+      "improved": [
+        "A download that does not fit waits as \"Waiting for space (needs ~X GB, Y free)\" and starts by itself once there is room."
+      ],
+      "fixed": [
+        "Downloads no longer start when there is not enough space: every start, including Finish a series and Smart Downloads, now counts what running downloads still need and uses a typical episode size when the size is unknown."
+      ]
+    },
+    {
+      "version": "0.6.1.1",
+      "build": 183,
+      "date": "2026-10-18",
+      "improved": [
+        "Your TheIntroDB submissions: grouped by show with poster, a card per episode, coloured status and totals. Pull down to refresh, tap to open the show.",
+        "Finish a series: pinning starts right away on the episodes after the last one you watched, as many as your Smart Downloads episode count, and says what it is doing next to the chip on the show page. Unpinning stops new downloads; ones already running keep going.",
+        "Download Season: tap a queued episode to unqueue it."
+      ],
+      "fixed": [
+        "Download Season: queued episodes line up with the others and can be tapped.",
+        "Keep free space: the note no longer covers the button, and the button shows Apply or Done.",
+        "TheIntroDB import in Playback settings shows the current result instead of an old error."
+      ]
+    },
+    {
+      "version": "0.6.1.1",
+      "build": 182,
+      "date": "2026-10-18",
+      "improved": [
+        "Finish a series: pin or unpin it from the hold menu on Home cards and with the Finish this series chip on a show's page. Pinned cards show a flag.",
+        "Keep free space: pick a size, see what would be removed, then tap Apply.",
+        "Download Season: tick unaired episodes to queue them. They download once they air.",
+        "Up next tonight shows picks right away (your last time, or 1h).",
+        "Your submissions and Copy share link are at the top of the player's flag sheet. All your submissions: Settings, Playback.",
+        "Opening a skip mark link asks before importing.",
+        "Spoiler blur also covers Download Season, Up next tonight, Finish a series, episode titles and the player episode list. Both blur switches are together in Settings, Detail Page."
+      ],
+      "fixed": [
+        "TheIntroDB import and submit work again (TheIntroDB API v4).",
+        "Queued episodes now download even when auto-play is set to manual.",
+        "Search fields put the keyboard away on Search, scroll or a tap outside."
+      ]
+    },
+    {
+      "version": "0.6.1.1",
+      "build": 181,
+      "date": "2026-10-18",
+      "new": [
+        "Up next tonight on Home: pick 30m, 1h, 1h30 or 2h and see what fits, Finish a series goals first.",
+        "Finish a series goal: pin a show in the hold menu and its next 2 episodes stay downloaded.",
+        "Keep free space: watched downloads are deleted oldest first when space runs low (off by default).",
+        "Download Season: queue episodes that haven't aired yet, or fill the next episodes up to 5, 10, 20 or 50 GB.",
+        "Continue Watching items untouched for 60 days move to a Paused row on Home; tap one to bring it back.",
+        "Mark watched up to here, in an episode's hold menu.",
+        "Per-show auto-skip (Default, Always, Never) in the Continue Watching hold menu.",
+        "Search and sort (name, size, date) in Downloads.",
+        "Downloads health check: damaged or cut-off files get a Re-download button.",
+        "Sleep timer in the speed menu: 15, 30 or 60 minutes or end of episode, with a soft fade out.",
+        "Swipe up in the player for the episode list.",
+        "Watch credits on the next-episode card.",
+        "This week in your watch stats: hours watched, series finished and time saved by skipping.",
+        "An actor's other titles show In library, Watching or Downloaded.",
+        "Share a skip mark as a link; opening it on another device imports the mark.",
+        "Your TheIntroDB submissions for the title, with their status, in the skip mark dialog."
+      ],
+      "improved": [
+        "Smart Downloads: Only on Wi-Fi switch and Pause downloads while watching.",
+        "The playback speed you pick is remembered per show; hold-to-speed never is.",
+        "Spoiler blur also hides the descriptions of unwatched episodes."
+      ]
+    },
+    {
+      "version": "0.6.1.1",
+      "build": 180,
+      "date": "2026-10-17",
+      "new": [
+        "Search the cast on a title's details by actor or character name.",
+        "Storage lists failed or incomplete downloads and deletes them in one go."
+      ],
+      "improved": [
+        "Smart Downloads only queue episodes that fit and say \"No space for the next episode\" when nothing does.",
+        "Clean up leftovers also finds files in the default downloads folder and data left behind by background downloads."
+      ],
+      "fixed": [
+        "Space from deleted downloads comes back right away instead of after a restart.",
+        "Deleting a download checks the file is really gone, and retries later if it isn't.",
+        "Deleted or restarted background downloads no longer leave gigabytes in the system cache."
+      ]
+    },
+    {
+      "version": "0.6.1.1",
+      "build": 179,
+      "date": "2026-10-17",
+      "improved": [
+        "Finish a series cards have the same hold menu as Continue Watching.",
+        "Finish a series cards show the show name above the time left, without cutting text off.",
+        "Clean up leftovers is always on the storage card, greyed out when there's nothing to clean."
+      ]
+    },
+    {
+      "version": "0.6.1.1",
+      "build": 178,
+      "date": "2026-10-17",
+      "new": [
+        "A Finish a series row on Home: started shows, shortest to finish first, with the time left.",
+        "Clean up leftovers in Storage removes files no download owns."
+      ],
+      "improved": [
+        "Downloading from Home, details or episode rows opens the download card as a sheet right there.",
+        "The storage card updates right after a delete or a finished download.",
+        "Storage matches iOS Settings: same units, iOS free space, and the app total split by type.",
+        "Each download keeps its subtitles in its own folder, removed with the download.",
+        "Continue Watching is back in the order you watched."
+      ],
+      "fixed": [
+        "\"Not enough space\" no longer stops downloads that fit, and says how much is needed.",
+        "Retry on a download that stopped for space checks again and resumes it."
+      ]
+    },
+    {
+      "version": "0.6.1.1",
+      "build": 177,
+      "date": "2026-10-17",
+      "new": [
+        "Pick the quality on the auto-picked source (4K, 1080p, 720p, 480p), each with its size.",
+        "Download Season has one quality choice for the whole season."
+      ]
+    },
+    {
+      "version": "0.6.1.1",
+      "build": 176,
+      "date": "2026-10-17",
+      "improved": [
+        "Download sources show quality and size, like 1080p · 2.3 GB, and Download Season shows the total.",
+        "Auto-pick shows \"Picking…\" and then the picked source on every download button.",
+        "Download quality in Downloads settings is used by Smart Downloads and auto-pick."
+      ]
+    },
+    {
+      "version": "0.6.1.1",
+      "build": 175,
+      "date": "2026-10-17",
+      "improved": [
+        "Smart Downloads start the next episode while you watch, a few minutes before the credits."
+      ],
+      "fixed": [
+        "Hold for 2x speed never gets stuck at 2x after a switch, reload or cancelled hold."
+      ]
+    },
+    {
+      "version": "0.6.1.1",
+      "build": 174,
+      "date": "2026-10-17",
+      "new": [
+        "Download from the hold menu on Continue Watching and Next Up cards."
+      ]
+    },
+    {
+      "version": "0.6.1.1",
+      "build": 173,
+      "date": "2026-10-16",
+      "new": [
+        "Watch Party: watch in sync with friends and share invites as links (experimental).",
+        "MDBList dynamic and liked lists in the library."
+      ],
+      "improved": [
+        "Updated to the latest upstream Nuvio (0.6.1), with better picture-in-picture and new translations.",
+        "Skips and seeking follow the Watch Party's rules, and auto-play waits for the party."
+      ]
+    },
+    {
+      "version": "0.5.10.4",
+      "build": 172,
+      "date": "2026-10-16",
+      "fixed": [
+        "Tapping Good or Wrong after a skip no longer brings up the analysis prompt."
+      ]
+    },
+    {
+      "version": "0.5.10.4",
+      "build": 171,
+      "date": "2026-10-16",
+      "improved": [
+        "Downloading one episode or movie picks its source automatically when auto-pick is on.",
+        "The Good / Wrong prompt shows a few seconds after the skip lands, with Rewind 5s on Wrong."
+      ],
+      "fixed": [
+        "Download Season no longer selects episodes that haven't aired; they show their air date.",
+        "Skip Intro shows exactly when the intro starts, with its start and end times."
+      ]
+    },
+    {
+      "version": "0.5.10.4",
+      "build": 170,
+      "date": "2026-10-16",
+      "improved": [
+        "Downloaded episodes show where their skip times come from."
+      ],
+      "fixed": [
+        "Download Season with auto-pick picks a source instead of opening the full list."
+      ]
+    },
+    {
+      "version": "0.5.10.4",
+      "build": 169,
+      "date": "2026-10-16",
+      "new": [
+        "What's new loads the latest notes online, cached for offline use."
+      ],
+      "fixed": [
+        "The SideStore source carries the full release notes again."
+      ]
+    },
+    {
       "version": "0.5.10.3",
       "date": "2026-10-14",
       "new": [

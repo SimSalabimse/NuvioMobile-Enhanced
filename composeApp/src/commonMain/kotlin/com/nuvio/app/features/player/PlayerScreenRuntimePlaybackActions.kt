@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.player_engine_switching_manual_message
 import kotlin.math.abs
+import kotlin.time.TimeSource
 
 internal fun PlayerScreenRuntime.finishTimelineScrub(positionMs: Long) {
     lastManualSkipSeekPositions = playbackClock.positionMs to positionMs
@@ -39,16 +40,16 @@ internal fun PlayerScreenRuntime.updatePlaybackSnapshot(
     playbackKey: PlaybackKey = activePlaybackKey,
 ): Boolean {
     if (playbackKey != activePlaybackKey) return false
-    val incoming = if (snapshot.durationMs <= 0L && playbackSnapshotKey == playbackKey) {
-        snapshot.copy(durationMs = playbackSnapshot.durationMs)
+    val reported = if (partyRateNudge != null) snapshot.copy(playbackSpeed = partyBaseRate()) else snapshot
+    val incoming = if (reported.durationMs <= 0L && playbackSnapshotKey == playbackKey) {
+        reported.copy(durationMs = playbackSnapshot.durationMs)
     } else {
-        snapshot
+        reported
     }
     playbackClock.positionMs = downloadSwapHeldPositionMs(incoming.positionMs)
     // The player's buffered end is only its read-ahead cache (mpv: at most demuxer-max-bytes past the
     // playhead). For an in-progress download the bar follows how far the file on disk reaches.
-    val downloadReachMs = activeSourceUrl
-        ?.let(::partialPlaybackDownloadId)
+    val downloadReachMs = partialPlaybackDownloadId(activeSourceUrl)
         ?.let { downloadId -> DownloadsRepository.partialDownloadReachMs(downloadId, incoming.durationMs) }
     playbackClock.bufferedPositionMs = maxOf(incoming.bufferedPositionMs, downloadReachMs ?: 0L)
     val status = incoming.copy(positionMs = 0L, bufferedPositionMs = 0L)
@@ -57,6 +58,8 @@ internal fun PlayerScreenRuntime.updatePlaybackSnapshot(
         playbackSnapshot = status
         playbackSnapshotKey = playbackKey
     }
+    playbackSnapshotMark = TimeSource.Monotonic.markNow()
+    enforcePendingBaseSpeed(incoming.playbackSpeed)
     val targetPositionMs = scrubbingPositionMs ?: return true
     if (!isScrubbingTimeline && (
             !snapshot.isLoading || snapshot.isEnded ||
@@ -141,6 +144,7 @@ internal fun PlayerScreenRuntime.currentLaunch(launch: PlayerLaunch): PlayerLaun
         torrentFileIdx = activeTorrentFileIdx,
         torrentFilename = activeTorrentFilename,
         torrentTrackers = activeTorrentTrackers,
+        sourceFilename = activeSourceFilename,
         initialPositionMs = positionMs ?: activeInitialPositionMs,
         initialProgressFraction = activeInitialProgressFraction.takeIf { positionMs == null },
     )
@@ -152,8 +156,7 @@ internal fun PlayerScreenRuntime.resetIdentityStateIfNeeded() {
         lastResetPlaybackIdentity = identity
         shouldPlay = true
         initialLoadCompleted = false
-        speedBoostRestoreSpeed = null
-        isHoldToSpeedGestureActive = false
+        cancelHoldToSpeed()
         initialSeekApplied = activeInitialPositionMs <= 0L &&
             (activeInitialProgressFraction == null || activeInitialProgressFraction!! <= 0f)
         lastProgressPersistEpochMs = 0L
@@ -461,7 +464,7 @@ internal fun PlayerScreenRuntime.switchPlaybackEngine() {
     val target = if (engine == AndroidPlaybackEngine.Libmpv) AndroidPlaybackEngine.ExoPlayer else AndroidPlaybackEngine.Libmpv
     flushWatchProgress()
     if (initialSeekApplied) {
-        activeInitialPositionMs = playbackSnapshot.positionMs.coerceAtLeast(0L)
+        activeInitialPositionMs = playbackClock.positionMs.coerceAtLeast(0L)
         activeInitialProgressFraction = null
     }
     playbackEngineOverride = target
