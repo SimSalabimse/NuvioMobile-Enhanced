@@ -4,6 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.nuvio.app.features.diagnostics.DiagnosticsNavigation
 
 @Composable
 actual fun IosDiagnosticsSettingsRow(
@@ -15,11 +16,7 @@ actual fun IosDiagnosticsSettingsRow(
         description = "On-device crash and error log",
         icon = Icons.Rounded.BugReport,
         isTablet = isTablet,
-        onClick = { 
-            // This will be handled by Swift/UIKit navigation
-            // The DiagnosticsBridge.openDiagnosticsSettings() will be called
-            // through the native iOS navigation system
-        },
+        onClick = { DiagnosticsNavigation.openDiagnosticsSettings() },
         modifier = modifier
     )
 }

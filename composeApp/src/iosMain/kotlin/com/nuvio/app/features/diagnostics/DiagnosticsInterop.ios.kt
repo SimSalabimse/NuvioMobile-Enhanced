@@ -1,20 +1,50 @@
 package com.nuvio.app.features.diagnostics
 
+import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.ObjCClass
+import kotlinx.cinterop.ObjCObject
+import kotlinx.cinterop.getOriginalKotlinClass
+import platform.Foundation.NSClassFromString
+import platform.darwin.NSObject
+import platform.darwin.sel_registerName
+import platform.objc.objc_msgSend
+
+@OptIn(ExperimentalForeignApi::class)
 actual object DiagnosticsLogger {
+    private fun callStaticMethod(className: String, selector: String) {
+        val clazz = NSClassFromString(className) ?: return
+        objc_msgSend(clazz, sel_registerName(selector))
+    }
+    
+    private fun callStaticMethodWithDouble(className: String, selector: String, value: Double) {
+        val clazz = NSClassFromString(className) ?: return
+        objc_msgSend(clazz, sel_registerName(selector), value)
+    }
+    
+    private fun callStaticMethodWithIntAndString(className: String, selector: String, intValue: Int, stringValue: String) {
+        val clazz = NSClassFromString(className) ?: return
+        objc_msgSend(clazz, sel_registerName(selector), intValue.toLong(), stringValue)
+    }
+    
+    private fun callStaticMethodWithString(className: String, selector: String, value: String) {
+        val clazz = NSClassFromString(className) ?: return
+        objc_msgSend(clazz, sel_registerName(selector), value)
+    }
+    
     actual fun logColdLaunchTime(durationSeconds: Double) {
-        // Called from Swift via DiagnosticsBridge
+        callStaticMethodWithDouble("DiagnosticsBridge", "logColdLaunchTime:", durationSeconds)
     }
     
     actual fun logNetworkError(statusCode: Int, url: String) {
-        // Called from Swift via DiagnosticsBridge
+        callStaticMethodWithIntAndString("DiagnosticsBridge", "logNetworkErrorWithStatusCode:url:", statusCode, url)
     }
     
     actual fun logError(message: String) {
-        // Called from Swift via DiagnosticsBridge
+        callStaticMethodWithString("DiagnosticsBridge", "logError:", message)
     }
     
     actual fun logPlaybackStall(durationSeconds: Double) {
-        // Called from Swift via DiagnosticsBridge
+        callStaticMethodWithDouble("DiagnosticsBridge", "logPlaybackStall:", durationSeconds)
     }
     
     actual fun isEnabled(): Boolean {
@@ -22,11 +52,10 @@ actual object DiagnosticsLogger {
     }
 }
 
-// Navigation is handled via Swift UIKit directly
-// When IosDiagnosticsSettingsRow is tapped, it will call
-// DiagnosticsBridge.openDiagnosticsSettings() from Swift
 object DiagnosticsNavigation {
+    @OptIn(ExperimentalForeignApi::class)
     fun openDiagnosticsSettings() {
-        // This will be wired through MainViewController
+        val clazz = NSClassFromString("DiagnosticsBridge") ?: return
+        objc_msgSend(clazz, sel_registerName("openDiagnosticsSettings"))
     }
 }
