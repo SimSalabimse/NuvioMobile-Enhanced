@@ -1,0 +1,2 @@
+headers = DiagnosticsInterop.h
+package = com.nuvio.app.nativebridge

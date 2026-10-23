@@ -462,6 +462,10 @@ kotlin {
                     defFile(project.file("src/nativeInterop/cinterop/appicon.def"))
                     compilerOpts("-I${project.projectDir}/src/nativeInterop/cinterop")
                 }
+                create("diagnostics") {
+                    defFile(project.file("src/nativeInterop/cinterop/diagnostics.def"))
+                    compilerOpts("-I${project.projectDir}/src/nativeInterop/cinterop")
+                }
                 if (iosDistribution == "full") {
                     check(nuvioEngineSliceDirectory.resolve("libCNuvioEngine.a").isFile) {
                         "Build the local Nuvio Engine Apple XCFramework before compiling iOS Full."
