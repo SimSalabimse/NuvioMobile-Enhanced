@@ -2167,6 +2167,7 @@ struct NativeNavContentView: View {
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var systemUI = SystemUI.shared
+    @StateObject private var diagnosticsIntro = DiagnosticsIntroCoordinator()
 
     var body: some View {
         Group {
@@ -2206,12 +2207,19 @@ struct ContentView: View {
                     }
             }
         }
+        .sheet(isPresented: $diagnosticsIntro.shouldShowIntro) {
+            DiagnosticsIntroSheet()
+        }
         .onChange(of: scenePhase) { phase in
             if phase == .active {
                 DispatchQueue.main.async {
                     NotificationCenter.default.post(name: playerSceneDidActivateNotification, object: nil)
                 }
+                diagnosticsIntro.checkAndShowIntro()
             }
+        }
+        .onAppear {
+            diagnosticsIntro.checkAndShowIntro()
         }
     }
 }

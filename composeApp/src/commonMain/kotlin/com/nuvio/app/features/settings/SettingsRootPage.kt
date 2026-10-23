@@ -266,6 +266,8 @@ internal fun LazyListScope.settingsRootContent(
                 isTablet = isTablet,
             ) {
                 SettingsGroup(isTablet = isTablet) {
+                    IosDiagnosticsSettingsRow(isTablet = isTablet)
+                    SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
                         title = stringResource(Res.string.compose_settings_page_advanced),
                         description = stringResource(Res.string.compose_settings_root_advanced_description),
