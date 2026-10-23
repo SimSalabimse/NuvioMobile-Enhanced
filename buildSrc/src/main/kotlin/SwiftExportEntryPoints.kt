@@ -12,9 +12,10 @@ import java.io.File
  * Kotlin/Native exports every public declaration to Swift unless an entry-point allowlist says
  * otherwise (`-Xbinary=objcExportEntryPointsPath`). This writes that allowlist.
  *
- * Kept: the iOS bridge (iosMain / iosFull / iosAppStore), any other public type Swift names,
- * subclasses of those types, and public types that appear in their signatures (so a returned
- * data class still has its properties). Interfaces are listed member by member. A `callable
+ * Kept: the iOS bridge types (iosMain / iosFull / iosAppStore), any other public type or top-level
+ * callable Swift names, subclasses of those types, and public types in the signature of a member
+ * Swift names (so a returned data class still has its properties). Interfaces are listed member
+ * by member, with explicit accessor lines for their properties. A `callable
  * Interface.*` wildcard also matches the fake `equals` override, and Kotlin/Native then emits
  * that as a required `equals(other:)` which Swift implementors do not have.
  * Dropped: everything else, including the performance package, so image compression and the other
@@ -63,18 +64,32 @@ object SwiftExportEntryPoints {
 
     val navigationRouteEntryPoints =
         listOf(
-            "property com.nuvio.app.navigation.AppRoute.preferredTabName",
-            "property com.nuvio.app.navigation.AppRoute.navigationIdentity",
-            "property com.nuvio.app.navigation.AppRoute.hidesNavigationBar",
-            "property com.nuvio.app.navigation.AppRoute.title",
-            "property com.nuvio.app.navigation.AppRoute.subtitle",
-            "property com.nuvio.app.navigation.SettingsDestinationRoute.preferredTabName",
-        ) + navigationRouteSimpleNames
-            .filter { it != "AppRoute" && it != "SettingsDestinationRoute" }
-            .map { "callable com.nuvio.app.navigation.$it.*" }
+            "preferredTabName",
+            "navigationIdentity",
+            "hidesNavigationBar",
+            "title",
+            "subtitle",
+        ).flatMap { interfaceProperty("com.nuvio.app.navigation.AppRoute", it, mutable = false) } +
+            interfaceProperty("com.nuvio.app.navigation.SettingsDestinationRoute", "preferredTabName", mutable = false) +
+            navigationRouteSimpleNames
+                .filter { it != "AppRoute" && it != "SettingsDestinationRoute" }
+                .map { "callable com.nuvio.app.navigation.$it.*" }
 
     /** Any.equals / hashCode / toString must not be listed on a protocol Swift implements. */
     private val anyMethodNames = setOf("equals", "hashCode", "toString")
+
+    /**
+     * Kotlin/Native matches a property's accessors as functions named `<get-x>` / `<set-x>`, so
+     * `property I.x` alone leaves the getter unexposed. A class exported with `callable C.*` then
+     * has a getter that looks like a base method while its property overrides an exposed one, and
+     * the framework link fails with `bridgePropertyType` "Assertion failed".
+     */
+    fun interfaceProperty(ownerFq: String, name: String, mutable: Boolean): List<String> =
+        listOfNotNull(
+            "property $ownerFq.$name",
+            "function $ownerFq.<get-$name>",
+            "function $ownerFq.<set-$name>".takeIf { mutable },
+        )
 
     val requiredEntryPoints = listOf(
         "function com.nuvio.app.MainViewController",
@@ -117,24 +132,9 @@ object SwiftExportEntryPoints {
             }
         }
         val included = select(parsed, swiftNames)
-        val lines = linkedSetOf<String>()
-        val includedTypes = included.filterIsInstance<TypeDecl>()
-        includedTypes.forEach { type ->
-            if (type.isInterface) {
-                type.members.filter { it.exported && it.simpleName !in anyMethodNames }.forEach { member ->
-                    val kind = if (member.isProperty) "property" else "function"
-                    lines += "$kind ${type.fqName}.${member.simpleName}"
-                }
-            } else {
-                lines += "callable ${type.fqName}.*"
-            }
-        }
-        included.filterIsInstance<CallableDecl>().forEach { decl ->
-            val kind = if (decl.isProperty) "property" else "function"
-            lines += "$kind ${decl.fqName}"
-        }
-        val sorted = lines.sorted()
-        val interfaceNames = includedTypes.filter { it.isInterface }.map { it.fqName }.toSet()
+        val sorted = entryPointLines(included)
+        val lines = sorted.toSet()
+        val interfaceNames = included.filterIsInstance<TypeDecl>().filter { it.isInterface }.map { it.fqName }.toSet()
         require(sorted.none { line ->
             line.startsWith("callable ") && line.removePrefix("callable ").removeSuffix(".*") in interfaceNames
         }) { "Interface wildcard would export Any.equals as a required Swift protocol method" }
@@ -142,6 +142,13 @@ object SwiftExportEntryPoints {
             val owner = line.substringAfter(' ').substringBeforeLast('.')
             owner in interfaceNames && line.substringAfterLast('.') in anyMethodNames
         }) { "Any.equals/hashCode/toString leaked onto an exported protocol" }
+        val withoutGetter = sorted.filter { line ->
+            line.startsWith("property ") && line.substringAfter(' ').substringBeforeLast('.') in interfaceNames &&
+                "function ${line.substringAfter(' ').substringBeforeLast('.')}.<get-${line.substringAfterLast('.')}>" !in lines
+        }
+        require(withoutGetter.isEmpty()) {
+            "Interface properties without their getter entry point break the framework link: ${withoutGetter.joinToString()}"
+        }
         val missing = requiredEntryPoints.filter { it !in lines }
         require(missing.isEmpty()) {
             "Swift export allowlist is missing the bridge Swift calls: ${missing.joinToString()}"
@@ -164,6 +171,28 @@ object SwiftExportEntryPoints {
         }
     }
 
+    internal fun entryPointLines(included: List<Decl>): List<String> {
+        val lines = linkedSetOf<String>()
+        included.filterIsInstance<TypeDecl>().forEach { type ->
+            if (type.isInterface) {
+                type.members.filter { it.exported && it.simpleName !in anyMethodNames }.forEach { member ->
+                    if (member.isProperty) {
+                        lines += interfaceProperty(type.fqName, member.simpleName, member.isMutable)
+                    } else {
+                        lines += "function ${type.fqName}.${member.simpleName}"
+                    }
+                }
+            } else {
+                lines += "callable ${type.fqName}.*"
+            }
+        }
+        included.filterIsInstance<CallableDecl>().forEach { decl ->
+            val kind = if (decl.isProperty) "property" else "function"
+            lines += "$kind ${decl.fqName}"
+        }
+        return lines.sorted()
+    }
+
     internal fun select(parsed: List<Decl>, swiftNames: Set<String>): List<Decl> {
         val types = parsed.filterIsInstance<TypeDecl>()
         val included = mutableSetOf<String>()
@@ -171,20 +200,22 @@ object SwiftExportEntryPoints {
             if (type.exported && !type.excluded) included += type.fqName
         }
         types.filter { it.bridgeFile }.forEach(::keep)
-        types.filter { it.simpleName in swiftNames }.forEach(::keep)
+        // Swift spells a nested type through its outer type, which pulls it in below.
+        types.filter { it.enclosingFq == null && it.simpleName in swiftNames }.forEach(::keep)
         fun callableKept(decl: CallableDecl) =
-            decl.exported && !decl.excluded && (decl.bridgeFile || decl.simpleName in swiftNames)
+            decl.exported && !decl.excluded && decl.simpleName in swiftNames
+        val keptCallables = parsed.filterIsInstance<CallableDecl>().filter(::callableKept)
         var grew = true
         while (grew) {
             grew = false
             val includedTypes = types.filter { it.fqName in included }
             val includedSimple = includedTypes.map { it.simpleName }.toSet()
+            // Swift can only reach a returned or callback type through a member it names.
             val referenced = HashSet<String>()
             includedTypes.forEach { type ->
-                referenced += type.referencedTypes
-                type.members.filter { it.exported }.forEach { referenced += it.referencedTypes }
+                type.members.filter { it.exported && it.simpleName in swiftNames }.forEach { referenced += it.referencedTypes }
             }
-            parsed.filterIsInstance<CallableDecl>().filter(::callableKept).forEach { referenced += it.referencedTypes }
+            keptCallables.forEach { referenced += it.referencedTypes }
             for (type in types) {
                 if (type.fqName in included || type.excluded || !type.exported) continue
                 val parentIncluded = type.supertypes.any { it in includedSimple }
@@ -196,8 +227,7 @@ object SwiftExportEntryPoints {
                 }
             }
         }
-        val callables = parsed.filterIsInstance<CallableDecl>().filter(::callableKept)
-        return types.filter { it.fqName in included } + callables
+        return types.filter { it.fqName in included } + keptCallables
     }
 }
 
@@ -217,7 +247,6 @@ internal data class TypeDecl(
     val enclosingFq: String?,
     val supertypes: List<String>,
     val isInterface: Boolean = false,
-    val referencedTypes: List<String> = emptyList(),
     val members: MutableList<MemberDecl> = mutableListOf(),
 ) : Decl
 
@@ -226,6 +255,7 @@ internal data class MemberDecl(
     val isProperty: Boolean,
     val exported: Boolean,
     val referencedTypes: List<String>,
+    val isMutable: Boolean = false,
 )
 
 internal data class CallableDecl(
@@ -359,6 +389,7 @@ internal fun parseSource(source: String, path: String): List<Decl> {
                                 isProperty = word.first != "fun",
                                 exported = true,
                                 referencedTypes = refs,
+                                isMutable = word.first == "var",
                             )
                         }
                     }
@@ -462,7 +493,6 @@ private fun parseType(
         enclosingFq = enclosing,
         supertypes = supertypeNames(header.toString()),
         isInterface = keyword.first == "interface",
-        referencedTypes = typeNamesIn(header.toString()),
     )
     return decl to ParseCursor(i, depth, 0, opened)
 }
@@ -565,7 +595,8 @@ private fun readCallableName(text: String, at: Int): Pair<String, Int>? {
     var end = i
     while (i < text.length && text[i].isJavaIdentifierStart()) {
         val ident = readIdentifier(text, i)
-        if (ident.first in CONTROL_WORDS) return null
+        // Modifiers are soft keywords, so `val value` and `fun open()` are ordinary names here.
+        if (ident.first in HARD_KEYWORDS) return null
         name = ident.first
         end = ident.second
         i = ident.second
@@ -797,7 +828,9 @@ private val MODIFIERS = setOf(
     "vararg", "reified", "inner",
 )
 
-private val CONTROL_WORDS = MODIFIERS + setOf("class", "interface", "object", "fun", "val", "var", "constructor", "where")
+private val HARD_KEYWORDS = setOf("class", "interface", "object", "fun", "val", "var")
+
+private val CONTROL_WORDS = MODIFIERS + HARD_KEYWORDS + setOf("constructor", "where")
 
 private val NEXT_DECLARATION = setOf(
     "class", "fun", "val", "var", "interface", "object", "typealias", "import",

@@ -21,6 +21,8 @@ class SwiftExportEntryPointsTest {
         assertTrue(lines.any { it == "function com.nuvio.app.features.analysis.NuvioMediaAnalyzerBridge.analyze" })
         assertTrue(lines.any { it == "function com.nuvio.app.features.downloads.NuvioFileReleaseBridge.releaseFile" })
         assertTrue(lines.any { it == "property com.nuvio.app.navigation.AppRoute.preferredTabName" })
+        assertTrue(lines.any { it == "function com.nuvio.app.navigation.AppRoute.<get-preferredTabName>" })
+        assertTrue(lines.any { it == "function com.nuvio.app.navigation.SettingsDestinationRoute.<get-preferredTabName>" })
         assertTrue(lines.any { it == "callable com.nuvio.app.navigation.HomescreenSettingsRoute.*" })
         assertTrue(lines.any { it == "callable com.nuvio.app.navigation.TabsRoute.*" })
         assertTrue(lines.any { it == "callable com.nuvio.app.navigation.PlayerRoute.*" })
@@ -32,5 +34,11 @@ class SwiftExportEntryPointsTest {
         assertFalse(lines.any { "compactArtworkUrl" in it || "TmdbImageSizing" in it || "PlaybackQuietMode" in it })
         assertFalse(lines.any { it.startsWith("callable com.nuvio.app.features.home.HomeRepository") })
         assertFalse(lines.any { it.endsWith(".Color") || it.endsWith(".String") || it.endsWith(".first") })
+        assertFalse(lines.any { ".Android" in it || "PlayerEngineController" in it })
+        val withoutGetter = lines.filter { it.startsWith("property com.nuvio.app.navigation.") }.filter { line ->
+            val fq = line.removePrefix("property ")
+            "function ${fq.substringBeforeLast('.')}.<get-${fq.substringAfterLast('.')}>" !in lines
+        }
+        assertTrue(withoutGetter.isEmpty(), "route properties without getter entry points: $withoutGetter")
     }
 }

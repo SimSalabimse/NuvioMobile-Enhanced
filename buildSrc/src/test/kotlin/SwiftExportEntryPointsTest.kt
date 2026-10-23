@@ -41,7 +41,7 @@ class SwiftExportEntryPointsTest {
         assertTrue(names.contains("Child"))
         assertTrue("PlayerRoute" in names)
         assertTrue("usedBySwift" in names)
-        assertTrue("bridgeOnly" in names)
+        assertFalse("bridgeOnly" in names)
         assertTrue("Bridge" in names)
         assertFalse("Unused" in names)
         assertFalse("unused" in names)
@@ -106,38 +106,59 @@ class SwiftExportEntryPointsTest {
     }
 
     @Test
-    fun interfaceMembersOmitEqualsAndSignatureTypesAreKept() {
+    fun interfaceMembersOmitEqualsAndSwiftNamedSignaturesKeepTheirTypes() {
         val source = """
             package demo
             interface Bridge {
                 fun loadFile(url: String)
-                fun stop(): Sample
+                override fun equals(other: Any?): Boolean
             }
             class Engine {
                 fun plan(): Sample
+                fun diagnostics(): Report
             }
             data class Sample(val energy: Double)
+            data class Report(val text: String)
             class Unused
         """.trimIndent()
         val parsed = parseSource(source, "src/commonMain/kotlin/Demo.kt")
-        val selected = SwiftExportEntryPoints.select(parsed, setOf("Bridge", "Engine"))
+        val selected = SwiftExportEntryPoints.select(parsed, setOf("Bridge", "Engine", "plan", "loadFile"))
         val names = selected.map { it.simpleName }.toSet()
         assertTrue("Sample" in names)
+        assertFalse("Report" in names)
         assertFalse("Unused" in names)
-        val bridge = parsed.filterIsInstance<TypeDecl>().single { it.simpleName == "Bridge" }
-        assertTrue(bridge.isInterface)
-        assertTrue(bridge.members.map { it.simpleName }.containsAll(listOf("loadFile", "stop")))
-        val lines = linkedSetOf<String>()
-        selected.filterIsInstance<TypeDecl>().forEach { type ->
-            if (type.isInterface) {
-                type.members.forEach { lines += "function ${type.fqName}.${it.simpleName}" }
-            } else {
-                lines += "callable ${type.fqName}.*"
-            }
-        }
+        val lines = SwiftExportEntryPoints.entryPointLines(selected)
         assertTrue("function demo.Bridge.loadFile" in lines)
         assertFalse(lines.any { it.endsWith(".equals") || it.startsWith("callable demo.Bridge") })
         assertTrue("callable demo.Sample.*" in lines)
+        assertFalse("callable demo.Report.*" in lines)
+    }
+
+    @Test
+    fun interfacePropertiesListTheirAccessors() {
+        val source = """
+            package demo
+            interface Route {
+                val title: String
+                var subtitle: String?
+                fun open()
+            }
+            class HomeRoute : Route {
+                override val title: String = ""
+                override var subtitle: String? = null
+                override fun open() {}
+            }
+        """.trimIndent()
+        val parsed = parseSource(source, "src/commonMain/kotlin/Demo.kt")
+        val lines = SwiftExportEntryPoints.entryPointLines(SwiftExportEntryPoints.select(parsed, setOf("Route")))
+        assertTrue("property demo.Route.title" in lines)
+        assertTrue("function demo.Route.<get-title>" in lines)
+        assertFalse("function demo.Route.<set-title>" in lines)
+        assertTrue("property demo.Route.subtitle" in lines)
+        assertTrue("function demo.Route.<get-subtitle>" in lines)
+        assertTrue("function demo.Route.<set-subtitle>" in lines)
+        assertTrue("function demo.Route.open" in lines)
+        assertTrue("callable demo.HomeRoute.*" in lines)
     }
 
     @Test
@@ -159,8 +180,21 @@ class SwiftExportEntryPointsTest {
         assertTrue("function com.nuvio.app.features.downloads.NuvioFileReleaseBridge.releaseFile" in lines)
         assertTrue("function com.nuvio.app.features.analysis.NuvioMediaAnalyzerBridge.analyze" in lines)
         assertTrue("property com.nuvio.app.navigation.AppRoute.preferredTabName" in lines)
+        assertTrue("function com.nuvio.app.navigation.AppRoute.<get-preferredTabName>" in lines)
+        assertTrue("function com.nuvio.app.navigation.SettingsDestinationRoute.<get-preferredTabName>" in lines)
+        assertTrue("callable com.nuvio.app.navigation.HomescreenSettingsRoute.*" in lines)
         assertFalse(lines.any { it == "callable com.nuvio.app.features.player.NuvioPlayerBridge.*" })
         assertFalse(lines.any { it.endsWith(".equals") || it.endsWith(".hashCode") || it.endsWith(".toString") })
         assertFalse(lines.any { "com.nuvio.app.core.perf" in it || "compactArtworkUrl" in it })
+        assertFalse(lines.any { ".Android" in it || "PlayerEngineController" in it })
+        val propertyLines = lines.filter {
+            it.startsWith("property ") && it.substringBeforeLast('.').substringAfterLast('.').first().isUpperCase()
+        }
+        assertTrue(propertyLines.isNotEmpty())
+        val withoutGetter = propertyLines.filter { line ->
+            val fq = line.removePrefix("property ")
+            "function ${fq.substringBeforeLast('.')}.<get-${fq.substringAfterLast('.')}>" !in lines
+        }
+        check(withoutGetter.isEmpty()) { "property lines without getters: $withoutGetter" }
     }
 }
