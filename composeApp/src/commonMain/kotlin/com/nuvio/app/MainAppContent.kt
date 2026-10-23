@@ -862,9 +862,9 @@ internal fun MainAppContent(
                         InAppLogger.info("App/DeepLink", "meta type=${deepLink.type} id=${deepLink.id}")
                         com.nuvio.app.features.player.ActivePlayer.closeForNavigation()
                         activateTab(AppScreenTab.Home)
-                        val routeTitle = runCatching {
-                            MetaDetailsRepository.fetch(deepLink.type, deepLink.id)?.name
-                        }.getOrNull().orEmpty().ifBlank { detailsFallbackTitle }
+                        // Navigate immediately so cold-start / no-addon fetches cannot
+                        // block the deeplink (details screen loads meta itself).
+                        val routeTitle = detailsFallbackTitle
                         navController.navigate(
                             DetailRoute(
                                 type = deepLink.type,

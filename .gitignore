@@ -40,6 +40,9 @@ scripts/*
 !scripts/builds_request.py
 !scripts/builds_page/
 !scripts/builds_page/**
+!scripts/release/
+!scripts/release/**
+!scripts/update-store-source.py
 iosApp/Configuration/DeviceSigning.local.json
 
 # Local MPVKit iOS build environment (sparse APFS image, see MPVKit docs)

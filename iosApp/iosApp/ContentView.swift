@@ -1095,6 +1095,15 @@ final class AppNavigationCoordinator: ObservableObject {
         setTabBarVisible(true)
         reloadTabBarBehavior()
         reloadLiveTvTabVisibility()
+        // Headless simulator smoke: activate Profile/Settings without taps.
+        NotificationCenter.default.addObserver(
+            forName: Notification.Name("nuvio.smoke.activateTab"),
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let tabName = note.userInfo?["tab"] as? String else { return }
+            self?.activateTab(named: tabName)
+        }
         NativeTabBridgeKt.observeNativePopToRoot { [weak self] tabName in
             guard let self, let tab = NuvioAppTab.from(kotlinName: tabName) else { return }
             self.coordinator(for: tab).popToRoot()
@@ -1276,6 +1285,10 @@ final class AppNavigationCoordinator: ObservableObject {
                 pendingTab = nil
                 selectedTab = pending
             }
+            if let push = pendingPush {
+                pendingPush = nil
+                pushNow(push.route, from: push.origin, launchSingleTop: push.launchSingleTop)
+            }
             return
         }
         isProfileSwitcherPresented = false
@@ -1297,12 +1310,18 @@ final class AppNavigationCoordinator: ObservableObject {
                 self.pendingTab = nil
                 self.selectedTab = pending
             }
+            if let push = self.pendingPush {
+                self.pendingPush = nil
+                self.pushNow(push.route, from: push.origin, launchSingleTop: push.launchSingleTop)
+            }
         }
     }
 
     private var pendingTab: NuvioAppTab?
     private var pendingTabTask: Task<Void, Never>?
     private var readinessWatchdog: Task<Void, Never>?
+    /// Cold-start deeplinks (meta/details) used to be disposed while !isAppReady.
+    private var pendingPush: (route: AppRoute, origin: TabNavigationCoordinator, launchSingleTop: Bool)?
 
     /// Tab taps are never dropped: while not ready they are queued and applied when ready,
     /// or after 1.5 s when the main UI is on screen anyway.
@@ -1352,9 +1371,22 @@ final class AppNavigationCoordinator: ObservableObject {
         launchSingleTop: Bool
     ) {
         guard isAppReady else {
-            AppKt.disposeRoute(route: route)
+            // Keep the latest cold-start deeplink; do not dispose — flush on ready.
+            if let previous = pendingPush {
+                AppKt.disposeRoute(route: previous.route)
+            }
+            pendingPush = (route, origin, launchSingleTop)
+            NSLog("[Nuvio] push queued while not ready: \(String(describing: type(of: route)))")
             return
         }
+        pushNow(route, from: origin, launchSingleTop: launchSingleTop)
+    }
+
+    private func pushNow(
+        _ route: AppRoute,
+        from origin: TabNavigationCoordinator,
+        launchSingleTop: Bool
+    ) {
         if route is PlayerRoute, !PlayerPictureInPictureParking.shared.isParked(route) {
             PlayerPictureInPictureParking.shared.closeParked()
         }
