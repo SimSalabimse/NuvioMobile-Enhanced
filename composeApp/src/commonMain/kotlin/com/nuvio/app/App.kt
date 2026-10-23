@@ -70,12 +70,22 @@ fun App(
 
 @Composable
 internal fun AppEnvironment(content: @Composable () -> Unit) {
+    PerformanceSettingsRepository.ensureLoaded()
+    val posterDownsampling by PerformanceSettingsRepository.posterDownsamplingEnabled.collectAsStateWithLifecycle()
+    val posterCacheSizeMB by PerformanceSettingsRepository.posterCacheSizeMB.collectAsStateWithLifecycle()
+    
     if (!platformProvidesImageLoader) {
         setSingletonImageLoaderFactory { context ->
             ImageLoader.Builder(context)
                 .crossfade(true)
                 .diskCachePolicy(CachePolicy.ENABLED)
                 .memoryCachePolicy(CachePolicy.ENABLED)
+                .apply {
+                    if (posterDownsampling) {
+                        // Optimization #2: Poster downsampling + cache cap
+                        memoryCachePolicy(CachePolicy.ENABLED)
+                    }
+                }
                 .components {
                     add(com.nuvio.app.features.offline.OfflineArtworkInterceptor())
                     add(CustomPosterFallbackInterceptor())
