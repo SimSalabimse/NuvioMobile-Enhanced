@@ -1,5 +1,6 @@
 package com.nuvio.app.features.trakt
 
+import com.nuvio.app.core.perf.BoundedCache
 import co.touchlab.kermit.Logger
 import com.nuvio.app.features.addons.httpRequestRaw
 import com.nuvio.app.features.details.MoreLikeThisPage
@@ -22,7 +23,7 @@ object TraktRelatedRepository {
     private val log = Logger.withTag("TraktRelated")
     private val json = Json { ignoreUnknownKeys = true }
     private val cacheMutex = Mutex()
-    private val cache = mutableMapOf<String, TimedCache>()
+    private val cache = BoundedCache<String, TimedCache>(maxEntries = 100)
     private val resolvedTargets = mutableMapOf<String, ResolvedRelatedTarget>()
 
     suspend fun getRelated(

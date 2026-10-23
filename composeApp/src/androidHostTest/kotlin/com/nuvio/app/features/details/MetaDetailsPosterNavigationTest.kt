@@ -132,7 +132,7 @@ class MetaDetailsPosterNavigationTest {
             .newInstance(meta, meta.takeIf { enriched }, fingerprint.takeIf { enriched })
         val cache = repositoryClass.getDeclaredField("cachedMetaByRequestKey")
             .apply { isAccessible = true }
-            .get(MetaDetailsRepository) as MutableMap<String, Any>
+            .get(MetaDetailsRepository) as com.nuvio.app.core.perf.BoundedCache<String, Any>
         cache["${meta.type}:${meta.id}"] = entry
     }
 }

@@ -1,5 +1,6 @@
 package com.nuvio.app.features.anilist
 
+import com.nuvio.app.core.perf.BoundedCache
 import com.nuvio.app.core.network.sharedApiHttpClient
 import com.nuvio.app.core.network.readBoundedResponseBody
 import com.nuvio.app.features.player.skip.SimklIdResolver
@@ -112,8 +113,8 @@ internal class AniListIdResolver(
     private val now: () -> Long = { kotlin.time.Clock.System.now().toEpochMilliseconds() },
 ) {
     private val cacheLock = Mutex()
-    private val animeIdCache = mutableMapOf<String, Long?>()
-    private val imdbCache = mutableMapOf<String, List<Long>>()
+    private val animeIdCache = BoundedCache<String, Long?>(maxEntries = 1000)
+    private val imdbCache = BoundedCache<String, List<Long>>(maxEntries = 1000)
 
     suspend fun resolve(reference: TrackingMediaReference, snapshot: AniListSyncSnapshot?): AniListTarget? {
         val episodeNumber = reference.episode?.number

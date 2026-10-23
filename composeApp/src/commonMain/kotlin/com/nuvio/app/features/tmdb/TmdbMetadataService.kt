@@ -1,5 +1,6 @@
 package com.nuvio.app.features.tmdb
 
+import com.nuvio.app.core.perf.BoundedCache
 import co.touchlab.kermit.Logger
 import com.nuvio.app.features.addons.httpGetText
 import com.nuvio.app.features.details.MetaCompany
@@ -34,15 +35,15 @@ object TmdbMetadataService {
     private val log = Logger.withTag("TmdbMetadata")
     private val json = Json { ignoreUnknownKeys = true }
 
-    private val enrichmentCache = mutableMapOf<String, TmdbEnrichment>()
-    private val episodeCache = mutableMapOf<String, Map<Pair<Int, Int>, TmdbEpisodeEnrichment>>()
-    private val moreLikeThisCache = mutableMapOf<String, MoreLikeThisPage>()
-    private val collectionCache = mutableMapOf<String, Pair<String?, List<MetaPreview>>>()
-    private val trailerCache = mutableMapOf<String, List<MetaTrailer>>()
-    private val personCache = mutableMapOf<String, PersonDetail>()
-    private val entityBrowseCache = mutableMapOf<String, TmdbEntityBrowseData>()
-    private val entityHeaderCache = mutableMapOf<String, TmdbEntityHeader>()
-    private val entityRailCache = mutableMapOf<String, List<MetaPreview>>()
+    private val enrichmentCache = BoundedCache<String, TmdbEnrichment>(maxEntries = 300)
+    private val episodeCache = BoundedCache<String, Map<Pair<Int, Int>, TmdbEpisodeEnrichment>>(maxEntries = 60)
+    private val moreLikeThisCache = BoundedCache<String, MoreLikeThisPage>(maxEntries = 100)
+    private val collectionCache = BoundedCache<String, Pair<String?, List<MetaPreview>>>(maxEntries = 100)
+    private val trailerCache = BoundedCache<String, List<MetaTrailer>>(maxEntries = 200)
+    private val personCache = BoundedCache<String, PersonDetail>(maxEntries = 100)
+    private val entityBrowseCache = BoundedCache<String, TmdbEntityBrowseData>(maxEntries = 60)
+    private val entityHeaderCache = BoundedCache<String, TmdbEntityHeader>(maxEntries = 100)
+    private val entityRailCache = BoundedCache<String, List<MetaPreview>>(maxEntries = 100)
     private val backdropCache = linkedMapOf<String, String?>()
     private val backdropCacheMutex = Mutex()
     private val backdropRequests = Semaphore(4)
