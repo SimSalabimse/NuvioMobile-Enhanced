@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 struct DiagnosticsEntry: Codable {
     let timestamp: String
