@@ -34,8 +34,11 @@ fun isProgressComplete(
     isEnded: Boolean,
 ): Boolean {
     if (isShortPlaceholderDuration(durationMs)) return false
-    if (isEnded) return true
-    if (durationMs <= 0L) return false
+    // A known runtime uses the same 90% fraction as an in-progress episode.
+    // Player "ended" (eof-reached, a cache boundary, a source switch) can be
+    // true while the playhead is still mid-episode. Only an unknown duration
+    // still trusts ended, for players that report stop without a runtime.
+    if (durationMs <= 0L) return isEnded
 
     val watchedFraction = positionMs.toDouble() / durationMs.toDouble()
     return watchedFraction >= CompletionThresholdFraction
