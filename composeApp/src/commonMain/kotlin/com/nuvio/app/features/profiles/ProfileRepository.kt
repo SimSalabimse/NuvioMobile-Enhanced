@@ -47,6 +47,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.runBlocking
@@ -81,6 +83,7 @@ object ProfileRepository {
 
     private var activeProfileIndex: Int = 1
     private var loadedCacheForUserId: String? = null
+    private val cachedProfileLoad = Mutex()
 
     val activeProfileId: Int get() = activeProfileIndex
 
@@ -91,12 +94,15 @@ object ProfileRepository {
         persist()
     }
 
-    suspend fun loadCachedProfiles(): Boolean {
-        val stored = decodeStoredPayload() ?: return false
+    suspend fun loadCachedProfiles(): Boolean = cachedProfileLoad.withLock {
+        val stored = decodeStoredPayload() ?: return@withLock false
+        if (loadedCacheForUserId == stored.userId && _state.value.isLoaded) {
+            return@withLock _state.value.profiles.isNotEmpty()
+        }
         loadedCacheForUserId = stored.userId
         applyStoredPayload(stored)
         ThemeSettingsRepository.onProfileChanged()
-        return _state.value.profiles.isNotEmpty()
+        _state.value.profiles.isNotEmpty()
     }
 
     suspend fun ensureLoaded(userId: String) {

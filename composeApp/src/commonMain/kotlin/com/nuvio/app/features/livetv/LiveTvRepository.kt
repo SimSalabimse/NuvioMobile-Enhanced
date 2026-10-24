@@ -9,6 +9,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,6 +26,7 @@ object LiveTvRepository {
     val uiState: StateFlow<LiveTvUiState> = _uiState.asStateFlow()
 
     private var hasLoaded = false
+    private val loadLock = SynchronizedObject()
     private var channelsRequested = false
     private var channelsSignature: String? = null
     private var refreshJob: Job? = null
@@ -33,6 +36,7 @@ object LiveTvRepository {
     private val epgGuideCache = mutableMapOf<String, LiveTvCachedEpgGuide>()
 
     fun ensureLoaded() {
+        synchronized(loadLock) {
         if (hasLoaded) return
         hasLoaded = true
         val playlists = loadSavedPlaylists()
@@ -48,6 +52,7 @@ object LiveTvRepository {
             isEpgAutoDetectEnabled = LiveTvStorage.loadEpgAutoDetectEnabled() ?: true,
         )
         publishNavigationVisibility()
+        }
     }
 
     fun ensureChannelsLoaded() {

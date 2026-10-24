@@ -124,6 +124,7 @@ object WatchedRepository {
     private const val watchedDiagnosticSampleLimit = 10
 
     private val accountScopeLock = SynchronizedObject()
+    private val loadLock = SynchronizedObject()
     private var accountScopeJob: Job = SupervisorJob()
     private var accountScope = CoroutineScope(accountScopeJob + Dispatchers.Default)
     private val log = Logger.withTag("WatchedRepository")
@@ -161,21 +162,25 @@ object WatchedRepository {
         ensureTrackingProvidersRegistered()
         TrackingProviderRegistry.ensureLoaded()
         TrackingSettingsRepository.ensureLoaded()
-        if (!hasLoaded) {
-            loadFromDisk(ProfileRepository.activeProfileId)
-            activateEffectiveSource(
-                effectiveWatchedSource(
-                    requestedSource = TrackingSettingsRepository.uiState.value.watchProgressSource,
-                    connectedProviderIds = connectedWatchedProviderIds(),
-                ),
-            )
+        synchronized(loadLock) {
+            if (!hasLoaded) {
+                loadFromDisk(ProfileRepository.activeProfileId)
+                activateEffectiveSource(
+                    effectiveWatchedSource(
+                        requestedSource = TrackingSettingsRepository.uiState.value.watchProgressSource,
+                        connectedProviderIds = connectedWatchedProviderIds(),
+                    ),
+                )
+            }
         }
         startExtraKeysObserverIfNeeded()
     }
 
     fun onProfileChanged(profileId: Int) {
-        if (profileId == currentProfileId && hasLoaded) return
-        loadFromDisk(profileId)
+        synchronized(loadLock) {
+            if (profileId == currentProfileId && hasLoaded) return
+            loadFromDisk(profileId)
+        }
     }
 
     fun clearLocalState() {
@@ -187,30 +192,32 @@ object WatchedRepository {
         }
         previousAccountJob.cancel()
         extraKeysObserverJob = null
-        hasLoaded = false
-        currentProfileId = 1
-        profileGeneration += 1L
-        activeSource = WatchProgressSource.NUVIO_SYNC
-        sourceGeneration += 1L
-        itemsStore.update { nuvioItems, providerItems, dirtyNuvioKeys, dirtyProviderKeys ->
-            nuvioItems.clear()
-            providerItems.clear()
-            dirtyNuvioKeys.clear()
-            dirtyProviderKeys.clear()
+        synchronized(loadLock) {
+            hasLoaded = false
+            currentProfileId = 1
+            profileGeneration += 1L
+            activeSource = WatchProgressSource.NUVIO_SYNC
+            sourceGeneration += 1L
+            itemsStore.update { nuvioItems, providerItems, dirtyNuvioKeys, dirtyProviderKeys ->
+                nuvioItems.clear()
+                providerItems.clear()
+                dirtyNuvioKeys.clear()
+                dirtyProviderKeys.clear()
+            }
+            nuvioFullyWatchedSeriesKeys = emptySet()
+            providerFullyWatchedSeriesKeys.clear()
+            expandedSiblingKeys = emptySet()
+            providerExtraWatchedKeys.clear()
+            nuvioHasLoaded = false
+            loadedProviders.clear()
+            nuvioHasLoadedRemote = false
+            providersLoadedFromRemote.clear()
+            lastSuccessfulPushEpochMs = 0L
+            deltaCursorEventId = 0L
+            deltaInitialized = false
+            _fullyWatchedSeriesKeys.value = emptySet()
+            _uiState.value = WatchedUiState()
         }
-        nuvioFullyWatchedSeriesKeys = emptySet()
-        providerFullyWatchedSeriesKeys.clear()
-        expandedSiblingKeys = emptySet()
-        providerExtraWatchedKeys.clear()
-        nuvioHasLoaded = false
-        loadedProviders.clear()
-        nuvioHasLoadedRemote = false
-        providersLoadedFromRemote.clear()
-        lastSuccessfulPushEpochMs = 0L
-        deltaCursorEventId = 0L
-        deltaInitialized = false
-        _fullyWatchedSeriesKeys.value = emptySet()
-        _uiState.value = WatchedUiState()
     }
 
     private fun loadFromDisk(profileId: Int) {

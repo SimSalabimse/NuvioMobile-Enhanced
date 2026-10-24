@@ -1,5 +1,7 @@
 package com.nuvio.app.features.details
 
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -220,6 +222,7 @@ object MetaScreenSettingsRepository {
     val uiState: StateFlow<MetaScreenSettingsUiState> = _uiState.asStateFlow()
 
     private var hasLoaded = false
+    private val loadLock = SynchronizedObject()
     private var preferences: MutableMap<MetaScreenSectionKey, StoredMetaScreenSectionPreference> = mutableMapOf()
     private var backgroundMode: MetaScreenBackgroundMode = MetaScreenBackgroundMode.Normal
     private var heroTrailerPlayback: Boolean = false
@@ -235,6 +238,7 @@ object MetaScreenSettingsRepository {
     private fun localizedString(resource: StringResource): String = runBlocking { getString(resource) }
 
     fun ensureLoaded() {
+        synchronized(loadLock) {
         if (hasLoaded) return
         hasLoaded = true
 
@@ -270,9 +274,11 @@ object MetaScreenSettingsRepository {
         normalizePreferences()
         publish()
         persist()
+        }
     }
 
     fun onProfileChanged() {
+        synchronized(loadLock) {
         hasLoaded = false
         preferences.clear()
         backgroundMode = MetaScreenBackgroundMode.Normal
@@ -287,6 +293,7 @@ object MetaScreenSettingsRepository {
         showOverallRatings = true
         episodeRatingsVisibility = EpisodeRatingsVisibility.SHOW_ALL
         _uiState.value = MetaScreenSettingsUiState()
+        }
         ensureLoaded()
     }
 
