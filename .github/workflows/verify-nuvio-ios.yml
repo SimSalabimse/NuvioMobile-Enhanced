@@ -1,0 +1,106 @@
+name: Verify Nuvio iOS
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - enhanced
+    paths:
+      - .github/workflows/verify-nuvio-ios.yml
+      - .cursor/skills/verify-nuvio-ios/**
+      - iosApp/VerifyUITests/**
+      - iosApp/iosApp/Diagnostics/**
+      - iosApp/iosApp.xcodeproj/**
+      - scripts/release/**
+      - composeApp/src/iosMain/kotlin/com/nuvio/app/features/settings/IosDiagnosticsSettings.ios.kt
+      - composeApp/src/commonMain/kotlin/com/nuvio/app/features/settings/SettingsComponents.kt
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: verify-nuvio-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  diagnostics:
+    name: Simulator diagnostics intro
+    runs-on: macos-26
+    timeout-minutes: 180
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      GRADLE_OPTS: -Xmx4608M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768M
+      KOTLIN_DAEMON_JVMARGS: -Xmx2048M
+      NUVIO_GRADLE_JVMARGS: -Xmx4608M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768M
+      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx4608M
+      ORG_GRADLE_PROJECT_kotlin.native.jvmArgs: -Xmx4608M
+      NUVIO_IOS_DISTRIBUTION: full
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Cache Kotlin Native
+        uses: actions/cache@v5
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: |
+            konan-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Verify Apple toolchain
+        run: |
+          xcodebuild -version
+          xcrun simctl list runtimes
+          xcrun simctl list devices available | awk '/iPhone/ { print }' | head -n 20
+
+      - name: Constrain Gradle memory for the hosted runner
+        run: |
+          gradle_user_home="${GRADLE_USER_HOME:-${HOME}/.gradle}"
+          mkdir -p "${gradle_user_home}"
+          {
+            echo "org.gradle.jvmargs=${NUVIO_GRADLE_JVMARGS}"
+            echo "kotlin.daemon.jvmargs=${KOTLIN_DAEMON_JVMARGS}"
+            echo "kotlin.native.jvmArgs=${NUVIO_KOTLIN_NATIVE_JVMARGS}"
+            echo "org.gradle.parallel=false"
+            echo "org.gradle.workers.max=1"
+            echo "kotlin.native.disableCompilerDaemon=true"
+          } >> "${gradle_user_home}/gradle.properties"
+
+      - name: Launch
+        run: .cursor/skills/verify-nuvio-ios/scripts/launch.sh
+
+      - name: Doctor
+        run: .cursor/skills/verify-nuvio-ios/scripts/doctor.sh
+
+      - name: Drive diagnostics intro
+        run: .cursor/skills/verify-nuvio-ios/scripts/drive-diagnostics.sh
+
+      - name: Cleanup
+        if: always()
+        run: .cursor/skills/verify-nuvio-ios/scripts/cleanup.sh
+
+      - name: Confirm evidence survived cleanup
+        if: always()
+        run: |
+          test ! -f build/verify-nuvio-ios/session.env
+          .cursor/skills/verify-nuvio-ios/scripts/confirm-evidence.sh
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: verify-nuvio-ios-diagnostics-${{ github.sha }}
+          path: |
+            build/verify-nuvio-ios/evidence/**
+          if-no-files-found: warn
+          retention-days: 14
