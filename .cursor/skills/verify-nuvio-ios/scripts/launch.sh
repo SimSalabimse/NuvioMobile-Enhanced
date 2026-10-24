@@ -24,7 +24,7 @@ if [[ -f "${VERIFY_SESSION_FILE}" ]]; then
   # shellcheck disable=SC1090
   source "${VERIFY_SESSION_FILE}"
   if [[ -n "${SIMULATOR_UDID:-}" && -n "${BUNDLE_ID:-}" ]] \
-      && simulator_app_alive "${SIMULATOR_UDID}" "${BUNDLE_ID}"; then
+      && simulator_app_alive "${SIMULATOR_UDID}" "${BUNDLE_ID}" "${APP_PID:-}"; then
     echo "A verification instance is already running on ${SIMULATOR_UDID} (${BUNDLE_ID})." >&2
     echo "Run cleanup.sh before launching another. One simulator app container is shared." >&2
     exit 1

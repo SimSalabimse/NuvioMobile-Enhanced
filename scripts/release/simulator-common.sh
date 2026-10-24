@@ -36,5 +36,17 @@ simulator_bundle_id_from_app() {
 simulator_app_alive() {
   local udid="$1"
   local bundle_id="$2"
-  xcrun simctl spawn "${udid}" launchctl list 2>/dev/null | grep -q "UIKitApplication:${bundle_id}"
+  local pid="${3:-}"
+  # simctl launch prints the simulator pid. iOS 26 does not label that process
+  # as UIKitApplication:<bundle> in `launchctl list`, so the pid is the check.
+  if [[ -n "${pid}" ]] && xcrun simctl spawn "${udid}" kill -0 "${pid}" >/dev/null 2>&1; then
+    return 0
+  fi
+  if xcrun simctl spawn "${udid}" launchctl list 2>/dev/null | grep -q "${bundle_id}"; then
+    return 0
+  fi
+  if xcrun simctl spawn "${udid}" ps -ax 2>/dev/null | grep -q "${bundle_id}"; then
+    return 0
+  fi
+  return 1
 }

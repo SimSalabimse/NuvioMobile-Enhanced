@@ -168,19 +168,62 @@ stop_log_stream() {
   fi
 }
 trap stop_log_stream EXIT
-# Start before the seeded launch. The warm-up launch may already have logged ready,
-# so a later `log show --last` is not proof of this launch.
-xcrun simctl spawn "${SIMULATOR_UDID}" log stream --style compact --level info \
-  --predicate 'composedMessage CONTAINS "[Nuvio]"' >> "${STREAM_LOG}" 2>&1 &
+# A pty makes `log stream` line-buffer. A redirected file stays empty until the
+# process exits, which hid "[Nuvio] app ready true" on the first macOS run.
+python3 - "${SIMULATOR_UDID}" "${STREAM_LOG}" <<'PY' &
+import os
+import pty
+import select
+import signal
+import subprocess
+import sys
+udid, dest = sys.argv[1], sys.argv[2]
+cmd = [
+    "xcrun", "simctl", "spawn", udid, "log", "stream",
+    "--style", "compact", "--level", "info",
+    "--predicate", 'composedMessage CONTAINS "[Nuvio]"',
+]
+master, slave = pty.openpty()
+proc = subprocess.Popen(cmd, stdout=slave, stderr=slave, stdin=subprocess.DEVNULL)
+os.close(slave)
+
+def stop(_signum, _frame):
+    if proc.poll() is None:
+        proc.terminate()
+    raise SystemExit(0)
+
+signal.signal(signal.SIGTERM, stop)
+with open(dest, "w", encoding="utf-8") as out:
+    while True:
+        ready_fds, _, _ = select.select([master], [], [], 0.5)
+        if ready_fds:
+            try:
+                chunk = os.read(master, 8192)
+            except OSError:
+                break
+            if not chunk:
+                break
+            out.write(chunk.decode("utf-8", "replace"))
+            out.flush()
+        elif proc.poll() is not None:
+            break
+PY
 STREAM_PID=$!
 
 READY_START="$(date '+%Y-%m-%d %H:%M:%S')"
 LAUNCH_LINE="$(xcrun simctl launch "${SIMULATOR_UDID}" "${BUNDLE_ID}")"
 echo "smoke: ${LAUNCH_LINE}"
+APP_PID="${LAUNCH_LINE##* }"
+APP_PID="${APP_PID//[^0-9]/}"
 sleep "${LAUNCH_WAIT_SECONDS}"
 
-if ! simulator_app_alive "${SIMULATOR_UDID}" "${BUNDLE_ID}"; then
-  echo "smoke: process not alive after ${LAUNCH_WAIT_SECONDS}s" >&2
+if ! simulator_app_alive "${SIMULATOR_UDID}" "${BUNDLE_ID}" "${APP_PID}"; then
+  sleep 3
+fi
+if ! simulator_app_alive "${SIMULATOR_UDID}" "${BUNDLE_ID}" "${APP_PID}"; then
+  xcrun simctl io "${SIMULATOR_UDID}" screenshot "${RESULTS_DIR}/launch.png" >/dev/null 2>&1 || true
+  xcrun simctl spawn "${SIMULATOR_UDID}" launchctl list > "${RESULTS_DIR}/launchctl.txt" 2>&1 || true
+  echo "smoke: process not alive after ${LAUNCH_WAIT_SECONDS}s (pid ${APP_PID})" >&2
   exit 1
 fi
 
@@ -250,6 +293,7 @@ if [[ -n "${SESSION_FILE}" ]]; then
     printf 'BOOTED_BY_US=%q\n' "${BOOTED_BY_US}"
     printf 'BUNDLE_ID=%q\n' "${BUNDLE_ID}"
     printf 'APP_PATH=%q\n' "${APP_PATH}"
+    printf 'APP_PID=%q\n' "${APP_PID}"
     printf 'DERIVED_DATA=%q\n' "${DERIVED_DATA}"
   } > "${SESSION_FILE}"
   echo "smoke: session ${SESSION_FILE}"

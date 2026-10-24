@@ -37,7 +37,7 @@ if [[ "${installed_version}" != "${expected_version}" || "${installed_build}" !=
   exit 1
 fi
 
-if ! simulator_app_alive "${SIMULATOR_UDID}" "${BUNDLE_ID}"; then
+if ! simulator_app_alive "${SIMULATOR_UDID}" "${BUNDLE_ID}" "${APP_PID:-}"; then
   echo "doctor: ${BUNDLE_ID} is installed but not running" >&2
   exit 1
 fi
