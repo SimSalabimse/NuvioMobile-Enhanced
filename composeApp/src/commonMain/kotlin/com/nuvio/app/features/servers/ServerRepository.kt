@@ -41,6 +41,7 @@ object ServerRepository {
     val uiState: StateFlow<ServersUiState> = _uiState.asStateFlow()
 
     private val lock = SynchronizedObject()
+    private val ensureLock = SynchronizedObject()
 
     @Volatile
     private var loadedProfileId: Int? = null
@@ -55,11 +56,15 @@ object ServerRepository {
 
     fun ensureLoaded() {
         val profileId = ProfileRepository.activeProfileId
-        if (loadedProfileId != profileId) load(profileId)
+        synchronized(ensureLock) {
+            if (loadedProfileId != profileId) load(profileId)
+        }
     }
 
     fun onProfileChanged() {
-        load(ProfileRepository.activeProfileId)
+        synchronized(ensureLock) {
+            load(ProfileRepository.activeProfileId)
+        }
     }
 
     fun clearLocalState() {

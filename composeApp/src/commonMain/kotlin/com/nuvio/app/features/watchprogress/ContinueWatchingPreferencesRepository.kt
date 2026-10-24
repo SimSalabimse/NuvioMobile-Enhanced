@@ -1,5 +1,7 @@
 package com.nuvio.app.features.watchprogress
 
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -42,19 +44,26 @@ object ContinueWatchingPreferencesRepository {
     val uiState: StateFlow<ContinueWatchingPreferencesUiState> = _uiState.asStateFlow()
 
     private var hasLoaded = false
+    private val loadLock = SynchronizedObject()
 
     fun ensureLoaded() {
-        if (hasLoaded) return
-        loadFromDisk()
+        synchronized(loadLock) {
+            if (hasLoaded) return
+            loadFromDisk()
+        }
     }
 
     fun onProfileChanged() {
-        loadFromDisk()
+        synchronized(loadLock) {
+            loadFromDisk()
+        }
     }
 
     fun clearLocalState() {
-        hasLoaded = false
-        _uiState.value = ContinueWatchingPreferencesUiState()
+        synchronized(loadLock) {
+            hasLoaded = false
+            _uiState.value = ContinueWatchingPreferencesUiState()
+        }
     }
 
     internal fun applyFromSync(

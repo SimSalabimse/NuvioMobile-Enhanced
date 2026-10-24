@@ -68,7 +68,9 @@ object HomeRepository {
     private var deferredRefreshForce: Boolean = false
 
     fun preloadSnapshot() {
+        if (preloadedSnapshot != null || restoreGeneration != 0) return
         val profileKey = HomeSnapshotStore.currentProfileKey() ?: return
+        if (preloadedSnapshot != null || restoreGeneration != 0) return
         preloadedSnapshot = HomeSnapshotStore.load(profileKey)
     }
 

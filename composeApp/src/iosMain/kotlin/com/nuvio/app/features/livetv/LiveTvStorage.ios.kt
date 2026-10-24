@@ -1,8 +1,12 @@
 package com.nuvio.app.features.livetv
 
 import com.nuvio.app.core.storage.ProfileScopedKey
+import kotlinx.cinterop.ExperimentalForeignApi
 import platform.Foundation.NSNotificationCenter
+import platform.Foundation.NSThread
 import platform.Foundation.NSUserDefaults
+import platform.darwin.dispatch_async
+import platform.darwin.dispatch_get_main_queue
 
 actual object LiveTvStorage {
     private const val playlistUrlKey = "playlist_url"
@@ -78,12 +82,16 @@ actual object LiveTvStorage {
         NSUserDefaults.standardUserDefaults.setObject(listOf(settings.serverUrl, settings.username, settings.password, settings.isEnabled).joinToString("\u001F"), forKey = ProfileScopedKey.of(xtreamSettingsKey))
     }
 
+    @OptIn(ExperimentalForeignApi::class)
     actual fun publishNavigationVisibility(visible: Boolean) {
-        NSUserDefaults.standardUserDefaults.setBool(visible, forKey = nativeNavigationVisibleKey)
-        NSNotificationCenter.defaultCenter.postNotificationName(
-            nativeNavigationDidChangeNotification,
-            null,
-        )
+        val publish = {
+            NSUserDefaults.standardUserDefaults.setBool(visible, forKey = nativeNavigationVisibleKey)
+            NSNotificationCenter.defaultCenter.postNotificationName(
+                nativeNavigationDidChangeNotification,
+                null,
+            )
+        }
+        if (NSThread.isMainThread) publish() else dispatch_async(dispatch_get_main_queue(), publish)
     }
 
     actual fun loadEpgSourcesBlob(): String? =

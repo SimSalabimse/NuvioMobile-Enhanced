@@ -33,7 +33,9 @@ import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.features.home.HomeRepository
 import com.nuvio.app.core.perf.PerformanceOptimization
 import com.nuvio.app.core.perf.PerformanceSettings
+import com.nuvio.app.core.startup.StartupPreloader
 import com.nuvio.app.core.sync.SyncManager
+import com.nuvio.app.isIos
 import com.nuvio.app.core.ui.NativeProfileSwitcherController
 import com.nuvio.app.core.ui.NativeTabBridge
 import com.nuvio.app.core.ui.NuvioTokens
@@ -136,6 +138,12 @@ internal fun AppGate(
         ProfileRepository.loadCachedProfiles()
         if (PerformanceSettings.isEnabled(PerformanceOptimization.CachedHomeFirst)) {
             withContext(Dispatchers.Default) { HomeRepository.preloadSnapshotForLaunch() }
+        }
+        if (isIos) {
+            // Android waits on this behind the splash. On iOS the intro is already up and the
+            // saved home snapshot is in memory, so the same preload runs without holding the
+            // first frame or the cached-home read.
+            launch { StartupPreloader.awaitReady() }
         }
         if (!parallelStartup) AvatarRepository.fetchAvatars()
     }

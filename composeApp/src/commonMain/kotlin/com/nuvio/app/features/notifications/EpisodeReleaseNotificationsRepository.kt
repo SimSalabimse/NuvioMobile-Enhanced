@@ -21,6 +21,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Semaphore
@@ -45,6 +47,7 @@ object EpisodeReleaseNotificationsRepository {
         encodeDefaults = true
     }
     private val refreshMutex = Mutex()
+    private val loadLock = SynchronizedObject()
 
     private val _uiState = MutableStateFlow(EpisodeReleaseNotificationsUiState())
     val uiState: StateFlow<EpisodeReleaseNotificationsUiState> = _uiState.asStateFlow()
@@ -87,21 +90,29 @@ object EpisodeReleaseNotificationsRepository {
     }
 
     fun ensureLoaded() {
-        if (hasLoaded) return
-        loadFromDisk()
-        scope.launch {
-            syncAuthorizationState(refreshIfEnabled = true)
+        val started = synchronized(loadLock) {
+            if (hasLoaded) return@synchronized false
+            loadFromDisk()
+            true
+        }
+        if (started) {
+            scope.launch {
+                syncAuthorizationState(refreshIfEnabled = true)
+            }
         }
     }
 
     fun onProfileChanged() {
-        loadFromDisk()
+        synchronized(loadLock) {
+            loadFromDisk()
+        }
         scope.launch {
             syncAuthorizationState(refreshIfEnabled = true)
         }
     }
 
     fun clearLocalState() {
+        synchronized(loadLock) {
         hasLoaded = false
         trackedShowsByKey = emptyMap()
         cachedRequestsByShowKey = emptyMap()
@@ -111,6 +122,7 @@ object EpisodeReleaseNotificationsRepository {
                 .onFailure { error ->
                     log.w { "Failed to clear scheduled episode release notifications: ${error.message}" }
                 }
+        }
         }
     }
 

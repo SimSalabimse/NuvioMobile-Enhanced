@@ -10,6 +10,8 @@ import com.nuvio.app.features.tracking.TrackingRefreshIntent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.SupervisorJob
@@ -58,6 +60,7 @@ object SimklAuthRepository : TrackingAuthProvider {
     )
 
     private var hasLoaded = false
+    private val loadLock = SynchronizedObject()
     private var storedState = SimklStoredAuthState()
     private var accessToken: String? = null
     private var authenticationMethod = SimklAuthenticationMethod.BROWSER_REDIRECT
@@ -68,12 +71,16 @@ object SimklAuthRepository : TrackingAuthProvider {
     }
 
     override fun ensureLoaded() {
-        if (hasLoaded) return
-        loadFromDisk()
+        synchronized(loadLock) {
+            if (hasLoaded) return
+            loadFromDisk()
+        }
     }
 
     override fun onProfileChanged() {
-        loadFromDisk()
+        synchronized(loadLock) {
+            loadFromDisk()
+        }
     }
 
     override fun clearLocalState() {
