@@ -24,7 +24,7 @@ What it does:
 1. Creates a gitignored `local.properties` stub when that file is missing, using the same public client URL the sideload workflow uses. It does not print secret values.
 2. Runs `scripts/prepare-ios-dependencies.sh`.
 3. Runs `scripts/release/smoke-ios-simulator.sh`, which:
-   - boots an iPhone simulator if none is booted (preferred name `iPhone 18 Pro`, otherwise the first available iPhone)
+   - boots an iPhone simulator if none is booted (preferred name `iPhone 17 Pro`, otherwise the first available iPhone)
    - builds Debug `iosApp` for that simulator into `build/ios-derived-full-simulator` with ad-hoc signing (`CODE_SIGN_IDENTITY=-`)
    - uninstalls and installs `com.nuvio.app`
    - launches once to create the data container, terminates, then runs `scripts/release/seed-simulator-prefs.sh`

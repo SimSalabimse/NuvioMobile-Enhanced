@@ -15,7 +15,7 @@ cd "${repository_root}"
 # shellcheck source=simulator-common.sh
 source "${repository_root}/scripts/release/simulator-common.sh"
 
-SIMULATOR_NAME="${SMOKE_SIMULATOR_NAME:-iPhone 18 Pro}"
+SIMULATOR_NAME="${SMOKE_SIMULATOR_NAME:-iPhone 17 Pro}"
 DERIVED_DATA="$(simulator_derived_data)"
 RESULTS_DIR="${SMOKE_RESULTS_DIR:-${repository_root}/build/smoke-results/latest}"
 LAUNCH_WAIT_SECONDS="${SMOKE_LAUNCH_WAIT_SECONDS:-8}"
@@ -39,7 +39,7 @@ export NUVIO_IOS_DISTRIBUTION="${NUVIO_IOS_DISTRIBUTION:-full}"
 export NUVIO_GRADLE_JVMARGS="${NUVIO_GRADLE_JVMARGS:--Xmx4608M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768M}"
 export NUVIO_KOTLIN_NATIVE_JVMARGS="${NUVIO_KOTLIN_NATIVE_JVMARGS:--Xmx4608M}"
 export KOTLIN_DAEMON_JVMARGS="${KOTLIN_DAEMON_JVMARGS:--Xmx2048M}"
-export ORG_GRADLE_PROJECT_kotlin.native.jvmArgs="${ORG_GRADLE_PROJECT_kotlin.native.jvmArgs:-${NUVIO_KOTLIN_NATIVE_JVMARGS}}"
+# The Gradle property name contains dots, which bash cannot assign. `env` can.
 
 pick_simulator() {
   if [[ -n "${SMOKE_SIMULATOR_UDID:-}" ]]; then
@@ -109,6 +109,7 @@ if [[ "${SKIP_BUILD}" != "1" ]]; then
   command -v caffeinate >/dev/null && caffeinate_cmd=(caffeinate -dims)
   "${caffeinate_cmd[@]+"${caffeinate_cmd[@]}"}" \
     env NUVIO_IOS_DISTRIBUTION="${NUVIO_IOS_DISTRIBUTION}" \
+      "ORG_GRADLE_PROJECT_kotlin.native.jvmArgs=${NUVIO_KOTLIN_NATIVE_JVMARGS}" \
     xcodebuild \
       -project iosApp/iosApp.xcodeproj \
       -scheme iosApp \
