@@ -184,7 +184,7 @@ cmd = [
     "--predicate", 'composedMessage CONTAINS "[Nuvio]"',
 ]
 master, slave = pty.openpty()
-proc = subprocess.Popen(cmd, stdout=slave, stderr=slave, stdin=subprocess.DEVNULL)
+proc = subprocess.Popen(cmd, stdout=slave, stderr=slave, stdin=subprocess.DEVNULL, start_new_session=True)
 os.close(slave)
 
 def stop(_signum, _frame):
@@ -235,8 +235,8 @@ READY_LOG="${RESULTS_DIR}/readiness.txt"
 ready=0
 deadline=$((SECONDS + READY_TIMEOUT_SECONDS))
 while (( SECONDS < deadline )); do
-  if grep -q '\[Nuvio\] app ready true' "${STREAM_LOG}"; then
-    grep '\[Nuvio\] app ready true' "${STREAM_LOG}" | tail -n 5 > "${RESULTS_DIR}/app-ready-lines.txt" || true
+  if grep -q 'Nuvio Enhanced\[.*app ready true' "${STREAM_LOG}"; then
+    grep 'Nuvio Enhanced\[.*app ready true' "${STREAM_LOG}" | tail -n 5 > "${RESULTS_DIR}/app-ready-lines.txt" || true
     ready=1
     break
   fi
@@ -256,7 +256,10 @@ except subprocess.TimeoutExpired as exc:
     output = exc.stdout or ""
     if isinstance(output, bytes):
         output = output.decode("utf-8", "replace")
-lines = [line for line in output.splitlines() if "[Nuvio] app ready true" in line]
+lines = [
+    line for line in output.splitlines()
+    if "Nuvio Enhanced[" in line and "[Nuvio] app ready true" in line and "composedMessage CONTAINS" not in line
+]
 open(dest, "w", encoding="utf-8").write("\n".join(lines[-5:]) + ("\n" if lines else ""))
 raise SystemExit(0 if lines else 1)
 PY
@@ -267,6 +270,20 @@ PY
   sleep 2
 done
 stop_log_stream
+if [[ "${ready}" == "1" ]]; then
+  # The ready line can arrive, then the process can exit before doctor runs.
+  alive_after_ready=0
+  for _ in 1 2 3 4 5; do
+    if simulator_app_alive "${SIMULATOR_UDID}" "${BUNDLE_ID}" "${APP_PID}"; then
+      alive_after_ready=1
+      break
+    fi
+    sleep 2
+  done
+  if [[ "${alive_after_ready}" != "1" ]]; then
+    ready=0
+  fi
+fi
 
 if [[ "${ready}" != "1" ]]; then
   {
@@ -282,6 +299,7 @@ fi
   echo "signal=[Nuvio] app ready true"
   echo "simulator=${SIMULATOR_UDID}"
   echo "bundle=${BUNDLE_ID}"
+  echo "pid=${APP_PID}"
   echo "booted_by_us=${BOOTED_BY_US}"
 } > "${READY_LOG}"
 echo "smoke: ready"

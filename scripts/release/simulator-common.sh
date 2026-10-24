@@ -45,7 +45,7 @@ simulator_app_alive() {
   if xcrun simctl spawn "${udid}" launchctl list 2>/dev/null | grep -q "${bundle_id}"; then
     return 0
   fi
-  if xcrun simctl spawn "${udid}" ps -ax 2>/dev/null | grep -q "${bundle_id}"; then
+  if xcrun simctl spawn "${udid}" ps -ax 2>/dev/null | grep -E -q "${bundle_id}|Nuvio Enhanced"; then
     return 0
   fi
   return 1
