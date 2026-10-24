@@ -23,6 +23,9 @@ class SwiftExportEntryPointsTest {
         assertTrue(lines.any { it == "property com.nuvio.app.navigation.AppRoute.preferredTabName" })
         assertTrue(lines.any { it == "function com.nuvio.app.navigation.AppRoute.<get-preferredTabName>" })
         assertTrue(lines.any { it == "function com.nuvio.app.navigation.SettingsDestinationRoute.<get-preferredTabName>" })
+        listOf("title", "subtitle", "hidesNavigationBar", "navigationIdentity", "preferredTabName").forEach { member ->
+            assertTrue(lines.any { it == "function com.nuvio.app.navigation.SettingsDestinationRoute.<get-$member>" })
+        }
         assertTrue(lines.any { it == "callable com.nuvio.app.navigation.HomescreenSettingsRoute.*" })
         assertTrue(lines.any { it == "callable com.nuvio.app.navigation.TabsRoute.*" })
         assertTrue(lines.any { it == "callable com.nuvio.app.navigation.PlayerRoute.*" })

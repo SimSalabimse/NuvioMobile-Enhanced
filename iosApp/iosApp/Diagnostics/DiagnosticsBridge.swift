@@ -9,24 +9,20 @@ import UIKit
     
     @objc public static func openDiagnosticsSettings() {
         DispatchQueue.main.async {
-            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-                  let rootViewController = windowScene.windows.first?.rootViewController else {
-                return
-            }
-            
-            let settingsView = DiagnosticsSettingsView()
-            let hostingController = UIHostingController(rootView: settingsView)
+            guard let presenter = topmostViewController() else { return }
+
+            let hostingController = UIHostingController(rootView: DiagnosticsSettingsView())
             hostingController.title = "Diagnostics"
-            
-            if let navigationController = findNavigationController(from: rootViewController) {
-                navigationController.pushViewController(hostingController, animated: true)
-            } else {
-                let navController = UINavigationController(rootViewController: hostingController)
-                rootViewController.present(navController, animated: true)
-            }
+            hostingController.navigationItem.rightBarButtonItem = UIBarButtonItem(
+                systemItem: .done,
+                primaryAction: UIAction { [weak hostingController] _ in
+                    hostingController?.dismiss(animated: true)
+                }
+            )
+            presenter.present(UINavigationController(rootViewController: hostingController), animated: true)
         }
     }
-    
+
     @objc public static func logColdLaunchTime(_ duration: Double) {
         DiagnosticsManager.shared.logColdLaunchTime(duration)
     }
@@ -43,21 +39,16 @@ import UIKit
         DiagnosticsManager.shared.logPlaybackStall(duration: duration)
     }
     
-    private static func findNavigationController(from viewController: UIViewController) -> UINavigationController? {
-        if let navController = viewController as? UINavigationController {
-            return navController
+    /// The screen the user is looking at. The app has one navigation stack per tab, so there is
+    /// no single navigation controller to push on; presenting from the top keeps it visible.
+    private static func topmostViewController() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+        let window = scene?.windows.first { $0.isKeyWindow } ?? scene?.windows.first
+        var top = window?.rootViewController
+        while let presented = top?.presentedViewController, !presented.isBeingDismissed {
+            top = presented
         }
-        
-        if let presented = viewController.presentedViewController {
-            return findNavigationController(from: presented)
-        }
-        
-        for child in viewController.children {
-            if let navController = findNavigationController(from: child) {
-                return navController
-            }
-        }
-        
-        return nil
+        return top
     }
 }

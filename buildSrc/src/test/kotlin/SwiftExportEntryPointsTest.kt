@@ -162,6 +162,65 @@ class SwiftExportEntryPointsTest {
     }
 
     @Test
+    fun subInterfacesExposeTheMembersTheyInherit() {
+        val source = """
+            package demo
+            interface Route {
+                val title: String?
+                    get() = null
+                val hidesBar: Boolean
+                    get() = false
+                fun open()
+            }
+            interface SettingsRoute : Route {
+                val tab: String
+                    get() = "Settings"
+            }
+            class AccountRoute : SettingsRoute
+        """.trimIndent()
+        val parsed = parseSource(source, "src/commonMain/kotlin/Demo.kt")
+        val lines = SwiftExportEntryPoints.entryPointLines(SwiftExportEntryPoints.select(parsed, setOf("Route")))
+        listOf("title", "hidesBar").forEach { name ->
+            assertTrue("property demo.SettingsRoute.$name" in lines)
+            assertTrue("function demo.SettingsRoute.<get-$name>" in lines)
+        }
+        assertTrue("function demo.SettingsRoute.open" in lines)
+        assertTrue("function demo.SettingsRoute.<get-tab>" in lines)
+        assertFalse("function demo.Route.<get-tab>" in lines)
+    }
+
+    @Test
+    fun everyAppRouteInterfaceExposesEveryAppRouteMember() {
+        val text = SwiftExportEntryPoints.generate(
+            listOf(
+                java.io.File("../composeApp/src/commonMain/kotlin"),
+                java.io.File("../composeApp/src/iosMain/kotlin"),
+                java.io.File("../composeApp/src/iosFull/kotlin"),
+                java.io.File("../composeApp/src/iosAppStore/kotlin"),
+            ),
+            listOf(java.io.File("../iosApp")),
+        )
+        val lines = text.lines().toSet()
+        val routes = parseFile(java.io.File("../composeApp/src/commonMain/kotlin/com/nuvio/app/navigation/Routes.kt"))
+            .filterIsInstance<TypeDecl>()
+        val subInterfaces = routes.filter { it.isInterface && "AppRoute" in it.supertypes }
+        assertTrue(subInterfaces.isNotEmpty())
+        assertTrue(
+            "update SwiftExportEntryPoints.appRouteSubInterfaceSimpleNames",
+            subInterfaces.map { it.simpleName }.toSet() == SwiftExportEntryPoints.appRouteSubInterfaceSimpleNames.toSet(),
+        )
+        val missing = subInterfaces.flatMap { type ->
+            SwiftExportEntryPoints.appRouteMemberNames.flatMap { member ->
+                listOf(
+                    "property ${type.fqName}.$member",
+                    "function ${type.fqName}.<get-$member>",
+                )
+            }
+        }.filter { it !in lines }
+        assertTrue("sub-interface members missing from the allowlist: $missing", missing.isEmpty())
+    }
+
+    @Test
     fun realAllowlistExportsPlansWithoutProtocolEquals() {
         val text = SwiftExportEntryPoints.generate(
             listOf(
