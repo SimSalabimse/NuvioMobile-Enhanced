@@ -79,7 +79,7 @@ Proven command for the Diagnostics intro (toggle default on, turn off, turn on, 
 That script runs:
 
 ```bash
-xcodebuild test \
+OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED=YES xcodebuild test \
   -project iosApp/iosApp.xcodeproj \
   -scheme VerifyNuvioIOS \
   -configuration Debug \

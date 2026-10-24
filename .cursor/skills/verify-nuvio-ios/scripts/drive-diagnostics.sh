@@ -26,6 +26,7 @@ done < <(simulator_xcode_overrides)
 cd "${verify_root}"
 set +e
 env NUVIO_IOS_DISTRIBUTION="${NUVIO_IOS_DISTRIBUTION:-full}" \
+  OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED=YES \
   xcodebuild test \
     -project iosApp/iosApp.xcodeproj \
     -scheme VerifyNuvioIOS \
