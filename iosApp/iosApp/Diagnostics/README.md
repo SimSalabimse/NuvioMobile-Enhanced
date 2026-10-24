@@ -53,14 +53,7 @@ The Diagnostics feature is iOS-only and kept in our own files (not upstream-shar
 
 1. **Intro Sheet**: Automatically shown via `ContentView.swift` - already wired up
 2. **Settings Navigation**: The Diagnostics row appears in Settings > Advanced section on iOS only
-3. **Navigation Wiring**: The actual navigation to DiagnosticsSettingsView needs to be wired in the iOS native layer, not through Compose navigation, to keep it iOS-specific
-
-To complete the navigation wiring, you can:
-- Option A: Add a custom iOS-specific route handler in the native navigation layer
-- Option B: Present DiagnosticsSettingsView modally when the row is tapped (implement in Swift)
-- Option C: Add it to an iOS-specific settings bundle
-
-The placeholder is in place in `IosDiagnosticsSettings.ios.kt` - the onClick handler should be implemented to call `DiagnosticsBridge.openDiagnosticsSettings()` through native iOS navigation.
+3. **Navigation Wiring**: The Settings row calls `DiagnosticsBridge.openDiagnosticsSettings()` (through the `NuvioDiagnosticsOpenSettings` C wrapper), which presents `DiagnosticsSettingsView` modally from the top-most view controller. The app keeps one SwiftUI navigation stack per tab, so the bridge must not look for "the" navigation controller to push on: the first one in the hierarchy belongs to the Home tab, and a push there stays hidden until the user switches tabs.
 
 ## What Gets Logged
 

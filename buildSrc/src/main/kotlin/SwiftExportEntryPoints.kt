@@ -62,17 +62,31 @@ object SwiftExportEntryPoints {
         "PlayerRoute",
     )
 
+    /** The members `AppRoute` declares; Swift reads each of them through the `AppRoute` protocol. */
+    val appRouteMemberNames = listOf(
+        "preferredTabName",
+        "navigationIdentity",
+        "hidesNavigationBar",
+        "title",
+        "subtitle",
+    )
+
+    /**
+     * Route interfaces that extend `AppRoute`. Kotlin/Native only treats a member as an override of
+     * the `AppRoute` one when the intermediate interface's copy of it is exposed too. A copy left
+     * out of the allowlist makes every class below that interface declare its own base `title`,
+     * `subtitle`, `hidesNavigationBar` and `navigationIdentity` instead of implementing the
+     * `AppRoute` protocol's, so every member has to be listed on each of them.
+     */
+    val appRouteSubInterfaceSimpleNames = listOf("SettingsDestinationRoute")
+
     val navigationRouteEntryPoints =
-        listOf(
-            "preferredTabName",
-            "navigationIdentity",
-            "hidesNavigationBar",
-            "title",
-            "subtitle",
-        ).flatMap { interfaceProperty("com.nuvio.app.navigation.AppRoute", it, mutable = false) } +
-            interfaceProperty("com.nuvio.app.navigation.SettingsDestinationRoute", "preferredTabName", mutable = false) +
+        appRouteMemberNames.flatMap { interfaceProperty("com.nuvio.app.navigation.AppRoute", it, mutable = false) } +
+            appRouteSubInterfaceSimpleNames.flatMap { owner ->
+                appRouteMemberNames.flatMap { interfaceProperty("com.nuvio.app.navigation.$owner", it, mutable = false) }
+            } +
             navigationRouteSimpleNames
-                .filter { it != "AppRoute" && it != "SettingsDestinationRoute" }
+                .filter { it != "AppRoute" && it !in appRouteSubInterfaceSimpleNames }
                 .map { "callable com.nuvio.app.navigation.$it.*" }
 
     /** Any.equals / hashCode / toString must not be listed on a protocol Swift implements. */
@@ -173,9 +187,16 @@ object SwiftExportEntryPoints {
 
     internal fun entryPointLines(included: List<Decl>): List<String> {
         val lines = linkedSetOf<String>()
+        val interfaces = included.filterIsInstance<TypeDecl>().filter { it.isInterface }
+        fun inheritedMembers(type: TypeDecl, seen: MutableSet<String> = mutableSetOf()): List<MemberDecl> =
+            type.supertypes.mapNotNull { name -> interfaces.firstOrNull { it.simpleName == name } }
+                .filter { seen.add(it.fqName) }
+                .flatMap { parent -> parent.members + inheritedMembers(parent, seen) }
         included.filterIsInstance<TypeDecl>().forEach { type ->
             if (type.isInterface) {
-                type.members.filter { it.exported && it.simpleName !in anyMethodNames }.forEach { member ->
+                // An interface that re-inherits a member is only seen by Kotlin/Native as overriding
+                // the parent's when its own copy is exposed as well (see appRouteSubInterfaceSimpleNames).
+                (type.members + inheritedMembers(type)).filter { it.exported && it.simpleName !in anyMethodNames }.forEach { member ->
                     if (member.isProperty) {
                         lines += interfaceProperty(type.fqName, member.simpleName, member.isMutable)
                     } else {

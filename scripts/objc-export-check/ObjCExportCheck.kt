@@ -98,8 +98,10 @@ fun main(args: Array<String>) {
     }
 
     val problems = mutableListOf<String>()
-    val header = export(module, allowlist, File(outDir, "ComposeApp.h"), problems)
-    val unfiltered = export(module, everything, File(outDir, "ComposeApp-unfiltered.h"), mutableListOf())
+    val filteredBases = mutableMapOf<String, MutableSet<BaseMethod>>()
+    val unfilteredBases = mutableMapOf<String, MutableSet<BaseMethod>>()
+    val header = export(module, allowlist, File(outDir, "ComposeApp.h"), problems, filteredBases)
+    val unfiltered = export(module, everything, File(outDir, "ComposeApp-unfiltered.h"), mutableListOf(), unfilteredBases)
     val swiftText = swiftRoot.walkTopDown().filter { it.isFile && it.extension == "swift" }.joinToString("\n") { it.readText() }
     val swiftIdentifiers = Regex("[A-Za-z_][A-Za-z0-9_]*").findAll(swiftText).map { it.value }.toSet()
 
@@ -120,10 +122,30 @@ fun main(args: Array<String>) {
         if (missing.isNotEmpty()) problems += "Swift names $name but the header drops $missing"
     }
 
+    // A class member that implements an exported interface's member in the full export must not turn
+    // into a base method of the class in the trimmed one: Swift reads it through the protocol, and
+    // the class would then carry a second, differently bridged copy of it.
+    for ((className, bases) in filteredBases) {
+        val full = unfilteredBases[className] ?: continue
+        val fromInterface = full.filter { it.ownerIsInterface && it.accessorName in header[it.owner]?.members.orEmpty() }
+            .map { it.name }.toSet()
+        val redeclared = bases.filter { !it.ownerIsInterface && it.name in fromInterface && it.name !in anyMemberNames }
+        if (redeclared.isNotEmpty()) {
+            problems += "$className declares ${redeclared.map { it.name }.sorted()} itself in the trimmed export " +
+                "but implements them from an interface in the full one; list them on the intermediate interface"
+        }
+    }
+
     Disposer.dispose(disposable)
     problems.forEach { println("FAIL $it") }
     println("ObjC export check: ${header.size} types, ${problems.size} problems")
     if (problems.isNotEmpty()) exitProcess(2)
+}
+
+private val anyMemberNames = setOf("equals", "hashCode", "toString")
+
+private data class BaseMethod(val name: String, val owner: String, val ownerIsInterface: Boolean) {
+    val accessorName: String get() = name.removePrefix("<get-").removeSuffix(">")
 }
 
 private class HeaderType(val protocol: Boolean) {
@@ -136,6 +158,7 @@ private fun export(
     entryPoints: ObjCEntryPoints,
     headerFile: File,
     problems: MutableList<String>,
+    classBases: MutableMap<String, MutableSet<BaseMethod>>,
 ): Map<String, HeaderType> {
     val mapper = ObjCExportMapper(
         local = false,
@@ -197,9 +220,15 @@ private fun export(
     exported.categoryMembers.forEach { (cls, members) -> bridgeAll(cls.name.asString(), members) }
     exported.generatedClasses.forEach { descriptor ->
         val owner = descriptor.name.asString()
-        descriptor.contributedMethods.filter { mapper.shouldBeExposed(it) }
+        val bases = descriptor.contributedMethods.filter { mapper.shouldBeExposed(it) }
             .flatMap { mapper.getBaseMethods(it) }.distinct()
-            .forEach { bridge(owner, it) }
+        bases.forEach { bridge(owner, it) }
+        if (descriptor.kind != ClassKind.INTERFACE) {
+            classBases.getOrPut(owner) { mutableSetOf() } += bases.map { base ->
+                val baseOwner = base.containingDeclaration as? org.jetbrains.kotlin.descriptors.ClassDescriptor
+                BaseMethod(base.name.asString(), baseOwner?.name?.asString().orEmpty(), baseOwner?.kind == ClassKind.INTERFACE)
+            }
+        }
         if (descriptor.kind != ClassKind.INTERFACE) {
             descriptor.constructors.filter { mapper.shouldBeExposed(it) }.forEach { bridge(owner, it) }
         }
