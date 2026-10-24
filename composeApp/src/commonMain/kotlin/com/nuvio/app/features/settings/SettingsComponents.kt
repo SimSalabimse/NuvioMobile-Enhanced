@@ -39,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -276,6 +277,7 @@ internal fun SettingsNavigationRow(
     enabled: Boolean = true,
     isTablet: Boolean,
     trailingContent: (@Composable RowScope.() -> Unit)? = null,
+    accessibilityIdentifier: String? = null,
     onClick: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
@@ -286,6 +288,13 @@ internal fun SettingsNavigationRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .then(
+                if (accessibilityIdentifier != null) {
+                    Modifier.testTag(accessibilityIdentifier)
+                } else {
+                    Modifier
+                },
+            )
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = horizontalPadding, vertical = verticalPadding)
             .alpha(if (enabled) NuvioTokens.Opacity.visible else tokens.opacity.medium),

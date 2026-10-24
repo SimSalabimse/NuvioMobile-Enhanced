@@ -10,6 +10,7 @@ struct DiagnosticsSettingsView: View {
             Section {
                 Toggle("Save diagnostics log", isOn: $viewModel.isEnabled)
                     .tint(.accentColor)
+                    .accessibilityIdentifier("diagnostics.settings.saveToggle")
                 
                 Text("Stays on this phone. Nothing is uploaded.")
                     .font(.caption)
@@ -31,6 +32,7 @@ struct DiagnosticsSettingsView: View {
                         Label("Export log", systemImage: "square.and.arrow.up")
                     }
                     .disabled(!viewModel.hasLog)
+                    .accessibilityIdentifier("diagnostics.settings.export")
                     
                     Button(role: .destructive) {
                         viewModel.showingClearConfirmation = true
@@ -38,6 +40,7 @@ struct DiagnosticsSettingsView: View {
                         Label("Clear log", systemImage: "trash")
                     }
                     .disabled(!viewModel.hasLog)
+                    .accessibilityIdentifier("diagnostics.settings.clear")
                 }
                 
                 Section {

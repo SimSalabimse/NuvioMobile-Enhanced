@@ -19,6 +19,13 @@
 			remoteGlobalIDString = 0A1B2C3D4E5F60718293A4B8;
 			remoteInfo = DownloadsWidgetExtension;
 		};
+		A11Y0000000000000000000A /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = E819B502921EC7C68AC4965A /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = E1B229BC363ABB711AF255E3;
+			remoteInfo = iosApp;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -38,6 +45,7 @@
 /* Begin PBXFileReference section */
 		07921B4E8F8546BEE682C2FE /* Nuvio.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Nuvio.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0A1B2C3D4E5F60718293A4B5 /* DownloadsWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = DownloadsWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A11Y00000000000000000002 /* VerifyUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VerifyUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -79,6 +87,11 @@
 			path = iosApp;
 			sourceTree = "<group>";
 		};
+		A11Y00000000000000000001 /* VerifyUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = VerifyUITests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -97,6 +110,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A11Y00000000000000000005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -105,6 +125,7 @@
 			children = (
 				69649F6DF5D3AF53A24CA9C3 /* Configuration */,
 				A2F97F59D21EB4D4B662C8D1 /* iosApp */,
+				A11Y00000000000000000001 /* VerifyUITests */,
 				0A1B2C3D4E5F60718293A4B6 /* DownloadsWidgetExtension */,
 				AD93033A33973C81BB77B73A /* Products */,
 			);
@@ -115,6 +136,7 @@
 			children = (
 				07921B4E8F8546BEE682C2FE /* Nuvio.app */,
 				0A1B2C3D4E5F60718293A4B5 /* DownloadsWidgetExtension.appex */,
+				A11Y00000000000000000002 /* VerifyUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -170,6 +192,29 @@
 			productReference = 07921B4E8F8546BEE682C2FE /* Nuvio.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A11Y00000000000000000003 /* VerifyUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A11Y00000000000000000007 /* Build configuration list for PBXNativeTarget "VerifyUITests" */;
+			buildPhases = (
+				A11Y00000000000000000004 /* Sources */,
+				A11Y00000000000000000005 /* Frameworks */,
+				A11Y00000000000000000006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A11Y0000000000000000000B /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A11Y00000000000000000001 /* VerifyUITests */,
+			);
+			name = VerifyUITests;
+			packageProductDependencies = (
+			);
+			productName = VerifyUITests;
+			productReference = A11Y00000000000000000002 /* VerifyUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -182,6 +227,10 @@
 				TargetAttributes = {
 					0A1B2C3D4E5F60718293A4B8 = {
 						CreatedOnToolsVersion = 16.2;
+					};
+					A11Y00000000000000000003 = {
+						CreatedOnToolsVersion = 16.2;
+						TestTargetID = E1B229BC363ABB711AF255E3;
 					};
 					E1B229BC363ABB711AF255E3 = {
 						CreatedOnToolsVersion = 16.2;
@@ -207,6 +256,7 @@
 			targets = (
 				0A1B2C3D4E5F60718293A4B8 /* DownloadsWidgetExtension */,
 				E1B229BC363ABB711AF255E3 /* iosApp */,
+				A11Y00000000000000000003 /* VerifyUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -220,6 +270,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		2DAFDB313E32F227766A2072 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A11Y00000000000000000006 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -265,6 +322,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A11Y00000000000000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -272,6 +336,11 @@
 			isa = PBXTargetDependency;
 			target = 0A1B2C3D4E5F60718293A4B8 /* DownloadsWidgetExtension */;
 			targetProxy = 0A1B2C3D4E5F60718293A4C1 /* PBXContainerItemProxy */;
+		};
+		A11Y0000000000000000000B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = E1B229BC363ABB711AF255E3 /* iosApp */;
+			targetProxy = A11Y0000000000000000000A /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -543,6 +612,52 @@
 			};
 			name = Debug;
 		};
+		A11Y00000000000000000008 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				CODE_SIGNING_REQUIRED = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nuvio.app.VerifyUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = iosApp;
+			};
+			name = Debug;
+		};
+		A11Y00000000000000000009 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				CODE_SIGNING_REQUIRED = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.nuvio.app.VerifyUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = iosApp;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -569,6 +684,15 @@
 			buildConfigurations = (
 				4322E267F98B668D798FAEEE /* Debug */,
 				3BEA88C53B91734AEB44313E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A11Y00000000000000000007 /* Build configuration list for PBXNativeTarget "VerifyUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A11Y00000000000000000008 /* Debug */,
+				A11Y00000000000000000009 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
