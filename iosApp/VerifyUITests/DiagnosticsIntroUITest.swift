@@ -9,7 +9,7 @@ final class DiagnosticsIntroUITest: XCTestCase {
 
     override func tearDownWithError() throws {
         if let app {
-            try? Evidence.write(app.debugDescription, to: "diagnostics-intro-hierarchy.txt")
+            captureText(app.debugDescription, name: "diagnostics-intro-hierarchy.txt")
         }
         app = nil
     }
@@ -17,23 +17,20 @@ final class DiagnosticsIntroUITest: XCTestCase {
     func testIntroSheetToggleDefaultsOnAndDismisses() throws {
         let app = XCUIApplication()
         self.app = app
-        // Install creates the container. Reseed while the process is stopped so the
-        // one-time sheet is allowed to show over a launched home shell.
-        app.launch()
-        Thread.sleep(forTimeInterval: 3)
-        app.terminate()
-        try seedContainer()
+        // Preferences were seeded on the Mac before this test. The runner executes
+        // on the simulator, so it cannot reseed or write the evidence directory.
+        // Screenshots go out as attachments and the host exports them.
         app.launch()
 
         let title = try wait(app.staticTexts["diagnostics.intro.title"], else: app.staticTexts["Diagnostics log"], timeout: 45)
         let toggle = try wait(app.switches["diagnostics.intro.saveToggle"], else: app.switches["Save diagnostics log"], timeout: 10)
         XCTAssertTrue(title.exists)
-        try Evidence.screenshot(app, name: "diagnostics-intro-default-on.png")
+        capture(app, name: "diagnostics-intro-default-on.png")
         XCTAssertEqual(try toggleState(toggle), "1", "Save diagnostics log should default on\n\(app.debugDescription)")
 
         toggle.tap()
         XCTAssertEqual(try waitState(toggle, expected: "0"), "0", app.debugDescription)
-        try Evidence.screenshot(app, name: "diagnostics-intro-toggled-off.png")
+        capture(app, name: "diagnostics-intro-toggled-off.png")
 
         toggle.tap()
         XCTAssertEqual(try waitState(toggle, expected: "1"), "1", app.debugDescription)
@@ -41,27 +38,25 @@ final class DiagnosticsIntroUITest: XCTestCase {
         let done = try wait(app.buttons["diagnostics.intro.done"], else: app.buttons["Done"], timeout: 10)
         done.tap()
         XCTAssertTrue(done.waitForNonExistence(timeout: 15), "Diagnostics sheet stayed up\n\(app.debugDescription)")
-        try Evidence.screenshot(app, name: "diagnostics-intro-dismissed.png")
+        capture(app, name: "diagnostics-intro-dismissed.png")
 
         let shell = shellVisible(app, timeout: 25)
         XCTAssertTrue(shell, "Tab bar was not up after dismissing Diagnostics\n\(app.debugDescription)")
-        try Evidence.write(app.debugDescription, to: "diagnostics-intro-hierarchy.txt")
+        captureText(app.debugDescription, name: "diagnostics-intro-hierarchy.txt")
     }
 
-    private func seedContainer() throws {
-        let udid = try Evidence.pointer("udid")
-        let seed = try Evidence.pointer("seed-script")
-        let appPath = try Evidence.pointer("app-path")
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: seed)
-        process.arguments = [udid, appPath]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        try process.run()
-        process.waitUntilExit()
-        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        XCTAssertEqual(process.terminationStatus, 0, "seed failed\n\(output)")
+    private func capture(_ app: XCUIApplication, name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    private func captureText(_ text: String, name: String) {
+        let attachment = XCTAttachment(string: text)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     private func wait(_ primary: XCUIElement, else fallback: XCUIElement, timeout: TimeInterval) throws -> XCUIElement {
@@ -119,39 +114,4 @@ final class DiagnosticsIntroUITest: XCTestCase {
         }
         return latest
     }
-}
-
-private enum Evidence {
-    static func directory() -> URL {
-        let path = (try? pointer("evidence-path")) ?? "/tmp/verify-nuvio-ios-evidence"
-        let url = URL(fileURLWithPath: path, isDirectory: true)
-        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
-
-    static func pointer(_ name: String) throws -> String {
-        let url = URL(fileURLWithPath: "/tmp/verify-nuvio-ios-\(name)")
-        let text = try String(contentsOf: url, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if text.isEmpty {
-            throw EvidenceError.emptyPointer(name)
-        }
-        return text
-    }
-
-    static func screenshot(_ app: XCUIApplication, name: String) throws {
-        let data = app.screenshot().pngRepresentation
-        if data.isEmpty {
-            throw EvidenceError.emptyPointer(name)
-        }
-        try data.write(to: directory().appendingPathComponent(name))
-    }
-
-    static func write(_ text: String, to name: String) throws {
-        try text.write(to: directory().appendingPathComponent(name), atomically: true, encoding: .utf8)
-    }
-}
-
-private enum EvidenceError: Error {
-    case emptyPointer(String)
 }

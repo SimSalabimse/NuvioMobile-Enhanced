@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Drive the one-time Diagnostics intro sheet on the simulator launch.sh started.
-# XCUITest relaunches the app, reseeds preferences, toggles Save diagnostics log,
-# taps Done, and writes screenshots into the evidence directory.
+# Reseeds while the app is stopped, then XCUITest toggles Save diagnostics log
+# and taps Done. The test runs in the simulator, so screenshots come back as
+# XCTest attachments and this script copies them into the evidence directory.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"
@@ -13,10 +14,11 @@ source "${verify_root}/scripts/release/simulator-common.sh"
 verify_load_session
 mkdir -p "${VERIFY_EVIDENCE_DIR}"
 
-printf '%s' "${VERIFY_EVIDENCE_DIR}" > /tmp/verify-nuvio-ios-evidence-path
-printf '%s' "${SIMULATOR_UDID}" > /tmp/verify-nuvio-ios-udid
-printf '%s' "${verify_root}/scripts/release/seed-simulator-prefs.sh" > /tmp/verify-nuvio-ios-seed-script
-printf '%s' "${APP_PATH}" > /tmp/verify-nuvio-ios-app-path
+# Keep the container. A fresh relaunch shows the intro again because Done has
+# not stored NuvioDiagnosticsIntroSeen yet, and the seed keeps the profile gate down.
+xcrun simctl terminate "${SIMULATOR_UDID}" "${BUNDLE_ID}" >/dev/null 2>&1 || true
+sleep 1
+"${verify_root}/scripts/release/seed-simulator-prefs.sh" "${SIMULATOR_UDID}" "${APP_PATH}"
 
 SIGNING=()
 while IFS= read -r signing_flag; do
@@ -24,6 +26,8 @@ while IFS= read -r signing_flag; do
 done < <(simulator_xcode_overrides)
 
 cd "${verify_root}"
+XCRESULT="${VERIFY_EVIDENCE_DIR}/VerifyNuvioIOS.xcresult"
+rm -rf "${XCRESULT}"
 set +e
 env NUVIO_IOS_DISTRIBUTION="${NUVIO_IOS_DISTRIBUTION:-full}" \
   OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED=YES \
@@ -33,19 +37,42 @@ env NUVIO_IOS_DISTRIBUTION="${NUVIO_IOS_DISTRIBUTION:-full}" \
     -configuration Debug \
     -destination "id=${SIMULATOR_UDID}" \
     -derivedDataPath "${DERIVED_DATA}" \
+    -resultBundlePath "${XCRESULT}" \
     -only-testing:VerifyUITests/DiagnosticsIntroUITest/testIntroSheetToggleDefaultsOnAndDismisses \
     "${SIGNING[@]}" \
     > "${VERIFY_EVIDENCE_DIR}/xcuitest.log" 2>&1
 TEST_RC=$?
 set -e
-tail -n 200 "${VERIFY_EVIDENCE_DIR}/xcuitest.log" > "${VERIFY_EVIDENCE_DIR}/xcuitest-tail.log" || true
+tail -n 80 "${VERIFY_EVIDENCE_DIR}/xcuitest.log" > "${VERIFY_EVIDENCE_DIR}/xcuitest-tail.log" || true
+grep -E 'error:|TEST FAILED|\*\* TEST' "${VERIFY_EVIDENCE_DIR}/xcuitest.log" | tail -n 40 > "${VERIFY_EVIDENCE_DIR}/xcuitest-errors.log" || true
 verify_scrub_text "${VERIFY_EVIDENCE_DIR}/xcuitest.log"
 verify_scrub_text "${VERIFY_EVIDENCE_DIR}/xcuitest-tail.log"
+verify_scrub_text "${VERIFY_EVIDENCE_DIR}/xcuitest-errors.log"
 
-if [[ -d /tmp/verify-nuvio-ios-evidence ]]; then
-  cp -n /tmp/verify-nuvio-ios-evidence/. "${VERIFY_EVIDENCE_DIR}/" 2>/dev/null || \
-    cp -n /tmp/verify-nuvio-ios-evidence/* "${VERIFY_EVIDENCE_DIR}/" 2>/dev/null || true
-fi
+export_test_attachments() {
+  local xcresult="$1"
+  [[ -d "${xcresult}" ]] || return 0
+  local out="${VERIFY_EVIDENCE_DIR}/attachments"
+  rm -rf "${out}"
+  mkdir -p "${out}"
+  if ! xcrun xcresulttool export attachments --path "${xcresult}" --output-path "${out}" \
+      > "${VERIFY_EVIDENCE_DIR}/xcresult-export.log" 2>&1; then
+    xcrun xcresulttool export --path "${xcresult}" --output-path "${out}" --type directory \
+      >> "${VERIFY_EVIDENCE_DIR}/xcresult-export.log" 2>&1 || true
+  fi
+  find "${out}" -type f -print > "${VERIFY_EVIDENCE_DIR}/attachment-names.txt" || true
+  local file base
+  while IFS= read -r file; do
+    base="$(basename "${file}")"
+    case "${base}" in
+      *diagnostics-intro-default-on*) cp "${file}" "${VERIFY_EVIDENCE_DIR}/diagnostics-intro-default-on.png" ;;
+      *diagnostics-intro-toggled-off*) cp "${file}" "${VERIFY_EVIDENCE_DIR}/diagnostics-intro-toggled-off.png" ;;
+      *diagnostics-intro-dismissed*) cp "${file}" "${VERIFY_EVIDENCE_DIR}/diagnostics-intro-dismissed.png" ;;
+      *diagnostics-intro-hierarchy*) cp "${file}" "${VERIFY_EVIDENCE_DIR}/diagnostics-intro-hierarchy.txt" ;;
+    esac
+  done < <(find "${out}" -type f -print)
+}
+export_test_attachments "${XCRESULT}"
 
 # Flush UserDefaults, then read the side effect. `defaults read` sees the
 # simulator preference daemon; the container plist is the fallback.

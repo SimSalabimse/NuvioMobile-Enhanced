@@ -90,7 +90,7 @@ OVERRIDE_KOTLIN_BUILD_IDE_SUPPORTED=YES xcodebuild test \
   CODE_SIGNING_ALLOWED=YES DEVELOPMENT_TEAM= ONLY_ACTIVE_ARCH=YES ARCHS=arm64
 ```
 
-The test relaunches the app, calls `scripts/release/seed-simulator-prefs.sh` while the process is stopped, and drives the sheet. Do not point this at an internal setter or a test-only URL.
+`drive-diagnostics.sh` terminates the app, reseeds preferences, and runs that test. The test relaunches and drives the sheet. It runs inside the simulator, so the screenshots are XCTest attachments. The script exports them into the evidence directory. Do not point this at an internal setter or a test-only URL.
 
 Other features are mapped under `features/`. Their taps use the same identifiers and labels. Playback cannot be driven here without a real stream. See that feature's Gotchas.
 
