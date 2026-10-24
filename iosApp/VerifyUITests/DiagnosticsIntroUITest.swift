@@ -25,15 +25,18 @@ final class DiagnosticsIntroUITest: XCTestCase {
         let title = try wait(app.staticTexts["diagnostics.intro.title"], else: app.staticTexts["Diagnostics log"], timeout: 45)
         let toggle = try wait(app.switches["diagnostics.intro.saveToggle"], else: app.switches["Save diagnostics log"], timeout: 10)
         XCTAssertTrue(title.exists)
+        let knob = switchControl(toggle)
         capture(app, name: "diagnostics-intro-default-on.png")
-        XCTAssertEqual(try toggleState(toggle), "1", "Save diagnostics log should default on\n\(app.debugDescription)")
+        XCTAssertEqual(try toggleState(knob), "1", "Save diagnostics log should default on\n\(app.debugDescription)")
 
-        toggle.tap()
-        XCTAssertEqual(try waitState(toggle, expected: "0"), "0", app.debugDescription)
+        // The identifier sits on a container whose center is the label. The switch
+        // that changes is the nested control on the trailing edge.
+        knob.tap()
         capture(app, name: "diagnostics-intro-toggled-off.png")
+        XCTAssertEqual(try waitState(knob, expected: "0"), "0", app.debugDescription)
 
-        toggle.tap()
-        XCTAssertEqual(try waitState(toggle, expected: "1"), "1", app.debugDescription)
+        knob.tap()
+        XCTAssertEqual(try waitState(knob, expected: "1"), "1", app.debugDescription)
 
         let done = try wait(app.buttons["diagnostics.intro.done"], else: app.buttons["Done"], timeout: 10)
         done.tap()
@@ -43,6 +46,14 @@ final class DiagnosticsIntroUITest: XCTestCase {
         let shell = shellVisible(app, timeout: 25)
         XCTAssertTrue(shell, "Tab bar was not up after dismissing Diagnostics\n\(app.debugDescription)")
         captureText(app.debugDescription, name: "diagnostics-intro-hierarchy.txt")
+    }
+
+    private func switchControl(_ toggle: XCUIElement) -> XCUIElement {
+        let nested = toggle.switches.element(boundBy: 0)
+        if nested.waitForExistence(timeout: 2) {
+            return nested
+        }
+        return toggle
     }
 
     private func capture(_ app: XCUIApplication, name: String) {

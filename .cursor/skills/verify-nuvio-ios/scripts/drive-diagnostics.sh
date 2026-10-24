@@ -61,16 +61,31 @@ export_test_attachments() {
       >> "${VERIFY_EVIDENCE_DIR}/xcresult-export.log" 2>&1 || true
   fi
   find "${out}" -type f -print > "${VERIFY_EVIDENCE_DIR}/attachment-names.txt" || true
-  local file base
-  while IFS= read -r file; do
-    base="$(basename "${file}")"
-    case "${base}" in
-      *diagnostics-intro-default-on*) cp "${file}" "${VERIFY_EVIDENCE_DIR}/diagnostics-intro-default-on.png" ;;
-      *diagnostics-intro-toggled-off*) cp "${file}" "${VERIFY_EVIDENCE_DIR}/diagnostics-intro-toggled-off.png" ;;
-      *diagnostics-intro-dismissed*) cp "${file}" "${VERIFY_EVIDENCE_DIR}/diagnostics-intro-dismissed.png" ;;
-      *diagnostics-intro-hierarchy*) cp "${file}" "${VERIFY_EVIDENCE_DIR}/diagnostics-intro-hierarchy.txt" ;;
-    esac
-  done < <(find "${out}" -type f -print)
+  python3 - "${out}" "${VERIFY_EVIDENCE_DIR}" <<'PY' || true
+import json
+import shutil
+import sys
+from pathlib import Path
+out, evidence = Path(sys.argv[1]), Path(sys.argv[2])
+manifest = json.loads((out / "manifest.json").read_text())
+wanted = {
+    "diagnostics-intro-default-on": evidence / "diagnostics-intro-default-on.png",
+    "diagnostics-intro-toggled-off": evidence / "diagnostics-intro-toggled-off.png",
+    "diagnostics-intro-dismissed": evidence / "diagnostics-intro-dismissed.png",
+    "diagnostics-intro-hierarchy": evidence / "diagnostics-intro-hierarchy.txt",
+}
+for group in manifest:
+    for item in group.get("attachments", []):
+        name = item.get("suggestedHumanReadableName", "")
+        src = out / item.get("exportedFileName", "")
+        for stem, dest in wanted.items():
+            if name.startswith(stem) and src.is_file():
+                shutil.copyfile(src, dest)
+                print(f"copied {name} -> {dest.name}")
+PY
+  if [[ -f "${out}/manifest.json" ]]; then
+    rm -rf "${xcresult}"
+  fi
 }
 export_test_attachments "${XCRESULT}"
 
