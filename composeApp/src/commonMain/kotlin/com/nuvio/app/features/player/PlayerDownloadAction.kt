@@ -7,6 +7,7 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.PauseCircleOutline
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -117,6 +118,29 @@ private fun PlayerScreenRuntime.startPlayerDownload() {
     NuvioToastController.show(DownloadEnqueueService.enqueue(target, stream).toastMessage())
 }
 
+internal sealed interface PlayerDownloadIndicator {
+    data class Progress(val percent: Int) : PlayerDownloadIndicator
+    /** Bytes are arriving but the size is unknown. */
+    data object Spinner : PlayerDownloadIndicator
+    /** Waiting for a slot (the playback throttle holds it back): nothing is moving, so nothing spins. */
+    data object Waiting : PlayerDownloadIndicator
+    data object NotDownloaded : PlayerDownloadIndicator
+    data object Done : PlayerDownloadIndicator
+    data object Paused : PlayerDownloadIndicator
+    data object Failed : PlayerDownloadIndicator
+}
+
+internal fun playerDownloadIndicator(row: DownloadItem?): PlayerDownloadIndicator = when (row?.status) {
+    null -> PlayerDownloadIndicator.NotDownloaded
+    DownloadStatus.Completed -> PlayerDownloadIndicator.Done
+    DownloadStatus.Paused -> PlayerDownloadIndicator.Paused
+    DownloadStatus.Failed -> PlayerDownloadIndicator.Failed
+    DownloadStatus.Queued -> PlayerDownloadIndicator.Waiting
+    DownloadStatus.Downloading -> row.totalBytes?.takeIf { it > 0L }
+        ?.let { PlayerDownloadIndicator.Progress(((row.downloadedBytes * 100) / it).toInt().coerceIn(0, 100)) }
+        ?: PlayerDownloadIndicator.Spinner
+}
+
 @Composable
 private fun PlayerDownloadButton(
     row: DownloadItem?,
@@ -124,41 +148,40 @@ private fun PlayerDownloadButton(
     iconSize: Dp,
     onClick: () -> Unit,
 ) {
-    val percent = row?.totalBytes?.takeIf { it > 0L }?.let { ((row.downloadedBytes * 100) / it).toInt().coerceIn(0, 100) }
-    val description = when (row?.status) {
-        null -> "Download"
-        DownloadStatus.Completed -> "Downloaded"
-        DownloadStatus.Downloading -> if (percent != null) "Downloading $percent%" else "Downloading"
-        DownloadStatus.Queued -> "Download queued"
-        DownloadStatus.Paused -> "Download paused"
-        DownloadStatus.Failed -> "Download failed"
+    val indicator = playerDownloadIndicator(row)
+    val description = when (indicator) {
+        PlayerDownloadIndicator.NotDownloaded -> "Download"
+        PlayerDownloadIndicator.Done -> "Downloaded"
+        is PlayerDownloadIndicator.Progress -> "Downloading ${indicator.percent}%"
+        PlayerDownloadIndicator.Spinner -> "Downloading"
+        PlayerDownloadIndicator.Waiting -> "Download queued"
+        PlayerDownloadIndicator.Paused -> "Download paused"
+        PlayerDownloadIndicator.Failed -> "Download failed"
     }
     IconButton(onClick = onClick, modifier = Modifier.size(buttonSize)) {
-        when (row?.status) {
-            DownloadStatus.Downloading, DownloadStatus.Queued -> Box(contentAlignment = Alignment.Center) {
-                if (percent != null && row.status == DownloadStatus.Downloading) {
-                    CircularProgressIndicator(
-                        progress = { percent / 100f },
-                        modifier = Modifier.size(iconSize + 4.dp),
-                        color = Color.White,
-                        trackColor = Color.White.copy(alpha = 0.25f),
-                        strokeWidth = 2.dp,
-                    )
-                    Text("$percent", color = Color.White, fontSize = 9.sp, maxLines = 1)
-                } else {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(iconSize + 4.dp),
-                        color = Color.White,
-                        trackColor = Color.White.copy(alpha = 0.25f),
-                        strokeWidth = 2.dp,
-                    )
-                }
+        when (indicator) {
+            is PlayerDownloadIndicator.Progress -> Box(contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(
+                    progress = { indicator.percent / 100f },
+                    modifier = Modifier.size(iconSize + 4.dp),
+                    color = Color.White,
+                    trackColor = Color.White.copy(alpha = 0.25f),
+                    strokeWidth = 2.dp,
+                )
+                Text("${indicator.percent}", color = Color.White, fontSize = 9.sp, maxLines = 1)
             }
+            PlayerDownloadIndicator.Spinner -> CircularProgressIndicator(
+                modifier = Modifier.size(iconSize + 4.dp),
+                color = Color.White,
+                trackColor = Color.White.copy(alpha = 0.25f),
+                strokeWidth = 2.dp,
+            )
             else -> Icon(
-                imageVector = when (row?.status) {
-                    DownloadStatus.Completed -> Icons.Rounded.DownloadDone
-                    DownloadStatus.Paused -> Icons.Rounded.PauseCircleOutline
-                    DownloadStatus.Failed -> Icons.Rounded.ErrorOutline
+                imageVector = when (indicator) {
+                    PlayerDownloadIndicator.Done -> Icons.Rounded.DownloadDone
+                    PlayerDownloadIndicator.Paused -> Icons.Rounded.PauseCircleOutline
+                    PlayerDownloadIndicator.Failed -> Icons.Rounded.ErrorOutline
+                    PlayerDownloadIndicator.Waiting -> Icons.Rounded.Schedule
                     else -> Icons.Rounded.Download
                 },
                 contentDescription = description,
