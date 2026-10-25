@@ -372,7 +372,8 @@ internal object SmartDownloads {
     /**
      * The episode on screen is near its end (credits or last minutes, see PlaybackEndRules).
      * A goal counts from the next episode on. The final episode does not move the anchor or drop
-     * the goal here: that waits until playback has really ended.
+     * the goal here: that waits until playback has really ended. Later ticks recheck that goal.
+     * The following episode is requested only the first time this episode hits the window.
      */
     fun onNearEnd(
         entry: WatchProgressEntry,
@@ -394,9 +395,16 @@ internal object SmartDownloads {
                 firstTime = firstTime,
             )
         }
-        if (!isEnabled()) return
-        val hasDownloadsOfShow = DownloadsRepository.uiState.value.items.any { it.parentMetaId == entry.parentMetaId }
-        if (!hasDownloadsOfShow) return
+        val enabled = isEnabled()
+        if (!shouldEnqueueNearEndDownload(
+                firstTime = firstTime,
+                smartDownloadsEnabled = enabled,
+                hasDownloadsOfShow = firstTime && enabled &&
+                    DownloadsRepository.uiState.value.items.any { it.parentMetaId == entry.parentMetaId },
+            )
+        ) {
+            return
+        }
         add(SmartDownloadRequest(entry.parentMetaId, entry.parentMetaType, season, episode))
     }
 
@@ -607,7 +615,7 @@ internal object SmartDownloads {
         val markedCompleted: Boolean,
     )
 
-    /** Resume row for [video], preferring one that is still in progress over a stale completed flag. */
+    /** Resume row for [video]. The newest row wins, even when an older partial row is still around. */
     private fun lastEpisodeResume(metaId: String, video: MetaVideo): LastEpisodeResume? {
         val playbackId = buildPlaybackVideoId(
             parentMetaId = metaId,
@@ -630,15 +638,20 @@ internal object SmartDownloads {
                 entry.episodeNumber == video.episode
         }
         val entries = (lookedUp + listed).distinctBy { it.resolvedProgressKey() }
-        if (entries.isEmpty()) return null
-        val chosen = entries
-            .filter { resumeStillInProgress(it.lastPositionMs, it.durationMs, it.isEffectivelyCompleted) }
-            .maxByOrNull { it.lastUpdatedEpochMs }
-            ?: entries.maxBy { it.lastUpdatedEpochMs }
+        val chosen = chooseLastEpisodeResume(
+            entries.map { entry ->
+                EpisodeResumeSample(
+                    positionMs = entry.lastPositionMs,
+                    durationMs = entry.durationMs,
+                    markedCompleted = entry.isEffectivelyCompleted,
+                    lastUpdatedEpochMs = entry.lastUpdatedEpochMs,
+                )
+            },
+        ) ?: return null
         return LastEpisodeResume(
-            positionMs = chosen.lastPositionMs,
+            positionMs = chosen.positionMs,
             durationMs = chosen.durationMs,
-            markedCompleted = chosen.isEffectivelyCompleted,
+            markedCompleted = chosen.markedCompleted,
         )
     }
 

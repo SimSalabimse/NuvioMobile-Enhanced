@@ -133,4 +133,76 @@ class FinishSeriesGoalDecisionTest {
         )
         assertEquals(FinishSeriesGoalAction.AdvanceAnchor, endedMidSeries.action)
     }
+
+    @Test
+    fun nearEndEnqueuesTheDownloadRequestOnlyOnce() {
+        val handledVideoIds = mutableSetOf<String>()
+        val added = mutableListOf<String>()
+        var goalRechecks = 0
+        repeat(2) {
+            val firstTime = handledVideoIds.add("show:1:10")
+            // The goal path runs on every tick. Only the request is gated.
+            goalRechecks += 1
+            if (shouldEnqueueNearEndDownload(
+                    firstTime = firstTime,
+                    smartDownloadsEnabled = true,
+                    hasDownloadsOfShow = true,
+                )
+            ) {
+                added += "show:1:10"
+            }
+        }
+        assertEquals(listOf("show:1:10"), added)
+        assertEquals(2, goalRechecks)
+        assertFalse(
+            shouldEnqueueNearEndDownload(
+                firstTime = true,
+                smartDownloadsEnabled = false,
+                hasDownloadsOfShow = true,
+            ),
+        )
+        assertFalse(
+            shouldEnqueueNearEndDownload(
+                firstTime = true,
+                smartDownloadsEnabled = true,
+                hasDownloadsOfShow = false,
+            ),
+        )
+    }
+
+    @Test
+    fun newestResumeRowWinsOverAnOlderPartial() {
+        val olderPartial = EpisodeResumeSample(
+            positionMs = eightMinutesLeft,
+            durationMs = durationMs,
+            markedCompleted = false,
+            lastUpdatedEpochMs = 1_000L,
+        )
+        val newerFinished = EpisodeResumeSample(
+            positionMs = durationMs,
+            durationMs = durationMs,
+            markedCompleted = true,
+            lastUpdatedEpochMs = 5_000L,
+        )
+        val finished = assertNotNull(chooseLastEpisodeResume(listOf(olderPartial, newerFinished)))
+        assertEquals(newerFinished.lastUpdatedEpochMs, finished.lastUpdatedEpochMs)
+        assertFalse(resumeStillInProgress(finished.positionMs, finished.durationMs, finished.markedCompleted))
+        val removed = decideFinishSeriesGoal(
+            regularEpisodeCount = lastIndex + 1,
+            playingEpisodeIndex = null,
+            nextEpisodeIndex = lastIndex + 1,
+            lastEpisodePositionMs = finished.positionMs,
+            lastEpisodeDurationMs = finished.durationMs,
+            lastEpisodeMarkedCompleted = finished.markedCompleted,
+            playbackReachedEnd = false,
+            playbackCompleted = false,
+        )
+        assertEquals(FinishSeriesGoalAction.RemoveAndToast, removed.action)
+
+        val stillWatching = assertNotNull(
+            chooseLastEpisodeResume(listOf(newerFinished, olderPartial.copy(lastUpdatedEpochMs = 9_000L))),
+        )
+        assertEquals(9_000L, stillWatching.lastUpdatedEpochMs)
+        assertTrue(resumeStillInProgress(stillWatching.positionMs, stillWatching.durationMs, stillWatching.markedCompleted))
+    }
 }

@@ -107,3 +107,27 @@ private fun remove(reason: String): FinishSeriesGoalDecision = FinishSeriesGoalD
     action = FinishSeriesGoalAction.RemoveAndToast,
     removalReason = reason,
 )
+
+/**
+ * One saved resume for the last episode. Several rows can exist when playback used a different
+ * video id. The newest write wins, including a completed row that is newer than a leftover partial.
+ */
+internal data class EpisodeResumeSample(
+    val positionMs: Long,
+    val durationMs: Long,
+    val markedCompleted: Boolean,
+    val lastUpdatedEpochMs: Long,
+)
+
+internal fun chooseLastEpisodeResume(samples: List<EpisodeResumeSample>): EpisodeResumeSample? =
+    samples.maxByOrNull { it.lastUpdatedEpochMs }
+
+/**
+ * The next-episode download is queued once per episode. Later near-end ticks do not enqueue again.
+ * A Finish-a-series goal is decided separately and can still be rechecked on those later ticks.
+ */
+internal fun shouldEnqueueNearEndDownload(
+    firstTime: Boolean,
+    smartDownloadsEnabled: Boolean,
+    hasDownloadsOfShow: Boolean,
+): Boolean = firstTime && smartDownloadsEnabled && hasDownloadsOfShow
