@@ -15,14 +15,11 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 internal object OmdbEpisodeRatingsService {
-    private const val MaxCachedSeasons = 400
-
     private val log = Logger.withTag("OmdbEpisodeRatings")
     private val json = Json { ignoreUnknownKeys = true }
     private val imdbIdRegex = Regex("tt\\d+")
 
-    private val seasonCache = LinkedHashMap<String, Map<Int, Double>>()
-    private var hasLoadedFromDisk = false
+    private val seasonCache = SeasonCache()
 
     val hasApiKey: Boolean
         get() = OmdbSettingsRepository.effectiveApiKey().isNotBlank()
@@ -82,18 +79,18 @@ internal object OmdbEpisodeRatingsService {
         }.toMap()
     }
 
-    private fun ensureLoadedFromDisk() {
-        if (hasLoadedFromDisk) return
-        hasLoadedFromDisk = true
-        val payload = OmdbEpisodeRatingsStorage.loadPayload()?.trim().orEmpty()
-        if (payload.isEmpty()) return
-        runCatching { json.decodeFromString<Map<String, Map<Int, Double>>>(payload) }
-            .onSuccess { seasonCache.putAll(it) }
-            .onFailure { error -> log.w { "Failed to load cached IMDb ratings: ${error.message}" } }
+    private suspend fun ensureLoadedFromDisk() {
+        seasonCache.loadOnce {
+            val payload = OmdbEpisodeRatingsStorage.loadPayload()?.trim().orEmpty()
+            if (payload.isEmpty()) return@loadOnce null
+            runCatching { json.decodeFromString<Map<String, Map<Int, Double>>>(payload) }
+                .onFailure { error -> log.w { "Failed to load cached IMDb ratings: ${error.message}" } }
+                .getOrNull()
+        }
     }
 
-    private fun persistToDisk() {
-        val payload = runCatching { json.encodeToString<Map<String, Map<Int, Double>>>(seasonCache) }
+    private fun persistToDisk(snapshot: Map<String, Map<Int, Double>>) {
+        val payload = runCatching { json.encodeToString<Map<String, Map<Int, Double>>>(snapshot) }
             .getOrNull() ?: return
         OmdbEpisodeRatingsStorage.savePayload(payload)
     }
@@ -104,7 +101,7 @@ internal object OmdbEpisodeRatingsService {
         apiKey: String,
     ): Map<Int, Double> {
         val cacheKey = "$imdbId:$season"
-        seasonCache[cacheKey]?.let { return it }
+        seasonCache.get(cacheKey)?.let { return it }
 
         val url = "https://www.omdbapi.com/?i=$imdbId&Season=$season&apikey=$apiKey"
         val response = runCatching {
@@ -128,12 +125,8 @@ internal object OmdbEpisodeRatingsService {
             .toMap()
 
         if (ratings.isNotEmpty()) {
-            seasonCache[cacheKey] = ratings
-            while (seasonCache.size > MaxCachedSeasons) {
-                val oldestKey = seasonCache.keys.firstOrNull() ?: break
-                seasonCache.remove(oldestKey)
-            }
-            persistToDisk()
+            val snapshot = seasonCache.put(cacheKey, ratings)
+            persistToDisk(snapshot)
         }
         return ratings
     }
