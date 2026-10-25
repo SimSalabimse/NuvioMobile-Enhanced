@@ -1,6 +1,7 @@
 package com.nuvio.app.core.startup
 
 import com.nuvio.app.core.logging.InAppLogger
+import com.nuvio.app.isIos
 import com.nuvio.app.core.perf.PerformanceMetrics
 import com.nuvio.app.core.perf.PerformanceOptimization
 import com.nuvio.app.core.perf.PerformanceSettings
@@ -18,6 +19,7 @@ import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepositor
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -73,7 +75,8 @@ object StartupPreloader {
         synchronized(startLock) {
             val existing = job
             if (existing != null && !existing.isCancelled) return
-            job = scope.async { runPreload() }
+            // iOS must stay off Main. Android still starts on Main and waits behind the splash.
+            job = scope.async(startupPreloadDispatcher(isIos)) { runPreload() }
         }
     }
 
@@ -90,12 +93,21 @@ object StartupPreloader {
         val started = TimeSource.Monotonic.markNow()
         val parallel = PerformanceSettings.isEnabled(PerformanceOptimization.ParallelStartup)
         step("profiles") { ProfileRepository.loadCachedProfiles() }
-        withContext(Dispatchers.IO) {
+        if (isIos) {
+            // start() already put this coroutine on IO. Do not hop back to Main.
             runStartupPreloadSteps(
                 parallel = parallel,
                 tracking = trackingLane.map { preload -> suspend { runStep(preload) } },
                 independent = independentSteps.map { preload -> suspend { runStep(preload) } },
             )
+        } else {
+            withContext(Dispatchers.IO) {
+                runStartupPreloadSteps(
+                    parallel = parallel,
+                    tracking = trackingLane.map { preload -> suspend { runStep(preload) } },
+                    independent = independentSteps.map { preload -> suspend { runStep(preload) } },
+                )
+            }
         }
         val elapsedMs = started.elapsedNow().inWholeMilliseconds
         PerformanceMetrics.recordStartupPreload(elapsedMs, parallel)
@@ -113,6 +125,29 @@ object StartupPreloader {
             InAppLogger.warn(LogTag, "$name failed: ${error::class.simpleName}: ${error.message}")
         }
     }
+}
+
+/**
+ * Dispatcher for [StartupPreloader.start]. Android stays on Main, matching the splash wait.
+ * iOS uses IO so profile and repo disk reads never occupy the main thread.
+ */
+internal fun startupPreloadDispatcher(isIosPlatform: Boolean): CoroutineDispatcher =
+    if (isIosPlatform) Dispatchers.IO else Dispatchers.Main
+
+/**
+ * iOS only. [launchReady] must already be true, which is after
+ * [com.nuvio.app.core.perf.PerformanceMetrics.recordLaunchReady].
+ * Starting earlier touches that object during the intro and the iOS launch clock
+ * (first touch of PerformanceMetrics; markProcessStart does not reset it) then
+ * includes the 1300 ms intro hold.
+ */
+internal fun startIosStartupPreloadAfterLaunchReady(
+    isIosPlatform: Boolean,
+    launchReady: Boolean,
+    start: () -> Unit,
+) {
+    if (!isIosPlatform || !launchReady) return
+    start()
 }
 
 /**

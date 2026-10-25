@@ -61,6 +61,8 @@ import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
+import com.nuvio.app.core.startup.StartupPreloader
+import com.nuvio.app.core.startup.startIosStartupPreloadAfterLaunchReady
 import com.nuvio.app.core.sync.AppForegroundMonitor
 import com.nuvio.app.core.sync.AppVisibility
 import com.nuvio.app.core.sync.ProfileSettingsSync
@@ -612,6 +614,15 @@ internal fun MainAppContent(
                 com.nuvio.app.core.perf.PerformanceMetrics.recordLaunchReady(
                     fromCachedHome = HomeRepository.isShowingSnapshot,
                 )
+                // After the launch sample. On iOS the launch clock is the first touch of
+                // PerformanceMetrics, and markProcessStart does not move it. Starting the
+                // preload any earlier (the intro) folds the 1300 ms intro hold into this number.
+                startIosStartupPreloadAfterLaunchReady(
+                    isIosPlatform = isIos,
+                    launchReady = true,
+                ) {
+                    StartupPreloader.start()
+                }
             }
         }
     }

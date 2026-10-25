@@ -1,11 +1,13 @@
 package com.nuvio.app.core.startup
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertSame
 import kotlin.time.Duration.Companion.milliseconds
 
 /**
@@ -37,5 +39,22 @@ class StartupPreloadSchedulingTest {
         assertEquals(450L, serialMs)
         // Tracking stays one lane (3 x 50). The independent steps overlap that lane.
         assertEquals(150L, parallelMs)
+    }
+
+    @Test
+    fun iosPreloadDoesNotStartBeforeLaunchReady() {
+        var starts = 0
+        startIosStartupPreloadAfterLaunchReady(isIosPlatform = true, launchReady = false) { starts++ }
+        startIosStartupPreloadAfterLaunchReady(isIosPlatform = false, launchReady = true) { starts++ }
+        assertEquals(0, starts)
+
+        startIosStartupPreloadAfterLaunchReady(isIosPlatform = true, launchReady = true) { starts++ }
+        assertEquals(1, starts)
+    }
+
+    @Test
+    fun iosPreloadRunsOffMainAndAndroidStaysOnMain() {
+        assertSame(Dispatchers.IO, startupPreloadDispatcher(isIosPlatform = true))
+        assertSame(Dispatchers.Main, startupPreloadDispatcher(isIosPlatform = false))
     }
 }
