@@ -1842,6 +1842,7 @@
         <item quantity="one">%1$d episode</item>
         <item quantity="other">%1$d episodes</item>
     </plurals>
+    <string name="downloads_speed_total">%1$s total</string>
     <string name="downloads_cancel_season_hint">Long-press an episode to cancel its whole season.</string>
     <string name="download_mark_waiting">Waiting to download</string>
     <string name="download_mark_paused">Paused</string>
