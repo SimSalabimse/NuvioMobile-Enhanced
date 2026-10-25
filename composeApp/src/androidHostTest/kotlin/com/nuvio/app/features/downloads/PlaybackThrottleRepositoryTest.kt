@@ -50,6 +50,7 @@ class PlaybackThrottleRepositoryTest {
 
     private val fake = FakeTransfers()
     private var clock = 1_000_000L
+    private var position = 0L
 
     @Before
     fun initialize() {
@@ -166,6 +167,79 @@ class PlaybackThrottleRepositoryTest {
         assertEquals(DownloadStatus.Downloading, moving.status)
     }
 
+    @Test
+    fun shortLoadingBlipsDuringSmoothPlaybackNeverLeavePlaying() {
+        startTwoDownloads()
+        PlaybackPriority.sessionStarted(isLocalFile = false)
+        snapshots(buffering = true, forMs = 3_000L)
+
+        repeat(120) {
+            snapshots(buffering = false, forMs = 4_500L)
+            snapshots(buffering = true, forMs = 500L)
+            assertEquals(PlaybackPriority.Level.Playing, PlaybackPriority.level)
+            assertEquals(1, fake.running.size)
+        }
+        assertEveryDownloadingRowTransfers()
+    }
+
+    @Test
+    fun realStallStrainsAndPlayingComesBackThirtySecondsAfterTheLastOne() {
+        startTwoDownloads()
+        PlaybackPriority.sessionStarted(isLocalFile = false)
+        snapshots(buffering = false, forMs = 60_000L)
+        val kept = fake.running.single()
+
+        snapshots(buffering = true, forMs = 2_000L)
+        assertEquals(PlaybackPriority.Level.Strained, PlaybackPriority.level)
+        assertTrue(fake.running.isEmpty())
+
+        snapshots(buffering = false, forMs = 20_000L)
+        snapshots(buffering = true, forMs = 2_000L)
+        repeat(5) {
+            snapshots(buffering = false, forMs = 5_000L)
+            snapshots(buffering = true, forMs = 500L)
+        }
+        snapshots(buffering = false, forMs = 2_000L)
+        assertEquals(PlaybackPriority.Level.Strained, PlaybackPriority.level, "29.5 s after the last real stall")
+
+        snapshots(buffering = false, forMs = 500L)
+        assertEquals(PlaybackPriority.Level.Playing, PlaybackPriority.level)
+        assertEquals(setOf(kept), fake.running, "the kept download is started again")
+        assertEquals(2, fake.starts[kept])
+        assertEveryDownloadingRowTransfers()
+    }
+
+    @Test
+    fun initialLoadSeeksAndReloadsDoNotStrain() {
+        startTwoDownloads()
+        PlaybackPriority.sessionStarted(isLocalFile = false)
+        snapshots(buffering = true, forMs = 6_000L)
+        assertEquals(PlaybackPriority.Level.Playing, PlaybackPriority.level, "first load before a frame")
+
+        snapshots(buffering = false, forMs = 60_000L)
+        position += 10 * 60_000L
+        snapshots(buffering = true, forMs = 5_000L)
+        assertEquals(PlaybackPriority.Level.Playing, PlaybackPriority.level, "seek forward")
+
+        snapshots(buffering = false, forMs = 10_000L)
+        position -= 5 * 60_000L
+        snapshots(buffering = true, forMs = 5_000L)
+        assertEquals(PlaybackPriority.Level.Playing, PlaybackPriority.level, "seek back")
+
+        snapshots(buffering = false, forMs = 10_000L)
+        val resumeAt = position
+        position = 0L
+        snapshots(buffering = true, forMs = 3_000L)
+        position = resumeAt
+        snapshots(buffering = true, forMs = 3_000L)
+        assertEquals(PlaybackPriority.Level.Playing, PlaybackPriority.level, "reload for a quality or audio switch")
+        assertEquals(1, fake.running.size)
+
+        snapshots(buffering = false, forMs = 10_000L)
+        snapshots(buffering = true, forMs = 2_000L)
+        assertEquals(PlaybackPriority.Level.Strained, PlaybackPriority.level, "a real stall still strains")
+    }
+
     private fun startTwoDownloads() {
         DownloadsRepository.replaceItems(listOf(episode("e1", 1), episode("e2", 2)))
         DownloadsRepository.resumeDownloads(listOf("e1", "e2"))
@@ -176,7 +250,8 @@ class PlaybackThrottleRepositoryTest {
         val end = clock + forMs
         while (clock < end) {
             clock += 250L
-            PlaybackPriority.noteSnapshot(wantsToPlay = true, buffering = buffering, nowMs = clock)
+            if (!buffering) position += 250L
+            PlaybackPriority.noteSnapshot(wantsToPlay = true, buffering = buffering, positionMs = position, nowMs = clock)
         }
     }
 
