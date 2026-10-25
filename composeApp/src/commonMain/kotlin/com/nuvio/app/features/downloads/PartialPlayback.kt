@@ -67,6 +67,8 @@ internal object PartialPlaybackLease : SynchronizedObject() {
     fun isHeld(downloadId: String): Boolean = synchronized(this) {
         (counts[downloadId] ?: 0) > 0
     }
+
+    fun heldIds(): Set<String> = synchronized(this) { counts.keys.toSet() }
 }
 
 internal fun loopbackPartialUrl(port: Int, downloadId: String): String {

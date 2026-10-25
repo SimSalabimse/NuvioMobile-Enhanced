@@ -26,6 +26,7 @@ object DownloadsRepository {
     private val _hasUnseenCompleted = MutableStateFlow(false)
     val hasUnseenCompleted: StateFlow<Boolean> = _hasUnseenCompleted.asStateFlow()
 
+    internal var transfers: DownloadTransfers = PlatformDownloadTransfers
     private val activeHandles = mutableMapOf<String, DownloadsTaskHandle>()
     private val partialPrefixCache = mutableMapOf<String, ByteArray>()
     private val startQueue = DownloadStartQueue(orderKeyOf = ::orderKeyOf)
@@ -865,7 +866,7 @@ object DownloadsRepository {
         startAttempts[item.id] = attempt
         fun staleAttempt() = startAttempts[item.id] != attempt
 
-        val handle = DownloadsPlatformDownloader.start(
+        val handle = transfers.start(
             request = request,
             onProgress = onProgress@{ downloadedBytes, totalBytes ->
                 val current = _uiState.value.items.firstOrNull { it.id == item.id } ?: return@onProgress
@@ -1057,7 +1058,8 @@ object DownloadsRepository {
     /**
      * How many downloads may run while the player is open (see [PlaybackPriority]): fewer while
      * playing, none while it buffers, the normal cap again when it closes. Extra transfers go back
-     * to the front of the line (paused, resumed in place later).
+     * to the front of the line (paused, resumed in place later). A download the player is reading
+     * from keeps going: pausing it would leave the player at the end of the bytes on disk.
      */
     fun setPlaybackDownloadCap(cap: Int) {
         if (startQueue.maxActive == cap) return
@@ -1065,7 +1067,7 @@ object DownloadsRepository {
         startQueue.maxActive = cap
         if (!hasLoaded) return
         if (shrinking) {
-            if (startQueue.shrinkTo(cap).isNotEmpty()) alignQueuedStatuses()
+            if (startQueue.shrinkTo(cap, PartialPlaybackLease.heldIds()).isNotEmpty()) alignQueuedStatuses()
         } else {
             applyStarts(startQueue.promote(DownloadThermalGate.blocksNextFile()))
         }
@@ -1120,7 +1122,7 @@ object DownloadsRepository {
         persistStatus()
         val demotedById = demoted.associateBy { it.id }
         activeHandles.stopDemotedTransfers(demoted.map { it.id }) { id ->
-            DownloadsPlatformDownloader.pauseRunningTransfer(demotedById.getValue(id))
+            transfers.pauseRunningTransfer(demotedById.getValue(id))
         }
         demoted.forEach { item ->
             DownloadsPlatformDownloader.updatePartialTarget(

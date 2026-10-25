@@ -105,6 +105,7 @@ internal object PlaybackPriority {
         if (level == next) return
         level = next
         setAnalysisThrottleLevel(if (analysisBoosted) 0 else next.analysisThrottle)
+        InAppLogger.info("PlaybackPriority", "level=$next downloads allowed=${downloadCap()}")
         reapplyDownloadCap()
         // Make sure queued analysis is running (throttled) rather than left waiting.
         if (next != Level.Strained) com.nuvio.app.features.analysis.MediaAnalysisScheduler.kick()
