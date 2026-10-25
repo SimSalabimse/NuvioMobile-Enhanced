@@ -89,11 +89,7 @@ object AddonRepository {
         )
 
         storedUrls.forEach { manifestUrl ->
-            val existing = existingByUrl[manifestUrl]
-            val addon = _uiState.value.addons.firstOrNull { it.manifestUrl == manifestUrl }
-            if (addon?.enabled == true && (existing == null || (addon.manifest == null && !addon.isRefreshing))) {
-                refreshAddon(manifestUrl)
-            }
+            launchRefreshIfNeeded(existingByUrl[manifestUrl], manifestUrl)
         }
     }
 
@@ -196,11 +192,7 @@ object AddonRepository {
                     )
                     persist()
                     localUrls.forEach { url ->
-                        val existing = existingByUrl[url]
-                        val addon = _uiState.value.addons.firstOrNull { it.manifestUrl == url }
-                        if (addon?.enabled == true && (existing == null || (addon.manifest == null && !addon.isRefreshing))) {
-                            refreshAddon(url)
-                        }
+                        launchRefreshIfNeeded(existingByUrl[url], url)
                     }
                     pulledFromServer = true
                     initialized = true
@@ -221,11 +213,7 @@ object AddonRepository {
             )
             persist()
             urls.forEach { url ->
-                val existing = existingByUrl[url]
-                val addon = _uiState.value.addons.firstOrNull { it.manifestUrl == url }
-                if (addon?.enabled == true && (existing == null || (addon.manifest == null && !addon.isRefreshing))) {
-                    refreshAddon(url)
-                }
+                launchRefreshIfNeeded(existingByUrl[url], url)
             }
             pulledFromServer = true
             initialized = true
@@ -411,7 +399,8 @@ object AddonRepository {
         var refreshJob: Job? = null
         refreshJob = scope.launch {
             try {
-                val result = runCatching {
+                val fallback = getString(Res.string.addon_load_manifest_failed)
+                val loaded = loadAddonWithRetry(failureMessage = { error -> error.message ?: fallback }) {
                     InAppLogger.info("Addons/Manifest", "GET ${InAppLogger.redactUrl(manifestUrl)} reason=refresh")
                     val payload = fetchAddonResponseText(
                         url = manifestUrl,
@@ -423,30 +412,27 @@ object AddonRepository {
                         payload = payload,
                     )
                 }
-
                 _uiState.update { current ->
                     current.copy(
                         addons = current.addons.map { addon ->
                             if (addon.manifestUrl != manifestUrl) {
                                 addon
-                            } else {
-                                result.fold(
-                                    onSuccess = { manifest ->
-                                        InAppLogger.info("Addons/Manifest", "refresh success name=${manifest.name} url=${InAppLogger.redactUrl(manifestUrl)}")
-                                        addon.copy(
-                                            manifest = manifest,
-                                            isRefreshing = false,
-                                            errorMessage = null,
-                                        )
-                                    },
-                                    onFailure = { error ->
-                                        InAppLogger.error("Addons/Manifest", "refresh failed url=${InAppLogger.redactUrl(manifestUrl)}: ${InAppLogger.throwableSummary(error)}")
-                                        addon.copy(
-                                            isRefreshing = false,
-                                            errorMessage = error.message ?: getString(Res.string.addon_load_manifest_failed),
-                                        )
-                                    },
-                                )
+                            } else when (loaded) {
+                                is AddonLoadResult.Loaded -> {
+                                    InAppLogger.info("Addons/Manifest", "refresh success name=${loaded.manifest.name} url=${InAppLogger.redactUrl(manifestUrl)}")
+                                    addon.copy(
+                                        manifest = loaded.manifest,
+                                        isRefreshing = false,
+                                        errorMessage = null,
+                                    )
+                                }
+                                is AddonLoadResult.Failed -> {
+                                    InAppLogger.error("Addons/Manifest", "refresh failed url=${InAppLogger.redactUrl(manifestUrl)}: ${InAppLogger.throwableSummary(loaded.cause)}")
+                                    addon.copy(
+                                        isRefreshing = false,
+                                        errorMessage = loaded.errorMessage,
+                                    )
+                                }
                             }
                         },
                     )
@@ -502,6 +488,14 @@ object AddonRepository {
             }
         }
         pushJobsByProfile[profileId] = pushJob
+    }
+
+    /** Fetch when the previous row was missing or never loaded, and no refresh is already running. */
+    private fun launchRefreshIfNeeded(existing: ManagedAddon?, manifestUrl: String) {
+        val addon = _uiState.value.addons.firstOrNull { it.manifestUrl == manifestUrl }
+        if (addon?.enabled != true) return
+        val jobActive = synchronized(activeRefreshJobsLock) { activeRefreshJobs[manifestUrl]?.isActive == true }
+        if (shouldLaunchAddonRefresh(existing, jobActive)) refreshAddon(manifestUrl)
     }
 
     private fun markRefreshing(manifestUrl: String) {
