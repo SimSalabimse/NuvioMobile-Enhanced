@@ -10,6 +10,8 @@ import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadSubtitles
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.isLoopbackPartialPlaybackUrl
+import com.nuvio.app.features.downloads.partialPlaybackCoversStart
 import com.nuvio.app.features.livetv.LiveTvChannel
 import com.nuvio.app.features.livetv.LiveTvRepository
 import com.nuvio.app.features.p2p.P2pSettingsRepository
@@ -541,10 +543,19 @@ internal fun PlayerScreenRuntime.switchToDownloadedEpisode(downloadItem: Downloa
         episodeNumber = episode.episode,
     )
         ?.takeIf { !it.isCompleted }
-    val epResumeFraction = epEntry?.progressPercent
+    val savedResumeFraction = epEntry?.progressPercent
         ?.takeIf { it > 0f }
         ?.let { (it / 100f).coerceIn(0f, 1f) }
-    val epResumePositionMs = epEntry?.lastPositionMs?.takeIf { it > 0L } ?: 0L
+    val savedResumePositionMs = epEntry?.lastPositionMs?.takeIf { it > 0L } ?: 0L
+    // An unfinished file is only opened at a point inside its bytes on disk, else from the start.
+    val resumeInsideFile = !isLoopbackPartialPlaybackUrl(localFileUri) || partialPlaybackCoversStart(
+        startPositionMs = savedResumePositionMs,
+        startFraction = savedResumeFraction,
+        playableBytes = DownloadsRepository.playableContiguousBytes(downloadItem.id),
+        totalBytes = downloadItem.totalBytes,
+    )
+    val epResumeFraction = savedResumeFraction.takeIf { resumeInsideFile }
+    val epResumePositionMs = if (resumeInsideFile) savedResumePositionMs else 0L
 
     externalSubtitles = DownloadSubtitles.localSubtitles(localFileUri)
     activeSourceUrl = localFileUri

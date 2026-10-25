@@ -243,6 +243,45 @@ internal fun partialPlaybackKeepsResume(
 private const val PARTIAL_RESUME_MARGIN_FRACTION = 0.03
 
 /**
+ * Whether an in-progress download can be opened at the requested start. A start that cannot be
+ * checked against the bytes on disk (no fraction, unknown size) does not count as inside them.
+ */
+internal fun partialPlaybackCoversStart(
+    startPositionMs: Long,
+    startFraction: Float?,
+    playableBytes: Long?,
+    totalBytes: Long?,
+): Boolean {
+    if (startPositionMs <= 0L && (startFraction ?: 0f) <= 0f) return true
+    return partialPlaybackKeepsResume(startFraction, playableBytes ?: 0L, totalBytes)
+}
+
+internal data class PartialPlayhead(val positionMs: Long, val isEnded: Boolean)
+
+/**
+ * What the player reports on an in-progress download's file, as watch progress may use it. The
+ * end of that file is the end of the bytes on disk, not of the episode, so it is never an end;
+ * and a position the player is not rendering (end of file, waiting, paused) is held to how far
+ * the download reaches, or to [lastPositionMs] at the end when that is unknown.
+ */
+internal fun partialFilePlayhead(
+    positionMs: Long,
+    isEnded: Boolean,
+    isPlaying: Boolean,
+    downloadFinished: Boolean,
+    reachMs: Long?,
+    lastPositionMs: Long,
+): PartialPlayhead {
+    if (downloadFinished) return PartialPlayhead(positionMs, isEnded)
+    val limit = when {
+        reachMs != null && (isEnded || !isPlaying) -> reachMs
+        isEnded -> lastPositionMs
+        else -> positionMs
+    }
+    return PartialPlayhead(minOf(positionMs, limit), isEnded = false)
+}
+
+/**
  * How far into the episode an in-progress download reaches, from the downloaded share of the file.
  * A constant-bitrate estimate; the player's own read-ahead stays the floor.
  */
