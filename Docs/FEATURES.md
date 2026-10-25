@@ -50,6 +50,7 @@ Built from the code at build 195 (0.6.2.1). Each line shows the feature, where i
 - **Finish a series downloads the rest** (only with Smart downloads off; on: every remaining episode, lowest first; off: the next one): Settings › Downloads. 193; scoped in 194.
 - Queue unaired episodes: Settings › Downloads. Upstream/0.5.10.x.
 - Pause downloads while watching: Settings › Downloads. 181.
+- Downloads throttled during playback (1 while playing, 0 while buffering or with Pause while watching) resume by themselves when the cap rises or the player closes, and new ones start; a Smart download whose debrid link fails is retried in 1 h with the reason shown instead of being dropped: automatic. Checked by PlaybackCapRestartTest and SmartDownloadRetryTest.
 - Keep free space (storage autopilot frees watched downloads): Settings › Downloads › Keep free space. 181.
 - Delete when finished (auto-delete watched downloads): Settings › Downloads. Upstream/enhanced.
 - Switch to the downloaded file while watching: Settings › Downloads. Enhanced.
