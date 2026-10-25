@@ -555,6 +555,11 @@ internal object SmartDownloads {
             }
             NuvioToastController.show(smartDownloadsQueuedMessage(result.queued, meta.name))
         }
+        smartDownloadRetryAfterEnqueue(result, fit.size, EpisodeReleaseDatePlatform.nowEpochMs()) { message ->
+            com.nuvio.app.core.logging.InAppLogger.warn("SmartDownloads", "${request.parentMetaId}: $message")
+            request.report(message)
+            NuvioToastController.show(message)
+        }?.let { return request.copy(notBeforeEpochMs = it) }
         // Kept pending while some episodes did not fit, so it runs again once space frees.
         return if (fit.size == missing.size && picked.size == missing.size) later else request
     }
@@ -607,6 +612,23 @@ internal object SmartDownloads {
 
 private const val HOUR_MS = 60 * 60_000L
 private const val DAY_MS = 24 * HOUR_MS
+
+/**
+ * When to try a Smart Downloads request again after [result] queued fewer than the [fitCount]
+ * files it was given (a debrid link that is not cached or failed to resolve), or null when all
+ * were queued. The request has to stay: the trigger fires once per episode and would not ask again.
+ */
+internal fun smartDownloadRetryAfterEnqueue(
+    result: SeasonEnqueueResult,
+    fitCount: Int,
+    nowMs: Long,
+    report: (String) -> Unit,
+): Long? {
+    if (result.queued >= fitCount) return null
+    val reason = result.failureMessage?.trim()?.trimEnd('.')?.takeIf { it.isNotBlank() } ?: "Couldn't queue the next episode"
+    report("$reason. Trying again in 1 h")
+    return nowMs + HOUR_MS
+}
 
 /** Below this much free space Smart Downloads don't even look for streams. */
 internal const val SMART_DOWNLOAD_MIN_FREE_BYTES = 1_000_000_000L
