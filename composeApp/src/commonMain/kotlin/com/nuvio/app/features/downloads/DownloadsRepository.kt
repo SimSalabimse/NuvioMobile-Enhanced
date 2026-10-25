@@ -1118,8 +1118,11 @@ object DownloadsRepository {
         if (!changed) return
         publish(updated)
         persistStatus()
+        val demotedById = demoted.associateBy { it.id }
+        activeHandles.stopDemotedTransfers(demoted.map { it.id }) { id ->
+            DownloadsPlatformDownloader.pauseRunningTransfer(demotedById.getValue(id))
+        }
         demoted.forEach { item ->
-            DownloadsPlatformDownloader.pauseRunningTransfer(item)
             DownloadsPlatformDownloader.updatePartialTarget(
                 downloadId = item.id,
                 fileName = item.fileName,
@@ -1132,18 +1135,10 @@ object DownloadsRepository {
     private fun applyStarts(startedIds: List<String>) {
         if (startedIds.isEmpty()) return
         val now = DownloadsClock.nowEpochMs()
-        val accepted = mutableListOf<String>()
-        val deferred = mutableListOf<String>()
-        startedIds.forEach { id ->
-            if (id !in activeHandles && activeHandles.size + accepted.size >= startQueue.maxActive) {
-                startQueue.demoteToFront(id)
-                deferred.add(id)
-            } else {
-                accepted.add(id)
-            }
-        }
-        val acceptedSet = accepted.toSet()
-        val deferredSet = deferred.toSet()
+        val plan = planDownloadStarts(startedIds, activeHandles.keys.toSet(), startQueue.maxActive)
+        plan.deferred.forEach(startQueue::demoteToFront)
+        val acceptedSet = plan.accepted.toSet()
+        val deferredSet = plan.deferred.toSet()
         var changed = false
         val updated = _uiState.value.items.map { item ->
             when {
@@ -1166,7 +1161,7 @@ object DownloadsRepository {
             publish(updated)
             persistStatus()
         }
-        accepted.forEach { id ->
+        plan.launch.forEach { id ->
             if (id in activeHandles) return@forEach
             val item = _uiState.value.items.firstOrNull { it.id == id } ?: return@forEach
             if (item.status != DownloadStatus.Downloading) return@forEach

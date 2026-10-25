@@ -55,6 +55,42 @@ internal class DownloadPersistGate(
     }
 }
 
+/**
+ * What to do with ids the start queue just let through. [accepted] are shown as downloading,
+ * [deferred] go back to the front of the line (no free transfer slot), [launch] need a new
+ * platform transfer: an accepted id that still holds a live handle keeps running as it is.
+ */
+internal data class DownloadStartPlan(
+    val accepted: List<String>,
+    val deferred: List<String>,
+    val launch: List<String>,
+)
+
+internal fun planDownloadStarts(
+    startedIds: List<String>,
+    liveIds: Set<String>,
+    maxActive: Int,
+): DownloadStartPlan {
+    val accepted = mutableListOf<String>()
+    val deferred = mutableListOf<String>()
+    startedIds.forEach { id ->
+        if (id !in liveIds && liveIds.size + accepted.size >= maxActive) deferred.add(id) else accepted.add(id)
+    }
+    return DownloadStartPlan(accepted, deferred, accepted.filter { it !in liveIds })
+}
+
+/**
+ * Stops transfers a lower cap pushed back into the line and forgets their handles. iOS sends no
+ * callback for a deliberate stop, so a handle left behind would make the id look live: a later
+ * promote would skip its restart and count it against the cap.
+ */
+internal fun <H> MutableMap<String, H>.stopDemotedTransfers(ids: List<String>, stop: (String) -> Unit) {
+    ids.forEach { id ->
+        remove(id)
+        stop(id)
+    }
+}
+
 /** Where an episode sits in its show, so waiting episodes of one show start lowest first. */
 internal data class DownloadOrderKey(
     val showKey: String,
