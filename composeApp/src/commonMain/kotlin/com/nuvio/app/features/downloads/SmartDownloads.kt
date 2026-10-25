@@ -3,6 +3,7 @@ package com.nuvio.app.features.downloads
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.enabledAddons
+import com.nuvio.app.features.analysis.MediaAnalysisStore
 import com.nuvio.app.features.analysis.MediaAnalyzerPlatform
 import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.details.MetaDetails
@@ -13,7 +14,14 @@ import com.nuvio.app.features.streams.BingeGroupCacheRepository
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.core.time.EpisodeReleaseDatePlatform
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
+import com.nuvio.app.features.watchprogress.WatchProgressRepository
+import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
+import com.nuvio.app.features.watchprogress.isWatchProgressComplete
+import com.nuvio.app.features.watchprogress.resolvedProgressKey
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -288,6 +296,19 @@ internal object SmartDownloads {
     val goalStatus: StateFlow<Map<String, String>> = _goalStatus.asStateFlow()
     /** Shows just pinned: their first outcome is also a toast. */
     private val announceGoals = mutableSetOf<String>()
+    /** Show id to the final episode (season, episode) that is on screen and not finished yet. */
+    private val finishingLastEpisode = mutableMapOf<String, Pair<Int, Int>>()
+    private val goalPlayback = mutableMapOf<String, GoalPlaybackSample>()
+    private val goalSettleJob = mutableMapOf<String, Job>()
+    private val goalStateLock = SynchronizedObject()
+
+    private data class GoalPlaybackSample(
+        val season: Int,
+        val episode: Int,
+        val positionMs: Long,
+        val durationMs: Long,
+        val creditsStartMs: Long?,
+    )
 
     private fun reportGoal(metaId: String, text: String) {
         com.nuvio.app.core.logging.InAppLogger.info("SmartDownloads", "goal $metaId: $text")
@@ -298,6 +319,7 @@ internal object SmartDownloads {
     /** Unpinned: no new goal downloads for the show (files already downloading keep going). */
     fun dropGoal(metaId: String) {
         announceGoals.remove(metaId)
+        synchronized(goalStateLock) { finishingLastEpisode.remove(metaId) }
         _goalStatus.value = _goalStatus.value - metaId
         scope.launch {
             mutex.withLock { savePending(loadPending().filterNot { it.count != null && it.parentMetaId == metaId }) }
@@ -344,19 +366,33 @@ internal object SmartDownloads {
         val large = showDownloads.maxByOrNull { it.updatedAtEpochMs }
             ?.totalBytes?.let { it >= PlaybackEndRules.SMART_LARGE_EPISODE_BYTES } == true
         val at = PlaybackEndRules.smartDownloadTriggerMs(durationMs, credits, large) ?: return
-        if (positionMs >= at) onNearEnd(entry)
+        if (positionMs >= at) onNearEnd(entry, positionMs, durationMs, credits)
     }
 
-    /** The episode on screen is near its end (credits or last minutes, see PlaybackEndRules). */
-    fun onNearEnd(entry: WatchProgressEntry) {
+    /**
+     * The episode on screen is near its end (credits or last minutes, see PlaybackEndRules).
+     * A goal counts from the next episode on. The final episode does not move the anchor or drop
+     * the goal here: that waits until playback has really ended.
+     */
+    fun onNearEnd(
+        entry: WatchProgressEntry,
+        positionMs: Long = entry.lastPositionMs,
+        durationMs: Long = entry.durationMs,
+        creditsStartMs: Long? = null,
+    ) {
         val season = entry.seasonNumber ?: return
         val episode = entry.episodeNumber ?: return
-        if (!handledVideoIds.add(entry.videoId)) return
+        val firstTime = handledVideoIds.add(entry.videoId)
         if (SmartDownloadSettings.isGoal(entry.parentMetaType, entry.parentMetaId)) {
-            // The goal counts from the next episode on, as if this one were watched (a rewatch of
-            // an earlier one leaves it where it is; after the last episode the goal is removed).
-            SmartDownloadSettings.advanceGoalAnchor(entry.parentMetaType, entry.parentMetaId, season, episode)
-            checkGoal(entry.parentMetaType, entry.parentMetaId)
+            settleGoalNearEnd(
+                entry = entry,
+                season = season,
+                episode = episode,
+                positionMs = positionMs,
+                durationMs = durationMs,
+                creditsStartMs = creditsStartMs ?: liveCreditsStartMs[entry.videoId],
+                firstTime = firstTime,
+            )
         }
         if (!isEnabled()) return
         val hasDownloadsOfShow = DownloadsRepository.uiState.value.items.any { it.parentMetaId == entry.parentMetaId }
@@ -397,7 +433,8 @@ internal object SmartDownloads {
     /**
      * Finish a series goal: keeps [SmartDownloadSettings.goalCount] episodes (the Smart Downloads
      * count) downloaded after the furthest watched one, never earlier ([goalStart]). Checked at
-     * launch, when pinned and near the end of each episode; a finished show is unpinned.
+     * launch, when pinned and near the end of each episode. A show is unpinned only when the last
+     * episode is actually finished, not merely marked watched.
      */
     fun checkGoal(type: String, id: String, announce: Boolean = false) {
         if (announce) announceGoals += id
@@ -416,23 +453,203 @@ internal object SmartDownloads {
                     watched.isWatched(meta.id, meta.type, video.season, video.episode)
                 }
             }
-            episodes.getOrNull(start - 1)?.let { last ->
-                SmartDownloadSettings.advanceGoalAnchor(type, id, last.season ?: return@let, last.episode ?: return@let)
-            }
             val first = episodes.getOrNull(start)
             if (first == null) {
                 if (!SmartDownloadSettings.isGoal(type, id)) return@launch
-                SmartDownloadSettings.setGoal(type, id, pinned = false)
-                com.nuvio.app.features.analysis.MediaAnalysisStore.forgetReferences(id)
-                NuvioToastController.show("Finished ${meta.name}, goal removed")
-                return@launch
+                val resume = episodes.lastOrNull()?.let { lastEpisodeResume(meta.id, it) }
+                val decision = decideFinishSeriesGoal(
+                    regularEpisodeCount = episodes.size,
+                    playingEpisodeIndex = null,
+                    nextEpisodeIndex = episodes.size,
+                    lastEpisodePositionMs = resume?.positionMs ?: 0L,
+                    lastEpisodeDurationMs = resume?.durationMs ?: 0L,
+                    lastEpisodeMarkedCompleted = resume?.markedCompleted == true,
+                    playbackReachedEnd = false,
+                    playbackCompleted = false,
+                )
+                when (decision.action) {
+                    FinishSeriesGoalAction.KeepPinned -> {
+                        reportGoal(id, decision.statusText ?: FINISHING_LAST_EPISODE_STATUS)
+                        return@launch
+                    }
+                    FinishSeriesGoalAction.RemoveAndToast -> {
+                        unpinFinishedGoal(type, id, meta.name, decision.removalReason ?: "nothing left to download")
+                        return@launch
+                    }
+                    FinishSeriesGoalAction.AdvanceAnchor -> return@launch
+                }
             }
+            episodes.getOrNull(start - 1)?.let { last ->
+                SmartDownloadSettings.advanceGoalAnchor(type, id, last.season ?: return@let, last.episode ?: return@let)
+            }
+            if (first == null) return@launch
             if (!first.hasAiredForDownload()) {
                 reportGoal(id, "Up to date · ${unairedLabel(first.released)}")
                 return@launch
             }
             add(SmartDownloadRequest(id, type, first.season ?: return@launch, (first.episode ?: return@launch) - 1, count = SmartDownloadSettings.goalCount()))
         }
+    }
+
+    /**
+     * Near-end of a pinned show. Earlier episodes move the anchor immediately. The final episode
+     * stays pinned until [PlaybackEndRules.reachedEnd] or the 90 % completion rule.
+     */
+    private fun settleGoalNearEnd(
+        entry: WatchProgressEntry,
+        season: Int,
+        episode: Int,
+        positionMs: Long,
+        durationMs: Long,
+        creditsStartMs: Long?,
+        firstTime: Boolean,
+    ) {
+        val type = entry.parentMetaType
+        val id = entry.parentMetaId
+        val videoId = entry.videoId
+        val sample = GoalPlaybackSample(season, episode, positionMs, durationMs, creditsStartMs)
+        val heldFinale = synchronized(goalStateLock) {
+            goalPlayback[videoId] = sample
+            finishingLastEpisode[id]
+        }
+        if (heldFinale == season to episode) {
+            if (episodeReallyFinished(sample)) {
+                synchronized(goalStateLock) { finishingLastEpisode.remove(id) }
+                scope.launch {
+                    val name = MetaDetailsRepository.fetch(type, id)?.name ?: "series"
+                    unpinFinishedGoal(type, id, name, finishedEpisodeReason(sample))
+                }
+            }
+            return
+        }
+        val startJob = synchronized(goalStateLock) {
+            goalSettleJob[videoId]?.isActive != true && firstTime
+        }
+        if (!startJob) return
+        val job = scope.launch(start = CoroutineStart.LAZY) {
+            try {
+                resolveGoalNearEnd(type, id, videoId)
+            } finally {
+                synchronized(goalStateLock) { goalSettleJob.remove(videoId) }
+            }
+        }
+        synchronized(goalStateLock) { goalSettleJob[videoId] = job }
+        job.start()
+    }
+
+    private suspend fun resolveGoalNearEnd(type: String, id: String, videoId: String) {
+        val initial = synchronized(goalStateLock) { goalPlayback[videoId] } ?: return
+        val meta = MetaDetailsRepository.fetch(type, id)
+        val sample = synchronized(goalStateLock) { goalPlayback[videoId] } ?: initial
+        val episodes = meta?.let { nextEpisodes(it.videos, season = 0, episode = 0, count = Int.MAX_VALUE) }.orEmpty()
+        val index = episodes.indexOfFirst { it.season == sample.season && it.episode == sample.episode }
+        if (meta == null || episodes.isEmpty() || index < 0) {
+            // Can't tell whether this is the finale. Count it and let checkGoal apply the resume guard.
+            SmartDownloadSettings.advanceGoalAnchor(type, id, sample.season, sample.episode)
+            checkGoal(type, id)
+            return
+        }
+        val reachedEnd = PlaybackEndRules.reachedEnd(sample.positionMs, sample.durationMs, sample.creditsStartMs)
+        val completed = isWatchProgressComplete(sample.positionMs, sample.durationMs, isEnded = false)
+        val decision = decideFinishSeriesGoal(
+            regularEpisodeCount = episodes.size,
+            playingEpisodeIndex = index,
+            nextEpisodeIndex = index + 1,
+            lastEpisodePositionMs = sample.positionMs,
+            lastEpisodeDurationMs = sample.durationMs,
+            lastEpisodeMarkedCompleted = completed,
+            playbackReachedEnd = reachedEnd,
+            playbackCompleted = completed,
+        )
+        when (decision.action) {
+            FinishSeriesGoalAction.AdvanceAnchor -> {
+                SmartDownloadSettings.advanceGoalAnchor(type, id, sample.season, sample.episode)
+                checkGoal(type, id)
+            }
+            FinishSeriesGoalAction.KeepPinned -> {
+                synchronized(goalStateLock) { finishingLastEpisode[id] = sample.season to sample.episode }
+                val latest = synchronized(goalStateLock) { goalPlayback[videoId] } ?: sample
+                if (episodeReallyFinished(latest)) {
+                    synchronized(goalStateLock) { finishingLastEpisode.remove(id) }
+                    unpinFinishedGoal(type, id, meta.name, finishedEpisodeReason(latest))
+                } else {
+                    reportGoal(id, decision.statusText ?: FINISHING_LAST_EPISODE_STATUS)
+                }
+            }
+            FinishSeriesGoalAction.RemoveAndToast -> {
+                unpinFinishedGoal(type, id, meta.name, decision.removalReason ?: finishedEpisodeReason(sample))
+            }
+        }
+    }
+
+    private fun episodeReallyFinished(sample: GoalPlaybackSample): Boolean =
+        PlaybackEndRules.reachedEnd(sample.positionMs, sample.durationMs, sample.creditsStartMs) ||
+            isWatchProgressComplete(sample.positionMs, sample.durationMs, isEnded = false)
+
+    private fun finishedEpisodeReason(sample: GoalPlaybackSample): String {
+        val reachedEnd = PlaybackEndRules.reachedEnd(sample.positionMs, sample.durationMs, sample.creditsStartMs)
+        val completed = isWatchProgressComplete(sample.positionMs, sample.durationMs, isEnded = false)
+        return decideFinishSeriesGoal(
+            regularEpisodeCount = 1,
+            playingEpisodeIndex = 0,
+            nextEpisodeIndex = 1,
+            lastEpisodePositionMs = sample.positionMs,
+            lastEpisodeDurationMs = sample.durationMs,
+            lastEpisodeMarkedCompleted = completed,
+            playbackReachedEnd = reachedEnd,
+            playbackCompleted = completed,
+        ).removalReason ?: "last episode finished"
+    }
+
+    private data class LastEpisodeResume(
+        val positionMs: Long,
+        val durationMs: Long,
+        val markedCompleted: Boolean,
+    )
+
+    /** Resume row for [video], preferring one that is still in progress over a stale completed flag. */
+    private fun lastEpisodeResume(metaId: String, video: MetaVideo): LastEpisodeResume? {
+        val playbackId = buildPlaybackVideoId(
+            parentMetaId = metaId,
+            seasonNumber = video.season,
+            episodeNumber = video.episode,
+            fallbackVideoId = video.id,
+        )
+        val ids = listOfNotNull(video.id.takeIf { it.isNotBlank() }, playbackId).distinct()
+        val lookedUp = ids.mapNotNull { videoId ->
+            WatchProgressRepository.progressForVideo(
+                videoId = videoId,
+                parentMetaId = metaId,
+                seasonNumber = video.season,
+                episodeNumber = video.episode,
+            )
+        }
+        val listed = WatchProgressRepository.uiState.value.entries.filter { entry ->
+            entry.parentMetaId == metaId &&
+                entry.seasonNumber == video.season &&
+                entry.episodeNumber == video.episode
+        }
+        val entries = (lookedUp + listed).distinctBy { it.resolvedProgressKey() }
+        if (entries.isEmpty()) return null
+        val chosen = entries
+            .filter { resumeStillInProgress(it.lastPositionMs, it.durationMs, it.isEffectivelyCompleted) }
+            .maxByOrNull { it.lastUpdatedEpochMs }
+            ?: entries.maxBy { it.lastUpdatedEpochMs }
+        return LastEpisodeResume(
+            positionMs = chosen.lastPositionMs,
+            durationMs = chosen.durationMs,
+            markedCompleted = chosen.isEffectivelyCompleted,
+        )
+    }
+
+    /** Unpin a finished show, log why, and toast. No-op when the pin is already gone. */
+    private fun unpinFinishedGoal(type: String, id: String, name: String, reason: String) {
+        if (!SmartDownloadSettings.isGoal(type, id)) return
+        synchronized(goalStateLock) { finishingLastEpisode.remove(id) }
+        com.nuvio.app.core.logging.InAppLogger.info("SmartDownloads", "goal $id removed: $reason")
+        SmartDownloadSettings.setGoal(type, id, pinned = false)
+        MediaAnalysisStore.forgetReferences(id)
+        NuvioToastController.show("Finished $name, goal removed")
     }
 
     private fun add(request: SmartDownloadRequest) {
