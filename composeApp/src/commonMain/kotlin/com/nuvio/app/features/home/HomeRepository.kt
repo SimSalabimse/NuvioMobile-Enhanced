@@ -3,6 +3,7 @@ package com.nuvio.app.features.home
 import com.nuvio.app.features.addons.ManagedAddon
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.enabledAddons
+import com.nuvio.app.features.addons.withTransientRetry
 import com.nuvio.app.features.catalog.CatalogTarget
 import com.nuvio.app.features.catalog.fetchCatalogPage
 import com.nuvio.app.core.perf.PerformanceOptimization
@@ -20,6 +21,7 @@ import com.nuvio.app.features.collection.findCollectionCatalog
 import com.nuvio.app.features.servers.ServerCatalog
 import com.nuvio.app.features.trakt.TraktPublicListSourceResolver
 import com.nuvio.app.features.watchprogress.CurrentDateProvider
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -143,10 +145,18 @@ object HomeRepository {
             prioritizedRequests.forEach { request ->
                 launch {
                     val result = fetchPermits.withPermit {
-                        runCatching {
-                            withTimeoutOrNull(HOME_CATALOG_FETCH_TIMEOUT_MS) {
-                                request.toSection(forceRefresh = force)
-                            } ?: throw IllegalStateException("Catalog request timed out: ${request.defaultTitle}")
+                        try {
+                            Result.success(
+                                withTransientRetry {
+                                    withTimeoutOrNull(HOME_CATALOG_FETCH_TIMEOUT_MS) {
+                                        request.toSection(forceRefresh = force)
+                                    } ?: throw IllegalStateException("Catalog request timed out: ${request.defaultTitle}")
+                                },
+                            )
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Throwable) {
+                            Result.failure(error)
                         }
                     }
                     completions.trySend(request to result)

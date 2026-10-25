@@ -80,6 +80,7 @@ Built from the code at build 195 (0.6.2.1). Each line shows the feature, where i
 - Detail page layout (background mode, poster transition, tab layout, blur unwatched): Settings › Layout › Detail Page. Upstream.
 - Search with recent searches: Search tab, Settings › Content & Discovery. Upstream.
 - Addons, plugins, media servers: Settings › Content & Discovery. Upstream.
+- Addon and home catalog loads retry one transient failure (network, timeout, or HTTP 5xx) before showing an error. A 4xx response or an invalid manifest is not retried, and an addon whose first fetch failed is fetched again on the next sync instead of sitting on "refreshing".
 - TMDB enrichment modules, MDBList and OMDb ratings: Settings › Integrations. Upstream.
 - Live TV (playlists, EPG): Settings › Integrations › Live TV. Upstream.
 
