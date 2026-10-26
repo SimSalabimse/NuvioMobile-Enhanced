@@ -67,15 +67,25 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         episodesLoading = false
         episodesLoadFailed = false
         episodesEmptyNeedsRetry = false
+        episodesComplete = true
         val peeked = MetaDetailsRepository.peek(parentMetaType, parentMetaId)
         playerMeta = peeked
         playerMetaVideos = peeked?.videos.orEmpty()
+        val published = MetaDetailsRepository.uiState.value
+        if (published.meta?.type == parentMetaType && published.meta?.id == parentMetaId && !published.episodesComplete) {
+            episodesComplete = false
+        }
         if (playerMetaVideos.isEmpty()) {
             val report = MetaDetailsRepository.fetchReporting(parentMetaType, parentMetaId)
             val meta = report.meta
-            if (report.episodesComplete && meta != null) {
-                playerMetaVideos = mergePlayerEpisodes(playerMetaVideos, meta.videos)
-                if (meta.videos.isNotEmpty() || playerMeta == null) playerMeta = meta
+            val incoming = meta?.videos.orEmpty()
+            playerMetaVideos = episodesKeptAfterIncompleteFetch(playerMetaVideos, incoming, report.episodesComplete)
+            if (meta != null && (incoming.isNotEmpty() || report.episodesComplete || playerMeta == null)) {
+                playerMeta = meta
+            }
+            episodesComplete = report.episodesComplete
+            if (!report.episodesComplete && playerMetaVideos.isEmpty()) {
+                episodesLoadFailed = true
             }
         }
     }

@@ -705,9 +705,9 @@ private fun PlayerScreenRuntime.loadPlayerEpisodes(bypassCache: Boolean) {
         }
         if (generation != episodesLoadGeneration) return@launch
         if (requestType != parentMetaType || requestId != parentMetaId) return@launch
-        val meta = report?.meta
-        if (report == null || !report.episodesComplete) {
+        if (report == null) {
             episodesLoading = false
+            episodesComplete = false
             episodesLoadFailed = playerMetaVideos.isEmpty()
             episodesEmptyNeedsRetry = false
             InAppLogger.info(
@@ -717,12 +717,16 @@ private fun PlayerScreenRuntime.loadPlayerEpisodes(bypassCache: Boolean) {
             )
             return@launch
         }
-        val videos = meta?.videos.orEmpty()
-        playerMetaVideos = mergePlayerEpisodes(playerMetaVideos, videos)
-        if (meta != null && (videos.isNotEmpty() || playerMeta == null)) playerMeta = meta
+        val meta = report.meta
+        val incoming = meta?.videos.orEmpty()
+        playerMetaVideos = episodesKeptAfterIncompleteFetch(playerMetaVideos, incoming, report.episodesComplete)
+        if (meta != null && (incoming.isNotEmpty() || report.episodesComplete || playerMeta == null)) {
+            playerMeta = meta
+        }
         episodesLoading = false
-        episodesLoadFailed = meta == null && playerMetaVideos.isEmpty()
-        episodesEmptyNeedsRetry = meta != null && playerMetaVideos.isEmpty() && !bypassCache
+        episodesComplete = report.episodesComplete
+        episodesLoadFailed = playerMetaVideos.isEmpty() && (meta == null || !report.episodesComplete)
+        episodesEmptyNeedsRetry = report.episodesComplete && meta != null && playerMetaVideos.isEmpty() && !bypassCache
         InAppLogger.info(
             "Player/Episodes",
             "episodes loaded parentType=$requestType parentId=$requestId count=${playerMetaVideos.size} " +

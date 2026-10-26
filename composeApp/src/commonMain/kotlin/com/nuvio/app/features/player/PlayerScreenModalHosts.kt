@@ -96,6 +96,7 @@ internal fun PlayerScreenModalHosts(
     episodesLoading: Boolean = false,
     episodesLoadFailed: Boolean = false,
     episodesEmptyNeedsRetry: Boolean = false,
+    episodesComplete: Boolean = true,
     onRetryEpisodes: () -> Unit = {},
     showChaptersPanel: Boolean = false,
     chapters: List<PlayerChapter> = emptyList(),
@@ -247,6 +248,7 @@ internal fun PlayerScreenModalHosts(
             episodesLoading = episodesLoading,
             episodesLoadFailed = episodesLoadFailed,
             episodesEmptyNeedsRetry = episodesEmptyNeedsRetry,
+            episodesComplete = episodesComplete,
             onRetryEpisodes = onRetryEpisodes,
         )
     }

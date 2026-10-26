@@ -93,6 +93,7 @@ fun PlayerEpisodesPanel(
     episodesLoading: Boolean = false,
     episodesLoadFailed: Boolean = false,
     episodesEmptyNeedsRetry: Boolean = false,
+    episodesComplete: Boolean = true,
     onRetryEpisodes: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -138,21 +139,31 @@ fun PlayerEpisodesPanel(
                     failed = episodesLoadFailed,
                     episodeCount = episodes.size,
                     emptyNeedsRetry = episodesEmptyNeedsRetry,
+                    episodesComplete = episodesComplete,
                 )
-                if (episodesBody == EpisodesPanelBody.List) {
-                    EpisodesListPanelContent(
-                        episodes = episodes,
-                        parentMetaType = parentMetaType,
-                        parentMetaId = parentMetaId,
-                        currentSeason = currentSeason,
-                        currentEpisode = currentEpisode,
-                        progressByVideoId = progressByVideoId,
-                        watchedKeys = watchedKeys,
-                        blurUnwatchedEpisodes = blurUnwatchedEpisodes,
-                        onSeasonSelected = onSeasonSelected,
-                        onEpisodeSelected = onEpisodeSelected,
-                        modifier = Modifier.weight(1f),
-                    )
+                if (episodesBody == EpisodesPanelBody.List || episodesBody == EpisodesPanelBody.Partial) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        if (episodesBody == EpisodesPanelBody.Partial) {
+                            PlayerDialogButton(
+                                label = stringResource(Res.string.action_retry),
+                                onClick = onRetryEpisodes,
+                            )
+                            Spacer(Modifier.height(12.dp))
+                        }
+                        EpisodesListPanelContent(
+                            episodes = episodes,
+                            parentMetaType = parentMetaType,
+                            parentMetaId = parentMetaId,
+                            currentSeason = currentSeason,
+                            currentEpisode = currentEpisode,
+                            progressByVideoId = progressByVideoId,
+                            watchedKeys = watchedKeys,
+                            blurUnwatchedEpisodes = blurUnwatchedEpisodes,
+                            onSeasonSelected = onSeasonSelected,
+                            onEpisodeSelected = onEpisodeSelected,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 } else {
                     EpisodesListStatus(
                         body = episodesBody,
@@ -178,6 +189,20 @@ private fun EpisodesListStatus(
     ) {
         when (body) {
             EpisodesPanelBody.Loading -> PlayerModalLoading()
+            EpisodesPanelBody.Partial -> Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = stringResource(Res.string.compose_player_episodes_load_failed),
+                    color = tokens.colors.textMuted,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                PlayerDialogButton(
+                    label = stringResource(Res.string.action_retry),
+                    onClick = onRetry,
+                )
+            }
             EpisodesPanelBody.Failed -> Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp),

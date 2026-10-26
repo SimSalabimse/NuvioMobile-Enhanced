@@ -5,6 +5,8 @@ import com.nuvio.app.features.details.MetaVideo
 internal enum class EpisodesPanelBody {
     Loading,
     List,
+    /** Episodes that loaded, plus Retry for the seasons that did not. */
+    Partial,
     Empty,
     Failed,
 }
@@ -20,11 +22,25 @@ internal fun episodesPanelBody(
     failed: Boolean,
     episodeCount: Int,
     emptyNeedsRetry: Boolean,
+    episodesComplete: Boolean = true,
 ): EpisodesPanelBody = when {
+    episodeCount > 0 && loading -> EpisodesPanelBody.List
+    episodeCount > 0 && !episodesComplete -> EpisodesPanelBody.Partial
     episodeCount > 0 -> EpisodesPanelBody.List
     loading -> EpisodesPanelBody.Loading
-    failed || emptyNeedsRetry -> EpisodesPanelBody.Failed
+    failed || emptyNeedsRetry || !episodesComplete -> EpisodesPanelBody.Failed
     else -> EpisodesPanelBody.Empty
+}
+
+/** An incomplete fetch keeps episodes that already arrived. */
+internal fun episodesKeptAfterIncompleteFetch(
+    current: List<MetaVideo>,
+    incoming: List<MetaVideo>,
+    episodesComplete: Boolean,
+): List<MetaVideo> = if (episodesComplete || incoming.isNotEmpty() || current.isNotEmpty()) {
+    mergePlayerEpisodes(current, incoming)
+} else {
+    current
 }
 
 /** Keeps a loaded episode list when a later details update arrives with none. */

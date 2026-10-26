@@ -129,7 +129,14 @@ object MetaDetailsRepository {
             return
         }
 
-        if (currentState.meta?.type == type && currentState.meta.id == id && !currentState.isLoading) {
+        val currentMeta = currentState.meta
+        if (
+            shouldSkipLoadedMetaReload(
+                sameShow = currentMeta != null && currentMeta.type == type && currentMeta.id == id,
+                isLoading = currentState.isLoading,
+                episodesComplete = currentState.episodesComplete,
+            )
+        ) {
             log.d { "Skipping reload for cached meta — type=$type id=$id" }
             InAppLogger.debug("Metadata/MetaDetailsRepository", "Skipping reload for current meta type=$type id=$id")
             activeRequestKey = requestKey
@@ -143,7 +150,14 @@ object MetaDetailsRepository {
         }
 
         activeRequestKey = requestKey
-        _uiState.value = MetaDetailsUiState(isLoading = true)
+        val visibleIncomplete = currentState.meta?.takeIf {
+            it.type == type && it.id == id && !currentState.episodesComplete
+        }
+        _uiState.value = if (visibleIncomplete != null) {
+            currentState.copy(isLoading = true, errorMessage = null)
+        } else {
+            MetaDetailsUiState(isLoading = true)
+        }
 
         scope.launch {
             val metaLookupId = resolveMetaLookupId(itemId = id, itemType = type)
@@ -251,6 +265,22 @@ object MetaDetailsRepository {
         val series = normalized == "series" || normalized == "tv" || normalized == "show" || normalized == "tvshow"
         return videoCount > 0 || !series
     }
+
+    /** Episodes already loaded stay visible when a later season fails. */
+    internal fun visibleFallbackEpisodes(
+        videos: List<MetaVideo>,
+        episodesComplete: Boolean,
+    ): List<MetaVideo> = if (episodesComplete) videos else videos
+
+    /**
+     * A finished show is not fetched again. An incomplete season fill is not finished,
+     * so a later load() is allowed through.
+     */
+    internal fun shouldSkipLoadedMetaReload(
+        sameShow: Boolean,
+        isLoading: Boolean,
+        episodesComplete: Boolean,
+    ): Boolean = sameShow && !isLoading && episodesComplete
 
     suspend fun fetch(
         type: String,
@@ -571,16 +601,21 @@ object MetaDetailsRepository {
         mdbListSettings: com.nuvio.app.features.mdblist.MdbListSettings,
         metaScreenSettingsFingerprint: String,
     ) {
+        val visible = fallback.meta.copy(
+            videos = visibleFallbackEpisodes(fallback.meta.videos, fallback.episodesComplete),
+        )
         if (!fallback.episodesComplete) {
             _uiState.value = MetaDetailsUiState(
-                meta = fallback.meta.copy(videos = emptyList()).withUnreleasedFilter(),
+                isLoading = false,
+                meta = visible.withUnreleasedFilter(),
+                episodesComplete = false,
             )
-            activeRequestKey = requestKey
+            activeRequestKey = null
             return
         }
         publishLoadedMeta(
             requestKey = requestKey,
-            meta = fallback.meta,
+            meta = visible,
             fallbackItemId = fallbackItemId,
             fallbackItemType = fallbackItemType,
             mdbListSettings = mdbListSettings,

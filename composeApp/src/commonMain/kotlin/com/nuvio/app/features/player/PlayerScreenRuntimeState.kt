@@ -208,6 +208,7 @@ internal class PlayerScreenRuntime(
     var episodesLoading by mutableStateOf(false)
     var episodesLoadFailed by mutableStateOf(false)
     var episodesEmptyNeedsRetry by mutableStateOf(false)
+    var episodesComplete by mutableStateOf(true)
     var episodesLoadJob: Job? = null
     var episodesLoadGeneration: Int = 0
     var playerMeta by mutableStateOf<MetaDetails?>(null)

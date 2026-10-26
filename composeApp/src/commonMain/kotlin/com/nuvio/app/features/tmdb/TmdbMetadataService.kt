@@ -81,12 +81,17 @@ internal fun seasonsToRequest(
     return requested.filter { it !in cachedSeasons }
 }
 
+/** Retry asks again only for seasons that did not load. */
+internal fun seasonsRefetchedOnRetry(requested: List<Int>, failedSeasons: Set<Int>): List<Int> =
+    requested.filter { season -> season in failedSeasons }
+
 object TmdbMetadataService {
     private val log = Logger.withTag("TmdbMetadata")
     private val json = Json { ignoreUnknownKeys = true }
 
     private val enrichmentCache = BoundedCache<String, TmdbEnrichment>(maxEntries = 300)
     private val episodeCache = BoundedCache<String, Map<Pair<Int, Int>, TmdbEpisodeEnrichment>>(maxEntries = 60)
+    private val seasonEpisodeCache = BoundedCache<String, Map<Pair<Int, Int>, TmdbEpisodeEnrichment>>(maxEntries = 240)
     private val moreLikeThisCache = BoundedCache<String, MoreLikeThisPage>(maxEntries = 100)
     private val collectionCache = BoundedCache<String, Pair<String?, List<MetaPreview>>>(maxEntries = 100)
     private val trailerCache = BoundedCache<String, List<MetaTrailer>>(maxEntries = 200)
@@ -1290,10 +1295,29 @@ object TmdbMetadataService {
         if (requested.isEmpty()) return@withContext SeasonFetchBatch(emptyMap(), emptySet())
 
         val cacheKey = "$numericId:${requested.sorted().joinToString(",")}:$normalizedLanguage"
-        val prior = episodeCache[cacheKey]
-        val cachedSeasons = if (!bypassCache && prior != null) requested.toSet() else emptySet()
-        val needed = seasonsToRequest(requested, cachedSeasons, bypassCache)
-        if (needed.isEmpty()) return@withContext SeasonFetchBatch(prior.orEmpty(), emptySet())
+        if (!bypassCache) {
+            episodeCache[cacheKey]?.let { cached ->
+                return@withContext SeasonFetchBatch(cached, emptySet())
+            }
+        }
+        val cachedSeason: (Int) -> Map<Pair<Int, Int>, TmdbEpisodeEnrichment>? = { season ->
+            seasonEpisodeCache["$numericId:$season:$normalizedLanguage"]
+        }
+        val succeededWithEpisodes = requested.filter { season ->
+            cachedSeason(season)?.isNotEmpty() == true
+        }.toSet()
+        val succeeded = requested.filter { season -> cachedSeason(season) != null }.toSet()
+        val needed = if (bypassCache) {
+            seasonsRefetchedOnRetry(requested, requested.filter { it !in succeededWithEpisodes }.toSet())
+        } else {
+            seasonsToRequest(requested, succeeded, bypassCache = false)
+        }
+        if (needed.isEmpty()) {
+            val cachedEpisodes = buildMap {
+                requested.forEach { season -> cachedSeason(season)?.let { putAll(it) } }
+            }
+            return@withContext SeasonFetchBatch(cachedEpisodes, emptySet())
+        }
 
         val fetched = mutableMapOf<Int, Map<Pair<Int, Int>, TmdbEpisodeEnrichment>?>()
         for (wave in seasonFetchWaves(needed)) {
@@ -1302,14 +1326,22 @@ object TmdbMetadataService {
                     async { season to fetchSeasonEpisodes(numericId, season, normalizedLanguage) }
                 }.awaitAll()
             }
-            waveResults.forEach { (season, episodes) -> fetched[season] = episodes }
+            waveResults.forEach { (season, episodes) ->
+                fetched[season] = episodes
+                if (episodes != null) {
+                    seasonEpisodeCache["$numericId:$season:$normalizedLanguage"] = episodes
+                }
+            }
         }
         val batch = combineSeasonResults(needed, fetched)
+        val kept = if (bypassCache) succeededWithEpisodes else succeeded
         val failed = requested.filter { season ->
-            season in batch.failedSeasons || (season !in needed && season !in cachedSeasons)
+            season in batch.failedSeasons || (season !in needed && season !in kept)
         }.toSet()
         val episodes = buildMap<Pair<Int, Int>, TmdbEpisodeEnrichment> {
-            if (!bypassCache && prior != null) putAll(prior)
+            requested.forEach { season ->
+                if (season !in needed) cachedSeason(season)?.let { putAll(it) }
+            }
             putAll(batch.episodes)
         }
         val full = SeasonFetchBatch(episodes, failed)
