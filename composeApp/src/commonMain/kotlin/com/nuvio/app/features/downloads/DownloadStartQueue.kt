@@ -59,6 +59,7 @@ internal class DownloadPersistGate(
  * What to do with ids the start queue just let through. [accepted] are shown as downloading,
  * [deferred] go back to the front of the line (no free transfer slot), [launch] need a new
  * platform transfer: an accepted id that still holds a live handle keeps running as it is.
+ * [pinned] ids (the file the player reads from) are never deferred, also past [maxActive].
  */
 internal data class DownloadStartPlan(
     val accepted: List<String>,
@@ -70,11 +71,13 @@ internal fun planDownloadStarts(
     startedIds: List<String>,
     liveIds: Set<String>,
     maxActive: Int,
+    pinned: Set<String> = emptySet(),
 ): DownloadStartPlan {
     val accepted = mutableListOf<String>()
     val deferred = mutableListOf<String>()
     startedIds.forEach { id ->
-        if (id !in liveIds && liveIds.size + accepted.size >= maxActive) deferred.add(id) else accepted.add(id)
+        val full = id !in liveIds && liveIds.size + accepted.size >= maxActive
+        if (full && id !in pinned) deferred.add(id) else accepted.add(id)
     }
     return DownloadStartPlan(accepted, deferred, accepted.filter { it !in liveIds })
 }
@@ -82,12 +85,12 @@ internal fun planDownloadStarts(
 /**
  * Stops transfers a lower cap pushed back into the line and forgets their handles. iOS sends no
  * callback for a deliberate stop, so a handle left behind would make the id look live: a later
- * promote would skip its restart and count it against the cap.
+ * promote would skip its restart and count it against the cap. [stop] gets the handle when there
+ * was one: stopping through it also stops a transfer that is still being opened.
  */
-internal fun <H> MutableMap<String, H>.stopDemotedTransfers(ids: List<String>, stop: (String) -> Unit) {
+internal fun <H> MutableMap<String, H>.stopDemotedTransfers(ids: List<String>, stop: (String, H?) -> Unit) {
     ids.forEach { id ->
-        remove(id)
-        stop(id)
+        stop(id, remove(id))
     }
 }
 
@@ -180,6 +183,16 @@ internal class DownloadStartQueue(
             demoted.add(newest)
         }
         return demoted
+    }
+
+    /** Waiting [ids] become active whatever the cap. Returns the ids moved, in line order. */
+    fun pin(ids: Set<String>): List<String> {
+        val pinned = waiting.filter { it in ids }
+        pinned.forEach { id ->
+            waiting.remove(id)
+            active.add(id)
+        }
+        return pinned
     }
 
     fun promote(thermalBlocksNextFile: Boolean): List<String> {

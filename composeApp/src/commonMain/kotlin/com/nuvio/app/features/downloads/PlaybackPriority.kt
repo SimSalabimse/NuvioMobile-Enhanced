@@ -49,7 +49,7 @@ internal object PlaybackPriority {
         lastPositionMs = -1L
         lastTickMs = 0L
         InAppLogger.info("PlaybackPriority", "player opened local=$isLocalFile")
-        apply(Level.Playing)
+        apply(Level.Playing, always = true)
     }
 
     /**
@@ -125,8 +125,8 @@ internal object PlaybackPriority {
 
     fun reapplyDownloadCap() = DownloadsRepository.setPlaybackDownloadCap(downloadCap())
 
-    private fun apply(next: Level) {
-        if (level == next) return
+    private fun apply(next: Level, always: Boolean = false) {
+        if (level == next && !always) return
         level = next
         setAnalysisThrottleLevel(if (analysisBoosted) 0 else next.analysisThrottle)
         InAppLogger.info("PlaybackPriority", "level=$next downloads allowed=${downloadCap()}")

@@ -22,9 +22,21 @@ import kotlin.test.assertTrue
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class PlaybackThrottleRepositoryTest {
+    private class Callbacks(
+        val onProgress: (Long, Long?) -> Unit,
+        val onSuccess: (String, Long?) -> Unit,
+    )
+
+    /**
+     * [asyncOpens] is iOS: a start first looks up the session's tasks and only then begins the
+     * transfer. A stop of a transfer that is still opening finds nothing running to stop.
+     */
     private class FakeTransfers : DownloadTransfers {
         val running = linkedSetOf<String>()
+        val opening = linkedSetOf<String>()
         val starts = mutableMapOf<String, Int>()
+        val callbacks = mutableMapOf<String, Callbacks>()
+        var asyncOpens = false
 
         override fun start(
             request: DownloadPlatformRequest,
@@ -34,17 +46,35 @@ class PlaybackThrottleRepositoryTest {
             onPaused: () -> Unit,
         ): DownloadsTaskHandle {
             val id = request.item.id
-            running += id
+            if (asyncOpens) opening += id else running += id
             starts[id] = (starts[id] ?: 0) + 1
+            callbacks[id] = Callbacks(onProgress, onSuccess)
             return object : DownloadsTaskHandle {
                 override fun cancel() {
                     running -= id
+                    opening -= id
                 }
             }
         }
 
         override fun pauseRunningTransfer(item: DownloadItem) {
             running -= item.id
+        }
+
+        /** The opens finish; each transfer reports its first bytes. */
+        fun finishOpens() {
+            val opened = opening.toList()
+            opening.clear()
+            opened.forEach { id ->
+                running += id
+                callbacks.getValue(id).onProgress(1_000_000L, 100_000_000L)
+            }
+        }
+
+        /** iOS delivers a finished task on the session's queue, also one stopped as it finished. */
+        fun finish(id: String) {
+            running -= id
+            callbacks.getValue(id).onSuccess("file:///downloads/$id.mkv", 100_000_000L)
         }
     }
 
@@ -238,6 +268,106 @@ class PlaybackThrottleRepositoryTest {
         snapshots(buffering = false, forMs = 10_000L)
         snapshots(buffering = true, forMs = 2_000L)
         assertEquals(PlaybackPriority.Level.Strained, PlaybackPriority.level, "a real stall still strains")
+    }
+
+    @Test
+    fun playedPartialThatWaitsInLineDownloadsWhileItPlays() {
+        startThreeDownloads()
+        PartialPlaybackLease.acquire("e3")
+        try {
+            PlaybackPriority.sessionStarted(isLocalFile = false)
+            snapshots(buffering = true, forMs = 2_000L)
+            snapshots(buffering = false, forMs = 60_000L)
+            assertEquals(setOf("e3"), fake.running, "the file being played takes the one slot")
+            assertSlotsMatchStatuses()
+
+            snapshots(buffering = true, forMs = 2_000L)
+            assertEquals(PlaybackPriority.Level.Strained, PlaybackPriority.level)
+            assertEquals(setOf("e3"), fake.running, "the played file keeps going while strained")
+            assertSlotsMatchStatuses()
+        } finally {
+            PartialPlaybackLease.release("e3")
+        }
+    }
+
+    @Test
+    fun switchingToAWaitingPartialMidSessionStartsIt() {
+        startThreeDownloads()
+        PlaybackPriority.sessionStarted(isLocalFile = false)
+        snapshots(buffering = false, forMs = 60_000L)
+        assertEquals(setOf("e1"), fake.running)
+
+        PartialPlaybackLease.acquire("e3")
+        try {
+            assertEquals(setOf("e3"), fake.running, "switching to e3's file starts its download")
+            assertSlotsMatchStatuses()
+            snapshots(buffering = false, forMs = 60_000L)
+            assertEquals(setOf("e3"), fake.running)
+        } finally {
+            PartialPlaybackLease.release("e3")
+        }
+        assertSlotsMatchStatuses()
+    }
+
+    @Test
+    fun nextEpisodeQueuedDuringStreamedPlaybackStartsAtOnce() {
+        PlaybackPriority.sessionStarted(isLocalFile = false)
+        snapshots(buffering = true, forMs = 2_000L)
+        snapshots(buffering = false, forMs = 60_000L)
+
+        DownloadsRepository.enqueueFromStream(
+            contentType = "series", videoId = "show:1:2", parentMetaId = "show", parentMetaType = "series",
+            title = "Show", logo = null, poster = null, background = null, seasonNumber = 1, episodeNumber = 2,
+            episodeTitle = null, episodeThumbnail = null,
+            stream = StreamItem(name = "S1E2", url = "https://example.com/e2.mkv", addonName = "Test", addonId = "test"),
+        )
+        assertEquals(1, fake.running.size, "the next episode starts while the player is open")
+        assertSlotsMatchStatuses()
+    }
+
+    @Test
+    fun transferStillOpeningWhenTheCapStopsItDoesNotRunAsWaiting() {
+        fake.asyncOpens = true
+        DownloadsRepository.replaceItems(listOf(episode("e1", 1), episode("e2", 2)))
+        DownloadsRepository.resumeDownloads(listOf("e1", "e2"))
+        assertEquals(setOf("e1", "e2"), fake.opening)
+
+        PlaybackPriority.sessionStarted(isLocalFile = false)
+        fake.finishOpens()
+
+        assertSlotsMatchStatuses()
+        assertEquals(setOf("e1"), fake.running)
+    }
+
+    @Test
+    fun fileThatFinishesAsTheCapStopsItShowsCompletedAtOnce() {
+        startTwoDownloads()
+        PlaybackPriority.sessionStarted(isLocalFile = false)
+        val demoted = DownloadsRepository.uiState.value.items.single { it.status == DownloadStatus.Queued }.id
+
+        fake.finish(demoted)
+
+        val row = DownloadsRepository.uiState.value.items.single { it.id == demoted }
+        assertEquals(DownloadStatus.Completed, row.status, "a finished file is not left Waiting")
+        assertSlotsMatchStatuses()
+    }
+
+    private fun startThreeDownloads() {
+        DownloadsRepository.replaceItems(listOf(episode("e1", 1), episode("e2", 2), episode("e3", 3)))
+        DownloadsRepository.resumeDownloads(listOf("e1", "e2", "e3"))
+        assertEquals(setOf("e1", "e2"), fake.running)
+    }
+
+    /** Downloading means a transfer runs; Waiting means none does, with nothing left to refresh it. */
+    private fun assertSlotsMatchStatuses() {
+        DownloadsRepository.uiState.value.items.forEach { row ->
+            val transferring = row.id in fake.running || row.id in fake.opening
+            when (row.status) {
+                DownloadStatus.Downloading -> assertTrue(transferring, "${row.id} shows Downloading but nothing transfers")
+                DownloadStatus.Queued -> assertTrue(!transferring, "${row.id} shows Waiting but holds a running transfer")
+                else -> assertTrue(!transferring, "${row.id} is ${row.status} but still transfers")
+            }
+        }
     }
 
     private fun startTwoDownloads() {

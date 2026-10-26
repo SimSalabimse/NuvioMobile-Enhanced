@@ -922,7 +922,12 @@ object DownloadsRepository {
                     )
                 }
                 mutateItem(item.id) { latest ->
-                    if (latest.status != DownloadStatus.Downloading) return@mutateItem latest
+                    // A file that finished as the playback cap stopped it is done, not waiting.
+                    when (latest.status) {
+                        DownloadStatus.Downloading -> Unit
+                        DownloadStatus.Queued -> startQueue.discard(item.id)
+                        else -> return@mutateItem latest
+                    }
                     latest.copy(
                         status = DownloadStatus.Completed,
                         localFileUri = localFileUri,
@@ -1059,17 +1064,31 @@ object DownloadsRepository {
      * How many downloads may run while the player is open (see [PlaybackPriority]): fewer while
      * playing, none while it buffers, the normal cap again when it closes. Extra transfers go back
      * to the front of the line (paused, resumed in place later). A download the player is reading
-     * from keeps going: pausing it would leave the player at the end of the bytes on disk.
+     * from runs, also when it was waiting in line: the player would otherwise stop at the end of
+     * the bytes on disk.
      */
     fun setPlaybackDownloadCap(cap: Int) {
-        if (startQueue.maxActive == cap) return
-        val shrinking = cap < startQueue.maxActive
         startQueue.maxActive = cap
-        if (!hasLoaded) return
-        if (shrinking) {
-            if (startQueue.shrinkTo(cap, PartialPlaybackLease.heldIds()).isNotEmpty()) alignQueuedStatuses()
-        } else {
-            applyStarts(startQueue.promote(DownloadThermalGate.blocksNextFile()))
+        if (hasLoaded) replanSlots()
+    }
+
+    /** The player started or stopped reading an in-progress download's file. */
+    fun onPartialPlaybackLeaseChanged() {
+        if (hasLoaded) replanSlots()
+    }
+
+    private var lastSlotPlan: String? = null
+
+    private fun replanSlots() {
+        val held = PartialPlaybackLease.heldIds()
+        val pinned = startQueue.pin(held)
+        val demoted = startQueue.shrinkTo(startQueue.maxActive, held)
+        if (pinned.isNotEmpty() || demoted.isNotEmpty()) alignQueuedStatuses()
+        applyStarts(pinned + startQueue.promote(DownloadThermalGate.blocksNextFile()), pinned.toSet())
+        val plan = "cap=${startQueue.maxActive} running=${startQueue.activeIds()} waiting=${startQueue.waitingIds()} player=$held"
+        if (plan != lastSlotPlan) {
+            lastSlotPlan = plan
+            com.nuvio.app.core.logging.InAppLogger.info("Downloads", "slots $plan")
         }
     }
 
@@ -1121,8 +1140,8 @@ object DownloadsRepository {
         publish(updated)
         persistStatus()
         val demotedById = demoted.associateBy { it.id }
-        activeHandles.stopDemotedTransfers(demoted.map { it.id }) { id ->
-            transfers.pauseRunningTransfer(demotedById.getValue(id))
+        activeHandles.stopDemotedTransfers(demoted.map { it.id }) { id, handle ->
+            if (handle != null) handle.cancel() else transfers.pauseRunningTransfer(demotedById.getValue(id))
         }
         demoted.forEach { item ->
             DownloadsPlatformDownloader.updatePartialTarget(
@@ -1134,10 +1153,10 @@ object DownloadsRepository {
         }
     }
 
-    private fun applyStarts(startedIds: List<String>) {
+    private fun applyStarts(startedIds: List<String>, pinned: Set<String> = emptySet()) {
         if (startedIds.isEmpty()) return
         val now = DownloadsClock.nowEpochMs()
-        val plan = planDownloadStarts(startedIds, activeHandles.keys.toSet(), startQueue.maxActive)
+        val plan = planDownloadStarts(startedIds, activeHandles.keys.toSet(), startQueue.maxActive, pinned)
         plan.deferred.forEach(startQueue::demoteToFront)
         val acceptedSet = plan.accepted.toSet()
         val deferredSet = plan.deferred.toSet()

@@ -127,6 +127,8 @@ internal actual object DownloadsPlatformDownloader {
     }
 
     actual fun pauseRunningTransfer(item: DownloadItem) {
+        // A start still looking up the session's tasks would otherwise begin after this stop.
+        IosTransferControl.suppress(item.id)
         IosForegroundDownloads.cancel(item.id)
         IosBackgroundDownloadCoordinator.cancelDownload(item.id)
     }

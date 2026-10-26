@@ -30,7 +30,7 @@ class PlaybackCapRestartTest {
                 val demoted = queue.shrinkTo(cap)
                 downloading -= demoted.toSet()
                 // Like iOS, a deliberate stop sends no callback: nothing else clears the handle.
-                handles.stopDemotedTransfers(demoted) { stopped += it }
+                handles.stopDemotedTransfers(demoted) { id, _ -> stopped += id }
             } else {
                 applyStarts(queue.promote(thermalBlocksNextFile = false))
             }
