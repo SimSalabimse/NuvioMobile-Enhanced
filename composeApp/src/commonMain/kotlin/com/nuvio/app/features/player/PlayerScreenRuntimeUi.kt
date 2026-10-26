@@ -503,12 +503,12 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
             onSubtitleClick = if (!isLiveTvPlayback) {
                 {
                     refreshTracks()
-                    showSubtitleModal = true
+                    showPlayerTool(PlayerTool.Subtitles)
                 }
             } else null,
             onAudioClick = {
                 refreshTracks()
-                showAudioModal = true
+                showPlayerTool(PlayerTool.Audio)
             },
             onCastClick = if (playbackSnapshot.castAvailable || playbackSnapshot.castDeviceName != null) {
                 { playerController?.showCastDialog() }
@@ -547,7 +547,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
                         "mediaInfoChars=${playbackSnapshot.mediaInfoJson.length} " +
                         "source=${InAppLogger.redactUrl(activePlaybackSourceUrl ?: activeSourceUrl)}",
                 )
-                showStreamInfoModal = true
+                showPlayerTool(PlayerTool.Info)
             },
             onRateClick = if (canRate) {
                 { showUserRatingSheet = true }
@@ -555,8 +555,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
             userRating = userRating,
             onVideoSettingsClick = if (isIos) {
                 {
-                    showVideoSettingsModal = true
-                    controlsVisible = true
+                    showPlayerTool(PlayerTool.Video)
                 }
             } else {
                 null
@@ -578,7 +577,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
             } else null,
             onLiveChannelsClick = if (isLiveTvPlayback) {
                 {
-                    showLiveChannelsPanel = true
+                    showPlayerTool(PlayerTool.Live)
                 }
             } else null,
             qualityLabel = playerQualityControlLabel(),
@@ -626,7 +625,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
                         "isSeries=$isSeries s=${activeSeasonNumber ?: 0} e=${activeEpisodeNumber ?: 0} " +
                         "positionMs=${playbackClock.positionMs}",
                 )
-                showSubmitIntroModal = true
+                showPlayerTool(PlayerTool.Submit)
             },
             onSwitchEngineClick = if (playerController?.playbackEngine != null) {
                 { showSwitchEngineConfirm = true }
@@ -823,13 +822,7 @@ private fun BoxScope.RenderPlaybackOverlays(
 }
 
 private fun PlayerScreenRuntime.openChaptersPanel() {
-    showChaptersPanel = true
-    showSourcesPanel = false
-    showQualityPanel = false
-    showSpeedPanel = false
-    showEpisodesPanel = false
-    showLiveChannelsPanel = false
-    controlsVisible = false
+    showPlayerTool(PlayerTool.Chapters)
 }
 
 private fun PlayerScreenRuntime.openQualityPanel() {
@@ -839,10 +832,7 @@ private fun PlayerScreenRuntime.openQualityPanel() {
             "variants=${playerQualityState.variants.size} loading=${playerQualityState.isLoading} " +
             "actual=${playbackSnapshot.videoWidth ?: 0}x${playbackSnapshot.videoHeight ?: 0}",
     )
-    showQualityPanel = true
-    showSourcesPanel = false
-    showEpisodesPanel = false
-    controlsVisible = false
+    showPlayerTool(PlayerTool.Quality)
 }
 
 private fun PlayerScreenRuntime.playerQualityControlLabel(): String {

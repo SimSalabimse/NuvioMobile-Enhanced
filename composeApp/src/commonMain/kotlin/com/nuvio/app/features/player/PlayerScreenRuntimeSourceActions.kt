@@ -627,7 +627,7 @@ internal fun PlayerScreenRuntime.playNextEpisode(automatic: Boolean = false) {
                     showStreams = true,
                     selectedEpisode = nextVideo,
                 )
-                showEpisodesPanel = true
+                showPlayerTool(PlayerTool.Episodes)
             }
         },
         onSearchingChanged = {
@@ -659,10 +659,7 @@ internal fun PlayerScreenRuntime.openSourcesPanel() {
         season = activeSeasonNumber,
         episode = activeEpisodeNumber,
     )
-    showSourcesPanel = true
-    showEpisodesPanel = false
-    showLiveChannelsPanel = false
-    controlsVisible = false
+    showPlayerTool(PlayerTool.Sources)
 }
 
 internal fun PlayerScreenRuntime.openEpisodesPanel() {
@@ -673,10 +670,7 @@ internal fun PlayerScreenRuntime.openEpisodesPanel() {
     if (playerMetaVideos.isEmpty() && !episodesLoading) {
         loadPlayerEpisodes(bypassCache = false)
     }
-    showEpisodesPanel = true
-    showSourcesPanel = false
-    showLiveChannelsPanel = false
-    controlsVisible = false
+    showPlayerTool(PlayerTool.Episodes)
 }
 
 internal fun PlayerScreenRuntime.retryEpisodesLoad() {

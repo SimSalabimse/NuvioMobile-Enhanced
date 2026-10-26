@@ -1,21 +1,13 @@
 package com.nuvio.app.features.player
 
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamsUiState
 import nuvio.composeapp.generated.resources.Res
-import nuvio.composeapp.generated.resources.action_close
 import nuvio.composeapp.generated.resources.compose_player_episode_code_full
 import nuvio.composeapp.generated.resources.compose_player_panel_sources
 import nuvio.composeapp.generated.resources.compose_player_playing
@@ -37,7 +29,6 @@ fun PlayerSourcesPanel(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val tokens = MaterialTheme.nuvio
     val contentLabel = if (currentSeason != null && currentEpisode != null) {
         buildString {
             append(stringResource(Res.string.compose_player_episode_code_full, currentSeason, currentEpisode))
@@ -50,54 +41,29 @@ fun PlayerSourcesPanel(
         contentTitle
     }
 
-    PlayerSidePanel(
+    PlayerToolPanel(
         visible = visible,
+        title = stringResource(Res.string.compose_player_panel_sources),
+        subtitle = contentLabel,
         onDismiss = onDismiss,
         modifier = modifier,
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-        ) {
-            PlayerPanelHeader(
-                title = stringResource(Res.string.compose_player_panel_sources),
-            ) {
-                PlayerDialogButton(
-                    label = stringResource(Res.string.action_close),
-                    onClick = onDismiss,
-                )
-            }
+        PlayerProviderFilterRow(
+            streamsUiState = streamsUiState,
+            onFilterSelected = onFilterSelected,
+            onRefresh = onReload,
+        )
 
-            Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(12.dp))
 
-            Text(
-                text = contentLabel,
-                color = tokens.colors.textSecondary,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-
-            Spacer(Modifier.height(16.dp))
-
-            PlayerProviderFilterRow(
-                streamsUiState = streamsUiState,
-                onFilterSelected = onFilterSelected,
-                onRefresh = onReload,
-            )
-
-            Spacer(Modifier.height(16.dp))
-
-            PlayerStreamList(
-                streamsUiState = streamsUiState,
-                onStreamSelected = onStreamSelected,
-                modifier = Modifier.weight(1f),
-                currentStreamUrl = currentStreamUrl,
-                currentStreamName = currentStreamName,
-                currentLabel = stringResource(Res.string.compose_player_playing),
-            )
-        }
+        PlayerStreamList(
+            streamsUiState = streamsUiState,
+            onStreamSelected = onStreamSelected,
+            modifier = Modifier.weight(1f),
+            currentStreamUrl = currentStreamUrl,
+            currentStreamName = currentStreamName,
+            currentLabel = stringResource(Res.string.compose_player_playing),
+        )
     }
 }
 

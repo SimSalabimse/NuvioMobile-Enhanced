@@ -324,3 +324,51 @@ internal class PlayerScreenRuntime(
     var lastResetPlaybackIdentity: PlaybackKey? = null
     var lastResetVideoIdentity: String? = null
 }
+
+/** Player tools that share the right-hand panel. Only one is open at a time. */
+internal enum class PlayerTool {
+    Audio,
+    Subtitles,
+    Video,
+    Info,
+    Sources,
+    Quality,
+    Episodes,
+    Chapters,
+    Live,
+    Submit,
+    Party,
+}
+
+internal fun PlayerScreenRuntime.closePlayerTools() {
+    showAudioModal = false
+    showSubtitleModal = false
+    showVideoSettingsModal = false
+    showStreamInfoModal = false
+    showSourcesPanel = false
+    showQualityPanel = false
+    showSpeedPanel = false
+    showEpisodesPanel = false
+    showChaptersPanel = false
+    showLiveChannelsPanel = false
+    showSubmitIntroModal = false
+    showPartyPanel = false
+}
+
+internal fun PlayerScreenRuntime.showPlayerTool(tool: PlayerTool) {
+    closePlayerTools()
+    when (tool) {
+        PlayerTool.Audio -> showAudioModal = true
+        PlayerTool.Subtitles -> showSubtitleModal = true
+        PlayerTool.Video -> showVideoSettingsModal = true
+        PlayerTool.Info -> showStreamInfoModal = true
+        PlayerTool.Sources -> showSourcesPanel = true
+        PlayerTool.Quality -> showQualityPanel = true
+        PlayerTool.Episodes -> showEpisodesPanel = true
+        PlayerTool.Chapters -> showChaptersPanel = true
+        PlayerTool.Live -> showLiveChannelsPanel = true
+        PlayerTool.Submit -> showSubmitIntroModal = true
+        PlayerTool.Party -> showPartyPanel = true
+    }
+    controlsVisible = false
+}

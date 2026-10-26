@@ -1,45 +1,21 @@
 package com.nuvio.app.features.player
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvio
-import nuvio.composeapp.generated.resources.Res
-import nuvio.composeapp.generated.resources.action_close
-import org.jetbrains.compose.resources.stringResource
-import com.nuvio.app.core.ui.glass.ambientLiquidGlass
-import androidx.compose.ui.unit.dp
 
 @Composable
 internal fun PlayerQualityPanel(
@@ -53,70 +29,12 @@ internal fun PlayerQualityPanel(
 ) {
     val tokens = MaterialTheme.nuvio
 
-    AnimatedVisibility(
+    PlayerToolPanel(
         visible = visible,
-        enter = fadeIn(tween(NuvioTokens.Motion.normalMillis)),
-        exit = fadeOut(tween(NuvioTokens.Motion.normalMillis)),
+        title = "Quality",
+        onDismiss = onDismiss,
+        modifier = modifier,
     ) {
-        Box(
-            modifier = modifier
-                .fillMaxSize()
-                .clickable(
-                    indication = null,
-                    interactionSource = remember { MutableInteractionSource() },
-                    onClick = onDismiss,
-                )
-                .background(tokens.colors.overlayScrim.copy(alpha = tokens.opacity.medium)),
-            contentAlignment = Alignment.Center,
-        ) {
-            AnimatedVisibility(
-                visible = visible,
-                enter = slideInVertically(tween(NuvioTokens.Motion.sheetEnterMillis)) { it / 3 } +
-                    fadeIn(tween(NuvioTokens.Motion.sheetEnterMillis)),
-                exit = slideOutVertically(tween(NuvioTokens.Motion.sheetExitMillis)) { it / 3 } +
-                    fadeOut(tween(NuvioTokens.Motion.sheetExitMillis)),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .widthIn(max = tokens.components.playerPanelMaxWidth)
-                        .fillMaxWidth(0.92f)
-                        .heightIn(max = tokens.components.dialogMaxWidth)
-                        .clip(tokens.shapes.playerPanel)
-                        .ambientLiquidGlass(
-                            shape = tokens.shapes.playerPanel,
-                            tint = tokens.colors.surfaceSheet.copy(alpha = tokens.colors.surfaceSheet.alpha * 0.72f),
-                            fallback = tokens.colors.surfaceSheet,
-                            blurRadius = 28.dp,
-                            refractionHeight = 10.dp,
-                            refractionAmount = 18.dp,
-                        )
-                        .border(tokens.borders.thin, tokens.colors.borderDefault, tokens.shapes.playerPanel)
-                        .clickable(
-                            indication = null,
-                            interactionSource = remember { MutableInteractionSource() },
-                            onClick = {},
-                        ),
-                ) {
-                    Column {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = tokens.spacing.sheetPadding, vertical = tokens.spacing.cardPadding),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = "Quality",
-                                color = tokens.colors.textPrimary,
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            PlayerDialogButton(
-                                label = stringResource(Res.string.action_close),
-                                onClick = onDismiss,
-                            )
-                        }
-
                         when {
                             state.isLoading -> {
                                 Box(
@@ -163,7 +81,7 @@ internal fun PlayerQualityPanel(
 
                             else -> {
                                 LazyColumn(
-                                    modifier = Modifier.padding(horizontal = tokens.spacing.cardPadding),
+                                    modifier = Modifier.weight(1f),
                                     verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s6),
                                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
                                         bottom = tokens.spacing.cardPadding,
@@ -193,10 +111,6 @@ internal fun PlayerQualityPanel(
                                 }
                             }
                         }
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -209,45 +123,12 @@ private fun QualityOptionRow(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    val tokens = MaterialTheme.nuvio
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(tokens.shapes.compactCard)
-            .background(if (isSelected) tokens.colors.overlaySelected else tokens.colors.surfacePopover)
-            .border(
-                tokens.borders.thin,
-                if (isSelected) tokens.colors.borderSelected else tokens.colors.borderSubtle,
-                tokens.shapes.compactCard,
-            )
-            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = NuvioTokens.Space.s14, vertical = NuvioTokens.Space.s12),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                color = tokens.colors.textPrimary,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-            )
-            if (subtitle.isNotBlank()) {
-                Text(
-                    text = subtitle,
-                    color = if (hasWarning) tokens.colors.danger else tokens.colors.textMuted,
-                    style = MaterialTheme.typography.labelMedium,
-                )
-            }
-        }
-        if (isSelected) {
-            Spacer(modifier = Modifier.width(NuvioTokens.Space.s10))
-            Text(
-                text = "Selected",
-                color = tokens.colors.accent,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-        }
-    }
+    PlayerToolRow(
+        label = title,
+        supporting = subtitle.takeIf { it.isNotBlank() },
+        supportingColor = if (hasWarning) MaterialTheme.nuvio.colors.danger else null,
+        selected = isSelected,
+        enabled = enabled,
+        onClick = onClick,
+    )
 }
