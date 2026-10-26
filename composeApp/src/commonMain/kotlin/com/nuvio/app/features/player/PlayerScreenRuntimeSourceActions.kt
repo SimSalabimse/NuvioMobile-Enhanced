@@ -692,8 +692,8 @@ private fun PlayerScreenRuntime.loadPlayerEpisodes(bypassCache: Boolean) {
     val requestType = parentMetaType
     val requestId = parentMetaId
     episodesLoadJob = scope.launch {
-        val meta = try {
-            MetaDetailsRepository.fetch(
+        val report = try {
+            MetaDetailsRepository.fetchReporting(
                 type = requestType,
                 id = requestId,
                 useCache = !bypassCache,
@@ -705,6 +705,18 @@ private fun PlayerScreenRuntime.loadPlayerEpisodes(bypassCache: Boolean) {
         }
         if (generation != episodesLoadGeneration) return@launch
         if (requestType != parentMetaType || requestId != parentMetaId) return@launch
+        val meta = report?.meta
+        if (report == null || !report.episodesComplete) {
+            episodesLoading = false
+            episodesLoadFailed = playerMetaVideos.isEmpty()
+            episodesEmptyNeedsRetry = false
+            InAppLogger.info(
+                "Player/Episodes",
+                "episodes incomplete parentType=$requestType parentId=$requestId count=${playerMetaVideos.size} " +
+                    "failed=$episodesLoadFailed bypassCache=$bypassCache",
+            )
+            return@launch
+        }
         val videos = meta?.videos.orEmpty()
         playerMetaVideos = mergePlayerEpisodes(playerMetaVideos, videos)
         if (meta != null && (videos.isNotEmpty() || playerMeta == null)) playerMeta = meta

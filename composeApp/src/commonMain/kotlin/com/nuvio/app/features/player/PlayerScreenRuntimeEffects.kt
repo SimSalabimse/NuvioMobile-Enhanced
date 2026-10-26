@@ -71,7 +71,9 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         playerMeta = peeked
         playerMetaVideos = peeked?.videos.orEmpty()
         if (playerMetaVideos.isEmpty()) {
-            MetaDetailsRepository.fetch(parentMetaType, parentMetaId)?.let { meta ->
+            val report = MetaDetailsRepository.fetchReporting(parentMetaType, parentMetaId)
+            val meta = report.meta
+            if (report.episodesComplete && meta != null) {
                 playerMetaVideos = mergePlayerEpisodes(playerMetaVideos, meta.videos)
                 if (meta.videos.isNotEmpty() || playerMeta == null) playerMeta = meta
             }

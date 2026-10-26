@@ -110,6 +110,53 @@ class TmdbMetadataServiceTest {
     }
 
     @Test
+    fun `details seasons include specials and keep array order`() {
+        assertEquals(listOf(0, 1, 2), tmdbSeasonNumbersFromDetails(listOf(0, 1, 2)))
+        assertEquals(listOf(0, 2, 1), tmdbSeasonNumbersFromDetails(listOf(0, 2, null, 1, 2)))
+    }
+
+    @Test
+    fun `season fetches run a few at a time`() {
+        assertEquals(
+            listOf(listOf(0, 1, 2, 3), listOf(4, 5, 6, 7), listOf(8, 9)),
+            seasonFetchWaves((0..9).toList(), concurrency = 4),
+        )
+    }
+
+    @Test
+    fun `a failed season is not cached and a later fetch asks again`() {
+        val batch = combineSeasonResults(
+            requested = listOf(0, 1, 2),
+            results = mapOf(
+                0 to mapOf((0 to 1) to TmdbEpisodeEnrichment(title = "Special")),
+                1 to null,
+                2 to mapOf((2 to 1) to TmdbEpisodeEnrichment(title = "Two")),
+            ),
+        )
+        assertEquals(setOf(1), batch.failedSeasons)
+        assertFalse(batch.complete)
+        assertFalse(shouldCacheSeasonBatch(batch))
+        val cached = if (shouldCacheSeasonBatch(batch)) setOf(0, 2) else emptySet()
+        assertEquals(listOf(0, 1, 2), seasonsToRequest(listOf(0, 1, 2), cached, bypassCache = false))
+        assertEquals(listOf(0, 1, 2), seasonsToRequest(listOf(0, 1, 2), setOf(0, 1, 2), bypassCache = true))
+        assertEquals(listOf(1), seasonsToRequest(listOf(0, 1, 2), setOf(0, 2), bypassCache = false))
+    }
+
+    @Test
+    fun `standalone episodes stay ordered by season then episode`() {
+        val videos = TmdbMetadataService.metaVideosFromTmdbEpisodes(
+            "tmdb:7",
+            mapOf(
+                (2 to 1) to TmdbEpisodeEnrichment(title = "Later"),
+                (0 to 2) to TmdbEpisodeEnrichment(title = "Special 2"),
+                (0 to 1) to TmdbEpisodeEnrichment(title = "Special 1"),
+                (1 to 1) to TmdbEpisodeEnrichment(title = "Premiere"),
+            ),
+        )
+        assertEquals(listOf(0 to 1, 0 to 2, 1 to 1, 2 to 1), videos.map { it.season to it.episode })
+    }
+
+    @Test
     fun `applyEnrichment replaces enabled metadata groups`() {
         val base = MetaDetails(
             id = "tt1234567",

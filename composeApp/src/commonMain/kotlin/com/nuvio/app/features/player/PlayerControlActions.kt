@@ -73,6 +73,19 @@ internal fun playerOrientationToggleIcon(isPortraitPlayback: Boolean): ImageVect
 internal fun playerOrientationToggleLabel(isPortraitPlayback: Boolean): StringResource =
     if (isPortraitPlayback) Res.string.player_action_rotate_landscape else Res.string.player_action_rotate_portrait
 
+internal enum class PlayerFlagHome {
+    TopPill,
+    LegacyHeader,
+    Hidden,
+}
+
+/** One Flag per layout: the legacy header, or the new top pill. */
+internal fun playerFlagHome(useLegacyLayout: Boolean, submitAvailable: Boolean): PlayerFlagHome = when {
+    !submitAvailable -> PlayerFlagHome.Hidden
+    useLegacyLayout -> PlayerFlagHome.LegacyHeader
+    else -> PlayerFlagHome.TopPill
+}
+
 internal enum class PlayerToolbarSlot {
     Download,
     PictureInPicture,

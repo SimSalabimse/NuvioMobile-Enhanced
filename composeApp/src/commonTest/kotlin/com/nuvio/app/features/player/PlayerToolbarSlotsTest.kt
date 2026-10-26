@@ -3,6 +3,7 @@ package com.nuvio.app.features.player
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class PlayerToolbarSlotsTest {
     @Test
@@ -55,5 +56,19 @@ class PlayerToolbarSlotsTest {
         )
         assertFalse(PlayerToolbarSlot.Flag in slots)
         assertEquals(PlayerToolbarSlot.Lock, slots.last())
+    }
+
+    @Test
+    fun `each layout has exactly one flag home`() {
+        assertEquals(PlayerFlagHome.LegacyHeader, playerFlagHome(useLegacyLayout = true, submitAvailable = true))
+        assertEquals(PlayerFlagHome.TopPill, playerFlagHome(useLegacyLayout = false, submitAvailable = true))
+        assertEquals(PlayerFlagHome.Hidden, playerFlagHome(useLegacyLayout = true, submitAvailable = false))
+        assertEquals(PlayerFlagHome.Hidden, playerFlagHome(useLegacyLayout = false, submitAvailable = false))
+        assertTrue(
+            listOf(
+                playerFlagHome(useLegacyLayout = true, submitAvailable = true),
+                playerFlagHome(useLegacyLayout = false, submitAvailable = true),
+            ).distinct().size == 2,
+        )
     }
 }

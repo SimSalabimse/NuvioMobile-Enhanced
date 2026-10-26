@@ -46,11 +46,21 @@ import kotlinx.coroutines.withTimeoutOrNull
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 
+internal data class MetaFetch(
+    val meta: MetaDetails?,
+    val episodesComplete: Boolean = true,
+)
+
 object MetaDetailsRepository {
     private data class CachedMetaEntry(
         val baseMeta: MetaDetails,
         val metaScreenMeta: MetaDetails? = null,
         val metaScreenSettingsFingerprint: String? = null,
+    )
+
+    private data class TmdbFallbackMeta(
+        val meta: MetaDetails,
+        val episodesComplete: Boolean,
     )
 
     private val log = Logger.withTag("MetaDetailsRepo")
@@ -143,9 +153,9 @@ object MetaDetailsRepository {
             if (manifests.isEmpty()) {
                 val tmdbMeta = tryFetchTmdbFallbackMeta(type = type, id = id)
                 if (tmdbMeta != null) {
-                    publishLoadedMeta(
+                    publishTmdbFallback(
                         requestKey = requestKey,
-                        meta = tmdbMeta,
+                        fallback = tmdbMeta,
                         fallbackItemId = id,
                         fallbackItemType = type,
                         mdbListSettings = mdbListSettings,
@@ -182,9 +192,9 @@ object MetaDetailsRepository {
 
             val tmdbMeta = tryFetchTmdbFallbackMeta(type = type, id = id)
             if (tmdbMeta != null) {
-                publishLoadedMeta(
+                publishTmdbFallback(
                     requestKey = requestKey,
-                    meta = tmdbMeta,
+                    fallback = tmdbMeta,
                     fallbackItemId = id,
                     fallbackItemType = type,
                     mdbListSettings = mdbListSettings,
@@ -229,8 +239,14 @@ object MetaDetailsRepository {
     /**
      * A TMDB series fallback with no episodes must not be cached: a later open would
      * keep reading that empty list. Movies have no episode list, so they still cache.
+     * A show with any failed season is not cached either, even when some episodes arrived.
      */
-    internal fun shouldCacheFetchedStandaloneMeta(type: String, videoCount: Int): Boolean {
+    internal fun shouldCacheFetchedStandaloneMeta(
+        type: String,
+        videoCount: Int,
+        seasonsComplete: Boolean = true,
+    ): Boolean {
+        if (!seasonsComplete) return false
         val normalized = type.trim().lowercase()
         val series = normalized == "series" || normalized == "tv" || normalized == "show" || normalized == "tvshow"
         return videoCount > 0 || !series
@@ -241,16 +257,25 @@ object MetaDetailsRepository {
         id: String,
         cacheResult: Boolean = true,
         useCache: Boolean = true,
-    ): MetaDetails? {
+    ): MetaDetails? = fetchReporting(type, id, cacheResult, useCache).meta
+
+    internal suspend fun fetchReporting(
+        type: String,
+        id: String,
+        cacheResult: Boolean = true,
+        useCache: Boolean = true,
+    ): MetaFetch {
         val requestKey = "$type:$id"
         if (useCache) {
-            cachedMetaByRequestKey[requestKey]?.let { return it.baseMeta }
+            cachedMetaByRequestKey[requestKey]?.let { return MetaFetch(it.baseMeta) }
         }
         ServerItemRef.parse(id)?.let { ref ->
-            return runCatching { ServerCatalog.details(ref).meta }
-                .onFailure { if (it is CancellationException) throw it }
-                .getOrNull()
-                ?.also { if (cacheResult) cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = it) }
+            return MetaFetch(
+                runCatching { ServerCatalog.details(ref).meta }
+                    .onFailure { if (it is CancellationException) throw it }
+                    .getOrNull()
+                    ?.also { if (cacheResult) cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = it) },
+            )
         }
 
         val metaLookupId = resolveMetaLookupId(itemId = id, itemType = type)
@@ -264,15 +289,27 @@ object MetaDetailsRepository {
                 if (cacheResult) {
                     cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = result)
                 }
-                return result
+                return MetaFetch(result)
             }
         }
 
-        return tryFetchTmdbFallbackMeta(type = type, id = id)?.also { result ->
-            if (cacheResult && shouldCacheFetchedStandaloneMeta(result.type.ifBlank { type }, result.videos.size)) {
-                cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = result)
-            }
+        val fallback = tryFetchTmdbFallbackMeta(
+            type = type,
+            id = id,
+            bypassSeasonCache = !useCache,
+        )
+        if (
+            fallback != null &&
+            cacheResult &&
+            shouldCacheFetchedStandaloneMeta(
+                type = fallback.meta.type.ifBlank { type },
+                videoCount = fallback.meta.videos.size,
+                seasonsComplete = fallback.episodesComplete,
+            )
+        ) {
+            cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = fallback.meta)
         }
+        return MetaFetch(fallback?.meta, episodesComplete = fallback?.episodesComplete ?: true)
     }
 
     private val backgroundBackoffUntilByHost = mutableMapOf<String, Long>()
@@ -282,6 +319,7 @@ object MetaDetailsRepository {
         val manifests = findReadyMetaManifests(type = type, id = metaLookupId)
         if (manifests.isEmpty()) {
             return tryFetchTmdbFallbackMeta(type = type, id = id)
+                ?.meta
                 ?.let { meta -> MetaLookupOutcome.Loaded(meta) }
                 ?: MetaLookupOutcome.Unavailable
         }
@@ -499,21 +537,55 @@ object MetaDetailsRepository {
         return resolved
     }
 
-    private suspend fun tryFetchTmdbFallbackMeta(type: String, id: String): MetaDetails? {
-        InAppLogger.info("Metadata/TMDB", "Fetching standalone fallback meta type=$type id=$id")
+    private suspend fun tryFetchTmdbFallbackMeta(
+        type: String,
+        id: String,
+        bypassSeasonCache: Boolean = false,
+    ): TmdbFallbackMeta? {
+        InAppLogger.info("Metadata/TMDB", "Fetching standalone fallback meta type=$type id=$id bypassSeasonCache=$bypassSeasonCache")
         val result = withTimeoutOrNull(TMDB_ENRICH_TIMEOUT_MS) {
-            TmdbMetadataService.fetchStandaloneMeta(
+            TmdbMetadataService.loadStandaloneMeta(
                 type = type,
                 id = id,
                 settings = TmdbSettingsRepository.snapshot(),
+                bypassSeasonCache = bypassSeasonCache,
             )
         }
         if (result == null) {
             InAppLogger.warn("Metadata/TMDB", "Standalone fallback returned empty type=$type id=$id")
         } else {
-            InAppLogger.info("Metadata/TMDB", "Standalone fallback loaded type=${result.type} id=${result.id} name=${result.name}")
+            InAppLogger.info(
+                "Metadata/TMDB",
+                "Standalone fallback loaded type=${result.meta.type} id=${result.meta.id} name=${result.meta.name} " +
+                    "episodes=${result.meta.videos.size} complete=${result.episodesComplete}",
+            )
         }
-        return result
+        return result?.let { TmdbFallbackMeta(it.meta, it.episodesComplete) }
+    }
+
+    private suspend fun publishTmdbFallback(
+        requestKey: String,
+        fallback: TmdbFallbackMeta,
+        fallbackItemId: String,
+        fallbackItemType: String,
+        mdbListSettings: com.nuvio.app.features.mdblist.MdbListSettings,
+        metaScreenSettingsFingerprint: String,
+    ) {
+        if (!fallback.episodesComplete) {
+            _uiState.value = MetaDetailsUiState(
+                meta = fallback.meta.copy(videos = emptyList()).withUnreleasedFilter(),
+            )
+            activeRequestKey = requestKey
+            return
+        }
+        publishLoadedMeta(
+            requestKey = requestKey,
+            meta = fallback.meta,
+            fallbackItemId = fallbackItemId,
+            fallbackItemType = fallbackItemType,
+            mdbListSettings = mdbListSettings,
+            metaScreenSettingsFingerprint = metaScreenSettingsFingerprint,
+        )
     }
 
     private suspend fun publishLoadedMeta(

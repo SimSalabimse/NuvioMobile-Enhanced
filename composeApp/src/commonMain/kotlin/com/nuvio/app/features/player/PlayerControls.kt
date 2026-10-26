@@ -31,6 +31,7 @@ import androidx.compose.material.icons.automirrored.rounded.ListAlt
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Forward30
 import androidx.compose.material.icons.rounded.Forward5
@@ -225,6 +226,10 @@ internal fun PlayerControlsShell(
         Box(
             modifier = Modifier.fillMaxSize(),
         ) {
+            val flagHome = playerFlagHome(
+                useLegacyLayout = useLegacyLayout,
+                submitAvailable = onSubmitIntroClick != null,
+            )
             if (useLegacyLayout) {
                 PlayerHeader(
                     title = title,
@@ -251,6 +256,7 @@ internal fun PlayerControlsShell(
                     onRateClick = onRateClick,
                     userRating = userRating,
                     onOpenInExternalPlayer = onOpenInExternalPlayer,
+                    onSubmitIntroClick = onSubmitIntroClick.takeIf { flagHome == PlayerFlagHome.LegacyHeader },
                     onPartyClick = onPartyClick,
                     partyActive = partyActive,
                     onSwitchEngineClick = onSwitchEngineClick,
@@ -267,7 +273,7 @@ internal fun PlayerControlsShell(
                         isLocked = isLocked,
                         onLockToggle = onLockToggle,
                         onBack = onBack,
-                        onSubmitIntroClick = onSubmitIntroClick,
+                        onSubmitIntroClick = onSubmitIntroClick.takeIf { flagHome == PlayerFlagHome.TopPill },
                         onCastClick = onCastClick,
                         isCasting = isCasting,
                         downloadAction = downloadAction,
@@ -478,6 +484,7 @@ private fun PlayerHeader(
     onRateClick: (() -> Unit)? = null,
     userRating: Int? = null,
     onOpenInExternalPlayer: (() -> Unit)?,
+    onSubmitIntroClick: (() -> Unit)? = null,
     onPartyClick: (() -> Unit)?,
     partyActive: Boolean,
     onSwitchEngineClick: (() -> Unit)? = null,
@@ -588,6 +595,15 @@ private fun PlayerHeader(
                             buttonSize = metrics.headerIconSize + 16.dp,
                             iconSize = metrics.headerIconSize,
                             onClick = onOpenInExternalPlayer,
+                        )
+                    }
+                    if (onSubmitIntroClick != null) {
+                        PlayerHeaderIconButton(
+                            icon = Icons.Rounded.Flag,
+                            contentDescription = stringResource(Res.string.submit_intro_action),
+                            buttonSize = metrics.headerIconSize + 16.dp,
+                            iconSize = metrics.headerIconSize,
+                            onClick = onSubmitIntroClick,
                         )
                     }
                     if (onSwitchEngineClick != null) {

@@ -20,4 +20,15 @@ class TmdbStandaloneMetaCacheTest {
     fun `a movie fallback is cached even though it has no episode list`() {
         assertTrue(MetaDetailsRepository.shouldCacheFetchedStandaloneMeta(type = "movie", videoCount = 0))
     }
+
+    @Test
+    fun `a series fallback is not cached when any season failed`() {
+        assertFalse(
+            MetaDetailsRepository.shouldCacheFetchedStandaloneMeta(
+                type = "series",
+                videoCount = 10,
+                seasonsComplete = false,
+            ),
+        )
+    }
 }
