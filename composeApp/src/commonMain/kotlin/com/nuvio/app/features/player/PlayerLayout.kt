@@ -130,6 +130,22 @@ internal fun playerHorizontalSafePadding(): Dp {
     return if (left > right) left else right
 }
 
+/**
+ * Start offset for player text. A safe inset replaces the flat padding instead of
+ * stacking on it. The system inset is wider than the visible island, so it is
+ * pulled back slightly, but not inside the island.
+ */
+internal val PlayerTextInsetTrim = 7.dp
+internal val PlayerTextIslandClearance = 52.dp
+
+internal fun playerTextStartPadding(flatPadding: Dp, safeInset: Dp): Dp {
+    if (safeInset <= 0.dp) return flatPadding
+    val replaced = if (safeInset > flatPadding) safeInset else flatPadding
+    if (replaced <= PlayerTextIslandClearance) return replaced
+    val trimmed = replaced - PlayerTextInsetTrim
+    return if (trimmed < PlayerTextIslandClearance) PlayerTextIslandClearance else trimmed
+}
+
 @Composable
 internal fun playerToolbarTopInsets(metrics: PlayerLayoutMetrics): WindowInsets {
     val safeInsets = WindowInsets.displayCutout.union(WindowInsets.statusBars).only(WindowInsetsSides.Top)

@@ -190,6 +190,8 @@ internal fun PlayerControlsShell(
             metrics.centerLift,
             timelineHeight * 2 + centerControlHeight + 16.dp - maxHeight,
         )
+        val textStart = playerTextStartPadding(metrics.horizontalPadding, horizontalSafePadding)
+        val textStartExtra = textStart - metrics.horizontalPadding
         PlayerChromeBackdrop(
             modifier = Modifier
                 .fillMaxWidth()
@@ -285,7 +287,10 @@ internal fun PlayerControlsShell(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .windowInsetsPadding(playerToolbarTopInsets(metrics))
-                            .padding(horizontal = metrics.horizontalPadding + horizontalSafePadding),
+                            .padding(
+                                start = metrics.horizontalPadding + horizontalSafePadding,
+                                end = metrics.horizontalPadding,
+                            ),
                     )
                 }
                 ParentalGuideOverlay(
@@ -293,8 +298,10 @@ internal fun PlayerControlsShell(
                     isVisible = showParentalGuide,
                     onAnimationComplete = onParentalGuideAnimationComplete,
                     contentPadding = PaddingValues(
-                        horizontal = metrics.horizontalPadding + horizontalSafePadding,
-                        vertical = metrics.verticalPadding,
+                        start = textStart,
+                        top = metrics.verticalPadding,
+                        end = metrics.horizontalPadding,
+                        bottom = metrics.verticalPadding,
                     ),
                     modifier = Modifier.align(Alignment.TopStart),
                 )
@@ -379,13 +386,13 @@ internal fun PlayerControlsShell(
                             releaseInfo = releaseInfo,
                             metrics = metrics,
                             badges = badges,
-                            modifier = Modifier.padding(horizontal = horizontalSafePadding),
+                            modifier = Modifier.padding(start = textStartExtra),
                         )
                     }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = horizontalSafePadding),
+                            .padding(start = textStartExtra),
                         verticalAlignment = Alignment.Bottom,
                     ) {
                         Box(modifier = Modifier.weight(1f)) {
