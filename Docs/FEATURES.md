@@ -1,18 +1,23 @@
 # Nuvio Enhanced (mobile): features and settings
 
-Built from the code at build 195 (0.6.2.1). Each line shows the feature, where it is in the app, and the build or version it was added in when the changelog records it ("upstream" means it came from the base app). Settings pages are under the Settings tab.
+Built from the code at build 197 (0.6.4.1), which includes upstream 0.6.4-beta. Each line shows the feature, where it is in the app, and the build or version it was added in when the changelog records it ("upstream" means it came from the base app). Settings pages are under the Settings tab.
 
 ## Playback
 - Player with gestures (swipe to seek, hold for speed and a hold-speed value): Settings › Playback › Player / Touch Gestures. Upstream.
 - Playback engine and decoder (libmpv renderer, hardware decoding, YUV420P compatibility, DV7→HEVC fallback, audio passthrough, buffers, VOD disk cache): Settings › Playback › Decoder. Upstream.
 - iOS audio output and video output (hardware decoder, extended dynamic range, colour hints): Settings › Playback › iOS Audio/Video Output. Upstream.
 - Preferred and secondary audio and subtitle languages, strip SDH, forced subtitles, show only preferred languages, auto-show subtitles on rewind or mute: Settings › Playback › Subtitle and Audio. Upstream.
-- Subtitle rendering (size, offset, bold, colours, outline, libass): Settings › Playback › Subtitle Rendering. Upstream.
+- Subtitle rendering (size, offset, bold, colours, outline, shadow, libass on by default): Settings › Playback › Subtitle Rendering. Upstream; shadow and imported subtitle fonts in 0.6.4.1. An imported font is used for Latin subtitles; Chinese, Japanese and Korean keep the bundled face.
 - Audio and subtitle choices and playback speed remembered per show: automatic, in the player. 0.5.10.3.
 - Sleep timer: player › speed popup. 181.
 - Mini player (off by default): Settings › Playback › Mini Player. 0.5.10.1; default off in 190.
 - Private Viewing, Content Warnings, Pause Overlay, Loading Overlay, Movie Recommendations: Settings › Playback › Player. Upstream.
 - Playback debug readout (position, duration and every skip segment with its source): Settings › Playback. 190.
+- Skip backward and skip forward lengths: Settings › Playback. Upstream 0.6.4.
+- Tap the on-screen duration to switch between elapsed time and time left. The clock time the stream ends sits above the seek bar. Upstream 0.6.4.
+- Player badges for what is playing, and a choice of badge pack: player. Upstream 0.6.3–0.6.4.
+- Switch playback engine from the player, with a confirmation first. Upstream 0.6.3.
+- Player controls fade out instead of disappearing at once. Upstream 0.6.4.
 - External player app (sends subtitles and intro/outro times): Settings › Playback › Player. Upstream.
 - Seek bar thumbnails: Settings › Playback; downloads use on-device scrub previews. 0.5.10.2.
 - Auto-play next episode, binge group, preloading next-episode sources, threshold mode, and the up-next countdown: Settings › Playback › Next Episode. Upstream.
@@ -20,7 +25,7 @@ Built from the code at build 195 (0.6.2.1). Each line shows the feature, where i
 - Debrid not cached: every play and download entry point (Continue Watching menu, episode rows, show page, season sheet, Library, search, smart downloads, finish a series, sources list, player source switch, next episode, auto-play) goes through one shared fallback that tries the next good source (up to 3) and says which one it switched to. 193–194; all entry points since 195, checked by DebridSourceGuardTest.
 - Add to TorBox: when a source isn't cached and nothing else works, it can be added to TorBox (create torrent, not only-if-cached) to be ready later, from any play or download entry point (one app-wide prompt). 194; everywhere since 195.
 - P2P streaming (torrent profile, cache size, hide stats): Settings › Playback › P2P Streaming. Upstream.
-- Watch Party: Settings › Account › Watch party, nuvio:// party links. 173.
+- Watch Party: Settings › Account › Watch party, nuvio:// party links. 173. Party chat from the phone uses the same profile, and the party's source is shown as plain text. Upstream 0.6.3.
 - Subtitle Auto Sync (subtitles synced to the audio): Settings › Playback › Auto Sync Subtitle; for downloads, Settings › Downloads › Sync subtitles to audio. 0.5.10.1.
 - Reopening the app from a Live Activity closes the open player instead of leaving it playing hidden. 193.
 
@@ -68,13 +73,13 @@ Built from the code at build 195 (0.6.2.1). Each line shows the feature, where i
 - Library from Nuvio, Trakt, Simkl, MDBList, AniList, WeTrakr: Settings › Account › Tracking › Library Source. Upstream.
 - Horizontal shelves or vertical grid with section, type and sort filters: Library tab. Upstream.
 - **Random pick** (shuffle button on each shelf header, "Random" chip in grid view): Library tab. 193.
-- Release calendar: Library tab. Upstream.
+- Release calendar: Library tab. Upstream. The week starts on Monday. Upstream 0.6.4.
 - Cloud library (debrid/TorBox): Library tab, Settings › Debrid › Cloud library. Upstream.
 - Library lists editor: Library tab. Upstream.
 - Media servers library: Settings › Content & Discovery › Media servers. Upstream.
 
 ## Home
-- Hero section, trailers, catalogs, catalog type labels, hide unreleased: Settings › Layout › Home Layout. Upstream.
+- Hero section, trailers, catalogs, catalog type labels, hide unreleased: Settings › Layout › Home Layout. Upstream. The hero also shows ratings and the age rating. Upstream 0.6.4.
 - Continue Watching (show/hide, episode thumbnails, Next Up rules, sort order, resume prompt on launch, pause untouched items): Settings › Layout › Continue Watching. Upstream/enhanced.
 - Finish a series row: Settings › Layout › Continue Watching › Finish a series. 178.
 - Up Next Tonight: Home. 181.
@@ -88,16 +93,23 @@ Built from the code at build 195 (0.6.2.1). Each line shows the feature, where i
 - Search with recent searches: Search tab, Settings › Content & Discovery. Upstream.
 - Addons, plugins, media servers: Settings › Content & Discovery. Upstream.
 - TMDB enrichment modules, MDBList and OMDb ratings: Settings › Integrations. Upstream.
+- Rating map (colour-coded episode ratings) on show and anime pages: Settings › Layout. Upstream 0.6.4. OMDb season ratings are cached so a cancelled load can run again.
 - OMDb season ratings cache is locked against parallel season fetches, and a ratings failure keeps the details page with the data it has instead of crashing iOS: automatic.
 - Live TV (playlists, EPG): Settings › Integrations › Live TV. Upstream.
 
 ## Profiles, sync and the app
-- Profiles, Account, Nuvio Sync, Trakt, Simkl, MDBList, AniList, WeTrakr scrobbling: Settings › Account. Upstream.
+- Profiles, Account, Nuvio Sync, Trakt, Simkl, MDBList, AniList, WeTrakr scrobbling: Settings › Account. Upstream. The active profile is shown as a card with its avatar. Upstream 0.6.4.
+- In-app rating can be turned off per profile: Settings › Account › Tracking. Upstream 0.6.3.
+- Discord Rich Presence: Settings › Account. Upstream 0.6.3. The login page is Android; this build does not offer it on iOS.
+- iPad side bar (duo): when the system provides a vertical bar, Home, details, streams, library and the profile picker sit beside it. Upstream 0.6.4. The player turns that bar off.
 - Watch stats / profile insights: Settings › Profile. 0.5.10.2.
 - Episode release alerts: Settings › Notifications. Upstream.
 - Debrid (accounts, link preparation, result filters and formatting): Settings › Integrations › Connected Services. Upstream.
 - Appearance (themes, AMOLED, Liquid Glass tab bar, app icon, language, navigation bar, poster card style): Settings › Layout. Upstream.
 - What's New, check for updates, debug logs, Sentry crash reports: Settings › About / Advanced. Upstream/enhanced.
+- Backup export and import: Settings › Advanced. Upstream 0.6.4.
+- DNS over HTTPS: Settings › Advanced › Network. Upstream 0.6.4. Android only; iOS keeps the system DNS.
+- Performance (optimization switches and launch, playback and memory readouts): Settings › Advanced › Performance. 196.
 - Startup preload also runs on iOS (after the first home frame, off the main thread), so Settings › Performance shows a Startup preload time and Parallel startup applies: automatic.
 
 ## Parked / ideas
