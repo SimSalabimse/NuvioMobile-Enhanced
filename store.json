@@ -20,6 +20,16 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "0.6.4.1",
+          "buildVersion": "197",
+          "date": "2026-10-26T14:52:32Z",
+          "localizedDescription": "Unsigned sideload IPA 0.6.4.1 (197), sync/upstream-0.6.4 ad657a4c. Sign with SideStore, AltStore, or TrollStore. No Apple certificate is embedded.\n\nUpstream Nuvio 0.6.4-beta merged into Nuvio Enhanced (version 0.6.4.1, build 197).\n\nIncluded:\n- Upstream Nuvio 0.6.3 and 0.6.4-beta changes.\n- Nuvio Enhanced features unchanged.\n- Downloads keep progressing while the player is open.\n- Season download ETA.\n- \"Finished the show\" 90% rule.\n- Startup preload.\n- OMDb season ratings race fix.\n",
+          "downloadURL": "https://github.com/SimSalabimse/NuvioMobile-Enhanced/releases/download/sideload-0.6.4.1-ad657a4c/nuvio-0.6.4.1-full-release.ipa",
+          "size": 64680522,
+          "sha256": "b118ba2ba6ca9aae4d0d2c09e895eda2a82c4374bdc6cfd8260e3f9aac14ceb0",
+          "minOSVersion": "16.1"
+        },
+        {
           "version": "0.6.2.1",
           "buildVersion": "196",
           "date": "2026-10-23T00:52:40Z",
