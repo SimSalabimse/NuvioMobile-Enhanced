@@ -61,6 +61,7 @@ Built from the code at build 195 (0.6.2.1). Each line shows the feature, where i
 - Show download button, Download Location, Reset to Default: Settings › Downloads. Upstream.
 - Resume validation (same file and exact position, otherwise restart) and damaged-download check: automatic. 186.
 - Download Live Activity / Dynamic Island with progress and speed (iOS); tapping it opens Downloads: automatic. 0.5.9.1.
+- Season rows on Downloads: time left is never shorter than the slowest running episode (queued episodes add to it); with several episodes running the speed is labelled "total": Library › Downloads. Checked by SeasonEtaTest.
 - Downloads search, storage screen, offline artwork for downloaded items: Library › Downloads. 0.5.10.2.
 
 ## Library
@@ -78,6 +79,7 @@ Built from the code at build 195 (0.6.2.1). Each line shows the feature, where i
 - Finish a series row: Settings › Layout › Continue Watching › Finish a series. 178.
 - Up Next Tonight: Home. 181.
 - Continue Watching hold menu (details, play manually, start from beginning, download, auto-skip, Finish a series, remove): Home. Long labels wrap since 193.
+- A show counts as finished only once its last aired episode passes 90% of a known runtime (the player's end flag counts only when the runtime is unknown), so a half-watched last episode stays a resume: Continue Watching, details button, Library. Automatic.
 
 ## Details and discovery
 - Episode Shuffle (random episode): details page, Settings › Layout › Detail Page › Shuffle. 188.
@@ -86,6 +88,7 @@ Built from the code at build 195 (0.6.2.1). Each line shows the feature, where i
 - Search with recent searches: Search tab, Settings › Content & Discovery. Upstream.
 - Addons, plugins, media servers: Settings › Content & Discovery. Upstream.
 - TMDB enrichment modules, MDBList and OMDb ratings: Settings › Integrations. Upstream.
+- OMDb season ratings cache is locked against parallel season fetches, and a ratings failure keeps the details page with the data it has instead of crashing iOS: automatic.
 - Live TV (playlists, EPG): Settings › Integrations › Live TV. Upstream.
 
 ## Profiles, sync and the app
@@ -95,6 +98,7 @@ Built from the code at build 195 (0.6.2.1). Each line shows the feature, where i
 - Debrid (accounts, link preparation, result filters and formatting): Settings › Integrations › Connected Services. Upstream.
 - Appearance (themes, AMOLED, Liquid Glass tab bar, app icon, language, navigation bar, poster card style): Settings › Layout. Upstream.
 - What's New, check for updates, debug logs, Sentry crash reports: Settings › About / Advanced. Upstream/enhanced.
+- Startup preload also runs on iOS (after the first home frame, off the main thread), so Settings › Performance shows a Startup preload time and Parallel startup applies: automatic.
 
 ## Parked / ideas
 - Movie intro/credits detection: PARKED.
