@@ -98,6 +98,58 @@ class PartialFileEndTest {
     }
 
     @Test
+    fun finishedWhileWaitingAtTheDownloadedEndIsNotTheEnd() {
+        val playhead = partialFilePlayhead(
+            positionMs = reachMs,
+            isEnded = true,
+            isPlaying = false,
+            downloadFinished = true,
+            reachMs = durationMs,
+            lastPositionMs = reachMs,
+            durationMs = durationMs,
+        )
+
+        assertTrue(playhead.waitingForDownload, "a finish at 45% is not the end of the episode")
+        assertFalse(playhead.isEnded)
+        assertEquals(reachMs, playhead.positionMs)
+        assertTrue(partialEndCanResume(playhead.positionMs, durationMs, downloadFinished = true))
+        assertFalse(
+            partialEndCanResume(playhead.positionMs, durationMs, downloadFinished = true, finishedResumeAttempted = true),
+            "the resume seek does not repeat",
+        )
+    }
+
+    @Test
+    fun unknownSizeResumesOnceBytesGrowPastThePlayhead() {
+        val atWait = 500_000_000L
+        assertFalse(partialEndCanResume(reachMs, reachMs = null, downloadFinished = false, bytesOnDisk = atWait, bytesAtLastResume = atWait))
+        assertFalse(
+            partialEndCanResume(reachMs, reachMs = reachMs + 60_000L, downloadFinished = false, bytesOnDisk = atWait, bytesAtLastResume = atWait),
+            "no byte growth, so no retry",
+        )
+        assertTrue(partialEndCanResume(reachMs, reachMs = null, downloadFinished = false, bytesOnDisk = atWait + 4L * 1024 * 1024, bytesAtLastResume = atWait))
+        assertTrue(partialEndCanResume(reachMs, reachMs = reachMs + 60_000L, downloadFinished = false, bytesOnDisk = atWait + 1, bytesAtLastResume = atWait))
+    }
+
+    @Test
+    fun waitSaysWhyTheDownloadIsNotMoving() {
+        assertEquals("Download paused", partialDownloadWaitReason(DownloadStatus.Paused, null, pauseWhileWatching = false, wifiOnly = false, onWifi = true, thermalBlocks = false))
+        assertEquals("Download failed", partialDownloadWaitReason(DownloadStatus.Failed, null, false, false, true, false))
+        assertEquals("Not enough space", partialDownloadWaitReason(DownloadStatus.Paused, "Waiting for space (2 GB short)", false, false, true, false))
+        assertEquals("Waiting for Wi-Fi", partialDownloadWaitReason(DownloadStatus.Queued, null, false, wifiOnly = true, onWifi = false, false))
+        assertEquals("Paused while you watch (setting on)", partialDownloadWaitReason(DownloadStatus.Queued, null, pauseWhileWatching = true, false, true, false))
+        assertEquals(null, partialDownloadWaitReason(DownloadStatus.Downloading, null, true, false, true, false))
+    }
+
+    @Test
+    fun tapWhileWaitingPausesAndResumesTheDownload() {
+        assertEquals(PartialWaitToggle.Pause, partialWaitToggle(shouldPlay = true, status = DownloadStatus.Downloading))
+        assertEquals(PartialWaitToggle.ResumeDownloadAndPlay, partialWaitToggle(shouldPlay = false, status = DownloadStatus.Paused))
+        assertEquals(PartialWaitToggle.ResumeDownloadAndPlay, partialWaitToggle(shouldPlay = false, status = DownloadStatus.Failed))
+        assertEquals(PartialWaitToggle.Play, partialWaitToggle(shouldPlay = false, status = DownloadStatus.Queued))
+    }
+
+    @Test
     fun finishedDownloadEndsNormally() {
         val playhead = partialFilePlayhead(durationMs, isEnded = true, isPlaying = false, downloadFinished = true, reachMs = durationMs, lastPositionMs = durationMs)
 

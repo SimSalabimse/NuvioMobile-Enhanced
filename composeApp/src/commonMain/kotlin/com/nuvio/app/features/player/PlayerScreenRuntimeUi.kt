@@ -801,7 +801,7 @@ private fun BoxScope.RenderPlaybackOverlays(
                 flushWatchProgress()
                 args.onBack()
             },
-            httpRebufferHeadline = if (initialLoadCompleted) stallCopy?.headline else null,
+            httpRebufferHeadline = partialWaitReason ?: if (initialLoadCompleted) stallCopy?.headline else null,
             httpRebufferDetail = if (initialLoadCompleted) stallCopy?.detail else null,
         )
         if (!playerControlsLocked) RenderSkipFeedbackPrompt(runtime)

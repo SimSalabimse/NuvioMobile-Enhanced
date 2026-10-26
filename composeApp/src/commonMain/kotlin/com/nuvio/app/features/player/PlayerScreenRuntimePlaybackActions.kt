@@ -1,8 +1,13 @@
 package com.nuvio.app.features.player
 
 import com.nuvio.app.core.logging.InAppLogger
+import com.nuvio.app.features.downloads.DownloadNetworkGuard
 import com.nuvio.app.features.downloads.DownloadStatus
+import com.nuvio.app.features.downloads.DownloadThermalGate
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.PlaybackPriority
+import com.nuvio.app.features.downloads.SmartDownloadSettings
+import com.nuvio.app.features.downloads.partialDownloadWaitReason
 import com.nuvio.app.features.downloads.partialEndCanResume
 import com.nuvio.app.features.downloads.partialFilePlayhead
 import com.nuvio.app.features.downloads.partialPlaybackDownloadId
@@ -85,8 +90,8 @@ private fun PlayerScreenRuntime.heldToDownloadedPart(
     downloadId: String,
     reachMs: Long?,
 ): PlayerPlaybackSnapshot {
-    val finished = DownloadsRepository.uiState.value.items
-        .firstOrNull { it.id == downloadId }?.status == DownloadStatus.Completed
+    val item = DownloadsRepository.uiState.value.items.firstOrNull { it.id == downloadId }
+    val finished = item?.status == DownloadStatus.Completed
     val playhead = partialFilePlayhead(
         positionMs = snapshot.positionMs,
         isEnded = snapshot.isEnded,
@@ -94,6 +99,7 @@ private fun PlayerScreenRuntime.heldToDownloadedPart(
         downloadFinished = finished,
         reachMs = reachMs,
         lastPositionMs = playbackClock.positionMs,
+        durationMs = snapshot.durationMs,
     )
     if (snapshot.isEnded && !playhead.isEnded && playhead.positionMs != playbackClock.positionMs) {
         InAppLogger.warn(
@@ -102,19 +108,51 @@ private fun PlayerScreenRuntime.heldToDownloadedPart(
         )
     }
     if (!playhead.waitingForDownload) {
+        partialDownloadWaiting = false
+        partialWaitReason = null
+        partialWaitBytes = null
+        partialFinishedResumeDone = false
         return snapshot.copy(positionMs = playhead.positionMs, isEnded = playhead.isEnded)
     }
-    if (shouldPlay && partialEndCanResume(playhead.positionMs, reachMs, finished) &&
-        partialEndResumeMark.let { it == null || it.elapsedNow() >= PartialEndResumeInterval }
-    ) {
+    partialDownloadWaiting = true
+    val settings = SmartDownloadSettings.snapshot()
+    val reason = partialDownloadWaitReason(
+        status = item?.status,
+        errorMessage = item?.errorMessage,
+        pauseWhileWatching = settings.pauseDuringPlayback && PlaybackPriority.level != PlaybackPriority.Level.Normal,
+        wifiOnly = settings.onlyOnWifi,
+        onWifi = DownloadNetworkGuard.isOnWifi(),
+        thermalBlocks = DownloadThermalGate.blocksNextFile(),
+    )
+    partialWaitReason = reason
+    val bytes = DownloadsRepository.playableContiguousBytes(downloadId)
+    if (partialWaitBytes == null) partialWaitBytes = bytes
+    val canResume = shouldPlay && reason == null && partialEndCanResume(
+        positionMs = playhead.positionMs,
+        reachMs = reachMs,
+        downloadFinished = finished,
+        bytesOnDisk = bytes,
+        bytesAtLastResume = partialWaitBytes,
+        finishedResumeAttempted = partialFinishedResumeDone,
+    )
+    if (canResume && partialEndResumeMark.let { it == null || it.elapsedNow() >= PartialEndResumeInterval }) {
         partialEndResumeMark = TimeSource.Monotonic.markNow()
+        partialWaitBytes = bytes
+        if (finished) partialFinishedResumeDone = true
         InAppLogger.info("Player/PartialPlay", "download reaches ${reachMs}ms, playing on from ${playhead.positionMs}ms")
         noteSeek()
         playerController?.seekTo(playhead.positionMs)
         playerController?.play()
     }
-    // Buffering at the end of the bytes on disk: no ended state, so no Play next, no watched mark.
-    return snapshot.copy(positionMs = playhead.positionMs, isEnded = false, isLoading = true, isPlaying = false)
+    // Not an end: no Play next, no watched mark, no jump to the start. A download that is not
+    // moving shows its reason instead of spinning.
+    val spinning = reason == null && shouldPlay && !(finished && partialFinishedResumeDone)
+    return snapshot.copy(
+        positionMs = playhead.positionMs,
+        isEnded = false,
+        isLoading = spinning,
+        isPlaying = !spinning && shouldPlay,
+    )
 }
 
 private val PartialEndResumeInterval = 5.seconds

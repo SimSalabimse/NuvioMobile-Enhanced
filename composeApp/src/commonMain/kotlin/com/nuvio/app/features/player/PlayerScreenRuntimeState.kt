@@ -256,6 +256,10 @@ internal class PlayerScreenRuntime(
     var lastSeekMark: TimeMark? = null
     /** Last time playback at the end of an in-progress download's bytes was started again. */
     var partialEndResumeMark: TimeMark? = null
+    var partialDownloadWaiting = false
+    var partialWaitReason by mutableStateOf<String?>(null)
+    var partialWaitBytes: Long? = null
+    var partialFinishedResumeDone = false
     var streamMediaInfo by mutableStateOf(PlayerMediaInfo())
     var playbackEngineOverride by mutableStateOf<AndroidPlaybackEngine?>(null)
     var audioTracks by mutableStateOf<List<AudioTrack>>(emptyList())

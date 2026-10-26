@@ -266,10 +266,51 @@ internal data class PartialPlayhead(
 /** Playing on from the end of the downloaded part starts once this much more is on disk. */
 private const val PARTIAL_END_RESUME_AHEAD_MS = 30_000L
 
+/** Why playback waiting on an unfinished file cannot move, or null while its download is running. */
+internal fun partialDownloadWaitReason(
+    status: DownloadStatus?,
+    errorMessage: String?,
+    pauseWhileWatching: Boolean,
+    wifiOnly: Boolean,
+    onWifi: Boolean,
+    thermalBlocks: Boolean,
+): String? {
+    if (status == null || status == DownloadStatus.Downloading || status == DownloadStatus.Completed) return null
+    if (status == DownloadStatus.Failed) return errorMessage?.takeIf { it.isNotBlank() } ?: "Download failed"
+    val space = errorMessage?.startsWith("Waiting for space") == true || errorMessage == "Not enough space"
+    if (space) return "Not enough space"
+    if (status == DownloadStatus.Paused) return "Download paused"
+    if (status == DownloadStatus.Queued && pauseWhileWatching) return "Paused while you watch (setting on)"
+    if (status == DownloadStatus.Queued && thermalBlocks) return "Waiting, the device is too hot"
+    if (status == DownloadStatus.Queued && wifiOnly && !onWifi) return "Waiting for Wi-Fi"
+    return null
+}
+
+/** What a tap on play/pause does while waiting at the end of a partial file. */
+internal enum class PartialWaitToggle { Pause, ResumeDownloadAndPlay, Play }
+
+internal fun partialWaitToggle(shouldPlay: Boolean, status: DownloadStatus?): PartialWaitToggle = when {
+    shouldPlay -> PartialWaitToggle.Pause
+    status == DownloadStatus.Paused || status == DownloadStatus.Failed -> PartialWaitToggle.ResumeDownloadAndPlay
+    else -> PartialWaitToggle.Play
+}
+
+/** Bytes that must arrive, when the file size is unknown, before playback tries again. */
+internal const val PARTIAL_END_RESUME_BYTE_MARGIN: Long = 4L * 1024L * 1024L
+
 /** Whether playback waiting at [positionMs], the end of the downloaded part, can play on. */
-internal fun partialEndCanResume(positionMs: Long, reachMs: Long?, downloadFinished: Boolean): Boolean {
-    if (downloadFinished) return true
-    val reach = reachMs ?: return false
+internal fun partialEndCanResume(
+    positionMs: Long,
+    reachMs: Long?,
+    downloadFinished: Boolean,
+    bytesOnDisk: Long? = null,
+    bytesAtLastResume: Long? = null,
+    finishedResumeAttempted: Boolean = false,
+): Boolean {
+    if (downloadFinished) return !finishedResumeAttempted
+    if (bytesAtLastResume != null && (bytesOnDisk == null || bytesOnDisk <= bytesAtLastResume)) return false
+    val reach = reachMs ?: return bytesOnDisk != null && bytesAtLastResume != null &&
+        bytesOnDisk - bytesAtLastResume >= PARTIAL_END_RESUME_BYTE_MARGIN
     return reach - positionMs >= PARTIAL_END_RESUME_AHEAD_MS
 }
 
@@ -287,8 +328,14 @@ internal fun partialFilePlayhead(
     downloadFinished: Boolean,
     reachMs: Long?,
     lastPositionMs: Long,
+    durationMs: Long = 0L,
 ): PartialPlayhead {
-    if (downloadFinished) return PartialPlayhead(positionMs, isEnded)
+    if (downloadFinished) {
+        // Finished while the player is still at the end of the old bytes: that is not the episode end.
+        val premature = isEnded && durationMs > 0L && durationMs - positionMs >= PARTIAL_END_RESUME_AHEAD_MS
+        if (premature) return PartialPlayhead(positionMs, isEnded = false, waitingForDownload = true)
+        return PartialPlayhead(positionMs, isEnded)
+    }
     val limit = when {
         reachMs != null && (isEnded || !isPlaying) -> reachMs
         isEnded -> lastPositionMs
