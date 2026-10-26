@@ -187,7 +187,7 @@ internal fun PlayerScreenRuntime.refreshTracks() {
         } else {
             val wanted = previousAudioTracks.firstOrNull { it.index == selectedAudioIndex }
             val match = wanted?.let {
-                explicitAudioIndexAfterListChange(audioTracks, it.language, it.label)
+                explicitAudioIndexAfterListChange(audioTracks, it.language, it.label, it.id)
             } ?: -1
             if (match >= 0) {
                 selectedAudioIndex = match
@@ -226,6 +226,7 @@ internal fun PlayerScreenRuntime.refreshTracks() {
                         wantedLanguage = it.language,
                         wantedName = it.label,
                         wantedForced = it.isForced,
+                        wantedId = it.id,
                     )
                 } ?: -1
                 if (match >= 0) {

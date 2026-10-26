@@ -444,6 +444,31 @@ class PlayerSubtitleRestoreTest {
     }
 
     @Test
+    fun explicitCommentaryIsNotReappliedAsEnglishSdh() {
+        val runtime = openedRuntime(preferredSubtitleLanguage = SubtitleLanguageOption.NONE)
+        runtime.trackPreferenceRestoreApplied = true
+        runtime.isUserExplicitAudioSelection = true
+        runtime.preferredAudioSelectionApplied = true
+        runtime.selectedAudioIndex = 1
+        runtime.audioTracks = listOf(
+            AudioTrack(index = 0, id = "ja", label = "Japanese", language = "ja"),
+            AudioTrack(index = 1, id = "c", label = "English Commentary", language = "en", isSelected = true),
+        )
+        val controller = runtime.playerController as RecordingController
+        controller.reportedAudioTracks = listOf(
+            AudioTrack(index = 0, id = "ja2", label = "Japanese", language = "ja", isSelected = true),
+            AudioTrack(index = 1, id = "bn", label = "Bengali", language = "bn"),
+            AudioTrack(index = 2, id = "sdh", label = "English SDH", language = "en"),
+        )
+
+        runtime.refreshTracks()
+        runtime.refreshTracks()
+
+        assertFalse(runtime.isUserExplicitAudioSelection)
+        assertTrue(controller.audioSelections.none { it == 2 })
+    }
+
+    @Test
     fun explicitAudioIsNotReplacedWhenTheEngineSelectsAnotherLanguage() {
         val runtime = openedRuntime(preferredSubtitleLanguage = SubtitleLanguageOption.NONE)
         val japanese = AudioTrack(index = 1, id = "2", label = "Japanese", language = "ja", isSelected = true)

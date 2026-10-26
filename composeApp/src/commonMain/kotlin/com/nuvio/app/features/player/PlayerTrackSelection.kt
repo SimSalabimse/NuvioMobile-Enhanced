@@ -668,6 +668,7 @@ internal fun explicitAudioIndexAfterListChange(
     tracks: List<AudioTrack>,
     wantedLanguage: String?,
     wantedName: String?,
+    wantedId: String? = null,
 ): Int {
     val pool = tracksInLanguage(
         tracks = tracks,
@@ -676,12 +677,13 @@ internal fun explicitAudioIndexAfterListChange(
     )
     if (pool.isEmpty()) return -1
     if (!wantedName.isNullOrBlank()) {
-        bestNamedTrackIndex(
-            tracks = pool.map { NamedTrack(it.index, it.label, forced = false) },
+        return bestNamedTrackIndex(
+            tracks = pool.map { NamedTrack(it.index, it.label, forced = false, id = it.id) },
             wantedName = wantedName,
             wantedForced = false,
             requireUnique = false,
-        )?.let { return it }
+            wantedId = wantedId,
+        ) ?: -1
     }
     return pool.first().index
 }
@@ -692,6 +694,7 @@ internal fun explicitSubtitleIndexAfterListChange(
     wantedLanguage: String?,
     wantedName: String?,
     wantedForced: Boolean,
+    wantedId: String? = null,
 ): Int {
     val pool = tracksInLanguage(
         tracks = tracks,
@@ -705,12 +708,13 @@ internal fun explicitSubtitleIndexAfterListChange(
     val forcedPool = if (wantedForced) pool.filter { it.isForced } else pool.filter { !it.isForced }
     val candidates = forcedPool.ifEmpty { pool }
     if (!wantedName.isNullOrBlank()) {
-        bestNamedTrackIndex(
-            tracks = candidates.map { NamedTrack(it.index, it.label, it.isForced) },
+        return bestNamedTrackIndex(
+            tracks = candidates.map { NamedTrack(it.index, it.label, it.isForced, id = it.id) },
             wantedName = wantedName,
             wantedForced = wantedForced,
             requireUnique = false,
-        )?.let { return it }
+            wantedId = wantedId,
+        ) ?: -1
     }
     return candidates.first().index
 }
@@ -759,6 +763,7 @@ internal data class NamedTrack(
     val index: Int,
     val label: String,
     val forced: Boolean,
+    val id: String = "",
 )
 
 internal fun bestNamedTrackIndex(
@@ -766,28 +771,46 @@ internal fun bestNamedTrackIndex(
     wantedName: String,
     wantedForced: Boolean,
     requireUnique: Boolean,
+    wantedId: String? = null,
 ): Int? {
     if (tracks.isEmpty() || wantedName.isBlank()) return null
     val wantedBase = baseTrackName(wantedName)
     val wantedSdh = nameHasSdh(wantedName)
     val wantedForcedName = wantedForced || nameHasForced(wantedName)
+    val wantedLanguage = pureLanguageCode(wantedName)
     val scored = tracks.map { track ->
         val base = baseTrackName(track.label)
-        val sameSdh = nameHasSdh(track.label) == wantedSdh
-        val sameForced = (track.forced || nameHasForced(track.label)) == wantedForcedName
+        val sdh = nameHasSdh(track.label)
+        val forced = track.forced || nameHasForced(track.label)
+        val basesEqual = wantedBase.isNotBlank() && base == wantedBase
+        val sameLanguageLabel = wantedLanguage != null && pureLanguageCode(track.label) == wantedLanguage
         var score = 0
         if (track.label.equals(wantedName, ignoreCase = true)) score += 100
-        if (wantedBase.isNotBlank() && base == wantedBase) score += 40
-        if (sameSdh) score += 10
-        if (sameForced) score += 10
-        track.index to score
+        if (basesEqual || sameLanguageLabel) score += 40
+        if (sdh == wantedSdh) score += 10
+        if (forced == wantedForcedName) score += 10
+        val unwantedQualifier = (sdh && !wantedSdh) || (forced && !wantedForced)
+        ScoredName(track, score, unwantedQualifier)
     }
-    val best = scored.maxOf { it.second }
+    val plainExists = scored.any { !it.qualifier }
+    // An SDH or forced base-name match loses to a plain track of the same language.
+    // It can still win when it is the only track, or when that qualifier was requested.
+    val eligible = if (plainExists) scored.filter { !it.qualifier } else scored
+    if (eligible.isEmpty()) return null
+    val best = eligible.maxOf { it.score }
     if (best < 40) return null
-    val winners = scored.filter { it.second == best }
+    val winners = eligible.filter { it.score == best }
+    val savedId = wantedId?.trim()?.takeIf { it.isNotBlank() }
+    winners.firstOrNull { it.track.id == savedId }?.let { return it.track.index }
     if (requireUnique && winners.size != 1) return null
-    return winners.first().first
+    return winners.first().track.index
 }
+
+private data class ScoredName(
+    val track: NamedTrack,
+    val score: Int,
+    val qualifier: Boolean,
+)
 
 private val trackQualifierPattern = Regex(
     """\b(sdh|forced|cc|hearing[- ]impaired|for the deaf)\b""",
@@ -812,3 +835,19 @@ private fun nameHasSdh(name: String?): Boolean {
 
 private fun nameHasForced(name: String?): Boolean =
     name?.contains("forced", ignoreCase = true) == true
+
+/** Language code of a label that is only that language, such as "eng" or "English". */
+private fun pureLanguageCode(label: String?): String? {
+    val base = baseTrackName(label)
+    if (base.isBlank() || base.any { it.isWhitespace() }) return null
+    val code = normalizeLanguageCode(base) ?: return null
+    val primary = code.substringBefore('-')
+    if (primary in setOf("none", "forced", "und", "unknown", "unk", "default", "device", "original")) {
+        return null
+    }
+    val known = code != base || AvailableLanguageOptions.any { option ->
+        normalizeLanguageCode(option.code)?.substringBefore('-') == primary
+    }
+    if (!known) return null
+    return primary
+}

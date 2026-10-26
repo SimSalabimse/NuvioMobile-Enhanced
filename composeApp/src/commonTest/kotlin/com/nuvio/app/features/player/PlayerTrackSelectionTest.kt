@@ -390,6 +390,64 @@ class PlayerTrackSelectionTest {
     }
 
     @Test
+    fun commentaryNameDoesNotFallBackToTheFirstSameLanguageTrack() {
+        val tracks = listOf(
+            AudioTrack(index = 0, id = "ja", label = "Japanese", language = "ja"),
+            AudioTrack(index = 1, id = "sdh", label = "English SDH", language = "en"),
+            AudioTrack(index = 2, id = "bn", label = "Bengali", language = "bn"),
+        )
+        val subtitles = listOf(
+            subtitleTrack(index = 0, id = "ja", language = "ja", label = "Japanese", isForced = false),
+            subtitleTrack(index = 1, id = "sdh", language = "en", label = "English SDH", isForced = false),
+        )
+
+        assertEquals(-1, explicitAudioIndexAfterListChange(tracks, "en", "English Commentary"))
+        assertEquals(
+            -1,
+            explicitSubtitleIndexAfterListChange(subtitles, "en", "English Commentary", wantedForced = false),
+        )
+    }
+
+    @Test
+    fun equalNamesKeepTheTrackIdThatIsStillPresent() {
+        val reordered = listOf(
+            AudioTrack(index = 0, id = "added", label = "Commentary", language = "ja"),
+            AudioTrack(index = 1, id = "first", label = "English", language = "en"),
+            AudioTrack(index = 2, id = "second", label = "English", language = "en"),
+        )
+        val flipped = listOf(
+            AudioTrack(index = 0, id = "second", label = "English", language = "en"),
+            AudioTrack(index = 1, id = "first", label = "English", language = "en"),
+        )
+
+        assertEquals(2, explicitAudioIndexAfterListChange(reordered, "en", "English", wantedId = "second"))
+        assertEquals(0, explicitAudioIndexAfterListChange(flipped, "en", "English", wantedId = "second"))
+    }
+
+    @Test
+    fun plainLanguageCodeBeatsSdhUnlessSdhWasRequestedOrIsTheOnlyTrack() {
+        val both = listOf(
+            NamedTrack(index = 0, label = "English SDH", forced = false, id = "sdh"),
+            NamedTrack(index = 1, label = "eng", forced = false, id = "full"),
+        )
+        val onlySdh = listOf(NamedTrack(index = 0, label = "English SDH", forced = false, id = "sdh"))
+        val sdhWanted = listOf(
+            NamedTrack(index = 0, label = "eng", forced = false, id = "full"),
+            NamedTrack(index = 1, label = "English SDH", forced = false, id = "sdh"),
+        )
+        val forcedAndPlain = listOf(
+            NamedTrack(index = 0, label = "English", forced = true, id = "forced"),
+            NamedTrack(index = 1, label = "eng", forced = false, id = "full"),
+        )
+
+        assertEquals(1, bestNamedTrackIndex(both, "English", wantedForced = false, requireUnique = false))
+        assertEquals(0, bestNamedTrackIndex(onlySdh, "English", wantedForced = false, requireUnique = false))
+        assertEquals(1, bestNamedTrackIndex(sdhWanted, "English SDH", wantedForced = false, requireUnique = false))
+        assertEquals(1, bestNamedTrackIndex(forcedAndPlain, "English", wantedForced = false, requireUnique = false))
+        assertEquals(0, bestNamedTrackIndex(forcedAndPlain, "English", wantedForced = true, requireUnique = false))
+    }
+
+    @Test
     fun disabledPreferenceDoesNotRestoreAStaleTrackId() {
         val selected = findPersistedSubtitleTrackIndex(
             tracks = listOf(
