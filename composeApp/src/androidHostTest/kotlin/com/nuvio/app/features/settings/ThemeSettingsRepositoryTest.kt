@@ -2,10 +2,13 @@ package com.nuvio.app.features.settings
 
 import android.app.Application
 import android.content.Context
+import com.nuvio.app.core.storage.ProfileScopedKey
 import com.nuvio.app.core.sync.decodeSyncString
 import com.nuvio.app.core.ui.AppTheme
 import com.nuvio.app.core.ui.CustomThemeColors
 import com.nuvio.app.core.ui.glass.LiquidGlassEffectDefaults
+import com.nuvio.app.core.ui.glass.LiquidGlassMaterial
+import com.nuvio.app.core.ui.glass.LiquidGlassStyle
 import com.nuvio.app.core.ui.glass.decodeLiquidGlassEffectSettings
 import com.nuvio.app.features.membership.MemberAccessRepository
 import com.nuvio.app.features.membership.MemberAssetStorage
@@ -56,22 +59,51 @@ class ThemeSettingsRepositoryTest {
     }
 
     @Test
-    fun liquidGlassMaterialDefaultsOffAndRetainsItsPreferenceAcrossReloads() {
-        ThemeSettingsRepository.ensureLoaded()
-        assertEquals(false, ThemeSettingsRepository.navBarLiquidGlassEnabled.value)
+    fun forkNavBarGlassOffStaysOffWhenTheOldKeyIsMissingFalseOrTrue() {
+        val preferences = RuntimeEnvironment.getApplication()
+            .getSharedPreferences("nuvio_theme_settings", Context.MODE_PRIVATE)
+        val legacyKey = ProfileScopedKey.of("enhanced_local_nav_bar_liquid_glass_enabled")
+        val glassKey = ProfileScopedKey.of("enhanced_local_nav_bar_glass")
+        val effectsKey = ProfileScopedKey.of("enhanced_local_liquid_glass_effects")
 
-        ThemeSettingsRepository.setNavBarLiquidGlassEnabled(true)
-        ThemeSettingsRepository.setNavBarStyle(NavBarStyle.CLASSIC)
-        ThemeSettingsRepository.setNavBarStyle(NavBarStyle.COMPACT)
+        fun reload() {
+            ThemeSettingsRepository.clearLocalState()
+            ThemeSettingsRepository.ensureLoaded()
+        }
+
+        preferences.edit().remove(legacyKey).remove(glassKey).remove(effectsKey).commit()
+        reload()
+        assertEquals(LiquidGlassMaterial.SOLID, ThemeSettingsRepository.navBarGlass.value.material)
+        assertEquals(true, ThemeSettingsRepository.liquidGlassEffectsEnabled.value)
+        assertEquals(null, ThemeSettingsStorage.loadLiquidGlassEffectsEnabled())
+
+        ThemeSettingsRepository.setNavBarGlass(LiquidGlassStyle(material = LiquidGlassMaterial.LIQUID))
+        reload()
+        assertEquals(LiquidGlassMaterial.LIQUID, ThemeSettingsRepository.navBarGlass.value.material)
+
+        preferences.edit().remove(glassKey).remove(effectsKey).putBoolean(legacyKey, false).commit()
+        reload()
+        assertEquals(LiquidGlassMaterial.SOLID, ThemeSettingsRepository.navBarGlass.value.material)
+        assertEquals(false, ThemeSettingsRepository.liquidGlassEffectsEnabled.value)
+        assertEquals(false, ThemeSettingsStorage.loadLiquidGlassEffectsEnabled())
+
+        preferences.edit().remove(glassKey).remove(effectsKey).putBoolean(legacyKey, true).commit()
+        reload()
+        assertEquals(LiquidGlassMaterial.LIQUID, ThemeSettingsRepository.navBarGlass.value.material)
+        assertEquals(true, ThemeSettingsRepository.liquidGlassEffectsEnabled.value)
+        assertEquals(null, ThemeSettingsStorage.loadNavBarGlass())
+    }
+
+    @Test
+    fun legacyNavBarGlassIsMigratedOnceOnLoad() {
+        ThemeSettingsStorage.saveNavBarGlass("1;liquid;14;8;55;1;0;1;1;1")
         ThemeSettingsRepository.clearLocalState()
         ThemeSettingsRepository.ensureLoaded()
 
-        assertEquals(true, ThemeSettingsRepository.navBarLiquidGlassEnabled.value)
-        assertEquals(NavBarStyle.COMPACT, ThemeSettingsRepository.navBarStyle.value)
-
-        ThemeSettingsStorage.replaceFromSyncPayload(kotlinx.serialization.json.buildJsonObject {})
-        ThemeSettingsRepository.onProfileChanged()
-        assertEquals(true, ThemeSettingsRepository.navBarLiquidGlassEnabled.value)
+        assertEquals(14f, ThemeSettingsRepository.navBarLiquidGlassBarEffects.value.blurRadiusDp)
+        assertEquals(0.55f, ThemeSettingsRepository.navBarLiquidGlassBarEffects.value.tintOpacity)
+        assertEquals(com.nuvio.app.core.ui.glass.LiquidGlassMaterial.LIQUID, ThemeSettingsRepository.navBarGlass.value.material)
+        assertEquals(false, com.nuvio.app.core.ui.glass.LiquidGlassStyle.isLegacyEncoding(ThemeSettingsStorage.loadNavBarGlass()))
     }
 
     @Test
@@ -155,15 +187,7 @@ class ThemeSettingsRepositoryTest {
     fun selectedLensBackdropEffectsDefaultOnAndPersistIndependently() {
         ThemeSettingsRepository.ensureLoaded()
         val loadedDefaults = ThemeSettingsRepository.navBarLiquidGlassSelectionEffects.value
-        assertEquals(50f, loadedDefaults.cornerRadiusPercent)
-        assertEquals(1f, loadedDefaults.blurRadiusDp)
-        assertEquals(6f, loadedDefaults.refractionHeightDp)
-        assertEquals(11f, loadedDefaults.refractionAmountDp)
-        assertEquals(0f, loadedDefaults.tintOpacity)
-        assertEquals(true, loadedDefaults.chromaticAberration)
-        assertEquals(true, loadedDefaults.depthEffect)
-        assertEquals(true, loadedDefaults.affectTabIcons)
-        assertEquals(true, loadedDefaults.affectFloatingBar)
+        assertEquals(com.nuvio.app.core.ui.glass.LiquidGlassEffectDefaults.selectionLens, loadedDefaults)
 
         // A custom theme must be unaffected by selected-lens-only settings.
         ThemeSettingsRepository.setCustomTheme(CustomThemeColors.solid(0x2255AA))

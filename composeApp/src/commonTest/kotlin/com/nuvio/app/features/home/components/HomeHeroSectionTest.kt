@@ -3,6 +3,7 @@ package com.nuvio.app.features.home.components
 import com.nuvio.app.features.watchprogress.ContinueWatchingSectionStyle
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class HomeHeroSectionTest {
 
@@ -31,7 +32,7 @@ class HomeHeroSectionTest {
         )
 
         assertEquals(false, layout.isTablet)
-        assertEquals(452.4f, layout.heroHeight.value, 0.001f)
+        assertEquals(390f * 1.5f, layout.heroHeight.value, 0.001f)
     }
 
     @Test
@@ -65,11 +66,12 @@ class HomeHeroSectionTest {
             mobileBelowSectionHeightHintDp = reserveHeight.value,
         )
 
-        assertEquals(24f, viewportHeight - layout.heroHeight.value - continueWatchingHeight.value, 0.001f)
+        assertEquals(390f * 1.5f, layout.heroHeight.value, 0.001f)
+        assertTrue(viewportHeight - layout.heroHeight.value >= continueWatchingHeight.value)
     }
 
     @Test
-    fun `mobile hero can shrink below default minimum to fit short viewport`() {
+    fun `portrait hero keeps the poster ratio on a short screen`() {
         val layout = homeHeroLayout(
             maxWidthDp = 390f,
             viewportHeightDp = 568f,
@@ -77,6 +79,6 @@ class HomeHeroSectionTest {
         )
 
         assertEquals(false, layout.isTablet)
-        assertEquals(268f, layout.heroHeight.value, 0.001f)
+        assertEquals(390f * 1.5f, layout.heroHeight.value, 0.001f)
     }
 }

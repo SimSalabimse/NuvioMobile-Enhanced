@@ -345,14 +345,15 @@ fun DetailSeriesContent(
                                     fallbackVideoId = episode.id,
                                 )
                                 val userRatingTarget = remember(meta, episode) { meta.episodeUserRatingTarget(episode) }
+                                val fetchedImdbRating = episode.seasonEpisodeKey()?.let { episodeRatings[it] }
                                 EpisodeListCard(
                                     parentMetaId = meta.id,
                                     video = episode,
                                     userRating = rememberUserRating(userRatingTarget),
                                     fallbackImage = meta.background ?: meta.poster,
                                     progressEntry = progressByVideoId[episodeVideoId],
-                                    tmdbRating = episode.tmdbRating,
-                                    imdbRating = episode.imdbRating,
+                                    tmdbRating = if (fetchedImdbRating != null) episode.tmdbRating else episode.tmdbRating ?: episode.rating,
+                                    imdbRating = fetchedImdbRating ?: episode.imdbRating,
                                     isWatched = progressByVideoId[episodeVideoId]?.isEffectivelyCompleted == true ||
                                         WatchingState.isEpisodeWatched(
                                             watchedKeys = watchedKeys,
@@ -525,7 +526,11 @@ internal fun DetailSeriesListEpisode(
             userRating = rememberUserRating(userRatingTarget),
             fallbackImage = meta.background ?: meta.poster,
             progressEntry = progressByVideoId[episodeVideoId],
-            tmdbRating = episode.tmdbRating ?: episode.rating,
+            tmdbRating = if (episode.seasonEpisodeKey()?.let { episodeRatings[it] } != null) {
+                episode.tmdbRating
+            } else {
+                episode.tmdbRating ?: episode.rating
+            },
             imdbRating = episode.seasonEpisodeKey()?.let { episodeRatings[it] } ?: episode.imdbRating,
             isWatched = progressByVideoId[episodeVideoId]?.isEffectivelyCompleted == true ||
                 WatchingState.isEpisodeWatched(
@@ -996,14 +1001,15 @@ private fun EpisodeHorizontalRow(
             )
             val userRatingTarget = remember(episode) { userRatingTargetFor(episode) }
             Box(modifier = Modifier.episodeJumpHighlight(episode.navigatorKey() == highlightedKey)) {
+            val fetchedImdbRating = episode.seasonEpisodeKey()?.let { episodeRatings[it] }
             EpisodeHorizontalCard(
                 parentMetaId = parentMetaId,
                 video = episode,
                 userRating = rememberUserRating(userRatingTarget),
                 fallbackImage = fallbackImage,
                 progressEntry = progressByVideoId[episodeVideoId],
-                tmdbRating = episode.tmdbRating,
-                imdbRating = episode.imdbRating,
+                tmdbRating = if (fetchedImdbRating != null) episode.tmdbRating else episode.tmdbRating ?: episode.rating,
+                imdbRating = fetchedImdbRating ?: episode.imdbRating,
                 isWatched = progressByVideoId[episodeVideoId]?.isEffectivelyCompleted == true ||
                     WatchingState.isEpisodeWatched(
                         watchedKeys = watchedKeys,

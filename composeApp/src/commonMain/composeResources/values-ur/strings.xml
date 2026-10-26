@@ -1136,11 +1136,6 @@
     <string name="settings_playback_regex_preset_quality_720p_smaller">720p / چھوٹا سائز</string>
     <string name="settings_playback_regex_preset_web_sources">WEB ذرائع</string>
     <string name="settings_playback_render_type">Libass Render Mode</string>
-    <string name="settings_playback_render_type_cues">Standard Cues</string>
-    <string name="settings_playback_render_type_effects_canvas">Effects Canvas</string>
-    <string name="settings_playback_render_type_effects_opengl">Effects OpenGL</string>
-    <string name="settings_playback_render_type_overlay_canvas">Overlay Canvas</string>
-    <string name="settings_playback_render_type_overlay_opengl">Overlay OpenGL (تجویز کردہ)</string>
     <string name="settings_playback_reuse_last_link">آخری Link دوبارہ استعمال کریں</string>
     <string name="settings_playback_reuse_last_link_description">اگر cache اب بھی valid ہو تو اسی movie یا episode کے لیے آخری کامیاب stream خودکار طور پر چلائیں۔</string>
     <string name="settings_playback_secondary_audio_language">ثانوی Audio زبان</string>
@@ -2345,7 +2340,6 @@
     <string name="layout_ratings_hide_unwatched">نہ دیکھی گئی اقساط کی ریٹنگز چھپائیں</string>
     <string name="settings_playback_legacy_layout">پرانا Layout</string>
     <string name="settings_playback_legacy_layout_description">اصل Player controls استعمال کریں۔</string>
-    <string name="compose_player_via">%1$s کے ذریعے</string>
     <string name="compose_player_episode_code">S%1$d E%2$d</string>
     <string name="compose_player_more_actions">مزید کنٹرولز</string>
     <string name="compose_player_fewer_actions">کم کنٹرولز</string>
@@ -2372,7 +2366,4 @@
     <string name="movie_status_rumored">افواہ</string>
     <string name="movie_status_in_production">زیرِ تیاری</string>
     <string name="movie_status_post_production">بعد از تیاری</string>
-<string name="settings_nav_bar_liquid_glass">Liquid Glass میٹیریل</string>
-<string name="settings_nav_bar_liquid_glass_description">فلوٹنگ نیویگیشن بار میں روشنی کے انعطاف اور دھندلاہٹ کا اثر شامل کرتا ہے۔</string>
-<string name="settings_nav_bar_liquid_glass_unsupported_description">اس کے لیے Android 13 یا بعد کا ورژن درکار ہے۔ اس ڈیوائس پر موجودہ گلاس اسٹائل برقرار رہے گا۔</string>
 </resources>

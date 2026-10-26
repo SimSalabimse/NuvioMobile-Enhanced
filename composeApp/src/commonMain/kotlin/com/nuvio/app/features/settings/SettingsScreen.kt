@@ -442,6 +442,7 @@ fun SettingsScreen(
                         tunnelingEnabled = playerSettingsUiState.tunnelingEnabled,
                         useLibass = playerSettingsUiState.useLibass,
                         libassRenderType = playerSettingsUiState.libassRenderType,
+                        libassRenderScale = playerSettingsUiState.libassRenderScale,
                         rememberLastProfileEnabled = profileSettingsState.rememberLastProfileEnabled,
                         selectedTheme = selectedTheme,
                         onThemeSelected = ThemeSettingsRepository::setTheme,
@@ -523,6 +524,7 @@ fun SettingsScreen(
                         tunnelingEnabled = playerSettingsUiState.tunnelingEnabled,
                         useLibass = playerSettingsUiState.useLibass,
                         libassRenderType = playerSettingsUiState.libassRenderType,
+                        libassRenderScale = playerSettingsUiState.libassRenderScale,
                         rememberLastProfileEnabled = profileSettingsState.rememberLastProfileEnabled,
                         selectedTheme = selectedTheme,
                         onThemeSelected = ThemeSettingsRepository::setTheme,
@@ -616,6 +618,7 @@ private fun MobileSettingsScreen(
     tunnelingEnabled: Boolean,
     useLibass: Boolean,
     libassRenderType: String,
+    libassRenderScale: String,
     rememberLastProfileEnabled: Boolean,
     selectedTheme: AppTheme,
     onThemeSelected: (AppTheme) -> Unit,
@@ -870,6 +873,7 @@ private fun MobileSettingsScreen(
                     tunnelingEnabled = tunnelingEnabled,
                     useLibass = useLibass,
                     libassRenderType = libassRenderType,
+                    libassRenderScale = libassRenderScale,
                 )
                 SettingsPage.Streams -> streamsSettingsContent(
                     isTablet = false,
@@ -974,6 +978,7 @@ private fun MobileSettingsScreen(
                     onMdbListClick = { onPageChange(SettingsPage.MdbListRatings) },
                     onOmdbClick = { onPageChange(SettingsPage.Omdb) },
                     onLiveTvClick = { onPageChange(SettingsPage.LiveTv) },
+                    onDiscordClick = { onPageChange(SettingsPage.DiscordRpc) },
                 )
                 SettingsPage.Debrid -> debridSettingsContent(
                     isTablet = false,
@@ -1005,6 +1010,9 @@ private fun MobileSettingsScreen(
                     uiState = liveTvUiState,
                 )
                 SettingsPage.Performance -> performanceSettingsContent(
+                    isTablet = false,
+                )
+                SettingsPage.DiscordRpc -> discordRpcSettingsContent(
                     isTablet = false,
                 )
             }
@@ -1082,6 +1090,7 @@ private fun TabletSettingsScreen(
     tunnelingEnabled: Boolean,
     useLibass: Boolean,
     libassRenderType: String,
+    libassRenderScale: String,
     rememberLastProfileEnabled: Boolean,
     selectedTheme: AppTheme,
     onThemeSelected: (AppTheme) -> Unit,
@@ -1381,6 +1390,7 @@ private fun TabletSettingsScreen(
                         tunnelingEnabled = tunnelingEnabled,
                         useLibass = useLibass,
                         libassRenderType = libassRenderType,
+                    libassRenderScale = libassRenderScale,
                     )
                     SettingsPage.Streams -> streamsSettingsContent(
                         isTablet = true,
@@ -1485,6 +1495,7 @@ private fun TabletSettingsScreen(
                         onMdbListClick = { onPageChange(SettingsPage.MdbListRatings) },
                         onOmdbClick = { onPageChange(SettingsPage.Omdb) },
                         onLiveTvClick = { onPageChange(SettingsPage.LiveTv) },
+                        onDiscordClick = { onPageChange(SettingsPage.DiscordRpc) },
                     )
                     SettingsPage.Debrid -> debridSettingsContent(
                         isTablet = true,
@@ -1516,6 +1527,9 @@ private fun TabletSettingsScreen(
                         uiState = liveTvUiState,
                     )
                     SettingsPage.Performance -> performanceSettingsContent(
+                        isTablet = true,
+                    )
+                    SettingsPage.DiscordRpc -> discordRpcSettingsContent(
                         isTablet = true,
                     )
                 }

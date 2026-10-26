@@ -1,6 +1,23 @@
 {
   "releases": [
     {
+      "version": "0.6.4.1",
+      "build": 197,
+      "date": "2026-10-26",
+      "new": [
+        "Brings in Nuvio Enhanced 0.6.4-beta (and 0.6.3): player badges and a badge pack, a rating map on show and anime pages, skip backward and skip forward lengths, the time a stream ends above the seek bar, custom subtitle fonts and a subtitle shadow, Discord Rich Presence on Android, and an iPad side bar when the system provides one.",
+        "Settings › Advanced: DNS over HTTPS on Android, and backup export and import."
+      ],
+      "improved": [
+        "The player controls fade out, the duration can show time left, and switching playback engine asks first.",
+        "Hero artwork shows ratings and the age rating. The release calendar week starts on Monday.",
+        "iOS keeps the bundled CJK subtitle font, and an imported font is used for Latin subtitles."
+      ],
+      "fixed": [
+        "OMDb season ratings still load without the cache race that aborted iOS, including the new rating map."
+      ]
+    },
+    {
       "version": "0.6.2.1",
       "build": 196,
       "date": "2026-10-22",

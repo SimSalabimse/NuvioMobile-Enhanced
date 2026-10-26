@@ -4,12 +4,14 @@ import com.nuvio.app.core.ui.AppTheme
 import com.nuvio.app.core.ui.CustomThemeColors
 import com.nuvio.app.core.ui.NativeTabBridge
 import com.nuvio.app.core.ui.ThemeColors
+import com.nuvio.app.core.ui.glass.LiquidGlassMaterial
 import com.nuvio.app.core.ui.glass.LiquidGlassSettings
 import com.nuvio.app.core.ui.glass.LiquidGlassStyle
 import com.nuvio.app.core.ui.glass.LiquidGlassEffectDefaults
 import com.nuvio.app.core.ui.glass.LiquidGlassEffectSettings
 import com.nuvio.app.core.ui.glass.decodeLiquidGlassEffectSettings
 import com.nuvio.app.core.ui.glass.encodeLiquidGlassEffectSettings
+import com.nuvio.app.core.ui.glass.migrateLegacyNavBarGlassEffects
 import com.nuvio.app.core.ui.formatHexColor
 import com.nuvio.app.core.ui.parseHexColor
 import com.nuvio.app.core.ui.nativeAccentGradientHex
@@ -78,9 +80,6 @@ object ThemeSettingsRepository {
     internal val navBarDefaultIconColorRevision: StateFlow<Long> = _navBarDefaultIconColorRevision.asStateFlow()
     private var navBarDefaultIconColorDraftDirty = false
 
-    private val _navBarLiquidGlassEnabled = MutableStateFlow(false)
-    val navBarLiquidGlassEnabled: StateFlow<Boolean> = _navBarLiquidGlassEnabled.asStateFlow()
-
     private val _navBarLiquidGlassBarEffects = MutableStateFlow(LiquidGlassEffectDefaults.floatingBar)
     internal val navBarLiquidGlassBarEffects: StateFlow<LiquidGlassEffectSettings> = _navBarLiquidGlassBarEffects.asStateFlow()
 
@@ -132,7 +131,6 @@ object ThemeSettingsRepository {
         _navBarDefaultIconColorEnabled.value = false
         _navBarDefaultIconColor.value = DEFAULT_NAV_BAR_ICON_COLOR
         navBarDefaultIconColorDraftDirty = false
-        _navBarLiquidGlassEnabled.value = false
         _navBarLiquidGlassBarEffects.value = LiquidGlassEffectDefaults.floatingBar
         _navBarLiquidGlassSelectionEffects.value = LiquidGlassEffectDefaults.selectionLens
         _navBarStyle.value = NavBarStyle.ADAPTIVE
@@ -178,7 +176,6 @@ object ThemeSettingsRepository {
         _navBarDefaultIconColor.value = ThemeSettingsStorage.loadNavBarDefaultIconColor()
             ?.let(::parseHexColor) ?: DEFAULT_NAV_BAR_ICON_COLOR
         navBarDefaultIconColorDraftDirty = false
-        _navBarLiquidGlassEnabled.value = ThemeSettingsStorage.loadNavBarLiquidGlassEnabled() ?: false
         _navBarLiquidGlassBarEffects.value = decodeLiquidGlassEffectSettings(
             ThemeSettingsStorage.loadNavBarLiquidGlassBarEffects(),
             LiquidGlassEffectDefaults.floatingBar,
@@ -189,8 +186,23 @@ object ThemeSettingsRepository {
             LiquidGlassEffectDefaults.selectionLens,
             LiquidGlassEffectDefaults.selectionLensLimits,
         )
-        _navBarGlass.value = LiquidGlassStyle.decode(ThemeSettingsStorage.loadNavBarGlass())
-        applyLiquidGlassEffectsEnabled(ThemeSettingsStorage.loadLiquidGlassEffectsEnabled() ?: true)
+        val storedNavBarGlass = ThemeSettingsStorage.loadNavBarGlass()
+        val storedEffects = ThemeSettingsStorage.loadLiquidGlassEffectsEnabled()
+        val migration = forkNavBarGlassMigration(
+            storedEffectsEnabled = storedEffects,
+            legacyNavBarGlassEnabled = ThemeSettingsStorage.loadLegacyNavBarLiquidGlassEnabled(),
+        )
+        var glass = LiquidGlassStyle.decode(storedNavBarGlass)
+        if (migration.persistSolidMaterial && storedNavBarGlass.isNullOrBlank()) {
+            glass = glass.copy(material = LiquidGlassMaterial.SOLID)
+            ThemeSettingsStorage.saveNavBarGlass(glass.encode())
+        }
+        _navBarGlass.value = glass
+        migrateLegacyNavBarGlass(storedNavBarGlass)
+        if (migration.persistEffectsEnabled) {
+            ThemeSettingsStorage.saveLiquidGlassEffectsEnabled(false)
+        }
+        applyLiquidGlassEffectsEnabled(migration.effectsEnabled)
     }
 
     fun setCustomTheme(colors: CustomThemeColors) {
@@ -311,11 +323,21 @@ object ThemeSettingsRepository {
         _navBarDefaultIconColorRevision.value += 1L
     }
 
-    fun setNavBarLiquidGlassEnabled(enabled: Boolean) {
-        ensureLoaded()
-        if (_navBarLiquidGlassEnabled.value == enabled) return
-        ThemeSettingsStorage.saveNavBarLiquidGlassEnabled(enabled)
-        _navBarLiquidGlassEnabled.value = enabled
+    private fun migrateLegacyNavBarGlass(raw: String?) {
+        val (bar, lens) = migrateLegacyNavBarGlassEffects(raw) ?: return
+        if (ThemeSettingsStorage.loadNavBarLiquidGlassBarEffects() == null) {
+            _navBarLiquidGlassBarEffects.value = bar
+            ThemeSettingsStorage.saveNavBarLiquidGlassBarEffects(
+                encodeLiquidGlassEffectSettings(bar, LiquidGlassEffectDefaults.floatingBar, LiquidGlassEffectDefaults.floatingBarLimits),
+            )
+        }
+        if (ThemeSettingsStorage.loadNavBarLiquidGlassSelectionEffects() == null) {
+            _navBarLiquidGlassSelectionEffects.value = lens
+            ThemeSettingsStorage.saveNavBarLiquidGlassSelectionEffects(
+                encodeLiquidGlassEffectSettings(lens, LiquidGlassEffectDefaults.selectionLens, LiquidGlassEffectDefaults.selectionLensLimits),
+            )
+        }
+        ThemeSettingsStorage.saveNavBarGlass(_navBarGlass.value.encode())
     }
 
     internal fun updateNavBarLiquidGlassBarEffects(settings: LiquidGlassEffectSettings) {
@@ -377,8 +399,6 @@ object ThemeSettingsRepository {
             changed = true
         }
 
-        // ProfileSettingsSync observes this revision. Only bump it when the committed settings
-        // actually differ, otherwise merely opening and dismissing the sheet triggers a remote push.
         if (changed) _navBarLiquidGlassEffectsRevision.value += 1L
     }
 
@@ -426,6 +446,39 @@ object ThemeSettingsRepository {
             gradientHexColors = palette.nativeAccentGradientHex(),
         )
     }
+}
+
+internal data class ForkNavBarGlassMigration(
+    val persistSolidMaterial: Boolean,
+    val effectsEnabled: Boolean,
+    val persistEffectsEnabled: Boolean,
+)
+
+/**
+ * Fork installs stored nav-bar glass in `enhanced_local_nav_bar_liquid_glass_enabled`,
+ * which was false when missing. The merged material defaults to liquid and the effects
+ * switch defaults to on, so an upgrade would turn the bar on. When the new effects key
+ * has never been written, a missing or false old key persists a solid bar. An explicit
+ * false also keeps the effects switch off. A stored effects value or a chosen material
+ * is left alone by the caller.
+ */
+internal fun forkNavBarGlassMigration(
+    storedEffectsEnabled: Boolean?,
+    legacyNavBarGlassEnabled: Boolean?,
+): ForkNavBarGlassMigration {
+    if (storedEffectsEnabled != null) {
+        return ForkNavBarGlassMigration(
+            persistSolidMaterial = false,
+            effectsEnabled = storedEffectsEnabled,
+            persistEffectsEnabled = false,
+        )
+    }
+    val legacyExplicitlyOff = legacyNavBarGlassEnabled == false
+    return ForkNavBarGlassMigration(
+        persistSolidMaterial = legacyNavBarGlassEnabled != true,
+        effectsEnabled = !legacyExplicitlyOff,
+        persistEffectsEnabled = legacyExplicitlyOff,
+    )
 }
 
 private fun AppTheme.nativeTabAccentHex(): String =

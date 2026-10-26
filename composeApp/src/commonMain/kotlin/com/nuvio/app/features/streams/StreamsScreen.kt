@@ -83,6 +83,8 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.core.ui.shimmer
+import com.nuvio.app.core.ui.LocalVerticalBarPadding
+import com.nuvio.app.core.ui.centeredVerticalBarPadding
 import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.debrid.DirectDebridPlayableResult
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
@@ -100,6 +102,11 @@ import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 import com.nuvio.app.core.ui.glass.LocalLiquidGlassBackdrop
 import com.nuvio.app.core.ui.glass.ambientLiquidGlass
+import com.nuvio.app.core.ui.glass.isAmbientLiquidGlassActive
+import com.nuvio.app.core.ui.NuvioTokens
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.ui.graphics.compositeOver
 import com.nuvio.app.core.ui.glass.nuvioBackdropSource
 import com.nuvio.app.core.ui.glass.rememberNuvioBackdrop
 
@@ -362,6 +369,7 @@ fun StreamsScreen(
         Row(
             modifier = Modifier
                 .align(Alignment.TopStart)
+                .padding(LocalVerticalBarPadding.current)
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
                 .padding(
                     start = 12.dp,
@@ -641,6 +649,7 @@ private fun MovieHeroBlock(
     Box(
         modifier = modifier
             .fillMaxWidth()
+            .padding(centeredVerticalBarPadding())
             .height(140.dp)
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)),
         contentAlignment = Alignment.Center,
@@ -736,6 +745,7 @@ private fun EpisodeHeroBlock(
             modifier = Modifier
                 .fillMaxSize()
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
+                .padding(LocalVerticalBarPadding.current)
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 12.dp),
             verticalArrangement = Arrangement.Bottom,
@@ -839,7 +849,7 @@ internal fun StreamList(
                         showAddonLogo = streamBadgeSettings.showAddonLogo,
                         badgePlacement = streamBadgeSettings.badgePlacement,
                         onClick = { onStreamSelected(shared.stream, resumePositionMs, resumeProgressFraction) },
-                        isCurrent = true,
+                        outlined = true,
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                 }
@@ -1494,23 +1504,65 @@ internal fun StreamSearchField(
     onQueryChange: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    NuvioInputField(
-        value = query,
-        onValueChange = onQueryChange,
-        placeholder = stringResource(Res.string.streams_search_placeholder),
-        modifier = modifier,
-        trailingContent = if (query.isEmpty()) null else {
-            {
-                IconButton(onClick = { onQueryChange("") }) {
-                    Icon(
-                        imageVector = Icons.Rounded.Close,
-                        contentDescription = stringResource(Res.string.streams_search_clear),
-                        tint = MaterialTheme.nuvio.colors.textMuted,
-                    )
-                }
+    val trailingContent: (@Composable () -> Unit)? = if (query.isEmpty()) null else {
+        {
+            IconButton(onClick = { onQueryChange("") }) {
+                Icon(
+                    imageVector = Icons.Rounded.Close,
+                    contentDescription = stringResource(Res.string.streams_search_clear),
+                    tint = MaterialTheme.nuvio.colors.textMuted,
+                )
             }
-        },
-    )
+        }
+    }
+    if (!isAmbientLiquidGlassActive()) {
+        NuvioInputField(
+            value = query,
+            onValueChange = onQueryChange,
+            placeholder = stringResource(Res.string.streams_search_placeholder),
+            modifier = modifier,
+            trailingContent = trailingContent,
+        )
+        return
+    }
+    val tokens = MaterialTheme.nuvio
+    val fieldShape = RoundedCornerShape(NuvioTokens.Radius.lg)
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(fieldShape)
+            .ambientLiquidGlass(
+                shape = fieldShape,
+                tint = Color.White.copy(alpha = 0.05f).compositeOver(Color.Black.copy(alpha = StreamGlassTintAlpha)),
+                fallback = tokens.colors.surfaceCard,
+                blurRadius = 14.dp,
+                refractionHeight = 8.dp,
+            ),
+    ) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = fieldShape,
+            placeholder = {
+                Text(
+                    text = stringResource(Res.string.streams_search_placeholder),
+                    color = tokens.colors.textMuted,
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            },
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = tokens.colors.textPrimary),
+            trailingIcon = trailingContent,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = tokens.colors.borderFocus,
+                unfocusedBorderColor = Color.White.copy(alpha = 0.12f),
+                focusedContainerColor = Color.Transparent,
+                unfocusedContainerColor = Color.Transparent,
+                cursorColor = tokens.colors.accent,
+            ),
+        )
+    }
 }
 
 @Composable

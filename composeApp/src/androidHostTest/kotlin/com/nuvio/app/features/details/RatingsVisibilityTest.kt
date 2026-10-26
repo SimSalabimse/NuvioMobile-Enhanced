@@ -1,7 +1,10 @@
 package com.nuvio.app.features.details
 
 import android.app.Application
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
@@ -19,7 +22,7 @@ import org.robolectric.annotation.Config
 import kotlin.test.Test
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = Application::class)
+@Config(sdk = [34], application = Application::class, qualifiers = "w800dp-h2000dp-mdpi")
 class RatingsVisibilityTest {
     @get:Rule
     val compose = createComposeRule()
@@ -69,6 +72,7 @@ class RatingsVisibilityTest {
         val episode = MetaVideo(id = "tt1234567:1:1", title = "Episode", season = 1, episode = 1, rating = 6.2)
         val meta = MetaDetails(id = "tt1234567", type = "series", name = "Series", videos = listOf(episode))
         compose.setContent {
+            Box(Modifier.fillMaxSize()) {
             NuvioTheme {
                 if (layout.value == 2) {
                     DetailSeriesListEpisode(
@@ -92,6 +96,7 @@ class RatingsVisibilityTest {
                         episodeRatingsVisibility = visibility.value,
                     )
                 }
+            }
             }
         }
         for (currentLayout in 0..2) {
@@ -133,8 +138,8 @@ class RatingsVisibilityTest {
                     title = meta.name,
                     seasonNumber = 1,
                     episodeNumber = 1,
-                    lastPositionMs = 950,
-                    durationMs = 1000,
+                    lastPositionMs = 950_000,
+                    durationMs = 1_000_000,
                     lastUpdatedEpochMs = 1,
                 ))
             }

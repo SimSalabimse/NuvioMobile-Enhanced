@@ -20,12 +20,13 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContent
@@ -132,15 +133,13 @@ internal fun PlayerSidePanel(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .then(
+                            .windowInsetsPadding(
                                 if (isIos) {
-                                    Modifier.windowInsetsPadding(
-                                        WindowInsets.safeContent.only(
-                                            WindowInsetsSides.Top + WindowInsetsSides.Bottom + WindowInsetsSides.End,
-                                        ),
+                                    WindowInsets.safeContent.only(
+                                        WindowInsetsSides.Top + WindowInsetsSides.Bottom + WindowInsetsSides.End,
                                     )
                                 } else {
-                                    Modifier
+                                    WindowInsets.navigationBars.only(WindowInsetsSides.End)
                                 },
                             ),
                         content = content,

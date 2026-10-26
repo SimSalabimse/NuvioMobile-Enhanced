@@ -27,6 +27,8 @@ actual object PlayerSettingsStorage {
     private const val resizeModeKey = "resize_mode"
     private const val holdToSpeedEnabledKey = "hold_to_speed_enabled"
     private const val holdToSpeedValueKey = "hold_to_speed_value"
+    private const val skipBackwardSecondsKey = "skip_backward_seconds"
+    private const val skipForwardSecondsKey = "skip_forward_seconds"
     private const val touchGesturesEnabledKey = "touch_gestures_enabled"
     private const val swipeToSeekEnabledKey = "swipe_to_seek_enabled"
     private const val seekPreviewEnabledKey = "seek_preview_enabled"
@@ -43,9 +45,12 @@ actual object PlayerSettingsStorage {
     private const val secondaryPreferredSubtitleLanguageKey = "secondary_preferred_subtitle_language"
     private const val subtitleTextColorKey = "subtitle_text_color"
     private const val subtitleBackgroundColorKey = "subtitle_background_color"
+    private const val subtitleCustomFontKey = "subtitle_custom_font"
     private const val subtitleOutlineColorKey = "subtitle_outline_color"
     private const val subtitleOutlineEnabledKey = "subtitle_outline_enabled"
     private const val subtitleOutlineWidthKey = "subtitle_outline_width"
+    private const val subtitleShadowEnabledKey = "subtitle_shadow_enabled"
+    private const val subtitleShadowStrengthKey = "subtitle_shadow_strength"
     private const val subtitleBoldKey = "subtitle_bold"
     private const val subtitleFontSizeSpKey = "subtitle_font_size_sp"
     private const val subtitleBottomOffsetKey = "subtitle_bottom_offset"
@@ -127,6 +132,9 @@ actual object PlayerSettingsStorage {
         subtitleOutlineEnabledKey,
         subtitleOutlineWidthKey,
         subtitleBoldKey,
+        subtitleShadowEnabledKey,
+        subtitleShadowStrengthKey,
+        subtitleCustomFontKey,
         subtitleFontSizeSpKey,
         subtitleBottomOffsetKey,
         subtitleStripSdhKey,
@@ -147,6 +155,7 @@ actual object PlayerSettingsStorage {
         streamAutoPlaySelectedPluginsKey,
         streamAutoPlayRegexKey,
         streamAutoPlayTimeoutSecondsKey,
+        skipBackwardSecondsKey,
         skipIntroEnabledKey,
         autoSkipMovieCreditsKey,
         autoSkipSegmentTypesKey,
@@ -321,6 +330,14 @@ actual object PlayerSettingsStorage {
     actual fun saveHoldToSpeedValue(speed: Float) {
         NSUserDefaults.standardUserDefaults.setFloat(speed, forKey = ProfileScopedKey.of(holdToSpeedValueKey))
     }
+
+    actual fun loadSkipBackwardSeconds(): Int? = loadInt(skipBackwardSecondsKey)
+
+    actual fun saveSkipBackwardSeconds(seconds: Int) = saveInt(skipBackwardSecondsKey, seconds)
+
+    actual fun loadSkipForwardSeconds(): Int? = loadInt(skipForwardSecondsKey)
+
+    actual fun saveSkipForwardSeconds(seconds: Int) = saveInt(skipForwardSecondsKey, seconds)
 
     actual fun loadTouchGesturesEnabled(): Boolean? = loadBoolean(touchGesturesEnabledKey)
 
@@ -516,6 +533,38 @@ actual object PlayerSettingsStorage {
 
     actual fun saveSubtitleOutlineWidth(width: Int) {
         saveInt(subtitleOutlineWidthKey, width)
+    }
+
+    actual fun loadSubtitleCustomFont(): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(subtitleCustomFontKey))
+
+    actual fun saveSubtitleCustomFont(fileName: String?) {
+        val key = ProfileScopedKey.of(subtitleCustomFontKey)
+        if (fileName.isNullOrBlank()) {
+            NSUserDefaults.standardUserDefaults.removeObjectForKey(key)
+        } else {
+            NSUserDefaults.standardUserDefaults.setObject(fileName, forKey = key)
+        }
+    }
+
+    actual fun loadSubtitleShadowEnabled(): Boolean? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(subtitleShadowEnabledKey)
+        return if (defaults.objectForKey(key) != null) {
+            defaults.boolForKey(key)
+        } else {
+            null
+        }
+    }
+
+    actual fun saveSubtitleShadowEnabled(enabled: Boolean) {
+        NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(subtitleShadowEnabledKey))
+    }
+
+    actual fun loadSubtitleShadowStrength(): Int? = loadInt(subtitleShadowStrengthKey)
+
+    actual fun saveSubtitleShadowStrength(strength: Int) {
+        saveInt(subtitleShadowStrengthKey, strength)
     }
 
     actual fun loadSubtitleBold(): Boolean? = loadBoolean(subtitleBoldKey)
@@ -1026,6 +1075,10 @@ actual object PlayerSettingsStorage {
 
     actual fun saveVodDiskCacheSizeMb(value: Int) {}
 
+    actual fun loadLibassRenderScale(): String? = null
+
+    actual fun saveLibassRenderScale(scale: String) {}
+
     actual fun loadIosVideoOutputPreset(): String? =
         NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(iosVideoOutputPresetKey))
 
@@ -1153,6 +1206,9 @@ actual object PlayerSettingsStorage {
         loadSubtitleOutlineEnabled()?.let { put(subtitleOutlineEnabledKey, encodeSyncBoolean(it)) }
         loadSubtitleOutlineWidth()?.let { put(subtitleOutlineWidthKey, encodeSyncInt(it)) }
         loadSubtitleBold()?.let { put(subtitleBoldKey, encodeSyncBoolean(it)) }
+        loadSubtitleShadowEnabled()?.let { put(subtitleShadowEnabledKey, encodeSyncBoolean(it)) }
+        loadSubtitleShadowStrength()?.let { put(subtitleShadowStrengthKey, encodeSyncInt(it)) }
+        loadSubtitleCustomFont()?.let { put(subtitleCustomFontKey, encodeSyncString(it)) }
         loadSubtitleFontSizeSp()?.let { put(subtitleFontSizeSpKey, encodeSyncInt(it)) }
         loadSubtitleBottomOffset()?.let { put(subtitleBottomOffsetKey, encodeSyncInt(it)) }
         loadSubtitleStripSdh()?.let { put(subtitleStripSdhKey, encodeSyncBoolean(it)) }
@@ -1175,6 +1231,7 @@ actual object PlayerSettingsStorage {
         loadStreamAutoPlaySelectedPlugins()?.let { put(streamAutoPlaySelectedPluginsKey, encodeSyncStringSet(it)) }
         loadStreamAutoPlayRegex()?.let { put(streamAutoPlayRegexKey, encodeSyncString(it)) }
         loadStreamAutoPlayTimeoutSeconds()?.let { put(streamAutoPlayTimeoutSecondsKey, encodeSyncInt(it)) }
+        loadSkipBackwardSeconds()?.let { put(skipBackwardSecondsKey, encodeSyncInt(it)) }
         loadSkipIntroEnabled()?.let { put(skipIntroEnabledKey, encodeSyncBoolean(it)) }
         loadAutoSkipMovieCredits()?.let { put(autoSkipMovieCreditsKey, encodeSyncBoolean(it)) }
         loadAutoSkipSegmentTypes()?.let { put(autoSkipSegmentTypesKey, encodeSyncStringSet(it)) }
@@ -1240,6 +1297,9 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncBoolean(subtitleOutlineEnabledKey)?.let(::saveSubtitleOutlineEnabled)
         payload.decodeSyncInt(subtitleOutlineWidthKey)?.let(::saveSubtitleOutlineWidth)
         payload.decodeSyncBoolean(subtitleBoldKey)?.let(::saveSubtitleBold)
+        payload.decodeSyncBoolean(subtitleShadowEnabledKey)?.let(::saveSubtitleShadowEnabled)
+        payload.decodeSyncInt(subtitleShadowStrengthKey)?.let(::saveSubtitleShadowStrength)
+        payload.decodeSyncString(subtitleCustomFontKey)?.let(::saveSubtitleCustomFont)
         payload.decodeSyncInt(subtitleFontSizeSpKey)?.let(::saveSubtitleFontSizeSp)
         payload.decodeSyncInt(subtitleBottomOffsetKey)?.let(::saveSubtitleBottomOffset)
         payload.decodeSyncBoolean(subtitleStripSdhKey)?.let(::saveSubtitleStripSdh)
@@ -1261,6 +1321,7 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncStringSet(streamAutoPlaySelectedPluginsKey)?.let(::saveStreamAutoPlaySelectedPlugins)
         payload.decodeSyncString(streamAutoPlayRegexKey)?.let(::saveStreamAutoPlayRegex)
         payload.decodeSyncInt(streamAutoPlayTimeoutSecondsKey)?.let(::saveStreamAutoPlayTimeoutSeconds)
+        payload.decodeSyncInt(skipBackwardSecondsKey)?.let(::saveSkipBackwardSeconds)
         payload.decodeSyncBoolean(skipIntroEnabledKey)?.let(::saveSkipIntroEnabled)
         payload.decodeSyncBoolean(autoSkipMovieCreditsKey)?.let(::saveAutoSkipMovieCredits)
         payload.decodeSyncStringSet(autoSkipSegmentTypesKey)?.let(::saveAutoSkipSegmentTypes)

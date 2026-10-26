@@ -37,22 +37,22 @@ class HomeHeroPagerTest {
         showHero()
 
         swipeRight()
-        assertWrapFrames(expectedIndex = 7)
+        assertWrapFrames(fromIndex = 0, toIndex = 7)
 
         compose.onNodeWithTag("hero").performTouchInput {
             swipe(Offset(width * 0.7f, height * 0.3f), Offset(width * 0.3f, height * 0.3f))
         }
-        assertWrapFrames(expectedIndex = 0)
+        assertWrapFrames(fromIndex = 7, toIndex = 0)
     }
 
     @Test
     fun automaticCyclingFromLastToFirstDoesNotShowOtherTitles() {
         showHero()
         swipeRight()
-        assertWrapFrames(expectedIndex = 7)
+        assertWrapFrames(fromIndex = 0, toIndex = 7)
 
         compose.mainClock.advanceTimeBy(6_000L)
-        assertWrapFrames(expectedIndex = 0)
+        assertWrapFrames(fromIndex = 7, toIndex = 0)
     }
 
     private fun showHero() {
@@ -74,14 +74,22 @@ class HomeHeroPagerTest {
         }
     }
 
-    private fun assertWrapFrames(expectedIndex: Int) {
-        val intermediateTitle = (1..6)
+    private fun assertWrapFrames(fromIndex: Int, toIndex: Int) {
+        val itemCount = items.size
+        fun around(index: Int) = setOf(
+            index,
+            (index + 1) % itemCount,
+            (index - 1 + itemCount) % itemCount,
+        )
+        val allowed = around(fromIndex) + around(toIndex)
+        val intermediateTitle = (0 until itemCount)
+            .filter { it !in allowed }
             .map { hasText("Hero $it") }
             .reduce { matcher, next -> matcher or next }
         repeat(100) {
             compose.mainClock.advanceTimeByFrame()
             compose.onAllNodes(intermediateTitle).assertCountEquals(0)
         }
-        compose.onNodeWithText("Hero $expectedIndex").assertIsDisplayed()
+        compose.onNodeWithText("Hero $toIndex").assertIsDisplayed()
     }
 }
