@@ -892,18 +892,39 @@ private fun ActiveSeasonGroupHeader(
                         overflow = TextOverflow.Ellipsis,
                     )
                     val speeds by DownloadSpeeds.speeds.collectAsState()
-                    val groupSpeed = group.items.mapNotNull { speeds[it.id] }.takeIf { it.isNotEmpty() }?.sum()
+                    val contributingSpeeds = group.items.mapNotNull { speeds[it.id] }
+                    val groupSpeed = contributingSpeeds.takeIf { it.isNotEmpty() }?.sum()
                     val pending = group.items.filter {
                         it.status == DownloadStatus.Downloading || it.status == DownloadStatus.Queued
                     }
-                    val groupRemaining = pending.map { it.remainingBytesOrNull() }
-                        .takeIf { list -> list.isNotEmpty() && list.all { it != null } }
-                        ?.sumOf { it ?: 0L }
+                    val etaSeconds = seasonEtaSeconds(
+                        running = pending.filter { it.status == DownloadStatus.Downloading }.map { item ->
+                            RunningEpisodePace(
+                                bytesPerSecond = speeds[item.id],
+                                remainingBytes = item.remainingBytesOrNull(),
+                            )
+                        },
+                        queuedRemainingBytes = pending
+                            .filter { it.status == DownloadStatus.Queued }
+                            .map { it.remainingBytesOrNull() },
+                    )
+                    val perSecond = groupSpeed?.takeIf { it >= 1024.0 }?.let { speed ->
+                        "${formatDownloadBytes(speed.toLong())}/s"
+                    }
+                    val speedText = when {
+                        perSecond == null -> null
+                        contributingSpeeds.size > 1 -> stringResource(Res.string.downloads_speed_total, perSecond)
+                        else -> perSecond
+                    }
+                    val pace = listOfNotNull(
+                        speedText,
+                        etaSeconds?.takeIf { speedText != null }?.let { "${formatEta(it)} left" },
+                    ).joinToString(" · ").ifBlank { null }
                     Text(
                         text = listOfNotNull(
                             pluralStringResource(Res.plurals.downloads_episodes, group.items.size, group.items.size),
                             percent?.let { "$it%" },
-                            speedAndEta(groupSpeed, groupRemaining),
+                            pace,
                         ).joinToString(" · "),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
