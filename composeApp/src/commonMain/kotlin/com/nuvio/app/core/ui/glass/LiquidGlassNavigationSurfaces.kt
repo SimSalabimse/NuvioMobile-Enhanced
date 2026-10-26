@@ -6,6 +6,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -101,8 +102,9 @@ private class RemeasureOnKeyChangeNode(
 }
 
 /**
- * Adapts Kyant0's LiquidBottomTabs surface effects to Nuvio's existing pill geometry:
- * vibrancy, background blur, full-capsule refraction, and a theme-aware translucent tint.
+ * The navigation bar's glass, adapted from Kyant0's LiquidBottomTabs to Nuvio's pill geometry:
+ * vibrancy, background blur, capsule refraction and a theme-aware tint. [settings] holds the
+ * numbers (already filtered by the material), [style] the vibrancy/highlight/shadow flags.
  * Nuvio's existing JellyMotion and glow remain responsible for navigation interaction.
  */
 @Composable
@@ -111,6 +113,7 @@ internal fun LiquidGlassFrostedBar(
     modifier: Modifier,
     glowStrength: Float,
     settings: LiquidGlassEffectSettings = LiquidGlassEffectDefaults.floatingBar,
+    style: LiquidGlassStyle = LiquidGlassStyle.Default,
     includeRefraction: Boolean = true,
 ) {
     val safeSettings = settings.sanitized(
@@ -132,7 +135,7 @@ internal fun LiquidGlassFrostedBar(
                 backdrop = backdrop,
                 shape = { cornerShape },
                 effects = {
-                    vibrancy()
+                    if (style.vibrancy) vibrancy()
                     if (safeSettings.blurRadiusDp > 0f) {
                         blur(safeSettings.blurRadiusDp.dp.toPx())
                     }
@@ -145,6 +148,8 @@ internal fun LiquidGlassFrostedBar(
                         )
                     }
                 },
+                highlight = if (style.edgeHighlight) DefaultGlassHighlight else null,
+                shadow = if (style.shadow) DefaultGlassShadow else null,
                 onDrawSurface = {
                     // The optional layerBackdrop captures this rendered child separately, so
                     // draw the tint with capsule geometry instead of relying on an outer clip.
@@ -274,5 +279,37 @@ internal fun LiquidGlassIconRefractionSurface(
                 shadow = { null },
                 layerBlock = layerBlock,
             ),
+    )
+}
+
+internal val GlassSurfaceColor = Color(0xFF1C1C1E)
+
+/**
+ * A dark fill and a thin top-lit edge: the navigation pill without any backdrop (SOLID material,
+ * glass turned off app-wide, or no RenderEffect). The glass version is [LiquidGlassFrostedBar].
+ */
+@Composable
+internal fun SolidGlassBar(modifier: Modifier, edgeHighlight: Boolean = true) {
+    Box(
+        modifier
+            .drawWithCache {
+                val fill = GlassSurfaceColor.copy(alpha = 0.82f)
+                val edge = Brush.verticalGradient(
+                    listOf(Color.White.copy(alpha = 0.27f), Color.White.copy(alpha = 0.02f)),
+                )
+                val width = 0.75.dp.toPx()
+                onDrawBehind {
+                    drawRoundRect(fill, cornerRadius = CornerRadius(size.height / 2))
+                    if (edgeHighlight) {
+                        drawRoundRect(
+                            brush = edge,
+                            topLeft = Offset(width / 2, width / 2),
+                            size = Size(size.width - width, size.height - width),
+                            cornerRadius = CornerRadius((size.height - width) / 2),
+                            style = Stroke(width),
+                        )
+                    }
+                }
+            },
     )
 }

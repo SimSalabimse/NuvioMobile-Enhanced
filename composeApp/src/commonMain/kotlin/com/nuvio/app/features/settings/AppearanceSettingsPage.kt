@@ -116,7 +116,7 @@ internal fun LazyListScope.appearanceSettingsContent(
             isTablet = isTablet,
         ) {
             SettingsGroup(isTablet = isTablet) {
-                AppearanceThemePicker(
+                AppearanceThemeSelector(
                     isTablet = isTablet,
                     selectedTheme = selectedTheme,
                     onThemeSelected = onThemeSelected,
@@ -137,7 +137,6 @@ internal fun LazyListScope.appearanceSettingsContent(
         val liquidGlassEffectsEnabled by ThemeSettingsRepository.liquidGlassEffectsEnabled.collectAsStateWithLifecycle()
         val navBarDefaultIconColorEnabled by ThemeSettingsRepository.navBarDefaultIconColorEnabled.collectAsStateWithLifecycle()
         val navBarDefaultIconColor by ThemeSettingsRepository.navBarDefaultIconColor.collectAsStateWithLifecycle()
-        val navBarLiquidGlassEnabled by ThemeSettingsRepository.navBarLiquidGlassEnabled.collectAsStateWithLifecycle()
         // Upstream pins tablets to COMPACT because there the bar is a top rail. This fork puts
         // the floating pill at the bottom on every size, so the chosen style still applies.
         val effectiveNavBarStyle = selectedNavBarStyle
@@ -306,8 +305,6 @@ internal fun LazyListScope.appearanceSettingsContent(
                     defaultIconColor = navBarDefaultIconColor,
                     onDefaultIconColorChanged = ThemeSettingsRepository::updateNavBarDefaultIconColor,
                     onSaveDefaultIconColor = ThemeSettingsRepository::saveNavBarDefaultIconColorSettings,
-                    liquidGlassEnabled = navBarLiquidGlassEnabled,
-                    onLiquidGlassChanged = ThemeSettingsRepository::setNavBarLiquidGlassEnabled,
                     floatingBarEffects = barEffects,
                     onFloatingBarEffectsChanged = ThemeSettingsRepository::updateNavBarLiquidGlassBarEffects,
                     selectionLensEffects = selectionEffects,

@@ -91,11 +91,13 @@ interface NuvioPlayerBridge {
     fun stopAudioEnergyCapture(): List<AudioEnergySample>
     fun getAudioCaptureDuration(): Long
     fun getAudioCaptureFailureReason(): String
+    fun setSubtitleFontPath(path: String)
     fun applySubtitleStyle(
         textColor: String,
         backgroundColor: String,
         outlineColor: String,
         outlineSize: Float,
+        shadowOffset: Float,
         bold: Boolean,
         fontSize: Float,
         subPos: Int,

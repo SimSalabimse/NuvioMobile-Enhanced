@@ -56,22 +56,15 @@ class ThemeSettingsRepositoryTest {
     }
 
     @Test
-    fun liquidGlassMaterialDefaultsOffAndRetainsItsPreferenceAcrossReloads() {
-        ThemeSettingsRepository.ensureLoaded()
-        assertEquals(false, ThemeSettingsRepository.navBarLiquidGlassEnabled.value)
-
-        ThemeSettingsRepository.setNavBarLiquidGlassEnabled(true)
-        ThemeSettingsRepository.setNavBarStyle(NavBarStyle.CLASSIC)
-        ThemeSettingsRepository.setNavBarStyle(NavBarStyle.COMPACT)
+    fun legacyNavBarGlassIsMigratedOnceOnLoad() {
+        ThemeSettingsStorage.saveNavBarGlass("1;liquid;14;8;55;1;0;1;1;1")
         ThemeSettingsRepository.clearLocalState()
         ThemeSettingsRepository.ensureLoaded()
 
-        assertEquals(true, ThemeSettingsRepository.navBarLiquidGlassEnabled.value)
-        assertEquals(NavBarStyle.COMPACT, ThemeSettingsRepository.navBarStyle.value)
-
-        ThemeSettingsStorage.replaceFromSyncPayload(kotlinx.serialization.json.buildJsonObject {})
-        ThemeSettingsRepository.onProfileChanged()
-        assertEquals(true, ThemeSettingsRepository.navBarLiquidGlassEnabled.value)
+        assertEquals(14f, ThemeSettingsRepository.navBarLiquidGlassBarEffects.value.blurRadiusDp)
+        assertEquals(0.55f, ThemeSettingsRepository.navBarLiquidGlassBarEffects.value.tintOpacity)
+        assertEquals(com.nuvio.app.core.ui.glass.LiquidGlassMaterial.LIQUID, ThemeSettingsRepository.navBarGlass.value.material)
+        assertEquals(false, com.nuvio.app.core.ui.glass.LiquidGlassStyle.isLegacyEncoding(ThemeSettingsStorage.loadNavBarGlass()))
     }
 
     @Test
@@ -155,15 +148,7 @@ class ThemeSettingsRepositoryTest {
     fun selectedLensBackdropEffectsDefaultOnAndPersistIndependently() {
         ThemeSettingsRepository.ensureLoaded()
         val loadedDefaults = ThemeSettingsRepository.navBarLiquidGlassSelectionEffects.value
-        assertEquals(50f, loadedDefaults.cornerRadiusPercent)
-        assertEquals(1f, loadedDefaults.blurRadiusDp)
-        assertEquals(6f, loadedDefaults.refractionHeightDp)
-        assertEquals(11f, loadedDefaults.refractionAmountDp)
-        assertEquals(0f, loadedDefaults.tintOpacity)
-        assertEquals(true, loadedDefaults.chromaticAberration)
-        assertEquals(true, loadedDefaults.depthEffect)
-        assertEquals(true, loadedDefaults.affectTabIcons)
-        assertEquals(true, loadedDefaults.affectFloatingBar)
+        assertEquals(com.nuvio.app.core.ui.glass.LiquidGlassEffectDefaults.selectionLens, loadedDefaults)
 
         // A custom theme must be unaffected by selected-lens-only settings.
         ThemeSettingsRepository.setCustomTheme(CustomThemeColors.solid(0x2255AA))
