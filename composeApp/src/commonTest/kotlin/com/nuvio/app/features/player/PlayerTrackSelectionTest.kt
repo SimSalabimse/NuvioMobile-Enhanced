@@ -365,6 +365,31 @@ class PlayerTrackSelectionTest {
     }
 
     @Test
+    fun savedNameChoosesAmongTracksThatShareALanguage() {
+        val english = PersistedPlayerTrackPreference(
+            subtitleType = PersistedSubtitleSelectionType.INTERNAL,
+            subtitleLanguage = "en",
+            subtitleName = "English",
+            subtitleTrackId = "99",
+        )
+        val englishSdh = english.copy(subtitleName = "English SDH")
+        val sdhFirst = listOf(
+            subtitleTrack(index = 0, id = "1", language = "en", label = "English SDH", isForced = false),
+            subtitleTrack(index = 1, id = "2", language = "en", label = "English", isForced = false),
+            subtitleTrack(index = 2, id = "3", language = "bn", label = "Bengali", isForced = false),
+        )
+        val sdhLast = listOf(
+            subtitleTrack(index = 0, id = "2", language = "en", label = "English", isForced = false),
+            subtitleTrack(index = 1, id = "1", language = "en", label = "English SDH", isForced = false),
+        )
+
+        assertEquals(1, findPersistedSubtitleTrackIndex(sdhFirst, english))
+        assertEquals(0, findPersistedSubtitleTrackIndex(sdhFirst, englishSdh))
+        assertEquals(0, findPersistedSubtitleTrackIndex(sdhLast, english))
+        assertEquals(1, findPersistedSubtitleTrackIndex(sdhLast, englishSdh))
+    }
+
+    @Test
     fun disabledPreferenceDoesNotRestoreAStaleTrackId() {
         val selected = findPersistedSubtitleTrackIndex(
             tracks = listOf(
