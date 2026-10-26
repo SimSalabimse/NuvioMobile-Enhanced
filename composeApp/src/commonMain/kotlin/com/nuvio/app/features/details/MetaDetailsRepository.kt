@@ -560,11 +560,20 @@ object MetaDetailsRepository {
                 settings = settings,
             )
         } ?: meta
-        val imdbRatedMeta = OmdbEpisodeRatingsService.applyTo(
-            meta = mdbListEnrichedMeta,
-            fallbackItemId = fallbackItemId,
-            settings = TmdbSettingsRepository.snapshot(),
-        )
+        // Ratings are optional. This runs inside a Main-dispatcher launch with no
+        // exception handler, so a cache or network failure must not escape and abort.
+        val imdbRatedMeta = try {
+            OmdbEpisodeRatingsService.applyTo(
+                meta = mdbListEnrichedMeta,
+                fallbackItemId = fallbackItemId,
+                settings = TmdbSettingsRepository.snapshot(),
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.w(error) { "Failed to apply OMDb episode ratings: ${error.message}" }
+            mdbListEnrichedMeta
+        }
         val enrichedMeta = applyMoreLikeThisSource(
             meta = imdbRatedMeta,
             fallbackItemId = fallbackItemId,
