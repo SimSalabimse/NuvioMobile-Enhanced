@@ -115,7 +115,7 @@ internal fun PlayerScreenModalHosts(
     submitIntroEndTimeStr: String,
     onSubmitIntroEndTimeChanged: (String) -> Unit,
     onSubmitIntroDismissed: () -> Unit,
-    onSubmitIntroSuccess: () -> Unit,
+    onSubmitIntroSuccess: (com.nuvio.app.features.player.skip.IntroSubmitResult) -> Unit,
     onSubmitIntroPreviewSeekMs: (Long) -> Unit = {},
     skipIntervals: List<com.nuvio.app.features.player.skip.SkipInterval> = emptyList(),
     submittedSegmentTypesInSession: Set<String> = emptySet(),

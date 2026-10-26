@@ -31,7 +31,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.layout.onSizeChanged
 import com.nuvio.app.features.player.skip.EMPTY_SKIP_TIMESTAMP
-import com.nuvio.app.features.player.skip.formatSecondsToHms
 import com.nuvio.app.features.player.seekpreview.rememberSeekPreviewController
 import com.nuvio.app.features.player.skip.PlayerNextEpisodeRules
 import com.nuvio.app.core.logging.InAppLogger
@@ -1092,7 +1091,10 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
         onSubmitIntroStartTimeChanged = { submitIntroStartTimeStr = it },
         submitIntroEndTimeStr = submitIntroEndTimeStr,
         onSubmitIntroEndTimeChanged = { submitIntroEndTimeStr = it },
-        onSubmitIntroDismissed = { showSubmitIntroModal = false },
+        onSubmitIntroDismissed = {
+            clearSubmitIntroForm()
+            showSubmitIntroModal = false
+        },
         onSubmitIntroPreviewSeekMs = { targetMs ->
             val clamped = targetMs.coerceAtLeast(0L)
             finishTimelineScrub(clamped)
@@ -1100,28 +1102,24 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
             playerController?.seekTo(clamped)
             scheduleProgressSyncAfterSeek()
         },
-        onSubmitIntroSuccess = {
+        onSubmitIntroSuccess = { posted ->
             InAppLogger.info(
                 "Player/SkipIntro",
                 "submit success videoId=${activeVideoId.orEmpty()} s=${activeSeasonNumber ?: 0} " +
-                    "e=${activeEpisodeNumber ?: 0} type=$submitIntroSegmentType " +
-                    "start=$submitIntroStartTimeStr end=$submitIntroEndTimeStr",
+                    "e=${activeEpisodeNumber ?: 0} type=${posted.segmentType} " +
+                    "start=${posted.startSec} end=${posted.endSec} absent=${posted.absentSegment}",
             )
             val currentVideoId = activeVideoId.orEmpty()
             if (currentVideoId.isNotBlank()) {
                 submittedSegmentTypesByVideoId.getOrPut(currentVideoId) { mutableSetOf() }
-                    .add(submitIntroSegmentType)
+                    .add(posted.segmentType)
             }
-            // Keep the submitted times as this episode's own mark so the season learns from it.
-            val markStart = com.nuvio.app.features.player.skip.parseTimeToSeconds(submitIntroStartTimeStr)
-            val markEnd = com.nuvio.app.features.player.skip.parseTimeToSeconds(submitIntroEndTimeStr)
-            if (markStart != null && markEnd != null && markEnd > markStart) {
-                saveUserSkipMark(submitIntroSegmentType, markStart, markEnd, submit = false)
+            // Keep the posted range as this episode's own mark. An absent intro is not a mark.
+            val mark = com.nuvio.app.features.player.skip.submittedSkipMarkToSave(posted)
+            if (mark != null) {
+                saveUserSkipMark(mark.segmentType, mark.startSec, mark.endSec, submit = false)
             }
-            submitIntroStartTimeStr = EMPTY_SKIP_TIMESTAMP
-            submitIntroEndTimeStr = EMPTY_SKIP_TIMESTAMP
-            submitIntroSegmentType = "intro"
-            submitIntroDrafts.clear()
+            clearSubmitIntroForm()
             showSubmitIntroModal = false
         },
         skipIntervals = skipIntervals,
@@ -1214,28 +1212,25 @@ internal fun PlayerScreenRuntime.switchSubmitSegmentType(newType: String) {
     submitIntroDrafts[oldType] = submitIntroStartTimeStr to submitIntroEndTimeStr
     submitIntroSegmentType = newType
     val draft = submitIntroDrafts[newType]
-    if (draft != null) {
-        submitIntroStartTimeStr = draft.first
-        submitIntroEndTimeStr = draft.second
-        return
-    }
-    val known = skipIntervals.firstOrNull { submitCategory(it.type) == submitCategory(newType) }
-    if (known != null) {
-        submitIntroStartTimeStr = formatSecondsToHms(known.startTime)
-        submitIntroEndTimeStr = formatSecondsToHms(known.endTime)
+    val known = if (draft == null) {
+        skipIntervals.firstOrNull { submitCategory(it.type) == submitCategory(newType) }
     } else {
-        submitIntroStartTimeStr = EMPTY_SKIP_TIMESTAMP
-        val durationMs = playbackSnapshot.durationMs
-        submitIntroEndTimeStr = if (
-            !isSeries &&
-            newType.equals("outro", ignoreCase = true) &&
-            durationMs > 0L
-        ) {
-            formatSecondsToHms(durationMs / 1000.0)
-        } else {
-            EMPTY_SKIP_TIMESTAMP
-        }
+        null
     }
+    val clocks = com.nuvio.app.features.player.skip.initialSubmitClocks(
+        draft = draft,
+        knownStartSec = known?.startTime,
+        knownEndSec = known?.endTime,
+    )
+    submitIntroStartTimeStr = clocks.first
+    submitIntroEndTimeStr = clocks.second
+}
+
+internal fun PlayerScreenRuntime.clearSubmitIntroForm() {
+    submitIntroStartTimeStr = EMPTY_SKIP_TIMESTAMP
+    submitIntroEndTimeStr = EMPTY_SKIP_TIMESTAMP
+    submitIntroSegmentType = "intro"
+    submitIntroDrafts.clear()
 }
 
 private fun submitCategory(type: String): String = when (type.lowercase()) {

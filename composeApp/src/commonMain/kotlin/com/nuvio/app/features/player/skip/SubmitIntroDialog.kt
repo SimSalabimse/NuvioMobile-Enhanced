@@ -111,7 +111,7 @@ import nuvio.composeapp.generated.resources.submit_intro_time_nudge_forward_1
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
-fun SubmitIntroDialog(
+internal fun SubmitIntroDialog(
     imdbId: String,
     season: Int,
     episode: Int,
@@ -123,7 +123,7 @@ fun SubmitIntroDialog(
     endTimeStr: String,
     onEndTimeChange: (String) -> Unit,
     onDismiss: () -> Unit,
-    onSuccess: () -> Unit,
+    onSuccess: (IntroSubmitResult) -> Unit,
     durationMs: Long = 0L,
     isMovie: Boolean = false,
     videoId: String? = null,
@@ -149,11 +149,13 @@ fun SubmitIntroDialog(
     var selectedField by remember { mutableStateOf(SubmitTimeField.START) }
     var wheelOpen by remember { mutableStateOf(false) }
     var showSubmissions by remember { mutableStateOf(false) }
+    var pendingResult by remember { mutableStateOf<IntroSubmitResult?>(null) }
     val onSuccessUpdated by rememberUpdatedState(onSuccess)
     fun finishSuccess() {
         if (successDelivered) return
+        val posted = pendingResult ?: return
         successDelivered = true
-        onSuccessUpdated()
+        onSuccessUpdated(posted)
     }
     var keyStatusMessage by remember { mutableStateOf<String?>(null) }
     val initialSettings = remember { PlayerSettingsRepository.uiState.value }
@@ -290,14 +292,6 @@ fun SubmitIntroDialog(
             onSegmentTypeChange(availableTypes.first())
         }
     }
-    androidx.compose.runtime.LaunchedEffect(isMovie, segmentType, durationMs) {
-        if (!isMovie || !submitShowsEndOfVideo(segmentType) || durationMs <= 0L) return@LaunchedEffect
-        val start = parseTimeToSeconds(startTimeStr) ?: 0.0
-        val end = parseTimeToSeconds(endTimeStr) ?: 0.0
-        if (start == 0.0 && end == 0.0) {
-            onEndTimeChange(formatSecondsToHms(durationMs / 1000.0))
-        }
-    }
 
     fun beginSubmit(absentSegment: Boolean) {
         if (showSuccess || isSubmitting) return
@@ -338,6 +332,12 @@ fun SubmitIntroDialog(
         isSubmitting = true
         errorMessage = null
         keyStatusMessage = null
+        val captured = IntroSubmitResult(
+            segmentType = segmentType,
+            startSec = start,
+            endSec = end,
+            absentSegment = absentSegment,
+        )
         scope.launch {
             var keyWasNew = false
             var succeeded = false
@@ -365,9 +365,9 @@ fun SubmitIntroDialog(
                     imdbId = imdbId,
                     season = season,
                     episode = episode,
-                    startSec = start,
-                    endSec = end,
-                    segmentType = segmentType,
+                    startSec = captured.startSec,
+                    endSec = captured.endSec,
+                    segmentType = captured.segmentType,
                     durationMs = durationMs,
                     isMovie = isMovie,
                     videoId = videoId,
@@ -376,14 +376,15 @@ fun SubmitIntroDialog(
                 )
                 if (result) {
                     val submittedKey = flagSubmitContentKey(imdbId, season, episode, isMovie)
-                    FlagSubmitLedger.rememberType(submittedKey, segmentType)
-                    canonicalFlagSegmentType(segmentType)?.let { type ->
+                    FlagSubmitLedger.rememberType(submittedKey, captured.segmentType)
+                    canonicalFlagSegmentType(captured.segmentType)?.let { type ->
                         if (submittedKey.isNotEmpty()) {
                             remoteFlagTypesByContentKey[submittedKey] =
                                 remoteFlagTypesByContentKey[submittedKey].orEmpty() + type
                         }
                     }
                     SkipIntroRepository.clearCache()
+                    pendingResult = captured
                     succeeded = true
                 } else {
                     submitFailed = true
@@ -474,6 +475,7 @@ fun SubmitIntroDialog(
         if (selectedField == SubmitTimeField.START) onStartTimeChange(next) else onEndTimeChange(next)
     }
     fun editDigits(field: SubmitTimeField) {
+        if (isSubmitting || showSuccess) return
         if (selectedField == field && wheelOpen) {
             wheelOpen = false
         } else {
@@ -482,6 +484,7 @@ fun SubmitIntroDialog(
         }
     }
     val checksFail = problems.isNotEmpty()
+    val inputsLocked = isSubmitting || showSuccess
     val submitLabel = when {
         showSuccess -> sentThanksLabel
         submitFailed && !checksFail -> tryAgainLabel
@@ -799,6 +802,7 @@ fun SubmitIntroDialog(
                             label = labelForType(type),
                             selected = segmentType == type,
                             submitted = type in disabledTypes,
+                            enabled = !inputsLocked,
                             onClick = { onSegmentTypeChange(type) },
                             modifier = Modifier.weight(1f),
                         )
@@ -809,6 +813,7 @@ fun SubmitIntroDialog(
                     value = startTimeStr,
                     selected = selectedField == SubmitTimeField.START,
                     nowLabel = nowLabel,
+                    enabled = !inputsLocked,
                     onSelect = { selectedField = SubmitTimeField.START },
                     onEditDigits = { editDigits(SubmitTimeField.START) },
                     onNow = {
@@ -821,6 +826,7 @@ fun SubmitIntroDialog(
                     value = endTimeStr,
                     selected = selectedField == SubmitTimeField.END,
                     nowLabel = nowLabel,
+                    enabled = !inputsLocked,
                     onSelect = { selectedField = SubmitTimeField.END },
                     onEditDigits = { editDigits(SubmitTimeField.END) },
                     onNow = {
@@ -839,12 +845,13 @@ fun SubmitIntroDialog(
                 )
                 SubmitNudgeRow(
                     onNudge = ::applyNudge,
+                    enabled = !inputsLocked,
                     backFiveDescription = nudgeBack5,
                     backOneDescription = nudgeBack1,
                     forwardOneDescription = nudgeForward1,
                     forwardFiveDescription = nudgeForward5,
                 )
-                if (wheelOpen) {
+                if (wheelOpen && !inputsLocked) {
                     val wheelValue = if (selectedField == SubmitTimeField.START) startTimeStr else endTimeStr
                     SkipTimeWheels(
                         value = wheelValue,
@@ -1099,6 +1106,7 @@ private fun SubmitTypeChip(
     submitted: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     val tokens = MaterialTheme.nuvio
     val background = if (selected) tokens.colors.accent else PlayerGlassFallback
@@ -1108,7 +1116,7 @@ private fun SubmitTypeChip(
             .height(44.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(background)
-            .clickable(enabled = !submitted, onClick = onClick)
+            .clickable(enabled = enabled && !submitted, onClick = onClick)
             .padding(horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,

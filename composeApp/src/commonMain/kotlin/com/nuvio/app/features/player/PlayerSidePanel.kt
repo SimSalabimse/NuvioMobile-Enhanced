@@ -31,8 +31,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.size
@@ -123,6 +125,19 @@ internal fun playerToolPanelScrimAlpha(ios: Boolean, reduceTransparency: Boolean
     else -> PlayerToolPanelScrimAlpha
 }
 
+internal enum class PlayerToolBackAction {
+    Ignore,
+    Back,
+    Dismiss,
+}
+
+/** System back steps into the panel when it has a sub-page, and does nothing while a send is locked. */
+internal fun playerToolPanelBackAction(dismissLocked: Boolean, hasBack: Boolean): PlayerToolBackAction = when {
+    dismissLocked -> PlayerToolBackAction.Ignore
+    hasBack -> PlayerToolBackAction.Back
+    else -> PlayerToolBackAction.Dismiss
+}
+
 /**
  * One right-hand panel for every player tool. The glass is the same flat fill and
  * edge the pills use, over a 60% black backing. Reduce Transparency stays opaque.
@@ -157,7 +172,13 @@ internal fun PlayerToolPanel(
         if (!visible) dragOutward = 0f
     }
 
-    PlatformBackHandler(enabled = visible, onBack = onDismiss)
+    PlatformBackHandler(enabled = visible, onBack = {
+        when (playerToolPanelBackAction(dismissLocked = dismissLocked, hasBack = onBack != null)) {
+            PlayerToolBackAction.Ignore -> Unit
+            PlayerToolBackAction.Back -> onBack?.invoke()
+            PlayerToolBackAction.Dismiss -> onDismiss()
+        }
+    })
 
     AnimatedVisibility(
         visible = visible,
@@ -234,6 +255,10 @@ internal fun PlayerToolPanel(
                                 subtitle = subtitle,
                                 onBack = onBack,
                                 onClose = onDismiss,
+                                closeEnabled = playerToolPanelBackAction(
+                                    dismissLocked = dismissLocked,
+                                    hasBack = false,
+                                ) == PlayerToolBackAction.Dismiss,
                                 actions = headerActions,
                             )
                             Column(
@@ -252,9 +277,13 @@ internal fun PlayerToolPanel(
 }
 
 @Composable
+private fun playerToolPanelAndroidSafeInsets(): WindowInsets =
+    WindowInsets.displayCutout.union(WindowInsets.navigationBars)
+
+@Composable
 private fun playerToolPanelEndInset(): Dp {
     val layoutDirection = LocalLayoutDirection.current
-    val insets = if (isIos) WindowInsets.safeContent else WindowInsets.navigationBars
+    val insets = if (isIos) WindowInsets.safeContent else playerToolPanelAndroidSafeInsets()
     return insets.only(WindowInsetsSides.End).asPaddingValues().calculateEndPadding(layoutDirection)
 }
 
@@ -263,7 +292,7 @@ private fun playerToolPanelVerticalInsets(): WindowInsets {
     return if (isIos) {
         WindowInsets.safeContent.only(WindowInsetsSides.Top + WindowInsetsSides.Bottom)
     } else {
-        WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)
+        playerToolPanelAndroidSafeInsets().only(WindowInsetsSides.Top + WindowInsetsSides.Bottom)
     }
 }
 
@@ -298,6 +327,7 @@ private fun PlayerToolPanelHeader(
     subtitle: String?,
     onBack: (() -> Unit)?,
     onClose: () -> Unit,
+    closeEnabled: Boolean,
     actions: @Composable RowScope.() -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
@@ -327,6 +357,7 @@ private fun PlayerToolPanelHeader(
                 icon = Icons.Rounded.Close,
                 contentDescription = stringResource(Res.string.action_close),
                 onClick = onClose,
+                enabled = closeEnabled,
             )
         }
         if (!subtitle.isNullOrBlank()) {
@@ -347,14 +378,16 @@ private fun PlayerToolIconButton(
     icon: ImageVector,
     contentDescription: String,
     onClick: () -> Unit,
+    enabled: Boolean = true,
 ) {
     Box(
         modifier = Modifier
             .size(PlayerToolPanelCloseSize)
+            .alpha(if (enabled) 1f else 0.38f)
             .clip(CircleShape)
             .background(PlayerGlassFallback)
             .border(0.75.dp, PlayerGlassRim, CircleShape)
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(

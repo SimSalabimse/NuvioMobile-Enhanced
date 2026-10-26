@@ -78,6 +78,61 @@ class SubmitTimestampChecksTest {
     }
 
     @Test
+    fun `a fresh credits or outro form is not submittable`() {
+        val fresh = initialSubmitClocks(draft = null, knownStartSec = null, knownEndSec = null)
+        assertEquals(EMPTY_SKIP_TIMESTAMP to EMPTY_SKIP_TIMESTAMP, fresh)
+        assertTrue(
+            submitTimestampProblems(
+                parseTimeToSeconds(fresh.first),
+                parseTimeToSeconds(fresh.second),
+                durationSec = 7_200.0,
+            ).isNotEmpty(),
+        )
+        val cleared = initialSubmitClocks(
+            draft = EMPTY_SKIP_TIMESTAMP to EMPTY_SKIP_TIMESTAMP,
+            knownStartSec = null,
+            knownEndSec = null,
+        )
+        assertEquals(EMPTY_SKIP_TIMESTAMP to EMPTY_SKIP_TIMESTAMP, cleared)
+        assertEquals(
+            "00:01:00" to "00:02:00",
+            initialSubmitClocks(draft = null, knownStartSec = 60.0, knownEndSec = 120.0),
+        )
+        assertEquals(
+            "00:00:10" to "00:00:20",
+            initialSubmitClocks(
+                draft = "00:00:10" to "00:00:20",
+                knownStartSec = 60.0,
+                knownEndSec = 120.0,
+            ),
+        )
+    }
+
+    @Test
+    fun `an absent intro does not become a saved skip mark`() {
+        val absent = IntroSubmitResult(
+            segmentType = "intro",
+            startSec = 0.0,
+            endSec = 0.0,
+            absentSegment = true,
+        )
+        assertNull(submittedSkipMarkToSave(absent))
+        assertNull(
+            submittedSkipMarkToSave(
+                absent.copy(startSec = 12.0, endSec = 40.0),
+            ),
+        )
+        val posted = IntroSubmitResult(
+            segmentType = "outro",
+            startSec = 90.0,
+            endSec = 120.0,
+            absentSegment = false,
+        )
+        assertEquals(posted, submittedSkipMarkToSave(posted))
+        assertNull(submittedSkipMarkToSave(posted.copy(endSec = 90.0)))
+    }
+
+    @Test
     fun `the range bar spans the chosen fraction of the video`() {
         assertEquals(0.1f to 0.25f, submitRangeSpan(10.0, 25.0, 100.0))
         assertNull(submitRangeSpan(25.0, 10.0, 100.0))

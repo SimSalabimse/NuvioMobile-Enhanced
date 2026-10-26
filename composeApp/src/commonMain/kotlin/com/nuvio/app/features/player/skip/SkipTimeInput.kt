@@ -33,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
@@ -240,6 +241,40 @@ internal fun submitPanelSegmentTypes(isMovie: Boolean): List<String> =
 internal fun submitShowsEndOfVideo(segmentType: String): Boolean =
     segmentType.equals("outro", ignoreCase = true)
 
+/**
+ * Clocks shown when the segment type changes. A missing draft and a missing known
+ * segment stay at 00:00:00 / 00:00:00. Nothing here fills the end from the duration.
+ */
+internal fun initialSubmitClocks(
+    draft: Pair<String, String>?,
+    knownStartSec: Double?,
+    knownEndSec: Double?,
+): Pair<String, String> {
+    if (draft != null) return draft
+    if (knownStartSec != null && knownEndSec != null) {
+        return formatSecondsToHms(knownStartSec) to formatSecondsToHms(knownEndSec)
+    }
+    return EMPTY_SKIP_TIMESTAMP to EMPTY_SKIP_TIMESTAMP
+}
+
+/** What was posted. The success handler must use this, not the clocks on screen. */
+internal data class IntroSubmitResult(
+    val segmentType: String,
+    val startSec: Double,
+    val endSec: Double,
+    val absentSegment: Boolean,
+)
+
+/**
+ * A saved skip mark follows a real posted range. An absent intro (0, 0) is not a mark,
+ * even if the clocks were edited after the request started.
+ */
+internal fun submittedSkipMarkToSave(result: IntroSubmitResult): IntroSubmitResult? {
+    if (result.absentSegment) return null
+    if (result.endSec <= result.startSec) return null
+    return result
+}
+
 internal fun releaseYear(releaseInfo: String?): String? {
     if (releaseInfo.isNullOrBlank()) return null
     return Regex("""\d{4}""").find(releaseInfo)?.value
@@ -279,6 +314,7 @@ internal fun SubmitTimeRow(
     onEditDigits: () -> Unit,
     onNow: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     endOfVideoLabel: String? = null,
     onEndOfVideo: (() -> Unit)? = null,
 ) {
@@ -286,9 +322,10 @@ internal fun SubmitTimeRow(
         modifier = modifier
             .fillMaxWidth()
             .height(52.dp)
+            .alpha(if (enabled) 1f else 0.45f)
             .clip(RoundedCornerShape(12.dp))
             .background(if (selected) Color.White.copy(alpha = 0.08f) else Color.Transparent)
-            .clickable(onClick = onSelect)
+            .clickable(enabled = enabled, onClick = onSelect)
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -304,7 +341,7 @@ internal fun SubmitTimeRow(
             modifier = Modifier
                 .weight(1f)
                 .clip(RoundedCornerShape(8.dp))
-                .clickable(onClick = onEditDigits)
+                .clickable(enabled = enabled, onClick = onEditDigits)
                 .padding(vertical = 4.dp),
             color = Color.White,
             style = MaterialTheme.typography.headlineSmall,
@@ -316,7 +353,7 @@ internal fun SubmitTimeRow(
                 text = endOfVideoLabel,
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
-                    .clickable(onClick = onEndOfVideo)
+                    .clickable(enabled = enabled, onClick = onEndOfVideo)
                     .padding(horizontal = 4.dp, vertical = 6.dp),
                 color = Color.White.copy(alpha = 0.72f),
                 style = MaterialTheme.typography.labelLarge,
@@ -328,7 +365,7 @@ internal fun SubmitTimeRow(
                 .height(36.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .background(PlayerGlassFallback)
-                .clickable(onClick = onNow)
+                .clickable(enabled = enabled, onClick = onNow)
                 .padding(horizontal = 12.dp),
             contentAlignment = Alignment.Center,
         ) {
@@ -346,6 +383,7 @@ internal fun SubmitTimeRow(
 internal fun SubmitNudgeRow(
     onNudge: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     backFiveDescription: String,
     backOneDescription: String,
     forwardOneDescription: String,
@@ -355,10 +393,10 @@ internal fun SubmitNudgeRow(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        NudgeKey("−5", backFiveDescription, { onNudge(-5) }, Modifier.weight(1f))
-        NudgeKey("−1", backOneDescription, { onNudge(-1) }, Modifier.weight(1f))
-        NudgeKey("+1", forwardOneDescription, { onNudge(1) }, Modifier.weight(1f))
-        NudgeKey("+5", forwardFiveDescription, { onNudge(5) }, Modifier.weight(1f))
+        NudgeKey("−5", backFiveDescription, { onNudge(-5) }, Modifier.weight(1f), enabled)
+        NudgeKey("−1", backOneDescription, { onNudge(-1) }, Modifier.weight(1f), enabled)
+        NudgeKey("+1", forwardOneDescription, { onNudge(1) }, Modifier.weight(1f), enabled)
+        NudgeKey("+5", forwardFiveDescription, { onNudge(5) }, Modifier.weight(1f), enabled)
     }
 }
 
@@ -368,17 +406,24 @@ private fun NudgeKey(
     description: String,
     onPress: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     val current by rememberUpdatedState(onPress)
+    val currentEnabled by rememberUpdatedState(enabled)
     Box(
         modifier = modifier
             .height(44.dp)
+            .alpha(if (enabled) 1f else 0.45f)
             .clip(RoundedCornerShape(12.dp))
             .background(PlayerGlassFallback)
             .semantics { contentDescription = description }
             .pointerInput(Unit) {
                 detectTapGestures(
-                    onPress = {
+                    onPress = press@{
+                        if (!currentEnabled) {
+                            tryAwaitRelease()
+                            return@press
+                        }
                         coroutineScope {
                             val job = launch {
                                 current()

@@ -20,6 +20,14 @@ class PlayerToolPanelWidthTest {
     }
 
     @Test
+    fun `system back returns to the sub page and a locked send ignores back and close`() {
+        assertEquals(PlayerToolBackAction.Back, playerToolPanelBackAction(dismissLocked = false, hasBack = true))
+        assertEquals(PlayerToolBackAction.Dismiss, playerToolPanelBackAction(dismissLocked = false, hasBack = false))
+        assertEquals(PlayerToolBackAction.Ignore, playerToolPanelBackAction(dismissLocked = true, hasBack = true))
+        assertEquals(PlayerToolBackAction.Ignore, playerToolPanelBackAction(dismissLocked = true, hasBack = false))
+    }
+
+    @Test
     fun `the video beside a tool is dimmed 30 percent unless iOS reduces transparency`() {
         assertEquals(0.30f, playerToolPanelScrimAlpha(ios = true, reduceTransparency = false))
         assertEquals(0.30f, playerToolPanelScrimAlpha(ios = false, reduceTransparency = false))

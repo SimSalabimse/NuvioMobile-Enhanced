@@ -51,7 +51,9 @@ import nuvio.composeapp.generated.resources.player_tool_tab_language
 import nuvio.composeapp.generated.resources.player_tool_tab_track
 import nuvio.composeapp.generated.resources.compose_player_none
 import nuvio.composeapp.generated.resources.compose_player_style
+import nuvio.composeapp.generated.resources.compose_player_reset
 import nuvio.composeapp.generated.resources.compose_player_subtitle_delay
+import nuvio.composeapp.generated.resources.compose_player_sync_by_ear
 import nuvio.composeapp.generated.resources.compose_player_subtitles
 import nuvio.composeapp.generated.resources.settings_playback_option_forced
 import nuvio.composeapp.generated.resources.subtitle_language_unknown
@@ -318,6 +320,10 @@ fun SubtitleModal(
                             (subtitleDelayMs + SUBTITLE_DELAY_STEP_MS).coerceAtMost(SUBTITLE_DELAY_MAX_MS),
                         )
                     },
+                    resetLabel = stringResource(Res.string.compose_player_reset),
+                    onReset = onSubtitleDelayReset,
+                    syncByEarLabel = stringResource(Res.string.compose_player_sync_by_ear),
+                    onSyncByEar = onSyncByEarClick,
                 )
             }
         }
@@ -374,7 +380,12 @@ private fun SubtitleDelayRow(
     value: String,
     onDecrease: () -> Unit,
     onIncrease: () -> Unit,
+    resetLabel: String,
+    onReset: () -> Unit,
+    syncByEarLabel: String,
+    onSyncByEar: () -> Unit,
 ) {
+    Column(modifier = Modifier.fillMaxWidth()) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -398,6 +409,38 @@ private fun SubtitleDelayRow(
             maxLines = 1,
         )
         SubtitleDelayStep(icon = Icons.Rounded.Add, onClick = onIncrease)
+    }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            SubtitleDelayTextAction(resetLabel, onReset)
+            SubtitleDelayTextAction(syncByEarLabel, onSyncByEar)
+        }
+    }
+}
+
+@Composable
+private fun SubtitleDelayTextAction(
+    label: String,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .heightIn(min = 44.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White.copy(alpha = 0.08f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = Color.White,
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
