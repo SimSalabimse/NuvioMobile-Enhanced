@@ -226,6 +226,16 @@ object MetaDetailsRepository {
         _uiState.value = MetaDetailsUiState()
     }
 
+    /**
+     * A TMDB series fallback with no episodes must not be cached: a later open would
+     * keep reading that empty list. Movies have no episode list, so they still cache.
+     */
+    internal fun shouldCacheFetchedStandaloneMeta(type: String, videoCount: Int): Boolean {
+        val normalized = type.trim().lowercase()
+        val series = normalized == "series" || normalized == "tv" || normalized == "show" || normalized == "tvshow"
+        return videoCount > 0 || !series
+    }
+
     suspend fun fetch(
         type: String,
         id: String,
@@ -259,7 +269,7 @@ object MetaDetailsRepository {
         }
 
         return tryFetchTmdbFallbackMeta(type = type, id = id)?.also { result ->
-            if (cacheResult) {
+            if (cacheResult && shouldCacheFetchedStandaloneMeta(result.type.ifBlank { type }, result.videos.size)) {
                 cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = result)
             }
         }

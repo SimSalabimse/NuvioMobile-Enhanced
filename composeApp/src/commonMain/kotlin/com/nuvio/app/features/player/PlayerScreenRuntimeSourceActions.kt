@@ -670,19 +670,53 @@ internal fun PlayerScreenRuntime.openEpisodesPanel() {
         "Player/Episodes",
         "open episodes panel parentType=$parentMetaType parentId=$parentMetaId cachedVideos=${playerMetaVideos.size}",
     )
-    if (playerMetaVideos.isEmpty()) {
-        scope.launch {
-            playerMetaVideos = MetaDetailsRepository.fetch(parentMetaType, parentMetaId)?.videos ?: emptyList()
-            InAppLogger.info(
-                "Player/Episodes",
-                "episodes loaded parentType=$parentMetaType parentId=$parentMetaId count=${playerMetaVideos.size}",
-            )
-        }
+    if (playerMetaVideos.isEmpty() && !episodesLoading) {
+        loadPlayerEpisodes(bypassCache = false)
     }
     showEpisodesPanel = true
     showSourcesPanel = false
     showLiveChannelsPanel = false
     controlsVisible = false
+}
+
+internal fun PlayerScreenRuntime.retryEpisodesLoad() {
+    loadPlayerEpisodes(bypassCache = true)
+}
+
+private fun PlayerScreenRuntime.loadPlayerEpisodes(bypassCache: Boolean) {
+    episodesLoadJob?.cancel()
+    val generation = ++episodesLoadGeneration
+    episodesLoading = true
+    episodesLoadFailed = false
+    episodesEmptyNeedsRetry = false
+    val requestType = parentMetaType
+    val requestId = parentMetaId
+    episodesLoadJob = scope.launch {
+        val meta = try {
+            MetaDetailsRepository.fetch(
+                type = requestType,
+                id = requestId,
+                useCache = !bypassCache,
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            null
+        }
+        if (generation != episodesLoadGeneration) return@launch
+        if (requestType != parentMetaType || requestId != parentMetaId) return@launch
+        val videos = meta?.videos.orEmpty()
+        playerMetaVideos = mergePlayerEpisodes(playerMetaVideos, videos)
+        if (meta != null && (videos.isNotEmpty() || playerMeta == null)) playerMeta = meta
+        episodesLoading = false
+        episodesLoadFailed = meta == null && playerMetaVideos.isEmpty()
+        episodesEmptyNeedsRetry = meta != null && playerMetaVideos.isEmpty() && !bypassCache
+        InAppLogger.info(
+            "Player/Episodes",
+            "episodes loaded parentType=$requestType parentId=$requestId count=${playerMetaVideos.size} " +
+                "failed=$episodesLoadFailed emptyNeedsRetry=$episodesEmptyNeedsRetry bypassCache=$bypassCache",
+        )
+    }
 }
 
 private data class EpisodeResume(val positionMs: Long, val fraction: Float?)

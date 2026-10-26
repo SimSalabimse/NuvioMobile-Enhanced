@@ -205,6 +205,11 @@ internal class PlayerScreenRuntime(
     val submittedSegmentTypesByVideoId = mutableMapOf<String, MutableSet<String>>()
     var episodeStreamsPanelState by mutableStateOf(EpisodeStreamsPanelState())
     var playerMetaVideos by mutableStateOf<List<MetaVideo>>(emptyList())
+    var episodesLoading by mutableStateOf(false)
+    var episodesLoadFailed by mutableStateOf(false)
+    var episodesEmptyNeedsRetry by mutableStateOf(false)
+    var episodesLoadJob: Job? = null
+    var episodesLoadGeneration: Int = 0
     var playerMeta by mutableStateOf<MetaDetails?>(null)
     var skipIntervals by mutableStateOf<List<SkipInterval>>(emptyList())
     val autoSkippedIntervals = mutableSetOf<SkipInterval>()

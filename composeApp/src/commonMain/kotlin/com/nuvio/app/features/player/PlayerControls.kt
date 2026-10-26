@@ -30,7 +30,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ListAlt
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Build
-import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Forward30
@@ -237,7 +236,6 @@ internal fun PlayerControlsShell(
                     metrics = metrics,
                     isLocked = isLocked,
                     showActions = showPlaybackControls,
-                    onSubmitIntroClick = onSubmitIntroClick,
                     parentalWarnings = parentalWarnings,
                     showParentalGuide = showParentalGuide,
                     onParentalGuideAnimationComplete = onParentalGuideAnimationComplete,
@@ -281,14 +279,17 @@ internal fun PlayerControlsShell(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .windowInsetsPadding(playerToolbarTopInsets(metrics))
-                            .padding(horizontal = metrics.horizontalPadding),
+                            .padding(horizontal = metrics.horizontalPadding + horizontalSafePadding),
                     )
                 }
                 ParentalGuideOverlay(
                     warnings = parentalWarnings,
                     isVisible = showParentalGuide,
                     onAnimationComplete = onParentalGuideAnimationComplete,
-                    contentPadding = PaddingValues(horizontal = metrics.horizontalPadding, vertical = metrics.verticalPadding),
+                    contentPadding = PaddingValues(
+                        horizontal = metrics.horizontalPadding + horizontalSafePadding,
+                        vertical = metrics.verticalPadding,
+                    ),
                     modifier = Modifier.align(Alignment.TopStart),
                 )
             }
@@ -372,10 +373,13 @@ internal fun PlayerControlsShell(
                             releaseInfo = releaseInfo,
                             metrics = metrics,
                             badges = badges,
+                            modifier = Modifier.padding(horizontal = horizontalSafePadding),
                         )
                     }
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = horizontalSafePadding),
                         verticalAlignment = Alignment.Bottom,
                     ) {
                         Box(modifier = Modifier.weight(1f)) {
@@ -434,7 +438,6 @@ internal fun PlayerControlsShell(
                         onVideoSettingsClick = onVideoSettingsClick,
                         onOpenInExternalPlayer = onOpenInExternalPlayer,
                         onStreamInfoClick = onStreamInfoClick,
-                        onSubmitIntroClick = onSubmitIntroClick,
                         qualityLabel = qualityLabel,
                         onQualityClick = onQualityClick,
                         onSwitchEngineClick = onSwitchEngineClick,
@@ -460,7 +463,6 @@ private fun PlayerHeader(
     metrics: PlayerLayoutMetrics,
     isLocked: Boolean,
     showActions: Boolean,
-    onSubmitIntroClick: (() -> Unit)?,
     parentalWarnings: List<ParentalWarning>,
     showParentalGuide: Boolean,
     onParentalGuideAnimationComplete: () -> Unit,
@@ -586,15 +588,6 @@ private fun PlayerHeader(
                             buttonSize = metrics.headerIconSize + 16.dp,
                             iconSize = metrics.headerIconSize,
                             onClick = onOpenInExternalPlayer,
-                        )
-                    }
-                    if (onSubmitIntroClick != null) {
-                        PlayerHeaderIconButton(
-                            icon = Icons.Rounded.Flag,
-                            contentDescription = stringResource(Res.string.submit_intro_action),
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
-                            onClick = onSubmitIntroClick,
                         )
                     }
                     if (onSwitchEngineClick != null) {

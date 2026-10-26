@@ -748,15 +748,37 @@ object TmdbMetadataService {
             settings = settings,
         ) ?: return null
 
+        val episodes = if (tmdbType == "tv" && enrichment.seasonCount > 0) {
+            fetchEpisodeEnrichment(
+                tmdbId = tmdbId.toString(),
+                seasonNumbers = (1..enrichment.seasonCount).toList(),
+                language = settings.language,
+            )
+        } else {
+            emptyMap()
+        }
         return buildStandaloneMeta(
             type = type,
             id = id,
             tmdbId = tmdbId,
             enrichment = enrichment,
+            episodes = episodes,
         )
     }
 
     internal fun buildStandaloneMeta(
+        type: String,
+        id: String,
+        tmdbId: Int,
+        enrichment: TmdbEnrichment,
+        episodes: Map<Pair<Int, Int>, TmdbEpisodeEnrichment> = emptyMap(),
+    ): MetaDetails {
+        val meta = buildStandaloneMetaBody(type, id, tmdbId, enrichment)
+        if (episodes.isEmpty()) return meta
+        return meta.copy(videos = metaVideosFromTmdbEpisodes(id, episodes))
+    }
+
+    private fun buildStandaloneMetaBody(
         type: String,
         id: String,
         tmdbId: Int,
@@ -792,6 +814,28 @@ object TmdbMetadataService {
             collectionItems = enrichment.collectionItems,
             trailers = enrichment.trailers,
         )
+
+    internal fun metaVideosFromTmdbEpisodes(
+        parentId: String,
+        episodes: Map<Pair<Int, Int>, TmdbEpisodeEnrichment>,
+    ): List<MetaVideo> =
+        episodes.entries
+            .sortedWith(compareBy({ it.key.first }, { it.key.second }))
+            .map { (key, episode) ->
+                val (season, number) = key
+                MetaVideo(
+                    id = "$parentId:$season:$number",
+                    title = episode.title?.takeIf { it.isNotBlank() } ?: "Episode $number",
+                    released = episode.airDate,
+                    thumbnail = episode.thumbnail,
+                    seasonPoster = episode.seasonPoster,
+                    season = season,
+                    episode = number,
+                    overview = episode.overview,
+                    runtime = episode.runtimeMinutes,
+                    tmdbRating = episode.voteAverage?.takeIf { it > 0.0 },
+                )
+            }
 
     internal fun applyEnrichment(
         meta: MetaDetails,
@@ -1086,6 +1130,7 @@ object TmdbMetadataService {
             },
             moreLikeThis = response.fourth.moreLikeThis,
             trailers = response.fourth.trailers,
+            seasonCount = if (mediaType == "tv") (details.numberOfSeasons ?: 0).coerceAtLeast(0) else 0,
         )
 
         if (!enrichment.hasContent()) return@withContext null
@@ -1469,6 +1514,7 @@ internal data class TmdbEnrichment(
     val collectionItems: List<MetaPreview> = emptyList(),
     val moreLikeThis: List<MetaPreview> = emptyList(),
     val trailers: List<MetaTrailer> = emptyList(),
+    val seasonCount: Int = 0,
 ) {
     fun hasContent(): Boolean =
         localizedTitle != null ||

@@ -50,6 +50,63 @@ class TmdbMetadataServiceTest {
         assertEquals("US, GB", result.country)
         assertEquals(listOf("Cast Member"), result.cast.map { it.name })
         assertEquals(listOf("Studio"), result.productionCompanies.map { it.name })
+        assertTrue(result.videos.isEmpty())
+    }
+
+    @Test
+    fun `standalone meta copies tmdb season episodes onto the show`() {
+        val episodes = mapOf(
+            (1 to 22) to TmdbEpisodeEnrichment(
+                title = "For Whom the Bell Tolls",
+                overview = "A night in Rosewood",
+                airDate = "2011-03-14",
+                thumbnail = "https://image.tmdb.org/still.jpg",
+                runtimeMinutes = 42,
+                voteAverage = 8.1,
+            ),
+            (1 to 3) to TmdbEpisodeEnrichment(title = "Earlier"),
+        )
+
+        val mapped = TmdbMetadataService.metaVideosFromTmdbEpisodes("tmdb:99", episodes)
+        assertEquals(listOf(3, 22), mapped.map { it.episode })
+        assertEquals(listOf(1, 1), mapped.map { it.season })
+        assertEquals("tmdb:99:1:3", mapped[0].id)
+        assertEquals("tmdb:99:1:22", mapped[1].id)
+        assertEquals("For Whom the Bell Tolls", mapped[1].title)
+        assertEquals("2011-03-14", mapped[1].released)
+        assertEquals("A night in Rosewood", mapped[1].overview)
+        assertEquals("https://image.tmdb.org/still.jpg", mapped[1].thumbnail)
+        assertEquals(42, mapped[1].runtime)
+        assertEquals(8.1, mapped[1].tmdbRating)
+
+        val show = TmdbMetadataService.buildStandaloneMeta(
+            type = "series",
+            id = "tmdb:99",
+            tmdbId = 99,
+            enrichment = TmdbEnrichment(
+                localizedTitle = "Pretty Little Liars",
+                description = null,
+                genres = emptyList(),
+                backdrop = null,
+                logo = null,
+                poster = null,
+                people = emptyList(),
+                director = emptyList(),
+                writer = emptyList(),
+                releaseInfo = "2010",
+                rating = null,
+                runtimeMinutes = null,
+                ageRating = null,
+                status = null,
+                countries = emptyList(),
+                language = null,
+                productionCompanies = emptyList(),
+                networks = emptyList(),
+                seasonCount = 1,
+            ),
+            episodes = episodes,
+        )
+        assertEquals(mapped, show.videos)
     }
 
     @Test
