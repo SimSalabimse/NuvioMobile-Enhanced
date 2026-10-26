@@ -47,7 +47,7 @@ class PartialFileEndTest {
             lastPositionMs = durationMs / 2,
         )
 
-        assertEquals(PartialPlayhead(positionMs = reachMs, isEnded = false), playhead)
+        assertEquals(PartialPlayhead(positionMs = reachMs, isEnded = false, waitingForDownload = true), playhead)
         assertFalse(isProgressComplete(playhead.positionMs, durationMs, playhead.isEnded))
     }
 
@@ -55,7 +55,7 @@ class PartialFileEndTest {
     fun endWithUnknownReachKeepsTheLastRealPosition() {
         val playhead = partialFilePlayhead(durationMs, isEnded = true, isPlaying = false, downloadFinished = false, reachMs = null, lastPositionMs = 600_000L)
 
-        assertEquals(PartialPlayhead(600_000L, isEnded = false), playhead)
+        assertEquals(PartialPlayhead(600_000L, isEnded = false, waitingForDownload = true), playhead)
     }
 
     @Test
@@ -71,6 +71,30 @@ class PartialFileEndTest {
         val playhead = partialFilePlayhead(reachMs + 5_000L, isEnded = false, isPlaying = true, downloadFinished = false, reachMs = reachMs, lastPositionMs = reachMs)
 
         assertEquals(PartialPlayhead(reachMs + 5_000L, isEnded = false), playhead)
+    }
+
+    @Test
+    fun endOfTheDownloadedPartWaitsForTheDownload() {
+        val playhead = partialFilePlayhead(reachMs + 300L, isEnded = true, isPlaying = false, downloadFinished = false, reachMs = reachMs, lastPositionMs = reachMs)
+
+        assertTrue(playhead.waitingForDownload, "the player waits for the download, it does not end")
+        assertFalse(playhead.isEnded)
+        assertEquals(reachMs, playhead.positionMs)
+    }
+
+    @Test
+    fun playingInsideTheDownloadedPartIsNotWaiting() {
+        val playhead = partialFilePlayhead(reachMs / 2, isEnded = false, isPlaying = true, downloadFinished = false, reachMs = reachMs, lastPositionMs = reachMs / 2)
+
+        assertFalse(playhead.waitingForDownload)
+    }
+
+    @Test
+    fun waitingAtTheEndPlaysOnOnceTheDownloadIsFurther() {
+        assertFalse(partialEndCanResume(positionMs = reachMs, reachMs = reachMs + 2_000L, downloadFinished = false))
+        assertTrue(partialEndCanResume(positionMs = reachMs, reachMs = reachMs + 60_000L, downloadFinished = false))
+        assertTrue(partialEndCanResume(positionMs = reachMs, reachMs = reachMs, downloadFinished = true))
+        assertFalse(partialEndCanResume(positionMs = reachMs, reachMs = null, downloadFinished = false))
     }
 
     @Test

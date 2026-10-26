@@ -291,7 +291,8 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                             FinishedDownloadDeletion.playbackPlaying(playbackSession.videoId)
                         }
                         if (snapshot.isEnded && handleDownloadSwapPartialEnd()) return@PlatformPlayerSurface
-                        if (snapshot.isEnded && !isDownloadSwapInFlight) {
+                        // The held state: the end of an in-progress download's bytes is not an end.
+                        if (playbackSnapshot.isEnded && !isDownloadSwapInFlight) {
                             shouldPlay = false
                             controlsVisible = !playerControlsLocked
                         }

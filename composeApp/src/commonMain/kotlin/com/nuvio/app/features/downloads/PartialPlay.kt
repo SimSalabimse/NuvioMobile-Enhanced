@@ -256,13 +256,29 @@ internal fun partialPlaybackCoversStart(
     return partialPlaybackKeepsResume(startFraction, playableBytes ?: 0L, totalBytes)
 }
 
-internal data class PartialPlayhead(val positionMs: Long, val isEnded: Boolean)
+/** [waitingForDownload]: at the end of the bytes on disk, buffering until the download is further. */
+internal data class PartialPlayhead(
+    val positionMs: Long,
+    val isEnded: Boolean,
+    val waitingForDownload: Boolean = false,
+)
+
+/** Playing on from the end of the downloaded part starts once this much more is on disk. */
+private const val PARTIAL_END_RESUME_AHEAD_MS = 30_000L
+
+/** Whether playback waiting at [positionMs], the end of the downloaded part, can play on. */
+internal fun partialEndCanResume(positionMs: Long, reachMs: Long?, downloadFinished: Boolean): Boolean {
+    if (downloadFinished) return true
+    val reach = reachMs ?: return false
+    return reach - positionMs >= PARTIAL_END_RESUME_AHEAD_MS
+}
 
 /**
  * What the player reports on an in-progress download's file, as watch progress may use it. The
- * end of that file is the end of the bytes on disk, not of the episode, so it is never an end;
- * and a position the player is not rendering (end of file, waiting, paused) is held to how far
- * the download reaches, or to [lastPositionMs] at the end when that is unknown.
+ * end of that file is the end of the bytes on disk, not of the episode, so it is never an end but
+ * a wait for the download; and a position the player is not rendering (end of file, waiting,
+ * paused) is held to how far the download reaches, or to [lastPositionMs] at the end when that
+ * is unknown.
  */
 internal fun partialFilePlayhead(
     positionMs: Long,
@@ -278,7 +294,7 @@ internal fun partialFilePlayhead(
         isEnded -> lastPositionMs
         else -> positionMs
     }
-    return PartialPlayhead(minOf(positionMs, limit), isEnded = false)
+    return PartialPlayhead(minOf(positionMs, limit), isEnded = false, waitingForDownload = isEnded)
 }
 
 /**

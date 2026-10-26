@@ -3,6 +3,7 @@ package com.nuvio.app.features.player
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.features.downloads.DownloadStatus
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.partialEndCanResume
 import com.nuvio.app.features.downloads.partialFilePlayhead
 import com.nuvio.app.features.downloads.partialPlaybackDownloadId
 import com.nuvio.app.features.servers.ServerItemRef
@@ -24,6 +25,7 @@ import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.player_engine_switching_manual_message
 import kotlin.math.abs
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 
 internal fun PlayerScreenRuntime.finishTimelineScrub(positionMs: Long) {
@@ -99,8 +101,23 @@ private fun PlayerScreenRuntime.heldToDownloadedPart(
             "end of downloaded part at ${snapshot.positionMs}ms reach=${reachMs}ms, kept at ${playhead.positionMs}ms",
         )
     }
-    return snapshot.copy(positionMs = playhead.positionMs, isEnded = playhead.isEnded)
+    if (!playhead.waitingForDownload) {
+        return snapshot.copy(positionMs = playhead.positionMs, isEnded = playhead.isEnded)
+    }
+    if (shouldPlay && partialEndCanResume(playhead.positionMs, reachMs, finished) &&
+        partialEndResumeMark.let { it == null || it.elapsedNow() >= PartialEndResumeInterval }
+    ) {
+        partialEndResumeMark = TimeSource.Monotonic.markNow()
+        InAppLogger.info("Player/PartialPlay", "download reaches ${reachMs}ms, playing on from ${playhead.positionMs}ms")
+        noteSeek()
+        playerController?.seekTo(playhead.positionMs)
+        playerController?.play()
+    }
+    // Buffering at the end of the bytes on disk: no ended state, so no Play next, no watched mark.
+    return snapshot.copy(positionMs = playhead.positionMs, isEnded = false, isLoading = true, isPlaying = false)
 }
+
+private val PartialEndResumeInterval = 5.seconds
 
 internal val PlayerScreenRuntime.activePlaybackIdentity: String
     get() = activeTorrentInfoHash
