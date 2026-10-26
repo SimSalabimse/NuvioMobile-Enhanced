@@ -56,8 +56,6 @@ import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
 import com.nuvio.app.features.watching.application.WatchingState
 import nuvio.composeapp.generated.resources.Res
-import nuvio.composeapp.generated.resources.action_back
-import nuvio.composeapp.generated.resources.action_close
 import nuvio.composeapp.generated.resources.action_retry
 import nuvio.composeapp.generated.resources.compose_player_episode_code_episode_only
 import nuvio.composeapp.generated.resources.compose_player_episode_code_full
@@ -97,31 +95,17 @@ fun PlayerEpisodesPanel(
     onRetryEpisodes: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    PlayerSidePanel(
+    PlayerToolPanel(
         visible = visible,
+        title = if (episodeStreamsState.showStreams) {
+            stringResource(Res.string.compose_player_panel_streams)
+        } else {
+            stringResource(Res.string.compose_player_panel_episodes)
+        },
+        onBack = if (episodeStreamsState.showStreams) onBackToEpisodes else null,
         onDismiss = onDismiss,
         modifier = modifier,
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-        ) {
-            PlayerPanelHeader(
-                title = if (episodeStreamsState.showStreams) {
-                    stringResource(Res.string.compose_player_panel_streams)
-                } else {
-                    stringResource(Res.string.compose_player_panel_episodes)
-                },
-            ) {
-                PlayerDialogButton(
-                    label = stringResource(Res.string.action_close),
-                    onClick = onDismiss,
-                )
-            }
-
-            Spacer(Modifier.height(16.dp))
-
             if (episodeStreamsState.showStreams) {
                 EpisodeStreamsPanelContent(
                     state = episodeStreamsState,
@@ -129,7 +113,6 @@ fun PlayerEpisodesPanel(
                     parentMetaId = parentMetaId,
                     onFilterSelected = onEpisodeStreamFilterSelected,
                     onStreamSelected = onEpisodeStreamSelected,
-                    onBack = onBackToEpisodes,
                     onReload = onReloadEpisodeStreams,
                     modifier = Modifier.weight(1f),
                 )
@@ -172,7 +155,6 @@ fun PlayerEpisodesPanel(
                     )
                 }
             }
-        }
     }
 }
 
@@ -526,7 +508,6 @@ private fun EpisodeStreamsPanelContent(
     parentMetaId: String,
     onFilterSelected: (String?) -> Unit,
     onStreamSelected: (StreamItem, MetaVideo) -> Unit,
-    onBack: () -> Unit,
     onReload: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -548,12 +529,7 @@ private fun EpisodeStreamsPanelContent(
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            PlayerDialogButton(
-                label = stringResource(Res.string.action_back),
-                onClick = onBack,
-            )
             Text(
                 text = buildString {
                     if (episode.season != null && episode.episode != null) {

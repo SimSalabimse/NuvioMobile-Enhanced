@@ -1,33 +1,23 @@
 package com.nuvio.app.features.player
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import nuvio.composeapp.generated.resources.Res
-import nuvio.composeapp.generated.resources.action_close
 import nuvio.composeapp.generated.resources.player_video_settings_brightness
 import nuvio.composeapp.generated.resources.player_video_settings_contrast
 import nuvio.composeapp.generated.resources.player_video_settings_deband
@@ -53,34 +43,12 @@ internal fun IosVideoSettingsModal(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    PlayerSidePanel(
+    PlayerToolPanel(
         visible = visible,
+        title = stringResource(Res.string.player_video_settings_title),
         onDismiss = onDismiss,
         modifier = modifier,
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-        ) {
-            PlayerPanelHeader(
-                title = stringResource(Res.string.player_video_settings_title),
-            ) {
-                PlayerDialogButton(
-                    label = stringResource(Res.string.player_video_settings_reset_tuning),
-                    onClick = {
-                        PlayerSettingsRepository.resetIosVideoOutputTuning()
-                        onSettingsChanged()
-                    },
-                )
-                PlayerDialogButton(
-                    label = stringResource(Res.string.action_close),
-                    onClick = onDismiss,
-                )
-            }
-
-            Spacer(Modifier.height(16.dp))
-
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -171,8 +139,16 @@ internal fun IosVideoSettingsModal(
                         onSettingsChanged()
                     },
                 )
+
+                PlayerToolRow(
+                    label = stringResource(Res.string.player_video_settings_reset_tuning),
+                    selected = false,
+                    onClick = {
+                        PlayerSettingsRepository.resetIosVideoOutputTuning()
+                        onSettingsChanged()
+                    },
+                )
             }
-        }
     }
 }
 
@@ -188,8 +164,8 @@ private fun ToggleRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(text = title, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
-            Text(text = description, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+            Text(text = title, color = Color.White, fontWeight = FontWeight.SemiBold)
+            Text(text = description, color = Color.White.copy(alpha = 0.72f), fontSize = 13.sp)
         }
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
@@ -208,11 +184,11 @@ private fun PictureSlider(
         ) {
             Text(
                 text = title,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = Color.White,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f),
             )
-            Text(text = value.toString(), color = MaterialTheme.colorScheme.primary)
+            Text(text = value.toString(), color = Color.White.copy(alpha = 0.72f))
         }
         Slider(
             value = value.toFloat(),
@@ -233,52 +209,17 @@ private fun <T> OptionGroup(
     onSelect: (T) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            text = title,
-            color = MaterialTheme.colorScheme.onSurface,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        PlayerToolSectionLabel(text = title)
+        Column {
             options.forEach { option ->
                 val isSelected = option == selected
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onSelect(option) },
-                    color = if (isSelected) {
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                    },
-                    shape = RoundedCornerShape(12.dp),
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(text = label(option), color = MaterialTheme.colorScheme.onSurface)
-                            val subtitle = description?.invoke(option)
-                            if (!subtitle.isNullOrBlank()) {
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = subtitle,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 12.sp,
-                                )
-                            }
-                        }
-                        if (isSelected) {
-                            Icon(
-                                imageVector = Icons.Rounded.Check,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                    }
-                }
+                val subtitle = description?.invoke(option)
+                PlayerToolRow(
+                    label = label(option),
+                    supporting = subtitle?.takeIf { it.isNotBlank() },
+                    selected = isSelected,
+                    onClick = { onSelect(option) },
+                )
             }
         }
     }

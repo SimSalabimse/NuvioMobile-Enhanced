@@ -1,40 +1,19 @@
 package com.nuvio.app.features.player
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -51,7 +30,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_player_playback_info
 import org.jetbrains.compose.resources.stringResource
-import com.nuvio.app.core.ui.glass.ambientLiquidGlass
 
 @Composable
 internal fun PlaybackInfoModal(
@@ -69,113 +47,35 @@ internal fun PlaybackInfoModal(
     }
     val hasSelectedQuality = selectedQualityVariant != null
 
-    AnimatedVisibility(
+    PlayerToolPanel(
         visible = visible,
-        enter = fadeIn(tween(200)),
-        exit = fadeOut(tween(200)),
+        title = stringResource(Res.string.compose_player_playback_info),
+        onDismiss = onDismiss,
+        modifier = modifier,
     ) {
-        Box(
-            modifier = modifier
-                .fillMaxSize()
-                .clickable(
-                    indication = null,
-                    interactionSource = remember { MutableInteractionSource() },
-                    onClick = onDismiss,
-                )
-                .background(Color.Black.copy(alpha = 0.65f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            AnimatedVisibility(
-                visible = visible,
-                enter = slideInVertically(tween(300)) { it / 3 } + fadeIn(tween(300)),
-                exit = slideOutVertically(tween(250)) { it / 3 } + fadeOut(tween(250)),
+        if (parsed == null && !hasSelectedQuality) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center,
             ) {
-                Box(
-                    modifier = Modifier
-                        .widthIn(max = 520.dp)
-                        .fillMaxWidth(0.9f)
-                        .heightIn(max = 560.dp)
-                        .clip(RoundedCornerShape(24.dp))
-                        .ambientLiquidGlass(
-                            shape = RoundedCornerShape(24.dp),
-                            tint = Color(0xFF16161B).copy(alpha = 0.74f),
-                            fallback = Color(0xFF1E1E24),
-                            blurRadius = 28.dp,
-                            refractionHeight = 10.dp,
-                            refractionAmount = 18.dp,
-                            fallbackBrush = Brush.verticalGradient(
-                                colors = listOf(
-                                    Color(0xFF1E1E24),
-                                    Color(0xFF0F0F12),
-                                ),
-                            ),
-                        )
-                        .border(1.dp, Color.White.copy(alpha = 0.12f), RoundedCornerShape(24.dp))
-                        .clickable(
-                            indication = null,
-                            interactionSource = remember { MutableInteractionSource() },
-                            onClick = {},
-                        ),
-                ) {
-                    Column(modifier = Modifier.padding(24.dp)) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = stringResource(Res.string.compose_player_playback_info),
-                                modifier = Modifier.weight(1f),
-                                color = Color.White,
-                                fontSize = 20.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            IconButton(
-                                onClick = onDismiss,
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(18.dp)),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Close,
-                                    contentDescription = "Close",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        }
-
-                        HorizontalDivider(color = Color.White.copy(alpha = 0.1f))
-
-                        if (parsed == null && !hasSelectedQuality) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 48.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    text = "No playback information available yet.",
-                                    color = Color.White.copy(alpha = 0.55f),
-                                    fontSize = 15.sp,
-                                    textAlign = TextAlign.Center,
-                                )
-                            }
-                        } else {
-                            PlaybackInfoContent(
-                                parsed = parsed,
-                                selectedQualityVariant = selectedQualityVariant,
-                                selectedQualityIsAuto = selectedQualityIsAuto,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .verticalScroll(rememberScrollState()),
-                            )
-                        }
-                    }
-                }
+                Text(
+                    text = "No playback information available yet.",
+                    color = Color.White.copy(alpha = 0.72f),
+                    fontSize = 15.sp,
+                    textAlign = TextAlign.Center,
+                )
             }
+        } else {
+            PlaybackInfoContent(
+                parsed = parsed,
+                selectedQualityVariant = selectedQualityVariant,
+                selectedQualityIsAuto = selectedQualityIsAuto,
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
+            )
         }
     }
 }
@@ -345,13 +245,7 @@ private fun PlaybackInfoContent(
 
 @Composable
 private fun SectionHeader(title: String) {
-    Text(
-        text = title.uppercase(),
-        color = Color(0xFFFF8A00),
-        fontSize = 11.sp,
-        fontWeight = FontWeight.Black,
-        modifier = Modifier.padding(top = 18.dp, bottom = 6.dp),
-    )
+    PlayerToolSectionLabel(text = title)
 }
 
 @Composable
@@ -359,13 +253,13 @@ private fun InfoRow(label: String, value: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 5.dp),
+            .heightIn(min = PlayerToolPanelRowHeight),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.Top,
     ) {
         Text(
             text = label,
-            color = Color.White.copy(alpha = 0.55f),
+            color = Color.White.copy(alpha = 0.72f),
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
             modifier = Modifier
@@ -376,7 +270,7 @@ private fun InfoRow(label: String, value: String) {
             text = value,
             color = Color.White,
             fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.SemiBold,
             maxLines = 4,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(0.58f),

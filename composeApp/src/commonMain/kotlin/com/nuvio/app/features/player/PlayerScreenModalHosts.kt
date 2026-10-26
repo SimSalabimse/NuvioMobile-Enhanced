@@ -115,7 +115,8 @@ internal fun PlayerScreenModalHosts(
     submitIntroEndTimeStr: String,
     onSubmitIntroEndTimeChanged: (String) -> Unit,
     onSubmitIntroDismissed: () -> Unit,
-    onSubmitIntroSuccess: () -> Unit,
+    onSubmitIntroSuccess: (com.nuvio.app.features.player.skip.IntroSubmitResult) -> Unit,
+    onSubmitIntroPreviewSeekMs: (Long) -> Unit = {},
     skipIntervals: List<com.nuvio.app.features.player.skip.SkipInterval> = emptyList(),
     submittedSegmentTypesInSession: Set<String> = emptySet(),
     showStreamInfoModal: Boolean,
@@ -290,6 +291,9 @@ internal fun PlayerScreenModalHosts(
             existingSegments = skipIntervals,
             submittedTypesInSession = submittedSegmentTypesInSession,
             shareMetaId = parentMetaId.ifBlank { metaUiState.meta?.id }?.takeIf { it.isNotBlank() },
+            episodeTitle = activeEpisodeTitle,
+            releaseInfo = metaUiState.meta?.releaseInfo,
+            onPreviewSeekMs = onSubmitIntroPreviewSeekMs,
         )
     }
 

@@ -104,8 +104,7 @@ internal fun PlayerScreenRuntime.partyBlocksControl(): Boolean {
 
 internal fun PlayerScreenRuntime.openPartyPanel() {
     if (PartyChat.unread.value > 0) showPartyChat = true
-    showPartyPanel = true
-    controlsVisible = false
+    showPlayerTool(PlayerTool.Party)
 }
 
 internal fun PlayerScreenRuntime.toggleOwnPlayback() {
@@ -231,13 +230,12 @@ private fun PlayerScreenRuntime.handlePartyMediaChange(media: PartyMedia) {
         val video = playerMetaVideos.firstOrNull { it.season == season && it.episode == episode }
         if (video != null) {
             episodeStreamsPanelState = EpisodeStreamsPanelState(showStreams = true, selectedEpisode = video)
-            showEpisodesPanel = true
-            showPartyPanel = false
+            showPlayerTool(PlayerTool.Episodes)
             return
         }
     }
     showPartyChat = false
-    showPartyPanel = true
+    showPlayerTool(PlayerTool.Party)
 }
 
 @Composable
