@@ -1,7 +1,10 @@
 package com.nuvio.app.features.whatsnew
 
+import kotlinx.datetime.DatePeriod
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.plus
 import kotlinx.datetime.periodUntil
+import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Instant
 
 internal enum class LastCheckedUnit {
@@ -45,6 +48,8 @@ internal fun calculateLastCheckedAge(
     val start = Instant.fromEpochMilliseconds(fetchedAtMillis)
     val end = Instant.fromEpochMilliseconds(effectiveNowMillis)
     val calendarPeriod = start.periodUntil(end, timeZone)
+    // 31 Jan to 28 Feb is a calendar month even though February has no 31st.
+    val endOfMonthMonths = endOfMonthSpan(start, end, timeZone)
 
     return when {
         calendarPeriod.years >= 1 -> LastCheckedAge(
@@ -53,6 +58,10 @@ internal fun calculateLastCheckedAge(
         )
         calendarPeriod.months >= 1 -> LastCheckedAge(
             amount = calendarPeriod.months.toLong(),
+            unit = LastCheckedUnit.MONTH,
+        )
+        endOfMonthMonths != null -> LastCheckedAge(
+            amount = endOfMonthMonths,
             unit = LastCheckedUnit.MONTH,
         )
         calendarPeriod.days >= 7 -> LastCheckedAge(
@@ -73,3 +82,14 @@ internal fun calculateLastCheckedAge(
         )
     }
 }
+
+private fun endOfMonthSpan(start: Instant, end: Instant, timeZone: TimeZone): Long? {
+    val startDate = start.toLocalDateTime(timeZone).date
+    val endDate = end.toLocalDateTime(timeZone).date
+    if (!startDate.isLastDayOfMonth() || !endDate.isLastDayOfMonth()) return null
+    val months = (endDate.year - startDate.year) * 12L + (endDate.monthNumber - startDate.monthNumber)
+    return months.takeIf { it >= 1L }
+}
+
+private fun kotlinx.datetime.LocalDate.isLastDayOfMonth(): Boolean =
+    plus(DatePeriod(days = 1)).month != month

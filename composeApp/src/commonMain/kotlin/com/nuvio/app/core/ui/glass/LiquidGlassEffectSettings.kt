@@ -102,6 +102,9 @@ internal object LiquidGlassEffectDefaults {
 
 private val liquidGlassSettingsJson = Json {
     ignoreUnknownKeys = true
+    // Constructor defaults are false, while a saved lens treats a missing flag as on.
+    // Write every field so turning a flag off survives a reload.
+    encodeDefaults = true
 }
 
 internal fun encodeLiquidGlassEffectSettings(
