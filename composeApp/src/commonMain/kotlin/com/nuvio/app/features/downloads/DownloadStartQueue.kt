@@ -67,6 +67,19 @@ internal data class DownloadStartPlan(
     val launch: List<String>,
 )
 
+/**
+ * Which held ids may be pulled into a slot. A waiting one is not pulled while downloads are
+ * paused for playback or while the device is too hot; one that already runs is left to the
+ * shrink keep-set.
+ */
+@Suppress("UNUSED_PARAMETER")
+internal fun heldIdsToStart(
+    held: Set<String>,
+    active: Set<String>,
+    pauseAll: Boolean,
+    thermalBlocks: Boolean,
+): Set<String> = if (pauseAll || thermalBlocks) emptySet() else held
+
 internal fun planDownloadStarts(
     startedIds: List<String>,
     liveIds: Set<String>,

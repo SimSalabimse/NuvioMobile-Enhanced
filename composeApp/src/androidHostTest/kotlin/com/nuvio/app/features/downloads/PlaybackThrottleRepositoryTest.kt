@@ -416,6 +416,56 @@ class PlaybackThrottleRepositoryTest {
         return DownloadsRepository.uiState.value.items.single { it.episodeNumber == 2 }.id
     }
 
+    @Test
+    fun pauseWhileWatchingStartsNothingAndKeepsOneAlreadyRunning() {
+        SmartDownloadSettings.setPauseDuringPlayback(true)
+        startThreeDownloads()
+        PartialPlaybackLease.acquire("e1")
+        try {
+            PlaybackPriority.sessionStarted(isLocalFile = false)
+            snapshots(buffering = false, forMs = 30_000L)
+            assertEquals(setOf("e1"), fake.running, "one that was already running keeps going")
+            assertEquals(1, fake.starts["e1"])
+        } finally {
+            PartialPlaybackLease.release("e1")
+        }
+        PlaybackPriority.sessionEnded()
+        PlaybackPriority.sessionStarted(isLocalFile = false)
+        val starts = fake.starts.toMap()
+        PartialPlaybackLease.acquire("e3")
+        try {
+            snapshots(buffering = false, forMs = 30_000L)
+            assertEquals(starts["e3"] ?: 0, fake.starts["e3"] ?: 0, "a waiting file does not start")
+            assertTrue("e3" !in fake.running)
+            assertTrue(fake.running.isEmpty(), "nothing starts during playback")
+        } finally {
+            PartialPlaybackLease.release("e3")
+        }
+    }
+
+    @Test
+    fun staleProgressAndSuccessFromAnOldAttemptAreIgnored() {
+        startTwoDownloads()
+        PlaybackPriority.sessionStarted(isLocalFile = false)
+        snapshots(buffering = false, forMs = 60_000L)
+        val kept = fake.running.single()
+        val first = fake.callbacks.getValue(kept)
+
+        snapshots(buffering = true, forMs = 2_000L)
+        snapshots(buffering = false, forMs = 30_000L)
+        assertEquals(2, fake.starts[kept])
+        fake.progress(kept, 80_000_000L)
+
+        first.onProgress(1_000L, 1_000_000_000L)
+        assertEquals(80_000_000L, DownloadsRepository.uiState.value.items.single { it.id == kept }.downloadedBytes)
+
+        first.onSuccess("file:///downloads/$kept.mkv", 1_000_000_000L)
+        assertEquals(DownloadStatus.Downloading, DownloadsRepository.uiState.value.items.single { it.id == kept }.status)
+        PlaybackPriority.sessionEnded()
+        assertEquals(2, fake.starts[kept], "a late finish must not drop the new attempt's handle")
+        assertTrue(kept in fake.running)
+    }
+
     private fun startThreeDownloads() {
         DownloadsRepository.replaceItems(listOf(episode("e1", 1), episode("e2", 2), episode("e3", 3)))
         DownloadsRepository.resumeDownloads(listOf("e1", "e2", "e3"))

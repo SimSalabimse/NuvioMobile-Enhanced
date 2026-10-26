@@ -57,6 +57,13 @@ class PlaybackCapRestartTest {
     }
 
     @Test
+    fun `pause while watching and a hot device do not pull a waiting file into a slot`() {
+        assertEquals(emptySet(), heldIdsToStart(setOf("e3"), active = setOf("e1"), pauseAll = true, thermalBlocks = false))
+        assertEquals(emptySet(), heldIdsToStart(setOf("e3"), active = setOf("e1"), pauseAll = false, thermalBlocks = true))
+        assertEquals(setOf("e3"), heldIdsToStart(setOf("e3"), active = setOf("e1"), pauseAll = false, thermalBlocks = false))
+    }
+
+    @Test
     fun `stopped transfers start again when the cap rises and a file queued at zero follows`() {
         val h = Harness()
         h.enqueue("a")

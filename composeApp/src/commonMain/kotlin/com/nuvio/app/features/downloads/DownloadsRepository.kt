@@ -870,6 +870,7 @@ object DownloadsRepository {
         val handle = transfers.start(
             request = request,
             onProgress = onProgress@{ downloadedBytes, totalBytes ->
+                if (staleAttempt()) return@onProgress
                 val current = _uiState.value.items.firstOrNull { it.id == item.id } ?: return@onProgress
                 if (current.status != DownloadStatus.Downloading) return@onProgress
                 val shortfall = outOfSpaceWhileDownloading(current)
@@ -908,7 +909,8 @@ object DownloadsRepository {
                     }
                 }
             },
-            onSuccess = { localFileUri, totalBytes ->
+            onSuccess = onSuccess@{ localFileUri, totalBytes ->
+                if (staleAttempt()) return@onSuccess
                 activeHandles.remove(item.id)
                 linkRefreshAttempts.remove(item.id)
                 linkRefreshBytes.remove(item.id)
@@ -1092,17 +1094,34 @@ object DownloadsRepository {
         if (hasLoaded) replanSlots()
     }
 
-    /** The player started or stopped reading an in-progress download's file. */
+    /**
+     * The player started or stopped reading an in-progress download's file. Letting one go only
+     * fills free slots: it never stops a transfer, so it is safe whichever runs first, this or the
+     * player session closing (that one raises the cap).
+     */
     fun onPartialPlaybackLeaseChanged() {
-        if (hasLoaded) replanSlots()
+        if (!hasLoaded) return
+        if (PartialPlaybackLease.heldIds().isEmpty()) {
+            applyStarts(startQueue.promote(DownloadThermalGate.blocksNextFile()))
+            refreshHeldForPlayback()
+        } else {
+            replanSlots()
+        }
     }
 
     private var lastSlotPlan: String? = null
 
     private fun replanSlots() {
         val held = PartialPlaybackLease.heldIds()
-        val pinned = startQueue.pin(held)
-        val demoted = startQueue.shrinkTo(startQueue.maxActive, held)
+        val active = startQueue.activeIds()
+        // Cap 0 from the setting pauses new starts. A file that is already running stays, which is
+        // what a plain shrink did; a waiting one is not pulled in past that cap. A hot device
+        // likewise starts nothing new.
+        val pauseAll = startQueue.maxActive == 0 && SmartDownloadSettings.snapshot().pauseDuringPlayback
+        val thermal = DownloadThermalGate.blocksNextFile()
+        val pinned = startQueue.pin(heldIdsToStart(held, active, pauseAll, thermal))
+        val keep = if (pauseAll || thermal) held.intersect(active) else held
+        val demoted = startQueue.shrinkTo(startQueue.maxActive, keep)
         if (pinned.isNotEmpty() || demoted.isNotEmpty()) alignQueuedStatuses()
         applyStarts(pinned + startQueue.promote(DownloadThermalGate.blocksNextFile()), pinned.toSet())
         refreshHeldForPlayback()
