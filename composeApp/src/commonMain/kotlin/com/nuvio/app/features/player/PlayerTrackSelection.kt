@@ -520,20 +520,66 @@ internal fun findPersistedAddonSubtitle(
     } ?: preferredCandidates.firstOrNull()
 }
 
+internal fun preferredSubtitleDisablesSelection(preferredSubtitleLanguage: String?): Boolean {
+    val normalized = normalizeLanguageCode(preferredSubtitleLanguage) ?: return true
+    return normalized == SubtitleLanguageOption.NONE || normalized == SubtitleLanguageOption.FORCED
+}
+
+/**
+ * Which subtitle row to keep after the engine reports [engineSelectedIndex].
+ * That index is whatever the player autoselected (container default, OS language, or
+ * subs-fallback). It is not a user choice. Off, and a choice the user already made,
+ * stay as they are.
+ */
+internal fun subtitleIndexAfterEngineReport(
+    currentIndex: Int,
+    engineSelectedIndex: Int?,
+    explicitUserChoice: Boolean,
+    preferredSubtitleLanguage: String,
+    useCustomSubtitles: Boolean,
+): Int {
+    if (useCustomSubtitles || explicitUserChoice) return currentIndex
+    if (preferredSubtitleDisablesSelection(preferredSubtitleLanguage)) return -1
+    return engineSelectedIndex ?: currentIndex
+}
+
 internal fun findPersistedSubtitleTrackIndex(
     tracks: List<SubtitleTrack>,
     preference: PersistedPlayerTrackPreference,
 ): Int {
-    preference.subtitleTrackId?.takeIf { it.isNotBlank() }?.let { trackId ->
-        tracks.firstOrNull { it.id == trackId }?.let { return it.index }
+    if (
+        preference.subtitleType == PersistedSubtitleSelectionType.DISABLED ||
+        preference.subtitleType == PersistedSubtitleSelectionType.ADDON
+    ) {
+        return -1
     }
 
-    val languageCandidates = preference.subtitleLanguage?.takeIf { it.isNotBlank() }?.let { language ->
-        tracks.indices.filter { index ->
-            SubtitleLanguageMatching.matchesLanguageCode(tracks[index].language, language) ||
-                subtitleTrackMatchesLanguage(tracks[index], language)
-        }
-    }.orEmpty()
+    val targetId = preference.subtitleTrackId?.trim()?.takeIf { it.isNotBlank() }
+    val targetLanguage = preference.subtitleLanguage?.trim()?.takeIf { it.isNotBlank() }
+    fun matchesSavedLanguage(track: SubtitleTrack): Boolean {
+        if (targetLanguage == null) return false
+        return SubtitleLanguageMatching.matchesLanguageCode(track.language, targetLanguage) ||
+            subtitleTrackMatchesLanguage(track, targetLanguage)
+    }
+
+    val languageCandidates = if (targetLanguage == null) {
+        emptyList()
+    } else {
+        tracks.indices.filter { index -> matchesSavedLanguage(tracks[index]) }
+    }
+    // A per-file track id is only meaningful together with the saved language.
+    // The same id on the next file, or on a download of the same video, can be another language.
+    val idCandidates = if (targetLanguage != null) languageCandidates else tracks.indices.toList()
+    val forcedIdCandidates = if (preference.subtitleIsForced == true) {
+        idCandidates.filter { index -> tracks[index].isForced }
+    } else {
+        idCandidates
+    }
+    if (targetId != null) {
+        forcedIdCandidates.firstOrNull { index -> tracks[index].id == targetId }
+            ?.let { return tracks[it].index }
+    }
+
     val forcedFiltered = if (preference.subtitleIsForced == true) {
         languageCandidates.filter { index -> tracks[index].isForced }
     } else {
@@ -546,18 +592,37 @@ internal fun findPersistedSubtitleTrackIndex(
             name = preference.subtitleName,
             trackId = preference.subtitleTrackId,
         )
-        val variantMatch = forcedFiltered.firstOrNull { index ->
+        val variantPool = forcedFiltered.filter { index ->
             SubtitleLanguageMatching.detectTrackLanguageVariant(
                 language = tracks[index].language,
                 name = tracks[index].label,
                 trackId = tracks[index].id,
             ) == targetVariant
+        }.ifEmpty { forcedFiltered }
+        preference.subtitleName?.trim()?.takeIf { it.isNotBlank() }?.let { name ->
+            bestNamedTrackIndex(
+                tracks = variantPool.map { index ->
+                    NamedTrack(
+                        index = tracks[index].index,
+                        label = tracks[index].label,
+                        forced = tracks[index].isForced,
+                    )
+                },
+                wantedName = name,
+                wantedForced = preference.subtitleIsForced == true,
+                requireUnique = true,
+            )?.let { return it }
         }
-        return tracks[variantMatch ?: forcedFiltered.first()].index
+        return tracks[variantPool.first()].index
     }
 
-    preference.subtitleName?.takeIf { it.isNotBlank() }?.let { name ->
-        val nameMatches = tracks.filter { it.label.equals(name, ignoreCase = true) }
+    preference.subtitleName?.trim()?.takeIf { it.isNotBlank() }?.let { name ->
+        val namePool = if (targetLanguage != null) {
+            languageCandidates.map { index -> tracks[index] }
+        } else {
+            tracks
+        }
+        val nameMatches = namePool.filter { it.label.equals(name, ignoreCase = true) }
         val forcedNameMatches = if (preference.subtitleIsForced == true) {
             nameMatches.filter { it.isForced }
         } else {
@@ -566,4 +631,223 @@ internal fun findPersistedSubtitleTrackIndex(
         forcedNameMatches.firstOrNull()?.let { return it.index }
     }
     return -1
+}
+
+internal fun audioTrackListChanged(previous: List<AudioTrack>, current: List<AudioTrack>): Boolean {
+    if (previous.size != current.size) return true
+    return previous.indices.any { index ->
+        val before = previous[index]
+        val after = current[index]
+        before.index != after.index ||
+            before.id != after.id ||
+            before.language != after.language ||
+            before.label != after.label
+    }
+}
+
+internal fun subtitleTrackListChanged(previous: List<SubtitleTrack>, current: List<SubtitleTrack>): Boolean {
+    if (previous.size != current.size) return true
+    return previous.indices.any { index ->
+        val before = previous[index]
+        val after = current[index]
+        before.index != after.index ||
+            before.id != after.id ||
+            before.language != after.language ||
+            before.label != after.label ||
+            before.isForced != after.isForced
+    }
+}
+
+/**
+ * Index of the explicit audio choice after the file's track list changed.
+ * Language and name identify the track. SDH is part of the name, so "English"
+ * still matches "English SDH" when that is the English track. -1 means the
+ * choice is absent and the old index must not be selected.
+ */
+internal fun explicitAudioIndexAfterListChange(
+    tracks: List<AudioTrack>,
+    wantedLanguage: String?,
+    wantedName: String?,
+    wantedId: String? = null,
+): Int {
+    val pool = tracksInLanguage(
+        tracks = tracks,
+        wantedLanguage = wantedLanguage,
+        matches = { track, language -> audioTrackMatchesLanguage(track, language) },
+    )
+    if (pool.isEmpty()) return -1
+    if (!wantedName.isNullOrBlank()) {
+        return bestNamedTrackIndex(
+            tracks = pool.map { NamedTrack(it.index, it.label, forced = false, id = it.id) },
+            wantedName = wantedName,
+            wantedForced = false,
+            requireUnique = false,
+            wantedId = wantedId,
+        ) ?: -1
+    }
+    return pool.first().index
+}
+
+/** Same rule as [explicitAudioIndexAfterListChange], including forced and SDH. */
+internal fun explicitSubtitleIndexAfterListChange(
+    tracks: List<SubtitleTrack>,
+    wantedLanguage: String?,
+    wantedName: String?,
+    wantedForced: Boolean,
+    wantedId: String? = null,
+): Int {
+    val pool = tracksInLanguage(
+        tracks = tracks,
+        wantedLanguage = wantedLanguage,
+        matches = { track, language ->
+            SubtitleLanguageMatching.matchesLanguageCode(track.language, language) ||
+                subtitleTrackMatchesLanguage(track, language)
+        },
+    )
+    if (pool.isEmpty()) return -1
+    val forcedPool = if (wantedForced) pool.filter { it.isForced } else pool.filter { !it.isForced }
+    val candidates = forcedPool.ifEmpty { pool }
+    if (!wantedName.isNullOrBlank()) {
+        return bestNamedTrackIndex(
+            tracks = candidates.map { NamedTrack(it.index, it.label, it.isForced, id = it.id) },
+            wantedName = wantedName,
+            wantedForced = wantedForced,
+            requireUnique = false,
+            wantedId = wantedId,
+        ) ?: -1
+    }
+    return candidates.first().index
+}
+
+/**
+ * True when [current] is [previous] plus the external subtitle at [addedUrl].
+ * `sub-add` grows the track list by that one subtitle. A new embedded track does not.
+ */
+internal fun subtitleListChangeIsOwnExternalAdd(
+    previous: List<SubtitleTrack>,
+    current: List<SubtitleTrack>,
+    addedUrl: String?,
+): Boolean {
+    if (addedUrl.isNullOrBlank() || current.size <= previous.size) return false
+    val previousIds = previous.map { it.id }.toSet()
+    val added = current.filter { it.id !in previousIds }
+    if (added.isEmpty() || previous.any { prev -> current.none { it.id == prev.id } }) return false
+    val keptChanged = previous.any { prev ->
+        val now = current.first { it.id == prev.id }
+        now.language != prev.language || now.label != prev.label || now.isForced != prev.isForced
+    }
+    if (keptChanged) return false
+    return added.all { trackBelongsToAddedSubtitle(it, addedUrl) }
+}
+
+private fun trackBelongsToAddedSubtitle(track: SubtitleTrack, addedUrl: String): Boolean {
+    val label = track.label.trim()
+    val id = track.id.trim()
+    if (label.equals(addedUrl, ignoreCase = true) || id.equals(addedUrl, ignoreCase = true)) return true
+    if (label.contains(addedUrl, ignoreCase = true) || id.contains(addedUrl, ignoreCase = true)) return true
+    val fileName = addedUrl.substringAfterLast('/').substringBefore('?').trim()
+    return fileName.length >= 3 &&
+        (label.contains(fileName, ignoreCase = true) || id.contains(fileName, ignoreCase = true))
+}
+
+private fun <T> tracksInLanguage(
+    tracks: List<T>,
+    wantedLanguage: String?,
+    matches: (T, String) -> Boolean,
+): List<T> {
+    if (wantedLanguage.isNullOrBlank()) return tracks
+    return tracks.filter { matches(it, wantedLanguage) }
+}
+
+internal data class NamedTrack(
+    val index: Int,
+    val label: String,
+    val forced: Boolean,
+    val id: String = "",
+)
+
+internal fun bestNamedTrackIndex(
+    tracks: List<NamedTrack>,
+    wantedName: String,
+    wantedForced: Boolean,
+    requireUnique: Boolean,
+    wantedId: String? = null,
+): Int? {
+    if (tracks.isEmpty() || wantedName.isBlank()) return null
+    val wantedBase = baseTrackName(wantedName)
+    val wantedSdh = nameHasSdh(wantedName)
+    val wantedForcedName = wantedForced || nameHasForced(wantedName)
+    val wantedLanguage = pureLanguageCode(wantedName)
+    val scored = tracks.map { track ->
+        val base = baseTrackName(track.label)
+        val sdh = nameHasSdh(track.label)
+        val forced = track.forced || nameHasForced(track.label)
+        val basesEqual = wantedBase.isNotBlank() && base == wantedBase
+        val sameLanguageLabel = wantedLanguage != null && pureLanguageCode(track.label) == wantedLanguage
+        var score = 0
+        if (track.label.equals(wantedName, ignoreCase = true)) score += 100
+        if (basesEqual || sameLanguageLabel) score += 40
+        if (sdh == wantedSdh) score += 10
+        if (forced == wantedForcedName) score += 10
+        val unwantedQualifier = (sdh && !wantedSdh) || (forced && !wantedForced)
+        ScoredName(track, score, unwantedQualifier)
+    }
+    val plainExists = scored.any { !it.qualifier }
+    // An SDH or forced base-name match loses to a plain track of the same language.
+    // It can still win when it is the only track, or when that qualifier was requested.
+    val eligible = if (plainExists) scored.filter { !it.qualifier } else scored
+    if (eligible.isEmpty()) return null
+    val best = eligible.maxOf { it.score }
+    if (best < 40) return null
+    val winners = eligible.filter { it.score == best }
+    val savedId = wantedId?.trim()?.takeIf { it.isNotBlank() }
+    winners.firstOrNull { it.track.id == savedId }?.let { return it.track.index }
+    if (requireUnique && winners.size != 1) return null
+    return winners.first().track.index
+}
+
+private data class ScoredName(
+    val track: NamedTrack,
+    val score: Int,
+    val qualifier: Boolean,
+)
+
+private val trackQualifierPattern = Regex(
+    """\b(sdh|forced|cc|hearing[- ]impaired|for the deaf)\b""",
+    RegexOption.IGNORE_CASE,
+)
+
+private fun baseTrackName(name: String?): String {
+    return name.orEmpty()
+        .replace(Regex("""[\[\(].*?[\]\)]"""), " ")
+        .replace(trackQualifierPattern, " ")
+        .lowercase()
+        .replace(Regex("[^a-z0-9]+"), " ")
+        .trim()
+}
+
+private fun nameHasSdh(name: String?): Boolean {
+    val value = name?.lowercase().orEmpty()
+    return value.contains("sdh") ||
+        value.contains("hearing") ||
+        Regex("""\bcc\b""").containsMatchIn(value)
+}
+
+private fun nameHasForced(name: String?): Boolean =
+    name?.contains("forced", ignoreCase = true) == true
+
+/** Language code of a label that is only that language, such as "eng" or "English". */
+private fun pureLanguageCode(label: String?): String? {
+    val base = baseTrackName(label)
+    if (base.isBlank() || base.any { it.isWhitespace() }) return null
+    val code = normalizeLanguageCode(base) ?: return null
+    val primary = code.substringBefore('-')
+    if (primary in setOf("none", "forced", "und", "unknown", "unk", "default", "device", "original")) {
+        return null
+    }
+    val known = code != base || AvailableLanguageOptions.any { option ->
+        normalizeLanguageCode(option.code)?.substringBefore('-') == primary
+    }
+    if (!known) return null
+    return primary
 }

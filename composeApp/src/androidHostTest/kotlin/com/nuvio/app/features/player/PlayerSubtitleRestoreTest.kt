@@ -177,6 +177,321 @@ class PlayerSubtitleRestoreTest {
         assertTrue(runtime.isUserExplicitSubtitleSelection)
     }
 
+    @Test
+    fun savedOffStaysOffWhenTheEngineLaterSelectsBengali() {
+        val runtime = openedRuntime(preferredSubtitleLanguage = SubtitleLanguageOption.NONE)
+        val controller = runtime.playerController as RecordingController
+        controller.reportedSubtitleTracks = listOf(
+            subtitleTrack(index = 0, id = "1", label = "English", language = "en"),
+            subtitleTrack(index = 1, id = "2", label = "Bengali", language = "bn"),
+        )
+
+        runtime.refreshTracks()
+
+        assertEquals(-1, runtime.selectedSubtitleIndex)
+        controller.reportedSubtitleTracks = listOf(
+            subtitleTrack(index = 0, id = "1", label = "English", language = "en"),
+            subtitleTrack(index = 1, id = "2", label = "Bengali", language = "bn", isSelected = true),
+        )
+        runtime.refreshTracks()
+
+        assertEquals(-1, runtime.selectedSubtitleIndex)
+        assertEquals(-1, controller.subtitleSelections.last())
+        assertTrue(controller.subtitleSelections.none { it >= 0 })
+    }
+
+    @Test
+    fun savedOffStaysOffWhenTracksArriveAlreadySelectedInEitherOrder() {
+        listOf(0, 2).forEach { bengaliIndex ->
+            val runtime = openedRuntime(preferredSubtitleLanguage = SubtitleLanguageOption.NONE)
+            val controller = runtime.playerController as RecordingController
+            runtime.refreshTracks()
+            controller.reportedSubtitleTracks = listOf(
+                subtitleTrack(index = 0, id = "1", label = "English", language = "en", isSelected = bengaliIndex == 0),
+                subtitleTrack(index = 1, id = "2", label = "French", language = "fr"),
+                subtitleTrack(index = 2, id = "3", label = "Bengali", language = "bn", isSelected = bengaliIndex == 2),
+            )
+
+            runtime.refreshTracks()
+
+            assertEquals(-1, runtime.selectedSubtitleIndex)
+            assertEquals(-1, controller.subtitleSelections.last())
+        }
+    }
+
+    @Test
+    fun explicitOffIsNotReplacedByALateSelectedTrack() {
+        val runtime = openedRuntime(preferredSubtitleLanguage = "en")
+        runtime.persistInternalSubtitlePreference(null)
+        val controller = runtime.playerController as RecordingController
+
+        runtime.refreshTracks()
+
+        controller.reportedSubtitleTracks = listOf(
+            subtitleTrack(index = 0, id = "1", label = "Bengali", language = "bn", isSelected = true),
+            subtitleTrack(index = 1, id = "2", label = "English", language = "en"),
+        )
+        runtime.refreshTracks()
+
+        assertEquals(-1, runtime.selectedSubtitleIndex)
+        assertEquals(-1, controller.subtitleSelections.last())
+    }
+
+    @Test
+    fun explicitLanguageIsNotReplacedWhenAnotherTrackBecomesSelected() {
+        val runtime = openedRuntime(preferredSubtitleLanguage = SubtitleLanguageOption.NONE)
+        val english = subtitleTrack(index = 1, id = "2", label = "English", language = "en", isSelected = true)
+        runtime.persistInternalSubtitlePreference(english)
+        val controller = runtime.playerController as RecordingController
+        controller.reportedSubtitleTracks = listOf(
+            subtitleTrack(index = 0, id = "1", label = "Bengali", language = "bn"),
+            english,
+        )
+
+        runtime.refreshTracks()
+
+        assertEquals(1, runtime.selectedSubtitleIndex)
+        controller.reportedSubtitleTracks = listOf(
+            subtitleTrack(index = 0, id = "1", label = "Bengali", language = "bn", isSelected = true),
+            subtitleTrack(index = 1, id = "2", label = "English", language = "en"),
+        )
+        runtime.refreshTracks()
+
+        assertEquals(1, runtime.selectedSubtitleIndex)
+        assertEquals(1, controller.subtitleSelections.last())
+    }
+
+    @Test
+    fun savedLanguageIsAppliedWhenTracksArriveAfterOpening() {
+        val runtime = openedRuntime(preferredSubtitleLanguage = SubtitleLanguageOption.NONE)
+        runtime.persistInternalSubtitlePreference(
+            subtitleTrack(index = 1, id = "2", label = "English", language = "en"),
+        )
+        val controller = runtime.playerController as RecordingController
+
+        runtime.refreshTracks()
+
+        assertEquals(-1, runtime.selectedSubtitleIndex)
+        controller.reportedSubtitleTracks = listOf(
+            subtitleTrack(index = 0, id = "1", label = "Bengali", language = "bn", isSelected = true),
+            subtitleTrack(index = 1, id = "8", label = "English", language = "eng"),
+        )
+        runtime.refreshTracks()
+
+        assertEquals(1, runtime.selectedSubtitleIndex)
+        assertEquals(1, controller.subtitleSelections.last())
+    }
+
+    @Test
+    fun autoSelectedAddonIsAddedOnceWhenSubAddChangesTheTrackList() {
+        val runtime = openedRuntime(preferredSubtitleLanguage = "fr")
+        runtime.playerSettingsUiState = runtime.playerSettingsUiState.copy(
+            preferredSubtitleLanguage = "fr",
+            secondaryPreferredSubtitleLanguage = "en",
+        )
+        val french = AddonSubtitle(
+            id = "fr",
+            url = "https://cdn.example/a1b2c3.srt",
+            language = "fr",
+            display = "French",
+            addonName = "Test",
+        )
+        runtime.addonSubtitles = listOf(french)
+        val controller = runtime.playerController as RecordingController
+        controller.includeExternalSubtitleOnAdd = true
+        controller.reportedSubtitleTracks = listOf(
+            subtitleTrack(index = 0, id = "1", label = "English", language = "en"),
+        )
+
+        runtime.refreshTracks()
+        runtime.refreshTracks()
+        controller.reportedSubtitleTracks = controller.reportedSubtitleTracks + subtitleTrack(
+            index = controller.reportedSubtitleTracks.size,
+            id = "de",
+            label = "German",
+            language = "de",
+        )
+        runtime.refreshTracks()
+
+        assertEquals(listOf(french.url), controller.subtitleUrls)
+    }
+
+    @Test
+    fun autoSelectedForcedAddonIsAddedOnceWhenSubAddChangesTheTrackList() {
+        val runtime = openedRuntime(preferredSubtitleLanguage = "en")
+        runtime.playerSettingsUiState = runtime.playerSettingsUiState.copy(
+            preferredSubtitleLanguage = "en",
+            subtitleStyle = SubtitleStyleState.DEFAULT.copy(useForcedSubtitles = true),
+        )
+        val forced = AddonSubtitle(
+            id = "forced-en",
+            url = "https://cdn.example/b4c5d6.srt",
+            language = "en",
+            display = "English",
+            addonName = "Test",
+        )
+        runtime.addonSubtitles = listOf(forced)
+        val controller = runtime.playerController as RecordingController
+        controller.includeExternalSubtitleOnAdd = true
+        controller.reportedAudioTracks = listOf(
+            AudioTrack(index = 0, id = "a", label = "English", language = "en", isSelected = true),
+        )
+        controller.reportedSubtitleTracks = listOf(
+            subtitleTrack(index = 0, id = "1", label = "English", language = "en"),
+        )
+
+        repeat(3) { runtime.refreshTracks() }
+
+        assertEquals(listOf(forced.url), controller.subtitleUrls)
+    }
+
+    @Test
+    fun explicitOffDoesNotLoopWhenTheTrackListGrows() {
+        val runtime = openedRuntime(preferredSubtitleLanguage = SubtitleLanguageOption.NONE)
+        runtime.persistInternalSubtitlePreference(null)
+        val controller = runtime.playerController as RecordingController
+        controller.reportedSubtitleTracks = listOf(
+            subtitleTrack(index = 0, id = "1", label = "Bengali", language = "bn", isSelected = true),
+        )
+
+        runtime.refreshTracks()
+        controller.reportedSubtitleTracks = controller.reportedSubtitleTracks + subtitleTrack(
+            index = 1,
+            id = "2",
+            label = "English",
+            language = "en",
+            isSelected = true,
+        )
+        runtime.refreshTracks()
+
+        assertTrue(controller.subtitleUrls.isEmpty())
+        assertEquals(-1, runtime.selectedSubtitleIndex)
+        assertTrue(controller.subtitleSelections.all { it < 0 })
+    }
+
+    @Test
+    fun explicitSubtitleStaysOnItsLanguageWhenTheSameIndexBecomesAnotherLanguage() {
+        val runtime = openedRuntime(preferredSubtitleLanguage = SubtitleLanguageOption.NONE)
+        runtime.trackPreferenceRestoreApplied = true
+        runtime.isUserExplicitSubtitleSelection = true
+        runtime.preferredSubtitleSelectionApplied = true
+        runtime.selectedSubtitleIndex = 1
+        runtime.subtitleTracks = listOf(
+            subtitleTrack(index = 0, id = "ja", label = "Japanese", language = "ja"),
+            subtitleTrack(index = 1, id = "eng", label = "English", language = "en", isSelected = true),
+        )
+        val controller = runtime.playerController as RecordingController
+        controller.reportedSubtitleTracks = listOf(
+            subtitleTrack(index = 0, id = "a", label = "Japanese", language = "ja", isSelected = true),
+            subtitleTrack(index = 1, id = "bn", label = "Bengali", language = "bn"),
+            subtitleTrack(index = 2, id = "en2", label = "English SDH", language = "en"),
+        )
+
+        runtime.refreshTracks()
+        runtime.refreshTracks()
+
+        assertEquals(2, runtime.selectedSubtitleIndex)
+        assertEquals(2, controller.subtitleSelections.last())
+        assertTrue(controller.subtitleSelections.none { it == 1 })
+    }
+
+    @Test
+    fun explicitSubtitleDoesNotSelectTheStaleIndexWhenTheLanguageIsGone() {
+        val runtime = openedRuntime(preferredSubtitleLanguage = SubtitleLanguageOption.NONE)
+        runtime.trackPreferenceRestoreApplied = true
+        runtime.isUserExplicitSubtitleSelection = true
+        runtime.preferredSubtitleSelectionApplied = true
+        runtime.selectedSubtitleIndex = 1
+        runtime.subtitleTracks = listOf(
+            subtitleTrack(index = 0, id = "ja", label = "Japanese", language = "ja"),
+            subtitleTrack(index = 1, id = "eng", label = "English", language = "en", isSelected = true),
+        )
+        val controller = runtime.playerController as RecordingController
+        controller.reportedSubtitleTracks = listOf(
+            subtitleTrack(index = 0, id = "a", label = "Japanese", language = "ja", isSelected = true),
+            subtitleTrack(index = 1, id = "bn", label = "Bengali", language = "bn"),
+        )
+
+        runtime.refreshTracks()
+
+        assertTrue(controller.subtitleSelections.none { it == 1 })
+    }
+
+    @Test
+    fun explicitAudioStaysOnItsLanguageWhenTheSameIndexBecomesAnotherLanguage() {
+        val runtime = openedRuntime(preferredSubtitleLanguage = SubtitleLanguageOption.NONE)
+        runtime.trackPreferenceRestoreApplied = true
+        runtime.isUserExplicitAudioSelection = true
+        runtime.preferredAudioSelectionApplied = true
+        runtime.selectedAudioIndex = 1
+        runtime.audioTracks = listOf(
+            AudioTrack(index = 0, id = "ja", label = "Japanese", language = "ja"),
+            AudioTrack(index = 1, id = "eng", label = "English", language = "en", isSelected = true),
+        )
+        val controller = runtime.playerController as RecordingController
+        controller.reportedAudioTracks = listOf(
+            AudioTrack(index = 0, id = "a", label = "Japanese", language = "ja", isSelected = true),
+            AudioTrack(index = 1, id = "bn", label = "Bengali", language = "bn"),
+            AudioTrack(index = 2, id = "en2", label = "English SDH", language = "en"),
+        )
+
+        runtime.refreshTracks()
+        runtime.refreshTracks()
+
+        assertEquals(2, runtime.selectedAudioIndex)
+        assertEquals(2, controller.audioSelections.last())
+        assertTrue(controller.audioSelections.none { it == 1 })
+    }
+
+    @Test
+    fun explicitCommentaryIsNotReappliedAsEnglishSdh() {
+        val runtime = openedRuntime(preferredSubtitleLanguage = SubtitleLanguageOption.NONE)
+        runtime.trackPreferenceRestoreApplied = true
+        runtime.isUserExplicitAudioSelection = true
+        runtime.preferredAudioSelectionApplied = true
+        runtime.selectedAudioIndex = 1
+        runtime.audioTracks = listOf(
+            AudioTrack(index = 0, id = "ja", label = "Japanese", language = "ja"),
+            AudioTrack(index = 1, id = "c", label = "English Commentary", language = "en", isSelected = true),
+        )
+        val controller = runtime.playerController as RecordingController
+        controller.reportedAudioTracks = listOf(
+            AudioTrack(index = 0, id = "ja2", label = "Japanese", language = "ja", isSelected = true),
+            AudioTrack(index = 1, id = "bn", label = "Bengali", language = "bn"),
+            AudioTrack(index = 2, id = "sdh", label = "English SDH", language = "en"),
+        )
+
+        runtime.refreshTracks()
+        runtime.refreshTracks()
+
+        assertFalse(runtime.isUserExplicitAudioSelection)
+        assertTrue(controller.audioSelections.none { it == 2 })
+    }
+
+    @Test
+    fun explicitAudioIsNotReplacedWhenTheEngineSelectsAnotherLanguage() {
+        val runtime = openedRuntime(preferredSubtitleLanguage = SubtitleLanguageOption.NONE)
+        val japanese = AudioTrack(index = 1, id = "2", label = "Japanese", language = "ja", isSelected = true)
+        runtime.persistAudioPreference(japanese)
+        val controller = runtime.playerController as RecordingController
+        controller.reportedAudioTracks = listOf(
+            AudioTrack(index = 0, id = "1", label = "English", language = "en"),
+            japanese,
+        )
+
+        runtime.refreshTracks()
+
+        assertEquals(1, runtime.selectedAudioIndex)
+        controller.reportedAudioTracks = listOf(
+            AudioTrack(index = 0, id = "1", label = "English", language = "en", isSelected = true),
+            AudioTrack(index = 1, id = "2", label = "Japanese", language = "ja"),
+        )
+        runtime.refreshTracks()
+
+        assertEquals(1, runtime.selectedAudioIndex)
+        assertEquals(1, controller.audioSelections.last())
+    }
+
     private fun advanceToEpisodeTwo(runtime: PlayerScreenRuntime): RecordingController {
         runtime.switchToEpisodeStream(
             StreamItem(url = "https://example.com/episode-2.mp4", addonName = "Test", addonId = "test"),
@@ -236,6 +551,31 @@ class PlayerSubtitleRestoreTest {
         resetIdentityStateIfNeeded()
     }
 
+    private fun openedRuntime(preferredSubtitleLanguage: String): PlayerScreenRuntime {
+        val controller = RecordingController()
+        return runtime().apply {
+            playerSettingsUiState = PlayerSettingsUiState(preferredSubtitleLanguage = preferredSubtitleLanguage)
+            addonSubtitles = emptyList()
+            playbackSnapshot = PlayerPlaybackSnapshot(isLoading = false)
+            playerController = controller
+            playerControllerSourceUrl = activeSourceUrl
+        }
+    }
+
+    private fun subtitleTrack(
+        index: Int,
+        id: String,
+        label: String,
+        language: String?,
+        isSelected: Boolean = false,
+    ) = SubtitleTrack(
+        index = index,
+        id = id,
+        label = label,
+        language = language,
+        isSelected = isSelected,
+    )
+
     private fun subtitle(episode: Int) = AddonSubtitle(
         id = "episode-$episode",
         url = "https://example.com/episode-$episode.srt",
@@ -247,17 +587,33 @@ class PlayerSubtitleRestoreTest {
     private class RecordingController : PlayerEngineController {
         val subtitleUrls = mutableListOf<String>()
         val subtitleSelections = mutableListOf<Int>()
+        val audioSelections = mutableListOf<Int>()
+        var reportedSubtitleTracks: List<SubtitleTrack> = emptyList()
+        var reportedAudioTracks: List<AudioTrack> = emptyList()
+        var includeExternalSubtitleOnAdd: Boolean = false
 
         override fun setSubtitleUri(url: String) {
             subtitleUrls += url
+            if (includeExternalSubtitleOnAdd) {
+                reportedSubtitleTracks = reportedSubtitleTracks + SubtitleTrack(
+                    index = reportedSubtitleTracks.size,
+                    id = "external-${subtitleUrls.size}",
+                    label = url,
+                    language = null,
+                    isSelected = true,
+                )
+            }
         }
 
         override fun selectSubtitleTrack(index: Int) {
             subtitleSelections += index
         }
 
-        override fun getAudioTracks() = emptyList<AudioTrack>()
-        override fun getSubtitleTracks() = emptyList<SubtitleTrack>()
+        override fun getAudioTracks() = reportedAudioTracks
+        override fun getSubtitleTracks() = reportedSubtitleTracks
+        override fun selectAudioTrack(index: Int) {
+            audioSelections += index
+        }
         override fun play() = Unit
         override fun pause() = Unit
         override fun seekTo(positionMs: Long) = Unit
@@ -265,7 +621,6 @@ class PlayerSubtitleRestoreTest {
         override fun retry() = Unit
         override fun setPlaybackSpeed(speed: Float) = Unit
         override fun applyAudioLanguagePreferences(languages: List<String>) = Unit
-        override fun selectAudioTrack(index: Int) = Unit
         override fun clearExternalSubtitle() = Unit
         override fun clearExternalSubtitleAndSelect(trackIndex: Int) = Unit
     }

@@ -272,10 +272,19 @@ internal object SubtitleLanguageMatching {
     }
 
     fun matchesLanguageCode(language: String?, target: String): Boolean {
-        if (language.isNullOrBlank()) return false
+        if (language.isNullOrBlank() || target.isBlank()) return false
         val normalizedLanguage = normalizeLanguageCode(language)
         val normalizedTarget = normalizeLanguageCode(target)
         if (matchesNormalizedLanguage(normalizedLanguage, normalizedTarget)) {
+            return true
+        }
+        val namedLanguage = preferenceLanguageCode(language)
+        val namedTarget = preferenceLanguageCode(target)
+        if (
+            namedLanguage != null &&
+            namedTarget != null &&
+            matchesNormalizedLanguage(namedLanguage, namedTarget)
+        ) {
             return true
         }
 
@@ -385,3 +394,5 @@ internal object SubtitleLanguageMatching {
         return tags.any { tag -> haystack.contains(tag) }
     }
 }
+
+private fun preferenceLanguageCode(language: String?): String? = normalizeLanguageCode(language)

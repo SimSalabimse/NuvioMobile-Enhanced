@@ -928,6 +928,7 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
                 val wasCustom = useCustomSubtitles
                 isUserExplicitSubtitleSelection = true
                 preferredSubtitleSelectionApplied = true
+                subtitleOffRequested = index < 0
                 selectedSubtitleIndex = index
                 selectedAddonSubtitleId = null
                 useCustomSubtitles = false

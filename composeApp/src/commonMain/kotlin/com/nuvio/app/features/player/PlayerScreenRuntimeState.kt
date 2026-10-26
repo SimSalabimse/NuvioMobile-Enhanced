@@ -276,6 +276,8 @@ internal class PlayerScreenRuntime(
     var preferredAudioSelectionApplied by mutableStateOf(false)
     var appliedAudioPreferences: AppliedAudioPreferences? = null
     var preferredSubtitleSelectionApplied by mutableStateOf(false)
+    var observedSubtitleTrackStructure: String? = null
+    var subtitleOffRequested = false
     var isUserExplicitAudioSelection by mutableStateOf(false)
     var isUserExplicitSubtitleSelection by mutableStateOf(false)
     var hasScannedTextTracksOnce by mutableStateOf(false)

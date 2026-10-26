@@ -776,7 +776,9 @@ final class MPVPlayerViewController: UIViewController {
         setSetupOption("vulkan-disable-interop", "yes")
         setSetupOption("video-rotate", "no")
         setSetupOption("subs-match-os-language", "yes")
-        setSetupOption("subs-fallback", "yes")
+        // "yes" picks an arbitrary subtitle when no language was requested, often the
+        // container default. The app selects the track, and Off must stay off.
+        setSetupOption("subs-fallback", "no")
         subtitleFonts.applySetupOptions(setSetupOption)
         setSetupOption("keep-open", "yes")
         setSetupOption("target-colorspace-hint", "yes")
