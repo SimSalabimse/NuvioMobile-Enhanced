@@ -106,8 +106,8 @@ class NavigationBarGlassSettingsTest {
 
         compose.onNodeWithContentDescription("Corner radius").performTouchInput {
             swipe(
-                start = Offset(size.width * 0.2f, size.height / 2f),
-                end = Offset(size.width * 0.8f, size.height / 2f),
+                start = Offset(width * 0.2f, centerY),
+                end = Offset(width * 0.8f, centerY),
                 durationMillis = 250,
             )
         }
