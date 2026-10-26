@@ -73,6 +73,50 @@ internal fun playerOrientationToggleIcon(isPortraitPlayback: Boolean): ImageVect
 internal fun playerOrientationToggleLabel(isPortraitPlayback: Boolean): StringResource =
     if (isPortraitPlayback) Res.string.player_action_rotate_landscape else Res.string.player_action_rotate_portrait
 
+internal enum class PlayerFlagHome {
+    TopPill,
+    LegacyHeader,
+    Hidden,
+}
+
+/** One Flag per layout: the legacy header, or the new top pill. */
+internal fun playerFlagHome(useLegacyLayout: Boolean, submitAvailable: Boolean): PlayerFlagHome = when {
+    !submitAvailable -> PlayerFlagHome.Hidden
+    useLegacyLayout -> PlayerFlagHome.LegacyHeader
+    else -> PlayerFlagHome.TopPill
+}
+
+internal enum class PlayerToolbarSlot {
+    Download,
+    PictureInPicture,
+    Rotate,
+    Party,
+    Cast,
+    Flag,
+    Lock,
+}
+
+/**
+ * Fixed spots, left to right. A missing action drops out, so Flag stays
+ * immediately before Lock on the trailing edge.
+ */
+internal fun playerToolbarSlots(
+    download: Boolean = false,
+    pictureInPicture: Boolean = false,
+    rotate: Boolean = false,
+    party: Boolean = false,
+    cast: Boolean = false,
+    flag: Boolean = false,
+): List<PlayerToolbarSlot> = buildList {
+    if (download) add(PlayerToolbarSlot.Download)
+    if (pictureInPicture) add(PlayerToolbarSlot.PictureInPicture)
+    if (rotate) add(PlayerToolbarSlot.Rotate)
+    if (party) add(PlayerToolbarSlot.Party)
+    if (cast) add(PlayerToolbarSlot.Cast)
+    if (flag) add(PlayerToolbarSlot.Flag)
+    add(PlayerToolbarSlot.Lock)
+}
+
 @Composable
 internal fun PlayerToolbar(
     isLocked: Boolean,
@@ -100,50 +144,61 @@ internal fun PlayerToolbar(
             ),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            downloadAction?.invoke(48.dp, 24.dp)
-            if (onSubmitIntroClick != null) {
-                PlayerAction(
-                    description = stringResource(Res.string.submit_intro_action),
-                    icon = Icons.Rounded.Flag,
-                    onClick = onSubmitIntroClick,
-                )
+            playerToolbarSlots(
+                download = downloadAction != null,
+                pictureInPicture = onPictureInPictureClick != null,
+                rotate = onOrientationToggleClick != null,
+                party = onPartyClick != null,
+                cast = onCastClick != null,
+                flag = onSubmitIntroClick != null,
+            ).forEach { slot ->
+                when (slot) {
+                    PlayerToolbarSlot.Download -> downloadAction?.invoke(48.dp, 24.dp)
+                    PlayerToolbarSlot.PictureInPicture -> onPictureInPictureClick?.let {
+                        PlayerAction(
+                            description = stringResource(Res.string.compose_player_picture_in_picture),
+                            icon = Icons.Rounded.PictureInPictureAlt,
+                            onClick = it,
+                        )
+                    }
+                    PlayerToolbarSlot.Rotate -> onOrientationToggleClick?.let {
+                        PlayerAction(
+                            description = stringResource(playerOrientationToggleLabel(isPortraitPlayback)),
+                            icon = playerOrientationToggleIcon(isPortraitPlayback),
+                            onClick = it,
+                        )
+                    }
+                    PlayerToolbarSlot.Party -> if (onPartyClick != null) {
+                        PlayerAction(
+                            description = stringResource(Res.string.party_title),
+                            icon = Icons.Rounded.Groups,
+                            onClick = onPartyClick,
+                            tint = if (partyActive) MaterialTheme.colorScheme.primary else Color.White,
+                        )
+                    }
+                    PlayerToolbarSlot.Cast -> onCastClick?.let {
+                        PlayerAction(
+                            description = stringResource(Res.string.player_cast),
+                            icon = if (isCasting) Icons.Rounded.CastConnected else Icons.Rounded.Cast,
+                            onClick = it,
+                        )
+                    }
+                    PlayerToolbarSlot.Flag -> if (onSubmitIntroClick != null) {
+                        PlayerAction(
+                            description = stringResource(Res.string.submit_intro_action),
+                            icon = Icons.Rounded.Flag,
+                            onClick = onSubmitIntroClick,
+                        )
+                    }
+                    PlayerToolbarSlot.Lock -> PlayerAction(
+                        description = stringResource(
+                            if (isLocked) Res.string.compose_player_unlock_controls else Res.string.compose_player_lock_controls,
+                        ),
+                        icon = if (isLocked) Icons.Rounded.LockOpen else Icons.Rounded.Lock,
+                        onClick = onLockToggle,
+                    )
+                }
             }
-            onPictureInPictureClick?.let {
-                PlayerAction(
-                    description = stringResource(Res.string.compose_player_picture_in_picture),
-                    icon = Icons.Rounded.PictureInPictureAlt,
-                    onClick = it,
-                )
-            }
-            onOrientationToggleClick?.let {
-                PlayerAction(
-                    description = stringResource(playerOrientationToggleLabel(isPortraitPlayback)),
-                    icon = playerOrientationToggleIcon(isPortraitPlayback),
-                    onClick = it,
-                )
-            }
-            if (onPartyClick != null) {
-                PlayerAction(
-                    description = stringResource(Res.string.party_title),
-                    icon = Icons.Rounded.Groups,
-                    onClick = onPartyClick,
-                    tint = if (partyActive) MaterialTheme.colorScheme.primary else Color.White,
-                )
-            }
-            onCastClick?.let {
-                PlayerAction(
-                    description = stringResource(Res.string.player_cast),
-                    icon = if (isCasting) Icons.Rounded.CastConnected else Icons.Rounded.Cast,
-                    onClick = it,
-                )
-            }
-            PlayerAction(
-                description = stringResource(
-                    if (isLocked) Res.string.compose_player_unlock_controls else Res.string.compose_player_lock_controls,
-                ),
-                icon = if (isLocked) Icons.Rounded.LockOpen else Icons.Rounded.Lock,
-                onClick = onLockToggle,
-            )
         }
         Spacer(Modifier.width(8.dp))
         NuvioBackButton(
@@ -185,7 +240,6 @@ internal fun PlayerControlActions(
     onVideoSettingsClick: (() -> Unit)?,
     onOpenInExternalPlayer: (() -> Unit)?,
     onStreamInfoClick: () -> Unit,
-    onSubmitIntroClick: (() -> Unit)?,
     qualityLabel: String? = null,
     onQualityClick: (() -> Unit)? = null,
     onSwitchEngineClick: (() -> Unit)? = null,
@@ -287,12 +341,6 @@ internal fun PlayerControlActions(
             PlayerControlAction(
                 stringResource(Res.string.player_action_video_settings), it,
                 icon = Icons.Rounded.Build,
-            )
-        },
-        onSubmitIntroClick?.let {
-            PlayerControlAction(
-                stringResource(Res.string.submit_intro_action), it,
-                icon = Icons.Rounded.Flag,
             )
         },
     )

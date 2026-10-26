@@ -93,6 +93,11 @@ internal fun PlayerScreenModalHosts(
     onBackToEpisodes: () -> Unit,
     onReloadEpisodeStreams: () -> Unit,
     onEpisodesPanelDismissed: () -> Unit,
+    episodesLoading: Boolean = false,
+    episodesLoadFailed: Boolean = false,
+    episodesEmptyNeedsRetry: Boolean = false,
+    episodesComplete: Boolean = true,
+    onRetryEpisodes: () -> Unit = {},
     showChaptersPanel: Boolean = false,
     chapters: List<PlayerChapter> = emptyList(),
     onChapterSelected: (PlayerChapter) -> Unit = {},
@@ -240,6 +245,11 @@ internal fun PlayerScreenModalHosts(
             onBackToEpisodes = onBackToEpisodes,
             onReloadEpisodeStreams = onReloadEpisodeStreams,
             onDismiss = onEpisodesPanelDismissed,
+            episodesLoading = episodesLoading,
+            episodesLoadFailed = episodesLoadFailed,
+            episodesEmptyNeedsRetry = episodesEmptyNeedsRetry,
+            episodesComplete = episodesComplete,
+            onRetryEpisodes = onRetryEpisodes,
         )
     }
 

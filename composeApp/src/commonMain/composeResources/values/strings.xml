@@ -465,6 +465,7 @@
     <string name="compose_player_subtitle_lines_load_error">Unable to load subtitle lines</string>
     <string name="compose_player_no_audio_tracks_available">No audio tracks available</string>
     <string name="compose_player_no_episodes_available">No episodes available</string>
+    <string name="compose_player_episodes_load_failed">Couldn&apos;t load episodes</string>
     <string name="compose_player_no_streams_found">No streams found</string>
     <string name="compose_player_none">None</string>
     <string name="compose_player_outline">Outline</string>

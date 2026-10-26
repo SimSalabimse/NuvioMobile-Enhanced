@@ -31,12 +31,67 @@ import org.jetbrains.compose.resources.getString
 
 internal const val TMDB_RECOMMENDATIONS_PAGE_SIZE = 20
 
+internal const val TMDB_SEASON_FETCH_CONCURRENCY = 4
+
+/** Season numbers from the TMDB details `seasons` array, including specials, in that order. */
+internal fun tmdbSeasonNumbersFromDetails(seasonNumbers: List<Int?>): List<Int> =
+    seasonNumbers.mapNotNull { number -> number?.takeIf { it >= 0 } }.distinct()
+
+/** At most [concurrency] season requests run together. */
+internal fun seasonFetchWaves(
+    seasons: List<Int>,
+    concurrency: Int = TMDB_SEASON_FETCH_CONCURRENCY,
+): List<List<Int>> {
+    if (concurrency < 1 || seasons.isEmpty()) return emptyList()
+    return seasons.chunked(concurrency)
+}
+
+internal data class SeasonFetchBatch(
+    val episodes: Map<Pair<Int, Int>, TmdbEpisodeEnrichment>,
+    val failedSeasons: Set<Int>,
+) {
+    val complete: Boolean get() = failedSeasons.isEmpty()
+}
+
+internal fun combineSeasonResults(
+    requested: List<Int>,
+    results: Map<Int, Map<Pair<Int, Int>, TmdbEpisodeEnrichment>?>,
+): SeasonFetchBatch {
+    val episodes = buildMap {
+        requested.forEach { season -> results[season]?.let { putAll(it) } }
+    }
+    val failed = requested.filter { season -> results[season] == null }.toSet()
+    return SeasonFetchBatch(episodes, failed)
+}
+
+/** A season map is cached only when every requested season came back. */
+internal fun shouldCacheSeasonBatch(batch: SeasonFetchBatch): Boolean = batch.complete
+
+/**
+ * A complete cached set is reused. A partial set is not treated as done: only the missing
+ * seasons are requested. Bypassing the cache requests every season again.
+ */
+internal fun seasonsToRequest(
+    requested: List<Int>,
+    cachedSeasons: Set<Int>,
+    bypassCache: Boolean,
+): List<Int> {
+    if (bypassCache) return requested
+    if (requested.all { it in cachedSeasons }) return emptyList()
+    return requested.filter { it !in cachedSeasons }
+}
+
+/** Retry asks again only for seasons that did not load. */
+internal fun seasonsRefetchedOnRetry(requested: List<Int>, failedSeasons: Set<Int>): List<Int> =
+    requested.filter { season -> season in failedSeasons }
+
 object TmdbMetadataService {
     private val log = Logger.withTag("TmdbMetadata")
     private val json = Json { ignoreUnknownKeys = true }
 
     private val enrichmentCache = BoundedCache<String, TmdbEnrichment>(maxEntries = 300)
     private val episodeCache = BoundedCache<String, Map<Pair<Int, Int>, TmdbEpisodeEnrichment>>(maxEntries = 60)
+    private val seasonEpisodeCache = BoundedCache<String, Map<Pair<Int, Int>, TmdbEpisodeEnrichment>>(maxEntries = 240)
     private val moreLikeThisCache = BoundedCache<String, MoreLikeThisPage>(maxEntries = 100)
     private val collectionCache = BoundedCache<String, Pair<String?, List<MetaPreview>>>(maxEntries = 100)
     private val trailerCache = BoundedCache<String, List<MetaTrailer>>(maxEntries = 200)
@@ -733,7 +788,14 @@ object TmdbMetadataService {
         type: String,
         id: String,
         settings: TmdbSettings,
-    ): MetaDetails? {
+    ): MetaDetails? = loadStandaloneMeta(type, id, settings)?.meta
+
+    internal suspend fun loadStandaloneMeta(
+        type: String,
+        id: String,
+        settings: TmdbSettings,
+        bypassSeasonCache: Boolean = false,
+    ): TmdbStandaloneLoad? {
         val tmdbId = id
             .takeIf { it.startsWith("tmdb:", ignoreCase = true) }
             ?.substringAfter(':')
@@ -748,15 +810,42 @@ object TmdbMetadataService {
             settings = settings,
         ) ?: return null
 
-        return buildStandaloneMeta(
-            type = type,
-            id = id,
-            tmdbId = tmdbId,
-            enrichment = enrichment,
+        val seasonNumbers = if (tmdbType == "tv") enrichment.seasonNumbers else emptyList()
+        val seasons = if (seasonNumbers.isEmpty()) {
+            SeasonFetchBatch(emptyMap(), emptySet())
+        } else {
+            loadEpisodeSeasons(
+                tmdbId = tmdbId.toString(),
+                seasonNumbers = seasonNumbers,
+                language = settings.language,
+                bypassCache = bypassSeasonCache,
+            )
+        }
+        return TmdbStandaloneLoad(
+            meta = buildStandaloneMeta(
+                type = type,
+                id = id,
+                tmdbId = tmdbId,
+                enrichment = enrichment,
+                episodes = seasons.episodes,
+            ),
+            episodesComplete = seasons.complete,
         )
     }
 
     internal fun buildStandaloneMeta(
+        type: String,
+        id: String,
+        tmdbId: Int,
+        enrichment: TmdbEnrichment,
+        episodes: Map<Pair<Int, Int>, TmdbEpisodeEnrichment> = emptyMap(),
+    ): MetaDetails {
+        val meta = buildStandaloneMetaBody(type, id, tmdbId, enrichment)
+        if (episodes.isEmpty()) return meta
+        return meta.copy(videos = metaVideosFromTmdbEpisodes(id, episodes))
+    }
+
+    private fun buildStandaloneMetaBody(
         type: String,
         id: String,
         tmdbId: Int,
@@ -792,6 +881,28 @@ object TmdbMetadataService {
             collectionItems = enrichment.collectionItems,
             trailers = enrichment.trailers,
         )
+
+    internal fun metaVideosFromTmdbEpisodes(
+        parentId: String,
+        episodes: Map<Pair<Int, Int>, TmdbEpisodeEnrichment>,
+    ): List<MetaVideo> =
+        episodes.entries
+            .sortedWith(compareBy({ it.key.first }, { it.key.second }))
+            .map { (key, episode) ->
+                val (season, number) = key
+                MetaVideo(
+                    id = "$parentId:$season:$number",
+                    title = episode.title?.takeIf { it.isNotBlank() } ?: "Episode $number",
+                    released = episode.airDate,
+                    thumbnail = episode.thumbnail,
+                    seasonPoster = episode.seasonPoster,
+                    season = season,
+                    episode = number,
+                    overview = episode.overview,
+                    runtime = episode.runtimeMinutes,
+                    tmdbRating = episode.voteAverage?.takeIf { it > 0.0 },
+                )
+            }
 
     internal fun applyEnrichment(
         meta: MetaDetails,
@@ -1086,6 +1197,12 @@ object TmdbMetadataService {
             },
             moreLikeThis = response.fourth.moreLikeThis,
             trailers = response.fourth.trailers,
+            seasonCount = if (mediaType == "tv") (details.numberOfSeasons ?: 0).coerceAtLeast(0) else 0,
+            seasonNumbers = if (mediaType == "tv") {
+                tmdbSeasonNumbersFromDetails(details.seasons.map { season -> season.seasonNumber })
+            } else {
+                emptyList()
+            },
         )
 
         if (!enrichment.hasContent()) return@withContext null
@@ -1157,46 +1274,104 @@ object TmdbMetadataService {
         tmdbId: String,
         seasonNumbers: List<Int>,
         language: String,
-    ): Map<Pair<Int, Int>, TmdbEpisodeEnrichment> = withContext(Dispatchers.Default) {
+    ): Map<Pair<Int, Int>, TmdbEpisodeEnrichment> =
+        loadEpisodeSeasons(
+            tmdbId = tmdbId,
+            seasonNumbers = seasonNumbers,
+            language = language,
+            bypassCache = false,
+        ).episodes
+
+    private suspend fun loadEpisodeSeasons(
+        tmdbId: String,
+        seasonNumbers: List<Int>,
+        language: String,
+        bypassCache: Boolean,
+    ): SeasonFetchBatch = withContext(Dispatchers.Default) {
         val normalizedLanguage = normalizeTmdbLanguage(language)
-        val numericId = tmdbId.toIntOrNull() ?: return@withContext emptyMap()
-        val normalizedSeasons = seasonNumbers.distinct().sorted()
-        if (normalizedSeasons.isEmpty()) return@withContext emptyMap()
+        val numericId = tmdbId.toIntOrNull()
+            ?: return@withContext SeasonFetchBatch(emptyMap(), seasonNumbers.toSet())
+        val requested = tmdbSeasonNumbersFromDetails(seasonNumbers.map { season -> season.takeIf { it >= 0 } })
+        if (requested.isEmpty()) return@withContext SeasonFetchBatch(emptyMap(), emptySet())
 
-        val cacheKey = "$numericId:${normalizedSeasons.joinToString(",")}:$normalizedLanguage"
-        episodeCache[cacheKey]?.let { return@withContext it }
+        val cacheKey = "$numericId:${requested.sorted().joinToString(",")}:$normalizedLanguage"
+        if (!bypassCache) {
+            episodeCache[cacheKey]?.let { cached ->
+                return@withContext SeasonFetchBatch(cached, emptySet())
+            }
+        }
+        val cachedSeason: (Int) -> Map<Pair<Int, Int>, TmdbEpisodeEnrichment>? = { season ->
+            seasonEpisodeCache["$numericId:$season:$normalizedLanguage"]
+        }
+        val succeededWithEpisodes = requested.filter { season ->
+            cachedSeason(season)?.isNotEmpty() == true
+        }.toSet()
+        val succeeded = requested.filter { season -> cachedSeason(season) != null }.toSet()
+        val needed = if (bypassCache) {
+            seasonsRefetchedOnRetry(requested, requested.filter { it !in succeededWithEpisodes }.toSet())
+        } else {
+            seasonsToRequest(requested, succeeded, bypassCache = false)
+        }
+        if (needed.isEmpty()) {
+            val cachedEpisodes = buildMap {
+                requested.forEach { season -> cachedSeason(season)?.let { putAll(it) } }
+            }
+            return@withContext SeasonFetchBatch(cachedEpisodes, emptySet())
+        }
 
-        val pairs = coroutineScope {
-            normalizedSeasons.map { season ->
-                async {
-                    val details = fetch<TmdbSeasonDetailsResponse>(
-                        endpoint = "tv/$numericId/season/$season",
-                        query = mapOf("language" to normalizedLanguage),
-                    ) ?: return@async emptyMap()
-
-                    details.episodes
-                        .mapNotNull { episode ->
-                            val episodeNumber = episode.episodeNumber ?: return@mapNotNull null
-                            (season to episodeNumber) to TmdbEpisodeEnrichment(
-                                title = episode.name?.trim()?.takeIf(String::isNotBlank),
-                                overview = episode.overview?.trim()?.takeIf(String::isNotBlank),
-                                thumbnail = buildImageUrl(episode.stillPath, "w500"),
-                                seasonPoster = buildImageUrl(details.posterPath, "w500"),
-                                airDate = episode.airDate?.trim()?.takeIf(String::isNotBlank),
-                                runtimeMinutes = episode.runtime,
-                                voteAverage = episode.voteAverage?.takeIf { it > 0.0 },
-                            )
-                        }
-                        .toMap()
+        val fetched = mutableMapOf<Int, Map<Pair<Int, Int>, TmdbEpisodeEnrichment>?>()
+        for (wave in seasonFetchWaves(needed)) {
+            val waveResults = coroutineScope {
+                wave.map { season ->
+                    async { season to fetchSeasonEpisodes(numericId, season, normalizedLanguage) }
+                }.awaitAll()
+            }
+            waveResults.forEach { (season, episodes) ->
+                fetched[season] = episodes
+                if (episodes != null) {
+                    seasonEpisodeCache["$numericId:$season:$normalizedLanguage"] = episodes
                 }
-            }.awaitAll()
+            }
         }
+        val batch = combineSeasonResults(needed, fetched)
+        val kept = if (bypassCache) succeededWithEpisodes else succeeded
+        val failed = requested.filter { season ->
+            season in batch.failedSeasons || (season !in needed && season !in kept)
+        }.toSet()
+        val episodes = buildMap<Pair<Int, Int>, TmdbEpisodeEnrichment> {
+            requested.forEach { season ->
+                if (season !in needed) cachedSeason(season)?.let { putAll(it) }
+            }
+            putAll(batch.episodes)
+        }
+        val full = SeasonFetchBatch(episodes, failed)
+        if (shouldCacheSeasonBatch(full)) {
+            episodeCache[cacheKey] = full.episodes
+        }
+        full
+    }
 
-        val merged = pairs.fold(emptyMap<Pair<Int, Int>, TmdbEpisodeEnrichment>()) { acc, value -> acc + value }
-        if (merged.isNotEmpty()) {
-            episodeCache[cacheKey] = merged
-        }
-        merged
+    private suspend fun fetchSeasonEpisodes(
+        tmdbId: Int,
+        season: Int,
+        language: String,
+    ): Map<Pair<Int, Int>, TmdbEpisodeEnrichment>? {
+        val details = fetch<TmdbSeasonDetailsResponse>(
+            endpoint = "tv/$tmdbId/season/$season",
+            query = mapOf("language" to language),
+        ) ?: return null
+        return details.episodes.mapNotNull { episode ->
+            val episodeNumber = episode.episodeNumber ?: return@mapNotNull null
+            (season to episodeNumber) to TmdbEpisodeEnrichment(
+                title = episode.name?.trim()?.takeIf(String::isNotBlank),
+                overview = episode.overview?.trim()?.takeIf(String::isNotBlank),
+                thumbnail = buildImageUrl(episode.stillPath, "w500"),
+                seasonPoster = buildImageUrl(details.posterPath, "w500"),
+                airDate = episode.airDate?.trim()?.takeIf(String::isNotBlank),
+                runtimeMinutes = episode.runtime,
+                voteAverage = episode.voteAverage?.takeIf { it > 0.0 },
+            )
+        }.toMap()
     }
 
     private suspend inline fun <reified T> fetch(
@@ -1469,6 +1644,8 @@ internal data class TmdbEnrichment(
     val collectionItems: List<MetaPreview> = emptyList(),
     val moreLikeThis: List<MetaPreview> = emptyList(),
     val trailers: List<MetaTrailer> = emptyList(),
+    val seasonCount: Int = 0,
+    val seasonNumbers: List<Int> = emptyList(),
 ) {
     fun hasContent(): Boolean =
         localizedTitle != null ||
@@ -1868,6 +2045,16 @@ private data class Quadruple<A, B, C, D>(
     val fourth: D,
 )
 
+internal data class TmdbStandaloneLoad(
+    val meta: MetaDetails,
+    val episodesComplete: Boolean,
+)
+
+@Serializable
+private data class TmdbTvSeasonSummary(
+    @SerialName("season_number") val seasonNumber: Int? = null,
+)
+
 @Serializable
 private data class TmdbDetailsResponse(
     val title: String? = null,
@@ -1891,6 +2078,7 @@ private data class TmdbDetailsResponse(
     val networks: List<TmdbCompany> = emptyList(),
     @SerialName("belongs_to_collection") val belongsToCollection: TmdbCollectionRef? = null,
     @SerialName("number_of_seasons") val numberOfSeasons: Int? = null,
+    val seasons: List<TmdbTvSeasonSummary> = emptyList(),
     // Movies only. TMDB sends 0 rather than omitting the field when the figure is unknown.
     val budget: Long? = null,
     val revenue: Long? = null,

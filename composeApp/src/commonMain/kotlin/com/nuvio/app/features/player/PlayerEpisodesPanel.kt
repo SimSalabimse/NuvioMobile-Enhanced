@@ -58,8 +58,10 @@ import com.nuvio.app.features.watching.application.WatchingState
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_back
 import nuvio.composeapp.generated.resources.action_close
+import nuvio.composeapp.generated.resources.action_retry
 import nuvio.composeapp.generated.resources.compose_player_episode_code_episode_only
 import nuvio.composeapp.generated.resources.compose_player_episode_code_full
+import nuvio.composeapp.generated.resources.compose_player_episodes_load_failed
 import nuvio.composeapp.generated.resources.compose_player_no_episodes_available
 import nuvio.composeapp.generated.resources.compose_player_panel_episodes
 import nuvio.composeapp.generated.resources.compose_player_panel_streams
@@ -88,6 +90,11 @@ fun PlayerEpisodesPanel(
     onBackToEpisodes: () -> Unit,
     onReloadEpisodeStreams: () -> Unit,
     onDismiss: () -> Unit,
+    episodesLoading: Boolean = false,
+    episodesLoadFailed: Boolean = false,
+    episodesEmptyNeedsRetry: Boolean = false,
+    episodesComplete: Boolean = true,
+    onRetryEpisodes: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     PlayerSidePanel(
@@ -127,20 +134,94 @@ fun PlayerEpisodesPanel(
                     modifier = Modifier.weight(1f),
                 )
             } else {
-                EpisodesListPanelContent(
-                    episodes = episodes,
-                    parentMetaType = parentMetaType,
-                    parentMetaId = parentMetaId,
-                    currentSeason = currentSeason,
-                    currentEpisode = currentEpisode,
-                    progressByVideoId = progressByVideoId,
-                    watchedKeys = watchedKeys,
-                    blurUnwatchedEpisodes = blurUnwatchedEpisodes,
-                    onSeasonSelected = onSeasonSelected,
-                    onEpisodeSelected = onEpisodeSelected,
-                    modifier = Modifier.weight(1f),
+                val episodesBody = episodesPanelBody(
+                    loading = episodesLoading,
+                    failed = episodesLoadFailed,
+                    episodeCount = episodes.size,
+                    emptyNeedsRetry = episodesEmptyNeedsRetry,
+                    episodesComplete = episodesComplete,
+                )
+                if (episodesBody == EpisodesPanelBody.List || episodesBody == EpisodesPanelBody.Partial) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        if (episodesBody == EpisodesPanelBody.Partial) {
+                            PlayerDialogButton(
+                                label = stringResource(Res.string.action_retry),
+                                onClick = onRetryEpisodes,
+                            )
+                            Spacer(Modifier.height(12.dp))
+                        }
+                        EpisodesListPanelContent(
+                            episodes = episodes,
+                            parentMetaType = parentMetaType,
+                            parentMetaId = parentMetaId,
+                            currentSeason = currentSeason,
+                            currentEpisode = currentEpisode,
+                            progressByVideoId = progressByVideoId,
+                            watchedKeys = watchedKeys,
+                            blurUnwatchedEpisodes = blurUnwatchedEpisodes,
+                            onSeasonSelected = onSeasonSelected,
+                            onEpisodeSelected = onEpisodeSelected,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                } else {
+                    EpisodesListStatus(
+                        body = episodesBody,
+                        onRetry = onRetryEpisodes,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EpisodesListStatus(
+    body: EpisodesPanelBody,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = MaterialTheme.nuvio
+    Box(
+        modifier = modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center,
+    ) {
+        when (body) {
+            EpisodesPanelBody.Loading -> PlayerModalLoading()
+            EpisodesPanelBody.Partial -> Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = stringResource(Res.string.compose_player_episodes_load_failed),
+                    color = tokens.colors.textMuted,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                PlayerDialogButton(
+                    label = stringResource(Res.string.action_retry),
+                    onClick = onRetry,
                 )
             }
+            EpisodesPanelBody.Failed -> Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = stringResource(Res.string.compose_player_episodes_load_failed),
+                    color = tokens.colors.textMuted,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                PlayerDialogButton(
+                    label = stringResource(Res.string.action_retry),
+                    onClick = onRetry,
+                )
+            }
+            EpisodesPanelBody.Empty, EpisodesPanelBody.List -> Text(
+                text = stringResource(Res.string.compose_player_no_episodes_available),
+                color = tokens.colors.textMuted,
+                style = MaterialTheme.typography.bodyMedium,
+            )
         }
     }
 }

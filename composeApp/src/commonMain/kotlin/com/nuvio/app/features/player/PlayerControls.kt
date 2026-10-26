@@ -30,8 +30,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ListAlt
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Build
-import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Forward30
 import androidx.compose.material.icons.rounded.Forward5
@@ -190,6 +190,8 @@ internal fun PlayerControlsShell(
             metrics.centerLift,
             timelineHeight * 2 + centerControlHeight + 16.dp - maxHeight,
         )
+        val textStart = playerTextStartPadding(metrics.horizontalPadding, horizontalSafePadding)
+        val textStartExtra = textStart - metrics.horizontalPadding
         PlayerChromeBackdrop(
             modifier = Modifier
                 .fillMaxWidth()
@@ -226,6 +228,10 @@ internal fun PlayerControlsShell(
         Box(
             modifier = Modifier.fillMaxSize(),
         ) {
+            val flagHome = playerFlagHome(
+                useLegacyLayout = useLegacyLayout,
+                submitAvailable = onSubmitIntroClick != null,
+            )
             if (useLegacyLayout) {
                 PlayerHeader(
                     title = title,
@@ -237,7 +243,6 @@ internal fun PlayerControlsShell(
                     metrics = metrics,
                     isLocked = isLocked,
                     showActions = showPlaybackControls,
-                    onSubmitIntroClick = onSubmitIntroClick,
                     parentalWarnings = parentalWarnings,
                     showParentalGuide = showParentalGuide,
                     onParentalGuideAnimationComplete = onParentalGuideAnimationComplete,
@@ -253,6 +258,7 @@ internal fun PlayerControlsShell(
                     onRateClick = onRateClick,
                     userRating = userRating,
                     onOpenInExternalPlayer = onOpenInExternalPlayer,
+                    onSubmitIntroClick = onSubmitIntroClick.takeIf { flagHome == PlayerFlagHome.LegacyHeader },
                     onPartyClick = onPartyClick,
                     partyActive = partyActive,
                     onSwitchEngineClick = onSwitchEngineClick,
@@ -269,7 +275,7 @@ internal fun PlayerControlsShell(
                         isLocked = isLocked,
                         onLockToggle = onLockToggle,
                         onBack = onBack,
-                        onSubmitIntroClick = onSubmitIntroClick,
+                        onSubmitIntroClick = onSubmitIntroClick.takeIf { flagHome == PlayerFlagHome.TopPill },
                         onCastClick = onCastClick,
                         isCasting = isCasting,
                         downloadAction = downloadAction,
@@ -281,14 +287,22 @@ internal fun PlayerControlsShell(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .windowInsetsPadding(playerToolbarTopInsets(metrics))
-                            .padding(horizontal = metrics.horizontalPadding),
+                            .padding(
+                                start = metrics.horizontalPadding + horizontalSafePadding,
+                                end = metrics.horizontalPadding,
+                            ),
                     )
                 }
                 ParentalGuideOverlay(
                     warnings = parentalWarnings,
                     isVisible = showParentalGuide,
                     onAnimationComplete = onParentalGuideAnimationComplete,
-                    contentPadding = PaddingValues(horizontal = metrics.horizontalPadding, vertical = metrics.verticalPadding),
+                    contentPadding = PaddingValues(
+                        start = textStart,
+                        top = metrics.verticalPadding,
+                        end = metrics.horizontalPadding,
+                        bottom = metrics.verticalPadding,
+                    ),
                     modifier = Modifier.align(Alignment.TopStart),
                 )
             }
@@ -372,10 +386,13 @@ internal fun PlayerControlsShell(
                             releaseInfo = releaseInfo,
                             metrics = metrics,
                             badges = badges,
+                            modifier = Modifier.padding(start = textStartExtra),
                         )
                     }
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = textStartExtra),
                         verticalAlignment = Alignment.Bottom,
                     ) {
                         Box(modifier = Modifier.weight(1f)) {
@@ -434,7 +451,6 @@ internal fun PlayerControlsShell(
                         onVideoSettingsClick = onVideoSettingsClick,
                         onOpenInExternalPlayer = onOpenInExternalPlayer,
                         onStreamInfoClick = onStreamInfoClick,
-                        onSubmitIntroClick = onSubmitIntroClick,
                         qualityLabel = qualityLabel,
                         onQualityClick = onQualityClick,
                         onSwitchEngineClick = onSwitchEngineClick,
@@ -460,7 +476,6 @@ private fun PlayerHeader(
     metrics: PlayerLayoutMetrics,
     isLocked: Boolean,
     showActions: Boolean,
-    onSubmitIntroClick: (() -> Unit)?,
     parentalWarnings: List<ParentalWarning>,
     showParentalGuide: Boolean,
     onParentalGuideAnimationComplete: () -> Unit,
@@ -476,6 +491,7 @@ private fun PlayerHeader(
     onRateClick: (() -> Unit)? = null,
     userRating: Int? = null,
     onOpenInExternalPlayer: (() -> Unit)?,
+    onSubmitIntroClick: (() -> Unit)? = null,
     onPartyClick: (() -> Unit)?,
     partyActive: Boolean,
     onSwitchEngineClick: (() -> Unit)? = null,

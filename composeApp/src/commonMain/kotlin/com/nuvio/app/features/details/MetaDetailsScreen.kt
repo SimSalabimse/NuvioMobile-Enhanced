@@ -406,7 +406,7 @@ fun MetaDetailsScreen(
         tmdbSettingsUiState.language,
         mdbListSettings,
     ) {
-        if (displayedMeta != null && !uiState.isLoading) {
+        if (displayedMeta != null && !uiState.isLoading && uiState.episodesComplete) {
             MetaDetailsRepository.load(type, id)
         }
     }

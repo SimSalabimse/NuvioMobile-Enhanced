@@ -61,12 +61,31 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
     }
 
     LaunchedEffect(parentMetaType, parentMetaId) {
-        playerMeta = MetaDetailsRepository.peek(parentMetaType, parentMetaId)
-        playerMetaVideos = playerMeta?.videos.orEmpty()
+        episodesLoadGeneration += 1
+        episodesLoadJob?.cancel()
+        episodesLoadJob = null
+        episodesLoading = false
+        episodesLoadFailed = false
+        episodesEmptyNeedsRetry = false
+        episodesComplete = true
+        val peeked = MetaDetailsRepository.peek(parentMetaType, parentMetaId)
+        playerMeta = peeked
+        playerMetaVideos = peeked?.videos.orEmpty()
+        val published = MetaDetailsRepository.uiState.value
+        if (published.meta?.type == parentMetaType && published.meta?.id == parentMetaId && !published.episodesComplete) {
+            episodesComplete = false
+        }
         if (playerMetaVideos.isEmpty()) {
-            MetaDetailsRepository.fetch(parentMetaType, parentMetaId)?.let { meta ->
+            val report = MetaDetailsRepository.fetchReporting(parentMetaType, parentMetaId)
+            val meta = report.meta
+            val incoming = meta?.videos.orEmpty()
+            playerMetaVideos = episodesKeptAfterIncompleteFetch(playerMetaVideos, incoming, report.episodesComplete)
+            if (meta != null && (incoming.isNotEmpty() || report.episodesComplete || playerMeta == null)) {
                 playerMeta = meta
-                playerMetaVideos = meta.videos
+            }
+            episodesComplete = report.episodesComplete
+            if (!report.episodesComplete && playerMetaVideos.isEmpty()) {
+                episodesLoadFailed = true
             }
         }
     }
@@ -74,8 +93,10 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
     LaunchedEffect(metaUiState.meta, parentMetaType, parentMetaId) {
         val currentMeta = metaUiState.meta ?: return@LaunchedEffect
         if (currentMeta.type == parentMetaType && currentMeta.id == parentMetaId) {
-            playerMeta = currentMeta
-            playerMetaVideos = currentMeta.videos
+            playerMetaVideos = mergePlayerEpisodes(playerMetaVideos, currentMeta.videos)
+            if (currentMeta.videos.isNotEmpty() || playerMetaVideos.isEmpty()) {
+                playerMeta = currentMeta
+            }
         }
     }
 

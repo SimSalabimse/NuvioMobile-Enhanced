@@ -1070,6 +1070,11 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
             PlayerStreamsRepository.clearEpisodeStreams()
             controlsVisible = true
         },
+        episodesLoading = episodesLoading,
+        episodesLoadFailed = episodesLoadFailed,
+        episodesEmptyNeedsRetry = episodesEmptyNeedsRetry,
+        episodesComplete = episodesComplete,
+        onRetryEpisodes = { retryEpisodesLoad() },
         showChaptersPanel = showChaptersPanel,
         chapters = snapshotChapters,
         onChapterSelected = { chapter ->
