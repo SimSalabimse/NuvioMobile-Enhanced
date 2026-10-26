@@ -1,6 +1,7 @@
 package com.nuvio.app.features.details
 
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -15,7 +16,7 @@ import kotlin.test.fail
 class SeasonCacheTest {
     @Test
     fun `evicts the oldest season once the cache is over capacity`() = runTest {
-        val cache = SeasonCache(maxEntries = 2)
+        val cache = SeasonCache<Map<Int, Double>>(maxEntries = 2)
         cache.put("a", mapOf(1 to 1.0))
         cache.put("b", mapOf(1 to 2.0))
         cache.put("c", mapOf(1 to 3.0))
@@ -27,8 +28,48 @@ class SeasonCacheTest {
     }
 
     @Test
+    fun `disk load does not overwrite a fetch that landed while it was in flight`() = runTest {
+        val cache = SeasonCache<Map<Int, Double>>()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val load = launch {
+            cache.loadOnce {
+                entered.complete(Unit)
+                release.await()
+                mapOf("tt1:1" to mapOf(1 to 1.0))
+            }
+        }
+        entered.await()
+        cache.put("tt1:1", mapOf(1 to 9.0))
+        release.complete(Unit)
+        load.join()
+
+        assertEquals(mapOf(1 to 9.0), cache.get("tt1:1"))
+    }
+
+    @Test
+    fun `a failed disk decode stays unloaded and leaves memory intact`() = runTest {
+        val cache = SeasonCache<Map<Int, Double>>()
+        cache.put("fresh", mapOf(1 to 9.0))
+        var calls = 0
+        cache.loadOnce {
+            calls += 1
+            null
+        }
+        assertEquals(mapOf(1 to 9.0), cache.get("fresh"))
+
+        cache.loadOnce {
+            calls += 1
+            mapOf("disk" to mapOf(1 to 1.0))
+        }
+        assertEquals(2, calls)
+        assertEquals(mapOf(1 to 9.0), cache.get("fresh"))
+        assertEquals(mapOf(1 to 1.0), cache.get("disk"))
+    }
+
+    @Test
     fun `put returns a snapshot that later writes do not mutate`() = runTest {
-        val cache = SeasonCache(maxEntries = SeasonCache.MaxEntries)
+        val cache = SeasonCache<Map<Int, Double>>(maxEntries = SeasonCache.MaxEntries)
         val snapshot = cache.put("tt1:1", mapOf(1 to 8.0))
         cache.put("tt1:2", mapOf(2 to 9.0))
 
@@ -39,7 +80,7 @@ class SeasonCacheTest {
     @Test
     fun `concurrent puts across the production cap stay consistent`() = runTest {
         assertEquals(400, SeasonCache.MaxEntries)
-        val cache = SeasonCache()
+        val cache = SeasonCache<Map<Int, Double>>()
         val failures = mutableListOf<Throwable>()
         val failureLock = Mutex()
 

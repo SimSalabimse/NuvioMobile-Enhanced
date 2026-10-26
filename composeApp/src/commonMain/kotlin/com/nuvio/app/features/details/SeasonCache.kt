@@ -11,57 +11,63 @@ import kotlinx.coroutines.sync.withLock
  * is a copy, so disk serialization never iterates the live map and the lock is not held
  * across network or disk I/O.
  */
-internal class SeasonCache(
+internal class SeasonCache<V>(
     private val maxEntries: Int = MaxEntries,
 ) {
     private val mutex = Mutex()
-    private val entries = LinkedHashMap<String, Map<Int, Double>>()
+    private val loadMutex = Mutex()
+    private val entries = LinkedHashMap<String, V>()
     private var loaded = false
 
-    suspend fun get(key: String): Map<Int, Double>? = mutex.withLock { entries[key] }
+    suspend fun get(key: String): V? = mutex.withLock { entries[key] }
 
     suspend fun size(): Int = mutex.withLock { entries.size }
 
-    suspend fun snapshot(): Map<String, Map<Int, Double>> = mutex.withLock { copyOfEntries() }
+    suspend fun snapshot(): Map<String, V> = mutex.withLock { copyOfEntries() }
 
     /**
-     * Inserts [ratings] and evicts the oldest insertion-order keys until [maxEntries].
-     * Returns a detached copy of the cache for the caller to persist outside the lock.
+     * Inserts [value] and evicts the oldest insertion-order keys until [maxEntries].
+     * An existing key is moved to the newest position. Returns a detached copy of
+     * the cache for the caller to persist outside the lock.
      */
-    suspend fun put(key: String, ratings: Map<Int, Double>): Map<String, Map<Int, Double>> =
-        mutex.withLock {
-            entries[key] = ratings
-            while (entries.size > maxEntries) {
-                val oldestKey = entries.keys.firstOrNull() ?: break
-                entries.remove(oldestKey)
-            }
-            copyOfEntries()
+    suspend fun put(key: String, value: V): Map<String, V> = mutex.withLock {
+        entries.remove(key)
+        entries[key] = value
+        while (entries.size > maxEntries) {
+            val oldestKey = entries.keys.firstOrNull() ?: break
+            entries.remove(oldestKey)
         }
+        copyOfEntries()
+    }
 
     /**
-     * Decodes the disk payload at most once. [load] runs outside the lock.
-     * A cancellation clears the loaded flag so a later call can try again.
+     * Decodes the disk payload at most once, and only after a successful merge.
+     * [load] runs outside the map lock. A null result is a failed decode: memory
+     * is left as-is and a later call tries again. Keys already in memory win over
+     * the disk copy. Concurrent callers wait on [loadMutex] for the in-flight load.
+     * Cancellation leaves the cache unloaded and is rethrown.
      */
-    suspend fun loadOnce(load: suspend () -> Map<String, Map<Int, Double>>?) {
-        val shouldLoad = mutex.withLock {
-            if (loaded) {
-                false
-            } else {
-                loaded = true
-                true
+    suspend fun loadOnce(load: suspend () -> Map<String, V>?) {
+        loadMutex.withLock {
+            if (mutex.withLock { loaded }) return
+            try {
+                val decoded = load()
+                mutex.withLock {
+                    if (decoded != null) {
+                        for ((key, value) in decoded) {
+                            if (key !in entries) entries[key] = value
+                        }
+                        loaded = true
+                    }
+                }
+            } catch (error: CancellationException) {
+                mutex.withLock { loaded = false }
+                throw error
             }
-        }
-        if (!shouldLoad) return
-        try {
-            val decoded = load() ?: return
-            mutex.withLock { entries.putAll(decoded) }
-        } catch (error: CancellationException) {
-            mutex.withLock { loaded = false }
-            throw error
         }
     }
 
-    private fun copyOfEntries(): Map<String, Map<Int, Double>> = LinkedHashMap(entries)
+    private fun copyOfEntries(): Map<String, V> = LinkedHashMap(entries)
 
     companion object {
         const val MaxEntries = 400

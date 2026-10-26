@@ -50,9 +50,8 @@ internal object OmdbEpisodeRatingsService {
     private val json = Json { ignoreUnknownKeys = true }
     private val imdbIdRegex = Regex("tt\\d+")
 
-    private val seasonCache = LinkedHashMap<String, CachedOmdbSeason>()
+    private val seasonCache = SeasonCache<CachedOmdbSeason>(maxEntries = MaxCachedSeasons)
     private val cacheLock = Mutex()
-    private var hasLoadedFromDisk = false
 
     val hasApiKey: Boolean
         get() = OmdbSettingsRepository.effectiveApiKey().isNotBlank()
@@ -239,36 +238,30 @@ internal object OmdbEpisodeRatingsService {
     }
 
     /**
-     * Disk I/O stays outside [cacheLock]. A cancellation clears the loaded flag so the
-     * next call tries again, and the decoded map is copied in under the lock so a
-     * concurrent season fetch cannot throw ConcurrentModificationException.
+     * Disk I/O stays outside the cache lock. A failed decode does not mark the
+     * cache loaded and does not replace ratings already fetched. Keys written
+     * while the read is in flight win over the stale disk copy.
      */
     private suspend fun ensureLoadedFromDisk() {
-        val shouldLoad = cacheLock.withLock {
-            if (hasLoadedFromDisk) {
-                false
-            } else {
-                hasLoadedFromDisk = true
-                true
-            }
-        }
-        if (!shouldLoad) return
-        try {
+        seasonCache.loadOnce {
             val payload = OmdbEpisodeRatingsStorage.loadPayload()?.trim().orEmpty()
-            if (payload.isEmpty()) return
-            val decoded = runCatching { json.decodeFromString<Map<String, CachedOmdbSeason>>(payload) }.getOrNull()
-                ?: runCatching { json.decodeFromString<Map<String, Map<Int, Double>>>(payload) }
-                    .getOrNull()
-                    ?.mapValues { (_, ratings) -> CachedOmdbSeason(ratings = ratings, fetchedAt = 0L) }
-            if (decoded == null) {
-                log.w { "Failed to load cached IMDb ratings" }
-                return
-            }
-            cacheLock.withLock { seasonCache.putAll(decoded) }
-        } catch (error: CancellationException) {
-            cacheLock.withLock { hasLoadedFromDisk = false }
-            throw error
+            if (payload.isEmpty()) return@loadOnce emptyMap()
+            decodeCachedSeasons(payload)
         }
+    }
+
+    private fun decodeCachedSeasons(payload: String): Map<String, CachedOmdbSeason>? {
+        val modern = runCatching { json.decodeFromString<Map<String, CachedOmdbSeason>>(payload) }
+        modern.exceptionOrNull()?.let { if (it is CancellationException) throw it }
+        modern.getOrNull()?.let { return it }
+        val legacy = runCatching { json.decodeFromString<Map<String, Map<Int, Double>>>(payload) }
+        legacy.exceptionOrNull()?.let { if (it is CancellationException) throw it }
+        val decoded = legacy.getOrNull()
+        if (decoded == null) {
+            log.w { "Failed to load cached IMDb ratings" }
+            return null
+        }
+        return decoded.mapValues { (_, ratings) -> CachedOmdbSeason(ratings = ratings, fetchedAt = 0L) }
     }
 
     private fun persistToDisk(snapshot: Map<String, CachedOmdbSeason>) {
@@ -284,7 +277,7 @@ internal object OmdbEpisodeRatingsService {
         airedEpisodes: Set<Int>,
     ): Map<Int, Double> {
         val cacheKey = "$imdbId:$season"
-        val cached = cacheLock.withLock { seasonCache[cacheKey] }
+        val cached = seasonCache.get(cacheKey)
         val now = nowEpochMs()
         if (cached != null && cached.isFresh(now)) {
             val newlyAired = airedEpisodes - cached.ratings.keys - cached.missing.toSet()
@@ -327,19 +320,14 @@ internal object OmdbEpisodeRatingsService {
         val merged = cached?.ratings.orEmpty() + seasonRatings + lookedUpRatings
         val missing = knownEpisodes.filter { it !in merged }
 
-        val snapshot = cacheLock.withLock {
-            seasonCache.remove(cacheKey)
-            seasonCache[cacheKey] = CachedOmdbSeason(
+        val snapshot = seasonCache.put(
+            cacheKey,
+            CachedOmdbSeason(
                 ratings = merged,
                 missing = missing,
                 fetchedAt = now,
-            )
-            while (seasonCache.size > MaxCachedSeasons) {
-                val oldestKey = seasonCache.keys.firstOrNull() ?: break
-                seasonCache.remove(oldestKey)
-            }
-            LinkedHashMap(seasonCache)
-        }
+            ),
+        )
         persistToDisk(snapshot)
         return merged
     }

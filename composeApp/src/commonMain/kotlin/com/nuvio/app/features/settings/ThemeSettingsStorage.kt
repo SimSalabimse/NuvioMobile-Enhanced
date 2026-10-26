@@ -39,6 +39,7 @@ internal expect object ThemeSettingsStorage {
     fun saveNavBarLiquidGlassSelectionEffects(settings: String)
     fun loadNavBarGlass(): String?
     fun saveNavBarGlass(value: String)
+    fun loadLegacyNavBarLiquidGlassEnabled(): Boolean?
     fun loadLiquidGlassEffectsEnabled(): Boolean?
     fun saveLiquidGlassEffectsEnabled(enabled: Boolean)
     fun exportToSyncPayload(): JsonObject

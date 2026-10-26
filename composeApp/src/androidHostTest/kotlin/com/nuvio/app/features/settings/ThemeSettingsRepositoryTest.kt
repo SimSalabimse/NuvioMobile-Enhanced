@@ -2,10 +2,13 @@ package com.nuvio.app.features.settings
 
 import android.app.Application
 import android.content.Context
+import com.nuvio.app.core.storage.ProfileScopedKey
 import com.nuvio.app.core.sync.decodeSyncString
 import com.nuvio.app.core.ui.AppTheme
 import com.nuvio.app.core.ui.CustomThemeColors
 import com.nuvio.app.core.ui.glass.LiquidGlassEffectDefaults
+import com.nuvio.app.core.ui.glass.LiquidGlassMaterial
+import com.nuvio.app.core.ui.glass.LiquidGlassStyle
 import com.nuvio.app.core.ui.glass.decodeLiquidGlassEffectSettings
 import com.nuvio.app.features.membership.MemberAccessRepository
 import com.nuvio.app.features.membership.MemberAssetStorage
@@ -53,6 +56,42 @@ class ThemeSettingsRepositoryTest {
         ThemeSettingsStorage.replaceFromSyncPayload(kotlinx.serialization.json.buildJsonObject {})
         ThemeSettingsRepository.onProfileChanged()
         assertEquals(true, ThemeSettingsRepository.navBarGlowEnabled.value)
+    }
+
+    @Test
+    fun forkNavBarGlassOffStaysOffWhenTheOldKeyIsMissingFalseOrTrue() {
+        val preferences = RuntimeEnvironment.getApplication()
+            .getSharedPreferences("nuvio_theme_settings", Context.MODE_PRIVATE)
+        val legacyKey = ProfileScopedKey.of("enhanced_local_nav_bar_liquid_glass_enabled")
+        val glassKey = ProfileScopedKey.of("enhanced_local_nav_bar_glass")
+        val effectsKey = ProfileScopedKey.of("enhanced_local_liquid_glass_effects")
+
+        fun reload() {
+            ThemeSettingsRepository.clearLocalState()
+            ThemeSettingsRepository.ensureLoaded()
+        }
+
+        preferences.edit().remove(legacyKey).remove(glassKey).remove(effectsKey).commit()
+        reload()
+        assertEquals(LiquidGlassMaterial.SOLID, ThemeSettingsRepository.navBarGlass.value.material)
+        assertEquals(true, ThemeSettingsRepository.liquidGlassEffectsEnabled.value)
+        assertEquals(null, ThemeSettingsStorage.loadLiquidGlassEffectsEnabled())
+
+        ThemeSettingsRepository.setNavBarGlass(LiquidGlassStyle(material = LiquidGlassMaterial.LIQUID))
+        reload()
+        assertEquals(LiquidGlassMaterial.LIQUID, ThemeSettingsRepository.navBarGlass.value.material)
+
+        preferences.edit().remove(glassKey).remove(effectsKey).putBoolean(legacyKey, false).commit()
+        reload()
+        assertEquals(LiquidGlassMaterial.SOLID, ThemeSettingsRepository.navBarGlass.value.material)
+        assertEquals(false, ThemeSettingsRepository.liquidGlassEffectsEnabled.value)
+        assertEquals(false, ThemeSettingsStorage.loadLiquidGlassEffectsEnabled())
+
+        preferences.edit().remove(glassKey).remove(effectsKey).putBoolean(legacyKey, true).commit()
+        reload()
+        assertEquals(LiquidGlassMaterial.LIQUID, ThemeSettingsRepository.navBarGlass.value.material)
+        assertEquals(true, ThemeSettingsRepository.liquidGlassEffectsEnabled.value)
+        assertEquals(null, ThemeSettingsStorage.loadNavBarGlass())
     }
 
     @Test
