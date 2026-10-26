@@ -118,6 +118,8 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         preferredAudioSelectionApplied = false
         appliedAudioPreferences = null
         preferredSubtitleSelectionApplied = false
+        observedSubtitleTrackStructure = null
+        subtitleOffRequested = false
         isUserExplicitAudioSelection = false
         isUserExplicitSubtitleSelection = false
         hasScannedTextTracksOnce = false

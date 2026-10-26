@@ -281,6 +281,150 @@ class PlayerTrackSelectionTest {
     }
 
     @Test
+    fun reusedSubtitleIdDoesNotReplaceTheSavedLanguage() {
+        val savedOnAnotherFile = PersistedPlayerTrackPreference(
+            subtitleType = PersistedSubtitleSelectionType.INTERNAL,
+            subtitleLanguage = "en",
+            subtitleName = "English",
+            subtitleTrackId = "1",
+        )
+        val bengaliFirst = listOf(
+            subtitleTrack(index = 0, id = "1", language = "bn", label = "Bengali", isForced = false),
+            subtitleTrack(index = 1, id = "2", language = "en", label = "English", isForced = false),
+        )
+        val bengaliLast = listOf(
+            subtitleTrack(index = 0, id = "2", language = "en", label = "English", isForced = false),
+            subtitleTrack(index = 1, id = "1", language = "bn", label = "Bengali", isForced = false),
+        )
+
+        assertEquals(1, findPersistedSubtitleTrackIndex(bengaliFirst, savedOnAnotherFile))
+        assertEquals(0, findPersistedSubtitleTrackIndex(bengaliLast, savedOnAnotherFile))
+    }
+
+    @Test
+    fun savedLanguageFollowsTheLanguageWhenTrackIdsDiffer() {
+        val preference = PersistedPlayerTrackPreference(
+            subtitleType = PersistedSubtitleSelectionType.INTERNAL,
+            subtitleLanguage = "en",
+            subtitleName = "English",
+            subtitleTrackId = "1",
+        )
+        val reordered = listOf(
+            subtitleTrack(index = 0, id = "9", language = "bn", label = "Bengali", isForced = false),
+            subtitleTrack(index = 1, id = "4", language = "eng", label = "English", isForced = false),
+        )
+
+        assertEquals(1, findPersistedSubtitleTrackIndex(reordered, preference))
+    }
+
+    @Test
+    fun bengaliCodeVariantsSelectTheSameTrack() {
+        val tracks = listOf(
+            subtitleTrack(index = 0, language = "en", label = "English", isForced = false),
+            subtitleTrack(index = 1, language = "bn", label = "Subtitle", isForced = false),
+        )
+        listOf("bn", "ben", "Bengali").forEach { saved ->
+            assertEquals(
+                1,
+                findPersistedSubtitleTrackIndex(
+                    tracks,
+                    PersistedPlayerTrackPreference(
+                        subtitleType = PersistedSubtitleSelectionType.INTERNAL,
+                        subtitleLanguage = saved,
+                    ),
+                ),
+                saved,
+            )
+        }
+    }
+
+    @Test
+    fun savedBengaliCodeMatchesBenAndNameOnlyTracks() {
+        val preference = PersistedPlayerTrackPreference(
+            subtitleType = PersistedSubtitleSelectionType.INTERNAL,
+            subtitleLanguage = "bn",
+        )
+
+        assertEquals(
+            0,
+            findPersistedSubtitleTrackIndex(
+                listOf(subtitleTrack(index = 0, language = "ben", label = "Subtitle", isForced = false)),
+                preference,
+            ),
+        )
+        assertEquals(
+            1,
+            findPersistedSubtitleTrackIndex(
+                listOf(
+                    subtitleTrack(index = 0, language = "en", label = "English", isForced = false),
+                    subtitleTrack(index = 1, language = null, label = "Bengali", isForced = false),
+                ),
+                preference,
+            ),
+        )
+    }
+
+    @Test
+    fun disabledPreferenceDoesNotRestoreAStaleTrackId() {
+        val selected = findPersistedSubtitleTrackIndex(
+            tracks = listOf(
+                subtitleTrack(index = 0, id = "1", language = "bn", label = "Bengali", isForced = false),
+            ),
+            preference = PersistedPlayerTrackPreference(
+                subtitleType = PersistedSubtitleSelectionType.DISABLED,
+                subtitleTrackId = "1",
+                subtitleLanguage = "bn",
+            ),
+        )
+
+        assertEquals(-1, selected)
+    }
+
+    @Test
+    fun offPreferenceDoesNotAdoptAnEngineSelectedTrack() {
+        listOf(null, 0, 2).forEach { engineIndex ->
+            assertEquals(
+                -1,
+                subtitleIndexAfterEngineReport(
+                    currentIndex = -1,
+                    engineSelectedIndex = engineIndex,
+                    explicitUserChoice = false,
+                    preferredSubtitleLanguage = SubtitleLanguageOption.NONE,
+                    useCustomSubtitles = false,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun explicitOffStaysOffWhenTheEngineSelectsATrack() {
+        assertEquals(
+            -1,
+            subtitleIndexAfterEngineReport(
+                currentIndex = -1,
+                engineSelectedIndex = 0,
+                explicitUserChoice = true,
+                preferredSubtitleLanguage = "en",
+                useCustomSubtitles = false,
+            ),
+        )
+    }
+
+    @Test
+    fun explicitLanguageIsNotReplacedByALaterEngineSelection() {
+        assertEquals(
+            2,
+            subtitleIndexAfterEngineReport(
+                currentIndex = 2,
+                engineSelectedIndex = 0,
+                explicitUserChoice = true,
+                preferredSubtitleLanguage = "en",
+                useCustomSubtitles = false,
+            ),
+        )
+    }
+
+    @Test
     fun forcedAddonMatchIgnoresRegularTranslationAddons() {
         val regular = addonSubtitle(id = "english", language = "en")
         val forced = addonSubtitle(
@@ -352,9 +496,10 @@ class PlayerTrackSelectionTest {
         language: String?,
         label: String = "Track $index",
         isForced: Boolean,
+        id: String = "track-$index",
     ) = SubtitleTrack(
         index = index,
-        id = "track-$index",
+        id = id,
         label = label,
         language = language,
         isForced = isForced,

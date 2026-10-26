@@ -520,20 +520,66 @@ internal fun findPersistedAddonSubtitle(
     } ?: preferredCandidates.firstOrNull()
 }
 
+internal fun preferredSubtitleDisablesSelection(preferredSubtitleLanguage: String?): Boolean {
+    val normalized = normalizeLanguageCode(preferredSubtitleLanguage) ?: return true
+    return normalized == SubtitleLanguageOption.NONE || normalized == SubtitleLanguageOption.FORCED
+}
+
+/**
+ * Which subtitle row to keep after the engine reports [engineSelectedIndex].
+ * That index is whatever the player autoselected (container default, OS language, or
+ * subs-fallback). It is not a user choice. Off, and a choice the user already made,
+ * stay as they are.
+ */
+internal fun subtitleIndexAfterEngineReport(
+    currentIndex: Int,
+    engineSelectedIndex: Int?,
+    explicitUserChoice: Boolean,
+    preferredSubtitleLanguage: String,
+    useCustomSubtitles: Boolean,
+): Int {
+    if (useCustomSubtitles || explicitUserChoice) return currentIndex
+    if (preferredSubtitleDisablesSelection(preferredSubtitleLanguage)) return -1
+    return engineSelectedIndex ?: currentIndex
+}
+
 internal fun findPersistedSubtitleTrackIndex(
     tracks: List<SubtitleTrack>,
     preference: PersistedPlayerTrackPreference,
 ): Int {
-    preference.subtitleTrackId?.takeIf { it.isNotBlank() }?.let { trackId ->
-        tracks.firstOrNull { it.id == trackId }?.let { return it.index }
+    if (
+        preference.subtitleType == PersistedSubtitleSelectionType.DISABLED ||
+        preference.subtitleType == PersistedSubtitleSelectionType.ADDON
+    ) {
+        return -1
     }
 
-    val languageCandidates = preference.subtitleLanguage?.takeIf { it.isNotBlank() }?.let { language ->
-        tracks.indices.filter { index ->
-            SubtitleLanguageMatching.matchesLanguageCode(tracks[index].language, language) ||
-                subtitleTrackMatchesLanguage(tracks[index], language)
-        }
-    }.orEmpty()
+    val targetId = preference.subtitleTrackId?.trim()?.takeIf { it.isNotBlank() }
+    val targetLanguage = preference.subtitleLanguage?.trim()?.takeIf { it.isNotBlank() }
+    fun matchesSavedLanguage(track: SubtitleTrack): Boolean {
+        if (targetLanguage == null) return false
+        return SubtitleLanguageMatching.matchesLanguageCode(track.language, targetLanguage) ||
+            subtitleTrackMatchesLanguage(track, targetLanguage)
+    }
+
+    val languageCandidates = if (targetLanguage == null) {
+        emptyList()
+    } else {
+        tracks.indices.filter { index -> matchesSavedLanguage(tracks[index]) }
+    }
+    // A per-file track id is only meaningful together with the saved language.
+    // The same id on the next file, or on a download of the same video, can be another language.
+    val idCandidates = if (targetLanguage != null) languageCandidates else tracks.indices.toList()
+    val forcedIdCandidates = if (preference.subtitleIsForced == true) {
+        idCandidates.filter { index -> tracks[index].isForced }
+    } else {
+        idCandidates
+    }
+    if (targetId != null) {
+        forcedIdCandidates.firstOrNull { index -> tracks[index].id == targetId }
+            ?.let { return tracks[it].index }
+    }
+
     val forcedFiltered = if (preference.subtitleIsForced == true) {
         languageCandidates.filter { index -> tracks[index].isForced }
     } else {
@@ -556,8 +602,13 @@ internal fun findPersistedSubtitleTrackIndex(
         return tracks[variantMatch ?: forcedFiltered.first()].index
     }
 
-    preference.subtitleName?.takeIf { it.isNotBlank() }?.let { name ->
-        val nameMatches = tracks.filter { it.label.equals(name, ignoreCase = true) }
+    preference.subtitleName?.trim()?.takeIf { it.isNotBlank() }?.let { name ->
+        val namePool = if (targetLanguage != null) {
+            languageCandidates.map { index -> tracks[index] }
+        } else {
+            tracks
+        }
+        val nameMatches = namePool.filter { it.label.equals(name, ignoreCase = true) }
         val forcedNameMatches = if (preference.subtitleIsForced == true) {
             nameMatches.filter { it.isForced }
         } else {
