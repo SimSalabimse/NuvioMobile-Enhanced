@@ -302,6 +302,7 @@ object DownloadsRepository {
         val toStart = startQueue.request(downloadId, DownloadThermalGate.blocksNextFile())
         persistStatus()
         applyStarts(toStart)
+        refreshHeldForPlayback()
 
         return if (replacedExisting) {
             DownloadEnqueueResult.Replaced
@@ -1018,6 +1019,7 @@ object DownloadsRepository {
         if (statusChanged && after?.status == DownloadStatus.Completed) {
             verifyFinished(after, expectedBytes = before?.totalBytes ?: after.totalBytes)
         }
+        if (statusChanged) refreshHeldForPlayback()
     }
 
     private fun replaceItem(item: DownloadItem) {
@@ -1034,9 +1036,27 @@ object DownloadsRepository {
         }
         _uiState.value = DownloadsUiState(
             items = items,
+            heldForPlayback = heldForPlayback(items),
         )
         runCatching { DownloadSpeeds.onItems(items, DownloadsClock.nowEpochMs()) }
         notifyLiveStatusPlatform()
+    }
+
+    /**
+     * Waiting rows the normal cap would run now: only the open player holds them back. From the
+     * same line and cap that decide the slots, so the row can say why it waits.
+     */
+    private fun heldForPlayback(items: List<DownloadItem>): Set<String> {
+        val free = MAX_ACTIVE_DOWNLOADS - startQueue.activeIds().size
+        if (startQueue.maxActive >= MAX_ACTIVE_DOWNLOADS || free <= 0) return emptySet()
+        val queued = items.filter { it.status == DownloadStatus.Queued }.map { it.id }.toSet()
+        return startQueue.waitingIds().filter { it in queued }.take(free).toSet()
+    }
+
+    private fun refreshHeldForPlayback() {
+        val state = _uiState.value
+        val held = heldForPlayback(state.items)
+        if (held != state.heldForPlayback) _uiState.value = state.copy(heldForPlayback = held)
     }
 
     private fun notifyLiveStatusPlatform() {
@@ -1085,6 +1105,7 @@ object DownloadsRepository {
         val demoted = startQueue.shrinkTo(startQueue.maxActive, held)
         if (pinned.isNotEmpty() || demoted.isNotEmpty()) alignQueuedStatuses()
         applyStarts(pinned + startQueue.promote(DownloadThermalGate.blocksNextFile()), pinned.toSet())
+        refreshHeldForPlayback()
         val plan = "cap=${startQueue.maxActive} running=${startQueue.activeIds()} waiting=${startQueue.waitingIds()} player=$held"
         if (plan != lastSlotPlan) {
             lastSlotPlan = plan

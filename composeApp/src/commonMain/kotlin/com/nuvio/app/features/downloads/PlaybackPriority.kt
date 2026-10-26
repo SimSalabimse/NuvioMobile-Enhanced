@@ -73,6 +73,9 @@ internal object PlaybackPriority {
             if (level != Level.Normal && nowMs - pausedSinceMs >= PAUSED_RELEASE_MS) {
                 InAppLogger.info("PlaybackPriority", "paused for a while, background work at full speed")
                 apply(Level.Normal)
+            } else if (level == Level.Strained && nowMs - lastStrainMs >= STRAIN_COOL_DOWN_MS) {
+                // Paused or at the end nothing stalls: the cool-down runs out here too.
+                apply(Level.Playing)
             }
             return
         }

@@ -76,6 +76,11 @@ class PlaybackThrottleRepositoryTest {
             running -= id
             callbacks.getValue(id).onSuccess("file:///downloads/$id.mkv", 100_000_000L)
         }
+
+        fun progress(id: String, bytes: Long) {
+            check(id in running) { "$id reports bytes but is not transferring" }
+            callbacks.getValue(id).onProgress(bytes, 1_000_000_000L)
+        }
     }
 
     private val fake = FakeTransfers()
@@ -352,6 +357,65 @@ class PlaybackThrottleRepositoryTest {
         assertSlotsMatchStatuses()
     }
 
+    /** Owner's device: the next episode queued ~4 min before the end showed 0 MB once the episode had ended. */
+    @Test
+    fun downloadStartedNearTheEndRunsAgainOnceTheEpisodeHasEnded() {
+        PlaybackPriority.sessionStarted(isLocalFile = false)
+        snapshots(buffering = true, forMs = 2_000L)
+        snapshots(buffering = false, forMs = 40 * 60_000L)
+        val next = enqueueNextEpisode()
+        assertEquals(setOf(next), fake.running, "the next episode starts while the player is open")
+        fake.progress(next, 50_000_000L)
+
+        snapshots(buffering = true, forMs = 2_000L)
+        assertEquals(PlaybackPriority.Level.Strained, PlaybackPriority.level)
+        snapshots(buffering = false, forMs = 10_000L)
+        snapshots(buffering = false, forMs = 60_000L, wantsToPlay = false)
+
+        assertEquals(PlaybackPriority.Level.Playing, PlaybackPriority.level, "30 s after the last stall, also once the episode has ended")
+        assertEquals(setOf(next), fake.running)
+        val row = DownloadsRepository.uiState.value.items.single { it.id == next }
+        assertEquals(DownloadStatus.Downloading, row.status)
+        assertEquals(50_000_000L, row.downloadedBytes)
+        assertSlotsMatchStatuses()
+
+        fake.progress(next, 80_000_000L)
+        PlaybackPriority.sessionEnded()
+        assertEquals(80_000_000L, DownloadsRepository.uiState.value.items.single { it.id == next }.downloadedBytes)
+        assertTrue(next in fake.running)
+    }
+
+    @Test
+    fun downloadTheStallHoldsKeepsItsBytesAndSaysWhy() {
+        PlaybackPriority.sessionStarted(isLocalFile = false)
+        snapshots(buffering = true, forMs = 2_000L)
+        snapshots(buffering = false, forMs = 40 * 60_000L)
+        val next = enqueueNextEpisode()
+        fake.progress(next, 50_000_000L)
+
+        snapshots(buffering = true, forMs = 2_000L)
+
+        val state = DownloadsRepository.uiState.value
+        val row = state.items.single { it.id == next }
+        assertEquals(DownloadStatus.Queued, row.status)
+        assertEquals(50_000_000L, row.downloadedBytes, "the bytes it has stay on its row")
+        assertTrue(next in state.heldForPlayback, "the row says the player holds it")
+        assertSlotsMatchStatuses()
+
+        PlaybackPriority.sessionEnded()
+        assertTrue(DownloadsRepository.uiState.value.heldForPlayback.isEmpty())
+    }
+
+    private fun enqueueNextEpisode(): String {
+        DownloadsRepository.enqueueFromStream(
+            contentType = "series", videoId = "show:1:2", parentMetaId = "show", parentMetaType = "series",
+            title = "Show", logo = null, poster = null, background = null, seasonNumber = 1, episodeNumber = 2,
+            episodeTitle = null, episodeThumbnail = null,
+            stream = StreamItem(name = "S1E2", url = "https://example.com/e2.mkv", addonName = "Test", addonId = "test"),
+        )
+        return DownloadsRepository.uiState.value.items.single { it.episodeNumber == 2 }.id
+    }
+
     private fun startThreeDownloads() {
         DownloadsRepository.replaceItems(listOf(episode("e1", 1), episode("e2", 2), episode("e3", 3)))
         DownloadsRepository.resumeDownloads(listOf("e1", "e2", "e3"))
@@ -376,12 +440,12 @@ class PlaybackThrottleRepositoryTest {
         assertEquals(setOf("e1", "e2"), fake.running)
     }
 
-    private fun snapshots(buffering: Boolean, forMs: Long) {
+    private fun snapshots(buffering: Boolean, forMs: Long, wantsToPlay: Boolean = true) {
         val end = clock + forMs
         while (clock < end) {
             clock += 250L
-            if (!buffering) position += 250L
-            PlaybackPriority.noteSnapshot(wantsToPlay = true, buffering = buffering, positionMs = position, nowMs = clock)
+            if (!buffering && wantsToPlay) position += 250L
+            PlaybackPriority.noteSnapshot(wantsToPlay = wantsToPlay, buffering = buffering, positionMs = position, nowMs = clock)
         }
     }
 

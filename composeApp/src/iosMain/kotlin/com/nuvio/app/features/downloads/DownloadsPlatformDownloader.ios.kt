@@ -21,6 +21,7 @@ import platform.Foundation.NSFileManager
 import platform.Foundation.NSHTTPURLResponse
 import platform.Foundation.NSHomeDirectory
 import platform.Foundation.NSLock
+import platform.Foundation.NSThread
 import platform.Foundation.NSMutableURLRequest
 import platform.Foundation.NSData
 import platform.Foundation.NSURLErrorCancelled
@@ -121,7 +122,11 @@ internal actual object DownloadsPlatformDownloader {
         prepareDownloadSubtitles(request.item.id, request)
         IosForegroundDownloads.ensureObserver()
         IosTransferControl.allow(request.item.id)
-        val callbacks = DownloadCallbacks(onProgress, onSuccess, onFailure)
+        val callbacks = DownloadCallbacks(
+            onProgress = { downloaded, total -> onMainThread { onProgress(downloaded, total) } },
+            onSuccess = { uri, total -> onMainThread { onSuccess(uri, total) } },
+            onFailure = { message -> onMainThread { onFailure(message) } },
+        )
         IosBackgroundDownloadCoordinator.openOrStart(request, callbacks)
         return IosDownloadsTaskHandle(request.item.id)
     }
@@ -302,6 +307,16 @@ internal actual object DownloadsPlatformDownloader {
     actual fun partialPlaybackUrl(downloadId: String): String? = IosPartialPlaybackServer.url(downloadId)
 
     actual fun finishPartialPlayback(downloadId: String): String? = finishIosPartialPlayback(downloadId)
+}
+
+/**
+ * The repository's rows, line and slots are changed on the main thread only. The session
+ * delegates call back on their own queues; a row list rebuilt there from an older copy undid a
+ * status the main thread had just set (a row left Waiting with a running transfer, or
+ * Downloading with none).
+ */
+private inline fun onMainThread(crossinline block: () -> Unit) {
+    if (NSThread.isMainThread) block() else dispatch_async(dispatch_get_main_queue()) { block() }
 }
 
 @OptIn(ExperimentalForeignApi::class)
@@ -1198,7 +1213,7 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
             fileName = fileName,
             callbacks = DownloadCallbacks(
                 onProgress = { _, _ -> },
-                onSuccess = { uri, size -> DownloadsRepository.markFinishedInBackground(downloadId, uri, size) },
+                onSuccess = { uri, size -> onMainThread { DownloadsRepository.markFinishedInBackground(downloadId, uri, size) } },
                 onFailure = { _ -> },
             ),
         )

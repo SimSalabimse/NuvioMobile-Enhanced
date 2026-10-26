@@ -3,6 +3,8 @@ package com.nuvio.app.features.downloads
 import com.nuvio.app.features.debrid.DebridSourceFallback
 import com.nuvio.app.features.debrid.DirectDebridPlayableResult
 import com.nuvio.app.features.streams.StreamItem
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** What a download is for: the title and, for an episode, which one. */
 internal data class DownloadTarget(
@@ -61,6 +63,7 @@ internal object DownloadEnqueueService {
         }
         val playable = outcome.stream
             ?: return DownloadOutcome(null, outcome.failure ?: DirectDebridPlayableResult.Error)
-        return DownloadOutcome(enqueue(target, playable))
+        // Smart downloads get here on a background dispatcher; the repository's line is the main thread's.
+        return DownloadOutcome(withContext(Dispatchers.Main.immediate) { enqueue(target, playable) })
     }
 }
