@@ -461,6 +461,8 @@
     <string name="compose_player_playback_info">Playback Info</string>
     <string name="compose_player_loading_lines">Loading subtitle lines...</string>
     <string name="compose_player_languages">Languages</string>
+    <string name="player_tool_tab_language">Language</string>
+    <string name="player_tool_tab_track">Track</string>
     <string name="compose_player_no_subtitle_lines_found">No subtitle lines found</string>
     <string name="compose_player_subtitle_lines_load_error">Unable to load subtitle lines</string>
     <string name="compose_player_no_audio_tracks_available">No audio tracks available</string>

@@ -81,6 +81,7 @@ fun SubtitleStylePanel(
     subtitleAutoSyncState: SubtitleAutoSyncUiState,
     isCompact: Boolean,
     showHeader: Boolean = true,
+    includeDelay: Boolean = true,
     onStyleChanged: (SubtitleStyleState) -> Unit,
     onSubtitleDelayChanged: (Int) -> Unit,
     onSubtitleDelayReset: () -> Unit,
@@ -104,7 +105,7 @@ fun SubtitleStylePanel(
             )
         }
 
-        SubtitleStyleSection(title = stringResource(Res.string.compose_player_subtitle_delay)) {
+        if (includeDelay) SubtitleStyleSection(title = stringResource(Res.string.compose_player_subtitle_delay)) {
             SubtitleStyleStepper(
                 value = formatSubtitleDelay(subtitleDelayMs),
                 onDecrease = {
@@ -644,7 +645,7 @@ private fun sameRgb(first: Color, second: Color): Boolean =
         abs(first.green - second.green) < 0.01f &&
         abs(first.blue - second.blue) < 0.01f
 
-private fun formatSubtitleDelay(delayMs: Int): String {
+internal fun formatSubtitleDelay(delayMs: Int): String {
     val sign = if (delayMs >= 0) "+" else "-"
     val absoluteMs = abs(delayMs)
     val seconds = absoluteMs / 1000
