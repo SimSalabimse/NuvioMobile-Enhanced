@@ -7,6 +7,8 @@ import com.nuvio.app.features.tracking.TrackingProviderId
 import com.nuvio.app.features.tracking.TrackingProviderRegistry
 import com.nuvio.app.features.tracking.TrackingRefreshIntent
 import kotlinx.atomicfu.atomic
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +45,7 @@ object SimklSyncRepository : TrackingProfileStore {
     val state: StateFlow<SimklSyncUiState> = _state.asStateFlow()
 
     private var hasLoaded = false
+    private val loadLock = SynchronizedObject()
     private var profileGeneration = 0L
 
     init {
@@ -50,6 +53,7 @@ object SimklSyncRepository : TrackingProfileStore {
     }
 
     fun ensureLoaded() {
+        synchronized(loadLock) {
         if (hasLoaded) return
         hasLoaded = true
         val snapshot = SimklSyncStorage.loadPayload()
@@ -64,6 +68,7 @@ object SimklSyncRepository : TrackingProfileStore {
             ?: SimklSyncSnapshot()
         _state.value = SimklSyncUiState(snapshot = snapshot, hasLoaded = true)
         SimklWatchDiagnostics.logSnapshot(stage = "cache-load", snapshot = snapshot)
+        }
     }
 
     fun refreshAsync(intent: TrackingRefreshIntent) {
@@ -249,9 +254,11 @@ object SimklSyncRepository : TrackingProfileStore {
     }
 
     override fun onProfileChanged() {
-        profileGeneration += 1L
-        hasLoaded = false
-        _state.value = SimklSyncUiState()
+        synchronized(loadLock) {
+            profileGeneration += 1L
+            hasLoaded = false
+            _state.value = SimklSyncUiState()
+        }
         ensureLoaded()
     }
 

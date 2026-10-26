@@ -14,6 +14,8 @@ import io.ktor.http.Url
 import io.ktor.http.encodeURLParameter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -87,6 +89,7 @@ object TraktAuthRepository : TrackingAuthProvider {
     }
 
     private var hasLoaded = false
+    private val loadLock = SynchronizedObject()
     private var currentProfileId: Int = 1
     private var profileGeneration: Long = 0L
     private var authState = TraktAuthState()
@@ -102,12 +105,16 @@ object TraktAuthRepository : TrackingAuthProvider {
     }
 
     fun ensureLoaded(profileId: Int) {
-        if (hasLoaded && currentProfileId == profileId) return
-        loadFromDisk(profileId)
+        synchronized(loadLock) {
+            if (hasLoaded && currentProfileId == profileId) return
+            loadFromDisk(profileId)
+        }
     }
 
     fun onProfileChanged(profileId: Int) {
-        loadFromDisk(profileId)
+        synchronized(loadLock) {
+            loadFromDisk(profileId)
+        }
     }
 
     override fun clearLocalState() {

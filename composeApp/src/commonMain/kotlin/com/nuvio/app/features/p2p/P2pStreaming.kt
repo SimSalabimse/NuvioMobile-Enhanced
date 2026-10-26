@@ -1,6 +1,8 @@
 package com.nuvio.app.features.p2p
 
 import com.nuvio.app.core.build.AppFeaturePolicy
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,6 +49,7 @@ object P2pSettingsRepository {
         get() = AppFeaturePolicy.p2pEnabled
 
     private var hasLoaded = false
+    private val loadLock = SynchronizedObject()
     private var p2pEnabled = false
     private var enableUpload = true
     private var hideTorrentStats = false
@@ -54,15 +57,20 @@ object P2pSettingsRepository {
     private var cacheSize = P2pCacheSize.GB_2
 
     fun ensureLoaded() {
-        if (hasLoaded) return
-        loadFromDisk()
+        synchronized(loadLock) {
+            if (hasLoaded) return
+            loadFromDisk()
+        }
     }
 
     fun onProfileChanged() {
-        loadFromDisk()
+        synchronized(loadLock) {
+            loadFromDisk()
+        }
     }
 
     fun clearLocalState() {
+        synchronized(loadLock) {
         hasLoaded = false
         p2pEnabled = false
         enableUpload = true
@@ -70,6 +78,7 @@ object P2pSettingsRepository {
         torrentProfile = P2pTorrentProfile.BALANCED
         cacheSize = P2pCacheSize.GB_2
         publish()
+        }
     }
 
     fun setP2pEnabled(enabled: Boolean) {

@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -62,14 +64,17 @@ object TraktLibraryRepository {
     val uiState: StateFlow<TraktLibraryUiState> = _uiState.asStateFlow()
 
     private var hasLoaded = false
+    private val loadLock = SynchronizedObject()
     private val refreshMutex = Mutex()
     private var lastRefreshAtMs: Long = 0L
     private var lastListTabsRefreshAtMs: Long = 0L
 
     fun ensureLoaded() {
-        if (hasLoaded) return
-        hasLoaded = true
-        loadSnapshotFromDisk()
+        synchronized(loadLock) {
+            if (hasLoaded) return
+            hasLoaded = true
+            loadSnapshotFromDisk()
+        }
     }
 
     fun preloadListTabsAsync() {
@@ -85,10 +90,12 @@ object TraktLibraryRepository {
     }
 
     fun onProfileChanged() {
-        hasLoaded = false
-        lastRefreshAtMs = 0L
-        lastListTabsRefreshAtMs = 0L
-        _uiState.value = TraktLibraryUiState()
+        synchronized(loadLock) {
+            hasLoaded = false
+            lastRefreshAtMs = 0L
+            lastListTabsRefreshAtMs = 0L
+            _uiState.value = TraktLibraryUiState()
+        }
         ensureLoaded()
     }
 

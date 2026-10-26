@@ -232,6 +232,7 @@ internal class RemoteProgressWriteDeduplicator(
 object WatchProgressRepository {
     private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val accountScopeLock = SynchronizedObject()
+    private val loadLock = SynchronizedObject()
     private var accountScopeJob: Job = SupervisorJob()
     private var accountScope = CoroutineScope(accountScopeJob + Dispatchers.Default)
     private val log = Logger.withTag("WatchProgressRepository")
@@ -291,26 +292,30 @@ object WatchProgressRepository {
         TrackingProviderRegistry.ensureLoaded()
         TrackingSettingsRepository.ensureLoaded()
         TrackingProviderRegistry.progressProviders().forEach(TrackingProgressProvider::ensureLoaded)
-        if (!hasLoaded) {
+        synchronized(loadLock) {
+            if (!hasLoaded) {
+                updateActiveSource(
+                    effectiveWatchProgressSource(
+                        requestedSource = TrackingSettingsRepository.uiState.value.watchProgressSource,
+                        isProviderAuthenticated = ::isProgressProviderAvailable,
+                    ),
+                )
+                loadFromDisk(ProfileRepository.activeProfileId)
+            }
+        }
+    }
+
+    fun onProfileChanged(profileId: Int) {
+        synchronized(loadLock) {
+            if (profileId == currentProfileId && hasLoaded) return
             updateActiveSource(
                 effectiveWatchProgressSource(
                     requestedSource = TrackingSettingsRepository.uiState.value.watchProgressSource,
                     isProviderAuthenticated = ::isProgressProviderAvailable,
                 ),
             )
-            loadFromDisk(ProfileRepository.activeProfileId)
+            loadFromDisk(profileId)
         }
-    }
-
-    fun onProfileChanged(profileId: Int) {
-        if (profileId == currentProfileId && hasLoaded) return
-        updateActiveSource(
-            effectiveWatchProgressSource(
-                requestedSource = TrackingSettingsRepository.uiState.value.watchProgressSource,
-                isProviderAuthenticated = ::isProgressProviderAvailable,
-            ),
-        )
-        loadFromDisk(profileId)
         TrackingProviderRegistry.progressProviders().forEach(TrackingProgressProvider::onProfileChanged)
     }
 
@@ -326,17 +331,19 @@ object WatchProgressRepository {
         }
         previousAccountJob.cancel()
         cancelMetadataResolution(resetProviderHistory = true)
-        hasLoaded = false
-        hasLoadedNuvioRemoteProgress = false
-        currentProfileId = 1
-        profileGeneration += 1L
-        updateActiveSource(WatchProgressSource.NUVIO_SYNC)
-        providerMetadataOverlay.clear()
-        clearLocalEntries()
-        lastSuccessfulPushEpochMs = 0L
-        deltaCursorEventId = 0L
-        deltaInitialized = false
-        remoteWriteDeduplicator.clear()
+        synchronized(loadLock) {
+            hasLoaded = false
+            hasLoadedNuvioRemoteProgress = false
+            currentProfileId = 1
+            profileGeneration += 1L
+            updateActiveSource(WatchProgressSource.NUVIO_SYNC)
+            providerMetadataOverlay.clear()
+            clearLocalEntries()
+            lastSuccessfulPushEpochMs = 0L
+            deltaCursorEventId = 0L
+            deltaInitialized = false
+            remoteWriteDeduplicator.clear()
+        }
         TrackingProviderRegistry.progressProviders().forEach(TrackingProgressProvider::clearLocalState)
         _uiState.value = WatchProgressUiState()
     }
@@ -379,10 +386,12 @@ object WatchProgressRepository {
 
     private fun activeOperationGeneration(profileId: Int): Long? {
         if (ProfileRepository.activeProfileId != profileId) return null
-        if (!hasLoaded || currentProfileId != profileId) {
-            loadFromDisk(profileId)
+        synchronized(loadLock) {
+            if (!hasLoaded || currentProfileId != profileId) {
+                loadFromDisk(profileId)
+            }
+            return profileGeneration
         }
-        return profileGeneration
     }
 
     private fun isActiveOperation(profileId: Int, generation: Long): Boolean =
@@ -427,8 +436,10 @@ object WatchProgressRepository {
         TrackingProviderRegistry.ensureLoaded()
         TrackingSettingsRepository.ensureLoaded()
         TrackingProviderRegistry.progressProviders().forEach(TrackingProgressProvider::ensureLoaded)
-        if (!hasLoaded) {
-            loadFromDisk(ProfileRepository.activeProfileId)
+        synchronized(loadLock) {
+            if (!hasLoaded) {
+                loadFromDisk(ProfileRepository.activeProfileId)
+            }
         }
         if (activeSource == source) {
             publish()

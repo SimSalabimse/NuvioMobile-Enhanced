@@ -6,6 +6,8 @@ import com.nuvio.app.features.library.LibrarySourceMode
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.simkl.DEFAULT_SIMKL_ANIME_ID_PREFERENCE
 import com.nuvio.app.features.simkl.SimklAnimeIdPreference
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -80,19 +82,26 @@ object TraktSettingsRepository {
     val uiState: StateFlow<TraktSettingsUiState> = _uiState.asStateFlow()
 
     private var hasLoaded = false
+    private val loadLock = SynchronizedObject()
 
     fun ensureLoaded() {
-        if (hasLoaded) return
-        loadFromDisk()
+        synchronized(loadLock) {
+            if (hasLoaded) return
+            loadFromDisk()
+        }
     }
 
     fun onProfileChanged() {
-        loadFromDisk()
+        synchronized(loadLock) {
+            loadFromDisk()
+        }
     }
 
     fun clearLocalState() {
-        hasLoaded = false
-        _uiState.value = TraktSettingsUiState()
+        synchronized(loadLock) {
+            hasLoaded = false
+            _uiState.value = TraktSettingsUiState()
+        }
     }
 
     internal fun setWatchProgressSource(
