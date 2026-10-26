@@ -55,6 +55,58 @@ internal class DownloadPersistGate(
     }
 }
 
+/**
+ * What to do with ids the start queue just let through. [accepted] are shown as downloading,
+ * [deferred] go back to the front of the line (no free transfer slot), [launch] need a new
+ * platform transfer: an accepted id that still holds a live handle keeps running as it is.
+ * [pinned] ids (the file the player reads from) are never deferred, also past [maxActive].
+ */
+internal data class DownloadStartPlan(
+    val accepted: List<String>,
+    val deferred: List<String>,
+    val launch: List<String>,
+)
+
+/**
+ * Which held ids may be pulled into a slot. A waiting one is not pulled while downloads are
+ * paused for playback or while the device is too hot; one that already runs is left to the
+ * shrink keep-set.
+ */
+@Suppress("UNUSED_PARAMETER")
+internal fun heldIdsToStart(
+    held: Set<String>,
+    active: Set<String>,
+    pauseAll: Boolean,
+    thermalBlocks: Boolean,
+): Set<String> = if (pauseAll || thermalBlocks) emptySet() else held
+
+internal fun planDownloadStarts(
+    startedIds: List<String>,
+    liveIds: Set<String>,
+    maxActive: Int,
+    pinned: Set<String> = emptySet(),
+): DownloadStartPlan {
+    val accepted = mutableListOf<String>()
+    val deferred = mutableListOf<String>()
+    startedIds.forEach { id ->
+        val full = id !in liveIds && liveIds.size + accepted.size >= maxActive
+        if (full && id !in pinned) deferred.add(id) else accepted.add(id)
+    }
+    return DownloadStartPlan(accepted, deferred, accepted.filter { it !in liveIds })
+}
+
+/**
+ * Stops transfers a lower cap pushed back into the line and forgets their handles. iOS sends no
+ * callback for a deliberate stop, so a handle left behind would make the id look live: a later
+ * promote would skip its restart and count it against the cap. [stop] gets the handle when there
+ * was one: stopping through it also stops a transfer that is still being opened.
+ */
+internal fun <H> MutableMap<String, H>.stopDemotedTransfers(ids: List<String>, stop: (String, H?) -> Unit) {
+    ids.forEach { id ->
+        stop(id, remove(id))
+    }
+}
+
 /** Where an episode sits in its show, so waiting episodes of one show start lowest first. */
 internal data class DownloadOrderKey(
     val showKey: String,
@@ -131,16 +183,29 @@ internal class DownloadStartQueue(
         waiting.addFirst(id)
     }
 
-    /** Moves the newest active ids back to the front of the line until at most [max] are active. */
-    fun shrinkTo(max: Int): List<String> {
+    /**
+     * Moves the newest active ids back to the front of the line until at most [max] are active.
+     * Ids in [keep] stay active even past [max].
+     */
+    fun shrinkTo(max: Int, keep: Set<String> = emptySet()): List<String> {
         val demoted = mutableListOf<String>()
         while (active.size > max) {
-            val newest = active.last()
+            val newest = active.lastOrNull { it !in keep } ?: break
             active.remove(newest)
             waiting.addFirst(newest)
             demoted.add(newest)
         }
         return demoted
+    }
+
+    /** Waiting [ids] become active whatever the cap. Returns the ids moved, in line order. */
+    fun pin(ids: Set<String>): List<String> {
+        val pinned = waiting.filter { it in ids }
+        pinned.forEach { id ->
+            waiting.remove(id)
+            active.add(id)
+        }
+        return pinned
     }
 
     fun promote(thermalBlocksNextFile: Boolean): List<String> {

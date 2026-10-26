@@ -1,6 +1,15 @@
 package com.nuvio.app.features.player
 
+import com.nuvio.app.core.logging.InAppLogger
+import com.nuvio.app.features.downloads.DownloadNetworkGuard
+import com.nuvio.app.features.downloads.DownloadStatus
+import com.nuvio.app.features.downloads.DownloadThermalGate
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.PlaybackPriority
+import com.nuvio.app.features.downloads.SmartDownloadSettings
+import com.nuvio.app.features.downloads.partialDownloadWaitReason
+import com.nuvio.app.features.downloads.partialEndCanResume
+import com.nuvio.app.features.downloads.partialFilePlayhead
 import com.nuvio.app.features.downloads.partialPlaybackDownloadId
 import com.nuvio.app.features.servers.ServerItemRef
 import com.nuvio.app.features.servers.ServerStreams
@@ -21,6 +30,7 @@ import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.player_engine_switching_manual_message
 import kotlin.math.abs
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.TimeSource
 
 internal fun PlayerScreenRuntime.finishTimelineScrub(positionMs: Long) {
@@ -41,16 +51,20 @@ internal fun PlayerScreenRuntime.updatePlaybackSnapshot(
 ): Boolean {
     if (playbackKey != activePlaybackKey) return false
     val reported = if (partyRateNudge != null) snapshot.copy(playbackSpeed = partyBaseRate()) else snapshot
-    val incoming = if (reported.durationMs <= 0L && playbackSnapshotKey == playbackKey) {
+    val withDuration = if (reported.durationMs <= 0L && playbackSnapshotKey == playbackKey) {
         reported.copy(durationMs = playbackSnapshot.durationMs)
     } else {
         reported
     }
-    playbackClock.positionMs = downloadSwapHeldPositionMs(incoming.positionMs)
     // The player's buffered end is only its read-ahead cache (mpv: at most demuxer-max-bytes past the
     // playhead). For an in-progress download the bar follows how far the file on disk reaches.
-    val downloadReachMs = partialPlaybackDownloadId(activeSourceUrl)
-        ?.let { downloadId -> DownloadsRepository.partialDownloadReachMs(downloadId, incoming.durationMs) }
+    val partialDownloadId = partialPlaybackDownloadId(activeSourceUrl)
+    val downloadReachMs = partialDownloadId
+        ?.let { downloadId -> DownloadsRepository.partialDownloadReachMs(downloadId, withDuration.durationMs) }
+    val incoming = partialDownloadId
+        ?.let { downloadId -> heldToDownloadedPart(withDuration, downloadId, downloadReachMs) }
+        ?: withDuration
+    playbackClock.positionMs = downloadSwapHeldPositionMs(incoming.positionMs)
     playbackClock.bufferedPositionMs = maxOf(incoming.bufferedPositionMs, downloadReachMs ?: 0L)
     val status = incoming.copy(positionMs = 0L, bufferedPositionMs = 0L)
     val previousStatus = playbackSnapshot.copy(positionMs = 0L, bufferedPositionMs = 0L)
@@ -70,6 +84,78 @@ internal fun PlayerScreenRuntime.updatePlaybackSnapshot(
     }
     return true
 }
+
+private fun PlayerScreenRuntime.heldToDownloadedPart(
+    snapshot: PlayerPlaybackSnapshot,
+    downloadId: String,
+    reachMs: Long?,
+): PlayerPlaybackSnapshot {
+    val item = DownloadsRepository.uiState.value.items.firstOrNull { it.id == downloadId }
+    val finished = item?.status == DownloadStatus.Completed
+    val playhead = partialFilePlayhead(
+        positionMs = snapshot.positionMs,
+        isEnded = snapshot.isEnded,
+        isPlaying = snapshot.isPlaying,
+        downloadFinished = finished,
+        reachMs = reachMs,
+        lastPositionMs = playbackClock.positionMs,
+        durationMs = snapshot.durationMs,
+    )
+    if (snapshot.isEnded && !playhead.isEnded && playhead.positionMs != playbackClock.positionMs) {
+        InAppLogger.warn(
+            "Player/PartialPlay",
+            "end of downloaded part at ${snapshot.positionMs}ms reach=${reachMs}ms, kept at ${playhead.positionMs}ms",
+        )
+    }
+    if (!playhead.waitingForDownload) {
+        partialDownloadWaiting = false
+        partialWaitReason = null
+        partialWaitBytes = null
+        partialFinishedResumeDone = false
+        return snapshot.copy(positionMs = playhead.positionMs, isEnded = playhead.isEnded)
+    }
+    partialDownloadWaiting = true
+    val settings = SmartDownloadSettings.snapshot()
+    val reason = partialDownloadWaitReason(
+        status = item?.status,
+        errorMessage = item?.errorMessage,
+        pauseWhileWatching = settings.pauseDuringPlayback && PlaybackPriority.level != PlaybackPriority.Level.Normal,
+        wifiOnly = settings.onlyOnWifi,
+        onWifi = DownloadNetworkGuard.isOnWifi(),
+        thermalBlocks = DownloadThermalGate.blocksNextFile(),
+    )
+    partialWaitReason = reason
+    val bytes = DownloadsRepository.playableContiguousBytes(downloadId)
+    if (partialWaitBytes == null) partialWaitBytes = bytes
+    val canResume = shouldPlay && reason == null && partialEndCanResume(
+        positionMs = playhead.positionMs,
+        reachMs = reachMs,
+        downloadFinished = finished,
+        bytesOnDisk = bytes,
+        bytesAtLastResume = partialWaitBytes,
+        finishedResumeAttempted = partialFinishedResumeDone,
+    )
+    if (canResume && partialEndResumeMark.let { it == null || it.elapsedNow() >= PartialEndResumeInterval }) {
+        partialEndResumeMark = TimeSource.Monotonic.markNow()
+        partialWaitBytes = bytes
+        if (finished) partialFinishedResumeDone = true
+        InAppLogger.info("Player/PartialPlay", "download reaches ${reachMs}ms, playing on from ${playhead.positionMs}ms")
+        noteSeek()
+        playerController?.seekTo(playhead.positionMs)
+        playerController?.play()
+    }
+    // Not an end: no Play next, no watched mark, no jump to the start. A download that is not
+    // moving shows its reason instead of spinning.
+    val spinning = reason == null && shouldPlay && !(finished && partialFinishedResumeDone)
+    return snapshot.copy(
+        positionMs = playhead.positionMs,
+        isEnded = false,
+        isLoading = spinning,
+        isPlaying = !spinning && shouldPlay,
+    )
+}
+
+private val PartialEndResumeInterval = 5.seconds
 
 internal val PlayerScreenRuntime.activePlaybackIdentity: String
     get() = activeTorrentInfoHash

@@ -41,6 +41,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -714,8 +715,12 @@ private fun DownloadRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    val downloads = DownloadsRepository.uiState.collectAsState()
+                    val heldForPlayback by remember(item.id) {
+                        derivedStateOf { item.id in downloads.value.heldForPlayback }
+                    }
                     Text(
-                        text = statusText(item),
+                        text = statusText(item, heldForPlayback),
                         style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = TABULAR_DIGITS),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -1018,7 +1023,7 @@ private fun SectionTitle(title: String) {
 private const val TABULAR_DIGITS = "tnum"
 
 @Composable
-private fun statusText(item: DownloadItem): String {
+private fun statusText(item: DownloadItem, heldForPlayback: Boolean): String {
     val size = if (item.totalBytes != null && item.totalBytes > 0L) {
         "${compactDownloadBytes(item.downloadedBytes)} / ${compactDownloadBytes(item.totalBytes)}"
     } else {
@@ -1033,7 +1038,11 @@ private fun statusText(item: DownloadItem): String {
             size
         }
         DownloadStatus.Paused -> if (item.errorMessage != null && (item.waitingForAppOpen || item.errorMessage.startsWith(WAITING_FOR_SPACE_PREFIX))) item.errorMessage else stringResource(Res.string.downloads_status_paused, size)
-        DownloadStatus.Queued -> stringResource(Res.string.downloads_status_queued)
+        DownloadStatus.Queued -> when {
+            heldForPlayback -> stringResource(Res.string.downloads_status_held_for_playback, size)
+            item.downloadedBytes > 0L -> stringResource(Res.string.downloads_status_queued_with_size, size)
+            else -> stringResource(Res.string.downloads_status_queued)
+        }
         DownloadStatus.Completed -> stringResource(
             Res.string.downloads_status_completed,
             compactDownloadBytes(item.totalBytes ?: item.downloadedBytes),

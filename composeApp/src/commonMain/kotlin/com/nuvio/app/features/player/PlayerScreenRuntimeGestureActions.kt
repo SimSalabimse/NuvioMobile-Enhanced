@@ -8,6 +8,11 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import com.nuvio.app.features.downloads.DownloadStatus
+import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.PartialWaitToggle
+import com.nuvio.app.features.downloads.partialPlaybackDownloadId
+import com.nuvio.app.features.downloads.partialWaitToggle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
@@ -171,6 +176,10 @@ internal fun PlayerScreenRuntime.togglePlayback() {
         toggleOwnPlayback()
         return
     }
+    if (partialDownloadWaiting) {
+        applyPartialWaitToggle()
+        return
+    }
     if (playbackSnapshot.isPlaying) {
         shouldPlay = false
         playerController?.pause()
@@ -186,11 +195,47 @@ internal fun PlayerScreenRuntime.togglePlayback() {
     publishPartyPlayback(positionMs = if (playbackSnapshot.isEnded) 0L else currentPlaybackPositionMs())
 }
 
+/** Pause works while waiting on a download; a tap after that resumes a paused or failed one. */
+private fun PlayerScreenRuntime.applyPartialWaitToggle() {
+    val id = partialPlaybackDownloadId(activeSourceUrl)
+    val status = id?.let { downloadId -> DownloadsRepository.uiState.value.items.firstOrNull { it.id == downloadId }?.status }
+    when (partialWaitToggle(shouldPlay, status)) {
+        PartialWaitToggle.Pause -> {
+            shouldPlay = false
+            playerController?.pause()
+        }
+        PartialWaitToggle.ResumeDownloadAndPlay -> {
+            if (id != null && (status == DownloadStatus.Paused || status == DownloadStatus.Failed)) {
+                DownloadsRepository.resumeDownload(id)
+            }
+            shouldPlay = true
+            playerController?.play()
+        }
+        PartialWaitToggle.Play -> {
+            shouldPlay = true
+            playerController?.play()
+        }
+    }
+    controlsVisible = true
+    publishPartyPlayback(positionMs = currentPlaybackPositionMs())
+}
+
 /** Sets the requested state; system controls may send pause, skip and play in a row. */
 internal fun PlayerScreenRuntime.setPlaybackPlaying(playing: Boolean) {
     if (playing == shouldPlay) return
     if (isPartyControlLocked) {
         toggleOwnPlayback()
+        return
+    }
+    if (partialDownloadWaiting) {
+        if (!playing) {
+            shouldPlay = false
+            playerController?.pause()
+            controlsVisible = true
+            publishPartyPlayback(positionMs = currentPlaybackPositionMs())
+        } else {
+            applyPartialWaitToggle()
+        }
         return
     }
     val restart = playing && playbackSnapshot.isEnded

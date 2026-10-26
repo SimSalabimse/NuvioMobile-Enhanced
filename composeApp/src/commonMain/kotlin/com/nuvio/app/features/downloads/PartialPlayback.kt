@@ -51,22 +51,37 @@ internal object InAppPlaybackKeepAlive {
     fun isPlaying(): Boolean = playing.value
 }
 
-/** Holds a `.part` path open until the in-app player closes it. */
+/**
+ * Holds a `.part` path open until the in-app player closes it. The held download takes a
+ * download slot ([DownloadsRepository.onPartialPlaybackLeaseChanged]), so it keeps growing ahead
+ * of the player.
+ */
 internal object PartialPlaybackLease : SynchronizedObject() {
     private val counts = mutableMapOf<String, Int>()
 
-    fun acquire(downloadId: String) = synchronized(this) {
-        counts[downloadId] = (counts[downloadId] ?: 0) + 1
+    fun acquire(downloadId: String) {
+        val first = synchronized(this) {
+            val next = (counts[downloadId] ?: 0) + 1
+            counts[downloadId] = next
+            next == 1
+        }
+        if (first) DownloadsRepository.onPartialPlaybackLeaseChanged()
     }
 
-    fun release(downloadId: String) = synchronized(this) {
-        val next = (counts[downloadId] ?: 0) - 1
-        if (next <= 0) counts.remove(downloadId) else counts[downloadId] = next
+    fun release(downloadId: String) {
+        val last = synchronized(this) {
+            val held = counts[downloadId] ?: return
+            if (held <= 1) counts.remove(downloadId) else counts[downloadId] = held - 1
+            held <= 1
+        }
+        if (last) DownloadsRepository.onPartialPlaybackLeaseChanged()
     }
 
     fun isHeld(downloadId: String): Boolean = synchronized(this) {
         (counts[downloadId] ?: 0) > 0
     }
+
+    fun heldIds(): Set<String> = synchronized(this) { counts.keys.toSet() }
 }
 
 internal fun loopbackPartialUrl(port: Int, downloadId: String): String {

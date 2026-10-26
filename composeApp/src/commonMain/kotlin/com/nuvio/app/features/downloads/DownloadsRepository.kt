@@ -26,6 +26,7 @@ object DownloadsRepository {
     private val _hasUnseenCompleted = MutableStateFlow(false)
     val hasUnseenCompleted: StateFlow<Boolean> = _hasUnseenCompleted.asStateFlow()
 
+    internal var transfers: DownloadTransfers = PlatformDownloadTransfers
     private val activeHandles = mutableMapOf<String, DownloadsTaskHandle>()
     private val partialPrefixCache = mutableMapOf<String, ByteArray>()
     private val startQueue = DownloadStartQueue(orderKeyOf = ::orderKeyOf)
@@ -301,6 +302,7 @@ object DownloadsRepository {
         val toStart = startQueue.request(downloadId, DownloadThermalGate.blocksNextFile())
         persistStatus()
         applyStarts(toStart)
+        refreshHeldForPlayback()
 
         return if (replacedExisting) {
             DownloadEnqueueResult.Replaced
@@ -865,9 +867,10 @@ object DownloadsRepository {
         startAttempts[item.id] = attempt
         fun staleAttempt() = startAttempts[item.id] != attempt
 
-        val handle = DownloadsPlatformDownloader.start(
+        val handle = transfers.start(
             request = request,
             onProgress = onProgress@{ downloadedBytes, totalBytes ->
+                if (staleAttempt()) return@onProgress
                 val current = _uiState.value.items.firstOrNull { it.id == item.id } ?: return@onProgress
                 if (current.status != DownloadStatus.Downloading) return@onProgress
                 val shortfall = outOfSpaceWhileDownloading(current)
@@ -906,7 +909,8 @@ object DownloadsRepository {
                     }
                 }
             },
-            onSuccess = { localFileUri, totalBytes ->
+            onSuccess = onSuccess@{ localFileUri, totalBytes ->
+                if (staleAttempt()) return@onSuccess
                 activeHandles.remove(item.id)
                 linkRefreshAttempts.remove(item.id)
                 linkRefreshBytes.remove(item.id)
@@ -921,7 +925,12 @@ object DownloadsRepository {
                     )
                 }
                 mutateItem(item.id) { latest ->
-                    if (latest.status != DownloadStatus.Downloading) return@mutateItem latest
+                    // A file that finished as the playback cap stopped it is done, not waiting.
+                    when (latest.status) {
+                        DownloadStatus.Downloading -> Unit
+                        DownloadStatus.Queued -> startQueue.discard(item.id)
+                        else -> return@mutateItem latest
+                    }
                     latest.copy(
                         status = DownloadStatus.Completed,
                         localFileUri = localFileUri,
@@ -1012,6 +1021,7 @@ object DownloadsRepository {
         if (statusChanged && after?.status == DownloadStatus.Completed) {
             verifyFinished(after, expectedBytes = before?.totalBytes ?: after.totalBytes)
         }
+        if (statusChanged) refreshHeldForPlayback()
     }
 
     private fun replaceItem(item: DownloadItem) {
@@ -1028,9 +1038,27 @@ object DownloadsRepository {
         }
         _uiState.value = DownloadsUiState(
             items = items,
+            heldForPlayback = heldForPlayback(items),
         )
         runCatching { DownloadSpeeds.onItems(items, DownloadsClock.nowEpochMs()) }
         notifyLiveStatusPlatform()
+    }
+
+    /**
+     * Waiting rows the normal cap would run now: only the open player holds them back. From the
+     * same line and cap that decide the slots, so the row can say why it waits.
+     */
+    private fun heldForPlayback(items: List<DownloadItem>): Set<String> {
+        val free = MAX_ACTIVE_DOWNLOADS - startQueue.activeIds().size
+        if (startQueue.maxActive >= MAX_ACTIVE_DOWNLOADS || free <= 0) return emptySet()
+        val queued = items.filter { it.status == DownloadStatus.Queued }.map { it.id }.toSet()
+        return startQueue.waitingIds().filter { it in queued }.take(free).toSet()
+    }
+
+    private fun refreshHeldForPlayback() {
+        val state = _uiState.value
+        val held = heldForPlayback(state.items)
+        if (held != state.heldForPlayback) _uiState.value = state.copy(heldForPlayback = held)
     }
 
     private fun notifyLiveStatusPlatform() {
@@ -1057,17 +1085,50 @@ object DownloadsRepository {
     /**
      * How many downloads may run while the player is open (see [PlaybackPriority]): fewer while
      * playing, none while it buffers, the normal cap again when it closes. Extra transfers go back
-     * to the front of the line (paused, resumed in place later).
+     * to the front of the line (paused, resumed in place later). A download the player is reading
+     * from runs, also when it was waiting in line: the player would otherwise stop at the end of
+     * the bytes on disk.
      */
     fun setPlaybackDownloadCap(cap: Int) {
-        if (startQueue.maxActive == cap) return
-        val shrinking = cap < startQueue.maxActive
         startQueue.maxActive = cap
+        if (hasLoaded) replanSlots()
+    }
+
+    /**
+     * The player started or stopped reading an in-progress download's file. Letting one go only
+     * fills free slots: it never stops a transfer, so it is safe whichever runs first, this or the
+     * player session closing (that one raises the cap).
+     */
+    fun onPartialPlaybackLeaseChanged() {
         if (!hasLoaded) return
-        if (shrinking) {
-            if (startQueue.shrinkTo(cap).isNotEmpty()) alignQueuedStatuses()
-        } else {
+        if (PartialPlaybackLease.heldIds().isEmpty()) {
             applyStarts(startQueue.promote(DownloadThermalGate.blocksNextFile()))
+            refreshHeldForPlayback()
+        } else {
+            replanSlots()
+        }
+    }
+
+    private var lastSlotPlan: String? = null
+
+    private fun replanSlots() {
+        val held = PartialPlaybackLease.heldIds()
+        val active = startQueue.activeIds()
+        // Cap 0 from the setting pauses new starts. A file that is already running stays, which is
+        // what a plain shrink did; a waiting one is not pulled in past that cap. A hot device
+        // likewise starts nothing new.
+        val pauseAll = startQueue.maxActive == 0 && SmartDownloadSettings.snapshot().pauseDuringPlayback
+        val thermal = DownloadThermalGate.blocksNextFile()
+        val pinned = startQueue.pin(heldIdsToStart(held, active, pauseAll, thermal))
+        val keep = if (pauseAll || thermal) held.intersect(active) else held
+        val demoted = startQueue.shrinkTo(startQueue.maxActive, keep)
+        if (pinned.isNotEmpty() || demoted.isNotEmpty()) alignQueuedStatuses()
+        applyStarts(pinned + startQueue.promote(DownloadThermalGate.blocksNextFile()), pinned.toSet())
+        refreshHeldForPlayback()
+        val plan = "cap=${startQueue.maxActive} running=${startQueue.activeIds()} waiting=${startQueue.waitingIds()} player=$held"
+        if (plan != lastSlotPlan) {
+            lastSlotPlan = plan
+            com.nuvio.app.core.logging.InAppLogger.info("Downloads", "slots $plan")
         }
     }
 
@@ -1118,8 +1179,11 @@ object DownloadsRepository {
         if (!changed) return
         publish(updated)
         persistStatus()
+        val demotedById = demoted.associateBy { it.id }
+        activeHandles.stopDemotedTransfers(demoted.map { it.id }) { id, handle ->
+            if (handle != null) handle.cancel() else transfers.pauseRunningTransfer(demotedById.getValue(id))
+        }
         demoted.forEach { item ->
-            DownloadsPlatformDownloader.pauseRunningTransfer(item)
             DownloadsPlatformDownloader.updatePartialTarget(
                 downloadId = item.id,
                 fileName = item.fileName,
@@ -1129,21 +1193,13 @@ object DownloadsRepository {
         }
     }
 
-    private fun applyStarts(startedIds: List<String>) {
+    private fun applyStarts(startedIds: List<String>, pinned: Set<String> = emptySet()) {
         if (startedIds.isEmpty()) return
         val now = DownloadsClock.nowEpochMs()
-        val accepted = mutableListOf<String>()
-        val deferred = mutableListOf<String>()
-        startedIds.forEach { id ->
-            if (id !in activeHandles && activeHandles.size + accepted.size >= startQueue.maxActive) {
-                startQueue.demoteToFront(id)
-                deferred.add(id)
-            } else {
-                accepted.add(id)
-            }
-        }
-        val acceptedSet = accepted.toSet()
-        val deferredSet = deferred.toSet()
+        val plan = planDownloadStarts(startedIds, activeHandles.keys.toSet(), startQueue.maxActive, pinned)
+        plan.deferred.forEach(startQueue::demoteToFront)
+        val acceptedSet = plan.accepted.toSet()
+        val deferredSet = plan.deferred.toSet()
         var changed = false
         val updated = _uiState.value.items.map { item ->
             when {
@@ -1166,7 +1222,7 @@ object DownloadsRepository {
             publish(updated)
             persistStatus()
         }
-        accepted.forEach { id ->
+        plan.launch.forEach { id ->
             if (id in activeHandles) return@forEach
             val item = _uiState.value.items.firstOrNull { it.id == id } ?: return@forEach
             if (item.status != DownloadStatus.Downloading) return@forEach

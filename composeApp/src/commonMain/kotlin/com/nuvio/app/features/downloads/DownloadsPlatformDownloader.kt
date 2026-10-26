@@ -15,6 +15,31 @@ internal interface DownloadsTaskHandle {
     fun cancel()
 }
 
+/** The transfer calls [DownloadsRepository] makes; a test puts a fake platform layer here. */
+internal interface DownloadTransfers {
+    fun start(
+        request: DownloadPlatformRequest,
+        onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit,
+        onSuccess: (localFileUri: String, totalBytes: Long?) -> Unit,
+        onFailure: (message: String) -> Unit,
+        onPaused: () -> Unit,
+    ): DownloadsTaskHandle
+
+    fun pauseRunningTransfer(item: DownloadItem)
+}
+
+internal object PlatformDownloadTransfers : DownloadTransfers {
+    override fun start(
+        request: DownloadPlatformRequest,
+        onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit,
+        onSuccess: (localFileUri: String, totalBytes: Long?) -> Unit,
+        onFailure: (message: String) -> Unit,
+        onPaused: () -> Unit,
+    ): DownloadsTaskHandle = DownloadsPlatformDownloader.start(request, onProgress, onSuccess, onFailure, onPaused)
+
+    override fun pauseRunningTransfer(item: DownloadItem) = DownloadsPlatformDownloader.pauseRunningTransfer(item)
+}
+
 internal expect object DownloadsPlatformDownloader {
     fun start(
         request: DownloadPlatformRequest,

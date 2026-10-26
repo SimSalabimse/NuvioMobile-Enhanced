@@ -540,6 +540,7 @@ actual fun PlatformPlayerSurface(
             com.nuvio.app.features.downloads.PlaybackPriority.noteSnapshot(
                 wantsToPlay = wantsToPlay,
                 buffering = snapshot.isLoading,
+                positionMs = snapshot.positionMs,
                 nowMs = nowMs,
             )
             val url = latestSourceUrl.value

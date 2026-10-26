@@ -94,6 +94,7 @@ data class DownloadItem(
 
 data class DownloadsUiState(
     val items: List<DownloadItem> = emptyList(),
+    val heldForPlayback: Set<String> = emptySet(),
 ) {
     val activeItems: List<DownloadItem>
         get() = items.filter { it.status != DownloadStatus.Completed }

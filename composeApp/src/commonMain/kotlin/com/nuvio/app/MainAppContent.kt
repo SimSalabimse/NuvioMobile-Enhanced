@@ -116,7 +116,7 @@ import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadSubtitles
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.isLoopbackPartialPlaybackUrl
-import com.nuvio.app.features.downloads.partialPlaybackKeepsResume
+import com.nuvio.app.features.downloads.partialPlaybackCoversStart
 import com.nuvio.app.features.home.HomeCatalogSection
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.HomeRepository
@@ -1013,9 +1013,10 @@ internal fun MainAppContent(
                 ?.let(WatchProgressRepository::progressForVideo)
                 ?.takeIf { it.isResumable }
                 ?.takeIf { entry ->
-                    !partial || partialPlaybackKeepsResume(
-                        resumeFraction = entry.progressFraction,
-                        downloadedBytes = item.downloadedBytes,
+                    !partial || partialPlaybackCoversStart(
+                        startPositionMs = entry.lastPositionMs,
+                        startFraction = entry.progressFraction,
+                        playableBytes = DownloadsRepository.playableContiguousBytes(item.id),
                         totalBytes = item.totalBytes,
                     )
                 }
@@ -1140,7 +1141,16 @@ internal fun MainAppContent(
                     episodeNumber = episodeNumber,
                     videoId = videoId,
                 )
-                val localSourceUrl = downloadedItem?.let(DownloadsRepository::playableLocalFileUri)
+                val localSourceUrl = downloadedItem?.let { item ->
+                    DownloadsRepository.playableLocalFileUri(item)?.takeIf { url ->
+                        !isLoopbackPartialPlaybackUrl(url) || partialPlaybackCoversStart(
+                            startPositionMs = targetResumePositionMs,
+                            startFraction = targetResumeProgressFraction,
+                            playableBytes = DownloadsRepository.playableContiguousBytes(item.id),
+                            totalBytes = item.totalBytes,
+                        )
+                    }
+                }
                 if (!localSourceUrl.isNullOrBlank()) {
                     val playerLaunch = PlayerLaunch(
                         profileId = activePlaybackProfileId,
