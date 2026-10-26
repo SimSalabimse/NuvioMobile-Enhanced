@@ -1093,6 +1093,13 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
         submitIntroEndTimeStr = submitIntroEndTimeStr,
         onSubmitIntroEndTimeChanged = { submitIntroEndTimeStr = it },
         onSubmitIntroDismissed = { showSubmitIntroModal = false },
+        onSubmitIntroPreviewSeekMs = { targetMs ->
+            val clamped = targetMs.coerceAtLeast(0L)
+            finishTimelineScrub(clamped)
+            noteSeek()
+            playerController?.seekTo(clamped)
+            scheduleProgressSyncAfterSeek()
+        },
         onSubmitIntroSuccess = {
             InAppLogger.info(
                 "Player/SkipIntro",
@@ -1218,7 +1225,16 @@ internal fun PlayerScreenRuntime.switchSubmitSegmentType(newType: String) {
         submitIntroEndTimeStr = formatSecondsToHms(known.endTime)
     } else {
         submitIntroStartTimeStr = EMPTY_SKIP_TIMESTAMP
-        submitIntroEndTimeStr = EMPTY_SKIP_TIMESTAMP
+        val durationMs = playbackSnapshot.durationMs
+        submitIntroEndTimeStr = if (
+            !isSeries &&
+            newType.equals("outro", ignoreCase = true) &&
+            durationMs > 0L
+        ) {
+            formatSecondsToHms(durationMs / 1000.0)
+        } else {
+            EMPTY_SKIP_TIMESTAMP
+        }
     }
 }
 

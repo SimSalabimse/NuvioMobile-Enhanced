@@ -6,37 +6,28 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.PlayCircleOutline
 import androidx.compose.material.icons.rounded.Public
-import androidx.compose.material.icons.rounded.Replay
-import androidx.compose.material.icons.rounded.Send
-import androidx.compose.material.icons.rounded.StopCircle
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
-import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import com.nuvio.app.core.ui.rememberDismissSoftwareKeyboard
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -59,20 +50,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.nuvio.app.core.ui.NuvioModalBottomSheet
-import com.nuvio.app.core.ui.atLeastIosHitTarget
+import androidx.compose.ui.unit.sp
+import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.features.player.PlayerGlassFallback
 import com.nuvio.app.features.player.PlayerSettingsRepository
-import com.nuvio.app.features.player.PlayerSidePanel
+import com.nuvio.app.features.player.PlayerToolPanel
+import com.nuvio.app.features.player.PlayerToolPanelCloseSize
 import com.nuvio.app.features.tmdb.TmdbService
-import com.nuvio.app.isIos
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
-import nuvio.composeapp.generated.resources.action_cancel
-import nuvio.composeapp.generated.resources.action_close
 import nuvio.composeapp.generated.resources.action_save
 import nuvio.composeapp.generated.resources.settings_hide_secret
 import nuvio.composeapp.generated.resources.settings_playback_introdb_invalid_key
@@ -82,17 +74,12 @@ import nuvio.composeapp.generated.resources.submit_intro_api_key_label
 import nuvio.composeapp.generated.resources.submit_intro_api_key_required
 import nuvio.composeapp.generated.resources.submit_intro_api_key_saved
 import nuvio.composeapp.generated.resources.submit_intro_api_key_theintrodb_hint
-import nuvio.composeapp.generated.resources.submit_intro_button_submit
 import nuvio.composeapp.generated.resources.submit_intro_introdb_episode
 import nuvio.composeapp.generated.resources.submit_intro_introdb_movie
 import nuvio.composeapp.generated.resources.submit_intro_introdb_prefix
 import nuvio.composeapp.generated.resources.submit_intro_key_saved_submit_failed
 import nuvio.composeapp.generated.resources.submit_intro_service_introdb
 import nuvio.composeapp.generated.resources.submit_intro_service_label
-import nuvio.composeapp.generated.resources.submit_intro_none_intro
-import nuvio.composeapp.generated.resources.submit_intro_none_outro
-import nuvio.composeapp.generated.resources.submit_intro_none_preview
-import nuvio.composeapp.generated.resources.submit_intro_none_recap
 import nuvio.composeapp.generated.resources.submit_intro_service_theintrodb
 import nuvio.composeapp.generated.resources.submit_intro_theintrodb_prefix
 import nuvio.composeapp.generated.resources.submit_intro_end_short
@@ -102,9 +89,27 @@ import nuvio.composeapp.generated.resources.submit_intro_segment_preview
 import nuvio.composeapp.generated.resources.submit_intro_segment_recap
 import nuvio.composeapp.generated.resources.submit_intro_start_short
 import nuvio.composeapp.generated.resources.submit_intro_title
+import nuvio.composeapp.generated.resources.submit_intro_segment_credits
+import nuvio.composeapp.generated.resources.submit_intro_submit_named
+import nuvio.composeapp.generated.resources.submit_intro_sent_thanks
+import nuvio.composeapp.generated.resources.submit_intro_try_again
+import nuvio.composeapp.generated.resources.submit_intro_end_after_start
+import nuvio.composeapp.generated.resources.submit_intro_past_duration
+import nuvio.composeapp.generated.resources.submit_intro_soft_long
+import nuvio.composeapp.generated.resources.submit_intro_soft_short
+import nuvio.composeapp.generated.resources.submit_intro_length
+import nuvio.composeapp.generated.resources.submit_intro_your_submissions
+import nuvio.composeapp.generated.resources.submit_intro_none_episode
+import nuvio.composeapp.generated.resources.submit_intro_end_of_video
+import nuvio.composeapp.generated.resources.submit_intro_copy_link
+import nuvio.composeapp.generated.resources.submit_intro_none_for_title
+import nuvio.composeapp.generated.resources.submit_intro_nudge_back_5
+import nuvio.composeapp.generated.resources.submit_intro_nudge_forward_5
+import nuvio.composeapp.generated.resources.submit_intro_time_now
+import nuvio.composeapp.generated.resources.submit_intro_time_nudge_back_1
+import nuvio.composeapp.generated.resources.submit_intro_time_nudge_forward_1
 import org.jetbrains.compose.resources.stringResource
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SubmitIntroDialog(
     imdbId: String,
@@ -127,6 +132,9 @@ fun SubmitIntroDialog(
     submittedTypesInSession: Set<String> = emptySet(),
     /** Show/movie id for "Copy share link"; null hides it. */
     shareMetaId: String? = null,
+    episodeTitle: String? = null,
+    releaseInfo: String? = null,
+    onPreviewSeekMs: (Long) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
@@ -134,7 +142,19 @@ fun SubmitIntroDialog(
     val scrollState = rememberScrollState()
     var isSubmitting by remember { mutableStateOf(false) }
     var isSavingKey by remember { mutableStateOf(false) }
+    var showSuccess by remember { mutableStateOf(false) }
+    var submitFailed by remember { mutableStateOf(false) }
+    var successDelivered by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var selectedField by remember { mutableStateOf(SubmitTimeField.START) }
+    var wheelOpen by remember { mutableStateOf(false) }
+    var showSubmissions by remember { mutableStateOf(false) }
+    val onSuccessUpdated by rememberUpdatedState(onSuccess)
+    fun finishSuccess() {
+        if (successDelivered) return
+        successDelivered = true
+        onSuccessUpdated()
+    }
     var keyStatusMessage by remember { mutableStateOf<String?>(null) }
     val initialSettings = remember { PlayerSettingsRepository.uiState.value }
     var selectedService by remember {
@@ -159,16 +179,6 @@ fun SubmitIntroDialog(
     val invalidKeyMessage = stringResource(Res.string.settings_playback_introdb_invalid_key)
     val keySavedMessage = stringResource(Res.string.submit_intro_api_key_saved)
     val keySavedSubmitFailedMessage = stringResource(Res.string.submit_intro_key_saved_submit_failed)
-    val noneIntroLabel = stringResource(Res.string.submit_intro_none_intro)
-    val noneRecapLabel = stringResource(Res.string.submit_intro_none_recap)
-    val noneOutroLabel = stringResource(Res.string.submit_intro_none_outro)
-    val nonePreviewLabel = stringResource(Res.string.submit_intro_none_preview)
-    val noneSegmentLabel = when (segmentType) {
-        "recap" -> noneRecapLabel
-        "outro" -> noneOutroLabel
-        "preview" -> nonePreviewLabel
-        else -> noneIntroLabel
-    }
     val keyHint = stringResource(
         if (selectedService == IntroSubmitService.INTRODB) {
             Res.string.submit_intro_api_key_introdb_hint
@@ -268,18 +278,31 @@ fun SubmitIntroDialog(
     }
     val disabledTypes = localTypes + remoteTypes
 
-    val availableTypes = remember(disabledTypes) {
-        listOf("intro", "recap", "outro", "preview").filterNot { it in disabledTypes }
+    val panelTypes = remember(isMovie) { submitPanelSegmentTypes(isMovie) }
+    val availableTypes = remember(disabledTypes, panelTypes) {
+        panelTypes.filterNot { it in disabledTypes }
     }
     
     androidx.compose.runtime.LaunchedEffect(segmentType, disabledTypes) {
         if (segmentType in disabledTypes && availableTypes.isNotEmpty()) {
             onSegmentTypeChange(availableTypes.first())
+        } else if (segmentType !in panelTypes && availableTypes.isNotEmpty()) {
+            onSegmentTypeChange(availableTypes.first())
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(isMovie, segmentType, durationMs) {
+        if (!isMovie || !submitShowsEndOfVideo(segmentType) || durationMs <= 0L) return@LaunchedEffect
+        val start = parseTimeToSeconds(startTimeStr) ?: 0.0
+        val end = parseTimeToSeconds(endTimeStr) ?: 0.0
+        if (start == 0.0 && end == 0.0) {
+            onEndTimeChange(formatSecondsToHms(durationMs / 1000.0))
         }
     }
 
     fun beginSubmit(absentSegment: Boolean) {
+        if (showSuccess || isSubmitting) return
         dismissKeyboard()
+        submitFailed = false
         val times = resolveIntroSubmitTimes(
             service = selectedService,
             absentSegment = absentSegment,
@@ -288,6 +311,7 @@ fun SubmitIntroDialog(
         )
         if (times == null) {
             errorMessage = "Set a start and end time first"
+            submitFailed = true
             return
         }
         val (start, end) = times
@@ -308,6 +332,7 @@ fun SubmitIntroDialog(
         )
         if (block != null) {
             errorMessage = blockMessage(block)
+            submitFailed = true
             return
         }
         isSubmitting = true
@@ -315,6 +340,7 @@ fun SubmitIntroDialog(
         keyStatusMessage = null
         scope.launch {
             var keyWasNew = false
+            var succeeded = false
             try {
                 val saved = savedKeyForService(
                     service,
@@ -325,10 +351,12 @@ fun SubmitIntroDialog(
                 when (val prepared = prepareIntroSubmitKey(service, draft, saved)) {
                     IntroSubmitKeyPrepareResult.Invalid -> {
                         errorMessage = invalidKeyMessage
+                        submitFailed = true
                         return@launch
                     }
                     is IntroSubmitKeyPrepareResult.Rejected -> {
                         errorMessage = problemMessage(prepared.problem)
+                        submitFailed = true
                         return@launch
                     }
                     IntroSubmitKeyPrepareResult.Ready -> Unit
@@ -356,8 +384,9 @@ fun SubmitIntroDialog(
                         }
                     }
                     SkipIntroRepository.clearCache()
-                    onSuccess()
+                    succeeded = true
                 } else {
+                    submitFailed = true
                     errorMessage = if (keyWasNew) {
                         keySavedSubmitFailedMessage
                     } else {
@@ -368,79 +397,268 @@ fun SubmitIntroDialog(
             } finally {
                 isSubmitting = false
             }
+            if (succeeded) {
+                showSuccess = true
+                kotlinx.coroutines.delay(1_500)
+                finishSuccess()
+            }
         }
     }
 
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-    val phonePanel = flagPanelIsPhone(maxWidth, maxHeight)
-    val flagPanelWidth = (maxWidth * 0.58f).coerceIn(300.dp, 400.dp)
-    val formContent: @Composable (Modifier) -> Unit = { formModifier ->
-        Column(
-            modifier = if (phonePanel) formModifier.fillMaxSize() else formModifier.verticalScroll(scrollState),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = stringResource(Res.string.submit_intro_title),
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+    val durationSec = if (durationMs > 0L) durationMs / 1000.0 else null
+    val startSec = parseTimeToSeconds(startTimeStr)
+    val endSec = parseTimeToSeconds(endTimeStr)
+    val problems = submitTimestampProblems(startSec, endSec, durationSec)
+    val warning = submitTimestampWarning(segmentType, startSec, endSec)
+    val rangeSpan = submitRangeSpan(startSec, endSec, durationSec)
+    val panelSubtitle = submitPanelSubtitle(
+        isMovie = isMovie,
+        season = season,
+        episode = episode,
+        episodeTitle = episodeTitle,
+        releaseInfo = releaseInfo,
+    )
+    val tokens = MaterialTheme.nuvio
+    val endAfterStartMessage = stringResource(Res.string.submit_intro_end_after_start)
+    val pastDurationMessage = stringResource(Res.string.submit_intro_past_duration)
+    val softLongMessage = stringResource(Res.string.submit_intro_soft_long)
+    val softShortMessage = stringResource(Res.string.submit_intro_soft_short)
+    val nowLabel = stringResource(Res.string.submit_intro_time_now)
+    val endOfVideoLabel = stringResource(Res.string.submit_intro_end_of_video)
+    val introLabel = stringResource(Res.string.submit_intro_segment_intro)
+    val recapLabel = stringResource(Res.string.submit_intro_segment_recap)
+    val outroLabel = stringResource(Res.string.submit_intro_segment_outro)
+    val creditsLabel = stringResource(Res.string.submit_intro_segment_credits)
+    val previewLabel = stringResource(Res.string.submit_intro_segment_preview)
+    val noneEpisodeLabel = stringResource(Res.string.submit_intro_none_episode)
+    val sentThanksLabel = stringResource(Res.string.submit_intro_sent_thanks)
+    val tryAgainLabel = stringResource(Res.string.submit_intro_try_again)
+    val copyLinkDescription = stringResource(Res.string.submit_intro_copy_link)
+    val nudgeBack5 = stringResource(Res.string.submit_intro_nudge_back_5)
+    val nudgeBack1 = stringResource(Res.string.submit_intro_time_nudge_back_1)
+    val nudgeForward1 = stringResource(Res.string.submit_intro_time_nudge_forward_1)
+    val nudgeForward5 = stringResource(Res.string.submit_intro_nudge_forward_5)
+    val noneForTitle = stringResource(Res.string.submit_intro_none_for_title)
+    val bringIntoViewRequester = remember { androidx.compose.foundation.relocation.BringIntoViewRequester() }
+    fun labelForType(type: String): String = when (type) {
+        "recap" -> recapLabel
+        "outro" -> if (isMovie) creditsLabel else outroLabel
+        "preview" -> previewLabel
+        else -> introLabel
+    }
+    fun copyShareLink() {
+        val metaId = shareMetaId
+        val start = parseTimeToSeconds(startTimeStr)
+        val end = parseTimeToSeconds(endTimeStr)
+        if (metaId == null || start == null || end == null || end <= start) {
+            errorMessage = endAfterStartMessage
+            return
+        }
+        val link = SharedSkipMark(
+            parentMetaId = metaId,
+            season = season.takeIf { !isMovie },
+            episode = episode.takeIf { !isMovie },
+            type = segmentType,
+            startMs = (start * 1000).toLong(),
+            endMs = (end * 1000).toLong(),
+        ).toLink()
+        clipboard.setText(androidx.compose.ui.text.AnnotatedString(link))
+        com.nuvio.app.core.ui.NuvioToastController.show("Link copied: open it on another Nuvio to import this mark")
+    }
+    fun applyNudge(delta: Int) {
+        val next = if (selectedField == SubmitTimeField.START) {
+            nudgeSkipTimestamp(startTimeStr, delta, durationSec)
+        } else {
+            nudgeSkipTimestamp(endTimeStr, delta, durationSec)
+        }
+        if (selectedField == SubmitTimeField.START) onStartTimeChange(next) else onEndTimeChange(next)
+    }
+    fun editDigits(field: SubmitTimeField) {
+        if (selectedField == field && wheelOpen) {
+            wheelOpen = false
+        } else {
+            selectedField = field
+            wheelOpen = true
+        }
+    }
+    val checksFail = problems.isNotEmpty()
+    val submitLabel = when {
+        showSuccess -> sentThanksLabel
+        submitFailed && !checksFail -> tryAgainLabel
+        else -> stringResource(Res.string.submit_intro_submit_named, labelForType(segmentType))
+    }
+    val lengthLabel = if (startSec != null && endSec != null && endSec > startSec) {
+        stringResource(Res.string.submit_intro_length, formatSecondsToHms(endSec - startSec))
+    } else {
+        null
+    }
+    val submissionsTitle = stringResource(
+        Res.string.submit_intro_your_submissions,
+        mySubmissions?.size ?: 0,
+    )
+    val showEndOfVideo = submitShowsEndOfVideo(segmentType) && durationMs > 0L
+
+    PlayerToolPanel(
+        visible = true,
+        title = if (showSubmissions) submissionsTitle else stringResource(Res.string.submit_intro_title),
+        subtitle = if (showSubmissions) null else panelSubtitle,
+        onBack = if (showSubmissions) {
+            { showSubmissions = false }
+        } else {
+            null
+        },
+        onDismiss = { if (showSuccess) finishSuccess() else onDismiss() },
+        dismissLocked = isSubmitting || showSuccess,
+        headerActions = {
+            if (!showSubmissions && shareMetaId != null) {
+                SubmitPanelIconButton(
+                    icon = Icons.Rounded.Link,
+                    contentDescription = copyLinkDescription,
+                    onClick = ::copyShareLink,
                 )
-                Box(
-                    modifier = Modifier
-                        .size(if (phonePanel) 44.dp else 28.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable(onClick = onDismiss),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Icons.Rounded.Close,
-                        contentDescription = stringResource(Res.string.action_close),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp),
+            }
+        },
+        footer = if (showSubmissions) {
+            null
+        } else {
+            {
+                if (!isMovie && segmentType == "intro" && selectedService == IntroSubmitService.THE_INTRODB) {
+                    val noneDisabled = "intro" in disabledTypes || busy || showSuccess
+                    Text(
+                        text = noneEpisodeLabel,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(enabled = !noneDisabled) { beginSubmit(absentSegment = true) }
+                            .padding(vertical = 8.dp),
+                        color = Color.White.copy(alpha = if (noneDisabled) 0.38f else 0.72f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     )
                 }
-            }
-            val submitIntroBody: @Composable () -> Unit = {
-                // At the top so they are found: this account's submissions and the share link.
-                MySubmissionsSection(
-                    submissions = mySubmissions,
-                    error = mySubmissionsError,
-                    onCopyShareLink = shareMetaId?.let { metaId ->
-                        {
-                            val start = parseTimeToSeconds(startTimeStr)
-                            val end = parseTimeToSeconds(endTimeStr)
-                            if (start == null || end == null || end <= start) {
-                                errorMessage = "Set a start and end time first"
-                            } else {
-                                val link = SharedSkipMark(
-                                    parentMetaId = metaId,
-                                    season = season.takeIf { !isMovie },
-                                    episode = episode.takeIf { !isMovie },
-                                    type = segmentType,
-                                    startMs = (start * 1000).toLong(),
-                                    endMs = (end * 1000).toLong(),
-                                ).toLink()
-                                clipboard.setText(androidx.compose.ui.text.AnnotatedString(link))
-                                com.nuvio.app.core.ui.NuvioToastController.show("Link copied: open it on another Nuvio to import this mark")
+                if (errorMessage != null && !showSuccess) {
+                    Text(
+                        text = errorMessage.orEmpty(),
+                        modifier = Modifier.padding(bottom = 6.dp),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                val buttonColor = when {
+                    showSuccess -> tokens.colors.success
+                    checksFail -> Color.White.copy(alpha = 0.12f)
+                    else -> tokens.colors.accent
+                }
+                val buttonContent = when {
+                    showSuccess -> Color.White
+                    checksFail -> Color.White.copy(alpha = 0.38f)
+                    else -> tokens.colors.onAccent
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(buttonColor)
+                        .clickable(enabled = !checksFail && !busy && !showSuccess) {
+                            beginSubmit(absentSegment = false)
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isSubmitting) {
+                        NuvioLoadingIndicator(
+                            color = buttonContent,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    } else {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            if (showSuccess) {
+                                Icon(
+                                    Icons.Rounded.Check,
+                                    contentDescription = null,
+                                    tint = buttonContent,
+                                    modifier = Modifier.size(18.dp),
+                                )
                             }
+                            Text(
+                                text = submitLabel,
+                                color = buttonContent,
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleMedium,
+                            )
                         }
-                    },
-                )
+                    }
+                }
+                if (mySubmissions != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { showSubmissions = true }
+                            .padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = submissionsTitle,
+                            modifier = Modifier.weight(1f),
+                            color = Color.White.copy(alpha = 0.72f),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            text = "›",
+                            color = Color.White.copy(alpha = 0.72f),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    }
+                }
+            }
+        },
+    ) {
+        if (showSubmissions) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(scrollState),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                val rows = mySubmissions
+                if (rows.isNullOrEmpty() || mySubmissionsError != null) {
+                    Text(
+                        text = mySubmissionsError ?: noneForTitle,
+                        color = Color.White.copy(alpha = 0.72f),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                rows.orEmpty()
+                    .sortedWith(compareBy({ it.season ?: 0 }, { it.episode ?: 0 }))
+                    .forEach { submission ->
+                        Text(
+                            text = submissionLine(submission),
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(scrollState),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 if (showServiceSection) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         text = stringResource(Res.string.submit_intro_service_label),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.nuvio.colors.textMuted,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -469,370 +687,223 @@ fun SubmitIntroDialog(
                             modifier = Modifier.weight(1f),
                         )
                     }
-                        Text(
-                            text = keyHint,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Surface(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .heightIn(min = 0.dp.atLeastIosHitTarget()),
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
-                            ) {
-                                BasicTextField(
-                                    value = keyDraft,
-                                    onValueChange = ::updateKeyDraft,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                                    textStyle = MaterialTheme.typography.bodyLarge.copy(
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                    ),
-                                    visualTransformation = if (keyVisible) {
-                                        VisualTransformation.None
-                                    } else {
-                                        PasswordVisualTransformation()
-                                    },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                    singleLine = true,
-                                    decorationBox = { inner ->
-                                        Box {
-                                            if (keyDraft.isEmpty()) {
-                                                Text(
-                                                    text = stringResource(Res.string.submit_intro_api_key_label),
-                                                    style = MaterialTheme.typography.bodyLarge,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                )
-                                            }
-                                            inner()
-                                        }
-                                    },
-                                )
-                            }
-                            IconButton(onClick = { keyVisible = !keyVisible }, enabled = !busy) {
-                                Icon(
-                                    imageVector = if (keyVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
-                                    contentDescription = stringResource(
-                                        if (keyVisible) Res.string.settings_hide_secret else Res.string.settings_show_secret,
-                                    ),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                        TextButton(
-                            modifier = Modifier.heightIn(min = 0.dp.atLeastIosHitTarget()),
-                            onClick = {
-                                dismissKeyboard()
-                                isSavingKey = true
-                                errorMessage = null
-                                keyStatusMessage = null
-                                val service = selectedService
-                                val draft = keyDraft
-                                scope.launch {
-                                    val saved = savedKeyForService(
-                                        service,
-                                        PlayerSettingsRepository.uiState.value.introDbApiKey,
-                                        PlayerSettingsRepository.uiState.value.theIntroDbApiKey,
-                                    )
-                                    when (val result = prepareIntroSubmitKey(service, draft, saved)) {
-                                        IntroSubmitKeyPrepareResult.Ready -> keyStatusMessage = keySavedMessage
-                                        IntroSubmitKeyPrepareResult.Invalid -> errorMessage = invalidKeyMessage
-                                        is IntroSubmitKeyPrepareResult.Rejected -> errorMessage = problemMessage(result.problem)
-                                    }
-                                    isSavingKey = false
-                                }
-                            },
-                            enabled = !busy,
-                        ) {
-                            if (isSavingKey) {
-                                NuvioLoadingIndicator(
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            } else {
-                                Text(stringResource(Res.string.action_save))
-                            }
-                        }
-                        if (keyStatusMessage != null) {
-                            Text(
-                                text = keyStatusMessage!!,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                }
-                }
-
-                if (isIos) {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            SegmentTypeButton(
-                                label = stringResource(Res.string.submit_intro_segment_intro),
-                                icon = Icons.Rounded.PlayCircleOutline,
-                                selected = segmentType == "intro",
-                                onClick = { onSegmentTypeChange("intro") },
-                                disabled = "intro" in disabledTypes,
-                                modifier = Modifier.weight(1f),
-                            )
-                            SegmentTypeButton(
-                                label = stringResource(Res.string.submit_intro_segment_recap),
-                                icon = Icons.Rounded.Replay,
-                                selected = segmentType == "recap",
-                                onClick = { onSegmentTypeChange("recap") },
-                                disabled = "recap" in disabledTypes,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            SegmentTypeButton(
-                                label = stringResource(Res.string.submit_intro_segment_outro),
-                                icon = Icons.Rounded.StopCircle,
-                                selected = segmentType == "outro",
-                                onClick = { onSegmentTypeChange("outro") },
-                                disabled = "outro" in disabledTypes,
-                                modifier = Modifier.weight(1f),
-                            )
-                            SegmentTypeButton(
-                                label = stringResource(Res.string.submit_intro_segment_preview),
-                                icon = Icons.Rounded.Visibility,
-                                selected = segmentType == "preview",
-                                onClick = { onSegmentTypeChange("preview") },
-                                disabled = "preview" in disabledTypes,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                    }
-                } else {
+                    Text(
+                        text = keyHint,
+                        color = Color.White.copy(alpha = 0.72f),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        SegmentTypeButton(
-                            label = stringResource(Res.string.submit_intro_segment_intro),
-                            icon = Icons.Rounded.PlayCircleOutline,
-                            selected = segmentType == "intro",
-                            onClick = { onSegmentTypeChange("intro") },
-                            disabled = "intro" in disabledTypes,
-                            modifier = Modifier.weight(1f),
-                        )
-                        SegmentTypeButton(
-                            label = stringResource(Res.string.submit_intro_segment_recap),
-                            icon = Icons.Rounded.Replay,
-                            selected = segmentType == "recap",
-                            onClick = { onSegmentTypeChange("recap") },
-                            disabled = "recap" in disabledTypes,
-                            modifier = Modifier.weight(1f),
-                        )
-                        SegmentTypeButton(
-                            label = stringResource(Res.string.submit_intro_segment_outro),
-                            icon = Icons.Rounded.StopCircle,
-                            selected = segmentType == "outro",
-                            onClick = { onSegmentTypeChange("outro") },
-                            disabled = "outro" in disabledTypes,
-                            modifier = Modifier.weight(1f),
-                        )
-                        SegmentTypeButton(
-                            label = stringResource(Res.string.submit_intro_segment_preview),
-                            icon = Icons.Rounded.Visibility,
-                            selected = segmentType == "preview",
-                            onClick = { onSegmentTypeChange("preview") },
-                            disabled = "preview" in disabledTypes,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-
-                if (selectedService == IntroSubmitService.THE_INTRODB) {
-                    val noneDisabled = segmentType in disabledTypes
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(30.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(
-                                MaterialTheme.colorScheme.surfaceVariant.copy(
-                                    alpha = if (noneDisabled) 0.22f else 0.32f,
-                                ),
+                        Surface(
+                            modifier = Modifier
+                                .weight(1f)
+                                .bringIntoViewRequester(bringIntoViewRequester),
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color.White.copy(alpha = 0.08f),
+                            border = BorderStroke(0.75.dp, Color.White.copy(alpha = 0.22f)),
+                        ) {
+                            BasicTextField(
+                                value = keyDraft,
+                                onValueChange = ::updateKeyDraft,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .onFocusChanged { focus ->
+                                        if (focus.isFocused) {
+                                            scope.launch { bringIntoViewRequester.bringIntoView() }
+                                        }
+                                    }
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.White),
+                                visualTransformation = if (keyVisible) {
+                                    VisualTransformation.None
+                                } else {
+                                    PasswordVisualTransformation()
+                                },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                                cursorBrush = SolidColor(tokens.colors.accent),
+                                singleLine = true,
+                                decorationBox = { inner ->
+                                    Box {
+                                        if (keyDraft.isEmpty()) {
+                                            Text(
+                                                text = stringResource(Res.string.submit_intro_api_key_label),
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = Color.White.copy(alpha = 0.72f),
+                                            )
+                                        }
+                                        inner()
+                                    }
+                                },
                             )
-                            .clickable(enabled = !busy && !noneDisabled) {
-                                beginSubmit(absentSegment = true)
-                            },
-                        contentAlignment = Alignment.Center,
+                        }
+                        IconButton(onClick = { keyVisible = !keyVisible }, enabled = !busy) {
+                            Icon(
+                                imageVector = if (keyVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                contentDescription = stringResource(
+                                    if (keyVisible) Res.string.settings_hide_secret else Res.string.settings_show_secret,
+                                ),
+                                tint = Color.White.copy(alpha = 0.72f),
+                            )
+                        }
+                    }
+                    TextButton(
+                        onClick = {
+                            dismissKeyboard()
+                            isSavingKey = true
+                            errorMessage = null
+                            keyStatusMessage = null
+                            val service = selectedService
+                            val draft = keyDraft
+                            scope.launch {
+                                val saved = savedKeyForService(
+                                    service,
+                                    PlayerSettingsRepository.uiState.value.introDbApiKey,
+                                    PlayerSettingsRepository.uiState.value.theIntroDbApiKey,
+                                )
+                                when (val result = prepareIntroSubmitKey(service, draft, saved)) {
+                                    IntroSubmitKeyPrepareResult.Ready -> keyStatusMessage = keySavedMessage
+                                    IntroSubmitKeyPrepareResult.Invalid -> errorMessage = invalidKeyMessage
+                                    is IntroSubmitKeyPrepareResult.Rejected -> errorMessage = problemMessage(result.problem)
+                                }
+                                isSavingKey = false
+                            }
+                        },
+                        enabled = !busy,
                     ) {
+                        if (isSavingKey) {
+                            NuvioLoadingIndicator(
+                                color = tokens.colors.accent,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        } else {
+                            Text(stringResource(Res.string.action_save))
+                        }
+                    }
+                    if (keyStatusMessage != null) {
                         Text(
-                            text = noneSegmentLabel,
-                            color = if (noneDisabled) {
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                            } else {
-                                MaterialTheme.colorScheme.onSurface
-                            },
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            textDecoration = if (noneDisabled) TextDecoration.LineThrough else null,
+                            text = keyStatusMessage.orEmpty(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = tokens.colors.accent,
                         )
                     }
                 }
-
-                SkipTimestampEditor(
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    panelTypes.forEach { type ->
+                        SubmitTypeChip(
+                            label = labelForType(type),
+                            selected = segmentType == type,
+                            submitted = type in disabledTypes,
+                            onClick = { onSegmentTypeChange(type) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+                SubmitTimeRow(
                     label = stringResource(Res.string.submit_intro_start_short),
                     value = startTimeStr,
-                    onValueChange = onStartTimeChange,
-                    onCapture = { onStartTimeChange(formatSecondsToHms(currentTimeSec)) },
+                    selected = selectedField == SubmitTimeField.START,
+                    nowLabel = nowLabel,
+                    onSelect = { selectedField = SubmitTimeField.START },
+                    onEditDigits = { editDigits(SubmitTimeField.START) },
+                    onNow = {
+                        selectedField = SubmitTimeField.START
+                        onStartTimeChange(formatSecondsToHms(currentTimeSec))
+                    },
                 )
-
-                SkipTimestampEditor(
+                SubmitTimeRow(
                     label = stringResource(Res.string.submit_intro_end_short),
                     value = endTimeStr,
-                    onValueChange = onEndTimeChange,
-                    onCapture = { onEndTimeChange(formatSecondsToHms(currentTimeSec)) },
-                    onUseDuration = if (durationMs > 0L) {
-                        { onEndTimeChange(formatSecondsToHms(durationMs / 1000.0)) }
+                    selected = selectedField == SubmitTimeField.END,
+                    nowLabel = nowLabel,
+                    onSelect = { selectedField = SubmitTimeField.END },
+                    onEditDigits = { editDigits(SubmitTimeField.END) },
+                    onNow = {
+                        selectedField = SubmitTimeField.END
+                        onEndTimeChange(formatSecondsToHms(currentTimeSec))
+                    },
+                    endOfVideoLabel = if (showEndOfVideo) endOfVideoLabel else null,
+                    onEndOfVideo = if (showEndOfVideo) {
+                        {
+                            selectedField = SubmitTimeField.END
+                            onEndTimeChange(formatSecondsToHms(durationMs / 1000.0))
+                        }
                     } else {
                         null
                     },
                 )
-
-                if (errorMessage != null) {
-                    Text(
-                        text = errorMessage!!,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-            if (phonePanel) {
-                Box(Modifier.weight(1f).fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(scrollState),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        submitIntroBody()
-                    }
-                }
-            } else {
-                submitIntroBody()
-            }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .heightIn(min = 44.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f))
-                            .clickable(enabled = !busy, onClick = onDismiss),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = stringResource(Res.string.action_cancel),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .weight(2f)
-                            .heightIn(min = 44.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.primary)
-                            .clickable(enabled = !busy) {
-                                beginSubmit(absentSegment = false)
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isSubmitting) {
-                            NuvioLoadingIndicator(
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(24.dp),
-                            )
-                        } else {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(Icons.Rounded.Send, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp))
-                                Text(
-                                    text = stringResource(Res.string.submit_intro_button_submit),
-                                    color = MaterialTheme.colorScheme.onPrimary,
-                                    fontWeight = FontWeight.Bold
-                                )
+                SubmitNudgeRow(
+                    onNudge = ::applyNudge,
+                    backFiveDescription = nudgeBack5,
+                    backOneDescription = nudgeBack1,
+                    forwardOneDescription = nudgeForward1,
+                    forwardFiveDescription = nudgeForward5,
+                )
+                if (wheelOpen) {
+                    val wheelValue = if (selectedField == SubmitTimeField.START) startTimeStr else endTimeStr
+                    SkipTimeWheels(
+                        value = wheelValue,
+                        onPartChange = { part, digits ->
+                            val next = replaceSkipTimePart(wheelValue, part, digits.toString())
+                            if (selectedField == SubmitTimeField.START) {
+                                onStartTimeChange(next)
+                            } else {
+                                onEndTimeChange(next)
                             }
-                        }
-                    }
+                        },
+                    )
                 }
-            }
-        }
-
-    if (phonePanel) {
-        PlayerSidePanel(visible = true, onDismiss = onDismiss, width = flagPanelWidth) {
-            formContent(Modifier.fillMaxSize())
-        }
-    } else if (isIos) {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        NuvioModalBottomSheet(
-            onDismissRequest = onDismiss,
-            sheetState = sheetState,
-            showDragHandle = false,
-            fullHeight = false,
-            liquidGlass = true,
-        ) {
-            formContent(
-                Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .padding(horizontal = 12.dp)
-                    .padding(top = 10.dp, bottom = 8.dp),
-            )
-        }
-    } else {
-        BasicAlertDialog(onDismissRequest = onDismiss) {
-            BoxWithConstraints {
-                val sheetHeight = minOf(640.dp, maxHeight * 0.86f)
-                Surface(
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 24.dp)
-                        .widthIn(max = 420.dp)
-                        .heightIn(max = sheetHeight),
-                    shape = RoundedCornerShape(28.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.42f),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.22f)),
-                    tonalElevation = 0.dp,
-                    shadowElevation = 16.dp,
+                SubmitRangeBar(
+                    span = rangeSpan,
+                    onClick = click@{
+                        val start = startSec ?: return@click
+                        onPreviewSeekMs((start * 1000.0).toLong())
+                    },
+                )
+                if (lengthLabel != null) {
+                    Text(
+                        text = lengthLabel,
+                        color = Color.White.copy(alpha = 0.72f),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                if (SubmitTimestampProblem.EndNotAfterStart in problems) {
+                    Text(
+                        text = endAfterStartMessage,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                if (
+                    SubmitTimestampProblem.StartPastDuration in problems ||
+                    SubmitTimestampProblem.EndPastDuration in problems
                 ) {
-                    formContent(
-                        Modifier
-                            .padding(24.dp)
-                            .heightIn(max = sheetHeight),
+                    Text(
+                        text = pastDurationMessage,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                val warningText = when (warning) {
+                    SubmitTimestampWarning.LongerThanUsual -> softLongMessage
+                    SubmitTimestampWarning.ShorterThanUsual -> softShortMessage
+                    null -> null
+                }
+                if (warningText != null) {
+                    Text(
+                        text = warningText,
+                        color = Color.White.copy(alpha = 0.72f),
+                        style = MaterialTheme.typography.bodySmall,
                     )
                 }
             }
         }
     }
-    }
-}
-
-private fun flagPanelIsPhone(width: androidx.compose.ui.unit.Dp, height: androidx.compose.ui.unit.Dp): Boolean {
-    val shorter = if (width < height) width else height
-    return shorter < 500.dp && width < 1024.dp
 }
 
 internal sealed interface IntroSubmitKeyPrepareResult {
@@ -959,21 +1030,22 @@ private fun SegmentTypeButton(
     modifier: Modifier = Modifier,
     disabled: Boolean = false,
 ) {
+    val tokens = MaterialTheme.nuvio
     val backgroundColor = when {
-        disabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
-        selected -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f)
+        disabled -> Color.White.copy(alpha = 0.08f)
+        selected -> tokens.colors.accent
+        else -> PlayerGlassFallback
     }
     val contentColor = when {
-        disabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-        selected -> MaterialTheme.colorScheme.onPrimary
-        else -> MaterialTheme.colorScheme.onSurface
+        disabled -> Color.White.copy(alpha = 0.38f)
+        selected -> tokens.colors.onAccent
+        else -> Color.White
     }
 
     Box(
         modifier = modifier
-            .height(30.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .height(44.dp)
+            .clip(RoundedCornerShape(12.dp))
             .background(backgroundColor)
             .clickable(enabled = !disabled, onClick = onClick)
             .padding(horizontal = 4.dp),
@@ -1020,38 +1092,65 @@ private fun normalizeSegmentTypeForSubmit(type: String): String? {
     }
 }
 
-/** Read-only list of what this account already sent TheIntroDB for the title, with each review status. */
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun MySubmissionsSection(
-    submissions: List<TheIntroDbUserSubmission>?,
-    error: String?,
-    onCopyShareLink: (() -> Unit)?,
+private fun SubmitTypeChip(
+    label: String,
+    selected: Boolean,
+    submitted: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    androidx.compose.foundation.layout.FlowRow {
-        if (submissions != null) {
-            TextButton(onClick = { expanded = !expanded }) {
-                Text(if (expanded) "Hide your submissions" else "Your submissions (${submissions.size})")
-            }
-        }
-        if (onCopyShareLink != null) {
-            TextButton(onClick = onCopyShareLink) { Text("Copy share link") }
-        }
-    }
-    if (!expanded || submissions == null) return
-    if (submissions.isEmpty() || error != null) {
+    val tokens = MaterialTheme.nuvio
+    val background = if (selected) tokens.colors.accent else PlayerGlassFallback
+    val content = if (selected) tokens.colors.onAccent else Color.White
+    Row(
+        modifier = modifier
+            .height(44.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(background)
+            .clickable(enabled = !submitted, onClick = onClick)
+            .padding(horizontal = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
         Text(
-            text = error ?: "None for this title yet",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            text = label,
+            color = content.copy(alpha = if (submitted && !selected) 0.72f else 1f),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
+        if (submitted) {
+            Icon(
+                imageVector = Icons.Rounded.Check,
+                contentDescription = null,
+                tint = content,
+                modifier = Modifier.padding(start = 4.dp).size(14.dp),
+            )
+        }
     }
-    submissions.sortedWith(compareBy({ it.season ?: 0 }, { it.episode ?: 0 })).forEach { submission ->
-        Text(
-            text = submissionLine(submission),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+}
+
+@Composable
+private fun SubmitPanelIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .size(PlayerToolPanelCloseSize)
+            .clip(CircleShape)
+            .background(PlayerGlassFallback)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = Color.White,
+            modifier = Modifier.size(20.dp),
         )
     }
 }
