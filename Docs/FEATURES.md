@@ -1,6 +1,6 @@
 # Nuvio Enhanced (mobile): features and settings
 
-Built from the code at build 197 (0.6.4.1), which includes upstream 0.6.4-beta. Each line shows the feature, where it is in the app, and the build or version it was added in when the changelog records it ("upstream" means it came from the base app). Settings pages are under the Settings tab.
+Built from the code at build 198 (0.6.5.1), which includes upstream 0.6.5-beta on top of the player tools and the download-reason rows. Each line shows the feature, where it is in the app, and the build or version it was added in when the changelog records it ("upstream" means it came from the base app). Settings pages are under the Settings tab.
 
 ## Playback
 - Player with gestures (swipe to seek, hold for speed and a hold-speed value): Settings › Playback › Player / Touch Gestures. Upstream.
@@ -9,6 +9,14 @@ Built from the code at build 197 (0.6.4.1), which includes upstream 0.6.4-beta. 
 - Preferred and secondary audio and subtitle languages, strip SDH, forced subtitles, show only preferred languages, auto-show subtitles on rewind or mute: Settings › Playback › Subtitle and Audio. Upstream.
 - Subtitle rendering (size, offset, bold, colours, outline, shadow, libass on by default): Settings › Playback › Subtitle Rendering. Upstream; shadow and imported subtitle fonts in 0.6.4.1. An imported font is used for Latin subtitles; Chinese, Japanese and Korean keep the bundled face.
 - Player tools open in one right-hand panel (Subtitles, Audio, Sources, Episodes, Info, Video settings) over the playing video. Subtitles keeps Off, language tracks, a pinned Sync row and Style in the same panel. The older separate subtitle, audio, sources, episodes, playback-info and video-settings panels were replaced. Sync drops the panel into a bottom strip (−0.1 / +0.1, Heard it / Saw it, Reset, Done). While that strip is open the subtitle cue is lifted by the strip height and put back on Done. Reset also clears a half-finished Heard it / Saw it. Unwatched episode pictures blur again when that setting is on, and a failed or unfinished episode list offers Retry. Changing episode closes the open tool. Aspect, speed, brightness, contrast, saturation and tone-map stay on the Video tab, with Reset pinned.
+- On a folded phone the picture stays on the top half and the controls sit on the bottom half, with an unlock row while the controls are locked. Upstream 0.6.5.
+- Chapters from the file are marked on the seek bar and open in a chapters panel. Settings › Playback › Show Chapters reads MKV chapters for ExoPlayer. libmpv always shows them. Upstream 0.6.5.
+- The iOS volume buttons change the system volume. Upstream 0.6.5.
+- A paused picture is fitted again when the window size changes. Upstream 0.6.5.
+- The title, version and episode line is hidden while the Sleep/Speed list or the more menu is open. Upstream 0.6.5 did not change that overlap. The older paused-player change that dropped the source line was already in 0.6.4, so this hide stays from the player-tools layout fix.
+- The paused "You're watching" card stays hidden while a tool, strip or panel is open, and also while the phone is folded. The fold hide is upstream 0.6.5. The panel and strip hide stays from the player-tools layout fix, because upstream did not hide the card behind those.
+- Debrid language names accept more aliases. Upstream 0.6.5.
+- Changing episode can look up the original title from the server between episodes. Upstream 0.6.5.
 - Audio and subtitle choices and playback speed remembered per show: automatic, in the player. 0.5.10.3.
 - Sleep timer: player › speed popup. 181.
 - Mini player (off by default): Settings › Playback › Mini Player. 0.5.10.1; default off in 190.
@@ -109,7 +117,7 @@ Built from the code at build 197 (0.6.4.1), which includes upstream 0.6.4-beta. 
 - Watch stats / profile insights: Settings › Profile. 0.5.10.2.
 - Episode release alerts: Settings › Notifications. Upstream.
 - Debrid (accounts, link preparation, result filters and formatting): Settings › Integrations › Connected Services. Upstream.
-- Appearance (themes, AMOLED, Liquid Glass tab bar, app icon, language, navigation bar, poster card style): Settings › Layout. Upstream.
+- Appearance (themes, AMOLED, Liquid Glass tab bar, app icon, language, navigation bar, poster card style): Settings › Layout. Upstream. Bulgarian, Croatian, Italian, Portuguese (Brazil) and Vietnamese strings were updated in 0.6.5.
 - What's New, check for updates, debug logs, Sentry crash reports: Settings › About / Advanced. Upstream/enhanced.
 - Backup export and import: Settings › Advanced. Upstream 0.6.4.
 - DNS over HTTPS: Settings › Advanced › Network. Upstream 0.6.4. Android only; iOS keeps the system DNS.
