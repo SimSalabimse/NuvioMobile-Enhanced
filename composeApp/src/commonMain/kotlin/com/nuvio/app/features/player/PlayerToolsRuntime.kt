@@ -28,6 +28,7 @@ internal fun PlayerScreenRuntime.toolChromeOpen(): Boolean =
         showSubtitleSyncByEar
 
 internal fun PlayerScreenRuntime.closePlayerTools() {
+    restoreMarkPreview()
     val sourcesWereOpen = showSourcesPanel
     val episodesWereOpen = showEpisodesPanel || episodeStreamsPanelState.showStreams
     showAudioModal = false
@@ -91,12 +92,50 @@ internal fun PlayerScreenRuntime.showPlayerTool(tool: PlayerTool) {
 /** Back, close, and a tap on the video. The lock stays however the viewer left it. */
 internal fun PlayerScreenRuntime.dismissPlayerTools() {
     val next = dismissToolState(playerControlsLocked)
+    val restoringPreview = markPreviewRestore != null
+    markSubmitGeneration += 1
+    if (!restoringPreview) markingPendingSeekMs = null
     closePlayerTools()
     controlsVisible = next.controlsVisible
     clearSubmitIntroForm()
     markSent = false
     markAbsent = false
     markSubmitError = null
+}
+
+/** Drop a preview without seeking. Used when the episode itself has changed. */
+internal fun PlayerScreenRuntime.abandonMarkPreview() {
+    markPreviewRestore = null
+    markPreviewEndMs = null
+    markPreviewArmed = false
+}
+
+internal fun PlayerScreenRuntime.startMarkPreview(startSec: Double, endSec: Double) {
+    if (endSec <= startSec) return
+    if (markPreviewRestore == null) {
+        val playhead = markingPlayheadAfterSample(
+            clockMs = playbackClock.positionMs,
+            pendingSeekMs = markingPendingSeekMs,
+            loadingScrubMs = scrubbingPositionMs,
+        )
+        markPreviewRestore = markPreviewSession(playhead.positionMs, shouldPlay)
+    }
+    markPreviewEndMs = (endSec * 1000.0).toLong()
+    markPreviewArmed = false
+    seekWhileMarking(startSec)
+    shouldPlay = true
+    playerController?.play()
+}
+
+internal fun PlayerScreenRuntime.restoreMarkPreview() {
+    val saved = markPreviewRestore ?: return
+    markPreviewRestore = null
+    markPreviewEndMs = null
+    markPreviewArmed = false
+    val playback = restoredMarkPreview(saved)
+    shouldPlay = playback.shouldPlay
+    seekWhileMarking(playback.positionMs / 1000.0)
+    if (playback.shouldPlay) playerController?.play() else playerController?.pause()
 }
 
 internal fun PlayerScreenRuntime.clearSubmitIntroForm() {
@@ -219,8 +258,10 @@ internal fun PlayerScreenRuntime.setMarkClock(start: Boolean, seconds: Double?) 
 }
 
 internal fun PlayerScreenRuntime.seekWhileMarking(seconds: Double) {
+    if (!markingSeekAllowed(playbackSnapshot.durationMs / 1000.0)) return
     val requested = (seconds.coerceAtLeast(0.0) * 1000.0).toLong()
     val target = if (isPartyControlLocked) ownSeekTarget(requested) ?: return else requested
+    markingPendingSeekMs = target
     finishTimelineScrub(target)
     noteSeek()
     playerController?.seekTo(target)

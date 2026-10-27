@@ -34,22 +34,34 @@ import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.features.party.PartyRepository
 import com.nuvio.app.features.settings.TheIntroDbApiKeyDialog
+import com.nuvio.app.features.player.skip.IntroSubmitBlockReason
 import com.nuvio.app.features.player.skip.IntroSubmitKeyPrepareResult
 import com.nuvio.app.features.player.skip.IntroSubmitKeyProblem
+import com.nuvio.app.features.player.skip.IntroSubmitService
 import com.nuvio.app.features.player.skip.SharedSkipMark
+import com.nuvio.app.features.player.skip.TheIntroDb
 import com.nuvio.app.features.player.skip.toLink
 import com.nuvio.app.features.player.skip.defaultIntroSubmitService
+import com.nuvio.app.features.player.skip.introSubmitBlockReason
 import com.nuvio.app.features.player.skip.introSubmitKeyProblem
 import com.nuvio.app.features.player.skip.prepareIntroSubmitKey
+import com.nuvio.app.features.player.skip.resolveIntroSubmitTimes
 import com.nuvio.app.features.player.skip.savedKeyForService
 import com.nuvio.app.features.player.skip.submitManualSkipSegment
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.player_tools_add_key
 import nuvio.composeapp.generated.resources.player_tools_could_not_send
-import nuvio.composeapp.generated.resources.player_tools_key_missing
 import nuvio.composeapp.generated.resources.player_tools_link_copied
+import nuvio.composeapp.generated.resources.player_tools_none_refused
 import nuvio.composeapp.generated.resources.player_tools_sent_detail
+import nuvio.composeapp.generated.resources.settings_playback_introdb_invalid_key
+import nuvio.composeapp.generated.resources.submit_intro_api_key_required
+import nuvio.composeapp.generated.resources.submit_intro_introdb_episode
+import nuvio.composeapp.generated.resources.submit_intro_introdb_movie
+import nuvio.composeapp.generated.resources.submit_intro_introdb_prefix
+import nuvio.composeapp.generated.resources.submit_intro_none_hint
+import nuvio.composeapp.generated.resources.submit_intro_theintrodb_prefix
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -61,6 +73,14 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
     var showKeyDialog by remember { mutableStateOf(false) }
     val couldNotSend = stringResource(Res.string.player_tools_could_not_send)
     val linkCopied = stringResource(Res.string.player_tools_link_copied)
+    val noneRefused = stringResource(Res.string.player_tools_none_refused)
+    val noneHint = stringResource(Res.string.submit_intro_none_hint)
+    val requiredKeyMessage = stringResource(Res.string.submit_intro_api_key_required)
+    val introDbPrefixMessage = stringResource(Res.string.submit_intro_introdb_prefix)
+    val theIntroDbPrefixMessage = stringResource(Res.string.submit_intro_theintrodb_prefix)
+    val introDbMovieMessage = stringResource(Res.string.submit_intro_introdb_movie)
+    val introDbEpisodeMessage = stringResource(Res.string.submit_intro_introdb_episode)
+    val invalidKeyMessage = stringResource(Res.string.settings_playback_introdb_invalid_key)
     val clipboard = LocalClipboardManager.current
 
     LaunchedEffect(Unit) {
@@ -72,12 +92,20 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                     markPreviewArmed = true
                 }
                 if (shouldStopMarkPreview(positionMs, end, markPreviewArmed)) {
-                    playerController?.pause()
-                    shouldPlay = false
-                    markPreviewEndMs = null
-                    markPreviewArmed = false
+                    restoreMarkPreview()
                 }
             }
+    }
+    LaunchedEffect(Unit) {
+        snapshotFlow {
+            markingPlayheadAfterSample(
+                clockMs = playbackClock.positionMs,
+                pendingSeekMs = markingPendingSeekMs,
+                loadingScrubMs = scrubbingPositionMs,
+            ).pendingSeekMs
+        }.collect { pending ->
+            if (markingPendingSeekMs != pending) markingPendingSeekMs = pending
+        }
     }
 
     if (!open) return
@@ -129,6 +157,36 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
             val meta = metaUiState.meta?.takeIf { it.id == parentMetaId }
             val year = meta?.releaseInfo?.let { YEAR.find(it)?.value }
             val episodeCode = localizedSeasonEpisodeCode(activeSeasonNumber, activeEpisodeNumber)
+            val playhead = markingPlayheadAfterSample(
+                clockMs = playbackClock.positionMs,
+                pendingSeekMs = markingPendingSeekMs,
+                loadingScrubMs = scrubbingPositionMs,
+            )
+            val imdbId = markingImdbId()
+            val block = introSubmitBlockReason(
+                service = service,
+                apiKey = savedKey,
+                isMovie = isMoviePlayback,
+                imdbId = imdbId,
+                season = activeSeasonNumber ?: 0,
+                episode = activeEpisodeNumber ?: 0,
+            )
+            val blockLine = when (block) {
+                null,
+                IntroSubmitBlockReason.MISSING_KEY,
+                IntroSubmitBlockReason.INTRODB_KEY_SHAPE,
+                IntroSubmitBlockReason.THEINTRODB_KEY_SHAPE,
+                -> null
+                else -> introSubmitBlockMessage(
+                    block,
+                    requiredKeyMessage,
+                    introDbPrefixMessage,
+                    theIntroDbPrefixMessage,
+                    introDbMovieMessage,
+                    introDbEpisodeMessage,
+                )
+            }
+            val absentAllowed = resolveIntroSubmitTimes(service, absentSegment = true, startTimeStr = "", endTimeStr = "") != null
             SegmentMarkingLayer(
                 title = markingTitle(year, episodeCode),
                 segmentType = submitIntroSegmentType,
@@ -138,24 +196,27 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 startSec = startSec,
                 endSec = endSec,
                 durationSec = durationSec,
-                playheadSec = (scrubbingPositionMs ?: playbackClock.positionMs) / 1000.0,
+                playheadSec = playhead.positionMs / 1000.0,
                 absent = markAbsent,
+                absentAllowed = absentAllowed,
                 sent = markSent,
                 submitting = submitting,
                 keyProblem = keyMissing,
-                keyMessage = stringResource(Res.string.player_tools_key_missing),
+                absentLine = if (absentAllowed) noneHint else noneRefused,
                 addKeyLabel = stringResource(Res.string.player_tools_add_key),
+                blockLine = blockLine,
                 errorLine = markSubmitError,
                 safeInset = horizontalSafePadding,
-                onBack = { dismissPlayerTools() },
-                onSegment = { switchSubmitSegmentType(it) },
+                onBack = { if (!submitting) dismissPlayerTools() },
+                onSegment = { if (!submitting) switchSubmitSegmentType(it) },
                 onAbsent = {
+                    if (submitting) return@SegmentMarkingLayer
                     markAbsent = true
                     markSent = false
                     markSubmitError = null
                 },
-                onMarkStart = { setMarkClock(start = true, playbackClock.positionMs / 1000.0) },
-                onMarkEnd = { setMarkClock(start = false, playbackClock.positionMs / 1000.0) },
+                onMarkStart = { setMarkClock(start = true, playhead.positionMs / 1000.0) },
+                onMarkEnd = { setMarkClock(start = false, playhead.positionMs / 1000.0) },
                 onNudgeStart = { delta ->
                     setMarkClock(true, nudgeMarkSeconds(startSec, delta, durationSec.takeIf { it > 0.0 }))
                 },
@@ -164,16 +225,12 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 },
                 onStartAtZero = { setMarkClock(true, 0.0) },
                 onRunsToEnd = { setMarkClock(false, runsToEndSec(durationSec)) },
-                onSeek = { seekWhileMarking(it) },
+                onSeek = { seconds -> if (markingSeekAllowed(durationSec)) seekWhileMarking(seconds) },
                 onDragStart = { setMarkClock(true, it) },
                 onDragEnd = { setMarkClock(false, it) },
                 onPreview = {
-                    if (startSec == null || endSec == null || endSec <= startSec) return@SegmentMarkingLayer
-                    markPreviewEndMs = (endSec * 1000.0).toLong()
-                    markPreviewArmed = false
-                    seekWhileMarking(startSec)
-                    shouldPlay = true
-                    playerController?.play()
+                    if (submitting || startSec == null || endSec == null || endSec <= startSec) return@SegmentMarkingLayer
+                    startMarkPreview(startSec, endSec)
                 },
                 showCopyLink = timeOk && !markAbsent,
                 onCopyLink = {
@@ -184,22 +241,114 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 onAddKey = { showKeyDialog = true },
                 onSubmit = {
                     if (submitting || markSent) return@SegmentMarkingLayer
+                    val generation = markSubmitGeneration
+                    val snapshot = markSubmitSnapshot(
+                        segmentType = submitIntroSegmentType,
+                        absent = markAbsent,
+                        startSec = startSec,
+                        endSec = endSec,
+                        generation = generation,
+                    )
+                    val seasonNow = activeSeasonNumber
+                    val episodeNow = activeEpisodeNumber
+                    val movieNow = isMoviePlayback
+                    val durationNow = playbackSnapshot.durationMs
+                    val videoNow = activeVideoId
+                    val parentIdNow = parentMetaId
+                    val parentTypeNow = parentMetaType.ifBlank { metaUiState.meta?.type.orEmpty() }
+                    val imdbNow = imdbId
+                    val blocked = introSubmitBlockReason(
+                        service, savedKey, movieNow, imdbNow, seasonNow ?: 0, episodeNow ?: 0,
+                    )
+                    if (blocked != null) {
+                        markSubmitError = introSubmitBlockMessage(
+                            blocked,
+                            requiredKeyMessage,
+                            introDbPrefixMessage,
+                            theIntroDbPrefixMessage,
+                            introDbMovieMessage,
+                            introDbEpisodeMessage,
+                        )
+                        return@SegmentMarkingLayer
+                    }
+                    val times = resolveIntroSubmitTimes(
+                        service = service,
+                        absentSegment = snapshot.absent,
+                        startTimeStr = submitIntroStartTimeStr,
+                        endTimeStr = submitIntroEndTimeStr,
+                    )
+                    if (times == null) {
+                        markSubmitError = if (snapshot.absent) noneRefused else couldNotSend
+                        return@SegmentMarkingLayer
+                    }
+                    if (!snapshot.absent &&
+                        markProblems(snapshot.segmentType, times.first, times.second, durationSec.takeIf { it > 0.0 }).isNotEmpty()
+                    ) {
+                        return@SegmentMarkingLayer
+                    }
                     submitting = true
                     markSubmitError = null
                     scope.launch {
-                        val posted = postMark(service, savedKey, startSec, endSec, durationSec)
+                        val posted = postMark(
+                            service = service,
+                            savedKey = savedKey,
+                            times = times,
+                            segmentType = snapshot.segmentType,
+                            season = seasonNow,
+                            episode = episodeNow,
+                            isMovie = movieNow,
+                            durationMs = durationNow,
+                            videoId = videoNow,
+                            parentMetaId = parentIdNow,
+                            parentMetaType = parentTypeNow,
+                            imdbId = imdbNow,
+                        )
+                        val stillCurrent = markSubmitResultApplies(
+                            snapshotGeneration = snapshot.generation,
+                            currentGeneration = markSubmitGeneration,
+                            stripOpen = showSubmitIntroModal,
+                        )
+                        if (!stillCurrent) {
+                            submitting = false
+                            return@launch
+                        }
                         submitting = false
-                        if (posted) {
-                            noteMarkingSubmitted(
+                        when (posted) {
+                            MarkPost.Sent -> noteMarkingSubmitted(
                                 IntroSubmitResult(
-                                    segmentType = markSegmentId(submitIntroSegmentType),
-                                    startSec = if (markAbsent) 0.0 else startSec ?: 0.0,
-                                    endSec = if (markAbsent) 0.0 else endSec ?: 0.0,
-                                    absentSegment = markAbsent,
+                                    segmentType = snapshot.segmentType,
+                                    startSec = times.first,
+                                    endSec = times.second,
+                                    absentSegment = snapshot.absent,
                                 ),
                             )
-                        } else if (markSubmitError == null) {
-                            markSubmitError = couldNotSend
+                            is MarkPost.Blocked -> markSubmitError = introSubmitBlockMessage(
+                                posted.reason,
+                                requiredKeyMessage,
+                                introDbPrefixMessage,
+                                theIntroDbPrefixMessage,
+                                introDbMovieMessage,
+                                introDbEpisodeMessage,
+                            )
+                            MarkPost.InvalidKey -> markSubmitError = invalidKeyMessage
+                            MarkPost.Failed -> {
+                                val lateBlock = introSubmitBlockReason(
+                                    service, savedKey, movieNow, imdbNow, seasonNow ?: 0, episodeNow ?: 0,
+                                )
+                                markSubmitError = when {
+                                    lateBlock != null -> introSubmitBlockMessage(
+                                        lateBlock,
+                                        requiredKeyMessage,
+                                        introDbPrefixMessage,
+                                        theIntroDbPrefixMessage,
+                                        introDbMovieMessage,
+                                        introDbEpisodeMessage,
+                                    )
+                                    service == IntroSubmitService.THE_INTRODB ->
+                                        TheIntroDb.lastSubmitError?.takeIf { it.isNotBlank() }
+                                    else -> null
+                                } ?: couldNotSend
+                            }
                         }
                     }
                 },
@@ -235,7 +384,11 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 onNudge = { delta -> setSubtitleDelay(subtitleDelayMs + delta) },
                 onHeard = { captureSubtitleSyncHeard() },
                 onSaw = { captureSubtitleSyncSaw() },
-                onReset = { setSubtitleDelay(subtitleDelayAfterReset()) },
+                onReset = {
+                    setSubtitleDelay(subtitleDelayAfterReset())
+                    subtitleSyncHeardPositionMs = null
+                    subtitleSyncSawPositionMs = null
+                },
                 onDone = { dismissPlayerTools() },
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
@@ -323,6 +476,9 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 onReloadEpisodeStreams = { reloadEpisodeStreams() },
                 episodesLoading = episodesLoading,
                 episodesFailed = episodesLoadFailed,
+                episodesEmptyNeedsRetry = episodesEmptyNeedsRetry,
+                episodesComplete = episodesComplete,
+                blurUnwatchedEpisodes = metaScreenSettingsUiState.blurUnwatchedEpisodes,
                 onRetryEpisodes = { retryEpisodesLoad() },
                 showTitle = title,
                 episodeLine = episodeCodeLine(),
@@ -385,43 +541,76 @@ private fun PlayerScreenRuntime.sharedMark(startSec: Double?, endSec: Double?): 
     )
 }
 
-private suspend fun PlayerScreenRuntime.postMark(
-    service: com.nuvio.app.features.player.skip.IntroSubmitService,
-    savedKey: String,
-    startSec: Double?,
-    endSec: Double?,
-    durationSec: Double,
-): Boolean {
-    val ready = prepareIntroSubmitKey(service, savedKey, savedKey)
-    if (ready !is IntroSubmitKeyPrepareResult.Ready) return false
-    val times = if (markAbsent) {
-        0.0 to 0.0
-    } else {
-        if (startSec == null || endSec == null) return false
-        if (markProblems(submitIntroSegmentType, startSec, endSec, durationSec.takeIf { it > 0.0 }).isNotEmpty()) {
-            return false
-        }
-        startSec to endSec
-    }
-    val (season, episode) = movieSubmitSeasonEpisode(isMoviePlayback, activeSeasonNumber, activeEpisodeNumber)
-    val imdbId = activeVideoId?.split(":")?.firstOrNull()?.takeIf { it.startsWith("tt") }
+private fun PlayerScreenRuntime.markingImdbId(): String =
+    activeVideoId?.split(":")?.firstOrNull()?.takeIf { it.startsWith("tt") }
         ?: parentMetaId.takeIf { it.startsWith("tt") }
         ?: metaUiState.meta?.id?.takeIf { it.startsWith("tt") }
         ?: metaUiState.meta?.imdbId?.takeIf { it.startsWith("tt") }
         ?: ""
-    return submitManualSkipSegment(
+
+private fun introSubmitBlockMessage(
+    reason: IntroSubmitBlockReason,
+    requiredKeyMessage: String,
+    introDbPrefixMessage: String,
+    theIntroDbPrefixMessage: String,
+    introDbMovieMessage: String,
+    introDbEpisodeMessage: String,
+): String = when (reason) {
+    IntroSubmitBlockReason.MISSING_KEY -> requiredKeyMessage
+    IntroSubmitBlockReason.INTRODB_KEY_SHAPE -> introDbPrefixMessage
+    IntroSubmitBlockReason.THEINTRODB_KEY_SHAPE -> theIntroDbPrefixMessage
+    IntroSubmitBlockReason.INTRODB_MOVIE -> introDbMovieMessage
+    IntroSubmitBlockReason.INTRODB_EPISODE -> introDbEpisodeMessage
+}
+
+private sealed interface MarkPost {
+    data object Sent : MarkPost
+    data class Blocked(val reason: IntroSubmitBlockReason) : MarkPost
+    data object InvalidKey : MarkPost
+    data object Failed : MarkPost
+}
+
+private suspend fun PlayerScreenRuntime.postMark(
+    service: IntroSubmitService,
+    savedKey: String,
+    times: Pair<Double, Double>,
+    segmentType: String,
+    season: Int?,
+    episode: Int?,
+    isMovie: Boolean,
+    durationMs: Long,
+    videoId: String?,
+    parentMetaId: String,
+    parentMetaType: String,
+    imdbId: String,
+): MarkPost {
+    when (val ready = prepareIntroSubmitKey(service, savedKey, savedKey)) {
+        IntroSubmitKeyPrepareResult.Ready -> Unit
+        IntroSubmitKeyPrepareResult.Invalid -> return MarkPost.InvalidKey
+        is IntroSubmitKeyPrepareResult.Rejected -> return MarkPost.Blocked(
+            when (ready.problem) {
+                IntroSubmitKeyProblem.MISSING -> IntroSubmitBlockReason.MISSING_KEY
+                IntroSubmitKeyProblem.INTRODB_PREFIX -> IntroSubmitBlockReason.INTRODB_KEY_SHAPE
+                IntroSubmitKeyProblem.THEINTRODB_PREFIX -> IntroSubmitBlockReason.THEINTRODB_KEY_SHAPE
+                IntroSubmitKeyProblem.NONE -> IntroSubmitBlockReason.MISSING_KEY
+            },
+        )
+    }
+    val (sentSeason, sentEpisode) = movieSubmitSeasonEpisode(isMovie, season, episode)
+    val sent = submitManualSkipSegment(
         imdbId = imdbId,
-        season = season ?: 0,
-        episode = episode ?: 0,
+        season = sentSeason ?: 0,
+        episode = sentEpisode ?: 0,
         startSec = times.first,
         endSec = times.second,
-        segmentType = markSegmentId(submitIntroSegmentType),
-        durationMs = playbackSnapshot.durationMs,
-        isMovie = isMoviePlayback,
-        videoId = activeVideoId ?: parentMetaId.ifBlank { metaUiState.meta?.id },
-        parentMetaType = parentMetaType.ifBlank { metaUiState.meta?.type.orEmpty() },
+        segmentType = segmentType,
+        durationMs = durationMs,
+        isMovie = isMovie,
+        videoId = videoId ?: parentMetaId.ifBlank { null },
+        parentMetaType = parentMetaType,
         service = service,
     )
+    return if (sent) MarkPost.Sent else MarkPost.Failed
 }
 
 private fun PlayerScreenRuntime.selectBuiltInSubtitle(index: Int) {

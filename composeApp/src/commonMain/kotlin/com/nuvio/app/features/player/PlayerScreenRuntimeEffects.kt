@@ -243,8 +243,13 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         subtitleAutoSyncState = SubtitleAutoSyncUiState()
     }
 
-    LaunchedEffect(playerController, subtitleStyle) {
-        playerController?.applySubtitleStyle(subtitleStyle)
+    LaunchedEffect(playerController, subtitleStyle, showSubtitleSyncByEar) {
+        val applied = if (showSubtitleSyncByEar) {
+            subtitleStyle.copy(bottomOffset = subtitleBottomOffsetForSyncStrip(subtitleStyle.bottomOffset))
+        } else {
+            subtitleStyle
+        }
+        playerController?.applySubtitleStyle(applied)
     }
 
     // iOS recognises hardware keys in the mpv view controller, because its UIKit view can hold

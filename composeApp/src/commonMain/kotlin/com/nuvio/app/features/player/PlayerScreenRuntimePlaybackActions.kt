@@ -268,12 +268,8 @@ internal fun PlayerScreenRuntime.resetIdentityStateIfNeeded() {
         pendingSeekScrobbleRestart = false
         hasSentCompletionScrobbleForCurrentItem = false
         currentTrackingMedia = null
-        clearSubmitIntroForm()
-        markSent = false
-        markAbsent = false
-        markSubmitError = null
-        markPreviewEndMs = null
-        markPreviewArmed = false
+        abandonMarkPreview()
+        dismissPlayerTools()
     }
 }
 

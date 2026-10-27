@@ -29,6 +29,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -100,6 +102,7 @@ internal fun SubtitleSyncStrip(
             .clip(StripShape)
             .background(PlayerToolSurface.copy(alpha = 0.88f))
             .border(1.dp, PlayerToolEdge, StripShape)
+            .consumeToolTaps()
             .padding(start = safeInset, end = safeInset, top = 6.dp, bottom = 8.dp),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -157,11 +160,13 @@ internal fun SegmentMarkingLayer(
     durationSec: Double,
     playheadSec: Double,
     absent: Boolean,
+    absentAllowed: Boolean,
     sent: Boolean,
     submitting: Boolean,
     keyProblem: Boolean,
-    keyMessage: String,
+    absentLine: String,
     addKeyLabel: String,
+    blockLine: String?,
     errorLine: String?,
     safeInset: Dp,
     onBack: () -> Unit,
@@ -190,7 +195,9 @@ internal fun SegmentMarkingLayer(
     }
     val bothSet = startSec != null && endSec != null
     val timeOk = bothSet && problems.isEmpty()
-    val canSend = !sent && !submitting && !keyProblem && (absent || timeOk)
+    val canSend = !sent && !submitting && !keyProblem && blockLine.isNullOrBlank() &&
+        (if (absent) absentAllowed else timeOk)
+    val editable = !submitting
     val segmentLabel = markSegmentLabel(segmentType)
     val where = if (isMovie) {
         listOfNotNull(segmentLabel, stringResource(Res.string.player_tools_movie), year).joinToString(" · ")
@@ -201,6 +208,8 @@ internal fun SegmentMarkingLayer(
         Row(
             modifier = Modifier
                 .align(Alignment.TopStart)
+                .fillMaxWidth()
+                .consumeToolTaps()
                 .padding(start = safeInset, end = safeInset, top = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -208,6 +217,7 @@ internal fun SegmentMarkingLayer(
                 icon = Icons.Rounded.Close,
                 description = stringResource(Res.string.action_close),
                 onClick = onBack,
+                enabled = editable,
             )
             Text(
                 text = title,
@@ -240,6 +250,7 @@ internal fun SegmentMarkingLayer(
                 .clip(StripShape)
                 .background(PlayerToolSurface.copy(alpha = 0.88f))
                 .border(1.dp, PlayerToolEdge, StripShape)
+                .consumeToolTaps()
                 .padding(start = safeInset, end = safeInset, top = 8.dp, bottom = 8.dp),
         ) {
             Row(
@@ -257,12 +268,14 @@ internal fun SegmentMarkingLayer(
                             label = markSegmentLabel(type),
                             selected = !absent && markSegmentId(segmentType) == type,
                             onClick = { onSegment(type) },
+                            enabled = editable,
                         )
                     }
                     PlayerToolChip(
                         label = stringResource(Res.string.player_tools_none),
                         selected = absent,
                         onClick = onAbsent,
+                        enabled = editable,
                     )
                 }
                 MarkStatus(
@@ -274,8 +287,9 @@ internal fun SegmentMarkingLayer(
                     segmentType = segmentType,
                     segmentLabel = segmentLabel,
                     keyProblem = keyProblem,
-                    keyMessage = keyMessage,
+                    absentLine = absentLine,
                     addKeyLabel = addKeyLabel,
+                    blockLine = blockLine,
                     errorLine = errorLine,
                     onAddKey = onAddKey,
                 )
@@ -285,12 +299,13 @@ internal fun SegmentMarkingLayer(
                 PlayerToolTextButton(
                     label = stringResource(Res.string.player_tools_preview),
                     onClick = onPreview,
-                    enabled = timeOk && !absent,
+                    enabled = editable && timeOk && !absent,
                 )
                 PlayerToolIconButton(
                     icon = Icons.Rounded.Close,
                     description = stringResource(Res.string.action_close),
                     onClick = onBack,
+                    enabled = editable,
                 )
             }
             Row(
@@ -307,6 +322,7 @@ internal fun SegmentMarkingLayer(
                         clock = startSec?.let(::formatMarkClock) ?: "–",
                         onMark = onMarkStart,
                         onNudge = onNudgeStart,
+                        enabled = editable,
                         shortcut = if (!absent && markSegmentOffersStartAtZero(segmentType)) {
                             stringResource(Res.string.player_tools_starts_at_zero)
                         } else {
@@ -319,6 +335,7 @@ internal fun SegmentMarkingLayer(
                         clock = endSec?.let(::formatMarkClock) ?: "–",
                         onMark = onMarkEnd,
                         onNudge = onNudgeEnd,
+                        enabled = editable,
                         shortcut = if (!absent && markSegmentOffersRunsToEnd(segmentType)) {
                             stringResource(Res.string.player_tools_runs_to_end)
                         } else {
@@ -358,8 +375,9 @@ private fun MarkStatus(
     segmentType: String,
     segmentLabel: String,
     keyProblem: Boolean,
-    keyMessage: String,
+    absentLine: String,
     addKeyLabel: String,
+    blockLine: String?,
     errorLine: String?,
     onAddKey: () -> Unit,
 ) {
@@ -372,11 +390,19 @@ private fun MarkStatus(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        !blockLine.isNullOrBlank() -> Text(
+            text = blockLine,
+            color = MarkError,
+            fontSize = 13.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
         absent -> Text(
-            text = keyMessage.takeIf { it.isNotBlank() } ?: "",
+            text = absentLine,
             color = Color.White.copy(alpha = 0.7f),
             fontSize = 13.sp,
             maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         bothSet && problems.isNotEmpty() -> {
             val length = markLengthSec(startSec, endSec)
@@ -437,6 +463,7 @@ private fun MarkClockRow(
     shortcut: String?,
     onShortcut: () -> Unit,
     runsToEnd: Boolean = false,
+    enabled: Boolean = true,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -447,12 +474,13 @@ private fun MarkClockRow(
             label = "$title  $clock",
             onClick = onMark,
             selected = runsToEnd,
+            enabled = enabled,
         )
         listOf(-1.0 to "−1", -0.1 to "−.1", 0.1 to "+.1", 1.0 to "+1").forEach { (delta, label) ->
-            PlayerToolTextButton(label, onClick = { onNudge(delta) })
+            PlayerToolTextButton(label, onClick = { onNudge(delta) }, enabled = enabled)
         }
         if (shortcut != null) {
-            PlayerToolTextButton(shortcut, onClick = onShortcut, selected = runsToEnd)
+            PlayerToolTextButton(shortcut, onClick = onShortcut, selected = runsToEnd, enabled = enabled)
         }
     }
 }
@@ -523,59 +551,81 @@ private fun MarkingSeekBar(
     onEnd: (Double) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val seekAllowed = markingSeekAllowed(durationSec)
     val window = markingZoomWindow(playheadSec, startSec, endSec, durationSec)
+    val windowState = rememberUpdatedState(window)
+    val playheadState = rememberUpdatedState(playheadSec)
+    val startState = rememberUpdatedState(startSec)
+    val endState = rememberUpdatedState(endSec)
+    val onSeekState = rememberUpdatedState(onSeek)
+    val onStartState = rememberUpdatedState(onStart)
+    val onEndState = rememberUpdatedState(onEnd)
     val tokens = MaterialTheme.nuvio
+    val labelColor = Color.White.copy(alpha = if (seekAllowed) 0.8f else 0.35f)
     Row(
         modifier = modifier
             .fillMaxWidth()
             .height(44.dp)
+            .consumeToolTaps()
             .padding(start = safeInset, end = safeInset),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(formatMarkClock(window.first), color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
+        Text(formatMarkClock(window.first), color = labelColor, fontSize = 12.sp)
         BoxWithConstraints(
             modifier = Modifier
                 .weight(1f)
                 .height(44.dp)
                 .padding(horizontal = 8.dp)
-                .pointerInput(window.first, window.second, startSec, endSec, playheadSec) {
-                    val width = { size.width.toFloat().coerceAtLeast(1f) }
-                    fun timeAt(x: Float): Double {
-                        val fraction = (x / width()).coerceIn(0f, 1f)
-                        return window.first + (window.second - window.first) * fraction
-                    }
-                    fun xOf(sec: Double): Float = zoomFraction(sec, window.first, window.second) * width()
-                    awaitEachGesture {
-                        val down = awaitFirstDown()
-                        val slop = 28.dp.toPx()
-                        val candidates = buildList {
-                            add(MarkDrag.Playhead to xOf(playheadSec))
-                            startSec?.let { add(MarkDrag.Start to xOf(it)) }
-                            endSec?.let { add(MarkDrag.End to xOf(it)) }
-                        }
-                        val nearest = candidates.minBy { abs(it.second - down.position.x) }
-                        val drag = if (abs(nearest.second - down.position.x) <= slop && nearest.first != MarkDrag.Playhead) {
-                            nearest.first
-                        } else {
-                            MarkDrag.Playhead
-                        }
-                        fun apply(x: Float) {
-                            val sec = timeAt(x)
-                            when (drag) {
-                                MarkDrag.Playhead -> onSeek(sec)
-                                MarkDrag.Start -> onStart(sec)
-                                MarkDrag.End -> onEnd(sec)
+                .then(
+                    if (!seekAllowed) {
+                        Modifier
+                    } else {
+                        Modifier.pointerInput(durationSec) {
+                            val width = { size.width.toFloat().coerceAtLeast(1f) }
+                            awaitEachGesture {
+                                val currentWindow = windowState.value
+                                val playhead = playheadState.value
+                                val start = startState.value
+                                val end = endState.value
+                                fun timeAt(x: Float): Double {
+                                    val fraction = (x / width()).coerceIn(0f, 1f)
+                                    return currentWindow.first + (currentWindow.second - currentWindow.first) * fraction
+                                }
+                                fun xOf(sec: Double): Float =
+                                    zoomFraction(sec, currentWindow.first, currentWindow.second) * width()
+                                val down = awaitFirstDown()
+                                val slop = 28.dp.toPx()
+                                val candidates = buildList {
+                                    add(MarkDrag.Playhead to xOf(playhead))
+                                    start?.let { add(MarkDrag.Start to xOf(it)) }
+                                    end?.let { add(MarkDrag.End to xOf(it)) }
+                                }
+                                val nearest = candidates.minBy { abs(it.second - down.position.x) }
+                                val drag = if (abs(nearest.second - down.position.x) <= slop && nearest.first != MarkDrag.Playhead) {
+                                    nearest.first
+                                } else {
+                                    MarkDrag.Playhead
+                                }
+                                fun apply(x: Float) {
+                                    if (!markingSeekAllowed(durationSec) && drag == MarkDrag.Playhead) return
+                                    val sec = timeAt(x)
+                                    when (drag) {
+                                        MarkDrag.Playhead -> onSeekState.value(sec)
+                                        MarkDrag.Start -> onStartState.value(sec)
+                                        MarkDrag.End -> onEndState.value(sec)
+                                    }
+                                }
+                                apply(down.position.x)
+                                drag(down.id) { change ->
+                                    if (change.positionChange() != Offset.Zero) {
+                                        change.consume()
+                                    }
+                                    apply(change.position.x)
+                                }
                             }
                         }
-                        apply(down.position.x)
-                        drag(down.id) { change ->
-                            if (change.positionChange() != Offset.Zero) {
-                                change.consume()
-                            }
-                            apply(change.position.x)
-                        }
-                    }
-                },
+                    },
+                ),
         ) {
             val trackWidth = maxWidth
             val startFraction = startSec?.let { zoomFraction(it, window.first, window.second) }
@@ -587,7 +637,7 @@ private fun MarkingSeekBar(
                     .fillMaxWidth()
                     .height(4.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(Color.White.copy(alpha = 0.28f)),
+                    .background(Color.White.copy(alpha = if (seekAllowed) 0.28f else 0.12f)),
             )
             if (startFraction != null && endFraction != null && endFraction > startFraction) {
                 Box(
@@ -611,10 +661,10 @@ private fun MarkingSeekBar(
                     .offset(x = trackWidth * playFraction - 8.dp)
                     .size(16.dp)
                     .clip(CircleShape)
-                    .background(Color.White),
+                    .background(Color.White.copy(alpha = if (seekAllowed) 1f else 0.35f)),
             )
         }
-        Text(formatMarkClock(window.second), color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
+        Text(formatMarkClock(window.second), color = labelColor, fontSize = 12.sp)
     }
 }
 

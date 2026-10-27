@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.core.ui.spoilerBlur
 import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.party.PartyRepository
 import com.nuvio.app.features.party.partyMediaKey
@@ -97,7 +98,28 @@ import nuvio.composeapp.generated.resources.player_tools_off
 import nuvio.composeapp.generated.resources.party_shared_by
 import nuvio.composeapp.generated.resources.player_tools_playing
 import nuvio.composeapp.generated.resources.player_tools_reset_video
+import nuvio.composeapp.generated.resources.player_tools_1080p
+import nuvio.composeapp.generated.resources.player_tools_4k
+import nuvio.composeapp.generated.resources.player_tools_720p
+import nuvio.composeapp.generated.resources.player_tools_addon
+import nuvio.composeapp.generated.resources.player_tools_addon_name
+import nuvio.composeapp.generated.resources.player_tools_all
+import nuvio.composeapp.generated.resources.player_tools_forced
 import nuvio.composeapp.generated.resources.player_tools_resolution
+import nuvio.composeapp.generated.resources.player_tools_sdh
+import nuvio.composeapp.generated.resources.player_tools_seeders
+import nuvio.composeapp.generated.resources.player_tools_style_custom
+import nuvio.composeapp.generated.resources.player_tools_style_large
+import nuvio.composeapp.generated.resources.player_tools_style_medium
+import nuvio.composeapp.generated.resources.player_tools_style_small
+import nuvio.composeapp.generated.resources.player_tools_style_white
+import nuvio.composeapp.generated.resources.player_tools_style_yellow
+import nuvio.composeapp.generated.resources.player_tools_tab_audio
+import nuvio.composeapp.generated.resources.player_tools_tab_episodes
+import nuvio.composeapp.generated.resources.player_tools_tab_info
+import nuvio.composeapp.generated.resources.player_tools_tab_sources
+import nuvio.composeapp.generated.resources.player_tools_tab_subs
+import nuvio.composeapp.generated.resources.player_tools_tab_video
 import nuvio.composeapp.generated.resources.player_tools_show
 import nuvio.composeapp.generated.resources.player_tools_speed
 import nuvio.composeapp.generated.resources.player_tools_sync
@@ -116,13 +138,23 @@ import nuvio.composeapp.generated.resources.player_video_settings_saturation
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.roundToInt
 
-internal enum class PlayerToolTab(val label: String, val icon: ImageVector) {
-    Subs("Subs", Icons.Rounded.ClosedCaption),
-    Audio("Audio", Icons.Rounded.GraphicEq),
-    Sources("Srcs", Icons.Rounded.Download),
-    Episodes("Eps", Icons.Rounded.GridView),
-    Info("Info", Icons.Rounded.Info),
-    Video("Video", Icons.Rounded.Tune),
+internal enum class PlayerToolTab(val icon: ImageVector) {
+    Subs(Icons.Rounded.ClosedCaption),
+    Audio(Icons.Rounded.GraphicEq),
+    Sources(Icons.Rounded.Download),
+    Episodes(Icons.Rounded.GridView),
+    Info(Icons.Rounded.Info),
+    Video(Icons.Rounded.Tune),
+}
+
+@Composable
+internal fun PlayerToolTab.title(): String = when (this) {
+    PlayerToolTab.Subs -> stringResource(Res.string.player_tools_tab_subs)
+    PlayerToolTab.Audio -> stringResource(Res.string.player_tools_tab_audio)
+    PlayerToolTab.Sources -> stringResource(Res.string.player_tools_tab_sources)
+    PlayerToolTab.Episodes -> stringResource(Res.string.player_tools_tab_episodes)
+    PlayerToolTab.Info -> stringResource(Res.string.player_tools_tab_info)
+    PlayerToolTab.Video -> stringResource(Res.string.player_tools_tab_video)
 }
 
 @Composable
@@ -178,6 +210,9 @@ internal fun PlayerToolsPanel(
     onReloadEpisodeStreams: () -> Unit,
     episodesLoading: Boolean,
     episodesFailed: Boolean,
+    episodesEmptyNeedsRetry: Boolean,
+    episodesComplete: Boolean,
+    blurUnwatchedEpisodes: Boolean,
     onRetryEpisodes: () -> Unit,
     showTitle: String,
     episodeLine: String?,
@@ -207,7 +242,8 @@ internal fun PlayerToolsPanel(
             .shadow(18.dp, shape, clip = false)
             .clip(shape)
             .background(PlayerToolSurface.copy(alpha = 0.88f))
-            .border(1.dp, PlayerToolEdge, shape),
+            .border(1.dp, PlayerToolEdge, shape)
+            .consumeToolTaps(),
     ) {
         Column(
             modifier = Modifier
@@ -285,6 +321,9 @@ internal fun PlayerToolsPanel(
                         watchedKeys = watchedKeys,
                         loading = episodesLoading,
                         failed = episodesFailed,
+                        emptyNeedsRetry = episodesEmptyNeedsRetry,
+                        episodesComplete = episodesComplete,
+                        blurUnwatched = blurUnwatchedEpisodes,
                         onEpisode = onEpisode,
                         onRetry = onRetryEpisodes,
                     )
@@ -338,12 +377,12 @@ private fun PlayerToolTabs(
             ) {
                 Icon(
                     imageVector = item.icon,
-                    contentDescription = item.label,
+                    contentDescription = item.title(),
                     tint = if (selected) tokens.colors.onAccent else Color.White.copy(alpha = 0.8f),
                     modifier = Modifier.size(14.dp),
                 )
                 Text(
-                    text = item.label,
+                    text = item.title(),
                     color = if (selected) tokens.colors.onAccent else Color.White,
                     fontSize = 10.sp,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
@@ -419,7 +458,7 @@ private fun SubsPage(
                             is SubtitleSelectionOption.Addon ->
                                 option.subtitle.matchesSelection(effectiveAddon?.selectionKey)
                         }
-                        val badge = subtitleBadge(option)
+                        val badge = subtitleBadge(option)?.label()
                         PlayerToolRow(
                             title = subtitleOptionTitle(label, option),
                             selected = selectedOption,
@@ -554,19 +593,23 @@ private fun SourcesPage(
     var bucket by remember { mutableStateOf<SourceQualityBucket?>(null) }
     val facts = remember(all) { all.map { it to sourceFactsFor(it) } }
     val shown = facts.filter { bucket == null || it.second.bucket == bucket }
+    val allLabel = stringResource(Res.string.player_tools_all, all.size)
+    val label4k = stringResource(Res.string.player_tools_4k)
+    val label1080 = stringResource(Res.string.player_tools_1080p)
+    val label720 = stringResource(Res.string.player_tools_720p)
     Column(Modifier.fillMaxSize()) {
         LazyRow(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             item {
-                PlayerToolChip("All ${all.size}", bucket == null, onClick = { bucket = null })
+                PlayerToolChip(allLabel, bucket == null, onClick = { bucket = null })
             }
             val counts = facts.groupingBy { it.second.bucket }.eachCount()
             listOf(
-                SourceQualityBucket.Uhd to "4K",
-                SourceQualityBucket.P1080 to "1080p",
-                SourceQualityBucket.P720 to "720p",
+                SourceQualityBucket.Uhd to label4k,
+                SourceQualityBucket.P1080 to label1080,
+                SourceQualityBucket.P720 to label720,
             ).forEach { (kind, label) ->
                 val count = counts[kind] ?: 0
                 if (count > 0) {
@@ -607,6 +650,9 @@ private fun EpisodesPage(
     watchedKeys: Set<String>,
     loading: Boolean,
     failed: Boolean,
+    emptyNeedsRetry: Boolean,
+    episodesComplete: Boolean,
+    blurUnwatched: Boolean,
     onEpisode: (MetaVideo) -> Unit,
     onRetry: () -> Unit,
 ) {
@@ -627,6 +673,13 @@ private fun EpisodesPage(
         )
     }
     val rows = grouped[season].orEmpty().sortedBy { it.episode ?: 0 }
+    val body = episodesPanelBody(
+        loading = loading,
+        failed = failed,
+        episodeCount = episodes.size,
+        emptyNeedsRetry = emptyNeedsRetry,
+        episodesComplete = episodesComplete,
+    )
     Column(Modifier.fillMaxSize()) {
         if (seasons.isNotEmpty()) {
             LazyRow(
@@ -643,20 +696,29 @@ private fun EpisodesPage(
                 }
             }
         }
-        when {
-            loading && rows.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        when (body) {
+            EpisodesPanelBody.Loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("…", color = Color.White)
             }
-            failed && rows.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            EpisodesPanelBody.Failed -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 PlayerToolTextButton(stringResource(Res.string.action_retry), onRetry)
             }
-            rows.isEmpty() -> Box(Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
+            EpisodesPanelBody.Empty -> Box(Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
                 Text(
                     stringResource(Res.string.compose_player_no_episodes_available),
                     color = Color.White.copy(alpha = 0.7f),
                 )
             }
-            else -> LazyColumn(Modifier.weight(1f)) {
+            EpisodesPanelBody.List, EpisodesPanelBody.Partial -> LazyColumn(Modifier.weight(1f)) {
+                if (body == EpisodesPanelBody.Partial) {
+                    item {
+                        PlayerToolTextButton(
+                            label = stringResource(Res.string.action_retry),
+                            onClick = onRetry,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                        )
+                    }
+                }
                 items(rows, key = { "${it.season}:${it.episode}:${it.id}" }) { episode ->
                     EpisodeToolRow(
                         episode = episode,
@@ -666,6 +728,7 @@ private fun EpisodesPage(
                         currentEpisode = currentEpisode,
                         progress = progress,
                         watchedKeys = watchedKeys,
+                        blurUnwatched = blurUnwatched,
                         onClick = { onEpisode(episode) },
                     )
                 }
@@ -683,6 +746,7 @@ private fun EpisodeToolRow(
     currentEpisode: Int?,
     progress: Map<String, WatchProgressEntry>,
     watchedKeys: Set<String>,
+    blurUnwatched: Boolean,
     onClick: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
@@ -727,7 +791,7 @@ private fun EpisodeToolRow(
                 AsyncImage(
                     model = thumb,
                     contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().spoilerBlur(blurUnwatched && !watched),
                     contentScale = ContentScale.Crop,
                 )
             }
@@ -1091,44 +1155,57 @@ private fun PictureLine(title: String, value: Int, onChange: (Int) -> Unit) {
     }
 }
 
-private fun subtitleBadge(option: SubtitleSelectionOption): String? = when (option) {
+private enum class SubtitleBadgeKind { Sdh, Forced, Addon }
+
+private fun subtitleBadge(option: SubtitleSelectionOption): SubtitleBadgeKind? = when (option) {
     is SubtitleSelectionOption.BuiltIn -> when {
-        option.track.isForced || option.track.label.contains("forced", ignoreCase = true) -> "FORCED"
-        option.track.label.contains("sdh", ignoreCase = true) -> "SDH"
+        option.track.isForced || option.track.label.contains("forced", ignoreCase = true) -> SubtitleBadgeKind.Forced
+        option.track.label.contains("sdh", ignoreCase = true) -> SubtitleBadgeKind.Sdh
         else -> null
     }
     is SubtitleSelectionOption.Addon -> when {
-        option.subtitle.display.contains("sdh", ignoreCase = true) -> "SDH"
-        option.subtitle.display.contains("forced", ignoreCase = true) -> "FORCED"
-        else -> "ADDON"
+        option.subtitle.display.contains("sdh", ignoreCase = true) -> SubtitleBadgeKind.Sdh
+        option.subtitle.display.contains("forced", ignoreCase = true) -> SubtitleBadgeKind.Forced
+        else -> SubtitleBadgeKind.Addon
     }
 }
 
+@Composable
+private fun SubtitleBadgeKind.label(): String = when (this) {
+    SubtitleBadgeKind.Sdh -> stringResource(Res.string.player_tools_sdh)
+    SubtitleBadgeKind.Forced -> stringResource(Res.string.player_tools_forced)
+    SubtitleBadgeKind.Addon -> stringResource(Res.string.player_tools_addon)
+}
+
+@Composable
 private fun subtitleOptionTitle(language: String, option: SubtitleSelectionOption): String {
     val raw = when (option) {
         is SubtitleSelectionOption.BuiltIn -> option.track.label
         is SubtitleSelectionOption.Addon -> option.subtitle.display.ifBlank { option.subtitle.addonName.orEmpty() }
     }
-    val variant = when (subtitleBadge(option)) {
-        "SDH" -> "SDH"
-        "FORCED" -> "Forced"
-        "ADDON" -> raw.ifBlank { "OpenSubtitles" }
-        else -> raw
+    val addonFallback = stringResource(Res.string.player_tools_addon_name)
+    val variant = when (val badge = subtitleBadge(option)) {
+        SubtitleBadgeKind.Sdh, SubtitleBadgeKind.Forced -> badge.label()
+        SubtitleBadgeKind.Addon -> raw.ifBlank { addonFallback }
+        null -> raw
     }
     return if (variant.isBlank() || variant.equals(language, ignoreCase = true)) language else "$language · $variant"
 }
 
+@Composable
 private fun subtitleStyleSummary(style: SubtitleStyleState): String {
     val size = when {
-        style.fontSizeSp >= 24 -> "Large"
-        style.fontSizeSp >= 16 -> "Medium"
-        else -> "Small"
+        style.fontSizeSp >= 24 -> stringResource(Res.string.player_tools_style_large)
+        style.fontSizeSp >= 16 -> stringResource(Res.string.player_tools_style_medium)
+        else -> stringResource(Res.string.player_tools_style_small)
     }
     val color = style.textColor
     val name = when {
-        color.red > 0.85f && color.green > 0.75f && color.blue < 0.45f -> "Yellow"
-        color.red > 0.9f && color.green > 0.9f && color.blue > 0.9f -> "White"
-        else -> "Custom"
+        color.red > 0.85f && color.green > 0.75f && color.blue < 0.45f ->
+            stringResource(Res.string.player_tools_style_yellow)
+        color.red > 0.9f && color.green > 0.9f && color.blue > 0.9f ->
+            stringResource(Res.string.player_tools_style_white)
+        else -> stringResource(Res.string.player_tools_style_custom)
     }
     return "$size · $name"
 }
@@ -1149,7 +1226,7 @@ private fun sourceSubtitle(facts: SourceRowFacts): String {
     return listOfNotNull(
         facts.quality,
         facts.sizeLabel,
-        facts.seeders?.let { "$it seeders" },
+        facts.seeders?.let { stringResource(Res.string.player_tools_seeders, it) },
         cached.takeIf { facts.cached },
     ).joinToString(" · ")
 }
