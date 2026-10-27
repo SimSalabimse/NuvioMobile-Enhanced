@@ -103,6 +103,7 @@ internal fun PlayerScreenRuntime.partyBlocksControl(): Boolean {
 }
 
 internal fun PlayerScreenRuntime.openPartyPanel() {
+    closePlayerTools()
     if (PartyChat.unread.value > 0) showPartyChat = true
     showPartyPanel = true
     controlsVisible = false
@@ -230,9 +231,8 @@ private fun PlayerScreenRuntime.handlePartyMediaChange(media: PartyMedia) {
         }
         val video = playerMetaVideos.firstOrNull { it.season == season && it.episode == episode }
         if (video != null) {
+            showPlayerTool(PlayerTool.Episodes)
             episodeStreamsPanelState = EpisodeStreamsPanelState(showStreams = true, selectedEpisode = video)
-            showEpisodesPanel = true
-            showPartyPanel = false
             return
         }
     }
@@ -579,7 +579,10 @@ internal fun BoxScope.RenderParty(runtime: PlayerScreenRuntime) {
                 partyBehind = false
                 showPartyPanel = false
             },
-            onDismiss = { showPartyPanel = false },
+            onDismiss = {
+                showPartyPanel = false
+                controlsVisible = dismissToolState(playerControlsLocked).controlsVisible
+            },
         )
     }
 }

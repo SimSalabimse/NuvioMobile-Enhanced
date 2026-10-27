@@ -8,6 +8,7 @@ Built from the code at build 197 (0.6.4.1), which includes upstream 0.6.4-beta. 
 - iOS audio output and video output (hardware decoder, extended dynamic range, colour hints): Settings › Playback › iOS Audio/Video Output. Upstream.
 - Preferred and secondary audio and subtitle languages, strip SDH, forced subtitles, show only preferred languages, auto-show subtitles on rewind or mute: Settings › Playback › Subtitle and Audio. Upstream.
 - Subtitle rendering (size, offset, bold, colours, outline, shadow, libass on by default): Settings › Playback › Subtitle Rendering. Upstream; shadow and imported subtitle fonts in 0.6.4.1. An imported font is used for Latin subtitles; Chinese, Japanese and Korean keep the bundled face.
+- Player tools open in one right-hand panel (Subtitles, Audio, Sources, Episodes, Info, Video settings) over the playing video. Subtitles keeps Off, language tracks, a pinned Sync row and Style in the same panel. The older separate subtitle, audio, sources, episodes, playback-info and video-settings panels were replaced. Sync drops the panel into a bottom strip (−0.1 / +0.1, Heard it / Saw it, Reset, Done). Aspect, speed, brightness, contrast, saturation and tone-map stay on the Video tab, with Reset pinned.
 - Audio and subtitle choices and playback speed remembered per show: automatic, in the player. 0.5.10.3.
 - Sleep timer: player › speed popup. 181.
 - Mini player (off by default): Settings › Playback › Mini Player. 0.5.10.1; default off in 190.
@@ -35,6 +36,7 @@ Built from the code at build 197 (0.6.4.1), which includes upstream 0.6.4-beta. 
 - TheIntroDB community times, "TheIntroDB only", on-device fallback: Settings › Playback › Skip Segments. 0.5.10.3.
 - TheIntroDB import of your own submissions, labelled "TheIntroDB (yours)" (same label in the player and the skip list, 196): Settings › Playback › TheIntroDB import / Your TheIntroDB submissions. 0.5.10.3; same-length check in 192.
 - Intro submission (IntroDB and TheIntroDB API keys): Settings › Playback › Skip Segments. Upstream.
+- Submit Timestamps is a bottom marking strip on the playing video (Intro, Recap, Credits, Preview; movies are Intro and Credits). Mark start and end at the playhead, nudge them, and Submit stays on screen. The seek bar zooms to about two minutes around the range. The Flag in the top pill opens the same strip pre-filled; Mark segment in the more menu opens it blank. A missing key is a row in the strip that opens the existing key dialog. The older timestamp dialog was replaced.
 - AnimeSkip: Settings › Playback › Skip Segments. Upstream.
 - Ask after Skip (Good/Wrong): Settings › Playback › Skip Segments. 0.5.10.3.
 - Your marks and shared nuvio://skip links: player skip menu. 191/192.

@@ -295,6 +295,13 @@ internal class PlayerScreenRuntime(
     var downloadSwapPartialFallbacks: Int = 0
     var subtitleAutoSyncState by mutableStateOf(SubtitleAutoSyncUiState())
     var showSubtitleSyncByEar by mutableStateOf(false)
+    var playerToolTab by mutableStateOf(PlayerToolTab.Subs)
+    var playerStyleOpen by mutableStateOf(false)
+    var markPreviewEndMs by mutableStateOf<Long?>(null)
+    var markPreviewArmed by mutableStateOf(false)
+    var markSent by mutableStateOf(false)
+    var markAbsent by mutableStateOf(false)
+    var markSubmitError by mutableStateOf<String?>(null)
     var subtitleSyncHeardPositionMs by mutableStateOf<Long?>(null)
     var subtitleSyncSawPositionMs by mutableStateOf<Long?>(null)
     var isAutoSubtitleShowing by mutableStateOf(false)
@@ -317,6 +324,7 @@ internal class PlayerScreenRuntime(
             showChaptersPanel ||
             showLiveChannelsPanel ||
             showSubmitIntroModal ||
+            showSubtitleSyncByEar ||
             showParentalGuide ||
             episodeStreamsPanelState.showStreams
 

@@ -146,63 +146,6 @@ internal fun PlayerScreenModalHosts(
         )
     }
 
-    AudioTrackModal(
-        visible = showAudioModal,
-        audioTracks = audioTracks,
-        selectedIndex = selectedAudioIndex,
-        onTrackSelected = onAudioTrackSelected,
-        onDismiss = onAudioModalDismissed,
-    )
-
-    SubtitleModal(
-        visible = showSubtitleModal,
-        subtitleTracks = subtitleTracks,
-        selectedSubtitleIndex = selectedSubtitleIndex,
-        addonSubtitles = addonSubtitles,
-        selectedAddonSubtitleId = selectedAddonSubtitleId,
-        isLoadingAddonSubtitles = isLoadingAddonSubtitles,
-        preferredSubtitleLanguage = playerSettings.preferredSubtitleLanguage,
-        secondaryPreferredSubtitleLanguage = playerSettings.secondaryPreferredSubtitleLanguage,
-        subtitleStyle = subtitleStyle,
-        subtitleDelayMs = subtitleDelayMs,
-        selectedAddonSubtitle = selectedAddonSubtitle,
-        subtitleAutoSyncState = subtitleAutoSyncState,
-        onBuiltInTrackSelected = onBuiltInSubtitleTrackSelected,
-        onAddonSubtitleSelected = onAddonSubtitleSelected,
-        onFetchAddonSubtitles = onFetchAddonSubtitles,
-        onStyleChanged = onSubtitleStyleChanged,
-        onSubtitleDelayChanged = onSubtitleDelayChanged,
-        onSubtitleDelayReset = onSubtitleDelayReset,
-        onSyncByEarClick = onSyncByEarClick,
-        onAutoSyncAutomatic = onAutoSyncAutomatic,
-        onAutoSyncCapture = onAutoSyncCapture,
-        onAutoSyncCueSelected = onAutoSyncCueSelected,
-        onAutoSyncReload = onAutoSyncReload,
-        onDismiss = onSubtitleModalDismissed,
-    )
-
-    IosVideoSettingsModal(
-        visible = showVideoSettingsModal,
-        settings = playerSettings,
-        onSettingsChanged = onVideoSettingsChanged,
-        onDismiss = onVideoSettingsModalDismissed,
-    )
-
-    PlayerSourcesPanel(
-        visible = showSourcesPanel,
-        streamsUiState = sourceStreamsState,
-        contentTitle = contentTitle,
-        currentSeason = activeSeasonNumber,
-        currentEpisode = activeEpisodeNumber,
-        currentEpisodeTitle = activeEpisodeTitle,
-        currentStreamUrl = activeSourceUrl,
-        currentStreamName = activeStreamTitle,
-        onFilterSelected = onSourceFilterSelected,
-        onStreamSelected = onSourceStreamSelected,
-        onReload = onReloadSources,
-        onDismiss = onSourcesPanelDismissed,
-    )
-
     PlayerLiveChannelsPanel(
         visible = showLiveChannelsPanel,
         channels = liveTvChannels,
@@ -220,39 +163,6 @@ internal fun PlayerScreenModalHosts(
         onDismiss = onQualityPanelDismissed,
     )
 
-    if (isSeries) {
-        PlayerEpisodesPanel(
-            visible = showEpisodesPanel,
-            episodes = allEpisodes,
-            parentMetaType = parentMetaType,
-            parentMetaId = parentMetaId,
-            currentSeason = activeSeasonNumber,
-            currentEpisode = activeEpisodeNumber,
-            progressByVideoId = watchProgressByVideoId,
-            watchedKeys = watchedKeys,
-            blurUnwatchedEpisodes = blurUnwatchedEpisodes,
-            episodeStreamsState = episodeStreamsPanelState.copy(
-                streamsUiState = episodeStreamsRepoState,
-            ),
-            onSeasonSelected = { },
-            onEpisodeSelected = { episode ->
-                if (!onEpisodeSelectedForDownload(episode)) {
-                    onEpisodeStreamsRequested(episode)
-                }
-            },
-            onEpisodeStreamFilterSelected = onEpisodeStreamFilterSelected,
-            onEpisodeStreamSelected = onEpisodeStreamSelected,
-            onBackToEpisodes = onBackToEpisodes,
-            onReloadEpisodeStreams = onReloadEpisodeStreams,
-            onDismiss = onEpisodesPanelDismissed,
-            episodesLoading = episodesLoading,
-            episodesLoadFailed = episodesLoadFailed,
-            episodesEmptyNeedsRetry = episodesEmptyNeedsRetry,
-            episodesComplete = episodesComplete,
-            onRetryEpisodes = onRetryEpisodes,
-        )
-    }
-
     PlayerChaptersPanel(
         visible = showChaptersPanel,
         chapters = chapters,
@@ -261,45 +171,6 @@ internal fun PlayerScreenModalHosts(
         onDismiss = onChaptersPanelDismissed,
     )
 
-    val season = activeSeasonNumber
-    val episode = activeEpisodeNumber
-    val imdbId = activeVideoId?.split(":")?.firstOrNull()?.takeIf { it.startsWith("tt") }
-        ?: parentMetaId.takeIf { it.startsWith("tt") }
-        ?: metaUiState.meta?.id?.takeIf { it.startsWith("tt") }
-        ?: metaUiState.meta?.imdbId?.takeIf { it.startsWith("tt") }
-    val isMovie = !isSeries || parentMetaType.equals("movie", ignoreCase = true)
-
-    if (showSubmitIntroModal) {
-        com.nuvio.app.features.player.skip.SubmitIntroDialog(
-            imdbId = imdbId.orEmpty(),
-            season = season ?: 0,
-            episode = episode ?: 0,
-            currentTimeSec = (playbackClock?.positionMs ?: 0L) / 1000.0,
-            segmentType = submitIntroSegmentType,
-            onSegmentTypeChange = onSubmitIntroSegmentTypeChanged,
-            startTimeStr = submitIntroStartTimeStr,
-            onStartTimeChange = onSubmitIntroStartTimeChanged,
-            endTimeStr = submitIntroEndTimeStr,
-            onEndTimeChange = onSubmitIntroEndTimeChanged,
-            onDismiss = onSubmitIntroDismissed,
-            onSuccess = onSubmitIntroSuccess,
-            durationMs = durationMs,
-            isMovie = isMovie,
-            videoId = activeVideoId ?: parentMetaId.ifBlank { metaUiState.meta?.id },
-            parentMetaType = parentMetaType.ifBlank { metaUiState.meta?.type.orEmpty() },
-            existingSegments = skipIntervals,
-            submittedTypesInSession = submittedSegmentTypesInSession,
-            shareMetaId = parentMetaId.ifBlank { metaUiState.meta?.id }?.takeIf { it.isNotBlank() },
-        )
-    }
-
-    PlaybackInfoModal(
-        visible = showStreamInfoModal,
-        mediaInfoJson = mediaInfoJson,
-        selectedQualityVariant = selectedQualityVariant,
-        selectedQualityIsAuto = selectedQualityIsAuto,
-        onDismiss = onStreamInfoModalDismissed,
-    )
 }
 
 internal fun selectDownloadedEpisodeForPlayback(

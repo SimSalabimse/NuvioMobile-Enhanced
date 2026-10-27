@@ -1,13 +1,17 @@
 package com.nuvio.app.features.player
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -15,6 +19,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -37,10 +42,15 @@ import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material.icons.rounded.SwapHoriz
+import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -62,6 +72,7 @@ import androidx.compose.ui.unit.sp
 import com.nuvio.app.core.ui.AppIconResource
 import com.nuvio.app.core.ui.NuvioBackButton
 import com.nuvio.app.core.ui.appIconPainter
+import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioTypeScale
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.StringResource
@@ -247,6 +258,8 @@ internal fun PlayerControlActions(
     onRateClick: (() -> Unit)? = null,
     userRating: Int? = null,
     onInteraction: () -> Unit,
+    onMarkSegmentClick: (() -> Unit)? = null,
+    onLiveChannelsClick: (() -> Unit)? = null,
 ) {
     val primaryActions = listOfNotNull(
         onNextEpisodeClick?.let {
@@ -283,28 +296,6 @@ internal fun PlayerControlActions(
         },
     )
     val secondaryActions = listOfNotNull(
-        PlayerControlAction(
-            stringResource(Res.string.compose_player_audio), onAudioClick,
-            painter = appIconPainter(AppIconResource.PlayerAudioFilled),
-        ),
-        onQualityClick?.let {
-            PlayerControlAction(
-                qualityLabel?.takeIf { label -> label.isNotBlank() } ?: "Quality", it,
-                icon = Icons.Rounded.HighQuality,
-            )
-        },
-        onSourcesClick?.let {
-            PlayerControlAction(
-                stringResource(Res.string.compose_player_sources), it,
-                painter = appIconPainter(AppIconResource.PlayerSource),
-            )
-        },
-        onEpisodesClick?.let {
-            PlayerControlAction(
-                stringResource(Res.string.compose_player_episodes), it,
-                painter = appIconPainter(AppIconResource.PlayerEpisodes),
-            )
-        },
         onRateClick?.let {
             PlayerControlAction(
                 userRating?.let { rating -> stringResource(Res.string.user_rating_action_rated, rating) }
@@ -337,19 +328,49 @@ internal fun PlayerControlActions(
                 icon = Icons.Rounded.SwapHoriz,
             )
         },
+    )
+    val menuActions = listOfNotNull(
+        onMarkSegmentClick?.let {
+            PlayerControlAction(stringResource(Res.string.player_tools_mark_segment), it, icon = Icons.Rounded.Flag)
+        },
+        PlayerControlAction(
+            stringResource(Res.string.compose_player_subtitles), onSubtitleClick,
+            painter = appIconPainter(AppIconResource.PlayerSubtitles),
+        ),
+        PlayerControlAction(
+            stringResource(Res.string.compose_player_audio), onAudioClick,
+            painter = appIconPainter(AppIconResource.PlayerAudioFilled),
+        ),
+        onSourcesClick?.let {
+            PlayerControlAction(
+                stringResource(Res.string.compose_player_sources), it,
+                painter = appIconPainter(AppIconResource.PlayerSource),
+            )
+        },
+        onEpisodesClick?.let {
+            PlayerControlAction(
+                stringResource(Res.string.compose_player_episodes), it,
+                painter = appIconPainter(AppIconResource.PlayerEpisodes),
+            )
+        },
         onVideoSettingsClick?.let {
             PlayerControlAction(
                 stringResource(Res.string.player_action_video_settings), it,
                 icon = Icons.Rounded.Build,
             )
         },
-    )
-    val hasOverflow = secondaryActions.isNotEmpty()
-    var expanded by remember(hasOverflow) { mutableStateOf(false) }
+        onQualityClick?.let {
+            PlayerControlAction(
+                qualityLabel?.takeIf { label -> label.isNotBlank() } ?: "Quality", it,
+                icon = Icons.Rounded.HighQuality,
+            )
+        },
+        onLiveChannelsClick?.let {
+            PlayerControlAction(stringResource(Res.string.compose_player_channels), it, icon = Icons.Rounded.Tv)
+        },
+    ) + secondaryActions
+    var menuOpen by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
-    LaunchedEffect(expanded, scrollState.maxValue) {
-        if (expanded) scrollState.animateScrollTo(scrollState.maxValue) else scrollState.scrollTo(0)
-    }
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = PlayerTimelineContentInset),
@@ -357,6 +378,17 @@ internal fun PlayerControlActions(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(modifier = Modifier.weight(1f)) {
+                if (menuOpen) {
+                    PlayerToolsMenu(
+                        actions = menuActions,
+                        onPick = { action ->
+                            menuOpen = false
+                            onInteraction()
+                            action.onClick()
+                        },
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 56.dp, end = 4.dp),
+                    )
+                }
                 Row(
                     modifier = Modifier
                         .playerLiquidGlass(
@@ -367,7 +399,7 @@ internal fun PlayerControlActions(
                         .horizontalScroll(scrollState),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    (if (expanded) primaryActions + secondaryActions else primaryActions).forEach { action ->
+                    primaryActions.forEach { action ->
                         Box {
                             PlayerAction(
                                 description = action.description,
@@ -382,18 +414,14 @@ internal fun PlayerControlActions(
                             action.popup?.invoke()
                         }
                     }
-                    if (hasOverflow) {
-                        PlayerAction(
-                            description = stringResource(
-                                if (expanded) Res.string.compose_player_fewer_actions else Res.string.compose_player_more_actions,
-                            ),
-                            onClick = {
-                                expanded = !expanded
-                                onInteraction()
-                            },
-                            icon = if (expanded) Icons.AutoMirrored.Rounded.KeyboardArrowLeft else Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                        )
-                    }
+                    PlayerAction(
+                        description = stringResource(Res.string.compose_player_more_actions),
+                        onClick = {
+                            menuOpen = !menuOpen
+                            onInteraction()
+                        },
+                        icon = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    )
                 }
             }
             Box(
@@ -472,6 +500,53 @@ private fun PlayerAction(
 }
 
 internal val PlayerGlassCapsule = RoundedCornerShape(percent = 50)
+
+@Composable
+private fun PlayerToolsMenu(
+    actions: List<PlayerControlAction>,
+    onPick: (PlayerControlAction) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        modifier = modifier
+            .widthIn(min = 220.dp, max = 280.dp)
+            .heightIn(max = 280.dp)
+            .shadow(16.dp, shape)
+            .clip(shape)
+            .background(PlayerToolSurface.copy(alpha = 0.88f))
+            .border(1.dp, PlayerToolEdge, shape)
+            .verticalScroll(rememberScrollState()),
+    ) {
+        actions.forEach { action ->
+            val marked = action.icon == Icons.Rounded.Flag
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp)
+                    .clickable { onPick(action) }
+                    .padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                val tint = if (marked) MaterialTheme.nuvio.colors.accent else Color.White
+                if (action.painter != null) {
+                    Icon(action.painter, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+                } else if (action.icon != null) {
+                    Icon(action.icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+                }
+                Text(
+                    text = action.description,
+                    color = tint,
+                    fontSize = 16.sp,
+                    fontWeight = if (marked) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
 
 private data class PlayerControlAction(
     val description: String,

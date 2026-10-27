@@ -342,7 +342,10 @@ internal fun PlayerScreenRuntime.handleDoubleTapSeek(direction: PlayerSeekDirect
 }
 
 internal fun PlayerScreenRuntime.cycleResizeMode() {
-    val nextMode = resizeMode.next()
+    applyResizeMode(resizeMode.next())
+}
+
+internal fun PlayerScreenRuntime.applyResizeMode(nextMode: PlayerResizeMode) {
     resizeMode = nextMode
     lastSyncedSettingsResizeMode = nextMode
     PlayerSettingsRepository.setResizeMode(nextMode)
@@ -358,7 +361,7 @@ internal fun PlayerScreenRuntime.cycleResizeMode() {
             PlayerResizeMode.Zoom -> resizeModeZoomLabel
         },
     )
-    controlsVisible = true
+    if (!toolChromeOpen()) controlsVisible = true
 }
 
 internal const val PlayerMinVideoZoom = 0.8f
@@ -472,6 +475,7 @@ internal fun PlayerScreenRuntime.rememberSurfaceGestureCallbacks(): PlayerSurfac
             revealLockedOverlay()
             return@rememberUpdatedState
         }
+        if (toolChromeOpen()) return@rememberUpdatedState
         val centerStart = layoutSize.width * PlayerLeftGestureBoundary
         val centerEnd = layoutSize.width * PlayerRightGestureBoundary
         if (controlsVisible && offset.x in centerStart..centerEnd) {
@@ -485,6 +489,7 @@ internal fun PlayerScreenRuntime.rememberSurfaceGestureCallbacks(): PlayerSurfac
             revealLockedOverlay()
             return@rememberUpdatedState
         }
+        if (toolChromeOpen()) return@rememberUpdatedState
         if (!playerSettingsUiState.touchGesturesEnabled) {
             controlsVisible = !controlsVisible
             return@rememberUpdatedState

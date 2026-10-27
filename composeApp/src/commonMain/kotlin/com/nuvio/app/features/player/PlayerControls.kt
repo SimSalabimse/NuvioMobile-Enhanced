@@ -168,6 +168,7 @@ internal fun PlayerControlsShell(
     onQualityClick: (() -> Unit)? = null,
     onOpenInExternalPlayer: (() -> Unit)? = null,
     onSubmitIntroClick: (() -> Unit)? = null,
+    onMarkSegmentClick: (() -> Unit)? = null,
     onSwitchEngineClick: (() -> Unit)? = null,
     onStreamInfoClick: () -> Unit = {},
     parentalWarnings: List<ParentalWarning> = emptyList(),
@@ -357,6 +358,7 @@ internal fun PlayerControlsShell(
                     onEpisodesClick = onEpisodesClick,
                     onChaptersClick = onChaptersClick,
                     onLiveChannelsClick = onLiveChannelsClick,
+                    onMarkSegmentClick = onMarkSegmentClick,
                     qualityLabel = qualityLabel,
                     onQualityClick = onQualityClick,
                     seekPreview = seekPreview,
@@ -458,6 +460,8 @@ internal fun PlayerControlsShell(
                         onRateClick = onRateClick,
                         userRating = userRating,
                         onInteraction = onInteraction,
+                        onMarkSegmentClick = onMarkSegmentClick,
+                        onLiveChannelsClick = onLiveChannelsClick,
                     )
                 }
             }
@@ -907,6 +911,7 @@ private fun ProgressControls(
     onEpisodesClick: (() -> Unit)? = null,
     onChaptersClick: (() -> Unit)? = null,
     onLiveChannelsClick: (() -> Unit)? = null,
+    onMarkSegmentClick: (() -> Unit)? = null,
     qualityLabel: String? = null,
     onQualityClick: (() -> Unit)? = null,
     seekPreview: SeekPreviewController? = null,
@@ -1006,6 +1011,13 @@ private fun ProgressControls(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    if (onMarkSegmentClick != null) {
+                        PlayerActionPillButton(
+                            label = stringResource(Res.string.player_tools_mark_segment),
+                            icon = Icons.Rounded.Flag,
+                            onClick = onMarkSegmentClick,
+                        )
+                    }
                     PlayerActionPillButton(
                         label = stringResource(resizeMode.labelRes),
                         painter = aspectRatioPainter,

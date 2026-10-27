@@ -181,7 +181,7 @@ internal fun PlaybackInfoModal(
 }
 
 @Composable
-private fun PlaybackInfoContent(
+internal fun PlaybackInfoContent(
     parsed: JsonObject?,
     selectedQualityVariant: PlayerQualityVariant?,
     selectedQualityIsAuto: Boolean,
