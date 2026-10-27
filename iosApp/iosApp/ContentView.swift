@@ -1624,7 +1624,6 @@ struct DetailComposeView: UIViewControllerRepresentable {
             verticalBar: verticalBar,
             hinge: route is PlayerRoute ? hinge : nil
         )
-        )
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
