@@ -308,6 +308,50 @@ internal fun markSubmitResultApplies(
     stripOpen: Boolean,
 ): Boolean = stripOpen && snapshotGeneration == currentGeneration
 
+/**
+ * Submit is enabled for a valid range or an allowed empty segment.
+ * Playing the range is never part of this check.
+ */
+internal fun markSubmitEnabled(
+    sent: Boolean,
+    submitting: Boolean,
+    keyProblem: Boolean,
+    blocked: Boolean,
+    absent: Boolean,
+    absentAllowed: Boolean,
+    timeOk: Boolean,
+): Boolean = !sent && !submitting && !keyProblem && !blocked && (if (absent) absentAllowed else timeOk)
+
+/**
+ * Height of the more menu, in the same unit as [anchorTop]. It uses only the
+ * space above the button, and always keeps room for one row.
+ */
+internal fun toolsMenuMaxHeight(
+    anchorTop: Float,
+    topInset: Float,
+    gap: Float = 8f,
+    minHeight: Float = 44f,
+): Float {
+    val available = anchorTop - topInset - gap
+    return if (available >= minHeight) available else minHeight
+}
+
+/**
+ * Left edge of the more menu. The menu's right edge prefers the button's right
+ * edge, and the whole menu stays inside the horizontal safe insets.
+ */
+internal fun toolsMenuLeft(
+    anchorRight: Int,
+    menuWidth: Int,
+    windowWidth: Int,
+    insetStart: Int,
+    insetEnd: Int,
+): Int {
+    val minLeft = insetStart.coerceIn(0, windowWidth.coerceAtLeast(0))
+    val maxLeft = (windowWidth - insetEnd - menuWidth).coerceAtLeast(minLeft)
+    return (anchorRight - menuWidth).coerceIn(minLeft, maxLeft)
+}
+
 internal fun subtitleDelayAfterReset(): Int = 0
 
 internal fun subtitleDelayAfterEar(currentDelayMs: Int, heardMs: Long, sawMs: Long): Int =

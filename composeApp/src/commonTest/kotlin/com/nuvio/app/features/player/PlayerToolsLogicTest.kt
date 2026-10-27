@@ -284,4 +284,61 @@ class PlayerToolsLogicTest {
         assertEquals(122, subtitleBottomOffsetForSyncStrip(20))
         assertEquals(102, subtitleBottomOffsetForSyncStrip(0))
     }
+
+    @Test
+    fun `a valid range can be submitted without playing it`() {
+        assertTrue(
+            markSubmitEnabled(
+                sent = false,
+                submitting = false,
+                keyProblem = false,
+                blocked = false,
+                absent = false,
+                absentAllowed = false,
+                timeOk = true,
+            ),
+        )
+        assertFalse(
+            markSubmitEnabled(
+                sent = false,
+                submitting = false,
+                keyProblem = false,
+                blocked = false,
+                absent = false,
+                absentAllowed = true,
+                timeOk = false,
+            ),
+        )
+        assertTrue(
+            markSubmitEnabled(
+                sent = false,
+                submitting = false,
+                keyProblem = false,
+                blocked = false,
+                absent = true,
+                absentAllowed = true,
+                timeOk = false,
+            ),
+        )
+        assertFalse(
+            markSubmitEnabled(
+                sent = true,
+                submitting = false,
+                keyProblem = false,
+                blocked = false,
+                absent = false,
+                absentAllowed = false,
+                timeOk = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `the more menu fits above the button and inside the island inset`() {
+        assertEquals(292f, toolsMenuMaxHeight(anchorTop = 300f, topInset = 0f))
+        assertEquals(44f, toolsMenuMaxHeight(anchorTop = 20f, topInset = 0f))
+        assertEquals(120, toolsMenuLeft(anchorRight = 400, menuWidth = 280, windowWidth = 874, insetStart = 59, insetEnd = 59))
+        assertEquals(520, toolsMenuLeft(anchorRight = 800, menuWidth = 280, windowWidth = 874, insetStart = 59, insetEnd = 59))
+        assertEquals(59, toolsMenuLeft(anchorRight = 100, menuWidth = 280, windowWidth = 874, insetStart = 59, insetEnd = 59))
+    }
 }
