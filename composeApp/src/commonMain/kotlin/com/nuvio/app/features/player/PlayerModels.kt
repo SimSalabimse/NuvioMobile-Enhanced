@@ -249,8 +249,8 @@ data class PlayerPlaybackSnapshot(
 )
 
 data class PlayerChapter(
-    val title: String,
     val startMs: Long,
+    val title: String? = null,
 )
 
 /**

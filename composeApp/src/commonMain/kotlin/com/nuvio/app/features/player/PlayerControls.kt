@@ -166,6 +166,7 @@ internal fun PlayerControlsShell(
     onLiveChannelsClick: (() -> Unit)? = null,
     qualityLabel: String? = null,
     onQualityClick: (() -> Unit)? = null,
+    chapters: List<PlayerChapter> = emptyList(),
     onOpenInExternalPlayer: (() -> Unit)? = null,
     onSubmitIntroClick: (() -> Unit)? = null,
     onMarkSegmentClick: (() -> Unit)? = null,
@@ -180,9 +181,56 @@ internal fun PlayerControlsShell(
     modifier: Modifier = Modifier,
     seekPreview: SeekPreviewController? = null,
     onTimelineTouchChange: (Boolean) -> Unit = {},
+    foldLayout: Boolean = false,
+    gestureController: PlayerGestureController? = null,
+    onWake: () -> Unit = {},
 ) {
-    val density = LocalDensity.current
     val displayedPositionMs = scrubbingPositionMs ?: playbackClock.positionMs
+    if (foldLayout) {
+        FoldControls(
+            title = title,
+            seasonNumber = seasonNumber,
+            episodeNumber = episodeNumber,
+            episodeTitle = episodeTitle,
+            playbackSnapshot = playbackSnapshot,
+            displayedPositionMs = displayedPositionMs,
+            badges = badges,
+            resizeMode = resizeMode,
+            showRemainingTime = showRemainingTime,
+            onRuntimeClick = onRuntimeClick,
+            onInteraction = onInteraction,
+            onBack = onBack,
+            onLockToggle = onLockToggle,
+            onPartyClick = onPartyClick,
+            partyActive = partyActive,
+            onNextEpisodeClick = onNextEpisodeClick,
+            onTogglePlayback = onTogglePlayback,
+            onSeekBack = onSeekBack,
+            onSeekForward = onSeekForward,
+            onScrubChange = onScrubChange,
+            onScrubFinished = onScrubFinished,
+            onSubtitleClick = onSubtitleClick ?: {},
+            onAudioClick = onAudioClick ?: {},
+            onSourcesClick = onSourcesClick,
+            onEpisodesClick = onEpisodesClick,
+            onChaptersClick = onChaptersClick,
+            chapters = chapters,
+            onSpeedClick = onSpeedClick ?: {},
+            onResizeModeClick = onResizeModeClick,
+            onVideoSettingsClick = onVideoSettingsClick,
+            onOpenInExternalPlayer = onOpenInExternalPlayer,
+            onStreamInfoClick = onStreamInfoClick,
+            onSubmitIntroClick = onSubmitIntroClick,
+            onSwitchEngineClick = onSwitchEngineClick,
+            gestureController = gestureController,
+            dimmed = !showPlaybackControls,
+            onWake = onWake,
+            horizontalSafePadding = horizontalSafePadding,
+            modifier = modifier,
+        )
+        return
+    }
+    val density = LocalDensity.current
     var timelineHeight by remember { mutableStateOf(0.dp) }
     val glassActive = isAmbientLiquidGlassActive()
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
@@ -363,6 +411,7 @@ internal fun PlayerControlsShell(
                     onQualityClick = onQualityClick,
                     seekPreview = seekPreview,
                     onTimelineTouchChange = onTimelineTouchChange,
+                    chapters = chapters,
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
@@ -381,6 +430,7 @@ internal fun PlayerControlsShell(
                         .windowInsetsPadding(playerTimelineBottomInsets(metrics))
                         .padding(horizontal = metrics.horizontalPadding),
                 ) {
+                    val shownChapters = if (chapters.isNotEmpty()) chapters else playbackSnapshot.chapters
                     if (!hideDetails) {
                         PlayerTimelineDetails(
                             title = title,
@@ -403,7 +453,7 @@ internal fun PlayerControlsShell(
                     ) {
                         Box(modifier = Modifier.weight(1f)) {
                             PlayerChapterLabel(
-                                chapters = playbackSnapshot.chapters,
+                                chapters = shownChapters,
                                 positionMs = displayedPositionMs,
                                 metrics = metrics,
                                 onClick = onChaptersClick?.let { openChapters ->
@@ -434,6 +484,7 @@ internal fun PlayerControlsShell(
                         },
                         seekPreview = seekPreview,
                         onTouchChange = onTimelineTouchChange,
+                        chapters = shownChapters,
                     )
                     PlayerControlActions(
                         playbackSnapshot = playbackSnapshot,
@@ -921,6 +972,7 @@ private fun ProgressControls(
     onQualityClick: (() -> Unit)? = null,
     seekPreview: SeekPreviewController? = null,
     onTimelineTouchChange: (Boolean) -> Unit = {},
+    chapters: List<PlayerChapter> = emptyList(),
     modifier: Modifier = Modifier,
 ) {
     val aspectRatioPainter = appIconPainter(AppIconResource.PlayerAspectRatio)
@@ -930,13 +982,14 @@ private fun ProgressControls(
 
     Column(modifier = modifier) {
         val displayedPositionMs = scrubbingPositionMs ?: playbackClock.positionMs
+        val shownChapters = if (chapters.isNotEmpty()) chapters else playbackSnapshot.chapters
         Row(
             modifier = Modifier.fillMaxWidth().offset(y = (-19).dp).padding(horizontal = 12.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
             Box(modifier = Modifier.weight(1f)) {
                 PlayerChapterLabel(
-                    chapters = playbackSnapshot.chapters,
+                    chapters = shownChapters,
                     positionMs = displayedPositionMs,
                     metrics = metrics,
                     onClick = onChaptersClick,
@@ -956,7 +1009,7 @@ private fun ProgressControls(
             scrubbingPositionMs = scrubbingPositionMs,
             displayedPositionMs = displayedPositionMs,
             bufferedPositionMs = playbackClock.bufferedPositionMs,
-            chapters = playbackSnapshot.chapters,
+            chapters = shownChapters,
             metrics = metrics,
             onScrubChange = onScrubChange,
             onScrubFinished = onScrubFinished,

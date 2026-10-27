@@ -43,6 +43,10 @@ internal class BoundedCache<K, V>(
 
     fun clear() = synchronized(lock) { entries.clear() }
 
+    fun firstValue(matches: (K) -> Boolean): V? = synchronized(lock) {
+        entries.entries.firstOrNull { matches(it.key) }?.value
+    }
+
     private fun trimLocked(): Int {
         var evicted = 0
         while (entries.size > maxEntries) {

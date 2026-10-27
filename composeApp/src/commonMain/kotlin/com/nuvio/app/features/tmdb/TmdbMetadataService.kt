@@ -13,6 +13,8 @@ import com.nuvio.app.features.details.MoreLikeThisSource
 import com.nuvio.app.features.details.PersonDetail
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.PosterShape
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -88,6 +90,12 @@ internal fun seasonsRefetchedOnRetry(requested: List<Int>, failedSeasons: Set<In
 object TmdbMetadataService {
     private val log = Logger.withTag("TmdbMetadata")
     private val json = Json { ignoreUnknownKeys = true }
+
+    fun cachedOriginalTitle(tmdbId: String, type: String): String? {
+        val mediaType = TmdbService.normalizeMediaType(type)
+        val prefix = "$tmdbId:$mediaType:"
+        return enrichmentCache.firstValue { it.startsWith(prefix) }?.originalTitle
+    }
 
     private val enrichmentCache = BoundedCache<String, TmdbEnrichment>(maxEntries = 300)
     private val episodeCache = BoundedCache<String, Map<Pair<Int, Int>, TmdbEpisodeEnrichment>>(maxEntries = 60)
@@ -1164,6 +1172,7 @@ object TmdbMetadataService {
             ?.takeIf { mediaType == "tv" }
         val enrichment = TmdbEnrichment(
             localizedTitle = localizedTitle,
+            originalTitle = details.originalTitle ?: details.originalName,
             description = description,
             genres = genres,
             backdrop = buildImageUrl(details.backdropPath, "w1280"),
@@ -1619,6 +1628,7 @@ object TmdbMetadataService {
 }
 
 internal data class TmdbEnrichment(
+    val originalTitle: String? = null,
     val localizedTitle: String?,
     val description: String?,
     val genres: List<String>,
@@ -2057,6 +2067,8 @@ private data class TmdbTvSeasonSummary(
 
 @Serializable
 private data class TmdbDetailsResponse(
+    @SerialName("original_title") val originalTitle: String? = null,
+    @SerialName("original_name") val originalName: String? = null,
     val title: String? = null,
     val name: String? = null,
     val overview: String? = null,

@@ -14,6 +14,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
@@ -37,6 +39,7 @@ import com.nuvio.app.features.player.skip.PlayerNextEpisodeRules
 import com.nuvio.app.core.logging.InAppLogger
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.NuvioStatusModal
+import com.nuvio.app.core.ui.LocalFold
 import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.features.party.PartyRepository
 import com.nuvio.app.features.p2p.formatP2pMegabytes
@@ -122,6 +125,10 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     LaunchedEffect(playerController) {
         if (videoZoom != 1f) playerController?.setVideoZoom(videoZoom)
     }
+    val isInPip = rememberIsInPictureInPicture()
+    val fold = LocalFold.current?.takeIf { !isInPip }
+    val videoModifier = if (fold != null) Modifier.fillMaxWidth().height(fold.top) else Modifier.fillMaxSize()
+    val panelModifier = if (fold != null) Modifier.fillMaxSize().padding(top = fold.bottom) else Modifier.fillMaxSize()
     val playbackGesturesEnabled = initialLoadCompleted && errorMessage == null
 
     BindDownloadSwitchEffect()
@@ -269,7 +276,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                     sourceResponseHeaders = activeSourceResponseHeaders,
                     externalSubtitles = externalSubtitles,
                     streamType = activeStreamType,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = videoModifier,
                     playWhenReady = shouldPlay,
                     initialPositionMs = activeInitialPositionMs.takeIf { it > 0L },
                     initialPositionRequestKey = initialPositionRequestKey,
@@ -326,7 +333,8 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 pausedOverlayVisible &&
                 !controlsVisible &&
                 !playerControlsLocked &&
-                !pauseOverlaySuppressed(),
+                !pauseOverlaySuppressed() &&
+                fold == null,
             enter = fadeIn(animationSpec = tween(durationMillis = 220)),
             exit = fadeOut(animationSpec = tween(durationMillis = 180)),
         ) {
@@ -345,22 +353,31 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
             )
         }
 
-        RenderPlayerControls(isEpisode = isEpisode)
-        RenderPlaybackOverlays(
-            runtime = runtime,
-            currentGestureFeedback = currentGestureFeedback,
-            p2pInitialLoadingMessage = p2pInitialLoadingMessage,
-            showP2pRebufferStats = showP2pRebufferStats,
-            p2pDownloadedBytes = p2pStats?.downloadedBytes,
-            p2pDeliveredBytes = p2pStats?.deliveredBytes,
-            p2pPeerInfo = p2pPeerInfo,
-            p2pDownloadSpeed = p2pDownloadSpeed,
+        RenderPlayerControls(
+            isEpisode = isEpisode,
+            folded = fold != null,
+            modifier = panelModifier,
         )
-        PlayerDebugReadoutOverlay(
-            Modifier.align(Alignment.CenterStart).padding(start = horizontalSafePadding),
-        )
-        RenderPlayerModals()
-        RenderParty(runtime = runtime)
+        Box(modifier = videoModifier) {
+            RenderPlaybackOverlays(
+                runtime = runtime,
+                currentGestureFeedback = currentGestureFeedback,
+                p2pInitialLoadingMessage = p2pInitialLoadingMessage,
+                showP2pRebufferStats = showP2pRebufferStats,
+                p2pDownloadedBytes = p2pStats?.downloadedBytes,
+                p2pDeliveredBytes = p2pStats?.deliveredBytes,
+                p2pPeerInfo = p2pPeerInfo,
+                p2pDownloadSpeed = p2pDownloadSpeed,
+                folded = fold != null,
+            )
+            PlayerDebugReadoutOverlay(
+                Modifier.align(Alignment.CenterStart).padding(start = horizontalSafePadding),
+            )
+        }
+        Box(modifier = panelModifier) {
+            RenderPlayerModals()
+            RenderParty(runtime = runtime)
+        }
         }
     }
 }
@@ -389,7 +406,11 @@ private fun PlayerScreenRuntime.currentInitialPositionRequestKey(): String? {
 }
 
 @Composable
-private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
+private fun PlayerScreenRuntime.RenderPlayerControls(
+    isEpisode: Boolean,
+    folded: Boolean,
+    modifier: Modifier,
+) {
     val isInPip = rememberIsInPictureInPicture()
     val seekPreview = rememberSeekPreviewController(
         url = activePlaybackSourceUrl?.takeIf {
@@ -418,8 +439,15 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
     val partyState by PartyRepository.state.collectAsStateWithLifecycle()
     val partyActive = partyState.party != null
     val playerBadges = rememberPlayerBadges()
+    LaunchedEffect(folded) {
+        if (folded) {
+            controlsVisible = true
+            showParentalGuide = false
+        }
+    }
     AnimatedVisibility(
-        visible = (controlsVisible || showParentalGuide) && !playerControlsLocked && !isInPip && !toolChromeOpen(),
+        visible = (controlsVisible || folded || showParentalGuide) && !playerControlsLocked && !isInPip &&
+            !toolChromeOpen() && !(folded && isPanelOpen),
         enter = fadeIn(),
         exit = fadeOut(),
     ) {
@@ -558,7 +586,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
                     openEpisodesPanel()
                 }
             } else null,
-            onChaptersClick = if (playbackSnapshot.chapters.isNotEmpty()) {
+            onChaptersClick = if (chapters.isNotEmpty() || playbackSnapshot.chapters.isNotEmpty()) {
                 {
                     openChaptersPanel()
                 }
@@ -572,6 +600,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
             onQualityClick = {
                 openQualityPanel()
             },
+            chapters = chapters,
             onOpenInExternalPlayer = args.onOpenInExternalPlayer
                 ?.takeUnless { ServerStreams.isServerSourceId(activeProviderAddonId) }
                 ?.let { openExternal ->
@@ -645,9 +674,25 @@ private fun PlayerScreenRuntime.RenderPlayerControls(isEpisode: Boolean) {
                 }
             },
             horizontalSafePadding = horizontalSafePadding,
-            modifier = Modifier.fillMaxSize(),
+            modifier = if (folded) modifier else Modifier.fillMaxSize(),
             seekPreview = seekPreview,
             onTimelineTouchChange = { touching -> isTouchingTimeline = touching },
+            foldLayout = folded,
+            gestureController = gestureController,
+            onWake = {
+                controlsVisible = true
+                controlsActivityTick += 1
+            },
+        )
+    }
+    AnimatedVisibility(
+        visible = folded && playerControlsLocked && !isInPip,
+        enter = fadeIn(),
+        exit = fadeOut(),
+    ) {
+        FoldLockedControls(
+            onUnlock = { unlockPlayerControls() },
+            modifier = modifier,
         )
     }
 }
@@ -662,6 +707,7 @@ private fun BoxScope.RenderPlaybackOverlays(
     p2pDeliveredBytes: Long?,
     p2pPeerInfo: String?,
     p2pDownloadSpeed: String?,
+    folded: Boolean,
 ) {
     runtime.run {
         val showStallCause = playerSettingsUiState.showPlayerLoadingStatus && activeTorrentInfoHash == null
@@ -688,7 +734,7 @@ private fun BoxScope.RenderPlaybackOverlays(
         PlayerPlaybackOverlays(
             playerControlsLocked = playerControlsLocked,
             useLegacyLayout = playerSettingsUiState.useLegacyPlayerLayout,
-            lockedOverlayVisible = lockedOverlayVisible,
+            lockedOverlayVisible = lockedOverlayVisible && !folded,
             showRemainingTime = showRemainingTime,
             playbackSnapshot = playbackSnapshot,
             displayedPositionMs = 0L,
@@ -812,10 +858,6 @@ private fun BoxScope.RenderPlaybackOverlays(
     }
 }
 
-private fun PlayerScreenRuntime.openChaptersPanel() {
-    openSidePanel { showChaptersPanel = true }
-}
-
 private fun PlayerScreenRuntime.openQualityPanel() {
     InAppLogger.info(
         "Player/Quality",
@@ -881,9 +923,12 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
         onLiveChannelSelected = { channel -> switchToLiveChannel(channel) },
         onLiveChannelsPanelDismissed = { dismissPlayerTools() },
         showChaptersPanel = showChaptersPanel,
-        chapters = snapshotChapters,
+        chapters = if (chapters.isNotEmpty()) chapters else snapshotChapters,
         displayedPositionMs = displayedPositionMs,
-        onChapterSelected = { chapter ->
+        durationMs = playbackSnapshot.durationMs,
+        onChapterSelected = { index ->
+            val shown = if (chapters.isNotEmpty()) chapters else snapshotChapters
+            val chapter = shown.getOrNull(index) ?: return@PlayerScreenModalHosts
             val targetMs = chapter.startMs.coerceAtLeast(0L)
             finishTimelineScrub(targetMs)
             noteSeek()

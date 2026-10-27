@@ -31,7 +31,8 @@ internal fun PlayerScreenModalHosts(
     showChaptersPanel: Boolean = false,
     chapters: List<PlayerChapter> = emptyList(),
     displayedPositionMs: Long,
-    onChapterSelected: (PlayerChapter) -> Unit = {},
+    durationMs: Long = 0L,
+    onChapterSelected: (Int) -> Unit = {},
     onChaptersPanelDismissed: () -> Unit = {},
 ) {
     if (pendingP2pSwitch != null) {
@@ -79,6 +80,7 @@ internal fun PlayerScreenModalHosts(
         visible = showChaptersPanel,
         chapters = chapters,
         positionMs = displayedPositionMs,
+        durationMs = durationMs,
         onChapterSelected = onChapterSelected,
         onDismiss = onChaptersPanelDismissed,
     )

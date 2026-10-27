@@ -29,6 +29,7 @@ private enum NuvioComposeHost {
         passesThroughEmptyNavigationBarAreas: Bool = false,
         hidesContainingTabBar: Bool = false,
         verticalBar: VerticalBar? = nil,
+        hinge: Hinge? = nil,
         onTabBarControllerAvailable: ((UITabBarController) -> Void)? = nil
     ) -> RootComposeViewController {
         _ = registerPlayerBridge
@@ -40,6 +41,7 @@ private enum NuvioComposeHost {
             passesThroughEmptyNavigationBarAreas: passesThroughEmptyNavigationBarAreas,
             hidesContainingTabBar: hidesContainingTabBar,
             verticalBar: verticalBar,
+            hinge: hinge,
             onTabBarControllerAvailable: onTabBarControllerAvailable
         )
     }
@@ -206,11 +208,14 @@ final class RootComposeViewController: UIViewController {
     private let disablesInteractiveContentPopGesture: Bool
     private let passesThroughEmptyNavigationBarAreas: Bool
     private let hidesContainingTabBar: Bool
+    private let hinge: Hinge?
     private let onTabBarControllerAvailable: ((UITabBarController) -> Void)?
     private var immersiveSystemUIObserver: NSObjectProtocol?
     private let verticalBar: VerticalBar?
     private var leadingConstraint: NSLayoutConstraint?
     private var trailingConstraint: NSLayoutConstraint?
+    private var isHalfOpen = false
+    private var foldBoundsSize = CGSize.zero
 
     init(
         contentController: UIViewController,
@@ -219,6 +224,7 @@ final class RootComposeViewController: UIViewController {
         passesThroughEmptyNavigationBarAreas: Bool = false,
         hidesContainingTabBar: Bool,
         verticalBar: VerticalBar?,
+        hinge: Hinge?,
         onTabBarControllerAvailable: ((UITabBarController) -> Void)?
     ) {
         self.contentController = contentController
@@ -227,6 +233,7 @@ final class RootComposeViewController: UIViewController {
         self.passesThroughEmptyNavigationBarAreas = passesThroughEmptyNavigationBarAreas
         self.hidesContainingTabBar = hidesContainingTabBar
         self.verticalBar = verticalBar
+        self.hinge = hinge
         self.onTabBarControllerAvailable = onTabBarControllerAvailable
         super.init(nibName: nil, bundle: nil)
     }
@@ -261,6 +268,12 @@ final class RootComposeViewController: UIViewController {
                 (controller: RootComposeViewController, _: UITraitCollection) in
                 controller.updateVerticalBar()
             }
+            if hinge != nil {
+                view.addInteraction(UIHingeInteraction { [weak self] _, update in
+                    self?.isHalfOpen = update.hinge?.status == .partiallyOpen
+                    self?.updateFold()
+                })
+            }
         }
         contentController.didMove(toParent: self)
 
@@ -282,6 +295,24 @@ final class RootComposeViewController: UIViewController {
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
         updateVerticalBar()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard view.bounds.size != foldBoundsSize else { return }
+        foldBoundsSize = view.bounds.size
+        updateFold()
+    }
+
+    private func updateFold() {
+        guard let hinge else { return }
+        guard #available(iOS 27.1, *), isHalfOpen,
+              let fold = view.reservedRegions(kind: .division).first(where: { $0.frame.width > $0.frame.height })
+        else {
+            hinge.clear()
+            return
+        }
+        hinge.update(top: Double(fold.frame.minY), bottom: Double(fold.frame.maxY))
     }
 
     private func updateVerticalBar() {
@@ -1553,6 +1584,7 @@ struct DetailComposeView: UIViewControllerRepresentable {
         let appCoordinator = appCoordinator
         let parking = PlayerPictureInPictureParking.shared
         let verticalBar = VerticalBar()
+        let hinge = Hinge()
         let controller = MainViewControllerKt.ScreenViewController(
             route: route,
             onNavigate: { newRoute, launchSingleTop in
@@ -1582,13 +1614,16 @@ struct DetailComposeView: UIViewControllerRepresentable {
             appGateController: appCoordinator.appGateController,
             useNativeTabBar: usesNativeTabBar,
             useTabletFloatingTabBar: usesTabletFloatingTabBar,
-            verticalBar: verticalBar
+            verticalBar: verticalBar,
+            hinge: hinge
         )
         return NuvioComposeHost.wrap(
             controller,
-            disablesInteractiveContentPopGesture: true,
+            disablesInteractiveContentPopGesture: route is PlayerRoute,
             passesThroughEmptyNavigationBarAreas: true,
-            verticalBar: verticalBar
+            verticalBar: verticalBar,
+            hinge: route is PlayerRoute ? hinge : nil
+        )
         )
     }
 
