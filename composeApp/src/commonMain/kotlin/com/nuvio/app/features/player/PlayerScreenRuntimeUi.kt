@@ -322,7 +322,11 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
 
         if (!isMiniPresentation) {
         AnimatedVisibility(
-            visible = playerSettingsUiState.pauseOverlayEnabled && pausedOverlayVisible && !controlsVisible && !playerControlsLocked,
+            visible = playerSettingsUiState.pauseOverlayEnabled &&
+                pausedOverlayVisible &&
+                !controlsVisible &&
+                !playerControlsLocked &&
+                !pauseOverlaySuppressed(),
             enter = fadeIn(animationSpec = tween(durationMillis = 220)),
             exit = fadeOut(animationSpec = tween(durationMillis = 180)),
         ) {

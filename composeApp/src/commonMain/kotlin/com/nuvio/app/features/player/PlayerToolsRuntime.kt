@@ -27,6 +27,18 @@ internal fun PlayerScreenRuntime.toolChromeOpen(): Boolean =
         showSubmitIntroModal ||
         showSubtitleSyncByEar
 
+/** Pause copy stays hidden while a tool panel or strip is open, and comes back when it closes. */
+internal fun PlayerScreenRuntime.pauseOverlaySuppressed(): Boolean =
+    toolChromeOpen() ||
+        showQualityPanel ||
+        showSpeedPanel ||
+        showChaptersPanel ||
+        showLiveChannelsPanel ||
+        showPartyPanel ||
+        showStreamInfo ||
+        playerStyleOpen ||
+        episodeStreamsPanelState.showStreams
+
 internal fun PlayerScreenRuntime.closePlayerTools() {
     restoreMarkPreview()
     val sourcesWereOpen = showSourcesPanel

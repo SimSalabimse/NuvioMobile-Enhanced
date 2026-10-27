@@ -371,6 +371,8 @@ internal fun PlayerControlsShell(
                 )
             }
             if (showPlaybackControls && !useLegacyLayout) {
+                var toolsMenuOpen by remember { mutableStateOf(false) }
+                val coverTitle = speedPickerVisible || toolsMenuOpen
                 Column(
                     modifier = Modifier
                         .onSizeChanged { size -> timelineHeight = with(density) { size.height.toDp() } }
@@ -388,7 +390,9 @@ internal fun PlayerControlsShell(
                             releaseInfo = releaseInfo,
                             metrics = metrics,
                             badges = badges,
-                            modifier = Modifier.padding(start = textStartExtra),
+                            modifier = Modifier
+                                .padding(start = textStartExtra)
+                                .graphicsLayer { alpha = if (coverTitle) 0f else 1f },
                         )
                     }
                     Row(
@@ -462,6 +466,7 @@ internal fun PlayerControlsShell(
                         onInteraction = onInteraction,
                         onMarkSegmentClick = onMarkSegmentClick,
                         onLiveChannelsClick = onLiveChannelsClick,
+                        onToolsMenuOpenChange = { toolsMenuOpen = it },
                     )
                 }
             }

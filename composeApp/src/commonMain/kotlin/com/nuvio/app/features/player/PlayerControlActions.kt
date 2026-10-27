@@ -15,6 +15,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,6 +52,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.Composable
@@ -260,6 +273,7 @@ internal fun PlayerControlActions(
     onInteraction: () -> Unit,
     onMarkSegmentClick: (() -> Unit)? = null,
     onLiveChannelsClick: (() -> Unit)? = null,
+    onToolsMenuOpenChange: (Boolean) -> Unit = {},
 ) {
     val primaryActions = listOfNotNull(
         onNextEpisodeClick?.let {
@@ -370,7 +384,9 @@ internal fun PlayerControlActions(
         },
     ) + secondaryActions
     var menuOpen by remember { mutableStateOf(false) }
+    var menuAnchorTopPx by remember { mutableStateOf(0) }
     val scrollState = rememberScrollState()
+    LaunchedEffect(menuOpen) { onToolsMenuOpenChange(menuOpen) }
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = PlayerTimelineContentInset),
@@ -378,17 +394,6 @@ internal fun PlayerControlActions(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(modifier = Modifier.weight(1f)) {
-                if (menuOpen) {
-                    PlayerToolsMenu(
-                        actions = menuActions,
-                        onPick = { action ->
-                            menuOpen = false
-                            onInteraction()
-                            action.onClick()
-                        },
-                        modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 56.dp, end = 4.dp),
-                    )
-                }
                 Row(
                     modifier = Modifier
                         .playerLiquidGlass(
@@ -414,14 +419,53 @@ internal fun PlayerControlActions(
                             action.popup?.invoke()
                         }
                     }
-                    PlayerAction(
-                        description = stringResource(Res.string.compose_player_more_actions),
-                        onClick = {
-                            menuOpen = !menuOpen
-                            onInteraction()
+                    Box(
+                        modifier = Modifier.onGloballyPositioned { coordinates ->
+                            menuAnchorTopPx = coordinates.positionInWindow().y.toInt()
                         },
-                        icon = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                    )
+                    ) {
+                        PlayerAction(
+                            description = stringResource(Res.string.compose_player_more_actions),
+                            onClick = {
+                                menuOpen = !menuOpen
+                                onInteraction()
+                            },
+                            icon = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                        )
+                        if (menuOpen) {
+                            val density = LocalDensity.current
+                            val layoutDirection = LocalLayoutDirection.current
+                            val safe = WindowInsets.safeContent.asPaddingValues()
+                            val topInsetPx = with(density) { safe.calculateTopPadding().roundToPx() }
+                            val startInsetPx = with(density) { safe.calculateLeftPadding(layoutDirection).roundToPx() }
+                            val endInsetPx = with(density) { safe.calculateRightPadding(layoutDirection).roundToPx() }
+                            val gapPx = with(density) { 8.dp.roundToPx() }
+                            val maxHeight = if (menuAnchorTopPx <= 0) {
+                                240.dp
+                            } else {
+                                with(density) {
+                                    toolsMenuMaxHeight(
+                                        anchorTop = menuAnchorTopPx.toFloat(),
+                                        topInset = topInsetPx.toFloat(),
+                                        gap = gapPx.toFloat(),
+                                    ).toDp()
+                                }
+                            }
+                            PlayerToolsMenu(
+                                actions = menuActions,
+                                maxHeight = maxHeight,
+                                gapPx = gapPx,
+                                insetStartPx = startInsetPx,
+                                insetEndPx = endInsetPx,
+                                onDismiss = { menuOpen = false },
+                                onPick = { action ->
+                                    menuOpen = false
+                                    onInteraction()
+                                    action.onClick()
+                                },
+                            )
+                        }
+                    }
                 }
             }
             Box(
@@ -504,47 +548,105 @@ internal val PlayerGlassCapsule = RoundedCornerShape(percent = 50)
 @Composable
 private fun PlayerToolsMenu(
     actions: List<PlayerControlAction>,
+    maxHeight: Dp,
+    gapPx: Int,
+    insetStartPx: Int,
+    insetEndPx: Int,
+    onDismiss: () -> Unit,
     onPick: (PlayerControlAction) -> Unit,
-    modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(16.dp)
-    Column(
-        modifier = modifier
-            .widthIn(min = 220.dp, max = 280.dp)
-            .heightIn(max = 280.dp)
-            .shadow(16.dp, shape)
-            .clip(shape)
-            .background(PlayerToolSurface.copy(alpha = 0.88f))
-            .border(1.dp, PlayerToolEdge, shape)
-            .verticalScroll(rememberScrollState()),
+    val positionProvider = remember(gapPx, insetStartPx, insetEndPx) {
+        ToolsMenuPositionProvider(gapPx, insetStartPx, insetEndPx)
+    }
+    Popup(
+        popupPositionProvider = positionProvider,
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(focusable = true),
     ) {
-        actions.forEach { action ->
-            val marked = action.icon == Icons.Rounded.Flag
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp)
-                    .clickable { onPick(action) }
-                    .padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                val tint = if (marked) MaterialTheme.nuvio.colors.accent else Color.White
-                if (action.painter != null) {
-                    Icon(action.painter, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
-                } else if (action.icon != null) {
-                    Icon(action.icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+        val shape = RoundedCornerShape(16.dp)
+        val scroll = rememberScrollState()
+        val surface = PlayerToolSurface.copy(alpha = 0.96f)
+        Box(
+            modifier = Modifier
+                .widthIn(min = 220.dp, max = 280.dp)
+                .heightIn(max = maxHeight)
+                .shadow(16.dp, shape)
+                .clip(shape)
+                .background(surface)
+                .border(1.dp, PlayerToolEdge, shape),
+        ) {
+            Column(Modifier.verticalScroll(scroll)) {
+                actions.forEach { action ->
+                    val marked = action.icon == Icons.Rounded.Flag
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .clickable { onPick(action) }
+                            .padding(horizontal = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        val tint = if (marked) MaterialTheme.nuvio.colors.accent else Color.White
+                        if (action.painter != null) {
+                            Icon(action.painter, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+                        } else if (action.icon != null) {
+                            Icon(action.icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+                        }
+                        Text(
+                            text = action.description,
+                            color = tint,
+                            fontSize = 16.sp,
+                            fontWeight = if (marked) FontWeight.SemiBold else FontWeight.Normal,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
-                Text(
-                    text = action.description,
-                    color = tint,
-                    fontSize = 16.sp,
-                    fontWeight = if (marked) FontWeight.SemiBold else FontWeight.Normal,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+            }
+            if (scroll.canScrollBackward) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .height(18.dp)
+                        .background(Brush.verticalGradient(listOf(surface, Color.Transparent))),
+                )
+            }
+            if (scroll.canScrollForward) {
+                Box(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(18.dp)
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, surface))),
                 )
             }
         }
+    }
+}
+
+private class ToolsMenuPositionProvider(
+    private val gapPx: Int,
+    private val insetStartPx: Int,
+    private val insetEndPx: Int,
+) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset {
+        val x = toolsMenuLeft(
+            anchorRight = anchorBounds.right,
+            menuWidth = popupContentSize.width,
+            windowWidth = windowSize.width,
+            insetStart = insetStartPx,
+            insetEnd = insetEndPx,
+        )
+        val above = anchorBounds.top - gapPx - popupContentSize.height
+        val y = if (above >= 0) above else (anchorBounds.bottom + gapPx)
+        return IntOffset(x, y)
     }
 }
 
