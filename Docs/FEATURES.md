@@ -1,6 +1,6 @@
 # Nuvio Enhanced (mobile): features and settings
 
-Built from the code at build 197 (0.6.4.1), which includes upstream 0.6.4-beta. Each line shows the feature, where it is in the app, and the build or version it was added in when the changelog records it ("upstream" means it came from the base app). Settings pages are under the Settings tab.
+Built from the code at build 198 (0.6.5.1). This comparison build merges the luqmanfadlli enhanced tag 0.6.5-beta (313ca3d1) on top of the player tools work and the download-reason work. Where both sides did the same thing differently, the fork's version is what runs, and Docs/sync-overlaps-0.6.5.md lists each one. The tools panel, marking strip, Play range, Sync strip, TheIntroDB Flag, download reasons, Storage, Diagnostics and Auto Sync are still here. The title block stays on screen while Sleep, Speed or the button row is open, and it uses the fork's notch spacing. The more-menu popup is not on this bar; the arrow expands the fork's button row instead. "You're watching" stays hidden while a panel or strip is open. Each line shows the feature, where it is in the app, and the build or version it was added in when the changelog records it ("upstream" means it came from the base app). Settings pages are under the Settings tab.
 
 ## Playback
 - Player with gestures (swipe to seek, hold for speed and a hold-speed value): Settings › Playback › Player / Touch Gestures. Upstream.
@@ -20,7 +20,11 @@ Built from the code at build 197 (0.6.4.1), which includes upstream 0.6.4-beta. 
 - Switch playback engine from the player, with a confirmation first. Upstream 0.6.3.
 - Player controls fade out instead of disappearing at once. Upstream 0.6.4.
 - External player app (sends subtitles and intro/outro times): Settings › Playback › Player. Upstream.
-- Seek bar thumbnails: Settings › Playback; downloads use on-device scrub previews. 0.5.10.2.
+- Seek bar thumbnails: Settings › Playback; downloads use on-device scrub previews. 0.5.10.2. The fork's faster thumbnail path is in 0.6.5.1.
+- Player buttons: Settings › Playback › Player buttons. Choose which buttons stay on the bar, which sit behind the arrow, and their order. 0.6.5.1 from the fork. Mark segment and Live TV stay on the bar as extra icons.
+- Show Chapters applies to every engine, with marks on the seek bar and a chapters list. 0.6.5.1 from the fork.
+- Pinch to zoom shows a zoom icon while the picture scales. 0.6.5.1 from the fork.
+- TMDB title language and original-language titles, logos, posters and backdrops: Settings › TMDB, and the home hero. 0.6.5.1 from the fork.
 - Auto-play next episode, binge group, preloading next-episode sources, threshold mode, and the up-next countdown: Settings › Playback › Next Episode. Upstream.
 - Stream auto-play (first stream or regex, source scope, allowed addons and plugins), reuse last link: Settings › Playback › Stream Auto-Play / Stream Selection. Upstream.
 - Debrid not cached: every play and download entry point (Continue Watching menu, episode rows, show page, season sheet, Library, search, smart downloads, finish a series, sources list, player source switch, next episode, auto-play) goes through one shared fallback that tries the next good source (up to 3) and says which one it switched to. 193–194; all entry points since 195, checked by DebridSourceGuardTest.
@@ -104,7 +108,7 @@ Built from the code at build 197 (0.6.4.1), which includes upstream 0.6.4-beta. 
 ## Profiles, sync and the app
 - Profiles, Account, Nuvio Sync, Trakt, Simkl, MDBList, AniList, WeTrakr scrobbling: Settings › Account. Upstream. The active profile is shown as a card with its avatar. Upstream 0.6.4.
 - In-app rating can be turned off per profile: Settings › Account › Tracking. Upstream 0.6.3.
-- Discord Rich Presence: Settings › Account. Upstream 0.6.3. The login page is Android; this build does not offer it on iOS.
+- Discord Rich Presence: Settings › Account. Upstream 0.6.3. Login on iOS and the Keychain token are in 0.6.5.1 from the fork.
 - iPad side bar (duo): when the system provides a vertical bar, Home, details, streams, library and the profile picker sit beside it. Upstream 0.6.4. The player turns that bar off.
 - Watch stats / profile insights: Settings › Profile. 0.5.10.2.
 - Episode release alerts: Settings › Notifications. Upstream.

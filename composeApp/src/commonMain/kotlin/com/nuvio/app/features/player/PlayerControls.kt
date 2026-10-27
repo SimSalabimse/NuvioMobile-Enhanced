@@ -76,6 +76,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.material.icons.automirrored.rounded.Toc
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -162,6 +164,7 @@ internal fun PlayerControlsShell(
     userRating: Int? = null,
     onSourcesClick: (() -> Unit)? = null,
     onEpisodesClick: (() -> Unit)? = null,
+    chapters: List<PlayerChapter> = emptyList(),
     onChaptersClick: (() -> Unit)? = null,
     onLiveChannelsClick: (() -> Unit)? = null,
     qualityLabel: String? = null,
@@ -180,7 +183,54 @@ internal fun PlayerControlsShell(
     modifier: Modifier = Modifier,
     seekPreview: SeekPreviewController? = null,
     onTimelineTouchChange: (Boolean) -> Unit = {},
+    foldLayout: Boolean = false,
+    gestureController: PlayerGestureController? = null,
+    onWake: () -> Unit = {},
 ) {
+    if (foldLayout) {
+        FoldControls(
+            title = title,
+            seasonNumber = seasonNumber,
+            episodeNumber = episodeNumber,
+            episodeTitle = episodeTitle,
+            playbackSnapshot = playbackSnapshot,
+            displayedPositionMs = scrubbingPositionMs ?: playbackClock.positionMs,
+            badges = badges,
+            resizeMode = resizeMode,
+            showRemainingTime = showRemainingTime,
+            onRuntimeClick = onRuntimeClick,
+            onInteraction = onInteraction,
+            onBack = onBack,
+            onLockToggle = onLockToggle,
+            onPartyClick = onPartyClick,
+            partyActive = partyActive,
+            onNextEpisodeClick = onNextEpisodeClick,
+            onTogglePlayback = onTogglePlayback,
+            onSeekBack = onSeekBack,
+            onSeekForward = onSeekForward,
+            onScrubChange = onScrubChange,
+            onScrubFinished = onScrubFinished,
+            onSubtitleClick = onSubtitleClick ?: {},
+            onAudioClick = onAudioClick ?: {},
+            onSourcesClick = onSourcesClick,
+            onEpisodesClick = onEpisodesClick,
+            onChaptersClick = onChaptersClick,
+            chapters = chapters,
+            onSpeedClick = onSpeedClick ?: {},
+            onResizeModeClick = onResizeModeClick,
+            onVideoSettingsClick = onVideoSettingsClick,
+            onOpenInExternalPlayer = onOpenInExternalPlayer,
+            onStreamInfoClick = onStreamInfoClick,
+            onSubmitIntroClick = onSubmitIntroClick,
+            onSwitchEngineClick = onSwitchEngineClick,
+            gestureController = gestureController,
+            dimmed = !showPlaybackControls,
+            onWake = onWake,
+            horizontalSafePadding = horizontalSafePadding,
+            modifier = modifier,
+        )
+        return
+    }
     val density = LocalDensity.current
     val displayedPositionMs = scrubbingPositionMs ?: playbackClock.positionMs
     var timelineHeight by remember { mutableStateOf(0.dp) }
@@ -191,8 +241,6 @@ internal fun PlayerControlsShell(
             metrics.centerLift,
             timelineHeight * 2 + centerControlHeight + 16.dp - maxHeight,
         )
-        val textStart = playerTextStartPadding(metrics.horizontalPadding, horizontalSafePadding)
-        val textStartExtra = textStart - metrics.horizontalPadding
         PlayerChromeBackdrop(
             modifier = Modifier
                 .fillMaxWidth()
@@ -299,10 +347,8 @@ internal fun PlayerControlsShell(
                     isVisible = showParentalGuide,
                     onAnimationComplete = onParentalGuideAnimationComplete,
                     contentPadding = PaddingValues(
-                        start = textStart,
-                        top = metrics.verticalPadding,
-                        end = metrics.horizontalPadding,
-                        bottom = metrics.verticalPadding,
+                        horizontal = metrics.horizontalPadding + playerTextCutoutPadding(metrics),
+                        vertical = metrics.verticalPadding,
                     ),
                     modifier = Modifier.align(Alignment.TopStart),
                 )
@@ -356,6 +402,7 @@ internal fun PlayerControlsShell(
                     onAudioClick = onAudioClick,
                     onSourcesClick = onSourcesClick,
                     onEpisodesClick = onEpisodesClick,
+                    chapters = chapters,
                     onChaptersClick = onChaptersClick,
                     onLiveChannelsClick = onLiveChannelsClick,
                     onMarkSegmentClick = onMarkSegmentClick,
@@ -371,8 +418,6 @@ internal fun PlayerControlsShell(
                 )
             }
             if (showPlaybackControls && !useLegacyLayout) {
-                var toolsMenuOpen by remember { mutableStateOf(false) }
-                val coverTitle = speedPickerVisible || toolsMenuOpen
                 Column(
                     modifier = Modifier
                         .onSizeChanged { size -> timelineHeight = with(density) { size.height.toDp() } }
@@ -383,6 +428,7 @@ internal fun PlayerControlsShell(
                 ) {
                     if (!hideDetails) {
                         PlayerTimelineDetails(
+                            modifier = Modifier.padding(horizontal = playerTextCutoutPadding(metrics)),
                             title = title,
                             seasonNumber = seasonNumber,
                             episodeNumber = episodeNumber,
@@ -390,20 +436,17 @@ internal fun PlayerControlsShell(
                             releaseInfo = releaseInfo,
                             metrics = metrics,
                             badges = badges,
-                            modifier = Modifier
-                                .padding(start = textStartExtra)
-                                .graphicsLayer { alpha = if (coverTitle) 0f else 1f },
                         )
                     }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = textStartExtra),
+                            .padding(horizontal = playerTextCutoutPadding(metrics)),
                         verticalAlignment = Alignment.Bottom,
                     ) {
                         Box(modifier = Modifier.weight(1f)) {
                             PlayerChapterLabel(
-                                chapters = playbackSnapshot.chapters,
+                                chapters = chapters,
                                 positionMs = displayedPositionMs,
                                 metrics = metrics,
                                 onClick = onChaptersClick?.let { openChapters ->
@@ -434,6 +477,7 @@ internal fun PlayerControlsShell(
                         },
                         seekPreview = seekPreview,
                         onTouchChange = onTimelineTouchChange,
+                        chapters = chapters,
                     )
                     PlayerControlActions(
                         playbackSnapshot = playbackSnapshot,
@@ -464,9 +508,9 @@ internal fun PlayerControlsShell(
                         onRateClick = onRateClick,
                         userRating = userRating,
                         onInteraction = onInteraction,
+                        onSubmitIntroClick = onSubmitIntroClick,
                         onMarkSegmentClick = onMarkSegmentClick,
                         onLiveChannelsClick = onLiveChannelsClick,
-                        onToolsMenuOpenChange = { toolsMenuOpen = it },
                     )
                 }
             }
@@ -914,6 +958,7 @@ private fun ProgressControls(
     onAudioClick: (() -> Unit)? = null,
     onSourcesClick: (() -> Unit)? = null,
     onEpisodesClick: (() -> Unit)? = null,
+    chapters: List<PlayerChapter> = emptyList(),
     onChaptersClick: (() -> Unit)? = null,
     onLiveChannelsClick: (() -> Unit)? = null,
     onMarkSegmentClick: (() -> Unit)? = null,
@@ -936,7 +981,7 @@ private fun ProgressControls(
         ) {
             Box(modifier = Modifier.weight(1f)) {
                 PlayerChapterLabel(
-                    chapters = playbackSnapshot.chapters,
+                    chapters = chapters,
                     positionMs = displayedPositionMs,
                     metrics = metrics,
                     onClick = onChaptersClick,
@@ -956,7 +1001,7 @@ private fun ProgressControls(
             scrubbingPositionMs = scrubbingPositionMs,
             displayedPositionMs = displayedPositionMs,
             bufferedPositionMs = playbackClock.bufferedPositionMs,
-            chapters = playbackSnapshot.chapters,
+            chapters = chapters,
             metrics = metrics,
             onScrubChange = onScrubChange,
             onScrubFinished = onScrubFinished,
@@ -965,8 +1010,6 @@ private fun ProgressControls(
             showTimeRow = false,
             modifier = Modifier.offset(y = (-13).dp).padding(bottom = 8.dp),
         )
-        // Legacy bottom bar: time pills on the bar's outer edges (lined up with the seek bar's
-        // ends and the pill's top edge), actions in the middle.
         Box(modifier = Modifier.fillMaxWidth()) {
             TimePill(
                 text = formatPlaybackTime(displayedPositionMs),
@@ -996,7 +1039,6 @@ private fun ProgressControls(
                         onClick = onRuntimeClick,
                     ),
             )
-            // Legacy bottom bar: same compact pill as before, now liquid glass.
             Surface(
                 color = Color.Transparent,
                 shape = RoundedCornerShape(24.dp),

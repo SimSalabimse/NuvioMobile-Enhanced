@@ -248,11 +248,6 @@ data class PlayerPlaybackSnapshot(
     val castDeviceName: String? = null,
 )
 
-data class PlayerChapter(
-    val title: String,
-    val startMs: Long,
-)
-
 /**
  * Playhead and buffer, separate from [PlayerPlaybackSnapshot] so a position tick
  * does not recompose the player controls. Only the timeline and the skip-window

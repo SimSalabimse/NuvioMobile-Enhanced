@@ -28,11 +28,6 @@ internal fun PlayerScreenModalHosts(
     activeLiveChannelId: String?,
     onLiveChannelSelected: (LiveTvChannel) -> Unit,
     onLiveChannelsPanelDismissed: () -> Unit,
-    showChaptersPanel: Boolean = false,
-    chapters: List<PlayerChapter> = emptyList(),
-    displayedPositionMs: Long,
-    onChapterSelected: (PlayerChapter) -> Unit = {},
-    onChaptersPanelDismissed: () -> Unit = {},
 ) {
     if (pendingP2pSwitch != null) {
         P2pConsentDialog(
@@ -75,13 +70,6 @@ internal fun PlayerScreenModalHosts(
         onDismiss = onQualityPanelDismissed,
     )
 
-    PlayerChaptersPanel(
-        visible = showChaptersPanel,
-        chapters = chapters,
-        positionMs = displayedPositionMs,
-        onChapterSelected = onChapterSelected,
-        onDismiss = onChaptersPanelDismissed,
-    )
 
 }
 

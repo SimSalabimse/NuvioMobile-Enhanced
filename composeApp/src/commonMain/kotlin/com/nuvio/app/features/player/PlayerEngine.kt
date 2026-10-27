@@ -64,6 +64,8 @@ interface PlayerEngineController {
     fun getAudioCaptureDuration(): Long = 0L
     fun audioCaptureFailureReason(): String = ""
     suspend fun getMediaInfo(): PlayerMediaInfo = PlayerMediaInfo()
+    /** The loaded file's chapters, unsorted; empty when the engine cannot read them. */
+    suspend fun getChapters(): List<PlayerChapter> = emptyList()
 }
 
 internal fun sanitizePlaybackHeaders(headers: Map<String, String>?): Map<String, String> {
