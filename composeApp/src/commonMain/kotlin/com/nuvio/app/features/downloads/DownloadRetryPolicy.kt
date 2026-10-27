@@ -48,4 +48,7 @@ internal class DownloadRetryTracker(
     fun forget(downloadId: String) {
         states.remove(downloadId)
     }
+
+    /** Retries already counted for [downloadId], or 0 when it has not failed. */
+    fun attempts(downloadId: String): Int = states[downloadId]?.attempts ?: 0
 }
