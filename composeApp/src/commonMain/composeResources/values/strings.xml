@@ -3254,6 +3254,8 @@
     <string name="player_tools_sent">Sent</string>
     <string name="player_tools_sent_detail">Sent. It goes live once others agree.</string>
     <string name="player_tools_preview">Preview</string>
+    <string name="player_tools_play_range">Play range</string>
+    <string name="player_tools_mark_hint">Mark the start and end, then Submit. Play range is optional.</string>
     <string name="player_tools_credits">Credits</string>
     <string name="player_tools_end_after_start">End must be after the start</string>
     <string name="player_tools_past_video">That is past the end of the video</string>

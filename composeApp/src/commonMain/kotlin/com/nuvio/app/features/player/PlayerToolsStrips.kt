@@ -3,6 +3,9 @@ package com.nuvio.app.features.player
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
@@ -35,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
@@ -62,6 +66,8 @@ import nuvio.composeapp.generated.resources.player_tools_mark_start
 import nuvio.composeapp.generated.resources.player_tools_movie
 import nuvio.composeapp.generated.resources.player_tools_none
 import nuvio.composeapp.generated.resources.player_tools_past_video
+import nuvio.composeapp.generated.resources.player_tools_mark_hint
+import nuvio.composeapp.generated.resources.player_tools_play_range
 import nuvio.composeapp.generated.resources.player_tools_preview
 import nuvio.composeapp.generated.resources.player_tools_range
 import nuvio.composeapp.generated.resources.player_tools_recap
@@ -195,8 +201,15 @@ internal fun SegmentMarkingLayer(
     }
     val bothSet = startSec != null && endSec != null
     val timeOk = bothSet && problems.isEmpty()
-    val canSend = !sent && !submitting && !keyProblem && blockLine.isNullOrBlank() &&
-        (if (absent) absentAllowed else timeOk)
+    val canSend = markSubmitEnabled(
+        sent = sent,
+        submitting = submitting,
+        keyProblem = keyProblem,
+        blocked = !blockLine.isNullOrBlank(),
+        absent = absent,
+        absentAllowed = absentAllowed,
+        timeOk = timeOk,
+    )
     val editable = !submitting
     val segmentLabel = markSegmentLabel(segmentType)
     val where = if (isMovie) {
@@ -258,10 +271,8 @@ internal fun SegmentMarkingLayer(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                Row(
-                    modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                MarkChipScroller(
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
                 ) {
                     markSegmentTypes(isMovie).forEach { type ->
                         PlayerToolChip(
@@ -269,6 +280,7 @@ internal fun SegmentMarkingLayer(
                             selected = !absent && markSegmentId(segmentType) == type,
                             onClick = { onSegment(type) },
                             enabled = editable,
+                            modifier = Modifier.wrapContentWidth(unbounded = true),
                         )
                     }
                     PlayerToolChip(
@@ -276,6 +288,7 @@ internal fun SegmentMarkingLayer(
                         selected = absent,
                         onClick = onAbsent,
                         enabled = editable,
+                        modifier = Modifier.wrapContentWidth(unbounded = true),
                     )
                 }
                 MarkStatus(
@@ -296,10 +309,12 @@ internal fun SegmentMarkingLayer(
                 if (showCopyLink) {
                     PlayerToolTextButton(stringResource(Res.string.player_tools_copy_link), onClick = onCopyLink)
                 }
+                val playRange = stringResource(Res.string.player_tools_play_range)
                 PlayerToolTextButton(
-                    label = stringResource(Res.string.player_tools_preview),
+                    label = playRange,
                     onClick = onPreview,
                     enabled = editable && timeOk && !absent,
+                    contentDescription = playRange,
                 )
                 PlayerToolIconButton(
                     icon = Icons.Rounded.Close,
@@ -366,6 +381,42 @@ private fun markSegmentLabel(type: String): String = when (markSegmentId(type)) 
 }
 
 @Composable
+private fun MarkChipScroller(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val scroll = rememberScrollState()
+    val fade = PlayerToolSurface.copy(alpha = 0.96f)
+    Box(modifier) {
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(scroll),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            content()
+        }
+        if (scroll.canScrollBackward) {
+            Box(
+                Modifier
+                    .align(Alignment.CenterStart)
+                    .width(18.dp)
+                    .fillMaxHeight()
+                    .background(Brush.horizontalGradient(listOf(fade, Color.Transparent))),
+            )
+        }
+        if (scroll.canScrollForward) {
+            Box(
+                Modifier
+                    .align(Alignment.CenterEnd)
+                    .width(18.dp)
+                    .fillMaxHeight()
+                    .background(Brush.horizontalGradient(listOf(Color.Transparent, fade))),
+            )
+        }
+    }
+}
+
+@Composable
 private fun MarkStatus(
     absent: Boolean,
     bothSet: Boolean,
@@ -383,43 +434,22 @@ private fun MarkStatus(
 ) {
     when {
         keyProblem -> PlayerToolTextButton(addKeyLabel, onClick = onAddKey)
-        !errorLine.isNullOrBlank() -> Text(
-            text = errorLine,
-            color = MarkError,
-            fontSize = 13.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        !blockLine.isNullOrBlank() -> Text(
-            text = blockLine,
-            color = MarkError,
-            fontSize = 13.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        absent -> Text(
-            text = absentLine,
-            color = Color.White.copy(alpha = 0.7f),
-            fontSize = 13.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        !errorLine.isNullOrBlank() -> MarkStatusLine(errorLine, MarkError)
+        !blockLine.isNullOrBlank() -> MarkStatusLine(blockLine, MarkError)
+        absent -> MarkStatusLine(absentLine, Color.White.copy(alpha = 0.7f))
         bothSet && problems.isNotEmpty() -> {
             val length = markLengthSec(startSec, endSec)
             val detail = markProblemText(problems.first(), segmentType, segmentLabel)
-            Text(
-                text = listOfNotNull(length?.let(::markLengthLabel), detail).joinToString("  "),
-                color = MarkError,
-                fontSize = 13.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+            MarkStatusLine(
+                listOfNotNull(length?.let(::markLengthLabel), detail).joinToString("  "),
+                MarkError,
             )
         }
         bothSet -> {
             val limits = markSegmentLimits(segmentType)
             val length = markLengthSec(startSec, endSec)
-            Text(
-                text = buildString {
+            MarkStatusLine(
+                buildString {
                     length?.let { append(markLengthLabel(it)).append("  ") }
                     append(
                         stringResource(
@@ -430,13 +460,26 @@ private fun MarkStatus(
                         ),
                     )
                 },
-                color = MarkOk,
-                fontSize = 13.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                MarkOk,
             )
         }
+        else -> MarkStatusLine(
+            stringResource(Res.string.player_tools_mark_hint),
+            Color.White.copy(alpha = 0.7f),
+        )
     }
+}
+
+@Composable
+private fun MarkStatusLine(text: String, color: Color) {
+    Text(
+        text = text,
+        color = color,
+        fontSize = 13.sp,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.widthIn(max = 220.dp),
+    )
 }
 
 @Composable
