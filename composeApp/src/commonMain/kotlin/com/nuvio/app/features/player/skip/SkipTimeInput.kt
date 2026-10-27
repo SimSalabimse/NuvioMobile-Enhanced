@@ -80,9 +80,9 @@ internal fun parseTimeToSeconds(input: String): Double? {
         3 -> {
             val hours = parts[0].toIntOrNull() ?: return null
             val minutes = parts[1].toIntOrNull() ?: return null
-            val secs = parts[2].toIntOrNull() ?: return null
-            if (hours < 0 || minutes !in 0..59 || secs !in 0..59) return null
-            (hours * 3600 + minutes * 60 + secs).toDouble()
+            val secs = parts[2].toDoubleOrNull() ?: return null
+            if (hours < 0 || minutes !in 0..59 || secs < 0.0 || secs >= 60.0) return null
+            hours * 3600.0 + minutes * 60.0 + secs
         }
         2 -> {
             val minutes = parts[0].toIntOrNull() ?: return null
