@@ -701,6 +701,16 @@
     <string name="downloads_status_queued">Waiting</string>
     <string name="downloads_status_queued_with_size">Waiting • %1$s</string>
     <string name="downloads_status_held_for_playback">Waiting while you watch • %1$s</string>
+    <string name="downloads_slow_paused_watching">Paused while you watch</string>
+    <string name="downloads_slow_buffering">Slowed while the stream buffers</string>
+    <string name="downloads_slow_wifi">Waiting for Wi-Fi</string>
+    <string name="downloads_slow_thermal">Device is too hot</string>
+    <string name="downloads_slow_retrying">Retrying</string>
+    <string name="downloads_storage_loading">Loading storage</string>
+    <plurals name="downloads_slow_queue">
+        <item quantity="one">Waiting behind %1$d download</item>
+        <item quantity="other">Waiting behind %1$d downloads</item>
+    </plurals>
     <string name="downloads_plays_when_finished">Plays when the download finishes.</string>
     <string name="episodes_cd_watched">Watched</string>
     <string name="episodes_season">Season %1$d</string>

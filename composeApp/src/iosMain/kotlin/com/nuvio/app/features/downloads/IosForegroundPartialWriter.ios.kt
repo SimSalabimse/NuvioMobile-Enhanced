@@ -297,6 +297,13 @@ internal object IosDownloadRetries {
         lock.unlock()
     }
 
+    fun attempts(downloadId: String): Int {
+        lock.lock()
+        val value = tracker.attempts(downloadId)
+        lock.unlock()
+        return value
+    }
+
     /** Only a row that is still meant to be downloading comes back. */
     fun stillWanted(downloadId: String): Boolean =
         !IosTransferControl.isSuppressed(downloadId) &&

@@ -138,6 +138,8 @@ fun DownloadsScreen(
     val problems by androidx.compose.runtime.produceState(emptyMap<String, DownloadProblem>(), uiState.completedItems, storageRefresh) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { downloadProblems(uiState.items) }
     }
+    remember { SmartDownloadSettings.ensureLoaded() }
+    val slowReasonTick = rememberDownloadSlowTick(uiState.activeItems.isNotEmpty())
     val tokens = MaterialTheme.nuvio
 
     // Under the native iOS navigation bar the header collapses to its actions. The list starts
@@ -147,7 +149,10 @@ fun DownloadsScreen(
         !com.nuvio.app.navigation.LocalNativeNavigationBarHidden.current
     val statusBarTop = androidx.compose.foundation.layout.WindowInsets.statusBars
         .asPaddingValues().calculateTopPadding()
-    androidx.compose.runtime.CompositionLocalProvider(LocalDownloadProblems provides problems) {
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalDownloadProblems provides problems,
+        LocalDownloadSlowTick provides slowReasonTick,
+    ) {
     NuvioScreen(
         modifier = Modifier.dismissKeyboardOnScrollOrTap().then(
             if (underNativeNavigationBar) {
@@ -204,8 +209,11 @@ fun DownloadsScreen(
         if (underNativeNavigationBar) item(key = "header") { header() } else stickyHeader { header() }
 
         if (selectedShowId == null) {
-            storageSummary?.let { summary ->
-                item(key = "storage-card") {
+            item(key = "storage-card") {
+                val summary = storageSummary
+                if (summary == null) {
+                    DownloadStorageCardPlaceholder()
+                } else {
                     DownloadStorageCard(
                         summary = summary,
                         onClick = { onOpenStorage?.invoke() ?: run { showStorage = true } },
@@ -726,6 +734,7 @@ private fun DownloadRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    DownloadSlowReasonLine(items = listOf(item))
                     LocalDownloadProblems.current[item.id]?.let { problem ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -934,6 +943,7 @@ private fun ActiveSeasonGroupHeader(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (!expanded) DownloadSlowReasonLine(items = group.items)
                 }
                 Icon(
                     imageVector = if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,

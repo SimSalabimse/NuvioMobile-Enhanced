@@ -68,6 +68,8 @@ Built from the code at build 197 (0.6.4.1), which includes upstream 0.6.4-beta. 
 - Download Live Activity / Dynamic Island with progress and speed (iOS); tapping it opens Downloads: automatic. 0.5.9.1.
 - Season rows on Downloads: time left is never shorter than the slowest running episode (queued episodes add to it); with several episodes running the speed is labelled "total": Library › Downloads. Checked by SeasonEtaTest.
 - Downloads search, storage screen, offline artwork for downloaded items: Library › Downloads. 0.5.10.2.
+- A download that is not moving shows one short reason on its row (paused while you watch, slowed while the stream buffers, waiting behind other downloads, waiting for Wi-Fi, device too hot, or retrying) and no reason while it is moving: Library › Downloads. The line follows the device within about 2 s and clears when the cause is gone. Checked by DownloadSlowReasonTest.
+- The Storage card on Downloads keeps a fixed-height placeholder until storage has been read, so a cold start does not shift the list: Library › Downloads.
 
 ## Library
 - Library from Nuvio, Trakt, Simkl, MDBList, AniList, WeTrakr: Settings › Account › Tracking › Library Source. Upstream.
