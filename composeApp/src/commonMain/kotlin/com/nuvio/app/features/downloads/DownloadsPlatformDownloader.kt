@@ -86,4 +86,7 @@ internal expect object DownloadsPlatformDownloader {
     fun finishPartialPlayback(downloadId: String): String?
 
     fun pauseRunningTransfer(item: DownloadItem)
+
+    /** Retries the manager has already counted for [downloadId], or 0. Does not start or change one. */
+    fun retryCount(downloadId: String): Int
 }

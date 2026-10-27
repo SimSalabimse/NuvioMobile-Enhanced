@@ -25,6 +25,7 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -40,8 +41,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
@@ -256,6 +261,77 @@ internal fun DownloadStorageCard(
             }
         }
     }
+}
+
+/**
+ * Same sections as [DownloadStorageCard] (title, space, bar, legend, the three actions),
+ * drawn as bars so the list slot does not grow when the summary arrives.
+ * The low-space warning is not reserved: it only appears once storage is known to be low.
+ */
+@Composable
+internal fun DownloadStorageCardPlaceholder(modifier: Modifier = Modifier) {
+    val loading = stringResource(Res.string.downloads_storage_loading)
+    val skeleton = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .semantics { contentDescription = loading },
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            SkeletonLine(MaterialTheme.typography.titleSmall, 0.62f)
+            SkeletonLine(MaterialTheme.typography.bodySmall, 0.78f)
+            SkeletonLine(MaterialTheme.typography.bodySmall, 0.9f)
+            Box(
+                modifier = Modifier
+                    .padding(top = 10.dp)
+                    .fillMaxWidth()
+                    .height(10.dp)
+                    .clip(RoundedCornerShape(5.dp))
+                    .background(skeleton),
+            )
+            SkeletonLine(MaterialTheme.typography.labelSmall, 0.72f, top = 6.dp)
+            Box(
+                modifier = Modifier
+                    .padding(top = 10.dp)
+                    .fillMaxWidth()
+                    .height(ButtonDefaults.MinHeight)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(skeleton),
+            )
+            Box(
+                modifier = Modifier
+                    .padding(top = 6.dp)
+                    .fillMaxWidth()
+                    .height(ButtonDefaults.MinHeight)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(skeleton),
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(ButtonDefaults.MinHeight)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(skeleton),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SkeletonLine(style: TextStyle, widthFraction: Float, top: Dp = 0.dp) {
+    Text(
+        text = " ",
+        modifier = Modifier
+            .padding(top = top)
+            .fillMaxWidth(widthFraction)
+            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), RoundedCornerShape(4.dp)),
+        style = style,
+        color = Color.Transparent,
+        maxLines = 1,
+    )
 }
 
 /** "Downloads 16.2 GB · Subtitles & extras 20 MB · Cache 150 MB · Leftovers 1.0 GB · App data 80 MB". */
