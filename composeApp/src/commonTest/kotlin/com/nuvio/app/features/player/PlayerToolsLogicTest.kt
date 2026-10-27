@@ -1,5 +1,7 @@
 package com.nuvio.app.features.player
 
+import com.nuvio.app.features.player.skip.IntroSubmitService
+import com.nuvio.app.features.player.skip.resolveIntroSubmitTimes
 import com.nuvio.app.features.player.skip.theIntroDbSubmitPayload
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -205,5 +207,81 @@ class PlayerToolsLogicTest {
         assertTrue(markPreviewArmed(positionMs = 20_000, startMs = 12_400, endMs = 101_000))
         assertFalse(shouldStopMarkPreview(positionMs = 200_000, endMs = 101_000, armed = false))
         assertTrue(shouldStopMarkPreview(positionMs = 101_000, endMs = 101_000, armed = true))
+    }
+
+    @Test
+    fun `a live or unknown duration does not open a seek window`() {
+        assertEquals(0.0 to 0.0, markingZoomWindow(10.0, 1.0, 2.0, 0.0))
+        assertEquals(0.0 to 0.0, markingZoomWindow(10.0, null, null, -1.0))
+        assertFalse(markingSeekAllowed(0.0))
+        assertFalse(markingSeekAllowed(-5.0))
+        assertTrue(markingSeekAllowed(12.0))
+    }
+
+    @Test
+    fun `mark start keeps the requested seek until the clock catches up`() {
+        val pending = markingPlayheadAfterSample(clockMs = 10_000, pendingSeekMs = 80_000, loadingScrubMs = null)
+        assertEquals(80_000L, pending.positionMs)
+        assertEquals(80_000L, pending.pendingSeekMs)
+        val caughtUp = markingPlayheadAfterSample(clockMs = 80_200, pendingSeekMs = 80_000, loadingScrubMs = null)
+        assertEquals(80_200L, caughtUp.positionMs)
+        assertNull(caughtUp.pendingSeekMs)
+        val loading = markingPlayheadAfterSample(clockMs = 10_000, pendingSeekMs = 80_000, loadingScrubMs = 80_000)
+        assertEquals(80_000L, loading.positionMs)
+        assertEquals(80_000L, loading.pendingSeekMs)
+    }
+
+    @Test
+    fun `preview restores the position and play state it captured`() {
+        assertEquals(
+            MarkPreviewPlayback(positionMs = 42_000, shouldPlay = false),
+            restoredMarkPreview(markPreviewSession(positionMs = 42_000, shouldPlay = false)),
+        )
+        assertEquals(
+            MarkPreviewPlayback(positionMs = 0, shouldPlay = true),
+            restoredMarkPreview(markPreviewSession(positionMs = -20, shouldPlay = true)),
+        )
+    }
+
+    @Test
+    fun `none goes through resolveIntroSubmitTimes and introdb refuses it`() {
+        assertEquals(
+            0.0 to 0.0,
+            resolveIntroSubmitTimes(
+                IntroSubmitService.THE_INTRODB,
+                absentSegment = true,
+                startTimeStr = "",
+                endTimeStr = "",
+            ),
+        )
+        assertNull(
+            resolveIntroSubmitTimes(
+                IntroSubmitService.INTRODB,
+                absentSegment = true,
+                startTimeStr = "00:00:00",
+                endTimeStr = "00:00:00",
+            ),
+        )
+    }
+
+    @Test
+    fun `a dismissed or replaced submit does not count`() {
+        val sent = markSubmitSnapshot("credits", absent = false, startSec = 10.0, endSec = 40.0, generation = 3)
+        assertEquals("outro", sent.segmentType)
+        assertFalse(sent.absent)
+        assertEquals(10.0, sent.startSec)
+        assertTrue(markSubmitResultApplies(sent.generation, currentGeneration = 3, stripOpen = true))
+        assertFalse(markSubmitResultApplies(sent.generation, currentGeneration = 4, stripOpen = true))
+        assertFalse(markSubmitResultApplies(sent.generation, currentGeneration = 3, stripOpen = false))
+        val absent = markSubmitSnapshot("intro", absent = true, startSec = 5.0, endSec = 9.0, generation = 1)
+        assertTrue(absent.absent)
+        assertEquals("intro", absent.segmentType)
+        assertEquals(5.0, absent.startSec)
+    }
+
+    @Test
+    fun `the sync strip lifts the subtitle offset without replacing the saved one`() {
+        assertEquals(122, subtitleBottomOffsetForSyncStrip(20))
+        assertEquals(102, subtitleBottomOffsetForSyncStrip(0))
     }
 }

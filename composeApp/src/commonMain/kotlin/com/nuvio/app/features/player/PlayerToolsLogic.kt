@@ -209,6 +209,36 @@ internal fun zoomFraction(timeSec: Double, windowStartSec: Double, windowEndSec:
     return ((timeSec - windowStartSec) / span).toFloat().coerceIn(0f, 1f)
 }
 
+/** A live stream or an unknown duration has nothing to seek. */
+internal fun markingSeekAllowed(durationSec: Double): Boolean = durationSec > 0.0
+
+/**
+ * How close the playback clock must be to a requested seek before Mark start /
+ * Mark end trust the clock again. Until then the requested target is the playhead.
+ */
+internal const val MarkingPlayheadCatchUpMs = 750L
+
+internal data class MarkingPlayhead(val positionMs: Long, val pendingSeekMs: Long?)
+
+/**
+ * [loadingScrubMs] wins while the engine is still buffering the seek.
+ * Otherwise the last requested target stands until [clockMs] lands on it.
+ */
+internal fun markingPlayheadAfterSample(
+    clockMs: Long,
+    pendingSeekMs: Long?,
+    loadingScrubMs: Long?,
+    catchUpMs: Long = MarkingPlayheadCatchUpMs,
+): MarkingPlayhead {
+    if (loadingScrubMs != null) return MarkingPlayhead(loadingScrubMs, pendingSeekMs)
+    val pending = pendingSeekMs ?: return MarkingPlayhead(clockMs, null)
+    return if (abs(clockMs - pending) <= catchUpMs) {
+        MarkingPlayhead(clockMs, null)
+    } else {
+        MarkingPlayhead(pending, pending)
+    }
+}
+
 /**
  * Preview arms once the playhead is inside the range (the seek has landed),
  * then stops on the end frame. A stale playhead from before the seek does not arm it.
@@ -218,6 +248,65 @@ internal fun markPreviewArmed(positionMs: Long, startMs: Long, endMs: Long): Boo
 
 internal fun shouldStopMarkPreview(positionMs: Long, endMs: Long, armed: Boolean): Boolean =
     armed && positionMs >= endMs
+
+/** Position and play state captured when Preview starts, restored when it ends or the strip closes. */
+internal data class MarkPreviewRestore(
+    val positionMs: Long,
+    val shouldPlay: Boolean,
+)
+
+internal data class MarkPreviewPlayback(
+    val positionMs: Long,
+    val shouldPlay: Boolean,
+)
+
+internal fun markPreviewSession(positionMs: Long, shouldPlay: Boolean): MarkPreviewRestore =
+    MarkPreviewRestore(positionMs.coerceAtLeast(0L), shouldPlay)
+
+internal fun restoredMarkPreview(saved: MarkPreviewRestore): MarkPreviewPlayback =
+    MarkPreviewPlayback(saved.positionMs, saved.shouldPlay)
+
+/**
+ * Extra subtitle bottom offset while the sync strip covers the cue.
+ * Added to the style for the apply call only; the saved offset is left alone.
+ */
+internal const val SubtitleSyncStripLift = 102
+
+internal fun subtitleBottomOffsetForSyncStrip(savedOffset: Int): Int =
+    (savedOffset + SubtitleSyncStripLift).coerceAtLeast(0)
+
+/**
+ * What a submit was when the viewer tapped Send, copied before the first suspend.
+ * [generation] is the strip's generation at that tap.
+ */
+internal data class MarkSubmitSnapshot(
+    val segmentType: String,
+    val absent: Boolean,
+    val startSec: Double,
+    val endSec: Double,
+    val generation: Int,
+)
+
+internal fun markSubmitSnapshot(
+    segmentType: String,
+    absent: Boolean,
+    startSec: Double?,
+    endSec: Double?,
+    generation: Int,
+): MarkSubmitSnapshot = MarkSubmitSnapshot(
+    segmentType = markSegmentId(segmentType),
+    absent = absent,
+    startSec = startSec ?: 0.0,
+    endSec = endSec ?: 0.0,
+    generation = generation,
+)
+
+/** A late result is dropped when the strip closed or a newer submit replaced it. */
+internal fun markSubmitResultApplies(
+    snapshotGeneration: Int,
+    currentGeneration: Int,
+    stripOpen: Boolean,
+): Boolean = stripOpen && snapshotGeneration == currentGeneration
 
 internal fun subtitleDelayAfterReset(): Int = 0
 
