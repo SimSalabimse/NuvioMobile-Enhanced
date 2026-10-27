@@ -849,13 +849,12 @@ private fun PlayerScreenRuntime.playbackResolutionLabel(forButton: Boolean): Str
 
 @Composable
 private fun PlayerScreenRuntime.RenderPlayerModals() {
-    val displayedPositionMs = if (showChaptersPanel || showSubmitIntroModal) {
+    val displayedPositionMs = if (showChaptersPanel) {
         scrubbingPositionMs ?: playbackClock.positionMs
     } else {
         Snapshot.withoutReadObservation { scrubbingPositionMs ?: playbackClock.positionMs }
     }
     val snapshotChapters by remember(this) { derivedStateOf { playbackSnapshot.chapters } }
-    val snapshotMediaInfoJson by remember(this) { derivedStateOf { playbackSnapshot.mediaInfoJson } }
     PlayerScreenModalHosts(
         pendingP2pSwitch = pendingP2pSwitch,
         onPendingP2pSwitchChanged = { pendingP2pSwitch = it },
@@ -866,179 +865,20 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
         onNextEpisodeAutoPlaySearchingChanged = { nextEpisodeAutoPlaySearching = it },
         onNextEpisodeAutoPlayCountdownChanged = { nextEpisodeAutoPlayCountdown = it },
         onNextEpisodeAutoPlaySourceNameChanged = { nextEpisodeAutoPlaySourceName = it },
-        showAudioModal = showAudioModal,
-        audioTracks = serverAudioTracks.ifEmpty { audioTracks },
-        selectedAudioIndex = serverAudioTracks.firstOrNull { it.isSelected }?.index ?: selectedAudioIndex,
-        onAudioTrackSelected = { index ->
-            if (serverAudioTracks.isNotEmpty()) {
-                selectServerAudioTrack(index)
-            } else {
-                selectedAudioIndex = index
-                persistAudioPreference(audioTracks.firstOrNull { it.index == index })
-                playerController?.selectAudioTrack(index)
-            }
-            scope.launch {
-                kotlinx.coroutines.delay(200)
-                showAudioModal = false
-            }
-        },
-        onAudioModalDismissed = { showAudioModal = false },
-        showSubtitleModal = showSubtitleModal,
-        subtitleTracks = serverSubtitleTracks.ifEmpty { subtitleTracks },
-        selectedSubtitleIndex = if (serverSubtitleTracks.isEmpty()) {
-            selectedSubtitleIndex
-        } else {
-            serverSubtitleTracks.firstOrNull { it.isSelected }?.index ?: -1
-        },
-        addonSubtitles = visibleAddonSubtitles,
-        selectedAddonSubtitleId = selectedAddonSubtitleId,
-        isLoadingAddonSubtitles = isLoadingAddonSubtitles,
-        subtitleStyle = subtitleStyle,
-        subtitleDelayMs = subtitleDelayMs,
-        selectedAddonSubtitle = selectedAddonSubtitle,
-        subtitleAutoSyncState = subtitleAutoSyncState,
-        onBuiltInSubtitleTrackSelected = { index ->
-            clearAutoSubtitleState()
-            if (serverSubtitleTracks.isNotEmpty() && index >= 0) {
-                selectServerSubtitleTrack(index)
-            } else {
-                val wasCustom = useCustomSubtitles
-                isUserExplicitSubtitleSelection = true
-                preferredSubtitleSelectionApplied = true
-                subtitleOffRequested = index < 0
-                selectedSubtitleIndex = index
-                selectedAddonSubtitleId = null
-                useCustomSubtitles = false
-                persistInternalSubtitlePreference(subtitleTracks.firstOrNull { it.index == index })
-                if (wasCustom) {
-                    playerController?.clearExternalSubtitleAndSelect(index)
-                } else {
-                    playerController?.selectSubtitleTrack(index)
-                }
-                if (hasBurnedInServerSubtitle) clearServerSubtitleTrack()
-            }
-        },
-        onAddonSubtitleSelected = { addon ->
-            clearAutoSubtitleState()
-            isUserExplicitSubtitleSelection = true
-            selectedAddonSubtitleId = addon.selectionKey
-            selectedSubtitleIndex = -1
-            useCustomSubtitles = true
-            preferredSubtitleSelectionApplied = true
-            persistAddonSubtitlePreference(addon)
-            attachSelectedAddonSubtitleWithAutoSync(addon.url) // AutoSync hook
-            if (hasBurnedInServerSubtitle) clearServerSubtitleTrack()
-        },
-        onFetchAddonSubtitles = { fetchAddonSubtitlesForActiveItem() },
-        onSubtitleStyleChanged = PlayerSettingsRepository::setSubtitleStyle,
-        onSubtitleDelayChanged = { delayMs -> setSubtitleDelay(delayMs) },
-        onSubtitleDelayReset = { setSubtitleDelay(0) },
-        onSyncByEarClick = { openSubtitleSyncByEar() },
-        onAutoSyncAutomatic = { performAutomaticSubtitleSync() },
-        onAutoSyncCapture = { captureSubtitleAutoSyncTime() },
-        onAutoSyncCueSelected = { cue -> applySubtitleAutoSyncCue(cue) },
-        onAutoSyncReload = { loadSubtitleAutoSyncCues(force = true) },
-        onSubtitleModalDismissed = { showSubtitleModal = false },
-        showVideoSettingsModal = showVideoSettingsModal,
-        playerSettings = playerSettingsUiState,
-        onVideoSettingsChanged = {
-            playerController?.configureIosVideoOutput(PlayerSettingsRepository.uiState.value)
-        },
-        onVideoSettingsModalDismissed = { showVideoSettingsModal = false },
-        showSourcesPanel = showSourcesPanel,
-        sourceStreamsState = sourceStreamsState,
-        contentTitle = title,
-        activeEpisodeTitle = activeEpisodeTitle,
-        activeSourceUrl = activeSourceUrl,
-        activeStreamTitle = activeStreamTitle,
         showQualityPanel = showQualityPanel,
         playerQualityState = playerQualityState,
         selectedPlayerQualityId = selectedPlayerQualityId,
         currentQualityLabel = currentQualityPanelResolutionLabel(),
-        selectedQualityVariant = playerQualityState.selectedVariantFor(selectedPlayerQualityId),
-        selectedQualityIsAuto = selectedPlayerQualityId == null && playerQualityState.hasSelectableQualities,
         onPlayerQualitySelected = { qualityId -> selectPlayerQuality(qualityId) },
         onQualityPanelDismissed = { dismissPlayerTools() },
-        onSourceFilterSelected = PlayerStreamsRepository::selectSourceFilter,
-        onSourceStreamSelected = { stream -> switchToSource(stream) },
-        onReloadSources = {
-            val vid = activeVideoId
-            if (vid != null) {
-                PlayerStreamsRepository.loadSources(
-                    type = contentType ?: parentMetaType,
-                    videoId = vid,
-                    season = activeSeasonNumber,
-                    episode = activeEpisodeNumber,
-                    forceRefresh = true,
-                )
-            }
-        },
-        onSourcesPanelDismissed = { dismissPlayerTools() },
         showLiveChannelsPanel = showLiveChannelsPanel,
         liveTvChannels = liveTvUiState.channels,
         activeLiveChannelId = activeVideoId,
         onLiveChannelSelected = { channel -> switchToLiveChannel(channel) },
         onLiveChannelsPanelDismissed = { dismissPlayerTools() },
-        isSeries = isSeries,
-        showEpisodesPanel = showEpisodesPanel,
-        allEpisodes = playerMetaVideos,
-        parentMetaType = parentMetaType,
-        parentMetaId = parentMetaId,
-        activeSeasonNumber = activeSeasonNumber,
-        activeEpisodeNumber = activeEpisodeNumber,
-        watchProgressByVideoId = watchProgressUiState.byVideoIdForContent(parentMetaId),
-        watchedKeys = watchedUiState.watchedKeys,
-        blurUnwatchedEpisodes = metaScreenSettingsUiState.blurUnwatchedEpisodes,
-        episodeStreamsPanelState = episodeStreamsPanelState,
-        episodeStreamsRepoState = episodeStreamsRepoState,
-        onEpisodeSelectedForDownload = { episode ->
-            selectDownloadedEpisodeForPlayback(
-                parentMetaId = parentMetaId,
-                episode = episode,
-                onDownloadedEpisodeSelected = { item, video -> switchToDownloadedEpisode(item, video) },
-            )
-        },
-        onEpisodeStreamsRequested = { episode ->
-            PlayerStreamsRepository.loadEpisodeStreams(
-                type = contentType ?: parentMetaType,
-                videoId = episode.id,
-                season = episode.season,
-                episode = episode.episode,
-            )
-            episodeStreamsPanelState = EpisodeStreamsPanelState(showStreams = true, selectedEpisode = episode)
-        },
-        onEpisodeStreamFilterSelected = PlayerStreamsRepository::selectEpisodeStreamsFilter,
-        onEpisodeStreamSelected = { stream, episode ->
-            switchToEpisodeStream(
-                stream,
-                episode,
-                saveForReuse = stream != PartyRepository.sharedStream.value?.toStreamItem(),
-            )
-        },
-        onBackToEpisodes = {
-            episodeStreamsPanelState = EpisodeStreamsPanelState()
-            PlayerStreamsRepository.clearEpisodeStreams()
-        },
-        onReloadEpisodeStreams = {
-            val episode = episodeStreamsPanelState.selectedEpisode
-            if (episode != null) {
-                PlayerStreamsRepository.loadEpisodeStreams(
-                    type = contentType ?: parentMetaType,
-                    videoId = episode.id,
-                    season = episode.season,
-                    episode = episode.episode,
-                    forceRefresh = true,
-                )
-            }
-        },
-        onEpisodesPanelDismissed = { dismissPlayerTools() },
-        episodesLoading = episodesLoading,
-        episodesLoadFailed = episodesLoadFailed,
-        episodesEmptyNeedsRetry = episodesEmptyNeedsRetry,
-        episodesComplete = episodesComplete,
-        onRetryEpisodes = { retryEpisodesLoad() },
         showChaptersPanel = showChaptersPanel,
         chapters = snapshotChapters,
+        displayedPositionMs = displayedPositionMs,
         onChapterSelected = { chapter ->
             val targetMs = chapter.startMs.coerceAtLeast(0L)
             finishTimelineScrub(targetMs)
@@ -1048,36 +888,6 @@ private fun PlayerScreenRuntime.RenderPlayerModals() {
             dismissPlayerTools()
         },
         onChaptersPanelDismissed = { dismissPlayerTools() },
-        showSubmitIntroModal = showSubmitIntroModal,
-        activeVideoId = activeVideoId,
-        metaUiState = metaUiState,
-        playbackClock = playbackClock,
-        durationMs = playbackSnapshot.durationMs,
-        displayedPositionMs = scrubbingPositionMs ?: playbackClock.positionMs,
-        submitIntroSegmentType = submitIntroSegmentType,
-        onSubmitIntroSegmentTypeChanged = { switchSubmitSegmentType(it) },
-        submitIntroStartTimeStr = submitIntroStartTimeStr,
-        onSubmitIntroStartTimeChanged = { submitIntroStartTimeStr = it },
-        submitIntroEndTimeStr = submitIntroEndTimeStr,
-        onSubmitIntroEndTimeChanged = { submitIntroEndTimeStr = it },
-        onSubmitIntroDismissed = { dismissPlayerTools() },
-        onSubmitIntroSuccess = {
-            val start = parseMarkClock(submitIntroStartTimeStr)
-            val end = parseMarkClock(submitIntroEndTimeStr)
-            noteMarkingSubmitted(
-                IntroSubmitResult(
-                    segmentType = markSegmentId(submitIntroSegmentType),
-                    startSec = start ?: 0.0,
-                    endSec = end ?: 0.0,
-                    absentSegment = start == null || end == null || end <= start,
-                ),
-            )
-        },
-        skipIntervals = skipIntervals,
-        submittedSegmentTypesInSession = submittedSegmentTypesByVideoId[activeVideoId.orEmpty()] ?: emptySet(),
-        showStreamInfoModal = showStreamInfoModal,
-        mediaInfoJson = snapshotMediaInfoJson,
-        onStreamInfoModalDismissed = { dismissPlayerTools() },
     )
     PlayerToolsOverlay()
 
