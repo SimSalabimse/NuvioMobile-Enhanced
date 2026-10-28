@@ -29,9 +29,6 @@ actual object PlayerSettingsStorage {
     private const val holdToSpeedValueKey = "hold_to_speed_value"
     private const val skipBackwardSecondsKey = "skip_backward_seconds"
     private const val toolbarLayoutKey = "player_toolbar_layout"
-    private const val testingControlsStyleKey = "testing_controls_style"
-    private const val testingSyncUiKey = "testing_sync_ui"
-    private const val testingTitleWhileSpeedKey = "testing_title_while_speed"
     private const val skipForwardSecondsKey = "skip_forward_seconds"
     private const val touchGesturesEnabledKey = "touch_gestures_enabled"
     private const val swipeToSeekEnabledKey = "swipe_to_seek_enabled"
@@ -1387,24 +1384,4 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncInt(iosGammaKey)?.let(::saveIosGamma)
     }
 
-    actual fun loadTestingControlsStyle(): String? =
-        NSUserDefaults.standardUserDefaults.stringForKey(testingControlsStyleKey)
-
-    actual fun saveTestingControlsStyle(value: String) {
-        NSUserDefaults.standardUserDefaults.setObject(value, forKey = testingControlsStyleKey)
-    }
-
-    actual fun loadTestingSyncUi(): String? =
-        NSUserDefaults.standardUserDefaults.stringForKey(testingSyncUiKey)
-
-    actual fun saveTestingSyncUi(value: String) {
-        NSUserDefaults.standardUserDefaults.setObject(value, forKey = testingSyncUiKey)
-    }
-
-    actual fun loadTestingTitleWhileSpeed(): String? =
-        NSUserDefaults.standardUserDefaults.stringForKey(testingTitleWhileSpeedKey)
-
-    actual fun saveTestingTitleWhileSpeed(value: String) {
-        NSUserDefaults.standardUserDefaults.setObject(value, forKey = testingTitleWhileSpeedKey)
-    }
 }

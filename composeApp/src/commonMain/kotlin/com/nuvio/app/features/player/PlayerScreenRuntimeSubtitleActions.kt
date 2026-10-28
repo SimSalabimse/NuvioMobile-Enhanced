@@ -246,12 +246,6 @@ internal fun PlayerScreenRuntime.openSubtitleSyncByEar() {
     controlsVisible = false
 }
 
-internal fun PlayerScreenRuntime.closeSubtitleSyncByEar() {
-    showSubtitleSyncByEar = false
-    subtitleSyncHeardPositionMs = null
-    subtitleSyncSawPositionMs = null
-}
-
 internal fun PlayerScreenRuntime.captureSubtitleSyncHeard() {
     subtitleSyncHeardPositionMs = playbackClock.positionMs.coerceAtLeast(0L)
     applySubtitleSyncByEarIfReady()

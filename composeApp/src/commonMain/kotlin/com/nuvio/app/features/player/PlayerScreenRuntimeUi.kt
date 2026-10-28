@@ -396,19 +396,6 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 p2pRebufferProgress = p2pRebufferProgress,
                 folded = fold != null,
             )
-            SubtitleSyncByEarCard(
-                visible = showSubtitleSyncByEar &&
-                    playerSettingsUiState.testingSyncUi == TestingSyncUi.TopCard,
-                subtitleDelayMs = subtitleDelayMs,
-                heardCaptured = subtitleSyncHeardPositionMs != null,
-                sawCaptured = subtitleSyncSawPositionMs != null,
-                onHeard = { captureSubtitleSyncHeard() },
-                onSaw = { captureSubtitleSyncSaw() },
-                onClose = { closeSubtitleSyncByEar() },
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 16.dp, start = horizontalSafePadding, end = horizontalSafePadding),
-            )
         }
         Box(modifier = panelModifier) {
             RenderPlayerModals()

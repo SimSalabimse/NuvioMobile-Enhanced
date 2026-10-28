@@ -1,8 +1,17 @@
 # Overlaps in the 0.6.5 comparison build
 
-This build merges fork commit 313ca3d1 (tag 0.6.5-beta on luqmanfadlli/NuvioMobile-Enhanced) into the player-tools work at 28e4b858 plus the download-reason work. Where both sides already did the same job in different code, the fork's version is what runs. The list below is every one of those overlaps.
+This build merges fork commit 313ca3d1 (tag 0.6.5-beta on luqmanfadlli/NuvioMobile-Enhanced) into the player-tools work at 28e4b858 plus the download-reason work. The list below is every overlap. The owner has picked the winners. Those picks are permanent. There is no Settings › Playback › Testing section.
 
-To put our version back for one item, use the commit and file named on that item. 28e4b858 is the player-tools build. 6c278407 is that build plus the download-reason commit, before this merge.
+Final decisions:
+
+- Notch spacing stays the fork's (`playerTextCutoutPadding`).
+- Player buttons stay the fork's reorderable bar. The arrow grows that bar. The ⋯ popup is gone.
+- Subtitle sync stays our bottom strip (nudge, Heard it, Saw it). The fork top card is gone.
+- While Sleep or Speed is open, the title fades out and stays in the layout, so the seek bar does not move.
+- Episodes, sources, and submit stay on our tools panel.
+- `store.json` is untouched. There is no 0.6.5.1 catalog entry yet.
+
+28e4b858 is the player-tools build. 6c278407 is that build plus the download-reason commit, before this merge.
 
 Features that exist only on our side were left as they are: the tools panel, the marking strip, Play range and Submit, the Sync strip, TheIntroDB Flag and H:MM:SS submit, download reasons, Storage, Diagnostics, and Auto Sync.
 
@@ -14,13 +23,11 @@ The fork adds the same extra inset on the left and the right, taken from the wid
 
 Our build at 28e4b858 pulls only the start edge back with `playerTextStartPadding` (commit a32ba36c1, still defined in `PlayerLayout.kt`).
 
-The fork's inset is the one in this build, because this build is for comparing that spacing. It treats both edges the same, so a notch on either side clears the text.
+Decision: the fork's inset stays. It treats both edges the same, so a notch on either side clears the text.
 
-On a phone in landscape, the title, version and episode sit further from the island than they do on the 28e4b858 build.
+On a phone in landscape, the title, version and episode sit further from the island than they do on the 28e4b858 build. `playerTextStartPadding` is still defined in `PlayerLayout.kt` and is not used on those three spots.
 
-Both paddings cannot be on the same text. Choose one before merging. To restore ours, put the `textStart` / `textStartExtra` padding from `git show 28e4b858:composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/PlayerControls.kt` back on those three spots. `playerTextStartPadding` is still in `PlayerLayout.kt`.
-
-## 2. Title block while Sleep, Speed, or the button row is open
+## 2. Title block while Sleep or Speed is open
 
 File: `PlayerControls.kt`, the `PlayerTimelineDetails` call in the new layout.
 
@@ -28,9 +35,9 @@ The fork leaves the title, version and episode on screen.
 
 Our 28e4b858 build sets that block's alpha to 0 while the speed popup or the more menu is open (`coverTitle`), so the words do not sit under those controls. The block stays in the layout, which is why the seek bar does not jump.
 
-Temporary pick, Settings › Playback › Testing › Title while Sleep/Speed is open. Default is the fork: the words stay on screen. The other choice fades the title while the Sleep/Speed list is open, and also while the ⋯ menu is open. The title composable stays in the layout either way, so the seek bar does not jump. The choice is stored on this device only and is marked testing-only. It applies in both controls-style modes.
+Decision: our fade stays, and only while the Sleep/Speed list is open. The ⋯ menu is gone, so the title does not fade for a menu. The title composable stays in the layout, so the seek bar does not move.
 
-On a phone, open Sleep or Speed. With the default the title stays readable. With the other choice it fades out and the seek bar stays put.
+On a phone, open Sleep or Speed and the title fades. Close the list and the title is readable again. The seek bar stays put.
 
 ## 3. Player buttons versus the more menu
 
@@ -40,11 +47,9 @@ The fork's Settings › Playback › Player buttons list decides which buttons s
 
 Our 28e4b858 build opens a popup from that arrow (`PlayerToolsMenu` in `PlayerControlActions.kt`, commits 3ffd92e8d and 28e4b858) so the menu is not clipped and the controls do not jump.
 
-Temporary pick, Settings › Playback › Testing › Controls style. Default is the fork's bar. Mark segment and Live TV stay as extra icons on that bar, because the fork has no buttons for them. Flag stays on the top pill. Submit intro is also in the fork's button list, hidden behind the arrow unless that setting shows it, so expanding the row can show Flag twice. The Player buttons setting still changes that bar.
+Decision: the fork's bar is the only mode. The ⋯ popup (`PlayerToolsMenu`) is removed. Mark segment and Live TV stay as extra icons on that bar, because the fork has no buttons for them. Flag stays on the top pill. Submit intro is also in the fork's button list, hidden behind the arrow unless that setting shows it, so expanding the row can show Flag twice. The folded-phone layout still calls `playerControlActions()`.
 
-The other choice is our ⋯ menu from 28e4b858 (`PlayerToolsMenu` in `PlayerControlActions.kt`). The popup lists the PR #43 items plus Chapters and Flag. The Player buttons order does not apply in that mode. The folded-phone layout still calls the fork's `playerControlActions()` list. The choice is stored on this device only and is marked testing-only.
-
-On a phone, the default arrow grows the bar. Our ⋯ menu opens the popup instead, and that popup does not clip or jump the controls.
+On a phone, Settings › Playback › Player buttons changes the row, and the arrow slides more buttons into that row.
 
 ## 4. Chapters list versus marks on the seek bar
 
@@ -76,15 +81,15 @@ Both can stay. To remove only the icon, drop the `VideoZoom` branch in `PlayerOv
 
 ## 6. Sync card versus the Sync strip
 
-Files: `SubtitleSyncByEarCard.kt` (fork) and `PlayerToolsOverlay.kt` (`SubtitleSyncStrip`).
+Files: `PlayerToolsOverlay.kt` (`SubtitleSyncStrip`). The fork card file `SubtitleSyncByEarCard.kt` is no longer in this build.
 
 The fork floats a Heard it / Saw it card at the top of the video.
 
 Our strip sits on the bottom of the video with nudge buttons, Heard it, Saw it, Reset and Done (28e4b858, `PlayerToolsStrips.kt`).
 
-Temporary pick, Settings › Playback › Testing › Subtitle sync UI. Default is our bottom strip (nudge, Heard it, Saw it). The other choice is the fork's top card. Exactly one is on screen. Both stay fully usable. The choice is stored on this device only and is marked testing-only.
+Decision: our bottom strip is the only sync UI. The fork's `SubtitleSyncByEarCard` is removed.
 
-On a phone, open Sync. The default shows only the bottom strip. The other choice shows only the top card.
+On a phone, open Sync and only the bottom strip is there, with nudge, Heard it, and Saw it.
 
 ## 7. Pause overlay ("You're watching")
 
@@ -158,6 +163,6 @@ Choose before any release. To put our 0.6.4.1 row back on top, copy that object 
 
 ## Layout fixes that still hold
 
-- The more-menu popup is the testing choice "Our ⋯ menu". It is the 28e4b858 menu, so it does not clip or jump. The default bar does not open that popup.
+- The more-menu popup is removed. The arrow grows the fork's button row, so that menu cannot clip or jump.
 - The marking chip row still scrolls inside the panel (`PlayerToolsPanel.kt`, `ChipLine`). The fork has no chip row.
 - "You're watching" stays hidden behind panels and strips (`pauseOverlaySuppressed()`), and also while the phone is folded.

@@ -487,13 +487,6 @@
     <string name="compose_player_subs">Legendas</string>
     <string name="compose_player_subtitle_delay">Atraso das legendas</string>
     <string name="compose_player_sync_by_ear">Sincronizar pelo áudio</string>
-    <string name="compose_player_sync_by_ear_hint">Toque quando ouvir uma fala e quando a legenda correspondente aparecer, em qualquer ordem.</string>
-    <string name="compose_player_sync_by_ear_heard">Ouvi</string>
-    <string name="compose_player_sync_by_ear_saw">Vi</string>
-    <string name="compose_player_sync_by_ear_in_sync">Agora: sincronizado</string>
-    <string name="compose_player_sync_by_ear_offset">Agora: %1$s</string>
-    <string name="compose_player_sync_by_ear_waiting_saw">Áudio registrado. Toque em “Vi” quando a legenda aparecer.</string>
-    <string name="compose_player_sync_by_ear_waiting_heard">Legenda registrada. Toque em “Ouvi” quando escutar a fala.</string>
     <string name="compose_player_subtitles">Legendas</string>
     <string name="compose_player_text_opacity">Opacidade do texto</string>
     <string name="compose_player_brightness_level">Brilho %1$s</string>

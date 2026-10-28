@@ -68,9 +68,7 @@ import org.jetbrains.compose.resources.stringResource
 internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
     val panelOpen = showSubtitleModal || showAudioModal || showVideoSettingsModal ||
         showStreamInfoModal || showSourcesPanel || showEpisodesPanel
-    val syncOnStrip = showSubtitleSyncByEar &&
-        playerSettingsUiState.testingSyncUi == TestingSyncUi.BottomStrip
-    val open = panelOpen || showSubmitIntroModal || syncOnStrip
+    val open = panelOpen || showSubmitIntroModal || showSubtitleSyncByEar
     var submitting by remember { mutableStateOf(false) }
     var showKeyDialog by remember { mutableStateOf(false) }
     val couldNotSend = stringResource(Res.string.player_tools_could_not_send)
@@ -110,10 +108,7 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
         }
     }
 
-    if (!open) {
-        PlatformBackHandler(enabled = showSubtitleSyncByEar) { dismissPlayerTools() }
-        return
-    }
+    if (!open) return
 
     val settings = playerSettingsUiState
     val service = defaultIntroSubmitService(settings.introDbApiKey, settings.theIntroDbApiKey)
@@ -380,7 +375,7 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 }
             }
         }
-        if (syncOnStrip) {
+        if (showSubtitleSyncByEar) {
             SubtitleSyncStrip(
                 delayMs = subtitleDelayMs,
                 heard = subtitleSyncHeardPositionMs != null,

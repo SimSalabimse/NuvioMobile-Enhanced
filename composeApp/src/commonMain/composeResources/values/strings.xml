@@ -503,13 +503,6 @@
     <string name="compose_player_subs">Subs</string>
     <string name="compose_player_subtitle_delay">Subtitle Delay</string>
     <string name="compose_player_sync_by_ear">Sync by ear</string>
-    <string name="compose_player_sync_by_ear_hint">Tap when you hear a line and when its subtitle shows, in either order.</string>
-    <string name="compose_player_sync_by_ear_heard">Heard</string>
-    <string name="compose_player_sync_by_ear_saw">Saw</string>
-    <string name="compose_player_sync_by_ear_in_sync">Now: In sync</string>
-    <string name="compose_player_sync_by_ear_offset">Now: %1$s</string>
-    <string name="compose_player_sync_by_ear_waiting_saw">Heard captured. Tap Saw when its subtitle shows.</string>
-    <string name="compose_player_sync_by_ear_waiting_heard">Saw captured. Tap Heard when you hear the line.</string>
     <string name="compose_player_subtitles">Subtitles</string>
     <string name="compose_player_text_opacity">Text Opacity</string>
     <string name="compose_player_brightness_level">Brightness %1$s</string>
@@ -3341,15 +3334,4 @@
     <string name="settings_playback_toolbar_note">Buttons that do not apply to the current video, such as Next Episode on a movie, are skipped.</string>
     <string name="player_toolbar_button_resize">Resize</string>
     <string name="player_toolbar_button_quality">Quality</string>
-    <string name="settings_testing_section">Testing</string>
-    <string name="settings_testing_note">Testing: to be removed</string>
-    <string name="settings_testing_controls_style">Controls style</string>
-    <string name="settings_testing_controls_fork">Fork player buttons</string>
-    <string name="settings_testing_controls_menu">Our ⋯ menu</string>
-    <string name="settings_testing_sync_ui">Subtitle sync UI</string>
-    <string name="settings_testing_sync_strip">Our bottom strip</string>
-    <string name="settings_testing_sync_card">Fork top card</string>
-    <string name="settings_testing_title_while_speed">Title while Sleep/Speed is open</string>
-    <string name="settings_testing_title_stays">Fork: title stays on screen</string>
-    <string name="settings_testing_title_fades">Ours: title fades out while the Sleep/Speed list is open</string>
 </resources>
