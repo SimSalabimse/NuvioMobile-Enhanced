@@ -397,7 +397,8 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 folded = fold != null,
             )
             SubtitleSyncByEarCard(
-                visible = showSubtitleSyncByEar,
+                visible = showSubtitleSyncByEar &&
+                    playerSettingsUiState.testingSyncUi == TestingSyncUi.TopCard,
                 subtitleDelayMs = subtitleDelayMs,
                 heardCaptured = subtitleSyncHeardPositionMs != null,
                 sawCaptured = subtitleSyncSawPositionMs != null,

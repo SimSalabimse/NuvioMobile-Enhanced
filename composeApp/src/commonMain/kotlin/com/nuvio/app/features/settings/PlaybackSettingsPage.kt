@@ -24,6 +24,7 @@ import com.nuvio.app.core.ui.DialogButtons
 import com.nuvio.app.core.ui.DialogButtonStyle
 import com.nuvio.app.core.ui.DialogOption
 import com.nuvio.app.core.ui.DialogSurface
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
@@ -74,6 +75,9 @@ import com.nuvio.app.features.player.PlaybackMemoryInfo
 import com.nuvio.app.features.player.safeBufferLimitMb
 import com.nuvio.app.features.player.PlayerDebugReadout
 import com.nuvio.app.features.player.PlayerSettingsRepository
+import com.nuvio.app.features.player.TestingControlsStyle
+import com.nuvio.app.features.player.TestingSyncUi
+import com.nuvio.app.features.player.TestingTitleWhileSpeed
 import com.nuvio.app.features.player.STREAM_AUTO_PLAY_TIMEOUT_VALUES
 import com.nuvio.app.features.player.SubtitleBackgroundColorSwatches
 import com.nuvio.app.features.player.SubtitleColorSwatches
@@ -416,6 +420,48 @@ private fun PlaybackSettingsSection(
     Column(
         verticalArrangement = Arrangement.spacedBy(sectionSpacing),
     ) {
+        SettingsSection(
+            title = stringResource(Res.string.settings_testing_section),
+            isTablet = isTablet,
+        ) {
+            Text(
+                text = stringResource(Res.string.settings_testing_note),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            SettingsGroup(isTablet = isTablet) {
+                TestingChoiceRows(
+                    title = stringResource(Res.string.settings_testing_controls_style),
+                    options = listOf(
+                        TestingControlsStyle.ForkButtons to stringResource(Res.string.settings_testing_controls_fork),
+                        TestingControlsStyle.PopupMenu to stringResource(Res.string.settings_testing_controls_menu),
+                    ),
+                    selected = autoPlayPlayerSettings.testingControlsStyle,
+                    onSelect = PlayerSettingsRepository::setTestingControlsStyle,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                TestingChoiceRows(
+                    title = stringResource(Res.string.settings_testing_sync_ui),
+                    options = listOf(
+                        TestingSyncUi.BottomStrip to stringResource(Res.string.settings_testing_sync_strip),
+                        TestingSyncUi.TopCard to stringResource(Res.string.settings_testing_sync_card),
+                    ),
+                    selected = autoPlayPlayerSettings.testingSyncUi,
+                    onSelect = PlayerSettingsRepository::setTestingSyncUi,
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                TestingChoiceRows(
+                    title = stringResource(Res.string.settings_testing_title_while_speed),
+                    options = listOf(
+                        TestingTitleWhileSpeed.Stays to stringResource(Res.string.settings_testing_title_stays),
+                        TestingTitleWhileSpeed.Fades to stringResource(Res.string.settings_testing_title_fades),
+                    ),
+                    selected = autoPlayPlayerSettings.testingTitleWhileSpeed,
+                    onSelect = PlayerSettingsRepository::setTestingTitleWhileSpeed,
+                )
+            }
+        }
         SettingsSection(
             title = stringResource(Res.string.settings_playback_section_player),
             isTablet = isTablet,
@@ -3351,6 +3397,38 @@ private fun SkipSecondsDialog(
                 text = stringResource(Res.string.action_cancel),
                 onClick = onDismiss,
             )
+        }
+    }
+}
+
+@Composable
+private fun <T> TestingChoiceRows(
+    title: String,
+    options: List<Pair<T, String>>,
+    selected: T,
+    onSelect: (T) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        options.forEach { (value, label) ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelect(value) }
+                    .padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RadioButton(selected = value == selected, onClick = { onSelect(value) })
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
         }
     }
 }

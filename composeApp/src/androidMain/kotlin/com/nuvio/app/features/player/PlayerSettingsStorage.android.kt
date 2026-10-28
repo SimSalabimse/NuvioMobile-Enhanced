@@ -31,6 +31,9 @@ actual object PlayerSettingsStorage {
     private const val holdToSpeedValueKey = "hold_to_speed_value"
     private const val skipBackwardSecondsKey = "skip_backward_seconds"
     private const val toolbarLayoutKey = "player_toolbar_layout"
+    private const val testingControlsStyleKey = "testing_controls_style"
+    private const val testingSyncUiKey = "testing_sync_ui"
+    private const val testingTitleWhileSpeedKey = "testing_title_while_speed"
     private const val skipForwardSecondsKey = "skip_forward_seconds"
     private const val touchGesturesEnabledKey = "touch_gestures_enabled"
     private const val swipeToSeekEnabledKey = "swipe_to_seek_enabled"
@@ -1867,5 +1870,26 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncInt(iosContrastKey)?.let(::saveIosContrast)
         payload.decodeSyncInt(iosSaturationKey)?.let(::saveIosSaturation)
         payload.decodeSyncInt(iosGammaKey)?.let(::saveIosGamma)
+    }
+
+    actual fun loadTestingControlsStyle(): String? =
+        preferences?.getString(testingControlsStyleKey, null)
+
+    actual fun saveTestingControlsStyle(value: String) {
+        preferences?.edit()?.putString(testingControlsStyleKey, value)?.apply()
+    }
+
+    actual fun loadTestingSyncUi(): String? =
+        preferences?.getString(testingSyncUiKey, null)
+
+    actual fun saveTestingSyncUi(value: String) {
+        preferences?.edit()?.putString(testingSyncUiKey, value)?.apply()
+    }
+
+    actual fun loadTestingTitleWhileSpeed(): String? =
+        preferences?.getString(testingTitleWhileSpeedKey, null)
+
+    actual fun saveTestingTitleWhileSpeed(value: String) {
+        preferences?.edit()?.putString(testingTitleWhileSpeedKey, value)?.apply()
     }
 }

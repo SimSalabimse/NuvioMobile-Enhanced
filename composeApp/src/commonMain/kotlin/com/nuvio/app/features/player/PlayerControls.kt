@@ -61,6 +61,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -233,6 +234,13 @@ internal fun PlayerControlsShell(
     }
     val density = LocalDensity.current
     val displayedPositionMs = scrubbingPositionMs ?: playbackClock.positionMs
+    val playerSettings by PlayerSettingsRepository.uiState.collectAsState()
+    var toolsMenuOpen by remember { mutableStateOf(false) }
+    val hideTitle = testingTitleHidden(
+        playerSettings.testingTitleWhileSpeed,
+        speedOpen = speedPickerVisible,
+        menuOpen = toolsMenuOpen,
+    )
     var timelineHeight by remember { mutableStateOf(0.dp) }
     val glassActive = isAmbientLiquidGlassActive()
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
@@ -428,7 +436,9 @@ internal fun PlayerControlsShell(
                 ) {
                     if (!hideDetails) {
                         PlayerTimelineDetails(
-                            modifier = Modifier.padding(horizontal = playerTextCutoutPadding(metrics)),
+                            modifier = Modifier
+                                .padding(horizontal = playerTextCutoutPadding(metrics))
+                                .graphicsLayer { alpha = if (hideTitle) 0f else 1f },
                             title = title,
                             seasonNumber = seasonNumber,
                             episodeNumber = episodeNumber,
@@ -511,6 +521,7 @@ internal fun PlayerControlsShell(
                         onSubmitIntroClick = onSubmitIntroClick,
                         onMarkSegmentClick = onMarkSegmentClick,
                         onLiveChannelsClick = onLiveChannelsClick,
+                        onToolsMenuOpenChange = { toolsMenuOpen = it },
                     )
                 }
             }

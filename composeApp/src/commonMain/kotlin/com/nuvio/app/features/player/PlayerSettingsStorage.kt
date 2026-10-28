@@ -216,6 +216,13 @@ internal expect object PlayerSettingsStorage {
     fun saveIosSaturation(value: Int)
     fun loadIosGamma(): Int?
     fun saveIosGamma(value: Int)
+    /** Device-local. Not profile-scoped and not part of sync. */
+    fun loadTestingControlsStyle(): String?
+    fun saveTestingControlsStyle(value: String)
+    fun loadTestingSyncUi(): String?
+    fun saveTestingSyncUi(value: String)
+    fun loadTestingTitleWhileSpeed(): String?
+    fun saveTestingTitleWhileSpeed(value: String)
     fun exportToSyncPayload(): JsonObject
     fun replaceFromSyncPayload(payload: JsonObject)
 }

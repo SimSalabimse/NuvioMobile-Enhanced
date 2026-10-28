@@ -28,11 +28,9 @@ The fork leaves the title, version and episode on screen.
 
 Our 28e4b858 build sets that block's alpha to 0 while the speed popup or the more menu is open (`coverTitle`), so the words do not sit under those controls. The block stays in the layout, which is why the seek bar does not jump.
 
-This build uses the fork: the words stay visible. The seek bar still does not move, because the title composable is still there.
+Temporary pick, Settings › Playback › Testing › Title while Sleep/Speed is open. Default is the fork: the words stay on screen. The other choice fades the title while the Sleep/Speed list is open, and also while the ⋯ menu is open. The title composable stays in the layout either way, so the seek bar does not jump. The choice is stored on this device only and is marked testing-only. It applies in both controls-style modes.
 
-On a phone, open Sleep or Speed and the title stays readable over the video.
-
-Choose one. To restore the hide, put the `coverTitle` graphics layer from that same 28e4b858 `PlayerControls.kt` function back on `PlayerTimelineDetails`.
+On a phone, open Sleep or Speed. With the default the title stays readable. With the other choice it fades out and the seek bar stays put.
 
 ## 3. Player buttons versus the more menu
 
@@ -42,13 +40,11 @@ The fork's Settings › Playback › Player buttons list decides which buttons s
 
 Our 28e4b858 build opens a popup from that arrow (`PlayerToolsMenu` in `PlayerControlActions.kt`, commits 3ffd92e8d and 28e4b858) so the menu is not clipped and the controls do not jump.
 
-This build uses the fork's bar. Mark segment and Live TV are extra icons on the bar, because the fork has no buttons for them. Flag stays on the top pill. Submit intro is also in the fork's button list, hidden behind the arrow unless that setting shows it, so expanding the row can show Flag twice.
+Temporary pick, Settings › Playback › Testing › Controls style. Default is the fork's bar. Mark segment and Live TV stay as extra icons on that bar, because the fork has no buttons for them. Flag stays on the top pill. Submit intro is also in the fork's button list, hidden behind the arrow unless that setting shows it, so expanding the row can show Flag twice. The Player buttons setting still changes that bar.
 
-The fork's bar is what matches the new setting. Our popup is the one that was fixed so it does not clip.
+The other choice is our ⋯ menu from 28e4b858 (`PlayerToolsMenu` in `PlayerControlActions.kt`). The popup lists the PR #43 items plus Chapters and Flag. The Player buttons order does not apply in that mode. The folded-phone layout still calls the fork's `playerControlActions()` list. The choice is stored on this device only and is marked testing-only.
 
-On a phone, Settings › Playback › Player buttons changes the row, and the arrow slides more buttons into that row instead of opening a menu.
-
-The arrow cannot do both. Choose before merging. To restore the popup, replace `PlayerControlActions` from `git show 28e4b858:composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/PlayerControlActions.kt` (the `PlayerToolsMenu` function and the primary / menu split). Keep the fork's `playerControlActions()` list, because the folded-phone layout calls it.
+On a phone, the default arrow grows the bar. Our ⋯ menu opens the popup instead, and that popup does not clip or jump the controls.
 
 ## 4. Chapters list versus marks on the seek bar
 
@@ -86,11 +82,9 @@ The fork floats a Heard it / Saw it card at the top of the video.
 
 Our strip sits on the bottom of the video with nudge buttons, Heard it, Saw it, Reset and Done (28e4b858, `PlayerToolsStrips.kt`).
 
-This build shows both when Sync is open, because the strip was kept and the fork's card was also taken. They do the same job and will look stacked.
+Temporary pick, Settings › Playback › Testing › Subtitle sync UI. Default is our bottom strip (nudge, Heard it, Saw it). The other choice is the fork's top card. Exactly one is on screen. Both stay fully usable. The choice is stored on this device only and is marked testing-only.
 
-On a phone, open Sync and a card is at the top while the strip is at the bottom.
-
-Choose one before merging. To keep only the strip, delete the `SubtitleSyncByEarCard` call in `PlayerScreenRuntimeUi.kt`. To keep only the card, delete the `if (showSubtitleSyncByEar)` block in `PlayerToolsOverlay.kt`.
+On a phone, open Sync. The default shows only the bottom strip. The other choice shows only the top card.
 
 ## 7. Pause overlay ("You're watching")
 
@@ -164,6 +158,6 @@ Choose before any release. To put our 0.6.4.1 row back on top, copy that object 
 
 ## Layout fixes that still hold
 
-- The more-menu popup is not in this build, so it cannot clip or jump. Restoring it must use the 28e4b858 menu, not an older popup.
+- The more-menu popup is the testing choice "Our ⋯ menu". It is the 28e4b858 menu, so it does not clip or jump. The default bar does not open that popup.
 - The marking chip row still scrolls inside the panel (`PlayerToolsPanel.kt`, `ChipLine`). The fork has no chip row.
 - "You're watching" stays hidden behind panels and strips (`pauseOverlaySuppressed()`), and also while the phone is folded.

@@ -274,7 +274,47 @@ internal fun PlayerControlActions(
     onInteraction: () -> Unit,
     onMarkSegmentClick: (() -> Unit)? = null,
     onLiveChannelsClick: (() -> Unit)? = null,
+    onToolsMenuOpenChange: (Boolean) -> Unit = {},
 ) {
+    val playerSettings by PlayerSettingsRepository.uiState.collectAsState()
+    if (playerSettings.testingControlsStyle == TestingControlsStyle.PopupMenu) {
+        PopupMenuControlActions(
+            playbackSnapshot = playbackSnapshot,
+            displayedPositionMs = displayedPositionMs,
+            playbackClock = playbackClock,
+            scrubbingPositionMs = scrubbingPositionMs,
+            showRemainingTime = showRemainingTime,
+            onRuntimeClick = onRuntimeClick,
+            metrics = metrics,
+            resizeMode = resizeMode,
+            onSubtitleClick = onSubtitleClick,
+            onAudioClick = onAudioClick,
+            onSourcesClick = onSourcesClick,
+            onEpisodesClick = onEpisodesClick,
+            onChaptersClick = onChaptersClick,
+            onNextEpisodeClick = onNextEpisodeClick,
+            onSpeedClick = onSpeedClick,
+            speedPickerVisible = speedPickerVisible,
+            onSpeedSelected = onSpeedSelected,
+            onSpeedPickerDismiss = onSpeedPickerDismiss,
+            onResizeModeClick = onResizeModeClick,
+            onVideoSettingsClick = onVideoSettingsClick,
+            onOpenInExternalPlayer = onOpenInExternalPlayer,
+            onStreamInfoClick = onStreamInfoClick,
+            onSubmitIntroClick = onSubmitIntroClick,
+            qualityLabel = qualityLabel,
+            onQualityClick = onQualityClick,
+            onSwitchEngineClick = onSwitchEngineClick,
+            onInfoClick = onInfoClick,
+            onRateClick = onRateClick,
+            userRating = userRating,
+            onInteraction = onInteraction,
+            onMarkSegmentClick = onMarkSegmentClick,
+            onLiveChannelsClick = onLiveChannelsClick,
+            onToolsMenuOpenChange = onToolsMenuOpenChange,
+        )
+        return
+    }
     val availableActions = buildMap<PlayerToolbarButton, PlayerControlAction> {
         onNextEpisodeClick?.let {
             this[PlayerToolbarButton.NEXT_EPISODE] = PlayerControlAction(
@@ -371,7 +411,6 @@ internal fun PlayerControlActions(
             )
         }
     }
-    val playerSettings by PlayerSettingsRepository.uiState.collectAsState()
     val toolbarLayout = playerSettings.toolbarLayout
     val primaryActions = toolbarLayout.visibleButtons.mapNotNull(availableActions::get)
     val secondaryActions = toolbarLayout.hiddenButtons.mapNotNull(availableActions::get)
@@ -523,6 +562,383 @@ private fun PlayerAction(
 }
 
 internal val PlayerGlassCapsule = RoundedCornerShape(percent = 50)
+
+@Composable
+private fun PopupMenuControlActions(
+    playbackSnapshot: PlayerPlaybackSnapshot,
+    displayedPositionMs: Long,
+    playbackClock: PlayerPlaybackClock?,
+    scrubbingPositionMs: Long?,
+    showRemainingTime: Boolean,
+    onRuntimeClick: () -> Unit,
+    metrics: PlayerLayoutMetrics,
+    resizeMode: PlayerResizeMode,
+    onSubtitleClick: () -> Unit,
+    onAudioClick: () -> Unit,
+    onSourcesClick: (() -> Unit)?,
+    onEpisodesClick: (() -> Unit)?,
+    onChaptersClick: (() -> Unit)?,
+    onNextEpisodeClick: (() -> Unit)?,
+    onSpeedClick: () -> Unit,
+    speedPickerVisible: Boolean,
+    onSpeedSelected: (Float) -> Unit,
+    onSpeedPickerDismiss: () -> Unit,
+    onResizeModeClick: () -> Unit,
+    onVideoSettingsClick: (() -> Unit)?,
+    onOpenInExternalPlayer: (() -> Unit)?,
+    onStreamInfoClick: () -> Unit,
+    onSubmitIntroClick: (() -> Unit)?,
+    qualityLabel: String?,
+    onQualityClick: (() -> Unit)?,
+    onSwitchEngineClick: (() -> Unit)?,
+    onInfoClick: (() -> Unit)?,
+    onRateClick: (() -> Unit)?,
+    userRating: Int?,
+    onInteraction: () -> Unit,
+    onMarkSegmentClick: (() -> Unit)?,
+    onLiveChannelsClick: (() -> Unit)?,
+    onToolsMenuOpenChange: (Boolean) -> Unit,
+) {
+    val primaryActions = listOfNotNull(
+        onNextEpisodeClick?.let {
+            PlayerControlAction(
+                stringResource(Res.string.player_next_episode), it,
+                icon = Icons.Rounded.SkipNext, iconSize = 40.dp,
+            )
+        },
+        PlayerControlAction(
+            "${stringResource(Res.string.compose_player_speed)} ${formatPlaybackSpeedLabel(playbackSnapshot.playbackSpeed)}",
+            onSpeedClick, icon = Icons.Rounded.Speed,
+            popup = {
+                PlayerSpeedPopup(
+                    visible = speedPickerVisible,
+                    currentSpeed = playbackSnapshot.playbackSpeed,
+                    onSpeedSelected = onSpeedSelected,
+                    onDismiss = onSpeedPickerDismiss,
+                )
+            },
+        ),
+        PlayerControlAction(
+            stringResource(resizeMode.labelRes), onResizeModeClick,
+            painter = appIconPainter(AppIconResource.PlayerAspectRatio),
+        ),
+        PlayerControlAction(
+            stringResource(Res.string.compose_player_subtitles), onSubtitleClick,
+            painter = appIconPainter(AppIconResource.PlayerSubtitles),
+        ),
+        onChaptersClick?.let {
+            PlayerControlAction(
+                stringResource(Res.string.player_chapters), it,
+                icon = Icons.AutoMirrored.Rounded.ListAlt,
+            )
+        },
+    )
+    val secondaryActions = listOfNotNull(
+        onRateClick?.let {
+            PlayerControlAction(
+                userRating?.let { rating -> stringResource(Res.string.user_rating_action_rated, rating) }
+                    ?: stringResource(Res.string.user_rating_action_rate),
+                it,
+                icon = if (userRating != null) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+            )
+        },
+        onOpenInExternalPlayer?.let {
+            PlayerControlAction(
+                stringResource(Res.string.streams_open_external_player), it,
+                icon = Icons.AutoMirrored.Rounded.OpenInNew,
+            )
+        },
+        onInfoClick?.let {
+            PlayerControlAction(
+                stringResource(Res.string.compose_player_playback_info), it,
+                icon = Icons.Rounded.Info,
+            )
+        },
+        onSwitchEngineClick?.let {
+            PlayerControlAction(
+                stringResource(Res.string.cd_switch_player_engine), it,
+                icon = Icons.Rounded.SwapHoriz,
+            )
+        },
+    )
+    val menuActions = listOfNotNull(
+        onMarkSegmentClick?.let {
+            PlayerControlAction(stringResource(Res.string.player_tools_mark_segment), it, icon = Icons.Rounded.Flag)
+        },
+        PlayerControlAction(
+            stringResource(Res.string.compose_player_subtitles), onSubtitleClick,
+            painter = appIconPainter(AppIconResource.PlayerSubtitles),
+        ),
+        PlayerControlAction(
+            stringResource(Res.string.compose_player_audio), onAudioClick,
+            painter = appIconPainter(AppIconResource.PlayerAudioFilled),
+        ),
+        onSourcesClick?.let {
+            PlayerControlAction(
+                stringResource(Res.string.compose_player_sources), it,
+                painter = appIconPainter(AppIconResource.PlayerSource),
+            )
+        },
+        onEpisodesClick?.let {
+            PlayerControlAction(
+                stringResource(Res.string.compose_player_episodes), it,
+                painter = appIconPainter(AppIconResource.PlayerEpisodes),
+            )
+        },
+        onVideoSettingsClick?.let {
+            PlayerControlAction(
+                stringResource(Res.string.player_action_video_settings), it,
+                icon = Icons.Rounded.Build,
+            )
+        },
+        onSubmitIntroClick?.let {
+            PlayerControlAction(
+                stringResource(Res.string.submit_intro_action), it,
+                icon = Icons.Rounded.Flag,
+            )
+        },
+        onChaptersClick?.let {
+            PlayerControlAction(
+                stringResource(Res.string.player_chapters), it,
+                icon = Icons.AutoMirrored.Rounded.ListAlt,
+            )
+        },
+        onQualityClick?.let {
+            PlayerControlAction(
+                qualityLabel?.takeIf { label -> label.isNotBlank() }
+                    ?: stringResource(Res.string.player_toolbar_button_quality),
+                it,
+                icon = Icons.Rounded.HighQuality,
+            )
+        },
+        onLiveChannelsClick?.let {
+            PlayerControlAction(stringResource(Res.string.compose_player_channels), it, icon = Icons.Rounded.Tv)
+        },
+    ) + secondaryActions
+    var menuOpen by remember { mutableStateOf(false) }
+    var menuAnchorTopPx by remember { mutableStateOf(0) }
+    val scrollState = rememberScrollState()
+    LaunchedEffect(menuOpen) { onToolsMenuOpenChange(menuOpen) }
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = PlayerTimelineContentInset),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(modifier = Modifier.weight(1f)) {
+                Row(
+                    modifier = Modifier
+                        .playerLiquidGlass(
+                            shape = PlayerGlassCapsule,
+                            refractionHeight = 8.dp,
+                            refractionAmount = 12.dp,
+                        )
+                        .horizontalScroll(scrollState),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    primaryActions.forEach { action ->
+                        Box {
+                            PlayerAction(
+                                description = action.description,
+                                onClick = {
+                                    onInteraction()
+                                    action.onClick()
+                                },
+                                icon = action.icon,
+                                painter = action.painter,
+                                iconSize = action.iconSize,
+                            )
+                            action.popup?.invoke()
+                        }
+                    }
+                    Box(
+                        modifier = Modifier.onGloballyPositioned { coordinates ->
+                            menuAnchorTopPx = coordinates.positionInWindow().y.toInt()
+                        },
+                    ) {
+                        PlayerAction(
+                            description = stringResource(Res.string.compose_player_more_actions),
+                            onClick = {
+                                menuOpen = !menuOpen
+                                onInteraction()
+                            },
+                            icon = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                        )
+                        if (menuOpen) {
+                            val density = LocalDensity.current
+                            val layoutDirection = LocalLayoutDirection.current
+                            val safe = WindowInsets.safeContent.asPaddingValues()
+                            val topInsetPx = with(density) { safe.calculateTopPadding().roundToPx() }
+                            val startInsetPx = with(density) { safe.calculateLeftPadding(layoutDirection).roundToPx() }
+                            val endInsetPx = with(density) { safe.calculateRightPadding(layoutDirection).roundToPx() }
+                            val gapPx = with(density) { 8.dp.roundToPx() }
+                            val maxHeight = if (menuAnchorTopPx <= 0) {
+                                240.dp
+                            } else {
+                                with(density) {
+                                    toolsMenuMaxHeight(
+                                        anchorTop = menuAnchorTopPx.toFloat(),
+                                        topInset = topInsetPx.toFloat(),
+                                        gap = gapPx.toFloat(),
+                                    ).toDp()
+                                }
+                            }
+                            PlayerToolsMenu(
+                                actions = menuActions,
+                                maxHeight = maxHeight,
+                                gapPx = gapPx,
+                                insetStartPx = startInsetPx,
+                                insetEndPx = endInsetPx,
+                                onDismiss = { menuOpen = false },
+                                onPick = { action ->
+                                    menuOpen = false
+                                    onInteraction()
+                                    action.onClick()
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .height(44.dp)
+                    .widthIn(min = 48.dp)
+                    .playerLiquidGlass(
+                        shape = PlayerGlassCapsule,
+                        refractionHeight = 6.dp,
+                        refractionAmount = 8.dp,
+                    )
+                    .clickable(
+                        role = Role.Button,
+                        onClickLabel = stringResource(
+                            if (showRemainingTime) Res.string.compose_player_show_elapsed_time else Res.string.compose_player_show_remaining_time,
+                        ),
+                        onClick = {
+                            onRuntimeClick()
+                            onInteraction()
+                        },
+                    )
+                    .padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                PlaybackRuntimeLabel(
+                    playbackClock = playbackClock,
+                    scrubbingPositionMs = scrubbingPositionMs,
+                    displayedPositionMs = displayedPositionMs,
+                    durationMs = playbackSnapshot.durationMs,
+                    showRemainingTime = showRemainingTime,
+                    metrics = metrics,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerToolsMenu(
+    actions: List<PlayerControlAction>,
+    maxHeight: Dp,
+    gapPx: Int,
+    insetStartPx: Int,
+    insetEndPx: Int,
+    onDismiss: () -> Unit,
+    onPick: (PlayerControlAction) -> Unit,
+) {
+    val positionProvider = remember(gapPx, insetStartPx, insetEndPx) {
+        ToolsMenuPositionProvider(gapPx, insetStartPx, insetEndPx)
+    }
+    Popup(
+        popupPositionProvider = positionProvider,
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(focusable = true),
+    ) {
+        val shape = RoundedCornerShape(16.dp)
+        val scroll = rememberScrollState()
+        val surface = PlayerToolSurface.copy(alpha = 0.96f)
+        Box(
+            modifier = Modifier
+                .widthIn(min = 220.dp, max = 280.dp)
+                .heightIn(max = maxHeight)
+                .shadow(16.dp, shape)
+                .clip(shape)
+                .background(surface)
+                .border(1.dp, PlayerToolEdge, shape),
+        ) {
+            Column(Modifier.verticalScroll(scroll)) {
+                actions.forEach { action ->
+                    val marked = action.icon == Icons.Rounded.Flag
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp)
+                            .clickable { onPick(action) }
+                            .padding(horizontal = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        val tint = if (marked) MaterialTheme.nuvio.colors.accent else Color.White
+                        if (action.painter != null) {
+                            Icon(action.painter, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+                        } else if (action.icon != null) {
+                            Icon(action.icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+                        }
+                        Text(
+                            text = action.description,
+                            color = tint,
+                            fontSize = 16.sp,
+                            fontWeight = if (marked) FontWeight.SemiBold else FontWeight.Normal,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+            if (scroll.canScrollBackward) {
+                Box(
+                    Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .height(18.dp)
+                        .background(Brush.verticalGradient(listOf(surface, Color.Transparent))),
+                )
+            }
+            if (scroll.canScrollForward) {
+                Box(
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .height(18.dp)
+                        .background(Brush.verticalGradient(listOf(Color.Transparent, surface))),
+                )
+            }
+        }
+    }
+}
+
+private class ToolsMenuPositionProvider(
+    private val gapPx: Int,
+    private val insetStartPx: Int,
+    private val insetEndPx: Int,
+) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset {
+        val x = toolsMenuLeft(
+            anchorRight = anchorBounds.right,
+            menuWidth = popupContentSize.width,
+            windowWidth = windowSize.width,
+            insetStart = insetStartPx,
+            insetEnd = insetEndPx,
+        )
+        val above = anchorBounds.top - gapPx - popupContentSize.height
+        val y = if (above >= 0) above else (anchorBounds.bottom + gapPx)
+        return IntOffset(x, y)
+    }
+}
 
 // The fold layout still uses one flat list. The regular bar above follows the customizable layout.
 @Composable

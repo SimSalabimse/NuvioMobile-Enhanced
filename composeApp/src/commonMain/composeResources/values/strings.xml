@@ -3341,4 +3341,15 @@
     <string name="settings_playback_toolbar_note">Buttons that do not apply to the current video, such as Next Episode on a movie, are skipped.</string>
     <string name="player_toolbar_button_resize">Resize</string>
     <string name="player_toolbar_button_quality">Quality</string>
+    <string name="settings_testing_section">Testing</string>
+    <string name="settings_testing_note">Testing: to be removed</string>
+    <string name="settings_testing_controls_style">Controls style</string>
+    <string name="settings_testing_controls_fork">Fork player buttons</string>
+    <string name="settings_testing_controls_menu">Our ⋯ menu</string>
+    <string name="settings_testing_sync_ui">Subtitle sync UI</string>
+    <string name="settings_testing_sync_strip">Our bottom strip</string>
+    <string name="settings_testing_sync_card">Fork top card</string>
+    <string name="settings_testing_title_while_speed">Title while Sleep/Speed is open</string>
+    <string name="settings_testing_title_stays">Fork: title stays on screen</string>
+    <string name="settings_testing_title_fades">Ours: title fades out while the Sleep/Speed list is open</string>
 </resources>

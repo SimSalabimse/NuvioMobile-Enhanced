@@ -46,6 +46,9 @@ data class PlayerSettingsUiState(
     val skipBackwardSeconds: Int = PLAYER_SKIP_SECONDS_DEFAULT,
     val skipForwardSeconds: Int = PLAYER_SKIP_SECONDS_DEFAULT,
     val toolbarLayout: PlayerToolbarLayout = PlayerToolbarLayout.Default,
+    val testingControlsStyle: TestingControlsStyle = TestingControlsStyle.ForkButtons,
+    val testingSyncUi: TestingSyncUi = TestingSyncUi.BottomStrip,
+    val testingTitleWhileSpeed: TestingTitleWhileSpeed = TestingTitleWhileSpeed.Stays,
     val touchGesturesEnabled: Boolean = true,
     val swipeToSeekEnabled: Boolean = true,
     val seekPreviewEnabled: Boolean = true,
@@ -144,6 +147,9 @@ object PlayerSettingsRepository {
     private var skipBackwardSeconds = PLAYER_SKIP_SECONDS_DEFAULT
     private var skipForwardSeconds = PLAYER_SKIP_SECONDS_DEFAULT
     private var toolbarLayout = PlayerToolbarLayout.Default
+    private var testingControlsStyle = TestingControlsStyle.ForkButtons
+    private var testingSyncUi = TestingSyncUi.BottomStrip
+    private var testingTitleWhileSpeed = TestingTitleWhileSpeed.Stays
     private var touchGesturesEnabled = true
     private var swipeToSeekEnabled = true
     private var seekPreviewEnabled = true
@@ -349,6 +355,9 @@ object PlayerSettingsRepository {
         skipBackwardSeconds = normalizePlayerSkipSeconds(PlayerSettingsStorage.loadSkipBackwardSeconds())
         skipForwardSeconds = normalizePlayerSkipSeconds(PlayerSettingsStorage.loadSkipForwardSeconds())
         toolbarLayout = PlayerToolbarLayout.decode(PlayerSettingsStorage.loadToolbarLayout())
+        testingControlsStyle = TestingControlsStyle.decode(PlayerSettingsStorage.loadTestingControlsStyle())
+        testingSyncUi = TestingSyncUi.decode(PlayerSettingsStorage.loadTestingSyncUi())
+        testingTitleWhileSpeed = TestingTitleWhileSpeed.decode(PlayerSettingsStorage.loadTestingTitleWhileSpeed())
         touchGesturesEnabled = PlayerSettingsStorage.loadTouchGesturesEnabled() ?: true
         swipeToSeekEnabled = PlayerSettingsStorage.loadSwipeToSeekEnabled() ?: true
         seekPreviewEnabled = PlayerSettingsStorage.loadSeekPreviewEnabled() ?: true
@@ -598,6 +607,30 @@ object PlayerSettingsRepository {
         toolbarLayout = layout
         publish()
         PlayerSettingsStorage.saveToolbarLayout(layout.encode())
+    }
+
+    fun setTestingControlsStyle(style: TestingControlsStyle) {
+        ensureLoaded()
+        if (testingControlsStyle == style) return
+        testingControlsStyle = style
+        publish()
+        PlayerSettingsStorage.saveTestingControlsStyle(style.storageId)
+    }
+
+    fun setTestingSyncUi(style: TestingSyncUi) {
+        ensureLoaded()
+        if (testingSyncUi == style) return
+        testingSyncUi = style
+        publish()
+        PlayerSettingsStorage.saveTestingSyncUi(style.storageId)
+    }
+
+    fun setTestingTitleWhileSpeed(style: TestingTitleWhileSpeed) {
+        ensureLoaded()
+        if (testingTitleWhileSpeed == style) return
+        testingTitleWhileSpeed = style
+        publish()
+        PlayerSettingsStorage.saveTestingTitleWhileSpeed(style.storageId)
     }
 
     fun setTouchGesturesEnabled(enabled: Boolean) {
@@ -1323,6 +1356,9 @@ object PlayerSettingsRepository {
             skipBackwardSeconds = skipBackwardSeconds,
             skipForwardSeconds = skipForwardSeconds,
             toolbarLayout = toolbarLayout,
+            testingControlsStyle = testingControlsStyle,
+            testingSyncUi = testingSyncUi,
+            testingTitleWhileSpeed = testingTitleWhileSpeed,
             touchGesturesEnabled = touchGesturesEnabled,
             swipeToSeekEnabled = swipeToSeekEnabled,
             seekPreviewEnabled = seekPreviewEnabled,
