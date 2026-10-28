@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.ListAlt
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.automirrored.rounded.Toc
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Cast
 import androidx.compose.material.icons.rounded.CastConnected
@@ -37,6 +38,7 @@ import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material.icons.rounded.SwapHoriz
+import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -214,8 +217,6 @@ internal fun PlayerToolbar(
     }
 }
 
-private const val ShowUpstreamStreamInfoAction = false
-
 @Composable
 internal fun PlayerControlActions(
     playbackSnapshot: PlayerPlaybackSnapshot,
@@ -240,6 +241,7 @@ internal fun PlayerControlActions(
     onVideoSettingsClick: (() -> Unit)?,
     onOpenInExternalPlayer: (() -> Unit)?,
     onStreamInfoClick: () -> Unit,
+    onSubmitIntroClick: (() -> Unit)? = null,
     qualityLabel: String? = null,
     onQualityClick: (() -> Unit)? = null,
     onSwitchEngineClick: (() -> Unit)? = null,
@@ -247,15 +249,18 @@ internal fun PlayerControlActions(
     onRateClick: (() -> Unit)? = null,
     userRating: Int? = null,
     onInteraction: () -> Unit,
+    onMarkSegmentClick: (() -> Unit)? = null,
+    onLiveChannelsClick: (() -> Unit)? = null,
 ) {
-    val primaryActions = listOfNotNull(
+    val playerSettings by PlayerSettingsRepository.uiState.collectAsState()
+    val availableActions = buildMap<PlayerToolbarButton, PlayerControlAction> {
         onNextEpisodeClick?.let {
-            PlayerControlAction(
+            this[PlayerToolbarButton.NEXT_EPISODE] = PlayerControlAction(
                 stringResource(Res.string.player_next_episode), it,
                 icon = Icons.Rounded.SkipNext, iconSize = 40.dp,
             )
-        },
-        PlayerControlAction(
+        }
+        this[PlayerToolbarButton.SPEED] = PlayerControlAction(
             "${stringResource(Res.string.compose_player_speed)} ${formatPlaybackSpeedLabel(playbackSnapshot.playbackSpeed)}",
             onSpeedClick, icon = Icons.Rounded.Speed,
             popup = {
@@ -266,90 +271,101 @@ internal fun PlayerControlActions(
                     onDismiss = onSpeedPickerDismiss,
                 )
             },
-        ),
-        PlayerControlAction(
+        )
+        this[PlayerToolbarButton.RESIZE] = PlayerControlAction(
             stringResource(resizeMode.labelRes), onResizeModeClick,
             painter = appIconPainter(AppIconResource.PlayerAspectRatio),
-        ),
-        PlayerControlAction(
+        )
+        this[PlayerToolbarButton.SUBTITLES] = PlayerControlAction(
             stringResource(Res.string.compose_player_subtitles), onSubtitleClick,
             painter = appIconPainter(AppIconResource.PlayerSubtitles),
-        ),
+        )
         onChaptersClick?.let {
-            PlayerControlAction(
+            this[PlayerToolbarButton.CHAPTERS] = PlayerControlAction(
                 stringResource(Res.string.player_chapters), it,
                 icon = Icons.AutoMirrored.Rounded.ListAlt,
             )
-        },
-    )
-    val secondaryActions = listOfNotNull(
-        PlayerControlAction(
+        }
+        this[PlayerToolbarButton.AUDIO] = PlayerControlAction(
             stringResource(Res.string.compose_player_audio), onAudioClick,
             painter = appIconPainter(AppIconResource.PlayerAudioFilled),
-        ),
+        )
         onQualityClick?.let {
-            PlayerControlAction(
-                qualityLabel?.takeIf { label -> label.isNotBlank() } ?: "Quality", it,
+            this[PlayerToolbarButton.QUALITY] = PlayerControlAction(
+                qualityLabel?.takeIf { label -> label.isNotBlank() }
+                    ?: stringResource(Res.string.player_toolbar_button_quality),
+                it,
                 icon = Icons.Rounded.HighQuality,
             )
-        },
+        }
         onSourcesClick?.let {
-            PlayerControlAction(
+            this[PlayerToolbarButton.SOURCES] = PlayerControlAction(
                 stringResource(Res.string.compose_player_sources), it,
                 painter = appIconPainter(AppIconResource.PlayerSource),
             )
-        },
+        }
         onEpisodesClick?.let {
-            PlayerControlAction(
+            this[PlayerToolbarButton.EPISODES] = PlayerControlAction(
                 stringResource(Res.string.compose_player_episodes), it,
                 painter = appIconPainter(AppIconResource.PlayerEpisodes),
             )
-        },
+        }
         onRateClick?.let {
-            PlayerControlAction(
+            this[PlayerToolbarButton.RATE] = PlayerControlAction(
                 userRating?.let { rating -> stringResource(Res.string.user_rating_action_rated, rating) }
                     ?: stringResource(Res.string.user_rating_action_rate),
                 it,
                 icon = if (userRating != null) Icons.Rounded.Star else Icons.Rounded.StarBorder,
             )
-        },
+        }
         onOpenInExternalPlayer?.let {
-            PlayerControlAction(
+            this[PlayerToolbarButton.EXTERNAL_PLAYER] = PlayerControlAction(
                 stringResource(Res.string.streams_open_external_player), it,
                 icon = Icons.AutoMirrored.Rounded.OpenInNew,
             )
-        },
+        }
         onInfoClick?.let {
-            PlayerControlAction(
+            this[PlayerToolbarButton.PLAYBACK_INFO] = PlayerControlAction(
                 stringResource(Res.string.compose_player_playback_info), it,
                 icon = Icons.Rounded.Info,
             )
-        },
-        onStreamInfoClick.takeIf { ShowUpstreamStreamInfoAction }?.let {
-            PlayerControlAction(
-                stringResource(Res.string.cd_stream_info), onStreamInfoClick,
-                icon = Icons.Rounded.Info,
-            )
-        },
+        }
         onSwitchEngineClick?.let {
-            PlayerControlAction(
+            this[PlayerToolbarButton.SWITCH_ENGINE] = PlayerControlAction(
                 stringResource(Res.string.cd_switch_player_engine), it,
                 icon = Icons.Rounded.SwapHoriz,
             )
-        },
+        }
         onVideoSettingsClick?.let {
-            PlayerControlAction(
+            this[PlayerToolbarButton.VIDEO_SETTINGS] = PlayerControlAction(
                 stringResource(Res.string.player_action_video_settings), it,
                 icon = Icons.Rounded.Build,
             )
-        },
-    )
+        }
+        onSubmitIntroClick?.let {
+            this[PlayerToolbarButton.SUBMIT_INTRO] = PlayerControlAction(
+                stringResource(Res.string.submit_intro_action), it,
+                icon = Icons.Rounded.Flag,
+            )
+        }
+    }
+    val toolbarLayout = playerSettings.toolbarLayout
+    val primaryActions = toolbarLayout.visibleButtons.mapNotNull(availableActions::get)
+    val secondaryActions = toolbarLayout.hiddenButtons.mapNotNull(availableActions::get)
     val hasOverflow = secondaryActions.isNotEmpty()
     var expanded by remember(hasOverflow) { mutableStateOf(false) }
     val scrollState = rememberScrollState()
     LaunchedEffect(expanded, scrollState.maxValue) {
         if (expanded) scrollState.animateScrollTo(scrollState.maxValue) else scrollState.scrollTo(0)
     }
+    val extraActions = listOfNotNull(
+        onMarkSegmentClick?.let {
+            PlayerControlAction(stringResource(Res.string.player_tools_mark_segment), it, icon = Icons.Rounded.Flag)
+        },
+        onLiveChannelsClick?.let {
+            PlayerControlAction(stringResource(Res.string.compose_player_channels), it, icon = Icons.Rounded.Tv)
+        },
+    )
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = PlayerTimelineContentInset),
@@ -381,6 +397,18 @@ internal fun PlayerControlActions(
                             )
                             action.popup?.invoke()
                         }
+                    }
+                    extraActions.forEach { action ->
+                        PlayerAction(
+                            description = action.description,
+                            onClick = {
+                                onInteraction()
+                                action.onClick()
+                            },
+                            icon = action.icon,
+                            painter = action.painter,
+                            iconSize = action.iconSize,
+                        )
                     }
                     if (hasOverflow) {
                         PlayerAction(
@@ -473,7 +501,90 @@ private fun PlayerAction(
 
 internal val PlayerGlassCapsule = RoundedCornerShape(percent = 50)
 
-private data class PlayerControlAction(
+// The fold layout still uses one flat list. The regular bar above follows the customizable layout.
+@Composable
+internal fun playerControlActions(
+    playbackSnapshot: PlayerPlaybackSnapshot,
+    resizeMode: PlayerResizeMode,
+    onSubtitleClick: () -> Unit,
+    onAudioClick: () -> Unit,
+    onSourcesClick: (() -> Unit)?,
+    onEpisodesClick: (() -> Unit)?,
+    onChaptersClick: (() -> Unit)?,
+    onNextEpisodeClick: (() -> Unit)?,
+    onSpeedClick: () -> Unit,
+    onResizeModeClick: () -> Unit,
+    onVideoSettingsClick: (() -> Unit)?,
+    onOpenInExternalPlayer: (() -> Unit)?,
+    onStreamInfoClick: () -> Unit,
+    onSubmitIntroClick: (() -> Unit)?,
+): List<PlayerControlAction> =
+    listOfNotNull(
+        onNextEpisodeClick?.let {
+            PlayerControlAction(
+                stringResource(Res.string.player_next_episode), it,
+                icon = Icons.Rounded.SkipNext, iconSize = 40.dp,
+            )
+        },
+        PlayerControlAction(
+            stringResource(Res.string.compose_player_subtitles), onSubtitleClick,
+            painter = appIconPainter(AppIconResource.PlayerSubtitles),
+        ),
+        PlayerControlAction(
+            stringResource(Res.string.compose_player_audio), onAudioClick,
+            painter = appIconPainter(AppIconResource.PlayerAudioFilled),
+        ),
+        onChaptersClick?.let {
+            PlayerControlAction(
+                stringResource(Res.string.compose_player_chapters), it,
+                icon = Icons.AutoMirrored.Rounded.Toc,
+            )
+        },
+        onSourcesClick?.let {
+            PlayerControlAction(
+                stringResource(Res.string.compose_player_sources), it,
+                painter = appIconPainter(AppIconResource.PlayerSource),
+            )
+        },
+        onEpisodesClick?.let {
+            PlayerControlAction(
+                stringResource(Res.string.compose_player_episodes), it,
+                painter = appIconPainter(AppIconResource.PlayerEpisodes),
+            )
+        },
+        PlayerControlAction(
+            "${stringResource(Res.string.compose_player_speed)} ${formatPlaybackSpeedLabel(playbackSnapshot.playbackSpeed)}",
+            onSpeedClick, icon = Icons.Rounded.Speed,
+        ),
+        PlayerControlAction(
+            stringResource(resizeMode.labelRes), onResizeModeClick,
+            painter = appIconPainter(AppIconResource.PlayerAspectRatio),
+        ),
+        onOpenInExternalPlayer?.let {
+            PlayerControlAction(
+                stringResource(Res.string.streams_open_external_player), it,
+                icon = Icons.AutoMirrored.Rounded.OpenInNew,
+            )
+        },
+        PlayerControlAction(
+            stringResource(Res.string.cd_stream_info), onStreamInfoClick,
+            icon = Icons.Rounded.Info,
+        ),
+        onVideoSettingsClick?.let {
+            PlayerControlAction(
+                stringResource(Res.string.player_action_video_settings), it,
+                icon = Icons.Rounded.Build,
+            )
+        },
+        onSubmitIntroClick?.let {
+            PlayerControlAction(
+                stringResource(Res.string.submit_intro_action), it,
+                icon = Icons.Rounded.Flag,
+            )
+        },
+    )
+
+internal data class PlayerControlAction(
     val description: String,
     val onClick: () -> Unit,
     val icon: ImageVector? = null,

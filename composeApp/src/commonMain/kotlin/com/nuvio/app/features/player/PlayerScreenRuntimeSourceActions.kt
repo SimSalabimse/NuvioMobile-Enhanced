@@ -116,6 +116,7 @@ internal fun PlayerScreenRuntime.openExternalSourceUrl(stream: StreamItem): Bool
     openExternalUrl(url)
     showSourcesPanel = false
     showEpisodesPanel = false
+    showChaptersPanel = false
     controlsVisible = true
     return true
 }
@@ -623,11 +624,11 @@ internal fun PlayerScreenRuntime.playNextEpisode(automatic: Boolean = false) {
         onManualSelectionRequired = { nextVideo ->
             if (isCurrentRequest()) {
                 nextEpisodeCardDismissed = true
+                showPlayerTool(PlayerTool.Episodes)
                 episodeStreamsPanelState = EpisodeStreamsPanelState(
                     showStreams = true,
                     selectedEpisode = nextVideo,
                 )
-                showEpisodesPanel = true
             }
         },
         onSearchingChanged = {
@@ -653,16 +654,8 @@ internal fun PlayerScreenRuntime.openSourcesPanel() {
         "Player/Source",
         "open sources panel videoId=$vid type=${contentType ?: parentMetaType} s=${activeSeasonNumber ?: -1} e=${activeEpisodeNumber ?: -1}",
     )
-    PlayerStreamsRepository.loadSources(
-        type = contentType ?: parentMetaType,
-        videoId = vid,
-        season = activeSeasonNumber,
-        episode = activeEpisodeNumber,
-    )
-    showSourcesPanel = true
-    showEpisodesPanel = false
-    showLiveChannelsPanel = false
-    controlsVisible = false
+    showPlayerTool(PlayerTool.Sources)
+    loadToolSources()
 }
 
 internal fun PlayerScreenRuntime.openEpisodesPanel() {
@@ -670,13 +663,14 @@ internal fun PlayerScreenRuntime.openEpisodesPanel() {
         "Player/Episodes",
         "open episodes panel parentType=$parentMetaType parentId=$parentMetaId cachedVideos=${playerMetaVideos.size}",
     )
+    showPlayerTool(PlayerTool.Episodes)
+    ensurePlayerEpisodesLoaded()
+}
+
+internal fun PlayerScreenRuntime.ensurePlayerEpisodesLoaded() {
     if (playerMetaVideos.isEmpty() && !episodesLoading) {
         loadPlayerEpisodes(bypassCache = false)
     }
-    showEpisodesPanel = true
-    showSourcesPanel = false
-    showLiveChannelsPanel = false
-    controlsVisible = false
 }
 
 internal fun PlayerScreenRuntime.retryEpisodesLoad() {
@@ -742,6 +736,7 @@ private fun PlayerScreenRuntime.resetEpisodePanelAndNextEpisodeState() {
     showSourcesPanel = false
     showEpisodesPanel = false
     showLiveChannelsPanel = false
+    showChaptersPanel = false
     episodeStreamsPanelState = EpisodeStreamsPanelState()
     cancelNextEpisodeAutoPlay()
     PlayerStreamsRepository.clearEpisodeStreams()

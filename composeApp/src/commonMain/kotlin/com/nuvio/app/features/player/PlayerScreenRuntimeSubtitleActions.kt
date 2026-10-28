@@ -241,14 +241,9 @@ internal fun PlayerScreenRuntime.applySubtitleAutoSyncCue(cue: SubtitleSyncCue) 
 internal fun PlayerScreenRuntime.openSubtitleSyncByEar() {
     subtitleSyncHeardPositionMs = null
     subtitleSyncSawPositionMs = null
-    showSubtitleModal = false
+    closePlayerTools()
     showSubtitleSyncByEar = true
-}
-
-internal fun PlayerScreenRuntime.closeSubtitleSyncByEar() {
-    showSubtitleSyncByEar = false
-    subtitleSyncHeardPositionMs = null
-    subtitleSyncSawPositionMs = null
+    controlsVisible = false
 }
 
 internal fun PlayerScreenRuntime.captureSubtitleSyncHeard() {
@@ -264,10 +259,7 @@ internal fun PlayerScreenRuntime.captureSubtitleSyncSaw() {
 private fun PlayerScreenRuntime.applySubtitleSyncByEarIfReady() {
     val heardMs = subtitleSyncHeardPositionMs ?: return
     val sawMs = subtitleSyncSawPositionMs ?: return
-    val newDelayMs = (subtitleDelayMs.toLong() + heardMs - sawMs)
-        .coerceIn(SUBTITLE_DELAY_MIN_MS.toLong(), SUBTITLE_DELAY_MAX_MS.toLong())
-        .toInt()
-    setSubtitleDelay(newDelayMs)
+    setSubtitleDelay(subtitleDelayAfterEar(subtitleDelayMs, heardMs, sawMs))
     subtitleSyncHeardPositionMs = null
     subtitleSyncSawPositionMs = null
 }

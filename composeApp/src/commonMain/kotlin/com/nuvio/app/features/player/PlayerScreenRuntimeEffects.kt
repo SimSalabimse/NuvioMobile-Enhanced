@@ -3,6 +3,7 @@ package com.nuvio.app.features.player
 import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
 import com.nuvio.app.core.perf.PerformanceMetrics
 import com.nuvio.app.core.perf.PlaybackQuietMode
+import com.nuvio.app.core.ui.LocalFold
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.party.PartyRepository
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -152,6 +153,8 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         showSourcesPanel = false
         showEpisodesPanel = false
         showChaptersPanel = false
+        chapters = emptyList()
+        chaptersLoadedForSourceUrl = null
         episodeStreamsPanelState = EpisodeStreamsPanelState()
         PlayerStreamsRepository.clearEpisodeStreams()
         SubtitleRepository.clear()
@@ -243,8 +246,13 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         subtitleAutoSyncState = SubtitleAutoSyncUiState()
     }
 
-    LaunchedEffect(playerController, subtitleStyle) {
-        playerController?.applySubtitleStyle(subtitleStyle)
+    LaunchedEffect(playerController, subtitleStyle, showSubtitleSyncByEar) {
+        val applied = if (showSubtitleSyncByEar) {
+            subtitleStyle.copy(bottomOffset = subtitleBottomOffsetForSyncStrip(subtitleStyle.bottomOffset))
+        } else {
+            subtitleStyle
+        }
+        playerController?.applySubtitleStyle(applied)
     }
 
     // iOS recognises hardware keys in the mpv view controller, because its UIKit view can hold
@@ -346,6 +354,21 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         if (!playbackSnapshot.isLoading && playerController != null) {
             refreshTracks()
         }
+    }
+
+    LaunchedEffect(
+        playbackSnapshot.isLoading,
+        playerController,
+        playerControllerSourceUrl,
+        activeSourceUrl,
+        playerSettingsUiState.androidExoChaptersEnabled,
+    ) {
+        clearChaptersIfDisabled()
+        if (!playbackSnapshot.isLoading) loadChaptersIfNeeded()
+    }
+
+    LaunchedEffect(playbackSnapshot.chapters, chapters, playerSettingsUiState.androidExoChaptersEnabled) {
+        adoptSnapshotChaptersIfNeeded()
     }
 
     LaunchedEffect(
@@ -478,7 +501,9 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
 
 @Composable
 private fun PlayerScreenRuntime.BindPlayerUiVisibilityEffects() {
+    val folded = LocalFold.current != null
     LaunchedEffect(
+        folded,
         controlsVisible,
         controlsActivityTick,
         isScrubbingTimeline,
@@ -501,7 +526,7 @@ private fun PlayerScreenRuntime.BindPlayerUiVisibilityEffects() {
         ) {
             return@LaunchedEffect
         }
-        delay(3500)
+        delay(if (folded) 5000 else 3500)
         controlsVisible = false
     }
 

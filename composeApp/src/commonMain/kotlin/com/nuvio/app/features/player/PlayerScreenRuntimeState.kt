@@ -195,6 +195,10 @@ internal class PlayerScreenRuntime(
     var showEpisodesPanel by mutableStateOf(false)
     var showChaptersPanel by mutableStateOf(false)
     var showLiveChannelsPanel by mutableStateOf(false)
+    /** The file's chapters, sorted; empty when it has fewer than two. */
+    var chapters by mutableStateOf<List<PlayerChapter>>(emptyList())
+    /** The source whose chapters [chapters] holds, so a rebuffer does not read them again. */
+    var chaptersLoadedForSourceUrl: String? = null
     var showSubmitIntroModal by mutableStateOf(false)
     var showSwitchEngineConfirm by mutableStateOf(false)
     var submitIntroSegmentType by mutableStateOf("intro")
@@ -252,6 +256,12 @@ internal class PlayerScreenRuntime(
     var showStreamInfo by mutableStateOf(false)
     var showPartyPanel by mutableStateOf(false)
     var showPartyChat by mutableStateOf(false)
+    val isPanelOpen: Boolean
+        get() = showAudioModal || showSubtitleModal || showVideoSettingsModal || showStreamInfo ||
+            showPartyPanel || showSourcesPanel || showEpisodesPanel || showSubmitIntroModal ||
+            // Fork panels
+            showChaptersPanel || showQualityPanel || showSpeedPanel || showLiveChannelsPanel ||
+            showStreamInfoModal || showUserRatingSheet
     var partyBehind by mutableStateOf(false)
     var partyBehindMs by mutableStateOf<Long?>(null)
     var partyRateNudge: Float? = null
@@ -295,6 +305,16 @@ internal class PlayerScreenRuntime(
     var downloadSwapPartialFallbacks: Int = 0
     var subtitleAutoSyncState by mutableStateOf(SubtitleAutoSyncUiState())
     var showSubtitleSyncByEar by mutableStateOf(false)
+    var playerToolTab by mutableStateOf(PlayerToolTab.Subs)
+    var playerStyleOpen by mutableStateOf(false)
+    var markPreviewEndMs by mutableStateOf<Long?>(null)
+    var markPreviewArmed by mutableStateOf(false)
+    var markSent by mutableStateOf(false)
+    var markAbsent by mutableStateOf(false)
+    var markSubmitError by mutableStateOf<String?>(null)
+    var markSubmitGeneration by mutableStateOf(0)
+    var markingPendingSeekMs by mutableStateOf<Long?>(null)
+    var markPreviewRestore by mutableStateOf<MarkPreviewRestore?>(null)
     var subtitleSyncHeardPositionMs by mutableStateOf<Long?>(null)
     var subtitleSyncSawPositionMs by mutableStateOf<Long?>(null)
     var isAutoSubtitleShowing by mutableStateOf(false)
@@ -317,6 +337,7 @@ internal class PlayerScreenRuntime(
             showChaptersPanel ||
             showLiveChannelsPanel ||
             showSubmitIntroModal ||
+            showSubtitleSyncByEar ||
             showParentalGuide ||
             episodeStreamsPanelState.showStreams
 

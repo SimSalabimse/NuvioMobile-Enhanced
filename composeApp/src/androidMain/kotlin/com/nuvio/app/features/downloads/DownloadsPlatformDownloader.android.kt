@@ -217,6 +217,9 @@ internal actual object DownloadsPlatformDownloader {
     actual fun partialPlaybackUrl(downloadId: String): String? =
         AndroidPartialPlaybackServer.url(downloadId)
 
+    actual fun retryCount(downloadId: String): Int =
+        managedTransfers().firstOrNull { it.item.id == downloadId }?.retryCount ?: 0
+
     actual fun finishPartialPlayback(downloadId: String): String? {
         val finished = finishAndroidPartialFile(downloadId) ?: return null
         val tree = finished.exportTreeUri?.takeIf { it.isNotBlank() }

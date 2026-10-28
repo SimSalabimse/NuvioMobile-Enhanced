@@ -45,6 +45,7 @@ data class PlayerSettingsUiState(
     val holdToSpeedValue: Float = 2f,
     val skipBackwardSeconds: Int = PLAYER_SKIP_SECONDS_DEFAULT,
     val skipForwardSeconds: Int = PLAYER_SKIP_SECONDS_DEFAULT,
+    val toolbarLayout: PlayerToolbarLayout = PlayerToolbarLayout.Default,
     val touchGesturesEnabled: Boolean = true,
     val swipeToSeekEnabled: Boolean = true,
     val seekPreviewEnabled: Boolean = true,
@@ -66,6 +67,7 @@ data class PlayerSettingsUiState(
     val androidLibmpvVideoOutput: AndroidLibmpvVideoOutput = AndroidLibmpvVideoOutput.GpuNext,
     val androidLibmpvHardwareDecodingEnabled: Boolean = true,
     val androidLibmpvYuv420pEnabled: Boolean = false,
+    val androidExoChaptersEnabled: Boolean = false,
     val decoderPriority: Int = 1,
     val mapDV7ToHevc: Boolean = false,
     val tunnelingEnabled: Boolean = false,
@@ -141,6 +143,7 @@ object PlayerSettingsRepository {
     private var holdToSpeedValue = 2f
     private var skipBackwardSeconds = PLAYER_SKIP_SECONDS_DEFAULT
     private var skipForwardSeconds = PLAYER_SKIP_SECONDS_DEFAULT
+    private var toolbarLayout = PlayerToolbarLayout.Default
     private var touchGesturesEnabled = true
     private var swipeToSeekEnabled = true
     private var seekPreviewEnabled = true
@@ -162,6 +165,7 @@ object PlayerSettingsRepository {
     private var androidLibmpvVideoOutput = AndroidLibmpvVideoOutput.GpuNext
     private var androidLibmpvHardwareDecodingEnabled = true
     private var androidLibmpvYuv420pEnabled = false
+    private var androidExoChaptersEnabled = false
     private var decoderPriority = 1
     private var mapDV7ToHevc = false
     private var tunnelingEnabled = false
@@ -246,6 +250,7 @@ object PlayerSettingsRepository {
         holdToSpeedValue = 2f
         skipBackwardSeconds = PLAYER_SKIP_SECONDS_DEFAULT
         skipForwardSeconds = PLAYER_SKIP_SECONDS_DEFAULT
+        toolbarLayout = PlayerToolbarLayout.Default
         touchGesturesEnabled = true
         swipeToSeekEnabled = true
         seekPreviewEnabled = true
@@ -267,6 +272,7 @@ object PlayerSettingsRepository {
         androidLibmpvVideoOutput = AndroidLibmpvVideoOutput.GpuNext
         androidLibmpvHardwareDecodingEnabled = true
         androidLibmpvYuv420pEnabled = false
+        androidExoChaptersEnabled = false
         decoderPriority = 1
         mapDV7ToHevc = false
         tunnelingEnabled = false
@@ -342,6 +348,7 @@ object PlayerSettingsRepository {
         holdToSpeedValue = PlayerSettingsStorage.loadHoldToSpeedValue() ?: 2f
         skipBackwardSeconds = normalizePlayerSkipSeconds(PlayerSettingsStorage.loadSkipBackwardSeconds())
         skipForwardSeconds = normalizePlayerSkipSeconds(PlayerSettingsStorage.loadSkipForwardSeconds())
+        toolbarLayout = PlayerToolbarLayout.decode(PlayerSettingsStorage.loadToolbarLayout())
         touchGesturesEnabled = PlayerSettingsStorage.loadTouchGesturesEnabled() ?: true
         swipeToSeekEnabled = PlayerSettingsStorage.loadSwipeToSeekEnabled() ?: true
         seekPreviewEnabled = PlayerSettingsStorage.loadSeekPreviewEnabled() ?: true
@@ -403,6 +410,7 @@ object PlayerSettingsRepository {
             ?: AndroidLibmpvVideoOutput.GpuNext
         androidLibmpvHardwareDecodingEnabled = PlayerSettingsStorage.loadAndroidLibmpvHardwareDecodingEnabled() ?: true
         androidLibmpvYuv420pEnabled = PlayerSettingsStorage.loadAndroidLibmpvYuv420pEnabled() ?: false
+        androidExoChaptersEnabled = PlayerSettingsStorage.loadAndroidExoChaptersEnabled() ?: false
         decoderPriority = PlayerSettingsStorage.loadDecoderPriority() ?: 1
         mapDV7ToHevc = PlayerSettingsStorage.loadMapDV7ToHevc() ?: false
         tunnelingEnabled = PlayerSettingsStorage.loadTunnelingEnabled() ?: false
@@ -582,6 +590,14 @@ object PlayerSettingsRepository {
         skipForwardSeconds = normalized
         publish()
         PlayerSettingsStorage.saveSkipForwardSeconds(normalized)
+    }
+
+    fun setToolbarLayout(layout: PlayerToolbarLayout) {
+        ensureLoaded()
+        if (toolbarLayout == layout) return
+        toolbarLayout = layout
+        publish()
+        PlayerSettingsStorage.saveToolbarLayout(layout.encode())
     }
 
     fun setTouchGesturesEnabled(enabled: Boolean) {
@@ -780,6 +796,14 @@ object PlayerSettingsRepository {
         androidLibmpvYuv420pEnabled = enabled
         publish()
         PlayerSettingsStorage.saveAndroidLibmpvYuv420pEnabled(enabled)
+    }
+
+    fun setAndroidExoChaptersEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (androidExoChaptersEnabled == enabled) return
+        androidExoChaptersEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveAndroidExoChaptersEnabled(enabled)
     }
 
     fun setDecoderPriority(priority: Int) {
@@ -1298,6 +1322,7 @@ object PlayerSettingsRepository {
             holdToSpeedValue = holdToSpeedValue,
             skipBackwardSeconds = skipBackwardSeconds,
             skipForwardSeconds = skipForwardSeconds,
+            toolbarLayout = toolbarLayout,
             touchGesturesEnabled = touchGesturesEnabled,
             swipeToSeekEnabled = swipeToSeekEnabled,
             seekPreviewEnabled = seekPreviewEnabled,
@@ -1319,6 +1344,7 @@ object PlayerSettingsRepository {
             androidLibmpvVideoOutput = androidLibmpvVideoOutput,
             androidLibmpvHardwareDecodingEnabled = androidLibmpvHardwareDecodingEnabled,
             androidLibmpvYuv420pEnabled = androidLibmpvYuv420pEnabled,
+            androidExoChaptersEnabled = androidExoChaptersEnabled,
             decoderPriority = decoderPriority,
             mapDV7ToHevc = mapDV7ToHevc,
             tunnelingEnabled = tunnelingEnabled,

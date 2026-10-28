@@ -1,6 +1,6 @@
 # Nuvio Enhanced (mobile): features and settings
 
-Built from the code at build 197 (0.6.4.1), which includes upstream 0.6.4-beta. Each line shows the feature, where it is in the app, and the build or version it was added in when the changelog records it ("upstream" means it came from the base app). Settings pages are under the Settings tab.
+Built from the code at build 198 (0.6.5.1). This comparison build merges the luqmanfadlli enhanced tag 0.6.5-beta (313ca3d1) on top of the player tools work and the download-reason work. Docs/sync-overlaps-0.6.5.md lists each overlap and the decision. The tools panel, marking strip, Play range, Sync strip, TheIntroDB Flag, download reasons, Storage, Diagnostics and Auto Sync are still here. Notch spacing and the player button bar are the fork's. Sync is our bottom strip. The title fades while Sleep or Speed is open, and the seek bar does not move. "You're watching" stays hidden while a panel or strip is open. Each line shows the feature, where it is in the app, and the build or version it was added in when the changelog records it ("upstream" means it came from the base app). Settings pages are under the Settings tab.
 
 ## Playback
 - Player with gestures (swipe to seek, hold for speed and a hold-speed value): Settings › Playback › Player / Touch Gestures. Upstream.
@@ -8,6 +8,7 @@ Built from the code at build 197 (0.6.4.1), which includes upstream 0.6.4-beta. 
 - iOS audio output and video output (hardware decoder, extended dynamic range, colour hints): Settings › Playback › iOS Audio/Video Output. Upstream.
 - Preferred and secondary audio and subtitle languages, strip SDH, forced subtitles, show only preferred languages, auto-show subtitles on rewind or mute: Settings › Playback › Subtitle and Audio. Upstream.
 - Subtitle rendering (size, offset, bold, colours, outline, shadow, libass on by default): Settings › Playback › Subtitle Rendering. Upstream; shadow and imported subtitle fonts in 0.6.4.1. An imported font is used for Latin subtitles; Chinese, Japanese and Korean keep the bundled face.
+- Player tools open in one right-hand panel (Subtitles, Audio, Sources, Episodes, Info, Video settings) over the playing video. Subtitles keeps Off, language tracks, a pinned Sync row and Style in the same panel. The older separate subtitle, audio, sources, episodes, playback-info and video-settings panels were replaced. Sync drops the panel into a bottom strip (−0.1 / +0.1, Heard it / Saw it, Reset, Done). While that strip is open the subtitle cue is lifted by the strip height and put back on Done. Reset also clears a half-finished Heard it / Saw it. Unwatched episode pictures blur again when that setting is on, and a failed or unfinished episode list offers Retry. Changing episode closes the open tool. Aspect, speed, brightness, contrast, saturation and tone-map stay on the Video tab, with Reset pinned.
 - Audio and subtitle choices and playback speed remembered per show: automatic, in the player. 0.5.10.3.
 - Sleep timer: player › speed popup. 181.
 - Mini player (off by default): Settings › Playback › Mini Player. 0.5.10.1; default off in 190.
@@ -19,7 +20,12 @@ Built from the code at build 197 (0.6.4.1), which includes upstream 0.6.4-beta. 
 - Switch playback engine from the player, with a confirmation first. Upstream 0.6.3.
 - Player controls fade out instead of disappearing at once. Upstream 0.6.4.
 - External player app (sends subtitles and intro/outro times): Settings › Playback › Player. Upstream.
-- Seek bar thumbnails: Settings › Playback; downloads use on-device scrub previews. 0.5.10.2.
+- Seek bar thumbnails: Settings › Playback; downloads use on-device scrub previews. 0.5.10.2. The fork's faster thumbnail path is in 0.6.5.1.
+- Player buttons: Settings › Playback › Player buttons. Choose which buttons stay on the bar, which sit behind the arrow, and their order. 0.6.5.1 from the fork. Mark segment and Live TV stay on the bar as extra icons. The arrow grows that row.
+- While Sleep or Speed is open, the title, version and episode fade out and the seek bar stays put.
+- Show Chapters applies to every engine, with marks on the seek bar and a chapters list. 0.6.5.1 from the fork.
+- Pinch to zoom shows a zoom icon while the picture scales. 0.6.5.1 from the fork.
+- TMDB title language and original-language titles, logos, posters and backdrops: Settings › TMDB, and the home hero. 0.6.5.1 from the fork.
 - Auto-play next episode, binge group, preloading next-episode sources, threshold mode, and the up-next countdown: Settings › Playback › Next Episode. Upstream.
 - Stream auto-play (first stream or regex, source scope, allowed addons and plugins), reuse last link: Settings › Playback › Stream Auto-Play / Stream Selection. Upstream.
 - Debrid not cached: every play and download entry point (Continue Watching menu, episode rows, show page, season sheet, Library, search, smart downloads, finish a series, sources list, player source switch, next episode, auto-play) goes through one shared fallback that tries the next good source (up to 3) and says which one it switched to. 193–194; all entry points since 195, checked by DebridSourceGuardTest.
@@ -35,6 +41,7 @@ Built from the code at build 197 (0.6.4.1), which includes upstream 0.6.4-beta. 
 - TheIntroDB community times, "TheIntroDB only", on-device fallback: Settings › Playback › Skip Segments. 0.5.10.3.
 - TheIntroDB import of your own submissions, labelled "TheIntroDB (yours)" (same label in the player and the skip list, 196): Settings › Playback › TheIntroDB import / Your TheIntroDB submissions. 0.5.10.3; same-length check in 192.
 - Intro submission (IntroDB and TheIntroDB API keys): Settings › Playback › Skip Segments. Upstream.
+- Submit Timestamps is a bottom marking strip on the playing video (Intro, Recap, Credits, Preview; movies are Intro and Credits). Mark start and end at the playhead, nudge them, and Submit stays on screen. The seek bar zooms to about two minutes around the range and stays disabled when the length is unknown. Play range plays the marked range and puts the picture back where it was, including if the strip is closed mid-preview. Play range is optional and is not required before Submit. The series segment chip is still called Preview. None has its own line; IntroDB refuses an empty segment, and a movie with an IntroDB key shows the IntroDB movie message. A failed send shows the real reason. The Flag in the top pill opens the same strip pre-filled; Mark segment in the more menu opens it blank. A missing key is a row in the strip that opens the existing key dialog. The older timestamp dialog was replaced.
 - AnimeSkip: Settings › Playback › Skip Segments. Upstream.
 - Ask after Skip (Good/Wrong): Settings › Playback › Skip Segments. 0.5.10.3.
 - Your marks and shared nuvio://skip links: player skip menu. 191/192.
@@ -68,6 +75,8 @@ Built from the code at build 197 (0.6.4.1), which includes upstream 0.6.4-beta. 
 - Download Live Activity / Dynamic Island with progress and speed (iOS); tapping it opens Downloads: automatic. 0.5.9.1.
 - Season rows on Downloads: time left is never shorter than the slowest running episode (queued episodes add to it); with several episodes running the speed is labelled "total": Library › Downloads. Checked by SeasonEtaTest.
 - Downloads search, storage screen, offline artwork for downloaded items: Library › Downloads. 0.5.10.2.
+- A download that is not moving shows one short reason on its row (paused while you watch, slowed while the stream buffers, waiting behind other downloads, waiting for Wi-Fi, device too hot, or retrying) and no reason while it is moving: Library › Downloads. The line follows the device within about 2 s and clears when the cause is gone. Checked by DownloadSlowReasonTest.
+- The Storage card on Downloads keeps a fixed-height placeholder until storage has been read, so a cold start does not shift the list: Library › Downloads.
 
 ## Library
 - Library from Nuvio, Trakt, Simkl, MDBList, AniList, WeTrakr: Settings › Account › Tracking › Library Source. Upstream.
@@ -100,7 +109,7 @@ Built from the code at build 197 (0.6.4.1), which includes upstream 0.6.4-beta. 
 ## Profiles, sync and the app
 - Profiles, Account, Nuvio Sync, Trakt, Simkl, MDBList, AniList, WeTrakr scrobbling: Settings › Account. Upstream. The active profile is shown as a card with its avatar. Upstream 0.6.4.
 - In-app rating can be turned off per profile: Settings › Account › Tracking. Upstream 0.6.3.
-- Discord Rich Presence: Settings › Account. Upstream 0.6.3. The login page is Android; this build does not offer it on iOS.
+- Discord Rich Presence: Settings › Account. Upstream 0.6.3. Login on iOS and the Keychain token are in 0.6.5.1 from the fork.
 - iPad side bar (duo): when the system provides a vertical bar, Home, details, streams, library and the profile picker sit beside it. Upstream 0.6.4. The player turns that bar off.
 - Watch stats / profile insights: Settings › Profile. 0.5.10.2.
 - Episode release alerts: Settings › Notifications. Upstream.
