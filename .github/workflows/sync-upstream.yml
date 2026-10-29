@@ -1,11 +1,8 @@
 name: Sync Enhanced upstream
 
 on:
-  schedule:
-    # Merge only. Sideload publishing is Build Sideload IPA (workflow_dispatch),
-    # after the release-train manifest check. This schedule must not build an IPA,
-    # publish a GitHub release, or update store.json.
-    - cron: "17 6 * * *"
+  # Schedule is off on purpose. Upstream is only synced by hand after
+  # luqmanfadlli/NuvioMobile-Enhanced publishes a new release.
   workflow_dispatch:
 
 permissions:
