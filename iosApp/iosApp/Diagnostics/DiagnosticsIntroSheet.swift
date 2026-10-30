@@ -16,6 +16,7 @@ struct DiagnosticsIntroSheet: View {
                 
                 Text("Diagnostics log")
                     .font(.title2.bold())
+                    .accessibilityIdentifier("diagnostics.intro.title")
                 
                 VStack(alignment: .leading, spacing: 16) {
                     bulletPoint(
@@ -40,6 +41,7 @@ struct DiagnosticsIntroSheet: View {
                 
                 Toggle("Save diagnostics log", isOn: $isEnabled)
                     .tint(.blue)
+                    .accessibilityIdentifier("diagnostics.intro.saveToggle")
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
                     .background(Color(.systemGray6))
@@ -55,6 +57,7 @@ struct DiagnosticsIntroSheet: View {
                         dismiss()
                     }
                     .fontWeight(.semibold)
+                    .accessibilityIdentifier("diagnostics.intro.done")
                 }
             }
         }

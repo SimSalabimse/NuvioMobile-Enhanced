@@ -14,6 +14,7 @@ actual fun IosDiagnosticsSettingsRow(
         description = "On-device crash and error log",
         icon = Icons.Rounded.BugReport,
         isTablet = isTablet,
+        accessibilityIdentifier = "settings.diagnostics",
         onClick = { DiagnosticsNavigation.openDiagnosticsSettings() },
     )
 }
