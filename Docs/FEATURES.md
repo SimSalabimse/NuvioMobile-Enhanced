@@ -60,6 +60,7 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - Finish a series (flag a show; downloads continue from the furthest watched episode): details chip, Continue Watching hold menu, flag badge on cards. 178.
 - Finish a series with Smart downloads on: keeps exactly 'Episodes to keep ready' downloaded, lowest first, topped up as you watch. 194.
 - **Finish a series downloads the rest** (only with Smart downloads off; on: every remaining episode, lowest first; off: the next one): Settings › Downloads. 193; scoped in 194.
+- Finish a series stays pinned while the last episode still has resume progress: the near-end download trigger and an 80% watched mark no longer toast "goal removed" until that episode has actually ended.
 - Queue unaired episodes: Settings › Downloads. Upstream/0.5.10.x.
 - Pause downloads while watching: Settings › Downloads. 181.
 - Downloads throttled during playback (1 while playing, 0 while buffering or with Pause while watching) resume by themselves when the cap rises or the player closes, and new ones start; a Smart download whose debrid link fails is retried in 1 h with the reason shown instead of being dropped: automatic. Checked by PlaybackCapRestartTest and SmartDownloadRetryTest.

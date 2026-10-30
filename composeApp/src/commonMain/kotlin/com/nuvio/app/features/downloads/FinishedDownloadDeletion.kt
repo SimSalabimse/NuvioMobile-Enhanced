@@ -117,7 +117,7 @@ internal object FinishedDownloadDeletion {
         val creditsStartMs = item?.let { creditsStartFor(it) }
         val near = PlaybackEndRules.nearEnd(positionMs, durationMs, creditsStartMs)
         SmartDownloads.onProgress(entry, positionMs, durationMs, creditsStartMs)
-        if (near) SmartDownloads.onNearEnd(entry)
+        if (near) SmartDownloads.onNearEnd(entry, positionMs, durationMs, creditsStartMs)
         val tracked = current.copy(nearEnd = near)
         session = tracked
         val ended = PlaybackEndRules.reachedEnd(positionMs, durationMs, creditsStartMs)
