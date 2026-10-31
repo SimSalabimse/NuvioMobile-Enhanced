@@ -801,7 +801,9 @@ private fun DownloadRow(
                                 )
                             }
                         }
-                        DownloadStatus.Queued -> Unit
+                        DownloadStatus.Queued,
+                        DownloadStatus.Preparing,
+                        -> Unit
                     }
                     IconButton(onClick = onDelete) {
                         Icon(
@@ -812,7 +814,16 @@ private fun DownloadRow(
                 }
             }
 
-            if (item.status == DownloadStatus.Downloading) {
+            if (item.status == DownloadStatus.Preparing) {
+                Text(
+                    text = stringResource(Res.string.downloads_status_preparing),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            } else if (item.status == DownloadStatus.Downloading) {
                 val speeds by DownloadSpeeds.speeds.collectAsState()
                 val progressLine = listOfNotNull(
                     item.downloadsScreenProgressPercent()?.let { "$it%" },
@@ -1058,6 +1069,7 @@ private fun statusText(item: DownloadItem, heldForPlayback: Boolean): String {
             compactDownloadBytes(item.totalBytes ?: item.downloadedBytes),
         )
         DownloadStatus.Failed -> item.errorMessage ?: stringResource(Res.string.downloads_status_failed)
+        DownloadStatus.Preparing -> stringResource(Res.string.downloads_status_preparing)
     }
 }
 

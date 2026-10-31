@@ -19,6 +19,8 @@ enum class DownloadStatus {
     Paused,
     Completed,
     Failed,
+    /** The row is visible while the stream link is still being resolved. Nothing is transferring yet. */
+    Preparing,
 }
 
 @Serializable
@@ -74,7 +76,9 @@ data class DownloadItem(
             DownloadStatus.Paused,
             DownloadStatus.Queued,
             -> earlyPlayReady
-            DownloadStatus.Failed -> false
+            DownloadStatus.Failed,
+            DownloadStatus.Preparing,
+            -> false
         }
 
     val displaySubtitle: String

@@ -64,7 +64,11 @@ internal actual object DownloadsLiveStatusPlatform {
         val bytesPerSecond = speed.sample(base?.id, base?.downloadedBytes ?: 0L, now)
         pending = if (base != null) {
             lastRunning = base
-            lastMemberIds = liveStatusMembers(items).mapTo(mutableSetOf()) { it.id }
+            lastMemberIds = if (base.status == DownloadStatus.Preparing.name) {
+                items.filter { it.status == DownloadStatus.Preparing }.mapTo(mutableSetOf()) { it.id }
+            } else {
+                liveStatusMembers(items).mapTo(mutableSetOf()) { it.id }
+            }
             base.copy(bytesPerSecond = bytesPerSecond, sampledAtEpochMs = now)
         } else {
             stoppedPayload(items)
@@ -175,9 +179,32 @@ internal fun liveStatusMembers(items: List<DownloadItem>): List<DownloadItem> {
     }
 }
 
+/** Same id a running transfer would use, so Preparing becomes Downloading on the activity already showing. */
+internal fun liveActivityId(anchor: DownloadItem): String {
+    val season = anchor.seasonNumber
+    return if (anchor.isEpisode && season != null) "season:${anchor.parentMetaId.trim()}|$season" else anchor.id
+}
+
+/** Nothing is transferring yet. The oldest Preparing row gets the activity until a download starts. */
+internal fun preparingLiveStatus(items: List<DownloadItem>): DownloadsLiveStatusPayload? {
+    val anchor = items.filter { it.status == DownloadStatus.Preparing }.minByOrNull { it.createdAtEpochMs }
+        ?: return null
+    val season = anchor.seasonNumber
+    return DownloadsLiveStatusPayload(
+        id = liveActivityId(anchor),
+        title = anchor.title,
+        subtitle = if (anchor.isEpisode && season != null) "S$season" else anchor.displaySubtitle,
+        status = DownloadStatus.Preparing.name,
+        downloadedBytes = 0L,
+        totalBytes = null,
+        progressPercent = -1,
+        detail = null,
+    )
+}
+
 internal fun liveStatusPayloadFor(items: List<DownloadItem>): DownloadsLiveStatusPayload? {
     val running = items.filter { it.status == DownloadStatus.Downloading }
-    val anchor = running.minByOrNull { it.createdAtEpochMs } ?: return null
+    val anchor = running.minByOrNull { it.createdAtEpochMs } ?: return preparingLiveStatus(items)
     val season = anchor.seasonNumber
     val members = liveStatusMembers(items)
     val sized = members.filter { (it.totalBytes ?: 0L) > 0L }
@@ -204,7 +231,7 @@ internal fun liveStatusPayloadFor(items: List<DownloadItem>): DownloadsLiveStatu
         null
     }
     return DownloadsLiveStatusPayload(
-        id = if (anchor.isEpisode && season != null) "season:${anchor.parentMetaId.trim()}|$season" else anchor.id,
+        id = liveActivityId(anchor),
         title = anchor.title,
         subtitle = if (anchor.isEpisode && season != null) "S$season" else anchor.displaySubtitle,
         status = anchor.status.name,

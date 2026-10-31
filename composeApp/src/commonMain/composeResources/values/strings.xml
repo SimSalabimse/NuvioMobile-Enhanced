@@ -696,6 +696,7 @@
     <string name="downloads_status_failed">Failed</string>
     <string name="downloads_status_paused">Paused • %1$s</string>
     <string name="downloads_status_queued">Waiting</string>
+    <string name="downloads_status_preparing">Preparing</string>
     <string name="downloads_status_queued_with_size">Waiting • %1$s</string>
     <string name="downloads_status_held_for_playback">Waiting while you watch • %1$s</string>
     <string name="downloads_slow_paused_watching">Paused while you watch</string>

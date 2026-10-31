@@ -4,6 +4,7 @@ import com.nuvio.app.features.player.addonSubtitleRequests
 import com.nuvio.app.features.streams.StreamItem
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -38,6 +39,8 @@ object DownloadsRepository {
     private val linkRefreshAttempts = mutableMapOf<String, Int>()
     private val linkRefreshBytes = mutableMapOf<String, Long>()
     private val linkRefreshHandles = mutableMapOf<String, DownloadsTaskHandle>()
+    /** In-flight link resolution for a Preparing row. Cancel removes the row and stops the resolve. */
+    private val preparationJobs = mutableMapOf<String, Job>()
 
     fun ensureLoaded() {
         ensureThermalObserver()
@@ -54,6 +57,7 @@ object DownloadsRepository {
     }
 
     internal fun replaceItems(items: List<DownloadItem>) {
+        cancelPreparationJobs()
         activeHandles.values.forEach(DownloadsTaskHandle::cancel)
         activeHandles.clear()
         partialPrefixCache.clear()
@@ -64,6 +68,7 @@ object DownloadsRepository {
     }
 
     fun clearLocalState() {
+        cancelPreparationJobs()
         activeHandles.values.forEach(DownloadsTaskHandle::cancel)
         activeHandles.clear()
         partialPrefixCache.clear()
@@ -239,12 +244,7 @@ object DownloadsRepository {
         val existing = currentItems.firstOrNull { it.logicalContentKey == logicalKey }
         if (existing != null) {
             replacedExisting = true
-            com.nuvio.app.features.analysis.MediaAnalysisScheduler.releaseFile(existing.id)
-            DownloadsPlatformDownloader.discardTransfer(existing.id)
-            activeHandles.remove(existing.id)?.cancel()
-            partialPrefixCache.remove(existing.id)
-            startQueue.discard(existing.id)
-            deleteFilesOf(existing)
+            dropRow(existing)
             currentItems.removeAll { it.id == existing.id }
         }
 
@@ -308,6 +308,156 @@ object DownloadsRepository {
             DownloadEnqueueResult.Replaced
         } else {
             DownloadEnqueueResult.Started
+        }
+    }
+
+    /**
+     * Puts a row on screen before the link exists, so the notification and Live Activity can show
+     * Preparing at once. The transfer starts only from [finishPreparation].
+     */
+    internal fun beginPreparation(target: DownloadTarget, stream: StreamItem): String {
+        ensureLoaded()
+        val now = DownloadsClock.nowEpochMs()
+        val logicalKey = buildLogicalKey(target.parentMetaId, target.seasonNumber, target.episodeNumber)
+        val currentItems = _uiState.value.items.toMutableList()
+        // A previous resolve for this title is replaced. A failed or finished file stays until the
+        // new link is actually ready, so a failed resolve does not delete it.
+        val stale = currentItems.filter {
+            it.logicalContentKey == logicalKey && it.status == DownloadStatus.Preparing
+        }
+        stale.forEach(::dropRow)
+        if (stale.isNotEmpty()) currentItems.removeAll { item -> stale.any { it.id == item.id } }
+
+        val downloadId = nextDownloadId(now)
+        val item = DownloadItem(
+            id = downloadId,
+            contentType = target.contentType,
+            parentMetaId = target.parentMetaId,
+            parentMetaType = target.parentMetaType,
+            videoId = target.videoId,
+            title = target.title,
+            logo = target.logo,
+            poster = target.poster,
+            background = target.background,
+            seasonNumber = target.seasonNumber,
+            episodeNumber = target.episodeNumber,
+            episodeTitle = target.episodeTitle,
+            episodeThumbnail = target.episodeThumbnail,
+            streamTitle = stream.streamLabel,
+            streamSubtitle = stream.streamSubtitle,
+            providerName = stream.addonName,
+            providerAddonId = stream.addonId,
+            sourceUrl = PREPARING_SOURCE_URL,
+            sourceFilename = stream.behaviorHints.filename?.trim()?.takeIf { it.isNotBlank() },
+            sourceBingeGroup = stream.behaviorHints.bingeGroup?.trim()?.takeIf { it.isNotBlank() },
+            sourceQualityLabel = streamQualityLabel(stream),
+            subtitleRequests = addonSubtitleRequests(target.contentType, target.videoId),
+            sourceSubtitles = stream.externalSubtitles,
+            localFileUri = null,
+            fileName = buildFileName(
+                title = target.title,
+                seasonNumber = target.seasonNumber,
+                episodeNumber = target.episodeNumber,
+                episodeTitle = target.episodeTitle,
+                fallbackTitle = stream.streamLabel,
+                sourceUrl = PREPARING_SOURCE_URL,
+                downloadId = downloadId,
+            ),
+            status = DownloadStatus.Preparing,
+            createdAtEpochMs = now,
+            updatedAtEpochMs = now,
+        )
+        currentItems.add(0, item)
+        publish(currentItems)
+        persistStatus()
+        return downloadId
+    }
+
+    /** Ties [job] to the Preparing row so cancelling the row stops the resolve. */
+    internal fun bindPreparation(downloadId: String, job: Job) {
+        preparationJobs.put(downloadId, job)?.cancel()
+        job.invokeOnCompletion { preparationJobs.remove(downloadId, job) }
+    }
+
+    /**
+     * The link is ready. Fills the Preparing row and starts it, replacing any finished copy of the
+     * same title. Returns null when the row was cancelled.
+     */
+    internal fun finishPreparation(downloadId: String, stream: StreamItem): DownloadEnqueueResult? {
+        ensureLoaded()
+        val preparing = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return null
+        if (preparing.status != DownloadStatus.Preparing) return null
+
+        val sourceUrl = stream.playableDirectUrl?.trim()?.takeIf { it.isNotBlank() }
+            ?: return failPreparation(downloadId, DownloadEnqueueResult.MissingUrl.toastMessage()).let {
+                DownloadEnqueueResult.MissingUrl
+            }
+        if (!sourceUrl.isSupportedDownloadUrl()) {
+            failPreparation(downloadId, DownloadEnqueueResult.UnsupportedFormat.toastMessage())
+            return DownloadEnqueueResult.UnsupportedFormat
+        }
+
+        val now = DownloadsClock.nowEpochMs()
+        val currentItems = _uiState.value.items.toMutableList()
+        val existing = currentItems.firstOrNull {
+            it.id != downloadId && it.logicalContentKey == preparing.logicalContentKey
+        }
+        if (existing != null) {
+            dropRow(existing)
+            currentItems.removeAll { it.id == existing.id }
+        }
+        val index = currentItems.indexOfFirst { it.id == downloadId }
+        if (index < 0) return null
+        currentItems[index] = preparing.copy(
+            streamTitle = stream.streamLabel,
+            streamSubtitle = stream.streamSubtitle,
+            providerName = stream.addonName,
+            providerAddonId = stream.addonId,
+            sourceUrl = sourceUrl,
+            sourceHeaders = sanitizeRequestHeaders(stream.behaviorHints.proxyHeaders?.request),
+            sourceResponseHeaders = sanitizeResponseHeaders(stream.behaviorHints.proxyHeaders?.response),
+            sourceFilename = stream.behaviorHints.filename?.trim()?.takeIf { it.isNotBlank() },
+            sourceBingeGroup = stream.behaviorHints.bingeGroup?.trim()?.takeIf { it.isNotBlank() },
+            sourceQualityLabel = streamQualityLabel(stream),
+            subtitleRequests = addonSubtitleRequests(preparing.contentType, preparing.videoId),
+            sourceSubtitles = stream.externalSubtitles,
+            fileName = buildFileName(
+                title = preparing.title,
+                seasonNumber = preparing.seasonNumber,
+                episodeNumber = preparing.episodeNumber,
+                episodeTitle = preparing.episodeTitle,
+                fallbackTitle = stream.streamLabel,
+                sourceUrl = sourceUrl,
+                downloadId = downloadId,
+            ),
+            status = DownloadStatus.Queued,
+            errorMessage = null,
+            updatedAtEpochMs = now,
+        )
+        publish(currentItems)
+        val toStart = startQueue.request(downloadId, DownloadThermalGate.blocksNextFile())
+        persistStatus()
+        applyStarts(toStart)
+        refreshHeldForPlayback()
+        return if (existing != null) DownloadEnqueueResult.Replaced else DownloadEnqueueResult.Started
+    }
+
+    /** Leaves the row visible as Failed with [message]. No-op when it is no longer Preparing. */
+    internal fun failPreparation(downloadId: String, message: String) {
+        ensureLoaded()
+        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
+        if (item.status != DownloadStatus.Preparing) return
+        preparationJobs.remove(downloadId)
+        mutateItem(downloadId) { current ->
+            if (current.status != DownloadStatus.Preparing) {
+                current
+            } else {
+                current.copy(
+                    status = DownloadStatus.Failed,
+                    errorMessage = message.ifBlank { "Couldn't prepare the download" },
+                    updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                )
+            }
         }
     }
 
@@ -383,6 +533,10 @@ object DownloadsRepository {
 
     /** Retry gets a fresh link first when the old one was rejected (see [wantsFreshLink]). */
     fun retryDownload(downloadId: String) {
+        ensureLoaded()
+        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
+        // Never got a real link (the resolve failed or the app closed while preparing).
+        if (item.sourceUrl == PREPARING_SOURCE_URL) return
         linkRefreshAttempts.remove(downloadId)
         resumeDownload(downloadId)
         // Retry re-checks space with a fresh figure; when it still does not fit, say so instead
@@ -741,6 +895,7 @@ object DownloadsRepository {
     fun cancelDownload(downloadId: String) {
         ensureLoaded()
         val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
+        preparationJobs.remove(downloadId)?.cancel()
 
         // Let go of the file first (analysis run, preview reader, audio capture), then stop the
         // transfer without resume data, then delete and check.
@@ -834,7 +989,17 @@ object DownloadsRepository {
         var shouldPersistNormalized = false
         val normalized = DownloadsCodec.decodeItems(payload)
             .map { item ->
-                val statusNormalized = DownloadsPlatformDownloader.restoreItem(item)
+                val loaded = if (item.status == DownloadStatus.Preparing) {
+                    // The resolve died with the process. Leaving Preparing would spin forever.
+                    shouldPersistNormalized = true
+                    item.copy(
+                        status = DownloadStatus.Failed,
+                        errorMessage = PREPARATION_INTERRUPTED_MESSAGE,
+                    )
+                } else {
+                    item
+                }
+                val statusNormalized = DownloadsPlatformDownloader.restoreItem(loaded)
 
                 val localUriNormalized = normalizeCompletedLocalFileUri(statusNormalized)
                 val earlyPlayNormalized = refreshStoredEarlyPlay(localUriNormalized)
@@ -856,6 +1021,16 @@ object DownloadsRepository {
     }
 
     private fun startDownload(item: DownloadItem) {
+        if (item.sourceUrl == PREPARING_SOURCE_URL) {
+            mutateItem(item.id) { current ->
+                current.copy(
+                    status = DownloadStatus.Failed,
+                    errorMessage = current.errorMessage ?: PREPARATION_INTERRUPTED_MESSAGE,
+                    updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                )
+            }
+            return
+        }
         if (item.needsLinkRefresh) {
             refreshLinkAndRestart(item)
             return
@@ -929,6 +1104,7 @@ object DownloadsRepository {
                     when (latest.status) {
                         DownloadStatus.Downloading -> Unit
                         DownloadStatus.Queued -> startQueue.discard(item.id)
+                        DownloadStatus.Preparing -> return@mutateItem latest
                         else -> return@mutateItem latest
                     }
                     latest.copy(
@@ -1489,7 +1665,25 @@ object DownloadsRepository {
         DownloadStatus.Paused,
         DownloadStatus.Queued,
         -> earlyPlayReady
-        DownloadStatus.Failed -> false
+        DownloadStatus.Failed,
+        DownloadStatus.Preparing,
+        -> false
+    }
+
+    private fun cancelPreparationJobs() {
+        preparationJobs.values.toList().forEach { it.cancel() }
+        preparationJobs.clear()
+    }
+
+    /** Stops everything that belongs to [item] and deletes its files. The list itself is unchanged. */
+    private fun dropRow(item: DownloadItem) {
+        preparationJobs.remove(item.id)?.cancel()
+        com.nuvio.app.features.analysis.MediaAnalysisScheduler.releaseFile(item.id)
+        DownloadsPlatformDownloader.discardTransfer(item.id)
+        activeHandles.remove(item.id)?.cancel()
+        partialPrefixCache.remove(item.id)
+        startQueue.discard(item.id)
+        deleteFilesOf(item)
     }
 }
 
@@ -1559,6 +1753,11 @@ private fun buildLogicalKey(
 } else {
     "${parentMetaId.trim()}|movie"
 }
+
+/** Placeholder until [DownloadsRepository.finishPreparation] stores the real link. Never fetched. */
+internal const val PREPARING_SOURCE_URL = "https://pending.invalid/preparing"
+
+internal const val PREPARATION_INTERRUPTED_MESSAGE = "Preparation was interrupted. Try again."
 
 private const val SPACE_CHECK_INTERVAL_MS = 10_000L
 private const val LINK_REFRESH_TIMEOUT_MS = 25_000L

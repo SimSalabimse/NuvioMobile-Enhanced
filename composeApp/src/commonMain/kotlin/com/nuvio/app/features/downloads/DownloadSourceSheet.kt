@@ -131,7 +131,11 @@ internal fun DownloadSourceSheet(
         request.episodeTitle?.takeIf { it.isNotBlank() },
     ).joinToString(" · ")
 
-    NuvioModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    NuvioModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        edgeToEdgeBottom = true,
+    ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(bottom = nuvioSafeBottomPadding()),
             verticalArrangement = Arrangement.spacedBy(8.dp),

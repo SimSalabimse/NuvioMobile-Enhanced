@@ -43,7 +43,7 @@ internal fun LibraryDownloadsButton(onClick: () -> Unit) {
 
     IconButton(onClick = onClick) {
         when {
-            downloads.items.any { it.status == DownloadStatus.Downloading } -> FlowingDownloadIcon()
+            downloads.items.any { it.status == DownloadStatus.Downloading || it.status == DownloadStatus.Preparing } -> FlowingDownloadIcon()
             hasUnseenCompleted -> DownloadIcon(
                 modifier = Modifier.gradientMask(MaterialTheme.themePalette.accentBrush()),
                 tint = Color.White,
