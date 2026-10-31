@@ -9,6 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class TheIntroDbSubmitPayloadTest {
     @Test
@@ -117,6 +118,31 @@ class TheIntroDbSubmitPayloadTest {
             )
             assertEquals(70.0 to 160.0, ranged)
         }
+    }
+
+    @Test
+    fun `an end on the stream length stays within the video length`() {
+        val durationMs = 2_648_900L
+        val durationSec = durationMs / 1000.0
+        val atEnd = theIntroDbEndMs(durationSec, durationMs)
+        val hair = theIntroDbEndMs(durationSec + 0.0004, durationMs)
+        assertTrue(atEnd <= durationMs && durationMs - atEnd <= 1L)
+        assertTrue(hair <= durationMs && durationMs - hair <= 1L)
+        assertTrue(theIntroDbEndMs(durationSec + 5.0, durationMs) > durationMs)
+        val body = theIntroDbSubmitPayload(
+            tmdbId = 1396,
+            type = "tv",
+            segment = "credits",
+            season = 1,
+            episode = 22,
+            startSec = durationSec - 36.7,
+            endSec = durationSec + 0.0004,
+            videoDurationMs = durationMs,
+        )
+        val json = Json.parseToJsonElement(checkNotNull(body)).jsonObject
+        val endMs = json.getValue("end_ms").jsonPrimitive.long
+        assertTrue(endMs <= durationMs && durationMs - endMs <= 1L)
+        assertEquals(durationMs, json.getValue("video_duration_ms").jsonPrimitive.long)
     }
 
     @Test

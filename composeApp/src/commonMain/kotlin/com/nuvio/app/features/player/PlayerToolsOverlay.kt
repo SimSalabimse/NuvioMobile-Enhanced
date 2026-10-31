@@ -195,6 +195,8 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 year = year,
                 startSec = startSec,
                 endSec = endSec,
+                startShowsTenth = markStartShowsTenth,
+                endShowsTenth = markEndShowsTenth,
                 durationSec = durationSec,
                 playheadSec = playhead.positionMs / 1000.0,
                 absent = markAbsent,
@@ -218,10 +220,12 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 onMarkStart = { setMarkClock(start = true, playhead.positionMs / 1000.0) },
                 onMarkEnd = { setMarkClock(start = false, playhead.positionMs / 1000.0) },
                 onNudgeStart = { delta ->
-                    setMarkClock(true, nudgeMarkSeconds(startSec, delta, durationSec.takeIf { it > 0.0 }))
+                    val next = nudgeMarkSeconds(startSec, delta, durationSec.takeIf { it > 0.0 })
+                    setMarkClock(true, next, showTenth = (delta > -1.0 && delta < 1.0) || markStartShowsTenth)
                 },
                 onNudgeEnd = { delta ->
-                    setMarkClock(false, nudgeMarkSeconds(endSec, delta, durationSec.takeIf { it > 0.0 }))
+                    val next = nudgeMarkSeconds(endSec, delta, durationSec.takeIf { it > 0.0 })
+                    setMarkClock(false, next, showTenth = (delta > -1.0 && delta < 1.0) || markEndShowsTenth)
                 },
                 onStartAtZero = { setMarkClock(true, 0.0) },
                 onRunsToEnd = { setMarkClock(false, runsToEndSec(durationSec)) },

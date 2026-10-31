@@ -128,6 +128,38 @@ class PlayerToolsLogicTest {
     }
 
     @Test
+    fun `an end on the stream length is valid and a hair past it clamps`() {
+        val duration = 44 * 60 + 8.9
+        val start = duration - 36.7
+        assertTrue(markProblems("outro", start, duration, duration).isEmpty())
+        assertTrue(markProblems("outro", start, duration + 0.0004, duration).isEmpty())
+        assertEquals(
+            listOf(MarkProblem.PastDuration),
+            markProblems("outro", start, duration + 5.0, duration).filter { it == MarkProblem.PastDuration },
+        )
+        val end = runsToEndSec(duration)
+        assertEquals(duration, end)
+        assertTrue(markProblems("credits", start, end, duration).isEmpty())
+        assertTrue(
+            markSubmitEnabled(
+                sent = false,
+                submitting = false,
+                keyProblem = false,
+                blocked = false,
+                absent = false,
+                absentAllowed = true,
+                timeOk = markProblems("outro", start, end, duration).isEmpty(),
+            ),
+        )
+        assertEquals(duration, clampMarkTimeToDuration(duration + 0.0004, duration))
+        assertEquals(duration + 5.0, clampMarkTimeToDuration(duration + 5.0, duration))
+        val stored = formatMarkTimestamp(end)
+        assertEquals(end, parseMarkClock(stored)!!, 0.0005)
+        assertEquals("0:44:08", formatMarkClock(duration))
+        assertEquals("0:44:08.9", formatMarkClock(duration, showTenth = true))
+    }
+
+    @Test
     fun `an absent intro is not saved as the playhead`() {
         val absent = IntroSubmitResult("intro", startSec = 875.0, endSec = 880.0, absentSegment = true)
         assertNull(submittedSkipMarkToSave(absent))
@@ -155,12 +187,19 @@ class PlayerToolsLogicTest {
 
     @Test
     fun `mark clocks keep a tenth of a second`() {
-        assertEquals("0:00:12.4", formatMarkClock(12.4))
-        assertEquals("0:01:41.0", formatMarkClock(101.0))
-        assertEquals(12.4, parseMarkClock("0:00:12.4"))
+        assertEquals("0:00:12", formatMarkClock(12.4))
+        assertEquals("0:00:12.4", formatMarkClock(12.4, showTenth = true))
+        assertEquals("0:01:41", formatMarkClock(101.0))
+        assertEquals("0:01:41", formatMarkClock(101.0, showTenth = true))
+        assertFalse(markClockShowsTenth(12.4, allowTenth = false))
+        assertTrue(markClockShowsTenth(12.4, allowTenth = true))
+        assertFalse(markClockShowsTenth(101.0, allowTenth = true))
+        assertEquals(12.4, parseMarkClock("0:00:12.400"))
+        assertEquals(12.4, parseMarkClock(formatMarkTimestamp(12.4)))
         assertEquals(12.5, nudgeMarkSeconds(12.4, 0.1, 200.0))
         assertEquals(0.0, nudgeMarkSeconds(0.4, -1.0, 200.0))
         assertEquals(200.0, nudgeMarkSeconds(199.5, 1.0, 200.0))
+        assertEquals(13.4, nudgeMarkSeconds(12.4, 1.0, 200.0))
         assertEquals("88.6 s", markLengthLabel(88.6))
     }
 

@@ -3270,7 +3270,7 @@
     <string name="player_tools_mark_hint">Mark the start and end, then Submit. Play range is optional.</string>
     <string name="player_tools_credits">Credits</string>
     <string name="player_tools_end_after_start">End must be after the start</string>
-    <string name="player_tools_past_video">That is past the end of the video</string>
+    <string name="player_tools_past_video">Past the end of the video</string>
     <string name="player_tools_limit">%1$s must be %2$d–%3$d s</string>
     <string name="player_tools_reset_video">Reset video settings</string>
     <string name="player_tools_tone_map">Tone-map HDR</string>

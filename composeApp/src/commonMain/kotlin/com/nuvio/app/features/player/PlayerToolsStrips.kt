@@ -166,6 +166,8 @@ internal fun SegmentMarkingLayer(
     year: String?,
     startSec: Double?,
     endSec: Double?,
+    startShowsTenth: Boolean,
+    endShowsTenth: Boolean,
     durationSec: Double,
     playheadSec: Double,
     absent: Boolean,
@@ -339,7 +341,7 @@ internal fun SegmentMarkingLayer(
                 ) {
                     MarkClockRow(
                         title = stringResource(Res.string.player_tools_mark_start),
-                        clock = startSec?.let(::formatMarkClock) ?: "–",
+                        clock = startSec?.let { formatMarkClock(it, showTenth = startShowsTenth) } ?: "–",
                         onMark = onMarkStart,
                         onNudge = onNudgeStart,
                         enabled = editable,
@@ -352,7 +354,7 @@ internal fun SegmentMarkingLayer(
                     )
                     MarkClockRow(
                         title = stringResource(Res.string.player_tools_mark_end),
-                        clock = endSec?.let(::formatMarkClock) ?: "–",
+                        clock = endSec?.let { formatMarkClock(it, showTenth = endShowsTenth) } ?: "–",
                         onMark = onMarkEnd,
                         onNudge = onNudgeEnd,
                         enabled = editable,
@@ -489,8 +491,9 @@ private fun MarkStatusLine(text: String, color: Color) {
         text = text,
         color = color,
         fontSize = 13.sp,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
+        lineHeight = 16.sp,
+        maxLines = 2,
+        overflow = TextOverflow.Clip,
         modifier = Modifier.widthIn(max = 220.dp),
     )
 }
