@@ -45,6 +45,8 @@ import com.nuvio.app.features.party.PartyRepository
 import com.nuvio.app.features.p2p.formatP2pMegabytes
 import com.nuvio.app.features.p2p.formatP2pSpeed
 import com.nuvio.app.features.player.skip.internalSkipAction
+import com.nuvio.app.features.player.skip.showsMovieSceneNotice
+import com.nuvio.app.features.player.skip.skipSeekTargetMs
 import com.nuvio.app.features.servers.ServerStreams
 import com.nuvio.app.features.streams.streamAddonInstanceId
 import com.nuvio.app.isIos
@@ -805,29 +807,28 @@ private fun BoxScope.RenderPlaybackOverlays(
         pausedOverlayVisible = pausedOverlayVisible,
         activeSkipInterval = activeSkipInterval,
         skipsToPostCredits = activeSkipInterval?.internalSkipAction(skipIntervals, snapshotDurationMs)?.skipsToPostCredits == true,
+        sceneAfterCredits = activeSkipInterval?.showsMovieSceneNotice(skipIntervals, snapshotDurationMs) == true,
         skipIntervalDismissed = skipIntervalDismissed,
         controlsVisible = controlsVisible,
         onSkipInterval = { interval ->
-            interval.internalSkipAction(skipIntervals, playbackSnapshot.durationMs)?.let { action ->
-                val durationMs = playbackSnapshot.durationMs
-                val requestedMs = if (durationMs > 0L) action.targetMs.coerceAtMost(durationMs - 1) else action.targetMs
-                val seekMs = if (isPartyControlLocked) ownSeekTarget(requestedMs) else requestedMs
-                InAppLogger.info(
-                    "Player/SkipIntro",
-                    "skip type=${interval.type} provider=${interval.provider} " +
-                        "fromMs=${playbackClock.positionMs} targetMs=$requestedMs rawMs=${action.targetMs} " +
-                        "postCredits=${action.skipsToPostCredits} " +
-                        "startSec=${interval.startTime} endSec=${interval.endTime}",
-                )
-                if (seekMs != null) {
-                    com.nuvio.app.features.stats.WatchStats.recordSkip(seekMs - playbackClock.positionMs)
-                    noteSeek()
-                    playerController?.seekTo(seekMs)
-                    scheduleProgressSyncAfterSeek()
-                    publishPartyPlayback(positionMs = seekMs)
-                    skipIntervalDismissed = true
-                    offerSkipFeedback(interval)
-                }
+            val durationMs = playbackSnapshot.durationMs
+            val rawMs = interval.skipSeekTargetMs(skipIntervals, durationMs) ?: return@PlayerPlaybackOverlays
+            val requestedMs = if (durationMs > 0L) rawMs.coerceAtMost(durationMs - 1) else rawMs
+            val seekMs = if (isPartyControlLocked) ownSeekTarget(requestedMs) else requestedMs
+            InAppLogger.info(
+                "Player/SkipIntro",
+                "skip type=${interval.type} provider=${interval.provider} " +
+                    "fromMs=${playbackClock.positionMs} targetMs=$requestedMs rawMs=$rawMs " +
+                    "startSec=${interval.startTime} endSec=${interval.endTime}",
+            )
+            if (seekMs != null) {
+                com.nuvio.app.features.stats.WatchStats.recordSkip(seekMs - playbackClock.positionMs)
+                noteSeek()
+                playerController?.seekTo(seekMs)
+                scheduleProgressSyncAfterSeek()
+                publishPartyPlayback(positionMs = seekMs)
+                skipIntervalDismissed = true
+                offerSkipFeedback(interval)
             }
         },
         onDismissSkipInterval = {

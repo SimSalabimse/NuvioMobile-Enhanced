@@ -1,6 +1,8 @@
 # Movie intro, credits, and post-credit scenes
 
-Design only. No player behavior changes in this note. Base: `enhanced` at `0f459582`. iOS (SideStore sideload) is the target. Android is a later port of the same decision, because the on-device analyzer there is still a stub.
+Status: Phase 1 (published times) is in the player. An open credits end closes at a real runtime, a credits-only movie shows "Skip Credits", and a real scene (a gap of at least 8 seconds between two credit runs, or IntroDB's post-credits field) shows "Watch credits" and "Scene after credits" with no seek and no auto-skip. Phase 2 (local tail frames) and Phase 3 (intro scan, Wi-Fi stream, Android analyzer) are not built. Nothing is submitted automatically.
+
+This note started as design only, against `enhanced` at `0f459582`. iOS (SideStore sideload) is the target. Android frame analysis is still a later port: the on-device analyzer there is a stub. The sections below keep the original reasoning. Where they say a mapper drops an empty credits end, that was the bug Phase 1 closed.
 
 Simsalabim's wishes, in the order the player should honor them:
 
@@ -185,20 +187,20 @@ Submit: no new call, and no call from the scheduler, the detector, or the player
 
 ## Build plan
 
-### Phase 1 (the step-B slice)
+### Phase 1 (published times) — built
 
-Known movie times behave. No frame decoder, no Android, no new submit path.
+Known movie times behave. No frame decoder, no Android, no new submit path. The player now does this work.
 
 Work:
 
 - `TheIntroDb.kt`: `toTheIntroDbIntervals` / `movieSkipIntervals`. An empty credits `end_ms` becomes the known duration when the duration is known and the start is inside the file. A later credits row stays type `movie-credits` (a second run), not `post-credits`. The scene interval, type `post-credits`, is the gap between two credits rows when that gap is at least 8 seconds. Provider stays `theintrodb`.
 - `SkipModels.kt`: same empty-end rule for IntroDB movies. IntroDB `post_credits` stays the scene it already is. Do not also invent a gap scene on top of it.
-- `SkipIntroRepository.kt`: pass `duration_ms` into `fetchMovieIntervals`. Cache key includes the duration rounded to 30 seconds once it is known. A lookup that ran without a duration is replaced when the duration arrives.
+- `SkipIntroRepository.kt`: the movie mapper receives the player length. The raw TheIntroDB and IntroDB payloads are cached once per movie. A later trustworthy duration remaps that payload and does not start another request. TheIntroDB is asked with `duration_ms` only when the first lookup already has a trustworthy length. An open end stays open when the length is unknown, a short placeholder, or a different cut.
 - `PlayerScreenRuntimeEffects.kt`: the movie branch already calls `getMovieSkipIntervals`. Re-run it when `playbackSnapshot.durationMs` becomes real. When a scene interval is attached, do not auto-skip that `movie-credits` row.
 - `InternalSkipAction.kt`: for `movie-credits`, do not set `skipsToPostCredits` from the 5-second-before-EOF gap. If a scene interval exists, `internalSkipAction` returns null so nothing seeks. Episode outro behavior stays.
 - `SkipIntroButton.kt` and the movie branch of the player overlay (`PlayerScreenRuntimeUi.kt`): when the scene exists, show the notice instead of a skip control. `canSkip` today calls `internalSkipAction(emptyList())`, which cannot see the scene. The notice must not depend on that call.
 - `values/strings.xml`: "Watch credits" and "Scene after credits". Other locales fall back to English unless a later pass translates them.
-- Tests in `composeApp/src/commonTest`, next to `TheIntroDbV4Test.kt`: empty end dropped today and closed once a duration is passed; second credits row is not the scene; the gap is; a 5-second tail is not a scene; IntroDB `post_credits` still wins its category; cache key changes with duration; auto-skip predicate is false while the scene is attached; no submit helper is invoked (the detector does not exist yet, so this is a mapper test, not a network test).
+- Tests in `composeApp/src/commonTest`, next to `TheIntroDbV4Test.kt`: an open end closes once a trusted duration is passed and stays open when the length is unknown, a placeholder, or a different cut; a gap of at least 8 seconds is the scene and a shorter gap is not; IntroDB `post_credits` is a scene and the seek target is null; a credits end a few seconds before the file ends is still a normal skip. No submit helper is invoked.
 
 Risks: a wrong duration closes the credits at the wrong time. Gate on `sameCut` and on `isShortPlaceholderDuration`. Relabeling the second credits row changes the seek target for anyone who relied on landing at the start of the second roll. That old seek skipped the scene, which is the bug. External player launch (`ExternalPlayerLaunchCoordinator.kt`) also calls `getMovieSkipIntervals`; it should receive the same list, including the scene, and must not be taught to jump past the scene.
 
@@ -230,6 +232,8 @@ Intro on a local file (approach B), then a Wi-Fi-only stream tail using the `Cli
 
 ## Step B, one run
 
-Build Phase 1 only. It fits one medium or high implementation pass: a handful of Kotlin files, host unit tests, no Swift, no new dependency, no schema bump. The user-visible result is that a movie TheIntroDB or IntroDB already knows, including credits that run to the end, gets "Skip Credits", and a movie with a real gap or an IntroDB post-credit scene gets "Watch credits" / "Scene after credits" and is not seeked. Guesses are not in this slice, so there is nothing new that could be submitted.
+Status: built. Phase 1 is the player behavior above. Phase 2 and Phase 3 are not.
+
+Phase 1 was the slice for one implementation pass: a handful of Kotlin files, host unit tests, no Swift, no new dependency, no schema bump. A movie TheIntroDB or IntroDB already knows, including credits that run to the end, gets "Skip Credits", and a movie with a real gap or an IntroDB post-credit scene gets "Watch credits" / "Scene after credits" and is not seeked. Guesses are not in this slice, so there is nothing new that could be submitted.
 
 Leave Phase 2's sampler and `MovieTailDetector` for a later run. Shipping the detector without frames would invite an energy-only button, and energy-only is the false-positive path this note rejects.

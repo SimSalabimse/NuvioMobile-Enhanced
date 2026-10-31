@@ -31,6 +31,9 @@ import com.nuvio.app.features.player.skip.SkipInterval
 import com.nuvio.app.features.player.skip.shouldAutoSkip
 import com.nuvio.app.features.player.skip.internalSkipAction
 import com.nuvio.app.features.player.skip.intervalsAtSeekPositions
+import com.nuvio.app.features.player.skip.movieSkipDurationBucket
+import com.nuvio.app.features.player.skip.showsMovieSceneNotice
+import com.nuvio.app.features.player.skip.skipSeekTargetMs
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.FinishedDownloadDeletion
 import com.nuvio.app.features.downloads.PartialPlaybackLease
@@ -652,7 +655,22 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         val vid = activeVideoId
         if (!playerSettingsUiState.skipIntroEnabled) return@LaunchedEffect
         if ((contentType ?: parentMetaType).equals("movie", ignoreCase = true)) {
-            skipIntervals = withOnDeviceSkips(filterSkipSources(SkipIntroRepository.getMovieSkipIntervals(parentMetaId, vid)))
+            var durationMs = playbackSnapshot.durationMs
+            var intervals = SkipIntroRepository.getMovieSkipIntervals(
+                parentMetaId,
+                vid,
+                durationMs = durationMs,
+            )
+            val durationNow = playbackSnapshot.durationMs
+            if (movieSkipDurationBucket(durationNow) != movieSkipDurationBucket(durationMs)) {
+                durationMs = durationNow
+                intervals = SkipIntroRepository.getMovieSkipIntervals(
+                    parentMetaId,
+                    vid,
+                    durationMs = durationMs,
+                )
+            }
+            skipIntervals = withOnDeviceSkips(filterSkipSources(intervals))
             return@LaunchedEffect
         }
         if (season == null || episode == null || vid == null) return@LaunchedEffect
@@ -692,6 +710,30 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         }
     }
 
+    // A movie length that arrives after the first lookup only remaps the cached payloads.
+    val movieDurationBucket = if ((contentType ?: parentMetaType).equals("movie", ignoreCase = true)) {
+        movieSkipDurationBucket(playbackSnapshot.durationMs)
+    } else {
+        0L
+    }
+    LaunchedEffect(
+        activeVideoId,
+        parentMetaId,
+        contentType,
+        parentMetaType,
+        playerSettingsUiState.skipIntroEnabled,
+        movieDurationBucket,
+    ) {
+        if (movieDurationBucket == 0L || !playerSettingsUiState.skipIntroEnabled) return@LaunchedEffect
+        if (!(contentType ?: parentMetaType).equals("movie", ignoreCase = true)) return@LaunchedEffect
+        val intervals = SkipIntroRepository.getMovieSkipIntervals(
+            parentMetaId,
+            activeVideoId,
+            durationMs = playbackSnapshot.durationMs,
+        )
+        skipIntervals = withOnDeviceSkips(filterSkipSources(intervals))
+    }
+
     LaunchedEffect(
         playbackSnapshot.durationMs, playbackSnapshot.isPlaying, skipIntervals,
         playerSettingsUiState.autoSkipSegmentTypes, parentMetaId,
@@ -708,10 +750,13 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
             lastManualSkipSeekPositions?.let { (fromMs, toMs) ->
                 autoSkippedIntervals += skipIntervals.intervalsAtSeekPositions(fromMs, toMs)
             }
+            val durationForSkip = playbackSnapshot.durationMs
             val eligible = skipIntervals.filter { interval ->
                 // Fork: intro-like segments show the button a few seconds early (pre-roll).
-                interval.isEligibleForSkipButton(positionSec) &&
-                    interval.internalSkipAction(skipIntervals, playbackSnapshot.durationMs) != null
+                interval.isEligibleForSkipButton(positionSec) && (
+                    interval.internalSkipAction(skipIntervals, durationForSkip) != null ||
+                        interval.showsMovieSceneNotice(skipIntervals, durationForSkip)
+                    )
             }
             // A segment the position is really inside wins over another one's pre-roll, so a
             // recap right before the intro gets Skip Recap rather than an early Skip Intro.
@@ -732,7 +777,8 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                 current !in autoSkippedIntervals
             ) {
                 val durationMs = playbackSnapshot.durationMs
-                val rawMs = current.internalSkipAction(skipIntervals, durationMs)?.targetMs ?: return@collect
+                // A scene after the credits has no seek target, so auto-skip leaves the playhead.
+                val rawMs = current.skipSeekTargetMs(skipIntervals, durationMs) ?: return@collect
                 val seekPositionMs = if (durationMs > 0L) rawMs.coerceAtMost(durationMs - 1) else rawMs
                 val notification = current.autoSkipNotificationMessage(seekPositionMs)
                 autoSkippedIntervals.add(current)

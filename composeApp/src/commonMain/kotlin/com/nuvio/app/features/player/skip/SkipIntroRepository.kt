@@ -6,6 +6,8 @@ import kotlinx.coroutines.CancellationException
 import com.nuvio.app.features.tmdb.TmdbService
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -42,27 +44,49 @@ object SkipIntroRepository {
     private val introDbConfigured: Boolean
         get() = IntroDbConfig.URL.isNotBlank()
 
+    private val movieProviderLock = Mutex()
+    private val movieProviderCache = HashMap<String, CachedMovieProviders>()
+
+    /**
+     * One network read per movie (the same TheIntroDB and IntroDB calls as before). A later
+     * [durationMs] only re-maps that read: an open credits end closes when the length is
+     * trustworthy, and a second fetch is not started.
+     */
     suspend fun getMovieSkipIntervals(
         contentId: String?,
         videoId: String?,
         requireSkipIntroEnabled: Boolean = true,
-    ): List<SkipInterval> = coroutineScope {
+        durationMs: Long = 0L,
+    ): List<SkipInterval> {
         if (requireSkipIntroEnabled && !PlayerSettingsRepository.uiState.value.skipIntroEnabled) {
-            return@coroutineScope emptyList()
+            return emptyList()
         }
-        val imdbId = resolveSkipImdbId(contentId, videoId, "movie")
-        if (imdbId == null) return@coroutineScope emptyList()
-        val cacheKey = "movie:$imdbId"
-        skipIntervalCache.lookup(cacheKey)?.let { return@coroutineScope it }
+        val imdbId = resolveSkipImdbId(contentId, videoId, "movie") ?: return emptyList()
+        val payload = movieProviders(imdbId, durationMs)
+        return mergeByPriority(
+            payload.theIntroDb?.movieSkipIntervals(durationMs, payload.fetchedDurationMs).orEmpty(),
+            payload.introDb?.movieSkipIntervals(durationMs, payload.fetchedDurationMs).orEmpty(),
+        )
+    }
 
-        val theIntroDbDeferred = async { fetchMovieFromTheIntroDb(imdbId) }
-        val introDbDeferred = async {
-            if (introDbConfigured) {
-                SkipIntroApi.getIntroDbMovieSegments(imdbId)?.movieSkipIntervals().orEmpty()
-            } else emptyList()
-        }
-        mergeByPriority(theIntroDbDeferred.await(), introDbDeferred.await()).also {
-            skipIntervalCache.store(cacheKey, it)
+    private suspend fun movieProviders(imdbId: String, durationMs: Long): CachedMovieProviders {
+        movieProviderCache[imdbId]?.let { return it }
+        return movieProviderLock.withLock {
+            movieProviderCache[imdbId]?.let { return@withLock it }
+            val fetchedFor = durationMs.takeIf { trustworthyMovieDurationSec(it) != null } ?: 0L
+            val loaded = coroutineScope {
+                val theIntroDbDeferred = async { fetchMovieMedia(imdbId, fetchedFor) }
+                val introDbDeferred = async {
+                    if (introDbConfigured) SkipIntroApi.getIntroDbMovieSegments(imdbId) else null
+                }
+                CachedMovieProviders(
+                    theIntroDb = theIntroDbDeferred.await(),
+                    introDb = introDbDeferred.await(),
+                    fetchedDurationMs = fetchedFor,
+                )
+            }
+            movieProviderCache[imdbId] = loaded
+            loaded
         }
     }
 
@@ -344,14 +368,17 @@ object SkipIntroRepository {
         }
     }
 
-    private suspend fun fetchMovieFromTheIntroDb(imdbId: String): List<SkipInterval> =
-        withSkipProviderTimeout("TheIntroDB", THE_INTRO_DB_TIMEOUT_MS, emptyList()) {
+    private suspend fun fetchMovieMedia(imdbId: String, durationMs: Long): TheIntroDbMediaResponse? =
+        withSkipProviderTimeout("TheIntroDB", THE_INTRO_DB_TIMEOUT_MS, null) {
             try {
-                TheIntroDb.fetchMovieIntervals(imdbId = imdbId)
+                TheIntroDb.getMedia(
+                    imdbId = imdbId,
+                    durationMs = durationMs.takeIf { it > 0L },
+                )
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
-                emptyList()
+                null
             }
         }
 
@@ -528,8 +555,15 @@ object SkipIntroRepository {
         skipIntervalCache.clear()
         imdbEntriesCache.clear()
         animeSkipShowIdCache.clear()
+        movieProviderCache.clear()
     }
 }
+
+private data class CachedMovieProviders(
+    val theIntroDb: TheIntroDbMediaResponse?,
+    val introDb: IntroDbSegmentsResponse?,
+    val fetchedDurationMs: Long,
+)
 
 /** The IMDb id skip providers are keyed by, from an IMDb, TMDB, MAL or Kitsu content/video id. */
 internal suspend fun resolveSkipImdbId(contentId: String?, videoId: String?, mediaType: String): String? =

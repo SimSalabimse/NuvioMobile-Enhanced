@@ -42,8 +42,10 @@ import nuvio.composeapp.generated.resources.player_skip
 import nuvio.composeapp.generated.resources.player_skip_intro
 import nuvio.composeapp.generated.resources.player_skip_outro
 import nuvio.composeapp.generated.resources.player_skip_recap
+import nuvio.composeapp.generated.resources.player_scene_after_credits
 import nuvio.composeapp.generated.resources.player_skip_movie_credits
 import nuvio.composeapp.generated.resources.player_skip_to_post_credits
+import nuvio.composeapp.generated.resources.player_watch_credits
 import org.jetbrains.compose.resources.stringResource
 import com.nuvio.app.core.ui.glass.ambientLiquidGlass
 
@@ -56,17 +58,19 @@ fun SkipIntroButton(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     skipsToPostCredits: Boolean = false,
+    sceneAfterCredits: Boolean = false,
 ) {
     var lastType by remember { mutableStateOf(interval?.type) }
     var lastSkipsToPostCredits by remember { mutableStateOf(skipsToPostCredits) }
     val canSkip = interval?.internalSkipAction(emptyList()) != null
+    val notice = sceneAfterCredits && interval != null
     var lastRange by remember { mutableStateOf<String?>(null) }
-    if (canSkip) {
+    if (canSkip && !notice) {
         lastType = interval?.type
         lastSkipsToPostCredits = skipsToPostCredits
         lastRange = skipRangeLabel(interval.startTime, interval.endTime)
     }
-    val shouldShow = canSkip && (!dismissed || controlsVisible)
+    val shouldShow = (notice || canSkip) && (!dismissed || controlsVisible)
 
     var autoHidden by remember { mutableStateOf(false) }
     var manuallyDismissed by remember { mutableStateOf(false) }
@@ -89,7 +93,8 @@ fun SkipIntroButton(
         }
     }
 
-    LaunchedEffect(shouldShow, autoHidden, controlsVisible) {
+    LaunchedEffect(shouldShow, autoHidden, controlsVisible, notice) {
+        if (notice) return@LaunchedEffect
         if (shouldShow && !autoHidden && !controlsVisible) {
             progress.animateTo(
                 1f,
@@ -102,7 +107,7 @@ fun SkipIntroButton(
         }
     }
 
-    val isVisible = shouldShow && (!autoHidden || controlsVisible)
+    val isVisible = shouldShow && (notice || !autoHidden || controlsVisible)
 
     AnimatedVisibility(
         visible = isVisible,
@@ -123,32 +128,50 @@ fun SkipIntroButton(
                     refractionHeight = 10.dp,
                     refractionAmount = 14.dp,
                 )
-                .clickable(enabled = canSkip) { onSkip() },
+                .clickable(enabled = notice || canSkip) {
+                    if (notice) onDismiss() else onSkip()
+                },
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    imageVector = Icons.Default.SkipNext,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(20.dp),
-                )
-                Text(
-                    text = skipLabel(lastType, lastSkipsToPostCredits),
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(start = 8.dp),
-                )
-                lastRange?.let { range ->
-                    Text(
-                        text = range,
-                        color = Color.White.copy(alpha = 0.75f),
-                        fontSize = 13.sp,
-                        maxLines = 1,
-                        modifier = Modifier.padding(start = 6.dp),
+                if (!notice) {
+                    Icon(
+                        imageVector = Icons.Default.SkipNext,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp),
                     )
+                }
+                Column(modifier = Modifier.padding(start = if (notice) 0.dp else 8.dp)) {
+                    Text(
+                        text = if (notice) {
+                            stringResource(Res.string.player_watch_credits)
+                        } else {
+                            skipLabel(lastType, lastSkipsToPostCredits)
+                        },
+                        color = Color.White,
+                        fontSize = 14.sp,
+                    )
+                    if (notice) {
+                        Text(
+                            text = stringResource(Res.string.player_scene_after_credits),
+                            color = Color.White.copy(alpha = 0.75f),
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
+                if (!notice) {
+                    lastRange?.let { range ->
+                        Text(
+                            text = range,
+                            color = Color.White.copy(alpha = 0.75f),
+                            fontSize = 13.sp,
+                            maxLines = 1,
+                            modifier = Modifier.padding(start = 6.dp),
+                        )
+                    }
                 }
                 skipSourceLabel(interval?.provider)?.let { tag ->
                     Text(
@@ -164,23 +187,25 @@ fun SkipIntroButton(
                     )
                 }
             }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp))
-                    .background(Color.White.copy(alpha = if (controlsVisible || autoHidden || dismissed) 0f else 0.15f)),
-            ) {
+            if (!notice) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(progress.value)
+                        .fillMaxWidth()
                         .height(3.dp)
-                        .background(
-                            Color(0xFF1E1E1E).copy(
-                                alpha = if (controlsVisible || autoHidden || dismissed) 0f else 0.85f,
+                        .clip(RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp))
+                        .background(Color.White.copy(alpha = if (controlsVisible || autoHidden || dismissed) 0f else 0.15f)),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progress.value)
+                            .height(3.dp)
+                            .background(
+                                Color(0xFF1E1E1E).copy(
+                                    alpha = if (controlsVisible || autoHidden || dismissed) 0f else 0.85f,
+                                ),
                             ),
-                        ),
-                )
+                    )
+                }
             }
         }
     }
