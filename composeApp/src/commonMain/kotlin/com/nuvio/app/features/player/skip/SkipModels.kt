@@ -49,8 +49,15 @@ data class IntroDbSegmentsResponse(
     @SerialName("post_credits") val postCredits: IntroDbSegment? = null,
 )
 
-internal fun IntroDbSegmentsResponse.movieSkipIntervals(): List<SkipInterval> {
-    val credits = outro.movieIntervalOrNull("movie-credits")
+internal fun IntroDbSegmentsResponse.movieSkipIntervals(
+    durationMs: Long = 0L,
+    referenceDurationMs: Long = 0L,
+): List<SkipInterval> {
+    val creditRow = outro?.toPublishedCreditRow()
+    val credits = creditRow?.let {
+        movieCreditIntervals(listOf(it), durationMs, "introdb", referenceDurationMs)
+            .firstOrNull { interval -> interval.type == "movie-credits" }
+    }
     val scene = postCredits.movieIntervalOrNull("post-credits")
     // End-credit skipping must stop before the post-credits scene, even if data overlaps.
     val safeCredits = if (credits != null && scene != null &&
@@ -59,6 +66,14 @@ internal fun IntroDbSegmentsResponse.movieSkipIntervals(): List<SkipInterval> {
         credits.copy(endTime = scene.startTime).takeIf { it.endTime > it.startTime }
     } else credits
     return listOfNotNull(safeCredits, scene)
+}
+
+private fun IntroDbSegment.toPublishedCreditRow(): PublishedCreditRow? {
+    val start = startSec ?: startMs?.let { it / 1000.0 } ?: return null
+    if (!start.isFinite() || start < 0.0) return null
+    val end = endSec ?: endMs?.let { it / 1000.0 }
+    if (end != null && (!end.isFinite() || end <= start)) return null
+    return PublishedCreditRow(start, end)
 }
 
 private fun IntroDbSegment?.movieIntervalOrNull(type: String): SkipInterval? {
