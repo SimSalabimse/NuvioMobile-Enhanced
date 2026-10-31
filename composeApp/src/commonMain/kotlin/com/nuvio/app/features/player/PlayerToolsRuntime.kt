@@ -267,6 +267,7 @@ internal fun PlayerScreenRuntime.setMarkClock(start: Boolean, seconds: Double?) 
     if (start) submitIntroStartTimeStr = text else submitIntroEndTimeStr = text
     submitIntroDrafts[markSegmentId(submitIntroSegmentType)] = submitIntroStartTimeStr to submitIntroEndTimeStr
     markSent = false
+    markAbsent = absentAfterClockEdit()
 }
 
 internal fun PlayerScreenRuntime.seekWhileMarking(seconds: Double) {
