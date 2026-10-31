@@ -13,6 +13,7 @@ class SeasonDownloadPolicyTest {
         assertEquals(SeasonExistingDownload.InProgress, seasonExistingDownload(DownloadStatus.Downloading))
         assertEquals(SeasonExistingDownload.InProgress, seasonExistingDownload(DownloadStatus.Queued))
         assertEquals(SeasonExistingDownload.InProgress, seasonExistingDownload(DownloadStatus.Paused))
+        assertEquals(SeasonExistingDownload.InProgress, seasonExistingDownload(DownloadStatus.Preparing))
     }
 
     @Test

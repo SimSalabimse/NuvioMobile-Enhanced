@@ -79,7 +79,9 @@ internal actual object DownloadsPlatformDownloader {
                         DownloadStatus.Completed -> onSuccess(checkNotNull(item.localFileUri), item.totalBytes)
                         DownloadStatus.Failed -> onFailure(item.errorMessage ?: "Download failed")
                         DownloadStatus.Paused -> onPaused()
-                        DownloadStatus.Queued -> Unit
+                        DownloadStatus.Queued,
+                        DownloadStatus.Preparing,
+                        -> Unit
                     }
                     item.status == DownloadStatus.Downloading
                 }.collect()

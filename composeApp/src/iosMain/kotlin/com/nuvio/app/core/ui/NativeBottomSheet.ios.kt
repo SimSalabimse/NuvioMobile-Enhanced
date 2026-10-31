@@ -54,6 +54,7 @@ internal actual fun NuvioNativeModalBottomSheet(
     showDragHandle: Boolean,
     fullHeight: Boolean,
     liquidGlass: Boolean,
+    edgeToEdgeBottom: Boolean,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
     val parentViewController = LocalUIViewController.current
@@ -86,7 +87,9 @@ internal actual fun NuvioNativeModalBottomSheet(
     DisposableEffect(parentViewController, liquidGlass, fullHeight) {
         val contentController = ComposeUIViewController(
             configure = {
-                if (liquidGlass) opaque = false
+                // Non-opaque so any strip Compose does not paint (the home indicator) shows the
+                // view's own sheet colour instead of a black gap.
+                if (liquidGlass || edgeToEdgeBottom) opaque = false
             },
         ) {
             CompositionLocalProvider(
@@ -109,7 +112,17 @@ internal actual fun NuvioNativeModalBottomSheet(
                         LocalContentColor provides latestContentColor.value,
                     ) {
                         val glass = latestLiquidGlass.value
-                        Box(modifier = Modifier.fillMaxSize()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .then(
+                                    if (!glass && edgeToEdgeBottom) {
+                                        Modifier.background(latestContainerColor.value)
+                                    } else {
+                                        Modifier
+                                    },
+                                ),
+                        ) {
                             if (glass && !iosAtLeast(26, 1)) {
                                 LegacySheetBlur(Modifier.fillMaxSize())
                             }
@@ -133,6 +146,11 @@ internal actual fun NuvioNativeModalBottomSheet(
             sheetController.view.opaque = false
         } else {
             sheetController.view.backgroundColor = latestContainerColor.value.toUIColor()
+            // The compose scene can stop at the safe area. The view colour fills that strip,
+            // and a non-opaque scene lets it show through instead of clearing to black.
+            if (edgeToEdgeBottom) {
+                sheetController.view.opaque = false
+            }
         }
         val containerBounds = parentViewController.view.bounds
         val containerWidth = containerBounds.useContents { size.width }

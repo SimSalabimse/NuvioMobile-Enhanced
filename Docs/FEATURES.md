@@ -52,6 +52,8 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 
 ## Downloads
 - Download one episode or movie, or a whole season (Download Season sheet with auto-pick): details page / streams list. 0.5.10.3.
+- Tapping Download on a movie or episode shows the row, the download notification and the iOS Live Activity immediately as **Preparing** (indeterminate progress, cancellable). The addon and debrid link are resolved after that. The same row then starts downloading, or stays as Failed with the reason (a missing link, an unsupported stream, or a debrid error). Cancelling while it says Preparing removes it and stops the resolve. If the app is closed before the link is ready, the row comes back as Failed ("Preparation was interrupted. Try again.") instead of spinning. A season download uses the same queue, one episode at a time. Checked by DownloadPreparingTest.
+- Movie, episode and season download sheets, and the download quality sheet, draw their background to the bottom edge of the screen, behind the home indicator and the Android navigation bar. The buttons sit above that inset.
 - Download quality preference, plus a confirmation showing the size: Settings › Downloads › Download quality. 0.5.10.2.
 - **Allow mobile data**: Settings › Downloads (top). Upstream.
 - **Only on Wi-Fi** (smart downloads, queued episodes and Finish-a-series goals wait for Wi-Fi; on by default): Settings › Downloads. 0.5.10.2. Shown even with Smart downloads off since 193; shows 'Waiting now: …' since 194.

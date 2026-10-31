@@ -18,6 +18,7 @@ internal actual fun NuvioNativeModalBottomSheet(
     showDragHandle: Boolean,
     fullHeight: Boolean,
     liquidGlass: Boolean,
+    edgeToEdgeBottom: Boolean,
     content: @Composable ColumnScope.() -> Unit,
 ) = Unit
 
