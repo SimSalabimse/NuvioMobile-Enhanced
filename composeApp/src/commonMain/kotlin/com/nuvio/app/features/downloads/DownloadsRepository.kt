@@ -376,7 +376,11 @@ object DownloadsRepository {
     /** Ties [job] to the Preparing row so cancelling the row stops the resolve. */
     internal fun bindPreparation(downloadId: String, job: Job) {
         preparationJobs.put(downloadId, job)?.cancel()
-        job.invokeOnCompletion { preparationJobs.remove(downloadId, job) }
+        job.invokeOnCompletion {
+            if (preparationJobs[downloadId] === job) {
+                preparationJobs.remove(downloadId)
+            }
+        }
     }
 
     /**
