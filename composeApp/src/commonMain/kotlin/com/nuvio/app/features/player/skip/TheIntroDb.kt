@@ -2,6 +2,7 @@ package com.nuvio.app.features.player.skip
 
 import com.nuvio.app.features.addons.httpGetText
 import com.nuvio.app.features.addons.httpRequestRaw
+import com.nuvio.app.features.player.MarkDurationSlopSec
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -268,8 +269,21 @@ internal fun theIntroDbSubmitPayload(
             put("video_duration_ms", videoDurationMs)
         }
         if (startSec != null) put("start_ms", (startSec * 1000.0).toLong())
-        if (endSec != null) put("end_ms", (endSec * 1000.0).toLong())
+        if (endSec != null) put("end_ms", theIntroDbEndMs(endSec, videoDurationMs))
     }.toString()
+}
+
+/**
+ * End at the stream length is valid. A rounding hair past that length is sent
+ * as the length so the body is not past the media. A real overshoot is left
+ * for the strip to reject.
+ */
+internal fun theIntroDbEndMs(endSec: Double, videoDurationMs: Long?): Long {
+    val raw = (endSec * 1000.0).toLong()
+    val duration = videoDurationMs?.takeIf { it > 0L } ?: return raw
+    if (raw <= duration) return raw
+    val overSec = (raw - duration) / 1000.0
+    return if (overSec <= MarkDurationSlopSec) duration else raw
 }
 
 @Serializable

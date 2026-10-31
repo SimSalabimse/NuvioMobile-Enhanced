@@ -206,6 +206,8 @@ internal class PlayerScreenRuntime(
     var submitIntroEndTimeStr by mutableStateOf(EMPTY_SKIP_TIMESTAMP)
     /** Start/end typed per segment type in Submit Timestamps, so switching type keeps each apart. */
     val submitIntroDrafts = mutableMapOf<String, Pair<String, String>>()
+    /** Whether each draft's clocks are showing a tenth after a 0.1 s nudge. */
+    val submitIntroTenthDrafts = mutableMapOf<String, Pair<Boolean, Boolean>>()
     val submittedSegmentTypesByVideoId = mutableMapOf<String, MutableSet<String>>()
     var episodeStreamsPanelState by mutableStateOf(EpisodeStreamsPanelState())
     var playerMetaVideos by mutableStateOf<List<MetaVideo>>(emptyList())
@@ -311,6 +313,9 @@ internal class PlayerScreenRuntime(
     var markPreviewArmed by mutableStateOf(false)
     var markSent by mutableStateOf(false)
     var markAbsent by mutableStateOf(false)
+    /** Tenth digit on Mark start / Mark end, after a 0.1 s nudge. */
+    var markStartShowsTenth by mutableStateOf(false)
+    var markEndShowsTenth by mutableStateOf(false)
     var markSubmitError by mutableStateOf<String?>(null)
     var markSubmitGeneration by mutableStateOf(0)
     var markingPendingSeekMs by mutableStateOf<Long?>(null)
