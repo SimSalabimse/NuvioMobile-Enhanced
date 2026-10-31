@@ -64,6 +64,29 @@ internal fun markSegmentLimits(segmentType: String): MarkLimits = when (markSegm
 internal fun markSegmentTypes(isMovie: Boolean): List<String> =
     if (isMovie) listOf("intro", "outro") else listOf("intro", "recap", "outro", "preview")
 
+/**
+ * The fixed "No …" button on the marking strip. It follows the selected chip.
+ * The Credits chip uses the word Credits on this button.
+ */
+internal enum class NoSegmentAction {
+    Intro,
+    Recap,
+    Credits,
+    Preview,
+}
+
+internal fun noSegmentAction(segmentType: String): NoSegmentAction = when (markSegmentId(segmentType)) {
+    "recap" -> NoSegmentAction.Recap
+    "outro" -> NoSegmentAction.Credits
+    "preview" -> NoSegmentAction.Preview
+    else -> NoSegmentAction.Intro
+}
+
+/** Tap again to leave absent mode. A clock edit always leaves it, so the two cannot be sent together. */
+internal fun absentAfterNoSegmentTap(absent: Boolean): Boolean = !absent
+
+internal fun absentAfterClockEdit(): Boolean = false
+
 internal fun markSegmentOffersStartAtZero(segmentType: String): Boolean =
     markSegmentId(segmentType) == "intro" || markSegmentId(segmentType) == "recap"
 

@@ -69,6 +69,57 @@ class TheIntroDbSubmitPayloadTest {
     }
 
     @Test
+    fun `each segment type submits an absent mark as zero times plus the video length`() {
+        val cases = listOf(
+            "intro" to "intro",
+            "recap" to "recap",
+            "outro" to "credits",
+            "credits" to "credits",
+            "preview" to "preview",
+        )
+        cases.forEach { (segment, expected) ->
+            val times = resolveIntroSubmitTimes(
+                IntroSubmitService.THE_INTRODB,
+                absentSegment = true,
+                startTimeStr = "00:01:10",
+                endTimeStr = "00:02:40",
+            )
+            assertEquals(0.0 to 0.0, times)
+            val body = theIntroDbSubmitPayload(
+                tmdbId = 1396,
+                imdbId = "tt0903747",
+                type = "tv",
+                segment = segment,
+                season = 1,
+                episode = 3,
+                startSec = checkNotNull(times).first,
+                endSec = times.second,
+                videoDurationMs = 2_700_000,
+            )
+            val json = Json.parseToJsonElement(checkNotNull(body)).jsonObject
+            assertEquals(0L, json.getValue("start_ms").jsonPrimitive.long, segment)
+            assertEquals(0L, json.getValue("end_ms").jsonPrimitive.long, segment)
+            assertEquals(2_700_000L, json.getValue("video_duration_ms").jsonPrimitive.long, segment)
+            assertEquals(expected, json.getValue("segment").jsonPrimitive.content, segment)
+            assertNull(
+                resolveIntroSubmitTimes(
+                    IntroSubmitService.INTRODB,
+                    absentSegment = true,
+                    startTimeStr = "00:01:10",
+                    endTimeStr = "00:02:40",
+                ),
+            )
+            val ranged = resolveIntroSubmitTimes(
+                IntroSubmitService.THE_INTRODB,
+                absentSegment = false,
+                startTimeStr = "00:01:10",
+                endTimeStr = "00:02:40",
+            )
+            assertEquals(70.0 to 160.0, ranged)
+        }
+    }
+
+    @Test
     fun `only TheIntroDB can submit an absent segment`() {
         assertEquals(0.0 to 0.0, resolveIntroSubmitTimes(IntroSubmitService.THE_INTRODB, absentSegment = true, startTimeStr = "00:01:00", endTimeStr = "00:02:00"))
         assertNull(resolveIntroSubmitTimes(IntroSubmitService.INTRODB, absentSegment = true, startTimeStr = "00:00:00", endTimeStr = "00:00:00"))

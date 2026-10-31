@@ -2739,6 +2739,7 @@
     <string name="submit_intro_none_intro">No intro</string>
     <string name="submit_intro_none_recap">No recap</string>
     <string name="submit_intro_none_outro">No outro</string>
+    <string name="submit_intro_none_credits">No credits</string>
     <string name="submit_intro_none_preview">No preview</string>
     <string name="submit_intro_none_hint">Sends 00:00:00 for the start and end, and still sends this stream's length.</string>
     <string name="submit_intro_time_decrease">Decrease %1$s</string>

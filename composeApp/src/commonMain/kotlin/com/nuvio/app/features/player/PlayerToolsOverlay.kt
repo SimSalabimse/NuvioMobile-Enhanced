@@ -211,7 +211,7 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 onSegment = { if (!submitting) switchSubmitSegmentType(it) },
                 onAbsent = {
                     if (submitting) return@SegmentMarkingLayer
-                    markAbsent = true
+                    markAbsent = absentAfterNoSegmentTap(markAbsent)
                     markSent = false
                     markSubmitError = null
                 },

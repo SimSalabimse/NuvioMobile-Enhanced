@@ -244,6 +244,118 @@ class PlayerToolsLogicTest {
     }
 
     @Test
+    fun `the no-segment button follows the selected chip and movies stay intro and credits`() {
+        assertEquals(NoSegmentAction.Intro, noSegmentAction("intro"))
+        assertEquals(NoSegmentAction.Intro, noSegmentAction("opening"))
+        assertEquals(NoSegmentAction.Recap, noSegmentAction("recap"))
+        assertEquals(NoSegmentAction.Credits, noSegmentAction("outro"))
+        assertEquals(NoSegmentAction.Credits, noSegmentAction("credits"))
+        assertEquals(NoSegmentAction.Credits, noSegmentAction("movie-credits"))
+        assertEquals(NoSegmentAction.Preview, noSegmentAction("preview"))
+        assertEquals(listOf("intro", "outro"), markSegmentTypes(isMovie = true))
+        assertEquals(listOf("intro", "recap", "outro", "preview"), markSegmentTypes(isMovie = false))
+    }
+
+    @Test
+    fun `no-segment toggles off and a clock edit returns to the typed range`() {
+        val typedStart = "00:00:30"
+        val typedEnd = "00:01:30"
+        assertTrue(absentAfterNoSegmentTap(false))
+        assertFalse(absentAfterNoSegmentTap(true))
+        assertFalse(absentAfterClockEdit())
+        val absentTimes = resolveIntroSubmitTimes(
+            IntroSubmitService.THE_INTRODB,
+            absentSegment = true,
+            startTimeStr = typedStart,
+            endTimeStr = typedEnd,
+        )
+        assertEquals(0.0 to 0.0, absentTimes)
+        assertNull(
+            resolveIntroSubmitTimes(
+                IntroSubmitService.INTRODB,
+                absentSegment = true,
+                startTimeStr = typedStart,
+                endTimeStr = typedEnd,
+            ),
+        )
+        val afterToggle = absentAfterNoSegmentTap(true)
+        val afterClock = absentAfterClockEdit()
+        assertEquals(
+            30.0 to 90.0,
+            resolveIntroSubmitTimes(
+                IntroSubmitService.THE_INTRODB,
+                absentSegment = afterToggle,
+                startTimeStr = typedStart,
+                endTimeStr = typedEnd,
+            ),
+        )
+        assertEquals(
+            30.0 to 90.0,
+            resolveIntroSubmitTimes(
+                IntroSubmitService.THE_INTRODB,
+                absentSegment = afterClock,
+                startTimeStr = typedStart,
+                endTimeStr = typedEnd,
+            ),
+        )
+        assertTrue(
+            markSubmitEnabled(
+                sent = false,
+                submitting = false,
+                keyProblem = false,
+                blocked = false,
+                absent = true,
+                absentAllowed = true,
+                timeOk = true,
+            ),
+        )
+        assertTrue(
+            markSubmitEnabled(
+                sent = false,
+                submitting = false,
+                keyProblem = false,
+                blocked = false,
+                absent = true,
+                absentAllowed = true,
+                timeOk = false,
+            ),
+        )
+        assertFalse(
+            markSubmitEnabled(
+                sent = false,
+                submitting = false,
+                keyProblem = false,
+                blocked = false,
+                absent = true,
+                absentAllowed = false,
+                timeOk = true,
+            ),
+        )
+        assertFalse(
+            markSubmitEnabled(
+                sent = false,
+                submitting = false,
+                keyProblem = false,
+                blocked = false,
+                absent = afterClock,
+                absentAllowed = true,
+                timeOk = false,
+            ),
+        )
+        assertTrue(
+            markSubmitEnabled(
+                sent = false,
+                submitting = false,
+                keyProblem = false,
+                blocked = false,
+                absent = afterToggle,
+                absentAllowed = false,
+                timeOk = true,
+            ),
+        )
+    }
+
+    @Test
     fun `none goes through resolveIntroSubmitTimes and introdb refuses it`() {
         assertEquals(
             0.0 to 0.0,
