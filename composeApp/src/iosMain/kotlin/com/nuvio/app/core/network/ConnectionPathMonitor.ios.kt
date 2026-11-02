@@ -11,7 +11,6 @@ import platform.Network.nw_path_monitor_set_update_handler
 import platform.Network.nw_path_monitor_start
 import platform.Network.nw_path_monitor_t
 import platform.Network.nw_path_status_satisfied
-import platform.Network.nw_release
 import platform.darwin.dispatch_get_main_queue
 
 @OptIn(ExperimentalForeignApi::class)
@@ -47,7 +46,6 @@ internal actual object ConnectionPathMonitor {
             existing
         }
         nw_path_monitor_cancel(current)
-        nw_release(current)
     }
 
     private fun publish(satisfied: Boolean) {
