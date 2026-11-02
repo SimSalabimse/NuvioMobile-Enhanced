@@ -558,6 +558,7 @@ internal data class SubmitSheet(
     val tab: SubmitPanelTab,
     val absent: Boolean,
     val handle: MarkHandle,
+    val popoverOpen: Boolean,
     val startSec: Double?,
     val endSec: Double?,
     val startShowsTenth: Boolean,
@@ -583,6 +584,7 @@ internal fun openSubmitSheet(
     tab = SubmitPanelTab.Intro,
     absent = false,
     handle = MarkHandle.Start,
+    popoverOpen = false,
     startSec = 10.0,
     endSec = 40.0,
     startShowsTenth = false,
@@ -603,6 +605,7 @@ internal sealed interface SubmitSheetEvent {
     data object TapNoneChip : SubmitSheetEvent
     data object TapStart : SubmitSheetEvent
     data object TapEnd : SubmitSheetEvent
+    data object DismissPopover : SubmitSheetEvent
     data object SetToNow : SubmitSheetEvent
     data class Nudge(val deltaSec: Double, val holding: Boolean) : SubmitSheetEvent
     data class DragHandle(val handle: MarkHandle, val seconds: Double) : SubmitSheetEvent
@@ -617,6 +620,7 @@ internal data class SubmitSheetShape(
     val tab: SubmitPanelTab,
     val absent: Boolean,
     val handle: MarkHandle,
+    val popover: Boolean,
     val valid: Boolean,
     val submitting: Boolean,
 )
@@ -634,14 +638,16 @@ internal fun SubmitSheet.canSubmit(): Boolean = !closed && markSubmitEnabled(
     timeOk = rangeValid(),
 )
 
-internal fun SubmitSheet.showsTimeline(): Boolean = !closed && !absent
+internal fun SubmitSheet.showsSegmentMarks(): Boolean = !closed && !absent
 
-internal fun SubmitSheet.showsNudges(): Boolean = !closed && !absent
+internal fun SubmitSheet.showsNudges(): Boolean = !closed && !absent && popoverOpen
 
 internal fun SubmitSheet.shape(): SubmitSheetShape =
-    SubmitSheetShape(tab, absent, handle, rangeValid(), submitting)
+    SubmitSheetShape(tab, absent, handle, popoverOpen, rangeValid(), submitting)
 
 internal fun submitSheetShapeAllowed(shape: SubmitSheetShape, absentAllowed: Boolean): Boolean {
+    if (shape.popover && shape.absent) return false
+    if (shape.popover && shape.submitting) return false
     if (shape.submitting && !shape.absent && !shape.valid) return false
     if (shape.submitting && shape.absent && !absentAllowed) return false
     return true
@@ -662,19 +668,24 @@ internal fun reduceSubmitSheet(state: SubmitSheet, event: SubmitSheetEvent): Sub
         SubmitSheetEvent.TapNoneChip -> if (state.absent) {
             state
         } else {
-            state.copy(absent = absentAfterNoneChip(), sent = false)
+            state.copy(absent = absentAfterNoneChip(), sent = false, popoverOpen = false)
         }
-        SubmitSheetEvent.TapStart -> state.copy(handle = MarkHandle.Start)
-        SubmitSheetEvent.TapEnd -> state.copy(handle = MarkHandle.End)
-        SubmitSheetEvent.SetToNow -> if (state.absent) {
+        SubmitSheetEvent.TapStart -> state.togglePopover(MarkHandle.Start)
+        SubmitSheetEvent.TapEnd -> state.togglePopover(MarkHandle.End)
+        SubmitSheetEvent.DismissPopover -> state.copy(popoverOpen = false)
+        SubmitSheetEvent.SetToNow -> if (state.absent || !state.popoverOpen) {
             state
         } else {
             state.writeClock(state.handle, state.playheadSec, showTenth = false)
         }
-        is SubmitSheetEvent.Nudge -> if (state.absent) {
+        is SubmitSheetEvent.Nudge -> if (state.absent || !state.popoverOpen) {
             state
         } else {
-            val delta = if (event.holding) holdNudgeDelta(event.deltaSec) else event.deltaSec
+            val delta = if (event.holding && abs(event.deltaSec) == 1.0) {
+                holdNudgeDelta(event.deltaSec)
+            } else {
+                event.deltaSec
+            }
             val current = if (state.handle == MarkHandle.Start) state.startSec else state.endSec
             val showing = if (state.handle == MarkHandle.Start) state.startShowsTenth else state.endShowsTenth
             state.writeClock(
@@ -691,7 +702,11 @@ internal fun reduceSubmitSheet(state: SubmitSheet, event: SubmitSheetEvent): Sub
         SubmitSheetEvent.ResetMarks -> state
             .writeClock(MarkHandle.Start, null, showTenth = false)
             .writeClock(MarkHandle.End, null, showTenth = false)
-        SubmitSheetEvent.Submit -> if (state.canSubmit()) state.copy(submitting = true) else state
+        SubmitSheetEvent.Submit -> if (state.canSubmit()) {
+            state.copy(submitting = true, popoverOpen = false)
+        } else {
+            state
+        }
         SubmitSheetEvent.SubmitSuccess, SubmitSheetEvent.SubmitFailure -> state
         SubmitSheetEvent.Close -> state.copy(closed = true)
     }
@@ -701,7 +716,7 @@ private fun SubmitSheet.applyTab(next: SubmitPanelTab): SubmitSheet {
     if (next.segmentId !in markSegmentTypes(isMovie)) return this
     return when (segmentTap(tab.segmentId, next.segmentId, absent)) {
         SegmentTap.Stay -> this
-        SegmentTap.ReturnToEditing -> copy(absent = false, sent = false)
+        SegmentTap.ReturnToEditing -> copy(absent = false, sent = false, popoverOpen = false)
         SegmentTap.Switch -> switchTab(next)
     }
 }
@@ -715,6 +730,7 @@ private fun SubmitSheet.switchTab(next: SubmitPanelTab): SubmitSheet {
         tab = next,
         absent = false,
         sent = false,
+        popoverOpen = false,
         handle = MarkHandle.Start,
         startSec = clocks?.startSec,
         endSec = clocks?.endSec,
@@ -741,5 +757,68 @@ private fun SubmitSheet.writeClock(handle: MarkHandle, seconds: Double?, showTen
         sent = false,
         drafts = drafts + (tab to MarkClocks(start, end)),
         tenthDrafts = tenthDrafts + (tab to (startTenth to endTenth)),
+    )
+}
+
+private fun SubmitSheet.togglePopover(next: MarkHandle): SubmitSheet {
+    if (closed || absent || submitting) return this
+    val open = !(popoverOpen && handle == next)
+    return copy(handle = next, popoverOpen = open)
+}
+
+internal data class SubmitBarInsets(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+)
+
+internal data class SubmitBarBounds(
+    val left: Float,
+    val top: Float,
+    val width: Float,
+    val height: Float,
+)
+
+internal const val SubmitBarPreferredHeight = 64f
+
+internal const val SubmitBarMaxVideoFraction = 0.125f
+
+internal fun submitBarBounds(
+    screenWidth: Float,
+    screenHeight: Float,
+    insets: SubmitBarInsets,
+): SubmitBarBounds {
+    val videoHeight = screenHeight.coerceAtLeast(0f)
+    val safeHeight = (screenHeight - insets.top - insets.bottom).coerceAtLeast(0f)
+    val height = minOf(
+        SubmitBarPreferredHeight,
+        videoHeight * SubmitBarMaxVideoFraction,
+        safeHeight,
+    ).coerceAtLeast(0f)
+    val left = insets.left.coerceAtLeast(0f)
+    val width = (screenWidth - left - insets.right.coerceAtLeast(0f)).coerceAtLeast(0f)
+    val top = (screenHeight - insets.bottom - height).coerceAtLeast(insets.top)
+    return SubmitBarBounds(left = left, top = top, width = width, height = height)
+}
+
+internal data class SubmitSegmentFractions(
+    val start: Float,
+    val end: Float,
+)
+
+internal fun submitSegmentMarkFractions(
+    open: Boolean,
+    absent: Boolean,
+    startSec: Double?,
+    endSec: Double?,
+    durationSec: Double,
+): SubmitSegmentFractions? {
+    if (!open || absent || durationSec <= 0.0) return null
+    val start = startSec ?: return null
+    val end = endSec ?: return null
+    return SubmitSegmentFractions(
+        start = (start / durationSec).toFloat().coerceIn(0f, 1f),
+        end = (end / durationSec).toFloat().coerceIn(0f, 1f),
     )
 }

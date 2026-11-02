@@ -626,30 +626,36 @@ class PlayerToolsLogicTest {
         val series = sheetCases(isMovie = false, absentAllowed = true)
         val movies = sheetCases(isMovie = true, absentAllowed = true)
         val introDb = sheetCases(isMovie = false, absentAllowed = false)
-        assertEquals(4 * 2 * 2 * 2 * 2 - 4 * 2, series.size)
-        assertEquals(2 * 2 * 2 * 2 * 2 - 2 * 2, movies.size)
-        assertEquals(4 * 2 * 2 * 2 * 2 - 4 * 2 - 4 * 2 * 2, introDb.size)
+        assertEquals(4 * 2 * 2 * 2 * 2 * 2 - 4 * 2 * 2 * 2 - 4 * 2 * 2 - 4 * 2, series.size)
+        assertEquals(2 * 2 * 2 * 2 * 2 * 2 - 2 * 2 * 2 * 2 - 2 * 2 * 2 - 2 * 2, movies.size)
+        assertEquals(4 * 2 * 2 * 2 * 2 * 2 - 4 * 2 * 2 * 2 - 4 * 2 * 2 - 4 * 2 - 4 * 2 * 2, introDb.size)
         for (state in series + movies + introDb) {
             assertSheetInvariants(state)
             val editing = backToEditing(state)
             assertFalse(editing.closed)
             assertFalse(editing.absent)
             assertFalse(editing.submitting)
-            assertTrue(editing.showsTimeline())
-            assertTrue(editing.showsNudges())
+            assertFalse(editing.popoverOpen)
+            assertTrue(editing.showsSegmentMarks())
+            assertFalse(editing.showsNudges())
+            val opened = reduceSubmitSheet(editing, SubmitSheetEvent.TapStart)
+            assertTrue(opened.popoverOpen)
+            assertTrue(opened.showsNudges())
+            assertFalse(reduceSubmitSheet(opened, SubmitSheetEvent.DismissPopover).popoverOpen)
+            assertFalse(reduceSubmitSheet(opened, SubmitSheetEvent.TapStart).popoverOpen)
             if (state.submitting) {
                 assertFalse(reduceSubmitSheet(state, SubmitSheetEvent.Close).closed)
             }
-            val closed = reduceSubmitSheet(backToEditing(state), SubmitSheetEvent.Close)
+            val closed = reduceSubmitSheet(editing, SubmitSheetEvent.Close)
             assertTrue(closed.closed)
-            assertFalse(closed.showsTimeline())
+            assertFalse(closed.showsSegmentMarks())
             assertFalse(closed.showsNudges())
             assertFalse(closed.canSubmit())
             for (event in sheetEvents()) {
                 val next = reduceSubmitSheet(state, event)
                 if (next.closed) {
                     assertFalse(next.canSubmit())
-                    assertFalse(next.showsTimeline())
+                    assertFalse(next.showsSegmentMarks())
                     assertFalse(next.showsNudges())
                 } else {
                     assertTrue(submitSheetShapeAllowed(next.shape(), next.absentAllowed))
@@ -673,9 +679,72 @@ class PlayerToolsLogicTest {
         )
         assertFalse(sent.submitting)
         assertFalse(sent.canSubmit())
-        val edited = reduceSubmitSheet(sent, SubmitSheetEvent.Nudge(deltaSec = 1.0, holding = false))
+        val openedSent = reduceSubmitSheet(sent, SubmitSheetEvent.TapStart)
+        val edited = reduceSubmitSheet(openedSent, SubmitSheetEvent.Nudge(deltaSec = 1.0, holding = false))
         assertTrue(edited.rangeValid())
         assertTrue(edited.canSubmit())
+        val endOpen = reduceSubmitSheet(openSubmitSheet(), SubmitSheetEvent.TapEnd)
+        val heldCoarse = reduceSubmitSheet(endOpen, SubmitSheetEvent.Nudge(deltaSec = -5.0, holding = true))
+        val heldFine = reduceSubmitSheet(endOpen, SubmitSheetEvent.Nudge(deltaSec = -1.0, holding = true))
+        assertEquals(nudgeMarkSeconds(40.0, -5.0, 100.0), heldCoarse.endSec)
+        assertEquals(nudgeMarkSeconds(40.0, holdNudgeDelta(-1.0), 100.0), heldFine.endSec)
+        val ignored = reduceSubmitSheet(openSubmitSheet(), SubmitSheetEvent.Nudge(deltaSec = -1.0, holding = true))
+        assertEquals(40.0, ignored.endSec)
+        assertFalse(ignored.popoverOpen)
+    }
+
+    @Test
+    fun `submit bar stays inside the safe area and under an eighth of the video`() {
+        val notchLeft = submitBarBounds(
+            screenWidth = 844f,
+            screenHeight = 390f,
+            insets = SubmitBarInsets(left = 47f, top = 0f, right = 0f, bottom = 21f),
+        )
+        assertEquals(47f, notchLeft.left)
+        assertEquals(797f, notchLeft.width)
+        assertEquals(48.75f, notchLeft.height)
+        assertEquals(320.25f, notchLeft.top)
+        assertTrue(notchLeft.top >= 0f)
+        assertTrue(notchLeft.top + notchLeft.height <= 390f - 21f)
+        assertTrue(notchLeft.height <= 390f * SubmitBarMaxVideoFraction)
+        assertTrue(notchLeft.height <= SubmitBarPreferredHeight)
+
+        val notchTop = submitBarBounds(
+            screenWidth = 390f,
+            screenHeight = 844f,
+            insets = SubmitBarInsets(left = 0f, top = 59f, right = 0f, bottom = 34f),
+        )
+        assertEquals(0f, notchTop.left)
+        assertEquals(390f, notchTop.width)
+        assertEquals(64f, notchTop.height)
+        assertEquals(746f, notchTop.top)
+        assertTrue(notchTop.top >= 59f)
+        assertTrue(notchTop.top + notchTop.height <= 844f - 34f)
+        assertTrue(notchTop.height <= 844f * SubmitBarMaxVideoFraction)
+
+        val homeIndicator = submitBarBounds(
+            screenWidth = 390f,
+            screenHeight = 844f,
+            insets = SubmitBarInsets(left = 0f, top = 0f, right = 0f, bottom = 34f),
+        )
+        assertEquals(64f, homeIndicator.height)
+        assertEquals(746f, homeIndicator.top)
+        assertEquals(810f, homeIndicator.top + homeIndicator.height)
+
+        val shortWindow = submitBarBounds(
+            screenWidth = 800f,
+            screenHeight = 200f,
+            insets = SubmitBarInsets(left = 0f, top = 59f, right = 16f, bottom = 34f),
+        )
+        assertEquals(0f, shortWindow.left)
+        assertEquals(784f, shortWindow.width)
+        assertEquals(25f, shortWindow.height)
+        assertEquals(141f, shortWindow.top)
+        assertTrue(shortWindow.top >= 59f)
+        assertTrue(shortWindow.left + shortWindow.width <= 800f - 16f)
+        assertTrue(shortWindow.top + shortWindow.height <= 200f - 34f)
+        assertTrue(shortWindow.height <= 200f * SubmitBarMaxVideoFraction)
+        assertTrue(shortWindow.height < SubmitBarPreferredHeight)
     }
 
 }
@@ -690,13 +759,15 @@ private fun sheetCases(isMovie: Boolean, absentAllowed: Boolean): List<SubmitShe
     for (tab in tabs) {
         for (absent in listOf(false, true)) {
             for (handle in MarkHandle.entries) {
-                for (valid in listOf(false, true)) {
-                    for (submitting in listOf(false, true)) {
-                        val shape = SubmitSheetShape(tab, absent, handle, valid, submitting)
-                        if (!submitSheetShapeAllowed(shape, absentAllowed)) continue
-                        val state = reachSheet(isMovie, absentAllowed, shape)
-                        assertEquals(shape, state.shape())
-                        reached += state
+                for (popover in listOf(false, true)) {
+                    for (valid in listOf(false, true)) {
+                        for (submitting in listOf(false, true)) {
+                            val shape = SubmitSheetShape(tab, absent, handle, popover, valid, submitting)
+                            if (!submitSheetShapeAllowed(shape, absentAllowed)) continue
+                            val state = reachSheet(isMovie, absentAllowed, shape)
+                            assertEquals(shape, state.shape())
+                            reached += state
+                        }
                     }
                 }
             }
@@ -715,11 +786,14 @@ private fun reachSheet(isMovie: Boolean, absentAllowed: Boolean, shape: SubmitSh
         state,
         SubmitSheetEvent.DragHandle(MarkHandle.End, if (shape.valid) 40.0 else 12.0),
     )
-    if (shape.absent) state = reduceSubmitSheet(state, SubmitSheetEvent.TapNoneChip)
     state = reduceSubmitSheet(
         state,
         if (shape.handle == MarkHandle.End) SubmitSheetEvent.TapEnd else SubmitSheetEvent.TapStart,
     )
+    if (!shape.popover || shape.absent) {
+        state = reduceSubmitSheet(state, SubmitSheetEvent.DismissPopover)
+    }
+    if (shape.absent) state = reduceSubmitSheet(state, SubmitSheetEvent.TapNoneChip)
     if (shape.submitting) state = reduceSubmitSheet(state, SubmitSheetEvent.Submit)
     return state
 }
@@ -728,6 +802,7 @@ private fun backToEditing(state: SubmitSheet): SubmitSheet {
     var next = state
     if (next.submitting) next = reduceSubmitSheet(next, SubmitSheetEvent.SubmitFailure)
     if (next.absent) next = reduceSubmitSheet(next, SubmitSheetEvent.TapSameTab)
+    if (next.popoverOpen) next = reduceSubmitSheet(next, SubmitSheetEvent.DismissPopover)
     return next
 }
 
@@ -738,15 +813,22 @@ private fun assertSheetInvariants(state: SubmitSheet) {
         state.canSubmit(),
     )
     if (state.canSubmit()) assertTrue(acceptable)
-    assertEquals(!state.closed && !state.absent, state.showsTimeline())
-    assertEquals(!state.closed && !state.absent, state.showsNudges())
-    if (state.absent) {
-        assertFalse(state.showsTimeline())
-        assertFalse(state.showsNudges())
-        val nudged = reduceSubmitSheet(state, SubmitSheetEvent.Nudge(deltaSec = -5.0, holding = true))
+    assertEquals(!state.closed && !state.absent, state.showsSegmentMarks())
+    assertEquals(!state.closed && !state.absent && state.popoverOpen, state.showsNudges())
+    if (!state.popoverOpen) {
+        val nudged = reduceSubmitSheet(state, SubmitSheetEvent.Nudge(deltaSec = -1.0, holding = true))
         assertEquals(state.startSec, nudged.startSec)
         assertEquals(state.endSec, nudged.endSec)
-        assertTrue(nudged.absent)
+    }
+    if (state.popoverOpen) {
+        assertFalse(reduceSubmitSheet(state, SubmitSheetEvent.DismissPopover).popoverOpen)
+        val sameChip = if (state.handle == MarkHandle.End) SubmitSheetEvent.TapEnd else SubmitSheetEvent.TapStart
+        assertFalse(reduceSubmitSheet(state, sameChip).popoverOpen)
+    }
+    if (state.absent && !state.submitting) {
+        val editing = reduceSubmitSheet(state, SubmitSheetEvent.TapSameTab)
+        assertFalse(editing.absent)
+        assertFalse(editing.popoverOpen)
     }
 }
 
@@ -756,6 +838,7 @@ private fun sheetEvents(): List<SubmitSheetEvent> = buildList {
     add(SubmitSheetEvent.TapNoneChip)
     add(SubmitSheetEvent.TapStart)
     add(SubmitSheetEvent.TapEnd)
+    add(SubmitSheetEvent.DismissPopover)
     add(SubmitSheetEvent.SetToNow)
     for (delta in listOf(-5.0, -1.0, 1.0, 5.0)) {
         add(SubmitSheetEvent.Nudge(delta, holding = false))

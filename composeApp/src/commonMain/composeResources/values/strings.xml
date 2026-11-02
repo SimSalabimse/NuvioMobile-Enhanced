@@ -3311,6 +3311,7 @@
     <string name="player_tools_more">More</string>
     <string name="player_tools_reset_marks">Reset marks</string>
     <string name="player_tools_status_valid">%1$s · valid %2$d–%3$d s</string>
+    <string name="player_tools_status_ok">%1$s ✓</string>
     <string name="player_tools_status_problem">%1$s · %2$s</string>
     <string name="player_tools_marked_none_episode">Marked as: this episode has no %1$s.</string>
     <string name="player_tools_marked_none_movie">Marked as: this movie has no %1$s.</string>

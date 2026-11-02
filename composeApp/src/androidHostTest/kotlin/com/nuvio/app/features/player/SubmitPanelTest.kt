@@ -12,7 +12,6 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
@@ -38,7 +37,7 @@ class SubmitPanelTest {
         val handle = mutableStateOf(MarkHandle.Start)
         compose.setContent {
             NuvioTheme {
-                Box(Modifier.size(640.dp, 360.dp)) {
+                Box(Modifier.size(1024.dp, 480.dp)) {
                     Panel(
                         type = type.value,
                         absent = absent.value,
@@ -77,35 +76,39 @@ class SubmitPanelTest {
         compose.onNodeWithText("No intro").assertIsDisplayed()
         compose.onNodeWithText("0:03:29", substring = true).assertIsDisplayed()
         compose.onNodeWithText("0:03:51", substring = true).assertIsDisplayed()
-        compose.onNodeWithText("Set to now").assertIsDisplayed()
-        compose.onNodeWithText("Nudge start").assertIsDisplayed()
-        compose.onNodeWithText("\u22125").assertIsDisplayed()
-        compose.onNodeWithText("hold for 0.1 s steps").assertIsDisplayed()
-        compose.onNodeWithText("22 s · valid 5–300 s").assertIsDisplayed()
-        compose.onNodeWithText("Intro · S1 E22").assertIsDisplayed()
+        compose.onNodeWithText("22 s ✓").assertIsDisplayed()
         compose.onNodeWithText("Submit").assertIsEnabled()
-        compose.onNodeWithContentDescription("Play range").assertIsDisplayed()
-        compose.onNodeWithContentDescription("More").assertIsDisplayed()
+        compose.onAllNodesWithText("Set to now").assertCountEquals(0)
+        compose.onAllNodesWithText("\u22125").assertCountEquals(0)
+        compose.onAllNodesWithContentDescription("Play range").assertCountEquals(0)
+        compose.onAllNodesWithContentDescription("More").assertCountEquals(0)
 
+        compose.onNodeWithText("0:03:29", substring = true).performClick()
+        compose.onNodeWithText("Set to now").assertIsDisplayed()
+        compose.onNodeWithText("\u22125").assertIsDisplayed()
         compose.onNodeWithText("\u22125").performClick()
         compose.onNodeWithText("0:03:24", substring = true).assertIsDisplayed()
 
-        compose.onNodeWithText("No intro").performClick()
-        compose.onNodeWithText("Marked as: this episode has no intro.").assertIsDisplayed()
-        compose.onNodeWithText("Timeline and nudges are hidden. Tap Intro to edit marks again.").assertIsDisplayed()
-        compose.onNodeWithText("No intro · S1 E22").assertIsDisplayed()
-        compose.onAllNodesWithText("Nudge start").assertCountEquals(0)
+        compose.onNodeWithText("0:03:24", substring = true).performClick()
         compose.onAllNodesWithText("Set to now").assertCountEquals(0)
-        compose.onAllNodesWithContentDescription("Play range").assertCountEquals(0)
+        compose.onAllNodesWithText("\u22125").assertCountEquals(0)
+
+        compose.onNodeWithText("No intro").performClick()
+        compose.onNodeWithText("No intro · S1 E22").assertIsDisplayed()
+        compose.onAllNodesWithText("0:03:24").assertCountEquals(0)
+        compose.onAllNodesWithText("Set to now").assertCountEquals(0)
+        compose.onAllNodesWithText("\u22125").assertCountEquals(0)
 
         compose.onNodeWithText("Intro").performClick()
-        compose.onNodeWithText("Nudge start").assertIsDisplayed()
         compose.onNodeWithText("No intro").assertIsDisplayed()
+        compose.onNodeWithText("0:03:24", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Submit").assertIsDisplayed()
+        compose.onAllNodesWithText("Set to now").assertCountEquals(0)
 
         compose.onNodeWithText("Credits").performClick()
         compose.onNodeWithText("No credits").assertIsDisplayed()
-        compose.onNodeWithText("Credits · S1 E22").assertIsDisplayed()
-        compose.onNodeWithText("Nudge start").assertIsDisplayed()
+        compose.onNodeWithText("Submit").assertIsDisplayed()
+        compose.onAllNodesWithText("Credits · S1 E22").assertCountEquals(0)
     }
 
     @Test
@@ -115,7 +118,7 @@ class SubmitPanelTest {
         val duration = mutableStateOf(3_000.0)
         compose.setContent {
             NuvioTheme {
-                Box(Modifier.size(640.dp, 360.dp)) {
+                Box(Modifier.size(1024.dp, 480.dp)) {
                     Panel(
                         type = "intro",
                         absent = false,
@@ -150,18 +153,18 @@ class SubmitPanelTest {
 
         end.value = 12.0
         compose.waitForIdle()
-        compose.onNodeWithText("12 s · valid 5–300 s").assertIsDisplayed()
+        compose.onNodeWithText("12 s ✓").assertIsDisplayed()
         compose.onNodeWithText("Submit").assertIsEnabled()
         compose.onNodeWithText("0:00:12", substring = true).assertIsDisplayed()
 
         end.value = 12.001
         compose.waitForIdle()
-        compose.onNodeWithText("12 s · valid 5–300 s").assertIsDisplayed()
+        compose.onNodeWithText("12 s ✓").assertIsDisplayed()
         compose.onAllNodesWithText("Past the end of the video").assertCountEquals(0)
 
         end.value = 12.0 + MarkDurationSlopSec
         compose.waitForIdle()
-        compose.onNodeWithText("12 s · valid 5–300 s").assertIsDisplayed()
+        compose.onNodeWithText("12 s ✓").assertIsDisplayed()
         compose.onNodeWithText("Submit").assertIsEnabled()
     }
 
@@ -191,10 +194,9 @@ class SubmitPanelTest {
         compose.onNodeWithText("Credits").assertIsDisplayed()
         compose.onAllNodesWithText("Recap").assertCountEquals(0)
         compose.onAllNodesWithText("Preview").assertCountEquals(0)
-        compose.onNodeWithText("Marked as: this movie has no intro.").assertIsDisplayed()
         compose.onNodeWithText("IntroDB has no empty-segment submit.").assertIsDisplayed()
-        compose.onNodeWithText("No intro · Movie · 2010").assertIsDisplayed()
-        compose.onNodeWithText("Submit").assertIsNotEnabled()
+        compose.onNodeWithText("No intro · Movie · 2010").assertIsNotEnabled()
+        compose.onAllNodesWithText("Submit").assertCountEquals(0)
     }
 }
 
@@ -216,7 +218,6 @@ private fun Panel(
     errorLine: String? = null,
 ) {
     SegmentMarkingLayer(
-        title = if (isMovie) "Example · $year" else "Example · $episodeCode",
         segmentType = type,
         isMovie = isMovie,
         episodeCode = episodeCode,
@@ -226,7 +227,6 @@ private fun Panel(
         startShowsTenth = false,
         endShowsTenth = false,
         durationSec = durationSec,
-        playheadSec = 600.0,
         absent = absent,
         absentAllowed = absentAllowed,
         sent = false,
@@ -236,20 +236,12 @@ private fun Panel(
         addKeyLabel = "Add a key",
         blockLine = null,
         errorLine = errorLine,
-        safeInset = 0.dp,
         onBack = {},
         onSegment = onSegment,
         onAbsent = onAbsent,
         onSetToNow = {},
         onNudge = onNudge,
-        onSeek = {},
-        onDragStart = {},
-        onDragEnd = {},
-        onPreview = {},
-        onCopyLink = {},
-        showCopyLink = true,
         onAddKey = {},
-        onReset = {},
         onSubmit = {},
     )
 }

@@ -354,7 +354,8 @@ internal fun PlayerControlsShell(
                 )
             }
 
-            if (showPlaybackControls) {
+            val submitChrome = LocalSubmitBarChrome.current
+            if (showPlaybackControls && submitChrome == null) {
                 CompositionLocalProvider(
                     LocalLayoutDirection provides if (useLegacyLayout) LocalLayoutDirection.current else LayoutDirection.Ltr,
                 ) {
@@ -414,6 +415,7 @@ internal fun PlayerControlsShell(
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .windowInsetsPadding(playerTimelineBottomInsets(metrics))
+                        .padding(bottom = submitChrome?.height ?: 0.dp)
                         .padding(horizontal = metrics.horizontalPadding),
                 )
             }
@@ -424,6 +426,7 @@ internal fun PlayerControlsShell(
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .windowInsetsPadding(playerTimelineBottomInsets(metrics))
+                        .padding(bottom = submitChrome?.height ?: 0.dp)
                         .padding(horizontal = metrics.horizontalPadding),
                 ) {
                     if (!hideDetails) {
@@ -481,7 +484,7 @@ internal fun PlayerControlsShell(
                         onTouchChange = onTimelineTouchChange,
                         chapters = chapters,
                     )
-                    PlayerControlActions(
+                    if (submitChrome == null) PlayerControlActions(
                         playbackSnapshot = playbackSnapshot,
                         playbackClock = playbackClock,
                         scrubbingPositionMs = scrubbingPositionMs,

@@ -1,79 +1,101 @@
-# Submit panel redesign
+# Submit panel
 
-Landscape phone bottom sheet for Flag / Submit timestamps. Three states: editing a tab (Intro, Credits, and the others), and "none" after the chip is tapped.
+One slim bar on the playing video for Flag / Submit timestamps. It replaces the large bottom sheet. The player's own seek bar keeps the start and end marks. The bar does not draw a second timeline.
 
-## What changes
+## What it is
 
-- One segmented control: Intro, Recap, Credits, Preview. Movies keep Intro and Credits only.
-- One chip beside it, named for the open tab (`No intro`, `No recap`, `No credits`, `No preview`). One tap sets that tab to none: the timeline and nudges hide, and Submit reads `No intro · S1 E22` (movie equivalent on a movie). The payload stays 0, 0 plus the stream length. Tapping the open tab returns to editing. The chip does not toggle off.
-- Live status next to the chip on a wide screen, and on its own line on a narrower phone, so it is not clipped. Valid example: `22 s · valid 5–300 s`. Invalid ranges show the error. An end equal to the video length stays valid.
-- Timeline inside the sheet: draggable start and end handles, playhead, and a play-range control on the marked range. The window stays the existing two-minute zoom so a short range can still be dragged.
-- Start and End chips select which end is edited (the selected chip is outlined). `Set to now` writes the playhead onto that end.
-- One nudge group, −5, −1, +1, +5, applied to the selected end. A tap uses that step. Holding steps by 0.1 s. Clocks show whole seconds until a 0.1 step, same as today.
-- Large Submit on the right: `Type · S1 E22`, or `No intro · S1 E22` while none is armed.
-- Overflow menu: Copy link, Play range, Reset marks. Close stays on the sheet and on the title row.
-- Removed from the sheet: per-end nudge rows, Starts at 0:00, Runs to end, and the always-visible Copy link and Play range buttons.
+- One row, about 64 pt tall, sitting at the bottom of the player. Safe-area insets apply on the left, top, right, and bottom, in portrait and landscape, so the bar never draws under the Dynamic Island, the notch, or the home indicator.
+- The bar height is the smaller of 64 pt, one eighth of the video height, and the height left between the top and bottom insets. A short window shrinks the bar. It does not overlap the cutout.
+- Left to right: Intro, Recap, Credits, Preview. The selected tab uses the accent colour. Movies keep Intro and Credits only.
+- A Start chip and an End chip, each showing its time in H:MM:SS. Whole seconds until a 0.1 s step. Neither chip is outlined until its popover is open.
+- A short status. Valid is green, for example `22 s ✓`. Invalid is red and uses the existing reason, short enough to fit and never cut off mid-word: `End must be after the start`, `Past the end of the video`, or `4.9 s · Intro must be 5–300 s`.
+- An amber text button named for the tab: `No intro`, `No recap`, `No credits`, or `No preview`.
+- A Submit pill, then close.
 
-IntroDB still cannot send an empty segment. Submit stays disabled and the existing refusal line stays. Preview (the segment, and playing a range) is unchanged.
+## Popover
+
+Tapping Start or End selects that end and opens a small popover just above the chip: −5, −1, +1, +5, and an amber Set to now. Tap outside, or the same chip again, closes it. A tap uses the labelled step. Holding −1 or +1 steps by 0.1 s. Holding −5 or +5 stays on that labelled step. Set to now writes the playhead onto the open end. The popover is hidden while none is armed, and a nudge then does nothing.
+
+## None
+
+`No intro` (and the other names) hides the chips and the popover. Submit reads `No intro · S1 E22`, or `No intro · Movie · 2010` on a movie. The payload stays 0, 0 plus the stream length. Tapping that tab again returns to editing. The button does not toggle off. Switching tabs also leaves none and restores that tab's draft clocks.
+
+IntroDB still cannot send an empty segment. Submit stays disabled and the line `IntroDB has no empty-segment submit.` stays in full.
+
+## Marks
+
+Start and end of the segment being edited are drawn on the player's seek bar. None hides those marks. The bar does not contain its own timeline.
+
+## Rules that stay
+
+- An end equal to the video length is valid. A time past the length by at most half a displayed tenth (0.05 s) clamps to the length. 5 s past it stays invalid.
+- Clocks show whole seconds until a 0.1 step. Preview uses the same H:MM:SS clock as the other tabs, including on a long video.
+- The payload is clamped to the stream length.
+- Error text is not ellipsized and has no line cap.
 
 ## States
 
-A cell is the tab, the mode, the selected end, whether the range is valid, and whether a submit is in flight.
+A cell is the tab, the mode, the selected end, whether the popover is open, whether the range is valid, and whether a submit is in flight.
 
 | Axis | Values |
 | --- | --- |
 | Tab | Intro, Recap, Credits, Preview. Movies: Intro, Credits. |
-| Mode | Editing, or none after the "No …" chip. |
+| Mode | Editing, or none after the "No …" button. |
 | Selected end | Start, End. |
+| Popover | Open, closed. |
 | Range | Valid, invalid. |
 | Submitting | In flight, or idle. |
 
-Series has 64 cells and movies have 32. Two kinds are unreachable, so a series sheet has 56 reachable cells and a movie sheet has 28:
+Series has 128 cells and movies have 64. These are unreachable, so a series bar has 72 reachable cells and a movie bar has 36:
 
-- Submitting while editing an invalid range. Submit stays disabled, so the tap does not leave the idle cell.
-- Submitting while none, when the service refuses an empty segment (IntroDB). That drops 16 more series cells (every tab, both ends, both range values).
+- Popover open while none. None closes the popover, so that combination is not a cell you can sit in.
+- Popover open while a submit is in flight. Submit closes the popover.
+- Submitting while editing an invalid range. Submit stays disabled.
+- Submitting while none, when the service refuses an empty segment (IntroDB). That drops 16 more series cells (every tab, both ends, both range values, popover already closed).
 
-Close is not a cell. It leaves the sheet. A key problem, a block line, or a successful send also keeps Submit off, without adding a cell: success sets sent on the same idle cell until a clock edit, a tab change, or leaving none.
+Close is not a cell. It leaves the bar. A key problem, a block line, or a successful send also keeps Submit off. Success sets sent on the same idle cell until a clock edit, a tab change, or leaving none.
+
+The safe area is not a reducer cell. The layout test places the bar for four windows:
+
+| Window | Insets (left, top, right, bottom) | Bar |
+| --- | --- | --- |
+| Notch on the left, landscape 844×390 | 47, 0, 0, 21 | left 47, top 320.25, width 797, height 48.75 |
+| Notch on the top, portrait 390×844 | 0, 59, 0, 34 | left 0, top 746, width 390, height 64 |
+| Home indicator, portrait 390×844 | 0, 0, 0, 34 | top 746, height 64, bottom edge 810 |
+| Short window 800×200 | 0, 59, 16, 34 | left 0, top 141, width 784, height 25 |
+
+In each case the height is at most one eighth of the video height and at most 64, and the bar stays inside the insets.
 
 | Event | Effect |
 | --- | --- |
-| Select another tab | Switch. Clears none, sent, and the error. The selected end returns to Start. Draft clocks for that tab come back; a first visit has empty clocks (invalid). Recap and Preview do nothing on a movie. |
-| Tap the open tab | While editing, nothing. While none, return to editing and clear sent. |
-| Tap the "No …" chip | Arms none. A second tap does nothing. Timeline and nudges hide. Sent clears. |
-| Tap Start / Tap End | Selects that end. |
-| Set to now | Writes the playhead onto the selected end. Hidden while none, and ignored while submitting. |
-| Nudge −5 / −1 / +1 / +5 | Adds that step to the selected end. A hold steps 0.1 s instead. A tenth shows up only after a 0.1 step. Hidden while none. |
-| Drag a handle | Moves that end and selects it. An end on the stream length, or at most half a displayed tenth past it, clamps to the length. 5 s past it stays invalid. Hidden while none. |
-| Reset marks | Clears both clocks and leaves none. |
-| Submit | Enters submitting only when the cell is valid: a valid range while editing, or none when the service accepts 0, 0 plus the stream length. |
+| Select another tab | Switch. Clears none, sent, and the popover. The selected end returns to Start. Draft clocks for that tab come back; a first visit has empty clocks (invalid). Recap and Preview do nothing on a movie. |
+| Tap the open tab | While editing, nothing. While none, return to editing, clear sent, and leave the popover closed. |
+| Tap "No …" | Arms none and closes the popover. A second tap does nothing. Chips hide. Sent clears. |
+| Tap Start / Tap End | While editing, selects that end and opens its popover. The same chip again closes it. Ignored while none or while submitting. |
+| Tap outside the popover | Closes the popover. The bar stays open. |
+| Set to now | Writes the playhead onto the selected end. Ignored unless the popover is open. |
+| Nudge −5 / −1 / +1 / +5 | Adds that step to the selected end. A hold on −1 or +1 steps 0.1 s instead. A hold on −5 or +5 keeps the labelled step. Ignored unless the popover is open. |
+| Drag a handle | Test-only. Moves that end. The on-screen bar has no second timeline to drag. |
+| Submit | Enters submitting only when the cell can be sent: a valid range while editing, or none when the service accepts 0, 0 plus the stream length. Closes the popover. |
 | Submit success | Idle, sent. Submit stays off until the next edit. |
 | Submit failure | Idle, not sent. A still-valid cell can submit again. |
-| Close | Leaves the sheet. Disabled while submitting. |
+| Close | Leaves the bar. Ignored while submitting. |
 
-Every reachable cell can return to editing: failure ends a submit, and the open tab leaves none. From editing, Close leaves the sheet. None hides the timeline and the nudges, and a nudge or a drag in that mode does not move a clock. The reducer in `PlayerToolsLogic.kt` is the check: `every submit sheet state can return to editing and only a valid one submits`.
+Every reachable cell can close the popover, and none can return to editing. Submit is enabled exactly when the cell is valid under the rules above. The reducer in `PlayerToolsLogic.kt` is the check: `every submit sheet state can return to editing and only a valid one submits`. The bounds check is `submit bar stays inside the safe area and under an eighth of the video`.
 
 ## Files
 
-- `composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/PlayerToolsStrips.kt` — sheet layout
-- `PlayerToolsOverlay.kt` — wire the chip, the selected end, the menu, and Submit
-- `PlayerToolsRuntime.kt` — same-tab return from none, reset marks
-- `PlayerToolsLogic.kt` — tab / none, hold step, status facts
-- `PlayerToolsLogicTest.kt` and an Android host test for the three states
+- `composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/PlayerToolsStrips.kt` — the bar and the popover
+- `PlayerToolsOverlay.kt` — wire the tabs, the none button, and Submit. A tap outside the bar does not dismiss it; it only closes the popover
+- `PlayerToolsRuntime.kt` — same-tab return from none
+- `PlayerToolsLogic.kt` — reducer, safe-area bounds, seek-bar fractions
+- `PlayerTimeline.kt` — start and end marks on the player's seek bar
+- `PlayerToolsLogicTest.kt` and an Android host test for the bar
 - `composeApp/src/commonMain/composeResources/values/strings.xml`
-- `Docs/FEATURES.md` — the submit-sheet lines in the feature map
+- `Docs/FEATURES.md` — the submit-bar lines in the feature map
 
 ## Risks
 
-- A phone landscape width is tight. Status, clocks, and the nudge hint wrap or move onto their own line instead of ellipsizing. The host test uses a 640×360 dp landscape window.
-- A hold must not also apply the coarse step.
-- Same-tab tap used to do nothing. It now leaves none mode. Switching tabs still clears none.
-- commonMain must stay free of JVM-only APIs. There is no Xcode here, so iOS is unverified.
-
-## How to verify
-
-- `./gradlew :composeApp:testAndroidHostTest --continue`
-- Known failures stay the seven download tests. Nothing new should fail.
-- Intro, Credits, and No intro: clocks, status, hidden timeline, and the Submit caption.
-- Hold step, an end on the stream length, a 1 ms or half-tenth overshoot, a 5 s overshoot, and a none payload of 0, 0 plus the stream length are logic tests.
-- The status line keeps the short error strings, with no line cap and no ellipsis. A source check fails if `markProblems` compares an end with the duration without `clampMarkTimeToDuration`.
-- The sheet reducer test walks every reachable cell.
+- There is no Xcode here, so iOS is unverified. The insets come from the same safe-drawing values the player already uses.
+- The player's seek bar is shown while the bar is open, with the transport row hidden, so the marks have a place to sit. The centre play control is hidden for the same reason.
+- commonMain stays free of JVM-only APIs.
