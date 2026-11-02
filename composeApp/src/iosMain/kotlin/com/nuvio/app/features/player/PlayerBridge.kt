@@ -108,6 +108,8 @@ interface NuvioPlayerBridge {
     fun getIsEnded(): Boolean
     fun getDurationMs(): Long
     fun getPositionMs(): Long
+    /** True after mpv has reported a finite time-pos for the current file. */
+    fun getTimePosValid(): Boolean
     fun getBufferedMs(): Long
     fun getPlaybackSpeed(): Float
     fun getIncomingBytesPerSec(): Long

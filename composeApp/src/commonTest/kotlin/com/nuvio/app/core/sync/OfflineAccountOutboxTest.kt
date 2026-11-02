@@ -1,9 +1,7 @@
 package com.nuvio.app.core.sync
 
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.runBlocking
-import kotlin.coroutines.CoroutineContext
+import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertSame
@@ -224,20 +222,54 @@ class OfflineAccountOutboxTest {
     }
 
     @Test
-    fun diskWritesUseTheBackgroundDispatcher() = runBlocking {
+    fun noteIsReadableFromAFreshStorageInstance() = runBlocking {
         OfflineAccountFlush.resetForTest()
-        val queued = QueuedDispatcher()
-        val disk = MemoryOfflineOutboxDisk()
+        val bytes = SharedOutboxBytes()
         try {
             assertSame(defaultOfflineOutboxDiskDispatcher, kotlinx.coroutines.Dispatchers.Default)
-            OfflineAccountFlush.diskDispatcher = queued
-            OfflineAccountFlush.disk = disk
+            OfflineAccountFlush.disk = StoreDisk(bytes)
             OfflineAccountFlush.online = { false }
             OfflineAccountFlush.note(sample(OfflineOutboxKind.WatchedMark, 1, "movie:disk", 1L, 1L))
-            assertEquals(0, disk.writes)
-            queued.pump()
-            assertEquals(1, disk.writes)
-            assertTrue(queued.dispatched)
+            val fresh = StoreDisk(bytes)
+            val document = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+                .decodeFromString(OfflineOutboxDocument.serializer(), requireNotNull(fresh.read()))
+            assertEquals(
+                "movie:disk",
+                offlineOutboxFromDocument(document).entries.single().subjectKey,
+            )
+        } finally {
+            OfflineAccountFlush.resetForTest()
+        }
+    }
+
+    @Test
+    fun oneFailingEntryDoesNotFreezeTheDrain() = runBlocking {
+        OfflineAccountFlush.resetForTest()
+        val sent = mutableListOf<String>()
+        try {
+            OfflineAccountFlush.disk = MemoryOfflineOutboxDisk()
+            OfflineAccountFlush.suspendDelay = { }
+            OfflineAccountFlush.accountReady = { true }
+            OfflineAccountFlush.playbackActive = { false }
+            OfflineAccountFlush.seedStoredQueues = false
+            OfflineAccountFlush.online = { true }
+            OfflineAccountFlush.transport = object : OfflineAccountTransport {
+                override suspend fun send(entry: OfflineOutboxEntry): Boolean {
+                    if (entry.subjectKey == "A") return false
+                    sent += entry.subjectKey
+                    return true
+                }
+            }
+            OfflineAccountFlush.note(sample(OfflineOutboxKind.WatchedMark, 1, "A", 1L, 0L))
+            OfflineAccountFlush.note(sample(OfflineOutboxKind.WatchedMark, 1, "B", 2L, 1L))
+            OfflineAccountFlush.note(sample(OfflineOutboxKind.WatchedMark, 1, "C", 3L, 1L))
+            OfflineAccountFlush.onOfflineToOnlineEdge()
+            OfflineAccountFlush.awaitIdle()
+            assertEquals(listOf("B", "C"), sent)
+            val remaining = OfflineAccountFlush.snapshot().entries.single()
+            assertEquals("A", remaining.subjectKey)
+            assertEquals(OfflineOutboxEntryState.HeldForNextEdge, remaining.state)
+            assertEquals(OfflineFlushMaxAttempts, remaining.attempts)
         } finally {
             OfflineAccountFlush.resetForTest()
         }
@@ -367,18 +399,14 @@ private class MemoryOfflineOutboxDisk : OfflineOutboxDisk {
     }
 }
 
-private class QueuedDispatcher : CoroutineDispatcher() {
-    private val blocks = mutableListOf<Runnable>()
-    var dispatched: Boolean = false
+private class SharedOutboxBytes {
+    var payload: String? = null
+}
 
-    override fun dispatch(context: CoroutineContext, block: Runnable) {
-        dispatched = true
-        blocks += block
-    }
+private class StoreDisk(private val bytes: SharedOutboxBytes) : OfflineOutboxDisk {
+    override fun read(): String? = bytes.payload
 
-    fun pump() {
-        val pending = blocks.toList()
-        blocks.clear()
-        pending.forEach { it.run() }
+    override fun write(payload: String) {
+        bytes.payload = payload
     }
 }

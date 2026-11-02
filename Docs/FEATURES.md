@@ -13,6 +13,7 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - Sleep timer: player › speed popup. 181.
 - Mini player (off by default): Settings › Playback › Mini Player. 0.5.10.1; default off in 190.
 - Private Viewing, Content Warnings, Pause Overlay, Loading screen (Off, Plain, or With status), Movie Recommendations: Settings › Playback › Player. Upstream. With status still shows the stall reason while buffering after playback has started.
+- A slow open of a downloaded file on iOS is not treated as a stall until a playback time has been seen, or until 60 seconds.
 - Playback debug readout (position, duration and every skip segment with its source): Settings › Playback › Advanced. 190. Legacy layout is in that section too.
 - Skip backward and skip forward lengths: Settings › Playback. Upstream 0.6.4.
 - Tap the on-screen duration to switch between elapsed time and time left. The clock time the stream ends sits above the seek bar. Upstream 0.6.4.
@@ -115,6 +116,9 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - Live connection watcher: iOS uses NWPathMonitor and Android uses ConnectivityManager, and both update the shared network status. A drop goes offline immediately. A return is confirmed with one debounced probe, so a captive portal or Wi-Fi with no internet stays offline. Coming back online still retries the deferred startup work once.
 - Offline banner: one line under the status bar, "Offline: showing saved data", after the connection has stayed offline for about a second. It hides as soon as the connection is back. A drop that recovers within a second does not show it. Reduce Motion skips the slide and fade. It is hidden on the full-screen player and during launch and profile selection. Tap it to check the connection once. Home, Library, Catalog, Search and Discover no longer add their own offline card.
 - Offline account sync: watched marks, the latest watch progress for each title or episode, and Library adds and removes made while offline are kept in a per-profile outbox on the device. When the connection returns they are sent once, in that order, through the existing Trakt, Simkl, and Nuvio account sync. An entry stays until the account accepts it. A failed send is retried with backoff and, after three failures, waits for the next reconnect. A newer remote change wins over an older local one, including a remote removal against a local add. While a video is playing, watched marks can still be sent; watch progress and Library edits wait until the player closes.
+- An offline unwatch is stamped with the time it was made, so a server watched time a few seconds newer does not mark that episode watched again.
+- The offline account outbox is written to disk before the edit call returns, so the last change is still there if the app is killed.
+- One offline sync entry that fails three times is held aside; the other queued entries still send.
 - In-app rating can be turned off per profile: Settings › Account › Tracking. Upstream 0.6.3.
 - Discord Rich Presence: Settings › Account. Upstream 0.6.3. Login on iOS and the Keychain token are in 0.6.5.1 from the fork.
 - iPad side bar (duo): when the system provides a vertical bar, Home, details, streams, library and the profile picker sit beside it. Upstream 0.6.4. The player turns that bar off.
