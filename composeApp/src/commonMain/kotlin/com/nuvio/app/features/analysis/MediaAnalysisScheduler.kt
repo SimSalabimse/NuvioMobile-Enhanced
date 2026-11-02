@@ -7,6 +7,7 @@ import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.FinishedDownloadDeletion
 import com.nuvio.app.features.downloads.InAppPlaybackKeepAlive
 import com.nuvio.app.features.downloads.hasStoredFingerprint
+import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -14,6 +15,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import com.nuvio.app.core.serialization.LenientJson
@@ -90,6 +92,31 @@ internal object MediaAnalysisScheduler {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val json = LenientJson
     private var job: Job? = null
+    private val runMutex = Mutex()
+    private val runAgain = atomic(false)
+
+    /** Test stand-in for [MediaAnalyzerPlatform.analyze]. Null calls the platform. */
+    internal var analyzeFileForTest: (suspend (String) -> String?)? = null
+
+    /** Test stand-in for [MediaAnalyzerPlatform.supported]. */
+    internal var supportedOverride: Boolean? = null
+
+    private fun analyserSupported(): Boolean = supportedOverride ?: MediaAnalyzerPlatform.supported
+
+    internal fun resetForTest() {
+        job?.cancel()
+        job = null
+        retryKick?.cancel()
+        retryKick = null
+        failedThisSession.clear()
+        retries.clear()
+        runAgain.value = false
+        analyzeFileForTest = null
+        supportedOverride = null
+        priorityItemId = null
+        playbackStrainExemptId = null
+        currentItem = null
+    }
 
     private val anyFeatureEnabled: Boolean
         get() = MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.SubtitleSync) ||
@@ -100,15 +127,28 @@ internal object MediaAnalysisScheduler {
 
     /** Starts a pass over finished downloads unless one is already running. */
     fun kick(startDelayMs: Long = START_DELAY_MS) {
-        if (!MediaAnalyzerPlatform.supported) return
-        if (job?.isActive == true) return
+        if (!analyserSupported()) return
+        if (!runMutex.tryLock()) {
+            runAgain.value = true
+            return
+        }
+        runMutex.unlock()
+        if (job?.isActive == true) {
+            runAgain.value = true
+            return
+        }
+        startJob(startDelayMs)
+    }
+
+    private fun startJob(startDelayMs: Long) {
         job = scope.launch {
+            val self = kotlin.coroutines.coroutineContext[Job]
             MediaAnalysisStatus.setJob(AnalysisJobState.Starting)
             try {
                 delay(startDelayMs)
                 runPending(fromBackgroundTask = false)
             } finally {
-                if (MediaAnalysisStatus.job.value !is AnalysisJobState.WaitingForCharger) {
+                if (job === self && MediaAnalysisStatus.job.value !is AnalysisJobState.WaitingForCharger) {
                     MediaAnalysisStatus.setJob(AnalysisJobState.Idle)
                 }
             }
@@ -185,7 +225,27 @@ internal object MediaAnalysisScheduler {
 
     /** True when every pending file was analysed (false: stopped, cancelled or not allowed). */
     suspend fun runPending(fromBackgroundTask: Boolean): Boolean {
-        if (!MediaAnalyzerPlatform.supported || !anyFeatureEnabled) return true
+        if (!runMutex.tryLock()) {
+            runAgain.value = true
+            return false
+        }
+        try {
+            var finished: Boolean
+            do {
+                runAgain.value = false
+                finished = runPendingOnce(fromBackgroundTask)
+            } while (runAgain.value && scopeActive())
+            return finished
+        } finally {
+            val followUp = runAgain.getAndSet(false)
+            runMutex.unlock()
+            // This coroutine may still be the active job, so kick() would only set the flag again.
+            if (followUp) startJob(startDelayMs = 0L)
+        }
+    }
+
+    private suspend fun runPendingOnce(fromBackgroundTask: Boolean): Boolean {
+        if (!analyserSupported() || !anyFeatureEnabled) return true
         DownloadsRepository.ensureLoaded()
         forgetDeletedFiles()
         while (true) {
@@ -330,17 +390,21 @@ internal object MediaAnalysisScheduler {
     }
 
     /** Runs [block] while copying the platform analyzer's progress into the status every half second. */
-    private suspend fun <T> withProgress(block: suspend () -> T): T = kotlinx.coroutines.coroutineScope {
-        val poller = launch {
-            while (isActive) {
-                delay(500)
-                MediaAnalysisStatus.updateProgress(MediaAnalyzerPlatform.progress())
+    private suspend fun <T> withProgress(block: suspend () -> T): T {
+        // The test stand-in does not report progress, and a poller would stall the host test clock.
+        if (analyzeFileForTest != null) return block()
+        return kotlinx.coroutines.coroutineScope {
+            val poller = launch {
+                while (isActive) {
+                    delay(500)
+                    MediaAnalysisStatus.updateProgress(MediaAnalyzerPlatform.progress())
+                }
             }
-        }
-        try {
-            block()
-        } finally {
-            poller.cancel()
+            try {
+                block()
+            } finally {
+                poller.cancel()
+            }
         }
     }
 
@@ -464,7 +528,10 @@ internal object MediaAnalysisScheduler {
         } else {
             InAppLogger.info("Analysis", "analyse start id=${item.id} file=${item.fileName}")
             stage(AnalysisStage.Audio)
-            val text = withProgress { MediaAnalyzerPlatform.analyze(uri) } ?: run {
+            val text = withProgress {
+                val hook = analyzeFileForTest
+                if (hook != null) hook(uri) else MediaAnalyzerPlatform.analyze(uri)
+            } ?: run {
                 InAppLogger.warn("Analysis", "analyse failed id=${item.id}")
                 if (scopeActive()) MediaAnalysisStatus.recordFailure(item, MediaAnalyzerPlatform.lastError() ?: "Could not analyse the audio")
                 return null
