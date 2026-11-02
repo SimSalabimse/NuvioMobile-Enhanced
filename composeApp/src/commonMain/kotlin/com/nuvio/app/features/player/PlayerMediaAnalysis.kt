@@ -16,7 +16,6 @@ import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.downloadOpenedBySource
 import com.nuvio.app.features.player.skip.SkipInterval
 import com.nuvio.app.features.player.skip.TheIntroDb
-import com.nuvio.app.features.player.skip.formatSecondsToHms
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
@@ -114,12 +113,13 @@ private fun skipCategory(type: String): String = when (type.lowercase()) {
 
 /**
  * The allowed online segments, plus on-device ones for each kind (intro, recap, credits) the
- * online sources did not cover. An on-device intro pre-fills Submit Timestamps.
+ * online sources did not cover. A detected range for the open segment fills Submit Timestamps.
  */
 internal fun PlayerScreenRuntime.withOnDeviceSkips(online: List<SkipInterval>): List<SkipInterval> =
     mergeOnDeviceSkips(online).also { used ->
         // Downloads cards show where each segment's times came from.
         com.nuvio.app.features.analysis.SkipSourceLedger.record(parentMetaId, activeSeasonNumber, activeEpisodeNumber, used)
+        refreshSegmentClocks(used)
     }
 
 private fun PlayerScreenRuntime.mergeOnDeviceSkips(online: List<SkipInterval>): List<SkipInterval> {
@@ -130,15 +130,6 @@ private fun PlayerScreenRuntime.mergeOnDeviceSkips(online: List<SkipInterval>): 
     val covered = allowed.map { skipCategory(it.type) }.toSet()
     val extra = onDeviceSkipIntervals().filter { skipCategory(it.type) !in covered }
     if (extra.isEmpty()) return allowed
-    extra.firstOrNull { it.type == "intro" }?.takeIf {
-        // Only fill an untouched intro form; never switch the type the user picked.
-        submitIntroSegmentType == "intro" &&
-            submitIntroStartTimeStr == com.nuvio.app.features.player.skip.EMPTY_SKIP_TIMESTAMP &&
-            submitIntroEndTimeStr == com.nuvio.app.features.player.skip.EMPTY_SKIP_TIMESTAMP
-    }?.let { intro ->
-        submitIntroStartTimeStr = formatSecondsToHms(intro.startTime)
-        submitIntroEndTimeStr = formatSecondsToHms(intro.endTime)
-    }
     InAppLogger.info("Analysis", "on-device skip intervals ${extra.joinToString { "${it.type} ${it.startTime}-${it.endTime}" }}")
     return (allowed + extra).sortedBy { it.startTime }
 }
