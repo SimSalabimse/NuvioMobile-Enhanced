@@ -20,6 +20,7 @@ internal actual object PlayerTrackPreferenceStorage {
     private const val subtitleDelayMsKey = "subtitle_delay_ms"
     private const val playbackSpeedKey = "playback_speed"
     private const val autoSkipKey = "auto_skip"
+    private const val smartDownloadCountKey = "smart_download_count"
 
     private var preferences: SharedPreferences? = null
 
@@ -42,6 +43,7 @@ internal actual object PlayerTrackPreferenceStorage {
             audioTrackId = loadString(audioTrackIdKey, id),
             playbackSpeed = loadString(playbackSpeedKey, id),
             autoSkip = loadString(autoSkipKey, id),
+            smartDownloadCount = loadString(smartDownloadCountKey, id),
             subtitleIsForced = loadBoolean(subtitleIsForcedKey, id),
         )
         return preference.takeIf {
@@ -58,6 +60,7 @@ internal actual object PlayerTrackPreferenceStorage {
                 it.audioTrackId,
                 it.playbackSpeed,
                 it.autoSkip,
+                it.smartDownloadCount,
             ).any { value -> !value.isNullOrBlank() } || it.subtitleIsForced != null
         }
     }
@@ -77,6 +80,7 @@ internal actual object PlayerTrackPreferenceStorage {
             putOptionalString(audioTrackIdKey, id, preference.audioTrackId)
             putOptionalString(playbackSpeedKey, id, preference.playbackSpeed)
             putOptionalString(autoSkipKey, id, preference.autoSkip)
+            putOptionalString(smartDownloadCountKey, id, preference.smartDownloadCount)
             putOptionalBoolean(subtitleIsForcedKey, id, preference.subtitleIsForced)
         }?.apply()
     }

@@ -58,6 +58,7 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - **Only on Wi-Fi** (smart downloads, queued episodes and Finish-a-series goals wait for Wi-Fi; on by default): Settings › Downloads. 0.5.10.2. Shown even with Smart downloads off since 193; shows 'Waiting now: …' since 194.
 - Only while charging: Settings › Downloads. 0.5.10.2.
 - Smart downloads, "Episodes to keep ready" (1–3): Settings › Downloads. 0.5.10.2.
+- Per-series Smart Downloads count (Default, 0, 1, 2, 3, or 5): series page, under the action icons, or in the ⋯ actions menu. Default follows Episodes to keep ready; 0 turns smart next-episode downloads off for that series.
 - Finish a series (flag a show; downloads continue from the furthest watched episode): details chip, Continue Watching hold menu, flag badge on cards. 178.
 - Finish a series with Smart downloads on: keeps exactly 'Episodes to keep ready' downloaded, lowest first, topped up as you watch. 194.
 - **Finish a series downloads the rest** (only with Smart downloads off; on: every remaining episode, lowest first; off: the next one): Settings › Downloads. 193; scoped in 194.
