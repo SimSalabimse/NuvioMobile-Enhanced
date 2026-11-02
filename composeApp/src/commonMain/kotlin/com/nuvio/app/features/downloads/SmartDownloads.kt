@@ -324,30 +324,65 @@ internal object SmartDownloads {
 
     /** Credits start the player knows for an episode (own mark > TheIntroDB > on-device). */
     private val liveCreditsStartMs = mutableMapOf<String, Long>()
+    private val downloadArmed = mutableSetOf<String>()
+    private var lastSampleVideoId: String? = null
+    private var lastSampleAtMs = 0L
+    private var metaFetchJob: Job? = null
+    private var metaFetchKey: String? = null
+    private var metaMissUntilMs = 0L
 
     fun reportCredits(videoId: String, creditsStartMs: Long?) {
         if (creditsStartMs == null) liveCreditsStartMs.remove(videoId) else liveCreditsStartMs[videoId] = creditsStartMs
     }
 
     /**
-     * Every progress report while watching: starts the next episodes early, about 3 minutes before
-     * the credits (or 8 minutes before the end / 85 %, whichever is first), or at half-way when the
-     * episode is large. Once per episode; downloads run throttled while playback is on screen.
+     * While an episode is playing: start the next one early enough that it finishes with this one.
+     * [decideNextEpisodeDownload] is the only timing and safety decision. Once per episode.
      */
-    fun onProgress(entry: WatchProgressEntry, positionMs: Long, durationMs: Long, analysedCreditsStartMs: Long?) {
+    fun onPlaybackSample(
+        parentMetaId: String,
+        parentMetaType: String,
+        videoId: String,
+        seasonNumber: Int?,
+        episodeNumber: Int?,
+        positionMs: Long,
+        durationMs: Long,
+        playbackSpeed: Double,
+        mediaBitrateBps: Long?,
+    ) {
         if (!isEnabled()) return
-        if (entry.seasonNumber == null || entry.episodeNumber == null) return
-        if (entry.videoId in handledVideoIds) return
-        val credits = liveCreditsStartMs[entry.videoId] ?: analysedCreditsStartMs
-        val showDownloads = DownloadsRepository.uiState.value.items.filter { it.parentMetaId == entry.parentMetaId }
-        if (showDownloads.isEmpty()) return
-        val large = showDownloads.maxByOrNull { it.updatedAtEpochMs }
-            ?.totalBytes?.let { it >= PlaybackEndRules.SMART_LARGE_EPISODE_BYTES } == true
-        val at = PlaybackEndRules.smartDownloadTriggerMs(durationMs, credits, large) ?: return
-        if (positionMs >= at) onNearEnd(entry)
+        val season = seasonNumber ?: return
+        val episode = episodeNumber ?: return
+        if (videoId.isBlank() || videoId in downloadArmed) return
+        val now = DownloadsClock.nowEpochMs()
+        if (videoId == lastSampleVideoId && now - lastSampleAtMs < NEXT_EPISODE_DOWNLOAD_SAMPLE_INTERVAL_MS) return
+        lastSampleAtMs = now
+        lastSampleVideoId = videoId
+        val items = DownloadsRepository.uiState.value.items
+        if (items.none { it.parentMetaId == parentMetaId }) return
+        val meta = metaOrLoad(parentMetaType, parentMetaId) ?: return
+        val next = nextEpisodes(meta.videos, season, episode, 1).firstOrNull()
+        val decision = decideNextEpisodeDownload(
+            nextEpisodeFacts(
+                items = items,
+                parentMetaId = parentMetaId,
+                next = next,
+                durationMs = durationMs,
+                positionMs = positionMs,
+                playbackSpeed = playbackSpeed,
+                mediaBitrateBps = mediaBitrateBps,
+            ),
+        )
+        if (decision != NextEpisodeDownloadDecision.StartNow) return
+        if (!downloadArmed.add(videoId)) return
+        com.nuvio.app.core.logging.InAppLogger.info(
+            "SmartDownloads",
+            "next episode download at ${positionMs}ms of ${durationMs}ms",
+        )
+        add(SmartDownloadRequest(parentMetaId, parentMetaType, season, episode))
     }
 
-    /** The episode on screen is near its end (credits or last minutes, see PlaybackEndRules). */
+    /** The episode on screen is near its end: the Finish a series goal moves on. The download itself starts from [onPlaybackSample]. */
     fun onNearEnd(entry: WatchProgressEntry) {
         val season = entry.seasonNumber ?: return
         val episode = entry.episodeNumber ?: return
@@ -358,10 +393,23 @@ internal object SmartDownloads {
             SmartDownloadSettings.advanceGoalAnchor(entry.parentMetaType, entry.parentMetaId, season, episode)
             checkGoal(entry.parentMetaType, entry.parentMetaId)
         }
-        if (!isEnabled()) return
-        val hasDownloadsOfShow = DownloadsRepository.uiState.value.items.any { it.parentMetaId == entry.parentMetaId }
-        if (!hasDownloadsOfShow) return
-        add(SmartDownloadRequest(entry.parentMetaId, entry.parentMetaType, season, episode))
+    }
+
+    private fun metaOrLoad(type: String, id: String): com.nuvio.app.features.details.MetaDetails? {
+        val peeked = MetaDetailsRepository.peek(type, id)
+        if (peeked != null && peeked.videos.isNotEmpty()) return peeked
+        val key = "$type|$id"
+        val now = DownloadsClock.nowEpochMs()
+        if (metaFetchJob?.isActive == true && metaFetchKey == key) return null
+        if (metaFetchKey == key && now < metaMissUntilMs) return null
+        metaFetchKey = key
+        metaFetchJob = scope.launch {
+            val loaded = runCatching { MetaDetailsRepository.fetch(type, id) }.getOrNull()
+            if (loaded == null || loaded.videos.isEmpty()) {
+                metaMissUntilMs = DownloadsClock.nowEpochMs() + 60_000L
+            }
+        }
+        return null
     }
 
     /** Queues unaired episodes (season to episode); each downloads once it airs and a source is found. */
@@ -546,7 +594,7 @@ internal object SmartDownloads {
         )
         if (fit.isEmpty()) return noSpace(request)
         if (request.goalDropped()) return null
-        val result = enqueueSeasonDownloads(meta, fit)
+        val result = enqueueSeasonDownloads(meta, fit, startedByUser = false)
         if (result.queued > 0) {
             val codes = fit.take(result.queued).joinToString(", ") { "S${it.video.season}E${it.video.episode}" }
             if (request.count != null) {
@@ -608,6 +656,43 @@ internal object SmartDownloads {
             if (list.isEmpty()) null else json.encodeToString(ListSerializer(SmartDownloadRequest.serializer()), list),
         )
     }
+}
+
+private fun nextEpisodeFacts(
+    items: List<DownloadItem>,
+    parentMetaId: String,
+    next: com.nuvio.app.features.details.MetaVideo?,
+    durationMs: Long,
+    positionMs: Long,
+    playbackSpeed: Double,
+    mediaBitrateBps: Long?,
+): NextEpisodeDownloadFacts {
+    val existing = next?.let { video ->
+        val key = downloadLogicalContentKey(parentMetaId, video.season, video.episode)
+        items.firstOrNull { it.logicalContentKey == key }
+    }
+    val nextDurationMs = next?.runtime?.takeIf { it > 0 }?.toLong()?.times(60_000L) ?: durationMs.takeIf { it > 0L }
+    return NextEpisodeDownloadFacts(
+        durationMs = durationMs,
+        positionMs = positionMs,
+        playbackSpeed = playbackSpeed,
+        hasNextEpisode = next != null,
+        nextHasAired = next?.hasAiredForDownload() == true,
+        knownSizeBytes = typicalEpisodeBytes(parentMetaId, items),
+        bitrateBitsPerSecond = mediaBitrateBps?.takeIf { it > 0L }?.toDouble(),
+        nextEpisodeDurationMs = nextDurationMs,
+        measuredDownloadBytesPerSecond = DownloadSpeedEstimate.measuredBytesPerSecond(),
+        onWifi = DownloadNetworkGuard.isOnWifi(),
+        lowDataOrExpensive = DownloadNetworkGuard.isLowDataOrExpensive(),
+        freeBytes = DownloadDiskInfo.volumeSpace()?.availableBytes,
+        manualDownloadActiveOrQueued = items.any { item ->
+            item.startedByUser && (item.status == DownloadStatus.Downloading || item.status == DownloadStatus.Queued)
+        },
+        nextAlreadyDownloaded = existing?.status == DownloadStatus.Completed,
+        nextAlreadyQueued = existing?.status == DownloadStatus.Downloading ||
+            existing?.status == DownloadStatus.Queued ||
+            existing?.status == DownloadStatus.Paused,
+    )
 }
 
 private const val HOUR_MS = 60 * 60_000L
