@@ -2,8 +2,12 @@ package com.nuvio.app.features.addons
 
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.logging.InAppLogger
+import com.nuvio.app.core.network.NetworkStatusRepository
+import com.nuvio.app.core.startup.DeferredLaunchNetworkTimeoutMs
+import com.nuvio.app.core.startup.LaunchRefreshController
 import com.nuvio.app.core.network.SupabaseProvider
 import com.nuvio.app.core.sync.putSyncOriginClientId
+import com.nuvio.app.features.home.HomeRepository
 import com.nuvio.app.features.profiles.ProfileRepository
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Order
@@ -24,6 +28,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -59,6 +64,7 @@ object AddonRepository {
     val uiState: StateFlow<AddonsUiState> = _uiState.asStateFlow()
 
     private var initialized = false
+    private var manifestRefreshDeferred = false
     private var pulledFromServer = false
     private var currentProfileId: Int = 1
     private val activeRefreshJobs = mutableMapOf<String, Job>()
@@ -78,15 +84,21 @@ object AddonRepository {
         InAppLogger.info("Addons/Repository", "initialize profile=$currentProfileId localAddons=${storedUrls.size}")
         if (storedUrls.isEmpty()) return
 
+        val deferManifestRefresh = HomeRepository.shouldDeferLaunchManifestRefresh()
         val existingByUrl = _uiState.value.addons.associateBy(ManagedAddon::manifestUrl)
         _uiState.value = AddonsUiState(
             addons = storedUrls.map { manifestUrl ->
                 existingByUrl[manifestUrl].toPendingAddon(
                     manifestUrl = manifestUrl,
                     enabled = enabledByUrl[manifestUrl],
-                )
+                ).let { addon ->
+                    if (deferManifestRefresh && addon.manifest == null) addon.copy(isRefreshing = false) else addon
+                }
             },
         )
+        manifestRefreshDeferred = deferManifestRefresh
+
+        if (deferManifestRefresh) return
 
         storedUrls.forEach { manifestUrl ->
             val existing = existingByUrl[manifestUrl]
@@ -94,6 +106,36 @@ object AddonRepository {
             if (addon?.enabled == true && (existing == null || (addon.manifest == null && !addon.isRefreshing))) {
                 refreshAddon(manifestUrl)
             }
+        }
+    }
+
+    fun releaseDeferredManifestRefresh() {
+        if (!manifestRefreshDeferred) return
+        manifestRefreshDeferred = false
+        _uiState.value.addons.forEach { addon ->
+            if (addon.enabled && addon.manifest == null && !addon.isRefreshing) {
+                refreshAddon(addon.manifestUrl)
+            }
+        }
+    }
+
+    fun refreshUnresolvedManifests() {
+        releaseDeferredManifestRefresh()
+        _uiState.value.addons.forEach { addon ->
+            if (addon.enabled && addon.manifest == null && !addon.isRefreshing) {
+                refreshAddon(addon.manifestUrl, forceRefresh = true)
+            }
+        }
+    }
+
+    suspend fun awaitManifestRefreshSettled() {
+        val started = kotlin.time.TimeSource.Monotonic.markNow()
+        while (started.elapsedNow().inWholeMilliseconds < DeferredLaunchNetworkTimeoutMs) {
+            val pending = _uiState.value.addons.any { addon ->
+                addon.enabled && addon.manifest == null && addon.isRefreshing
+            }
+            if (!pending) return
+            delay(40)
         }
     }
 
@@ -107,6 +149,7 @@ object AddonRepository {
         cancelActiveRefreshes()
         currentProfileId = effectiveProfileId
         initialized = false
+        manifestRefreshDeferred = false
         pulledFromServer = false
         _uiState.value = AddonsUiState()
     }
@@ -118,6 +161,7 @@ object AddonRepository {
         pushJobsByProfile.clear()
         currentProfileId = 1
         initialized = false
+        manifestRefreshDeferred = false
         pulledFromServer = false
         _uiState.value = AddonsUiState()
     }
@@ -413,10 +457,12 @@ object AddonRepository {
             try {
                 val result = runCatching {
                     InAppLogger.info("Addons/Manifest", "GET ${InAppLogger.redactUrl(manifestUrl)} reason=refresh")
-                    val payload = fetchAddonResponseText(
-                        url = manifestUrl,
-                        forceRefresh = forceRefresh,
-                    )
+                    val payload = withTimeoutOrNull(DeferredLaunchNetworkTimeoutMs) {
+                        fetchAddonResponseText(
+                            url = manifestUrl,
+                            forceRefresh = forceRefresh,
+                        )
+                    } ?: error("manifest refresh timed out")
                     InAppLogger.info("Addons/Manifest", "GET ${InAppLogger.redactUrl(manifestUrl)} ok chars=${payload.length} reason=refresh")
                     AddonManifestParser.parse(
                         manifestUrl = manifestUrl,
@@ -441,6 +487,9 @@ object AddonRepository {
                                     },
                                     onFailure = { error ->
                                         InAppLogger.error("Addons/Manifest", "refresh failed url=${InAppLogger.redactUrl(manifestUrl)}: ${InAppLogger.throwableSummary(error)}")
+                                        if (error !is CancellationException) {
+                                            LaunchRefreshController.noteAttemptFailed()
+                                        }
                                         addon.copy(
                                             isRefreshing = false,
                                             errorMessage = error.message ?: getString(Res.string.addon_load_manifest_failed),

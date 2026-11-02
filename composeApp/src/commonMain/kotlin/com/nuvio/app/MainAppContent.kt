@@ -64,7 +64,9 @@ import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
+import com.nuvio.app.core.startup.LaunchRefreshController
 import com.nuvio.app.core.startup.StartupPreloader
+import com.nuvio.app.core.startup.connectivityRegained
 import com.nuvio.app.core.startup.startIosStartupPreloadAfterLaunchReady
 import com.nuvio.app.core.sync.AppForegroundMonitor
 import com.nuvio.app.core.sync.AppVisibility
@@ -169,6 +171,7 @@ import com.nuvio.app.features.player.MiniPlayerController
 import com.nuvio.app.features.player.MiniPlayerHost
 import com.nuvio.app.features.player.HidePlayerSystemBars
 import com.nuvio.app.features.player.rememberExternalPlayerLauncher
+import com.nuvio.app.features.profiles.AvatarRepository
 import com.nuvio.app.features.profiles.ProfileEditScreen
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.profiles.NuvioProfile
@@ -423,9 +426,8 @@ internal fun MainAppContent(
         0
     }
     var initialHomeReady by rememberSaveable(ownsAppRuntime, appContentGeneration) {
-        mutableStateOf(!ownsAppRuntime)
+        mutableStateOf(!ownsAppRuntime || HomeRepository.uiState.value.sections.isNotEmpty())
     }
-    var offlineLaunchRouteHandled by rememberSaveable { mutableStateOf(false) }
     var networkToastBaselineReady by rememberSaveable { mutableStateOf(false) }
     var lastNetworkToastCondition by rememberSaveable { mutableStateOf(NetworkCondition.Unknown.name) }
     var watchSourceReconnectPending by remember { mutableStateOf(false) }
@@ -615,9 +617,8 @@ internal fun MainAppContent(
                 com.nuvio.app.core.perf.PerformanceMetrics.recordLaunchReady(
                     fromCachedHome = HomeRepository.isShowingSnapshot,
                 )
-                // After the launch sample. On iOS the launch clock is the first touch of
-                // PerformanceMetrics, and markProcessStart does not move it. Starting the
-                // preload any earlier (the intro) folds the 1300 ms intro hold into this number.
+                launch { AvatarRepository.fetchAvatars() }
+                HomeRepository.onLaunchContentPainted()
                 startIosStartupPreloadAfterLaunchReady(
                     isIosPlatform = isIos,
                     launchReady = true,
@@ -758,39 +759,39 @@ internal fun MainAppContent(
         }
     }
 
-    LaunchedEffect(
-        initialHomeReady,
-        offlineLaunchRouteHandled,
-        networkStatusUiState.condition,
-        downloadsUiState.completedItems,
-        downloadsUiState.items.count { it.isPlayable },
-    ) {
+    var previousConnectivity by remember { mutableStateOf(NetworkCondition.Unknown) }
+    LaunchedEffect(networkStatusUiState.condition) {
         if (!ownsAppRuntime) return@LaunchedEffect
-        if (!initialHomeReady || offlineLaunchRouteHandled) return@LaunchedEffect
-
-        when (networkStatusUiState.condition) {
-            NetworkCondition.Unknown,
-            NetworkCondition.Checking,
-            -> return@LaunchedEffect
-
-            NetworkCondition.Online -> {
-                offlineLaunchRouteHandled = true
-            }
-
+        val previous = previousConnectivity
+        val next = networkStatusUiState.condition
+        previousConnectivity = next
+        when (next) {
             NetworkCondition.NoInternet,
             NetworkCondition.ServersUnreachable,
-            -> {
-                offlineLaunchRouteHandled = true
-                val hasPlayableDownload = downloadsUiState.items.any { item ->
-                    item.isPlayable && DownloadsRepository.playableLocalFileUri(item) != null
-                }
-                if (hasPlayableDownload) {
-                    activateTab(AppScreenTab.Library)
-                    navController.navigate(DownloadsRoute(downloadsTitle)) {
-                        launchSingleTop = true
-                    }
+            -> LaunchRefreshController.noteAttemptFailed()
+
+            NetworkCondition.Online -> {
+                if (connectivityRegained(previous, next) || previous != NetworkCondition.Online) {
+                    LaunchRefreshController.onConnectivityRegained()
                 }
             }
+
+            NetworkCondition.Unknown,
+            NetworkCondition.Checking,
+            -> Unit
+        }
+    }
+
+    LaunchedEffect(initialHomeReady, authState, profileState.activeProfile?.profileIndex) {
+        if (!ownsAppRuntime || !initialHomeReady) return@LaunchedEffect
+        val authenticatedState = authState as? AuthState.Authenticated
+        val activeProfileId = profileState.activeProfile?.profileIndex
+        val syncProfileId = activeProfileId?.takeIf {
+            authenticatedState != null && !authenticatedState.isAnonymous
+        }
+        syncProfileId?.let { profileId ->
+            InAppLogger.info("Sync/Foreground", "initial pull profile=$profileId")
+            SyncManager.pullAllForProfile(profileId)
         }
     }
 
@@ -800,10 +801,6 @@ internal fun MainAppContent(
         val activeProfileId = profileState.activeProfile?.profileIndex
         val syncProfileId = activeProfileId?.takeIf {
             authenticatedState != null && !authenticatedState.isAnonymous
-        }
-        syncProfileId?.let { profileId ->
-            InAppLogger.info("Sync/Foreground", "initial pull profile=$profileId")
-            SyncManager.pullAllForProfile(profileId)
         }
         try {
             AppForegroundMonitor.events().collect { visibility ->
@@ -2557,15 +2554,17 @@ internal fun MainAppContent(
                 )
             }
 
-            androidx.compose.animation.AnimatedVisibility(
-                visibleState = launchOverlayState,
-                enter = fadeIn(),
-                exit = fadeOut(androidx.compose.animation.core.tween(400)),
-            ) {
-                AppLaunchOverlay(
-                    profile = launchOverlayProfile,
-                    modifier = Modifier.fillMaxSize(),
-                )
+            if (showLaunchOverlay || launchOverlayState.currentState || launchOverlayState.targetState) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visibleState = launchOverlayState,
+                    enter = fadeIn(),
+                    exit = fadeOut(androidx.compose.animation.core.tween(400)),
+                ) {
+                    AppLaunchOverlay(
+                        profile = launchOverlayProfile,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
 
             if (profileSwitchLoading) {
