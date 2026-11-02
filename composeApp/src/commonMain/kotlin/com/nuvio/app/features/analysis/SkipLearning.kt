@@ -197,6 +197,11 @@ internal object SkipLearning {
     ): Triple<Long, Long, Int>? {
         val mark = reference.userSegments[category]?.takeIf { it.canTeach } ?: return null
         if (!com.nuvio.app.features.player.sameCut(mark.durationMs, reference.durationMs)) return null
+        if (reference.durationMs > 0L && target.durationMs > 0L &&
+            !com.nuvio.app.features.player.sameCut(reference.durationMs, target.durationMs)
+        ) {
+            return null
+        }
         if (reference.fingerprintStepMs != target.fingerprintStepMs) return null
         val step = reference.fingerprintStepMs.coerceAtLeast(1).toLong()
         val isIntro = category == "intro"
@@ -211,10 +216,9 @@ internal object SkipLearning {
         if (targetFrames.isEmpty()) return null
         val needed = maxOf(minFrames, window.size / 2)
         val segment = FingerprintMatcher.longestSharedSegment(window, targetFrames, minFrames = needed) ?: return null
-        // The whole marked window, placed where the shared part lines up in the target.
-        val shift = segment.startB - segment.startA
-        val startFrame = shift.coerceAtLeast(0)
-        val endFrame = (window.size + shift).coerceAtMost(targetFrames.size)
+        if (segment.length * 2 < window.size) return null
+        val startFrame = segment.startB
+        val endFrame = segment.endB
         if (endFrame - startFrame < needed) return null
         val targetOffset = if (isIntro) 0L else target.tailStartMs
         val start = targetOffset + startFrame * step

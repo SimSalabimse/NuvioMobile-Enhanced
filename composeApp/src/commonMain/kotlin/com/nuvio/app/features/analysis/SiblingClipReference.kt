@@ -14,6 +14,7 @@ import com.nuvio.app.features.downloads.SmartDownloadSettings
 import com.nuvio.app.features.downloads.SmartDownloads
 import com.nuvio.app.features.downloads.seasonStreamVideoId
 import com.nuvio.app.features.player.PlayerSettingsRepository
+import com.nuvio.app.features.player.sameCut
 import com.nuvio.app.features.player.skip.SkipInterval
 import com.nuvio.app.features.player.skip.SkipIntroRepository
 import com.nuvio.app.features.player.skip.TheIntroDb
@@ -26,6 +27,7 @@ internal data class SiblingTimes(
     val episode: Int,
     val intro: Pair<Long, Long>,
     val credits: Pair<Long, Long>? = null,
+    val durationMs: Long = 0L,
 )
 
 /**
@@ -65,7 +67,16 @@ internal object SiblingClipReference {
                 imdbResolved = true
                 resolvedImdb = resolveSkipImdbId(item.parentMetaId, null, "series")
             }
-            onlineTimes(SkipIntroRepository.getSkipIntervals(resolvedImdb, season, e, requireSkipIntroEnabled = false), e)
+            onlineTimes(
+                SkipIntroRepository.getSkipIntervals(
+                    resolvedImdb,
+                    season,
+                    e,
+                    requireSkipIntroEnabled = false,
+                    durationMs = result.durationMs,
+                ),
+                e,
+            )
         } ?: return finished()
         val video = meta.videos.firstOrNull { it.season == season && it.episode == reference.episode } ?: return finished()
         val (url, headers) = streamFor(meta, video, item) ?: return unavailable()
@@ -75,7 +86,7 @@ internal object SiblingClipReference {
         var missing = false
         var read = false
         if (result.introStartMs == null) {
-            when (val clip = readClip(url, headers, decodeFingerprint(result.headFingerprint), 0L, step, reference.intro)) {
+            when (val clip = readClip(url, headers, decodeFingerprint(result.headFingerprint), 0L, step, reference.intro, result.durationMs, reference.durationMs)) {
                 ClipRead.Missing -> missing = true
                 ClipRead.Skipped -> Unit
                 is ClipRead.Read -> {
@@ -88,7 +99,7 @@ internal object SiblingClipReference {
         }
         val credits = reference.credits
         if (credits != null && result.creditsStartMs == null) {
-            when (val clip = readClip(url, headers, decodeFingerprint(result.tailFingerprint), result.tailStartMs, step, credits)) {
+            when (val clip = readClip(url, headers, decodeFingerprint(result.tailFingerprint), result.tailStartMs, step, credits, result.durationMs, reference.durationMs)) {
                 ClipRead.Missing -> missing = true
                 ClipRead.Skipped -> Unit
                 is ClipRead.Read -> {
@@ -121,6 +132,8 @@ internal object SiblingClipReference {
         framesOffsetMs: Long,
         step: Long,
         segment: Pair<Long, Long>,
+        targetDurationMs: Long,
+        referenceDurationMs: Long,
     ): ClipRead {
         if (frames.isEmpty()) return ClipRead.Skipped
         val text = MediaAnalyzerPlatform.fingerprintClip(url, headers, (segment.first - PAD_MS).coerceAtLeast(0L), segment.second + PAD_MS)
@@ -128,7 +141,18 @@ internal object SiblingClipReference {
         val clip = runCatching { json.decodeFromString(RawClipFingerprint.serializer(), text) }.getOrNull()
             ?: return ClipRead.Missing
         if (clip.stepMs.toLong() != step) return ClipRead.Skipped
-        return ClipRead.Read(locate(frames, framesOffsetMs, decodeFingerprint(clip.fingerprint), clip.startMs, step, segment))
+        return ClipRead.Read(
+            locate(
+                frames,
+                framesOffsetMs,
+                decodeFingerprint(clip.fingerprint),
+                clip.startMs,
+                step,
+                segment,
+                targetDurationMs,
+                referenceDurationMs,
+            ),
+        )
     }
 
     /** Your marks on other episodes of the season (also those never downloaded or analysed). */
@@ -137,7 +161,7 @@ internal object SiblingClipReference {
             val episode = Regex("e(\\d+)$").find(stored.key)?.groupValues?.get(1)?.toIntOrNull() ?: return@mapNotNull null
             val intro = stored.userSegments["intro"]?.takeIf { it.endMs > it.startMs && it.canTeach } ?: return@mapNotNull null
             val outro = stored.userSegments["outro"]?.takeIf { it.endMs > it.startMs && it.canTeach }
-            SiblingTimes(episode, intro.startMs to intro.endMs, outro?.let { it.startMs to it.endMs })
+            SiblingTimes(episode, intro.startMs to intro.endMs, outro?.let { it.startMs to it.endMs }, stored.durationMs)
         }
 
     private suspend fun streamFor(meta: MetaDetails, video: MetaVideo, item: DownloadItem): Pair<String, Map<String, String>>? {
@@ -190,9 +214,9 @@ internal object SiblingClipReference {
     }
 
     /**
-     * Where [segment] (times in the sibling) falls in this episode: the clip, fingerprinted from
-     * [clipStartMs], is matched against [frames] (starting at [framesOffsetMs]) and the segment
-     * shifted by the offset between the two. Needs at least 8 s or half the segment to agree.
+     * Shared audio of [segment] inside this episode. The returned range is that shared run in
+     * [frames], not a copy of the sibling window. Under half the sibling window, or file lengths
+     * more than 30 seconds apart, transfers nothing. A length of 0 does not prove a different cut.
      */
     fun locate(
         frames: IntArray,
@@ -201,13 +225,20 @@ internal object SiblingClipReference {
         clipStartMs: Long,
         step: Long,
         segment: Pair<Long, Long>,
+        targetDurationMs: Long = 0L,
+        referenceDurationMs: Long = 0L,
     ): Pair<Long, Long>? {
-        val minMs = maxOf(MIN_MATCH_MS, (segment.second - segment.first) / 2)
+        if (targetDurationMs > 0L && referenceDurationMs > 0L && !sameCut(referenceDurationMs, targetDurationMs)) {
+            return null
+        }
+        val windowMs = (segment.second - segment.first).coerceAtLeast(0L)
+        val minMs = maxOf(MIN_MATCH_MS, windowMs / 2)
         val match = FingerprintMatcher.longestSharedSegment(frames, clip, minFrames = (minMs / step).toInt().coerceAtLeast(1))
             ?: return null
-        val delta = (framesOffsetMs + match.startA * step) - (clipStartMs + match.startB * step)
-        val start = (segment.first + delta).coerceAtLeast(0L)
-        val end = segment.second + delta
+        val windowFrames = (windowMs / step).toInt()
+        if (windowFrames > 0 && match.length * 2 < windowFrames) return null
+        val start = framesOffsetMs + match.startA * step
+        val end = framesOffsetMs + match.endA * step
         return if (end > start) start to end else null
     }
 }

@@ -200,6 +200,51 @@ class FingerprintMatcherTest {
     }
 
     @Test
+    fun theIntroDbAgreementOnlyRaisesConfidence() {
+        val season = Season(9)
+        val one = season.episode("agree__s1e1", introAt = 900, creditsAt = 4300)
+        val two = season.episode("agree__s1e2", introAt = 30, creditsAt = 4000)
+        val found = SeasonSegmentDetector.detect(one, listOf(two))
+        val intro = assertNotNull(found.introStartMs) to assertNotNull(found.introEndMs)
+        val agreed = SeasonSegmentDetector.detect(one, listOf(two), theIntroDbIntro = intro)
+        val raised = assertNotNull(agreed.introConfidence)
+        assertTrue(raised.theIntroDbAgrees)
+        assertTrue(raised.strictlyBeats(assertNotNull(found.introConfidence)))
+        assertEquals(found.introStartMs, agreed.introStartMs)
+        assertEquals(found.introEndMs, agreed.introEndMs)
+        assertEquals(found.creditsStartMs, agreed.creditsStartMs)
+
+        val disagreed = SeasonSegmentDetector.detect(
+            one,
+            listOf(two),
+            theIntroDbIntro = 400_000L to 460_000L,
+            theIntroDbCredits = 10_000L to 20_000L,
+        )
+        assertEquals(found.introStartMs, disagreed.introStartMs)
+        assertEquals(found.introEndMs, disagreed.introEndMs)
+        assertEquals(found.creditsStartMs, disagreed.creditsStartMs)
+        assertEquals(found.creditsEndMs, disagreed.creditsEndMs)
+        assertEquals(false, disagreed.introConfidence?.theIntroDbAgrees)
+        assertEquals(false, disagreed.creditsConfidence?.theIntroDbAgrees)
+        assertFalse(assertNotNull(disagreed.introConfidence).strictlyBeats(assertNotNull(found.introConfidence)))
+    }
+
+    @Test
+    fun aTheIntroDbTimeDoesNotInventASegment() {
+        val one = Season(12).episode("noidb__s1e1", introAt = 900, creditsAt = 4300)
+        val other = Season(13).episode("noidb__s1e2", introAt = 30, creditsAt = 4000)
+        val found = SeasonSegmentDetector.detect(
+            one,
+            listOf(other),
+            theIntroDbIntro = 90_000L to 130_000L,
+            theIntroDbCredits = one.tailStartMs to one.durationMs,
+        )
+        assertNull(found.introStartMs)
+        assertNull(found.creditsStartMs)
+        assertNull(found.introConfidence)
+    }
+
+    @Test
     fun creditsLongerThanThreeMinutesKeepTheLastThreeMinutes() {
         val tail = noise(21, 4_800)
         val one = episodeWithTails("cap__s1e1", noise(1, 6_000), tail)

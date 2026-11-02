@@ -8,6 +8,7 @@ import com.nuvio.app.features.settings.statusTotals
 import com.nuvio.app.features.analysis.withUserSegmentsApplied
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class TheIntroDbV4Test {
@@ -65,6 +66,19 @@ class TheIntroDbV4Test {
         assertEquals("Your mark", skipSourceLabel(com.nuvio.app.features.analysis.SkipLearning.PROVIDER))
         assertEquals("On-device", skipSourceLabel(com.nuvio.app.features.player.ON_DEVICE_SKIP_PROVIDER))
         assertEquals("IntroDB", skipSourceLabel("introdb"))
+    }
+
+    @Test
+    fun fetchIncludesDurationMs() {
+        val query = theIntroDbMediaQuery(imdbId = "tt1", season = 1, episode = 2, durationMs = 1_440_000L)
+        assertTrue(query.contains("duration_ms=1440000"))
+        assertTrue(query.contains("imdb_id=tt1"))
+        assertTrue(query.contains("season=1"))
+        assertTrue(query.contains("episode=2"))
+        assertFalse(theIntroDbMediaQuery(imdbId = "tt1", season = 1, episode = 2, durationMs = 0L).contains("duration_ms"))
+        assertFalse(theIntroDbMediaQuery(imdbId = "tt1", season = 1, episode = 2).contains("duration_ms"))
+        assertEquals("tt1:1:2", skipLookupCacheKey("tt1:1:2", 0L))
+        assertEquals("tt1:1:2:1440000", skipLookupCacheKey("tt1:1:2", 1_440_000L))
     }
 
     @Test
