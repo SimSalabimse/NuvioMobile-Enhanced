@@ -4,7 +4,9 @@ import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadStatus
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.FinishedDownloadDeletion
 import com.nuvio.app.features.downloads.InAppPlaybackKeepAlive
+import com.nuvio.app.features.downloads.hasStoredFingerprint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -144,6 +146,13 @@ internal object MediaAnalysisScheduler {
 
     /** The episode being watched goes next (or now, replacing another file mid-way). */
     private var priorityItemId: String? = null
+    private var playbackStrainExemptId: String? = null
+
+    fun prioritiseForPendingDeletion(item: DownloadItem) {
+        playbackStrainExemptId = item.id
+        retries.remove(item.id)
+        prioritise(item)
+    }
 
     fun prioritise(item: DownloadItem) {
         priorityItemId = item.id
@@ -167,6 +176,7 @@ internal object MediaAnalysisScheduler {
      * (iOS frees a deleted file's space only when nothing has it open), and carry on with the rest.
      */
     fun releaseFile(downloadId: String) {
+        if (playbackStrainExemptId == downloadId) playbackStrainExemptId = null
         val runningId = (MediaAnalysisStatus.job.value as? AnalysisJobState.Running)?.itemId
         if (runningId != downloadId && currentItem?.id != downloadId) return
         if (priorityItemId == downloadId) priorityItemId = null
@@ -196,7 +206,8 @@ internal object MediaAnalysisScheduler {
             if (!fromBackgroundTask &&
                 !com.nuvio.app.features.downloads.PlaybackPriority.analysisBoosted &&
                 com.nuvio.app.features.downloads.PlaybackPriority.level ==
-                com.nuvio.app.features.downloads.PlaybackPriority.Level.Strained
+                com.nuvio.app.features.downloads.PlaybackPriority.Level.Strained &&
+                !strainExemptReady()
             ) {
                 MediaAnalysisStatus.setJob(AnalysisJobState.WaitingForPlayback)
                 delay(PLAYBACK_POLL_MS)
@@ -212,28 +223,42 @@ internal object MediaAnalysisScheduler {
             val ok = try {
                 analyzeOne(item)
             } finally {
+                currentItem = null
                 MediaAnalysisStatus.setJob(AnalysisJobState.Idle)
                 MediaAnalysisStatus.resultsChanged()
             }
             if (!scopeActive()) return false
-            if (ok) MediaAnalysisStatus.clearFailure(item.id)
-            if (ok) retries -= item.id
-            if (!ok) {
+            val attempt = if (ok) 0 else (retries[item.id]?.first ?: 0) + 1
+            val terminalFailure = !ok && attempt >= MAX_ATTEMPTS
+            if (ok) {
+                MediaAnalysisStatus.clearFailure(item.id)
+                retries -= item.id
+            } else if (terminalFailure) {
                 // Try again later instead of skipping the file for the rest of the session: it
                 // used to stay "partly analysed, queued for more" until Analyse now was tapped.
                 // After a few tries it is left alone and shown as failed, with the reason.
-                val attempt = (retries[item.id]?.first ?: 0) + 1
-                if (attempt >= MAX_ATTEMPTS) {
-                    retries -= item.id
-                    failedThisSession += item.id
-                    if (MediaAnalysisStatus.statusFor(item) !is ItemAnalysisStatus.Failed) {
-                        MediaAnalysisStatus.recordFailure(item, MediaAnalyzerPlatform.lastError() ?: "Analysis stopped")
-                    }
-                } else {
-                    retries[item.id] = attempt to (com.nuvio.app.features.streams.epochMs() + RETRY_DELAY_MS * attempt)
+                retries -= item.id
+                failedThisSession += item.id
+                if (MediaAnalysisStatus.statusFor(item) !is ItemAnalysisStatus.Failed) {
+                    MediaAnalysisStatus.recordFailure(item, MediaAnalyzerPlatform.lastError() ?: "Analysis stopped")
                 }
+            } else {
+                retries[item.id] = attempt to (com.nuvio.app.features.streams.epochMs() + RETRY_DELAY_MS * attempt)
+            }
+            val savedFingerprint = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item)).hasStoredFingerprint()
+            if (playbackStrainExemptId == item.id && (ok || terminalFailure || savedFingerprint)) {
+                playbackStrainExemptId = null
+            }
+            if (ok || terminalFailure || savedFingerprint) {
+                FinishedDownloadDeletion.analysisSettled(item.id)
             }
         }
+    }
+
+    private fun strainExemptReady(): Boolean {
+        val id = playbackStrainExemptId ?: return false
+        if (id in failedThisSession || isBackingOff(id)) return false
+        return DownloadsRepository.uiState.value.items.any { it.id == id && it.status == DownloadStatus.Completed }
     }
 
     private val failedThisSession = mutableSetOf<String>()
