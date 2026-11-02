@@ -70,6 +70,7 @@ import com.nuvio.app.core.startup.StartupPreloader
 import com.nuvio.app.core.startup.connectivityRegained
 import com.nuvio.app.core.startup.startIosStartupPreloadAfterLaunchReady
 import com.nuvio.app.core.sync.AppForegroundMonitor
+import com.nuvio.app.core.sync.OfflineAccountFlush
 import com.nuvio.app.core.sync.AppVisibility
 import com.nuvio.app.core.sync.ProfileSettingsSync
 import com.nuvio.app.core.sync.SyncManager
@@ -768,6 +769,9 @@ internal fun MainAppContent(
             -> LaunchRefreshController.noteAttemptFailed()
 
             NetworkCondition.Online -> {
+                if (connectivityRegained(previous, next)) {
+                    OfflineAccountFlush.onOfflineToOnlineEdge()
+                }
                 if (connectivityRegained(previous, next) || previous != NetworkCondition.Online) {
                     LaunchRefreshController.onConnectivityRegained()
                 }
@@ -789,6 +793,9 @@ internal fun MainAppContent(
         syncProfileId?.let { profileId ->
             InAppLogger.info("Sync/Foreground", "initial pull profile=$profileId")
             SyncManager.pullAllForProfile(profileId)
+        }
+        if (networkStatusUiState.condition == NetworkCondition.Online) {
+            OfflineAccountFlush.onSessionReady()
         }
     }
 

@@ -3,6 +3,12 @@ package com.nuvio.app.features.watchprogress
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
+import com.nuvio.app.core.sync.OfflineAccountFlush
+import com.nuvio.app.core.sync.OfflineOutboxEntry
+import com.nuvio.app.core.sync.OfflineOutboxKind
+import com.nuvio.app.core.sync.accountSyncIsOffline
+import com.nuvio.app.core.sync.offlineOutboxId
+import com.nuvio.app.core.sync.progressOutboxEntry
 import com.nuvio.app.core.tracking.ensureTrackingProvidersRegistered
 import com.nuvio.app.features.addons.AddonManifest
 import com.nuvio.app.features.addons.AddonRepository
@@ -847,6 +853,18 @@ object WatchProgressRepository {
             if (decision.clearsDirtyProgress) {
                 clearProgressDirty(progressKey)
             }
+            if (
+                decision.type == WatchProgressDeltaDecisionType.UPSERT ||
+                decision.type == WatchProgressDeltaDecisionType.DELETE
+            ) {
+                OfflineAccountFlush.drop(
+                    offlineOutboxId(
+                        currentProfileId,
+                        OfflineOutboxKind.WatchProgress,
+                        buildWatchProgressKey(event.contentId, event.season, event.episode),
+                    ),
+                )
+            }
         }
         return WatchProgressDeltaApplyResult(
             appliedUpserts = appliedUpserts,
@@ -1142,6 +1160,14 @@ object WatchProgressRepository {
             val entry = localEntriesSnapshot().resolveIdentityForUpsert(candidate)
             val existing = localEntry(entry.resolvedProgressKey())
             if (existing != null && existing.lastUpdatedEpochMs >= entry.lastUpdatedEpochMs) return@forEach
+            OfflineAccountFlush.drop(
+                offlineOutboxId(
+                    currentProfileId,
+                    OfflineOutboxKind.WatchProgress,
+                    buildWatchProgressKey(entry.parentMetaId, entry.seasonNumber, entry.episodeNumber),
+                ),
+            )
+            clearProgressDirty(entry.resolvedProgressKey())
             upsertLocalEntry(entry)
             changed = true
         }
@@ -1435,18 +1461,65 @@ object WatchProgressRepository {
 
     private fun pushScrobbleToServer(entry: WatchProgressEntry, profileId: Int) {
         if (ServerItemRef.isServerId(entry.parentMetaId)) return
+        val noted = progressOutboxEntry(profileId, entry)
+        OfflineAccountFlush.note(noted)
+        if (accountSyncIsOffline()) return
         val operationGeneration = profileGeneration.takeIf { profileId == currentProfileId }
+        val outboxId = noted.id
         accountScopeSnapshot().launch {
-            runCatching {
+            if (OfflineAccountFlush.tryClaim(outboxId) == null) return@launch
+            OfflineAccountFlush.persistNow()
+            val ok = try {
                 syncAdapter.push(profileId = profileId, entries = listOf(entry))
                 recordSuccessfulPush(
                     profileId = profileId,
                     operationGeneration = operationGeneration,
                     entries = listOf(entry),
                 )
-            }.onFailure { e ->
-                log.e(e) { "Failed to push watch progress scrobble" }
+                true
+            } catch (error: CancellationException) {
+                OfflineAccountFlush.release(outboxId)
+                throw error
+            } catch (error: Throwable) {
+                log.e(error) { "Failed to push watch progress scrobble" }
+                false
             }
+            if (ok) {
+                OfflineAccountFlush.confirm(outboxId, entry.lastUpdatedEpochMs)
+            } else {
+                OfflineAccountFlush.markFailed(outboxId, scheduleRetry = true)
+            }
+        }
+    }
+
+    internal fun seedOfflineOutbox() {
+        if (!hasLoaded) return
+        val dirty = dirtyProgressKeysSnapshot()
+        if (dirty.isEmpty()) return
+        localEntriesSnapshot()
+            .filter { entry -> entry.resolvedProgressKey() in dirty }
+            .filterNot { entry -> ServerItemRef.isServerId(entry.parentMetaId) }
+            .forEach { entry ->
+                OfflineAccountFlush.note(progressOutboxEntry(currentProfileId, entry))
+            }
+    }
+
+    internal suspend fun deliverOutbox(entry: OfflineOutboxEntry): Boolean {
+        val progress = entry.progressEntry ?: return false
+        if (ServerItemRef.isServerId(progress.parentMetaId)) return true
+        return try {
+            syncAdapter.push(profileId = entry.profileId, entries = listOf(progress))
+            recordSuccessfulPush(
+                profileId = entry.profileId,
+                operationGeneration = profileGeneration.takeIf { entry.profileId == currentProfileId },
+                entries = listOf(progress),
+            )
+            true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.e(error) { "Failed to push watch progress scrobble" }
+            false
         }
     }
 
