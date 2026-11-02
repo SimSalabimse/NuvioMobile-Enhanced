@@ -1596,6 +1596,7 @@
     <string name="network_error_empty_response_body">Cuerpo de respuesta vacío</string>
     <string name="network_error_request_failed_http">La solicitud falló con HTTP %1$d</string>
     <string name="network_no_internet_connection">Sin conexión a internet</string>
+    <string name="offline_banner_saved_data">Sin conexión: mostrando datos guardados</string>
     <string name="person_age">(edad %1$d)</string>
     <string name="person_born">Nació %1$s%2$s</string>
     <string name="person_died">Murió %1$s</string>

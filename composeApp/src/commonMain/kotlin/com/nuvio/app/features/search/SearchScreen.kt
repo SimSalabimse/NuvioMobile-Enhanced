@@ -45,7 +45,6 @@ import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.ui.NuvioInputField
 import com.nuvio.app.core.ui.NuvioScreen
-import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.nuvioConsumePointerEvents
 import com.nuvio.app.core.ui.withDuplicateSafeLazyKeys
@@ -325,7 +324,6 @@ fun SearchScreen(
                         state = discoverUiState,
                         isSourceLoading = addonManifestsLoading,
                         columns = discoverColumns,
-                        networkCondition = networkStatusUiState.condition,
                         onTypeSelected = SearchRepository::selectDiscoverType,
                         onCatalogSelected = SearchRepository::selectDiscoverCatalog,
                         onGenreSelected = SearchRepository::selectDiscoverGenre,
@@ -370,7 +368,6 @@ fun SearchScreen(
                                 SearchEmptyStateCard(
                                     reason = uiState.emptyStateReason,
                                     errorMessage = uiState.errorMessage,
-                                    networkCondition = networkStatusUiState.condition,
                                     onRetry = {
                                         if (normalizedQuery.isNotBlank()) {
                                             NetworkStatusRepository.requestRefresh(force = true)
@@ -424,22 +421,9 @@ fun SearchScreen(
 private fun SearchEmptyStateCard(
     reason: SearchEmptyStateReason?,
     errorMessage: String?,
-    networkCondition: NetworkCondition,
     onRetry: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    if (
-        reason == SearchEmptyStateReason.RequestFailed &&
-        (networkCondition == NetworkCondition.NoInternet || networkCondition == NetworkCondition.ServersUnreachable)
-    ) {
-        NuvioNetworkOfflineCard(
-            condition = networkCondition,
-            modifier = modifier,
-            onRetry = onRetry,
-        )
-        return
-    }
-
     val title: String
     val message: String
 

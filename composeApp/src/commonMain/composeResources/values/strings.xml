@@ -1960,6 +1960,7 @@
     <string name="network_error_empty_response_body">Empty response body</string>
     <string name="network_error_request_failed_http">Request failed with HTTP %1$d</string>
     <string name="network_no_internet_connection">No internet connection</string>
+    <string name="offline_banner_saved_data">Offline: showing saved data</string>
     <string name="person_age">(age %1$d)</string>
     <string name="person_born">Born %1$s%2$s</string>
     <string name="person_died">Died %1$s</string>

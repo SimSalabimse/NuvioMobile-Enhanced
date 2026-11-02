@@ -32,7 +32,6 @@ import com.nuvio.app.core.ui.LocalVerticalBarPadding
 import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
 import com.nuvio.app.core.ui.ScreenActivityEffect
 import com.nuvio.app.core.ui.NuvioScreen
-import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.core.ui.rememberHeroStretchState
 import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
@@ -1158,17 +1157,6 @@ fun HomeScreen(
                         )
                         item {
                             when {
-                                networkStatusUiState.isOfflineLike && addonManifestErrorMessage != null -> {
-                                    NuvioNetworkOfflineCard(
-                                        condition = networkStatusUiState.condition,
-                                        modifier = Modifier.padding(horizontal = 16.dp),
-                                        onRetry = {
-                                            NetworkStatusRepository.requestRefresh(force = true)
-                                            AddonRepository.refreshAll()
-                                        },
-                                    )
-                                }
-
                                 addonManifestErrorMessage != null -> {
                                     HomeEmptyStateCard(
                                         modifier = Modifier.padding(horizontal = 16.dp),
@@ -1198,38 +1186,27 @@ fun HomeScreen(
                         !hasRenderableCollectionRows -> {
                         item {
                             val loadFailed = !homeUiState.errorMessage.isNullOrBlank()
-                            if (networkStatusUiState.isOfflineLike && loadFailed) {
-                                NuvioNetworkOfflineCard(
-                                    condition = networkStatusUiState.condition,
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                    onRetry = {
+                            HomeEmptyStateCard(
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                title = stringResource(
+                                    if (loadFailed) {
+                                        Res.string.home_load_failed_title
+                                    } else {
+                                        Res.string.home_empty_no_rows_title
+                                    },
+                                ),
+                                message = homeUiState.errorMessage
+                                    ?: stringResource(Res.string.home_empty_no_rows_message),
+                                actionLabel = if (loadFailed) stringResource(Res.string.action_retry) else null,
+                                onActionClick = if (loadFailed) {
+                                    {
                                         NetworkStatusRepository.requestRefresh(force = true)
                                         HomeRepository.refresh(addonsUiState.addons.enabledAddons(), force = true)
-                                    },
-                                )
-                            } else {
-                                HomeEmptyStateCard(
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                    title = stringResource(
-                                        if (loadFailed) {
-                                            Res.string.home_load_failed_title
-                                        } else {
-                                            Res.string.home_empty_no_rows_title
-                                        },
-                                    ),
-                                    message = homeUiState.errorMessage
-                                        ?: stringResource(Res.string.home_empty_no_rows_message),
-                                    actionLabel = if (loadFailed) stringResource(Res.string.action_retry) else null,
-                                    onActionClick = if (loadFailed) {
-                                        {
-                                            NetworkStatusRepository.requestRefresh(force = true)
-                                            HomeRepository.refresh(addonsUiState.addons.enabledAddons(), force = true)
-                                        }
-                                    } else {
-                                        null
-                                    },
-                                )
-                            }
+                                    }
+                                } else {
+                                    null
+                                },
+                            )
                         }
                     }
 

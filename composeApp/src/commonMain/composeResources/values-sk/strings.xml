@@ -1214,6 +1214,7 @@
     <string name="network_error_empty_response_body">Prázdne telo odpovede</string>
     <string name="network_error_request_failed_http">Požiadavka zlyhala s HTTP %1$d</string>
     <string name="network_no_internet_connection">Žiadne internetové pripojenie</string>
+    <string name="offline_banner_saved_data">Offline: zobrazenie uložených dát</string>
     <string name="person_age">(vek %1$d)</string>
     <string name="person_born">Narodený %1$s%2$s</string>
     <string name="person_died">Zomrel %1$s</string>

@@ -1,8 +1,6 @@
 package com.nuvio.app.features.home.components
 
 import nuvio.composeapp.generated.resources.Res
-import nuvio.composeapp.generated.resources.offline_home_title
-import nuvio.composeapp.generated.resources.offline_home_message
 import nuvio.composeapp.generated.resources.offline_home_open_downloads
 import nuvio.composeapp.generated.resources.offline_home_show_home
 import nuvio.composeapp.generated.resources.offline_home_movie
@@ -34,10 +32,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -127,32 +123,10 @@ internal fun OfflineDownloadsHome(
         verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         item(key = "header") {
-            Column(
+            Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    Box(
-                        modifier = Modifier.size(48.dp).clip(CircleShape).background(colors.accent.copy(alpha = 0.16f)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(Icons.Rounded.CloudOff, contentDescription = null, tint = colors.accent, modifier = Modifier.size(24.dp))
-                    }
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(
-                            stringResource(Res.string.offline_home_title),
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = colors.textPrimary,
-                        )
-                        Text(
-                            stringResource(Res.string.offline_home_message),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = colors.textSecondary,
-                        )
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     NuvioPrimaryButton(
                         text = stringResource(Res.string.offline_home_open_downloads),
                         modifier = Modifier.weight(1f),
@@ -174,7 +148,6 @@ internal fun OfflineDownloadsHome(
                             color = colors.textPrimary,
                         )
                     }
-                }
             }
         }
 
