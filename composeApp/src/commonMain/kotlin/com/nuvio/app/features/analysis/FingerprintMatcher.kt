@@ -89,6 +89,26 @@ internal data class DetectedSegments(
     val creditsConfidence: SegmentConfidence? = null,
 )
 
+/**
+ * TheIntroDB times may raise a score that already landed on the same range.
+ * A different time, or no time, leaves the fingerprint result as it is.
+ */
+internal fun DetectedSegments.withTheIntroDbAgreement(
+    intro: Pair<Long, Long>? = null,
+    credits: Pair<Long, Long>? = null,
+): DetectedSegments = copy(
+    introConfidence = introConfidence.raisedWhen(agreesWith(introStartMs, introEndMs, intro)),
+    creditsConfidence = creditsConfidence.raisedWhen(agreesWith(creditsStartMs, creditsEndMs, credits)),
+)
+
+private fun agreesWith(startMs: Long?, endMs: Long?, external: Pair<Long, Long>?): Boolean {
+    if (startMs == null || endMs == null || external == null) return false
+    return abs(startMs - external.first) <= SEGMENT_AGREE_MS && abs(endMs - external.second) <= SEGMENT_AGREE_MS
+}
+
+private fun SegmentConfidence?.raisedWhen(agrees: Boolean): SegmentConfidence? =
+    if (this == null || !agrees) this else copy(theIntroDbAgrees = true)
+
 internal fun List<RejectedSegment>.covers(type: String, startMs: Long?, endMs: Long?): Boolean {
     if (startMs == null || endMs == null) return false
     return any { rejected ->
@@ -186,7 +206,12 @@ internal object SeasonSegmentDetector {
      * Intro and credits of [episode] against [others]. With three or more siblings the start
      * time needs two agreeing matches; fewer siblings keep the single longest run.
      */
-    fun detect(episode: MediaAnalysisResult, others: List<MediaAnalysisResult>): DetectedSegments {
+    fun detect(
+        episode: MediaAnalysisResult,
+        others: List<MediaAnalysisResult>,
+        theIntroDbIntro: Pair<Long, Long>? = null,
+        theIntroDbCredits: Pair<Long, Long>? = null,
+    ): DetectedSegments {
         val head = decodeFingerprint(episode.headFingerprint)
         val tail = decodeFingerprint(episode.tailFingerprint)
         val step = episode.fingerprintStepMs.coerceAtLeast(1)
@@ -214,7 +239,7 @@ internal object SeasonSegmentDetector {
             creditsEndMs = credit?.first?.endMs,
             introConfidence = intro?.second,
             creditsConfidence = credit?.second,
-        )
+        ).withTheIntroDbAgreement(theIntroDbIntro, theIntroDbCredits)
     }
 
     private fun introMatch(head: IntArray, otherHead: IntArray, step: Int): TimedMatch? {

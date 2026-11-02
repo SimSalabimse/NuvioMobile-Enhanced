@@ -52,6 +52,7 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - Saving an episode fingerprint back-fills intro, credits, and recap for the other stored episodes of that season, including ones whose download is already gone.
 - Season intro and credits take a start time other episodes agree on, and a later pass replaces a weaker score only when that segment was not marked.
 - Intro and credits edges snap to a nearby silence, and credits stay in the tail with a three-minute cap.
+- A transferred intro uses the shared audio in this file, a different cut is refused, and TheIntroDB is asked with the file length.
 - A failed analysis or a sibling clip that could not be read is retried up to 3 times (after 2 minutes, then 4) and remembered across launches. A new download file starts the count over. Cancelling does not count.
 - Analysis queue order: lowest season and episode first, per show. 193.
 - "Playing an episode that isn't analysed yet" prompt (Play now / Finish first / In background / Don't ask again): Settings › Playback. Only shown when the file has no stored analysis (193).
