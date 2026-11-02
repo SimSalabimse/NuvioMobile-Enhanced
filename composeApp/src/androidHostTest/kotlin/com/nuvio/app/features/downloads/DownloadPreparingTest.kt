@@ -2,13 +2,20 @@ package com.nuvio.app.features.downloads
 
 import android.app.Application
 import android.content.Context
+import android.os.Looper
 import com.nuvio.app.features.streams.StreamItem
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -108,6 +115,42 @@ class DownloadPreparingTest {
     }
 
     @Test
+    fun replacedPreparationJobStaysUntilThatJobFinishes() {
+        val id = DownloadsRepository.beginPreparation(movieTarget(), directStream())
+        val older = Job()
+        val newer = Job()
+        DownloadsRepository.bindPreparation(id, older)
+        DownloadsRepository.bindPreparation(id, newer)
+        assertTrue(older.isCancelled)
+        assertTrue(!newer.isCancelled)
+        assertEquals(DownloadStatus.Preparing, DownloadsRepository.uiState.value.items.single().status)
+
+        DownloadsRepository.cancelDownload(id)
+        assertTrue(newer.isCancelled)
+        assertTrue(DownloadsRepository.uiState.value.items.isEmpty())
+    }
+
+    @Test
+    fun downloadTapShowsPreparingBeforeTheLinkResolves() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        enqueueDownloadForRequest(sheetRequest(), directStream(), scope)
+        val looper = Shadows.shadowOf(Looper.getMainLooper())
+        if (DownloadsRepository.uiState.value.items.isEmpty()) looper.runOneTask()
+        val preparing = DownloadsRepository.uiState.value.items.single()
+        assertEquals(DownloadStatus.Preparing, preparing.status)
+        assertEquals(PREPARING_SOURCE_URL, preparing.sourceUrl)
+        assertTrue(preparing.id !in fake.running)
+
+        looper.idle()
+        val started = DownloadsRepository.uiState.value.items.single()
+        assertEquals(preparing.id, started.id)
+        assertEquals(DownloadStatus.Downloading, started.status)
+        assertEquals("https://cdn.example/movie.mkv", started.sourceUrl)
+        assertTrue(started.id in fake.running)
+        scope.cancel()
+    }
+
+    @Test
     fun preparingLeftOnDiskFailsInsteadOfStayingPreparing() {
         val id = DownloadsRepository.beginPreparation(movieTarget(), directStream())
         assertEquals(DownloadStatus.Preparing, DownloadsRepository.uiState.value.items.single().status)
@@ -122,6 +165,21 @@ class DownloadPreparingTest {
         assertEquals(PREPARATION_INTERRUPTED_MESSAGE, restored.errorMessage)
         assertTrue(id !in fake.running)
     }
+
+    private fun sheetRequest() = DownloadSheetRequest(
+        type = "movie",
+        videoId = "tt1",
+        parentMetaId = "tt1",
+        parentMetaType = "movie",
+        title = "Example",
+        logo = null,
+        poster = null,
+        background = null,
+        seasonNumber = null,
+        episodeNumber = null,
+        episodeTitle = null,
+        episodeThumbnail = null,
+    )
 
     private fun movieTarget() = DownloadTarget(
         contentType = "movie",
