@@ -64,7 +64,6 @@ import nuvio.composeapp.generated.resources.player_tools_limit
 import nuvio.composeapp.generated.resources.player_tools_mark_end
 import nuvio.composeapp.generated.resources.player_tools_mark_start
 import nuvio.composeapp.generated.resources.player_tools_movie
-import nuvio.composeapp.generated.resources.player_tools_none
 import nuvio.composeapp.generated.resources.player_tools_past_video
 import nuvio.composeapp.generated.resources.player_tools_mark_hint
 import nuvio.composeapp.generated.resources.player_tools_play_range
@@ -78,6 +77,10 @@ import nuvio.composeapp.generated.resources.player_tools_sent
 import nuvio.composeapp.generated.resources.player_tools_starts_at_zero
 import nuvio.composeapp.generated.resources.player_tools_submit
 import nuvio.composeapp.generated.resources.player_tools_subs_help
+import nuvio.composeapp.generated.resources.submit_intro_none_credits
+import nuvio.composeapp.generated.resources.submit_intro_none_intro
+import nuvio.composeapp.generated.resources.submit_intro_none_preview
+import nuvio.composeapp.generated.resources.submit_intro_none_recap
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.abs
 
@@ -163,6 +166,8 @@ internal fun SegmentMarkingLayer(
     year: String?,
     startSec: Double?,
     endSec: Double?,
+    startShowsTenth: Boolean,
+    endShowsTenth: Boolean,
     durationSec: Double,
     playheadSec: Double,
     absent: Boolean,
@@ -277,20 +282,22 @@ internal fun SegmentMarkingLayer(
                     markSegmentTypes(isMovie).forEach { type ->
                         PlayerToolChip(
                             label = markSegmentLabel(type),
-                            selected = !absent && markSegmentId(segmentType) == type,
+                            selected = markSegmentId(segmentType) == type,
                             onClick = { onSegment(type) },
                             enabled = editable,
                             modifier = Modifier.wrapContentWidth(unbounded = true),
                         )
                     }
-                    PlayerToolChip(
-                        label = stringResource(Res.string.player_tools_none),
-                        selected = absent,
-                        onClick = onAbsent,
-                        enabled = editable,
-                        modifier = Modifier.wrapContentWidth(unbounded = true),
-                    )
                 }
+                val noSegment = noSegmentLabel(segmentType)
+                PlayerToolTextButton(
+                    label = noSegment,
+                    onClick = onAbsent,
+                    selected = absent,
+                    enabled = editable,
+                    contentDescription = noSegment,
+                    modifier = Modifier.wrapContentWidth(unbounded = true),
+                )
                 MarkStatus(
                     absent = absent,
                     bothSet = bothSet,
@@ -334,7 +341,7 @@ internal fun SegmentMarkingLayer(
                 ) {
                     MarkClockRow(
                         title = stringResource(Res.string.player_tools_mark_start),
-                        clock = startSec?.let(::formatMarkClock) ?: "–",
+                        clock = startSec?.let { formatMarkClock(it, showTenth = startShowsTenth) } ?: "–",
                         onMark = onMarkStart,
                         onNudge = onNudgeStart,
                         enabled = editable,
@@ -347,7 +354,7 @@ internal fun SegmentMarkingLayer(
                     )
                     MarkClockRow(
                         title = stringResource(Res.string.player_tools_mark_end),
-                        clock = endSec?.let(::formatMarkClock) ?: "–",
+                        clock = endSec?.let { formatMarkClock(it, showTenth = endShowsTenth) } ?: "–",
                         onMark = onMarkEnd,
                         onNudge = onNudgeEnd,
                         enabled = editable,
@@ -378,6 +385,14 @@ private fun markSegmentLabel(type: String): String = when (markSegmentId(type)) 
     "recap" -> stringResource(Res.string.player_tools_recap)
     "preview" -> stringResource(Res.string.player_tools_preview)
     else -> stringResource(Res.string.player_tools_credits)
+}
+
+@Composable
+private fun noSegmentLabel(segmentType: String): String = when (noSegmentAction(segmentType)) {
+    NoSegmentAction.Intro -> stringResource(Res.string.submit_intro_none_intro)
+    NoSegmentAction.Recap -> stringResource(Res.string.submit_intro_none_recap)
+    NoSegmentAction.Credits -> stringResource(Res.string.submit_intro_none_credits)
+    NoSegmentAction.Preview -> stringResource(Res.string.submit_intro_none_preview)
 }
 
 @Composable
@@ -476,8 +491,9 @@ private fun MarkStatusLine(text: String, color: Color) {
         text = text,
         color = color,
         fontSize = 13.sp,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
+        lineHeight = 16.sp,
+        maxLines = 2,
+        overflow = TextOverflow.Clip,
         modifier = Modifier.widthIn(max = 220.dp),
     )
 }

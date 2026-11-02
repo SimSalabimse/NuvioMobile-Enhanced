@@ -9,6 +9,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class TheIntroDbSubmitPayloadTest {
     @Test
@@ -66,6 +67,82 @@ class TheIntroDbSubmitPayloadTest {
         assertEquals(12_000L, json.getValue("start_ms").jsonPrimitive.long)
         assertEquals(40_500L, json.getValue("end_ms").jsonPrimitive.long)
         assertEquals(2_700_000L, json.getValue("video_duration_ms").jsonPrimitive.long)
+    }
+
+    @Test
+    fun `each segment type submits an absent mark as zero times plus the video length`() {
+        val cases = listOf(
+            "intro" to "intro",
+            "recap" to "recap",
+            "outro" to "credits",
+            "credits" to "credits",
+            "preview" to "preview",
+        )
+        cases.forEach { (segment, expected) ->
+            val times = resolveIntroSubmitTimes(
+                IntroSubmitService.THE_INTRODB,
+                absentSegment = true,
+                startTimeStr = "00:01:10",
+                endTimeStr = "00:02:40",
+            )
+            assertEquals(0.0 to 0.0, times)
+            val body = theIntroDbSubmitPayload(
+                tmdbId = 1396,
+                imdbId = "tt0903747",
+                type = "tv",
+                segment = segment,
+                season = 1,
+                episode = 3,
+                startSec = checkNotNull(times).first,
+                endSec = times.second,
+                videoDurationMs = 2_700_000,
+            )
+            val json = Json.parseToJsonElement(checkNotNull(body)).jsonObject
+            assertEquals(0L, json.getValue("start_ms").jsonPrimitive.long, segment)
+            assertEquals(0L, json.getValue("end_ms").jsonPrimitive.long, segment)
+            assertEquals(2_700_000L, json.getValue("video_duration_ms").jsonPrimitive.long, segment)
+            assertEquals(expected, json.getValue("segment").jsonPrimitive.content, segment)
+            assertNull(
+                resolveIntroSubmitTimes(
+                    IntroSubmitService.INTRODB,
+                    absentSegment = true,
+                    startTimeStr = "00:01:10",
+                    endTimeStr = "00:02:40",
+                ),
+            )
+            val ranged = resolveIntroSubmitTimes(
+                IntroSubmitService.THE_INTRODB,
+                absentSegment = false,
+                startTimeStr = "00:01:10",
+                endTimeStr = "00:02:40",
+            )
+            assertEquals(70.0 to 160.0, ranged)
+        }
+    }
+
+    @Test
+    fun `an end on the stream length stays within the video length`() {
+        val durationMs = 2_648_900L
+        val durationSec = durationMs / 1000.0
+        val atEnd = theIntroDbEndMs(durationSec, durationMs)
+        val hair = theIntroDbEndMs(durationSec + 0.0004, durationMs)
+        assertTrue(atEnd <= durationMs && durationMs - atEnd <= 1L)
+        assertTrue(hair <= durationMs && durationMs - hair <= 1L)
+        assertTrue(theIntroDbEndMs(durationSec + 5.0, durationMs) > durationMs)
+        val body = theIntroDbSubmitPayload(
+            tmdbId = 1396,
+            type = "tv",
+            segment = "credits",
+            season = 1,
+            episode = 22,
+            startSec = durationSec - 36.7,
+            endSec = durationSec + 0.0004,
+            videoDurationMs = durationMs,
+        )
+        val json = Json.parseToJsonElement(checkNotNull(body)).jsonObject
+        val endMs = json.getValue("end_ms").jsonPrimitive.long
+        assertTrue(endMs <= durationMs && durationMs - endMs <= 1L)
+        assertEquals(durationMs, json.getValue("video_duration_ms").jsonPrimitive.long)
     }
 
     @Test

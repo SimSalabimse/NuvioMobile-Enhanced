@@ -155,6 +155,9 @@ internal fun PlayerScreenRuntime.clearSubmitIntroForm() {
     submitIntroStartTimeStr = ""
     submitIntroEndTimeStr = ""
     submitIntroDrafts.clear()
+    submitIntroTenthDrafts.clear()
+    markStartShowsTenth = false
+    markEndShowsTenth = false
 }
 
 internal fun PlayerScreenRuntime.selectToolTab(tab: PlayerToolTab) {
@@ -211,8 +214,8 @@ internal fun PlayerScreenRuntime.openMarkingStrip(prefillCurrentSegment: Boolean
             val allowed = markSegmentTypes(isMoviePlayback)
             submitIntroSegmentType = if (type in allowed) type else "intro"
             if (submitIntroSegmentType == markSegmentId(chosen.type)) {
-                submitIntroStartTimeStr = formatMarkClock(chosen.startTime)
-                submitIntroEndTimeStr = formatMarkClock(chosen.endTime)
+                submitIntroStartTimeStr = formatMarkTimestamp(chosen.startTime)
+                submitIntroEndTimeStr = formatMarkTimestamp(chosen.endTime)
             }
         }
     }
@@ -224,6 +227,7 @@ internal fun PlayerScreenRuntime.switchSubmitSegmentType(newType: String) {
     val old = markSegmentId(submitIntroSegmentType)
     if (wanted == old) return
     submitIntroDrafts[old] = submitIntroStartTimeStr to submitIntroEndTimeStr
+    submitIntroTenthDrafts[old] = markStartShowsTenth to markEndShowsTenth
     submitIntroSegmentType = wanted
     markSent = false
     markAbsent = false
@@ -238,8 +242,11 @@ internal fun PlayerScreenRuntime.switchSubmitSegmentType(newType: String) {
         knownSegmentType = known?.let { markSegmentId(it.type) },
         isMovie = isMoviePlayback,
     )
-    submitIntroStartTimeStr = clocks.startSec?.let(::formatMarkClock).orEmpty()
-    submitIntroEndTimeStr = clocks.endSec?.let(::formatMarkClock).orEmpty()
+    submitIntroStartTimeStr = clocks.startSec?.let(::formatMarkTimestamp).orEmpty()
+    submitIntroEndTimeStr = clocks.endSec?.let(::formatMarkTimestamp).orEmpty()
+    val tenths = submitIntroTenthDrafts[wanted]
+    markStartShowsTenth = tenths?.first == true
+    markEndShowsTenth = tenths?.second == true
 }
 
 internal fun PlayerScreenRuntime.noteMarkingSubmitted(result: IntroSubmitResult) {
@@ -262,11 +269,26 @@ internal fun PlayerScreenRuntime.noteMarkingSubmitted(result: IntroSubmitResult)
     markSubmitError = null
 }
 
-internal fun PlayerScreenRuntime.setMarkClock(start: Boolean, seconds: Double?) {
-    val text = seconds?.let(::formatMarkClock).orEmpty()
-    if (start) submitIntroStartTimeStr = text else submitIntroEndTimeStr = text
+internal fun PlayerScreenRuntime.setMarkClock(
+    start: Boolean,
+    seconds: Double?,
+    showTenth: Boolean = false,
+) {
+    val duration = playbackSnapshot.durationMs / 1000.0
+    val clamped = seconds?.let { clampMarkTimeToDuration(it, duration.takeIf { it > 0.0 }) }
+    val text = clamped?.let(::formatMarkTimestamp).orEmpty()
+    val tenth = clamped?.let { markClockShowsTenth(it, showTenth) } == true
+    if (start) {
+        submitIntroStartTimeStr = text
+        markStartShowsTenth = tenth
+    } else {
+        submitIntroEndTimeStr = text
+        markEndShowsTenth = tenth
+    }
     submitIntroDrafts[markSegmentId(submitIntroSegmentType)] = submitIntroStartTimeStr to submitIntroEndTimeStr
+    submitIntroTenthDrafts[markSegmentId(submitIntroSegmentType)] = markStartShowsTenth to markEndShowsTenth
     markSent = false
+    markAbsent = absentAfterClockEdit()
 }
 
 internal fun PlayerScreenRuntime.seekWhileMarking(seconds: Double) {

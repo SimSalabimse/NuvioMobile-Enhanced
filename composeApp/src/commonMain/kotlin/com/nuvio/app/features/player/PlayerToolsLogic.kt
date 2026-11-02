@@ -64,6 +64,29 @@ internal fun markSegmentLimits(segmentType: String): MarkLimits = when (markSegm
 internal fun markSegmentTypes(isMovie: Boolean): List<String> =
     if (isMovie) listOf("intro", "outro") else listOf("intro", "recap", "outro", "preview")
 
+/**
+ * The fixed "No …" button on the marking strip. It follows the selected chip.
+ * The Credits chip uses the word Credits on this button.
+ */
+internal enum class NoSegmentAction {
+    Intro,
+    Recap,
+    Credits,
+    Preview,
+}
+
+internal fun noSegmentAction(segmentType: String): NoSegmentAction = when (markSegmentId(segmentType)) {
+    "recap" -> NoSegmentAction.Recap
+    "outro" -> NoSegmentAction.Credits
+    "preview" -> NoSegmentAction.Preview
+    else -> NoSegmentAction.Intro
+}
+
+/** Tap again to leave absent mode. A clock edit always leaves it, so the two cannot be sent together. */
+internal fun absentAfterNoSegmentTap(absent: Boolean): Boolean = !absent
+
+internal fun absentAfterClockEdit(): Boolean = false
+
 internal fun markSegmentOffersStartAtZero(segmentType: String): Boolean =
     markSegmentId(segmentType) == "intro" || markSegmentId(segmentType) == "recap"
 
@@ -71,8 +94,27 @@ internal fun markSegmentOffersRunsToEnd(segmentType: String): Boolean =
     markSegmentId(segmentType) == "outro" || markSegmentId(segmentType) == "preview"
 
 /**
+ * Half of one displayed tenth. Rounding a clock onto a 0.1 s grid, or a
+ * millisecond of float error, can land this far past the stream length.
+ * Anything further is a real overshoot.
+ */
+internal const val MarkDurationSlopSec = 0.05
+
+/**
+ * An end on the stream length is the length. A hair above it (1 ms, or up to
+ * half a display tenth) is the same length. A clear overshoot is left alone.
+ */
+internal fun clampMarkTimeToDuration(timeSec: Double, durationSec: Double?): Double {
+    val time = timeSec.coerceAtLeast(0.0)
+    val duration = durationSec?.takeIf { it > 0.0 } ?: return time
+    if (time > duration && time - duration <= MarkDurationSlopSec) return duration
+    return time
+}
+
+/**
  * Hard checks. 5.0 s and 300.0 s are valid; 4.9 s and 300.1 s are not.
  * An unknown duration (null or 0) does not count as past the end.
+ * An end equal to the stream length is valid, including Runs to end.
  * A missing clock is [MarkProblem.EndNotAfterStart], so Submit stays disabled.
  */
 internal fun markProblems(
@@ -82,17 +124,19 @@ internal fun markProblems(
     durationSec: Double?,
 ): List<MarkProblem> {
     val problems = mutableListOf<MarkProblem>()
-    if (startSec == null || endSec == null || endSec <= startSec) {
+    val duration = durationSec?.takeIf { it > 0.0 }
+    val start = startSec?.let { clampMarkTimeToDuration(it, duration) }
+    val end = endSec?.let { clampMarkTimeToDuration(it, duration) }
+    if (start == null || end == null || end <= start) {
         problems += MarkProblem.EndNotAfterStart
     }
-    val duration = durationSec?.takeIf { it > 0.0 }
     if (duration != null &&
-        ((startSec != null && startSec > duration) || (endSec != null && endSec > duration))
+        ((start != null && start > duration) || (end != null && end > duration))
     ) {
         problems += MarkProblem.PastDuration
     }
-    if (startSec != null && endSec != null && endSec > startSec) {
-        val length = endSec - startSec
+    if (start != null && end != null && end > start) {
+        val length = end - start
         val limits = markSegmentLimits(segmentType)
         if (length + 1e-9 < limits.minSec) problems += MarkProblem.TooShort
         if (length - 1e-9 > limits.maxSec) problems += MarkProblem.TooLong
@@ -117,27 +161,59 @@ internal fun markLengthLabel(lengthSec: Double): String {
 }
 
 /**
- * Clock shown on Mark start / Mark end. One decimal so a 0.1 s nudge is visible.
- * Hours are unpadded (`0:01:41.0`), matching the marking strip.
+ * Clock shown on Mark start / Mark end. Whole seconds (`0:44:08`), the same
+ * second the video length uses. A tenth (`0:44:08.9`) is shown only after a
+ * 0.1 s nudge left a fraction. Hours stay unpadded so the two clocks line up.
  */
-internal fun formatMarkClock(seconds: Double): String {
-    val clamped = seconds.coerceAtLeast(0.0)
-    val totalTenths = (clamped * 10.0).roundToInt().coerceAtLeast(0)
-    val tenths = totalTenths % 10
-    val whole = totalTenths / 10
+internal fun formatMarkClock(seconds: Double, showTenth: Boolean = false): String {
+    val totalMs = (seconds.coerceAtLeast(0.0) * 1000.0).roundToInt().coerceAtLeast(0)
+    val whole = totalMs / 1000
+    val ms = totalMs % 1000
+    val base = formatMarkHms(whole)
+    if (!showTenth || ms == 0) return base
+    val tenths = (ms + 50) / 100
+    if (tenths >= 10) return formatMarkHms(whole + 1)
+    return "$base.$tenths"
+}
+
+/** True when a 0.1 s nudge should keep the tenth on screen. A whole second does not. */
+internal fun markClockShowsTenth(seconds: Double, allowTenth: Boolean): Boolean {
+    if (!allowTenth) return false
+    val ms = (seconds.coerceAtLeast(0.0) * 1000.0).roundToInt() % 1000
+    return ms != 0
+}
+
+/**
+ * Value stored for Submit. Milliseconds stay in the string so the payload is
+ * not rounded to a tenth or to a whole second.
+ */
+internal fun formatMarkTimestamp(seconds: Double): String {
+    val totalMs = (seconds.coerceAtLeast(0.0) * 1000.0).roundToInt().coerceAtLeast(0)
+    val ms = totalMs % 1000
+    val whole = totalMs / 1000
+    return formatMarkHms(whole) + "." + ms.toString().padStart(3, '0')
+}
+
+private fun formatMarkHms(totalSeconds: Int): String {
+    val whole = totalSeconds.coerceAtLeast(0)
     val hours = whole / 3600
     val minutes = (whole % 3600) / 60
     val secs = whole % 60
-    return "$hours:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.$tenths"
+    return "$hours:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}"
 }
 
 internal fun parseMarkClock(text: String): Double? = parseTimeToSeconds(text)
 
 internal fun nudgeMarkSeconds(currentSec: Double?, deltaSec: Double, durationSec: Double?): Double {
-    val max = durationSec?.takeIf { it > 0.0 } ?: (99 * 3600 + 59 * 60 + 59).toDouble()
-    val stepped = ((currentSec ?: 0.0) + deltaSec)
-    val tenths = (stepped * 10.0).roundToInt() / 10.0
-    return tenths.coerceIn(0.0, max)
+    val duration = durationSec?.takeIf { it > 0.0 }
+    val max = duration ?: (99 * 3600 + 59 * 60 + 59).toDouble()
+    val base = currentSec ?: 0.0
+    val stepped = if (abs(deltaSec) < 1.0) {
+        ((base + deltaSec) * 10.0).roundToInt() / 10.0
+    } else {
+        base + deltaSec
+    }
+    return clampMarkTimeToDuration(stepped.coerceIn(0.0, max), duration)
 }
 
 /** Credits / Preview shortcut: the end handle sits on the last frame. */
