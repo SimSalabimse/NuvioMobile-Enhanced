@@ -16,6 +16,7 @@ import coil3.request.crossfade
 import coil3.svg.SvgDecoder
 import com.nuvio.app.core.perf.PerformanceOptimization
 import com.nuvio.app.core.perf.PerformanceSettings
+import com.nuvio.app.core.perf.PosterOfflineImageFetcher
 import com.nuvio.app.core.perf.addPerformanceInterceptors
 import com.nuvio.app.core.perf.applyPosterMemoryCachePolicy
 import com.nuvio.app.core.poster.CustomPosterFallbackInterceptor
@@ -85,6 +86,7 @@ internal fun AppEnvironment(content: @Composable () -> Unit) {
                 .diskCachePolicy(CachePolicy.ENABLED)
                 .memoryCachePolicy(CachePolicy.ENABLED)
                 .components {
+                    add(PosterOfflineImageFetcher.Factory())
                     add(com.nuvio.app.features.offline.OfflineArtworkInterceptor())
                     add(CustomPosterFallbackInterceptor())
                     addPerformanceInterceptors()

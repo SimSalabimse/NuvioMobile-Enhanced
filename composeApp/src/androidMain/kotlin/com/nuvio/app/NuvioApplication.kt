@@ -12,6 +12,7 @@ import coil3.request.CachePolicy
 import coil3.request.crossfade
 import coil3.svg.SvgDecoder
 import com.nuvio.app.core.network.DnsPlatform
+import com.nuvio.app.core.perf.PosterOfflineImageFetcher
 import com.nuvio.app.core.perf.addPerformanceInterceptors
 import com.nuvio.app.core.perf.performanceImageHttpClient
 import com.nuvio.app.core.poster.CustomPosterFallbackInterceptor
@@ -35,6 +36,7 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
             .diskCachePolicy(CachePolicy.ENABLED)
             .memoryCachePolicy(CachePolicy.ENABLED)
             .components {
+                add(PosterOfflineImageFetcher.Factory())
                 add(CustomPosterFallbackInterceptor())
                 addPerformanceInterceptors()
                 add(SvgDecoder.Factory())
