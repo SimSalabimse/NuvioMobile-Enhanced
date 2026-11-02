@@ -499,8 +499,10 @@ actual fun PlatformPlayerSurface(
         var chapters = emptyList<PlayerChapter>()
         var chaptersDurationMs = 0L
         com.nuvio.app.features.downloads.PlaybackPriority.sessionStarted(isLocalPlaybackUrl(latestSourceUrl.value))
-        // Local-file stall watchdog: a file on the phone should never buffer for long. After 5 s
-        // stuck at one position it seeks there again; after 5 s more it reopens the file there.
+        // Local-file stall watchdog. Recovery waits for a valid time-pos, or LocalFileOpenTimeoutMs.
+        var openTrackedUrl: String? = null
+        var openStartedAtMs = 0L
+        var timePosSeenForOpen = false
         var stallSinceMs = 0L
         var stallPositionMs = -1L
         var stallActions = 0
@@ -546,19 +548,50 @@ actual fun PlatformPlayerSurface(
                 nowMs = nowMs,
             )
             val url = latestSourceUrl.value
-            if (wantsToPlay && snapshot.isLoading && isLocalPlaybackUrl(url)) {
+            val localFile = isLocalPlaybackUrl(url)
+            if (url != openTrackedUrl) {
+                openTrackedUrl = url
+                openStartedAtMs = 0L
+                timePosSeenForOpen = false
+                stallSinceMs = 0L
+                stallPositionMs = -1L
+                stallActions = 0
+            }
+            val timePosValid = bridge.getTimePosValid()
+            if (localFile && openStartedAtMs == 0L && (snapshot.isLoading || snapshot.isPlaying || timePosValid)) {
+                openStartedAtMs = nowMs
+            }
+            if (timePosValid && !timePosSeenForOpen) {
+                timePosSeenForOpen = true
+                stallSinceMs = 0L
+                stallPositionMs = -1L
+            }
+            val openPhase = when {
+                !localFile -> LocalFileOpenPhase.NotYetOpened
+                timePosSeenForOpen -> LocalFileOpenPhase.TimePosValid
+                openStartedAtMs == 0L -> LocalFileOpenPhase.NotYetOpened
+                else -> LocalFileOpenPhase.OpenedNoTimePos
+            }
+            if (wantsToPlay && snapshot.isLoading && localFile) {
                 if (stallSinceMs == 0L || snapshot.positionMs != stallPositionMs) {
                     stallSinceMs = nowMs
                     stallPositionMs = snapshot.positionMs
-                } else if (nowMs - stallSinceMs >= 5_000L) {
+                }
+                val decision = localFileStallDecision(
+                    phase = openPhase,
+                    elapsedSinceOpenMs = if (openStartedAtMs == 0L) 0L else nowMs - openStartedAtMs,
+                    elapsedAtSamePositionMs = nowMs - stallSinceMs,
+                )
+                if (decision == LocalFileStallDecision.Recover) {
                     stallSinceMs = nowMs
                     stallActions += 1
                     val at = snapshot.positionMs.coerceAtLeast(0L)
-                    if (stallActions % 2 == 1) {
+                    val reopen = openPhase != LocalFileOpenPhase.TimePosValid || stallActions % 2 == 0
+                    if (!reopen) {
                         InAppLogger.warn("Player/iOS", "local file stalled at ${at}ms, seeking again")
                         bridge.seekTo(at)
                     } else {
-                        InAppLogger.warn("Player/iOS", "local file still stalled at ${at}ms, reopening")
+                        InAppLogger.warn("Player/iOS", "local file stalled at ${at}ms, reopening")
                         bridge.loadFileAtPosition(
                             videoUrl = url,
                             headersJson = null,
@@ -566,6 +599,9 @@ actual fun PlatformPlayerSurface(
                             startMs = at,
                         )
                         bridge.play()
+                        timePosSeenForOpen = false
+                        openStartedAtMs = nowMs
+                        stallPositionMs = at
                     }
                 }
             } else {

@@ -256,6 +256,7 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
     func getIsEnded() -> Bool { return playerVC?.isPlayerEnded ?? false }
     func getDurationMs() -> Int64 { return playerVC?.durationMs ?? 0 }
     func getPositionMs() -> Int64 { return playerVC?.positionMs ?? 0 }
+    func getTimePosValid() -> Bool { return playerVC?.timePosValid ?? false }
     func getBufferedMs() -> Int64 { return playerVC?.bufferedMs ?? 0 }
     func getPlaybackSpeed() -> Float { playerVC?.currentSpeed ?? 1.0 }
     func getIncomingBytesPerSec() -> Int64 { playerVC?.incomingBytesPerSec ?? -1 }
@@ -509,6 +510,7 @@ final class MPVPlayerViewController: UIViewController {
     var isPlayerEnded: Bool = false
     var durationMs: Int64 = 0
     var positionMs: Int64 = 0
+    var timePosValid: Bool = false
     var bufferedMs: Int64 = 0
     var currentSpeed: Float = 1.0
     var incomingBytesPerSec: Int64 = -1
@@ -1009,6 +1011,7 @@ final class MPVPlayerViewController: UIViewController {
         applyRequestHeaders(sanitizedHeaders)
         isPlayerLoading = true
         isPlayerEnded = false
+        timePosValid = false
         playbackStateGeneration &+= 1
         invalidateMediaInfoCache()
         // `start` is a per-file option; every load sets it so a swap position never leaks into
@@ -2171,6 +2174,7 @@ final class MPVPlayerViewController: UIViewController {
         let isEnded: Bool
         let durationMs: Int64
         let positionMs: Int64
+        let timePosValid: Bool
         let bufferedMs: Int64
         let speed: Float
         let incomingBytesPerSec: Int64
@@ -2206,11 +2210,20 @@ final class MPVPlayerViewController: UIViewController {
         }
     }
 
+    /// Nil until mpv has a finite `time-pos` for this file. Zero is a real position.
+    private func finiteTimePosSeconds() -> Double? {
+        guard let ctx = mpv else { return nil }
+        var data = Double.nan
+        let status = mpv_get_property(ctx, "time-pos", MPV_FORMAT_DOUBLE, &data)
+        guard status >= 0, data.isFinite, data >= 0 else { return nil }
+        return data
+    }
+
     private func readPlaybackStateSnapshot() -> PlaybackStateSnapshot? {
         guard mpv != nil else { return nil }
         let duration = getDouble("duration")
-        let position = getDouble("time-pos")
-        let playhead = position.isFinite ? position : 0
+        let timePos = finiteTimePosSeconds()
+        let playhead = timePos ?? 0
         let bufferedEnd = demuxerCachedRangeEnd(
             playhead: playhead,
             seekableRangeEnd: finiteProperty("demuxer-cache-state/seekable-ranges/0/end"),
@@ -2233,7 +2246,8 @@ final class MPVPlayerViewController: UIViewController {
             isPlaying: !paused && !idle && !eofReached,
             isEnded: eofReached,
             durationMs: Int64(duration * 1000),
-            positionMs: Int64(max(position, 0) * 1000),
+            positionMs: Int64((timePos ?? 0) * 1000),
+            timePosValid: timePos != nil,
             bufferedMs: Int64(max(bufferedEnd, 0) * 1000),
             speed: Float(speed > 0 ? speed : 1.0),
             incomingBytesPerSec: cacheSpeed.map { Int64(max($0, 0)) } ?? -1,
@@ -2257,6 +2271,7 @@ final class MPVPlayerViewController: UIViewController {
         isPlayerEnded = snapshot.isEnded
         durationMs = snapshot.durationMs
         positionMs = snapshot.positionMs
+        timePosValid = snapshot.timePosValid
         bufferedMs = snapshot.bufferedMs
         currentSpeed = snapshot.speed
         incomingBytesPerSec = snapshot.incomingBytesPerSec

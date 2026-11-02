@@ -1,6 +1,10 @@
 package com.nuvio.app.core.sync
 
+import kotlinx.cinterop.ExperimentalForeignApi
+import platform.Foundation.NSThread
 import platform.Foundation.NSUserDefaults
+import platform.darwin.dispatch_get_global_queue
+import platform.darwin.dispatch_sync
 
 internal actual object PlatformOfflineOutboxDisk : OfflineOutboxDisk {
     private const val documentKey = "offline_account_outbox"
@@ -9,6 +13,19 @@ internal actual object PlatformOfflineOutboxDisk : OfflineOutboxDisk {
         NSUserDefaults.standardUserDefaults.stringForKey(documentKey)
 
     actual override fun write(payload: String) {
-        NSUserDefaults.standardUserDefaults.setObject(payload, forKey = documentKey)
+        val defaults = NSUserDefaults.standardUserDefaults
+        defaults.setObject(payload, forKey = documentKey)
+        defaults.synchronize()
+    }
+}
+
+@OptIn(ExperimentalForeignApi::class)
+internal actual fun runOfflineOutboxDiskWrite(block: () -> Unit) {
+    if (!NSThread.isMainThread) {
+        block()
+        return
+    }
+    dispatch_sync(dispatch_get_global_queue(0L, 0uL)) {
+        block()
     }
 }

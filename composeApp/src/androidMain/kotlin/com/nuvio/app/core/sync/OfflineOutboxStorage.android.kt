@@ -2,6 +2,9 @@ package com.nuvio.app.core.sync
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.Looper
+import java.util.concurrent.CountDownLatch
+import kotlin.concurrent.thread
 
 internal actual object PlatformOfflineOutboxDisk : OfflineOutboxDisk {
     private const val preferencesName = "nuvio_offline_outbox"
@@ -17,9 +20,35 @@ internal actual object PlatformOfflineOutboxDisk : OfflineOutboxDisk {
         preferences?.getString(documentKey, null)
 
     actual override fun write(payload: String) {
-        preferences
-            ?.edit()
-            ?.putString(documentKey, payload)
-            ?.apply()
+        val editor = preferences?.edit() ?: return
+        editor.putString(documentKey, payload)
+        editor.commit()
     }
+}
+
+internal actual fun runOfflineOutboxDiskWrite(block: () -> Unit) {
+    if (!offlineOutboxOnMainThread()) {
+        block()
+        return
+    }
+    val done = CountDownLatch(1)
+    var failure: Throwable? = null
+    thread(name = "offline-outbox-write", isDaemon = true) {
+        try {
+            block()
+        } catch (error: Throwable) {
+            failure = error
+        } finally {
+            done.countDown()
+        }
+    }
+    done.await()
+    failure?.let { throw it }
+}
+
+private fun offlineOutboxOnMainThread(): Boolean = try {
+    val main = Looper.getMainLooper()
+    main != null && main == Looper.myLooper()
+} catch (_: RuntimeException) {
+    false
 }

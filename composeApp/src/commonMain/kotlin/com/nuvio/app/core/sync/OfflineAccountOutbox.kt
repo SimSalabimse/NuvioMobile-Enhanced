@@ -270,17 +270,6 @@ internal fun releaseSending(outbox: OfflineOutbox, id: String): OfflineOutbox =
         },
     )
 
-internal fun releaseAllSending(outbox: OfflineOutbox): OfflineOutbox =
-    outbox.copy(
-        entries = outbox.entries.map { entry ->
-            if (entry.state == OfflineOutboxEntryState.Sending) {
-                entry.copy(state = OfflineOutboxEntryState.Pending, sendingTimestampEpochMs = 0L)
-            } else {
-                entry
-            }
-        },
-    )
-
 internal fun applyRemoteConflict(
     outbox: OfflineOutbox,
     id: String,

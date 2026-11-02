@@ -511,6 +511,7 @@ object WatchedRepository {
                 localItems = items.toList(),
                 dirtyKeys = dirtyKeys,
                 acknowledgeDirtyByPresence = source.providerId != null,
+                offlineUnwatchAtEpochMs = pendingOfflineUnwatchTimestamps(),
             )
             replaceWatchedItemsForSource(
                 source = source,
@@ -632,7 +633,8 @@ object WatchedRepository {
         events.forEach { event ->
             val key = watchedItemKey(event.contentType, event.contentId, event.season, event.episode)
             val remoteTimestamp = normalizeWatchedMarkedAtEpochMs(event.watchedAt)
-            OfflineAccountFlush.noteRemoteChange(
+            val offlineUnwatchAt = pendingOfflineUnwatchTimestamps()[key]
+            val remoteWon = OfflineAccountFlush.noteRemoteChange(
                 profileId = currentProfileId,
                 kind = OfflineOutboxKind.WatchedMark,
                 subjectKey = key,
@@ -641,6 +643,16 @@ object WatchedRepository {
             when (event.operation.lowercase()) {
                 watchedDeltaOperationUpsert -> {
                     upsertCount += 1
+                    if (
+                        offlineUnwatchAt != null &&
+                        !remoteWon &&
+                        offlineUnwatchBeatsServerWatchedAt(offlineUnwatchAt, remoteTimestamp)
+                    ) {
+                        targetItems.remove(key)
+                        dirtyKeys.remove(key)
+                        preservedDirtyCount += 1
+                        return@forEach
+                    }
                     val remoteItem = WatchedItem(
                         id = event.contentId,
                         type = event.contentType,
@@ -942,11 +954,12 @@ object WatchedRepository {
     }
 
     private fun noteWatchedDeletes(items: Collection<WatchedItem>, source: WatchProgressSource) {
+        val unwatchedAtEpochMs = WatchedClock.nowEpochMs()
         items.filterNot(ServerWatched::isServerItem).forEach { item ->
             OfflineAccountFlush.note(
                 watchedOutboxEntry(
                     profileId = currentProfileId,
-                    item = item,
+                    item = item.copy(markedAtEpochMs = unwatchedAtEpochMs),
                     played = false,
                     mirrorTrackers = true,
                     source = source,
@@ -954,6 +967,13 @@ object WatchedRepository {
             )
         }
     }
+
+    private fun pendingOfflineUnwatchTimestamps(): Map<String, Long> =
+        OfflineAccountFlush.snapshot().entries.mapNotNull { entry ->
+            if (entry.profileId != currentProfileId) return@mapNotNull null
+            if (entry.kind != OfflineOutboxKind.WatchedMark || entry.played) return@mapNotNull null
+            entry.subjectKey to entry.timestampEpochMs
+        }.toMap()
 
     fun isWatched(
         id: String,
@@ -1355,6 +1375,7 @@ object WatchedRepository {
                                 localItems = providerItems[providerId]?.values.orEmpty().toList(),
                                 dirtyKeys = dirtyKeys,
                                 acknowledgeDirtyByPresence = true,
+                                offlineUnwatchAtEpochMs = pendingOfflineUnwatchTimestamps(),
                             )
                             providerItems[providerId] = merged.items.toMutableMap()
                             dirtyKeys.clear()
@@ -1536,11 +1557,19 @@ internal data class WatchedSnapshotMerge(
     val dirtyKeys: Set<String>,
 )
 
+internal fun offlineUnwatchBeatsServerWatchedAt(
+    unwatchTimestampEpochMs: Long,
+    serverWatchedAtEpochMs: Long,
+): Boolean =
+    resolveOfflineOutboxConflict(unwatchTimestampEpochMs, serverWatchedAtEpochMs) ==
+        OfflineConflictWinner.Local
+
 internal fun mergeWatchedSnapshot(
     serverItems: Collection<WatchedItem>,
     localItems: Collection<WatchedItem>,
     dirtyKeys: Set<String>,
     acknowledgeDirtyByPresence: Boolean = false,
+    offlineUnwatchAtEpochMs: Map<String, Long> = emptyMap(),
 ): WatchedSnapshotMerge {
     val remoteByKey = serverItems
         .map(WatchedItem::normalizedMarkedAt)
@@ -1561,6 +1590,14 @@ internal fun mergeWatchedSnapshot(
             remainingDirtyKeys -= key
         } else {
             remoteByKey[key] = localItem
+        }
+    }
+
+    offlineUnwatchAtEpochMs.forEach { (key, unwatchAt) ->
+        val remoteItem = remoteByKey[key] ?: return@forEach
+        if (offlineUnwatchBeatsServerWatchedAt(unwatchAt, remoteItem.markedAtEpochMs)) {
+            remoteByKey.remove(key)
+            remainingDirtyKeys.remove(key)
         }
     }
 
