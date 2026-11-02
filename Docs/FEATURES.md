@@ -89,6 +89,7 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 
 ## Home
 - Hero section, trailers, catalogs, catalog type labels, hide unreleased: Settings › Layout › Home Layout. Upstream. The hero also shows ratings and the age rating. Upstream 0.6.4.
+- Posters and backdrops that were shown while online stay on disk and still show with no network, or when the image request fails. The disk copy is capped at 250 MB and drops the least recently used picture past that. While online, a copy still inside its cache lifetime is reused and an expired one is loaded again, including when the server sent no-store or a short max-age. A miss offline keeps the card placeholder instead of waiting on a spinner. Home, details, library, search.
 - Continue Watching (show/hide, episode thumbnails, Next Up rules, sort order, resume prompt on launch, pause untouched items): Settings › Layout › Continue Watching. Upstream/enhanced.
 - Offline Home Continue Watching shows the saved Continue Watching rows for the active profile, in that order. A downloaded episode or movie plays; a card that is not downloaded is dimmed and does not open. If that save is missing or unreadable, the row stays the downloaded episodes already started, and it hides when there are none.
 - Finish a series row: Settings › Layout › Continue Watching › Finish a series. 178.
@@ -142,6 +143,7 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - Watch stats: EXISTS (Profile insights / WatchStats).
 - Offline mode: PARTIAL (downloads keep their artwork offline; opened titles and Continue Watching rows reopen from disk; there's no app-wide offline mode).
 - Offline mode: the app-wide banner says saved data is on screen. Downloads still play, and the downloads-first home lists them.
+- Offline mode: PARTIAL (downloads keep their artwork offline; posters and backdrops already seen stay in a 250 MB on-disk cache. There's no app-wide offline catalog).
 
 ## Offline details and Continue Watching
 
