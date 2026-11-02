@@ -119,7 +119,7 @@ final class DownloadsLiveActivityManager {
             await endStopped(payload, activities: activities)
             return
         }
-        guard let payload, payload.status == "Downloading" else {
+        guard let payload, payload.status == "Downloading" || payload.status == "Preparing" else {
             for activity in activities where activity.attributes.downloadId == payload?.id {
                 await activity.end(dismissalPolicy: .immediate)
             }
@@ -255,6 +255,7 @@ final class DownloadsLiveActivityManager {
     }
 
     private func transferredText(_ payload: DownloadsLiveStatusPayload) -> String {
+        if payload.status == "Preparing" { return "Preparing" }
         let downloaded = formatBytes(payload.downloadedBytes)
         if let total = payload.totalBytes {
             return "\(downloaded) / \(formatBytes(total))"

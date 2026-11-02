@@ -16,6 +16,8 @@ data class DetailsDownloadProgress(
     val fraction: Float? = null,
     /** The row behind a Paused or Failed mark, so the mark can resume or retry it. */
     val downloadId: String? = null,
+    /** Indeterminate because the link is still being resolved, not because the size is unknown. */
+    val preparing: Boolean = false,
 ) {
     companion object {
         val None = DetailsDownloadProgress(DetailsDownloadProgressKind.None)
@@ -49,6 +51,13 @@ fun detailsDownloadProgress(
     logicalContentKey: String,
 ): DetailsDownloadProgress {
     val matches = items.filter { it.logicalContentKey == logicalContentKey }
+    matches.firstOrNull { it.status == DownloadStatus.Preparing }?.let { preparing ->
+        return DetailsDownloadProgress(
+            kind = DetailsDownloadProgressKind.Indeterminate,
+            downloadId = preparing.id,
+            preparing = true,
+        )
+    }
     val downloading = matches.firstOrNull { it.status == DownloadStatus.Downloading }
     if (downloading != null) {
         val percent = downloading.downloadsScreenProgressPercent()

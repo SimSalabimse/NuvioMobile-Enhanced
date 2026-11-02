@@ -192,13 +192,14 @@ internal enum class SeasonExistingDownload {
 /**
  * [DownloadsRepository.enqueueFromStream] replaces an existing row for the same episode, which deletes
  * the finished file or the partial file. The season sheet must not do that to an episode the user
- * already has, so a finished, running, queued or paused download is left out. A failed one can be queued again.
+ * already has, so a finished, running, queued, paused or preparing download is left out. A failed one can be queued again.
  */
 internal fun seasonExistingDownload(status: DownloadStatus?): SeasonExistingDownload? = when (status) {
     DownloadStatus.Completed -> SeasonExistingDownload.Downloaded
     DownloadStatus.Downloading,
     DownloadStatus.Queued,
     DownloadStatus.Paused,
+    DownloadStatus.Preparing,
     -> SeasonExistingDownload.InProgress
     DownloadStatus.Failed,
     null,

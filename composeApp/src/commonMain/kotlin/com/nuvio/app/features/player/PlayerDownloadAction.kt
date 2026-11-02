@@ -71,6 +71,7 @@ private fun PlayerScreenRuntime.onPlayerDownloadClick(row: DownloadItem?) {
     when (row?.status) {
         DownloadStatus.Completed -> NuvioToastController.show("Already downloaded")
         DownloadStatus.Downloading, DownloadStatus.Queued -> NuvioToastController.show("Downloading in the background")
+        DownloadStatus.Preparing -> NuvioToastController.show("Preparing the download")
         DownloadStatus.Paused -> {
             DownloadsRepository.resumeDownload(row.id)
             NuvioToastController.show("Download resumed")
@@ -136,6 +137,7 @@ internal fun playerDownloadIndicator(row: DownloadItem?): PlayerDownloadIndicato
     DownloadStatus.Paused -> PlayerDownloadIndicator.Paused
     DownloadStatus.Failed -> PlayerDownloadIndicator.Failed
     DownloadStatus.Queued -> PlayerDownloadIndicator.Waiting
+    DownloadStatus.Preparing -> PlayerDownloadIndicator.Spinner
     DownloadStatus.Downloading -> row.totalBytes?.takeIf { it > 0L }
         ?.let { PlayerDownloadIndicator.Progress(((row.downloadedBytes * 100) / it).toInt().coerceIn(0, 100)) }
         ?: PlayerDownloadIndicator.Spinner

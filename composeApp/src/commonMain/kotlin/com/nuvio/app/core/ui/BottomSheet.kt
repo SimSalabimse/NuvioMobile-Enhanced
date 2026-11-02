@@ -9,12 +9,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -46,6 +50,12 @@ import com.nuvio.app.core.ui.glass.liquidGlassSurface
 import com.nuvio.app.core.ui.glass.nuvioBackdropSource
 
 private val SheetShape = RoundedCornerShape(NuvioTokens.Space.s28)
+
+/** Top corners only, so an edge-to-edge sheet meets the bottom of the screen in a straight line. */
+private val SheetTopShape = RoundedCornerShape(
+    topStart = NuvioTokens.Space.s28,
+    topEnd = NuvioTokens.Space.s28,
+)
 
 internal const val FLAG_SHEET_DETENT_ID = "nuvio.flag"
 
@@ -126,6 +136,11 @@ fun NuvioModalBottomSheet(
     showDragHandle: Boolean = true,
     fullHeight: Boolean = false,
     liquidGlass: Boolean = false,
+    /**
+     * Draws the sheet colour to the physical bottom of the screen, behind the home indicator
+     * or navigation bar, and pads the content by that inset.
+     */
+    edgeToEdgeBottom: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     if (usesNativeNuvioBottomSheet) {
@@ -137,6 +152,7 @@ fun NuvioModalBottomSheet(
             showDragHandle = showDragHandle,
             fullHeight = fullHeight,
             liquidGlass = liquidGlass,
+            edgeToEdgeBottom = edgeToEdgeBottom,
             content = content,
         )
     } else {
@@ -149,6 +165,14 @@ fun NuvioModalBottomSheet(
             }
         }
         val sheetGlassReady = sheetBackdrop != null && sheetBackdrop.backdrop.isReady && isLiquidGlassSupported()
+        val sheetShape = if (edgeToEdgeBottom) SheetTopShape else SheetShape
+        // Zero insets let the coloured column reach the screen edge. The navigation-bar padding
+        // sits inside that colour, so the home indicator / gesture bar is covered and the buttons are not.
+        val bottomInset = if (edgeToEdgeBottom) {
+            WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        } else {
+            0.dp
+        }
         ModalBottomSheet(
             onDismissRequest = onDismissRequest,
             sheetState = sheetState,
@@ -157,18 +181,27 @@ fun NuvioModalBottomSheet(
             contentColor = contentColor,
             scrimColor = tokens.colors.overlayScrim,
             dragHandle = null,
+            contentWindowInsets = {
+                if (edgeToEdgeBottom) WindowInsets(0, 0, 0, 0) else BottomSheetDefaults.windowInsets
+            },
         ) {
             CompositionLocalProvider(LocalBottomInsetsConsumed provides true) {
                 Column(
                     modifier = modifier
-                        .padding(NuvioTokens.Space.s10)
-                        .clip(SheetShape)
+                        .padding(
+                            start = NuvioTokens.Space.s10,
+                            top = NuvioTokens.Space.s10,
+                            end = NuvioTokens.Space.s10,
+                            bottom = if (edgeToEdgeBottom) 0.dp else NuvioTokens.Space.s10,
+                        )
+                        .clip(sheetShape)
                         .nuvioSheetSurface(
                             backdrop = sheetBackdrop?.backdrop,
-                            shape = SheetShape,
+                            shape = sheetShape,
                             containerColor = containerColor,
                         )
-                        .then(if (sheetGlassReady) Modifier else Modifier.border(tokens.borders.thin, SurfaceEdge, SheetShape)),
+                        .then(if (sheetGlassReady) Modifier else Modifier.border(tokens.borders.thin, SurfaceEdge, sheetShape))
+                        .padding(bottom = bottomInset),
                 ) {
                     if (showDragHandle) {
                         NuvioBottomSheetDragHandle(Modifier.align(Alignment.CenterHorizontally))

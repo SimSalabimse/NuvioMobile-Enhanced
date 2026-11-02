@@ -334,6 +334,7 @@ private func activityStopped(_ context: ActivityViewContext<DownloadsLiveActivit
 /// Short state for the narrow slots, or nil while it is running normally.
 @available(iOSApplicationExtension 16.1, *)
 private func activityStateWord(_ context: ActivityViewContext<DownloadsLiveActivityAttributes>) -> String? {
+    if context.state.status == "Preparing" { return "Preparing" }
     if context.state.status == "Failed" { return "Failed" }
     if context.state.status == "Waiting" || activityUnconfirmed(context) { return "Paused" }
     return nil
@@ -342,6 +343,7 @@ private func activityStateWord(_ context: ActivityViewContext<DownloadsLiveActiv
 /// The size line, or why it stopped.
 @available(iOSApplicationExtension 16.1, *)
 private func activityStatusLine(_ context: ActivityViewContext<DownloadsLiveActivityAttributes>) -> (text: String, inBackground: Bool) {
+    if context.state.status == "Preparing" { return ("Preparing", false) }
     if activityStopped(context) { return (context.state.transferredText, false) }
     if activityUnconfirmed(context) { return ("Paused — open Nuvio to check", false) }
     return activitySizeParts(context.state.transferredText)

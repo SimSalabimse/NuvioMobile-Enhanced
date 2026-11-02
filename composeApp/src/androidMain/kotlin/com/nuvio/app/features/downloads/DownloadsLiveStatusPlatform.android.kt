@@ -43,7 +43,8 @@ internal actual object DownloadsLiveStatusPlatform {
         val activeItems = items.filter { item ->
             item.status == DownloadStatus.Downloading ||
                 item.status == DownloadStatus.Paused ||
-                item.status == DownloadStatus.Failed
+                item.status == DownloadStatus.Failed ||
+                item.status == DownloadStatus.Preparing
         }
         val managedIds = DownloadsPlatformDownloader.managedTransfers().map { it.item.id }.toSet()
 
@@ -151,6 +152,23 @@ internal actual object DownloadsLiveStatusPlatform {
                 }
             }
 
+            DownloadStatus.Preparing -> {
+                notificationBuilder
+                    .setOngoing(true)
+                    .setPriority(NotificationCompat.PRIORITY_LOW)
+                    .setProgress(0, 0, true)
+                    .addAction(
+                        0,
+                        runBlocking { getString(Res.string.action_cancel) },
+                        buildActionPendingIntent(
+                            context = context,
+                            action = DownloadsNotificationActionReceiver.actionCancel,
+                            downloadId = item.id,
+                            fileName = item.fileName,
+                        ),
+                    )
+            }
+
             DownloadStatus.Paused,
             DownloadStatus.Failed,
             DownloadStatus.Completed,
@@ -198,6 +216,7 @@ internal actual object DownloadsLiveStatusPlatform {
 
             DownloadStatus.Paused -> runBlocking { getString(Res.string.downloads_live_paused, detail) }
             DownloadStatus.Queued -> runBlocking { getString(Res.string.downloads_status_queued) }
+            DownloadStatus.Preparing -> runBlocking { getString(Res.string.downloads_status_preparing) }
             DownloadStatus.Failed -> item.errorMessage?.takeIf { it.isNotBlank() } ?: runBlocking { getString(Res.string.downloads_live_failed) }
             DownloadStatus.Completed -> runBlocking { getString(Res.string.downloads_live_completed) }
         }

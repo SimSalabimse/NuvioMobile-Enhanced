@@ -116,7 +116,11 @@ internal fun DownloadQualitySheet(
     fun sizeOf(stream: StreamItem): Long? =
         downloadStreamBytes(stream) ?: stream.playableDirectUrl?.let { probed[it] }
 
-    NuvioModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    NuvioModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        edgeToEdgeBottom = true,
+    ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = nuvioSafeBottomPadding()),
             verticalArrangement = Arrangement.spacedBy(8.dp),

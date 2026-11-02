@@ -1,0 +1,3 @@
+com/nuvio/app/features/library/LibraryRepository.kt localState.remove(id, type)
+com/nuvio/app/features/mdblist/MdbListTrackingWrites.kt history.remove(scope(profileId), TrackingAnimeIdMapper.toImdbReferences(items))
+com/nuvio/app/features/mdblist/MdbListWatchedSyncAdapter.kt history.remove(scope(profileId), TrackingAnimeIdMapper.toImdbReferences(items.map { it.reference() }))

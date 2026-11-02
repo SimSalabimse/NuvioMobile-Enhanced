@@ -377,6 +377,7 @@ internal fun SeasonDownloadSheet(
         onDismissRequest = { dismiss() },
         sheetState = sheetState,
         fullHeight = true,
+        edgeToEdgeBottom = true,
     ) {
         Text(
             text = stringResource(Res.string.season_download_title, seasonLabel),

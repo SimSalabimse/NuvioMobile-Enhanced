@@ -44,6 +44,7 @@ import com.nuvio.app.features.downloads.resumeDownloadFromMark
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_player_downloaded
 import nuvio.composeapp.generated.resources.details_download_action
+import nuvio.composeapp.generated.resources.downloads_status_preparing
 import nuvio.composeapp.generated.resources.download_mark_failed
 import nuvio.composeapp.generated.resources.download_mark_paused
 import nuvio.composeapp.generated.resources.download_mark_resume
@@ -69,9 +70,12 @@ internal fun downloadProgressLabel(progress: DetailsDownloadProgress): String {
         DetailsDownloadProgressKind.Queued -> stringResource(Res.string.download_mark_waiting)
         DetailsDownloadProgressKind.Paused -> pausedLabel(progress)
         DetailsDownloadProgressKind.Failed -> stringResource(Res.string.download_mark_failed)
-        DetailsDownloadProgressKind.Indeterminate,
-        DetailsDownloadProgressKind.None,
-        -> action
+        DetailsDownloadProgressKind.Indeterminate -> if (progress.preparing) {
+            stringResource(Res.string.downloads_status_preparing)
+        } else {
+            action
+        }
+        DetailsDownloadProgressKind.None -> action
     }
 }
 
