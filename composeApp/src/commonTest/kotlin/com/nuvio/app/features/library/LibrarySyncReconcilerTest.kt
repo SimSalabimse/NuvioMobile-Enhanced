@@ -104,6 +104,49 @@ class LibrarySyncReconcilerTest {
         assertFalse(result.changed)
     }
 
+    @Test
+    fun `newer remote removal drops an older local add`() {
+        val localUpsert = libraryItem(id = "local", savedAtEpochMs = 10L)
+        val remoteRemoval = libraryItem(id = "local", savedAtEpochMs = 30L)
+
+        val result = reconcileLibraryDelta(
+            events = listOf(
+                LibraryDeltaEvent(eventId = 4L, operation = "delete", item = remoteRemoval),
+            ),
+            currentItemsByKey = mapOf(libraryItemKey(localUpsert.id, localUpsert.type) to localUpsert),
+            pendingUpsertKeysByKey = mapOf(
+                libraryItemKey(localUpsert.id, localUpsert.type) to
+                    LibrarySyncKey(localUpsert.id, localUpsert.type),
+            ),
+            pendingDeleteKeysByKey = emptyMap(),
+            currentCursorEventId = 3L,
+        )
+
+        assertTrue(result.itemsByKey.isEmpty())
+        assertTrue(result.pendingUpsertKeysByKey.isEmpty())
+        assertTrue(result.changed)
+    }
+
+    @Test
+    fun `newer remote library item replaces an older pending add`() {
+        val localUpsert = libraryItem(id = "changed", savedAtEpochMs = 10L)
+        val remote = libraryItem(id = "changed", savedAtEpochMs = 40L)
+
+        val result = reconcileLibrarySnapshot(
+            serverItems = listOf(remote),
+            localItemsByKey = mapOf(libraryItemKey(localUpsert.id, localUpsert.type) to localUpsert),
+            pendingUpsertKeysByKey = mapOf(
+                libraryItemKey(localUpsert.id, localUpsert.type) to
+                    LibrarySyncKey(localUpsert.id, localUpsert.type),
+            ),
+            pendingDeleteKeysByKey = emptyMap(),
+        )
+
+        assertEquals(40L, result.itemsByKey[libraryItemKey("changed", "movie")]?.savedAtEpochMs)
+        assertTrue(result.pendingUpsertKeysByKey.isEmpty())
+        assertFalse(result.preservedLocalItems)
+    }
+
     private fun libraryItem(
         id: String,
         savedAtEpochMs: Long,
