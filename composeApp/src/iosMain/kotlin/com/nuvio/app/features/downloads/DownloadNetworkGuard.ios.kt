@@ -33,4 +33,6 @@ actual object DownloadNetworkGuard {
             CFRelease(reachability)
         }
     }
+
+    actual fun isLowDataOrExpensive(): Boolean = false
 }

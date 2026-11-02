@@ -103,8 +103,8 @@ internal object FinishedDownloadDeletion {
     /**
      * Every progress report of the in-app player, with the real position (not snapped to the
      * duration). Queues the file once the position is at the credits or in the last two minutes
-     * ([PlaybackEndRules.reachedEnd]), unqueues it when the viewer goes back before that, and asks
-     * smart downloads for the next episodes near the end.
+     * ([PlaybackEndRules.reachedEnd]), unqueues it when the viewer goes back before that, and moves
+     * a Finish a series goal on near the end. The next-episode download is scheduled from playback.
      */
     fun onLocalProgress(entry: WatchProgressEntry, positionMs: Long, durationMs: Long) {
         val current = session ?: return
@@ -116,7 +116,6 @@ internal object FinishedDownloadDeletion {
             ?: current.linkedDownloadId?.let { id -> items.firstOrNull { it.id == id } }
         val creditsStartMs = item?.let { creditsStartFor(it) }
         val near = PlaybackEndRules.nearEnd(positionMs, durationMs, creditsStartMs)
-        SmartDownloads.onProgress(entry, positionMs, durationMs, creditsStartMs)
         if (near) SmartDownloads.onNearEnd(entry)
         val tracked = current.copy(nearEnd = near)
         session = tracked

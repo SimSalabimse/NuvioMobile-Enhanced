@@ -1315,6 +1315,19 @@ object WatchProgressRepository {
             durationMs = durationMs,
             isEnded = snapshot.isEnded,
         )
+        if (snapshot.isPlaying) {
+            com.nuvio.app.features.downloads.SmartDownloads.onPlaybackSample(
+                parentMetaId = session.parentMetaId,
+                parentMetaType = session.parentMetaType,
+                videoId = session.videoId,
+                seasonNumber = session.seasonNumber,
+                episodeNumber = session.episodeNumber,
+                positionMs = positionMs,
+                durationMs = durationMs,
+                playbackSpeed = snapshot.playbackSpeed.toDouble(),
+                mediaBitrateBps = snapshot.mediaBitrateBps,
+            )
+        }
         if (!isCompleted && !shouldStoreWatchProgress(positionMs = positionMs, durationMs = durationMs)) {
             return
         }

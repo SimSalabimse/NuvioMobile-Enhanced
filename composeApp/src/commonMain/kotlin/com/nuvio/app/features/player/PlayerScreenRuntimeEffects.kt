@@ -33,6 +33,7 @@ import com.nuvio.app.features.player.skip.internalSkipAction
 import com.nuvio.app.features.player.skip.intervalsAtSeekPositions
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.FinishedDownloadDeletion
+import com.nuvio.app.features.downloads.SmartDownloads
 import com.nuvio.app.features.downloads.PartialPlaybackLease
 import com.nuvio.app.features.downloads.partialPlaybackDownloadId
 import com.nuvio.app.features.servers.ServerPlayback
@@ -593,6 +594,18 @@ private fun PlayerScreenRuntime.BindPlayerUiVisibilityEffects() {
             }
             if (playbackSnapshot.isPlaying) {
                 persistPlaybackProgressTick()
+                val playing = playbackSession
+                SmartDownloads.onPlaybackSample(
+                    parentMetaId = playing.parentMetaId,
+                    parentMetaType = playing.parentMetaType,
+                    videoId = playing.videoId,
+                    seasonNumber = playing.seasonNumber,
+                    episodeNumber = playing.episodeNumber,
+                    positionMs = playbackClock.positionMs,
+                    durationMs = playbackSnapshot.durationMs,
+                    playbackSpeed = playbackSnapshot.playbackSpeed.toDouble(),
+                    mediaBitrateBps = playbackSnapshot.mediaBitrateBps,
+                )
             }
         }
     }

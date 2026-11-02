@@ -63,6 +63,8 @@ data class DownloadItem(
     val needsLinkRefresh: Boolean = false,
     /** The refresh could not run in the background; it runs the next time the app is opened. */
     val waitingForAppOpen: Boolean = false,
+    /** False for a download the app started on its own (smart downloads, the next episode while playing). */
+    val startedByUser: Boolean = true,
 ) {
     val isEpisode: Boolean
         get() = seasonNumber != null && episodeNumber != null

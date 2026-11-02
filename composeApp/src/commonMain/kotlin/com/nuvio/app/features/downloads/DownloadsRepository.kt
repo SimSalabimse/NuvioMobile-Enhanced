@@ -215,6 +215,7 @@ object DownloadsRepository {
         episodeTitle: String?,
         episodeThumbnail: String?,
         stream: StreamItem,
+        startedByUser: Boolean = true,
     ): DownloadEnqueueResult {
         ensureLoaded()
 
@@ -295,6 +296,7 @@ object DownloadsRepository {
             errorMessage = null,
             createdAtEpochMs = now,
             updatedAtEpochMs = now,
+            startedByUser = startedByUser,
         )
 
         currentItems.add(0, item)
@@ -1040,7 +1042,9 @@ object DownloadsRepository {
             items = items,
             heldForPlayback = heldForPlayback(items),
         )
-        runCatching { DownloadSpeeds.onItems(items, DownloadsClock.nowEpochMs()) }
+        val now = DownloadsClock.nowEpochMs()
+        runCatching { DownloadSpeeds.onItems(items, now) }
+        runCatching { DownloadSpeedEstimate.onItems(items, now) }
         notifyLiveStatusPlatform()
     }
 
