@@ -71,6 +71,8 @@ internal data class MediaAnalysisResult(
      * A Wrong tap that does not save a new range adds nothing here.
      */
     val rejectedSegments: List<RejectedSegment> = emptyList(),
+    /** Quiet runs kept after the energy track is dropped, so edges can still snap. */
+    val silentRanges: List<SilentRange> = emptyList(),
 )
 
 /** How sure a detected intro or credits range is. More agreeing siblings win, then fewer bit errors. */
@@ -89,6 +91,13 @@ internal data class SegmentConfidence(
 @Serializable
 internal data class RejectedSegment(
     val type: String,
+    val startMs: Long,
+    val endMs: Long,
+)
+
+/** A quiet stretch of the analysed file, in milliseconds. */
+@Serializable
+internal data class SilentRange(
     val startMs: Long,
     val endMs: Long,
 )
@@ -177,6 +186,20 @@ internal fun encodeFingerprint(values: IntArray): String {
         bytes[i * 4 + 2] = (v ushr 16).toByte()
         bytes[i * 4 + 3] = (v ushr 24).toByte()
     }
+    return Base64.encode(bytes)
+}
+
+/** One byte per step, 0 = -90 dBFS .. 255 = 0 dBFS. */
+@OptIn(ExperimentalEncodingApi::class)
+internal fun decodeEnergyLevels(encoded: String?): IntArray {
+    if (encoded.isNullOrEmpty()) return IntArray(0)
+    val bytes = runCatching { Base64.decode(encoded) }.getOrNull() ?: return IntArray(0)
+    return IntArray(bytes.size) { bytes[it].toInt() and 0xFF }
+}
+
+@OptIn(ExperimentalEncodingApi::class)
+internal fun encodeEnergyLevels(levels: IntArray): String {
+    val bytes = ByteArray(levels.size) { levels[it].toByte() }
     return Base64.encode(bytes)
 }
 

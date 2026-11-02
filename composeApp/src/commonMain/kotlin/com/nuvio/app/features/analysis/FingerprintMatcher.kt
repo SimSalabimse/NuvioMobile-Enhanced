@@ -30,9 +30,11 @@ internal object FingerprintMatcher {
         maxFrames: Int = Int.MAX_VALUE,
         maxBitErrors: Int = 6,
         maxGapFrames: Int = 5,
+        keepEnd: Boolean = false,
     ): SharedSegment? {
         if (a.isEmpty() || b.isEmpty()) return null
         var best: SharedSegment? = null
+        var bestRun = 0
         // shift = indexB - indexA
         for (shift in -(a.size - 1) until b.size) {
             val startI = maxOf(0, -shift)
@@ -55,14 +57,16 @@ internal object FingerprintMatcher {
                     matchCount++
                     lastMatch = i
                     val length = lastMatch + 1 - runStart
-                    if (length >= minFrames && length <= maxFrames && length > (best?.length ?: 0) && matchCount > 0) {
-                        best = SharedSegment(
-                            runStart,
-                            lastMatch + 1,
-                            runStart + shift,
-                            lastMatch + 1 + shift,
-                            bitErrorSum.toDouble() / matchCount,
-                        )
+                    if (matchCount > 0 && length >= minFrames) {
+                        val average = bitErrorSum.toDouble() / matchCount
+                        if (keepEnd && length > bestRun) {
+                            bestRun = length
+                            val end = lastMatch + 1
+                            val start = if (length > maxFrames) end - maxFrames else runStart
+                            best = SharedSegment(start, end, start + shift, end + shift, average)
+                        } else if (!keepEnd && length <= maxFrames && length > (best?.length ?: 0)) {
+                            best = SharedSegment(runStart, lastMatch + 1, runStart + shift, lastMatch + 1 + shift, average)
+                        }
                     }
                 }
                 i++
@@ -175,6 +179,7 @@ internal object SeasonSegmentDetector {
     private const val MIN_INTRO_MS = 15_000L
     private const val MAX_INTRO_MS = 150_000L
     private const val MIN_CREDITS_MS = 15_000L
+    private const val MAX_CREDITS_MS = 180_000L
     private const val CREDITS_END_SNAP_MS = 10_000L
 
     /**
@@ -237,9 +242,13 @@ internal object SeasonSegmentDetector {
             tail,
             otherTail,
             minFrames = (MIN_CREDITS_MS / step).toInt(),
+            maxFrames = (MAX_CREDITS_MS / step).toInt().coerceAtLeast(1),
+            keepEnd = true,
         ) ?: return null
         val start = episode.tailStartMs + segment.startA * step.toLong()
+        if (start < episode.tailStartMs) return null
         val rawEnd = episode.tailStartMs + segment.endA * step.toLong()
+        if (rawEnd <= episode.tailStartMs) return null
         val end = if (episode.durationMs > 0L && episode.durationMs - rawEnd < CREDITS_END_SNAP_MS) {
             episode.durationMs
         } else {
