@@ -2554,15 +2554,17 @@ internal fun MainAppContent(
                 )
             }
 
-            androidx.compose.animation.AnimatedVisibility(
-                visibleState = launchOverlayState,
-                enter = fadeIn(),
-                exit = fadeOut(androidx.compose.animation.core.tween(400)),
-            ) {
-                AppLaunchOverlay(
-                    profile = launchOverlayProfile,
-                    modifier = Modifier.fillMaxSize(),
-                )
+            if (showLaunchOverlay || launchOverlayState.currentState || launchOverlayState.targetState) {
+                androidx.compose.animation.AnimatedVisibility(
+                    visibleState = launchOverlayState,
+                    enter = fadeIn(),
+                    exit = fadeOut(androidx.compose.animation.core.tween(400)),
+                ) {
+                    AppLaunchOverlay(
+                        profile = launchOverlayProfile,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
             }
 
             if (profileSwitchLoading) {

@@ -32,7 +32,9 @@ import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.startup.SynchronousLaunch
 import com.nuvio.app.features.home.HomeRepository
+import com.nuvio.app.features.profiles.ColdStartChromeInput
 import com.nuvio.app.features.profiles.FirstFrameDestination
+import com.nuvio.app.features.profiles.coldStartChrome
 import com.nuvio.app.core.perf.PerformanceOptimization
 import com.nuvio.app.core.perf.PerformanceSettings
 import com.nuvio.app.core.sync.SyncManager
@@ -540,8 +542,24 @@ internal fun AppGate(
         ProfileRepository.pullProfiles()
     }
 
+    val coldStart = coldStartChrome(
+        ColdStartChromeInput(
+            rememberedProfile = launchFrame.destination == FirstFrameDestination.Home,
+            avatarCached = profileAvatars.isNotEmpty() ||
+                profileState.activeProfile?.avatarUrl?.isNotBlank() == true,
+            pickerRequestedByUser = profilePickerRequestedByUser,
+            profileStillExists = profileState.profiles.any {
+                it.profileIndex == ProfileRepository.activeProfileId
+            } || (
+                launchFrame.destination == FirstFrameDestination.Home &&
+                    profileState.cachePhase == ProfileCachePhase.Reading
+                ),
+            online = NetworkStatusRepository.uiState.value.isOnline,
+        ),
+    )
     val profileOverlayVisible =
-        gateScreen == AppGateScreen.ProfileSelection.name || profileSelectionLoading
+        coldStart.composePicker &&
+            (gateScreen == AppGateScreen.ProfileSelection.name || profileSelectionLoading)
     val profileOverlayState = remember {
         MutableTransitionState(profileOverlayVisible)
     }
@@ -557,11 +575,14 @@ internal fun AppGate(
         }
     }
     val launchOverlayVisible =
-        !renderMainContent &&
+        coldStart.composeAvatarLoader &&
+            !profileSelectionLoading &&
+            !profileSelectionTransitionActive &&
+            !renderMainContent &&
             gateScreen == AppGateScreen.Main.name &&
             !externalMainContentReady
     val launchOverlayState = remember {
-        MutableTransitionState(launchOverlayVisible)
+        MutableTransitionState(false)
     }
     launchOverlayState.targetState = launchOverlayVisible
 
@@ -661,7 +682,7 @@ internal fun AppGate(
                             useNativeTabBar = useNativeTabBar,
                             useTabletFloatingTabBar = useTabletFloatingTabBar,
                             ownsAppRuntime = ownsAppRuntime,
-                            showLaunchOverlay = !profileSelectionLoading,
+                            showLaunchOverlay = coldStart.composeAvatarLoader && !profileSelectionLoading,
                             onNavigate = onNavigate,
                             onGoBack = onGoBack,
                             onReplace = onReplace,
@@ -691,18 +712,21 @@ internal fun AppGate(
             }
         }
 
-        androidx.compose.animation.AnimatedVisibility(
-            visibleState = launchOverlayState,
-            enter = fadeIn(tween(400)),
-            exit = fadeOut(tween(400)),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            AppLaunchOverlay(
-                profile = profileState.activeProfile ?: profileState.profiles.firstOrNull(),
+        if (coldStart.composeAvatarLoader || launchOverlayState.currentState || launchOverlayState.targetState) {
+            androidx.compose.animation.AnimatedVisibility(
+                visibleState = launchOverlayState,
+                enter = fadeIn(tween(400)),
+                exit = fadeOut(tween(400)),
                 modifier = Modifier.fillMaxSize(),
-            )
+            ) {
+                AppLaunchOverlay(
+                    profile = profileState.activeProfile ?: profileState.profiles.firstOrNull(),
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
 
+        if (coldStart.composePicker || profileOverlayState.currentState || profileOverlayState.targetState) {
         androidx.compose.animation.AnimatedVisibility(
             visibleState = profileOverlayState,
             enter = if (skipProfileSelectionEnterAnimation) {
@@ -802,6 +826,7 @@ internal fun AppGate(
                     )
                 }
             }
+        }
         }
     }
 }

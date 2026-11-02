@@ -332,6 +332,44 @@ class ProfileStartupGateTest {
     }
 
     @Test
+    fun `remembered profile does not compose the picker or the avatar loader`() {
+        val avatarChoices = listOf(false, true)
+        val requestedChoices = listOf(false, true)
+        val existsChoices = listOf(false, true)
+        val rememberedChoices = listOf(false, true)
+        val onlineChoices = listOf(false, true)
+        for (remembered in rememberedChoices) {
+            for (avatarCached in avatarChoices) {
+                for (requested in requestedChoices) {
+                    for (exists in existsChoices) {
+                        for (online in onlineChoices) {
+                            val input = ColdStartChromeInput(
+                                rememberedProfile = remembered,
+                                avatarCached = avatarCached,
+                                pickerRequestedByUser = requested,
+                                profileStillExists = exists,
+                                online = online,
+                            )
+                            val chrome = coldStartChrome(input)
+                            val offline = coldStartChrome(input.copy(online = !online))
+                            val otherAvatar = coldStartChrome(input.copy(avatarCached = !avatarCached))
+                            assertEquals(chrome, offline)
+                            assertEquals(chrome, otherAvatar)
+                            val composePicker = requested || !remembered || !exists
+                            assertEquals(composePicker, chrome.composePicker, "$input")
+                            assertEquals(requested && exists, chrome.composeAvatarLoader, "$input")
+                            if (remembered && exists && !requested) {
+                                assertFalse(chrome.composePicker)
+                                assertFalse(chrome.composeAvatarLoader)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     fun `first frame decision does not suspend or read the network`() {
         val decision = decideFirstFrame(
             FirstFrameInput(

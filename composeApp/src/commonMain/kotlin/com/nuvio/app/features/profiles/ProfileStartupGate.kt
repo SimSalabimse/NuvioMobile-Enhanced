@@ -165,6 +165,30 @@ internal fun decideFirstFrame(input: FirstFrameInput): FirstFrameDecision {
     )
 }
 
+internal data class ColdStartChromeInput(
+    val rememberedProfile: Boolean,
+    val avatarCached: Boolean,
+    val pickerRequestedByUser: Boolean,
+    val profileStillExists: Boolean,
+    val online: Boolean,
+)
+
+internal data class ColdStartChrome(
+    val composePicker: Boolean,
+    val composeAvatarLoader: Boolean,
+)
+
+internal fun coldStartChrome(input: ColdStartChromeInput): ColdStartChrome {
+    val avatarDoesNotMatter = input.avatarCached || !input.avatarCached
+    val networkDoesNotMatter = input.online || !input.online
+    val openHome = input.rememberedProfile && input.profileStillExists && avatarDoesNotMatter && networkDoesNotMatter
+    val composePicker = input.pickerRequestedByUser || !openHome
+    return ColdStartChrome(
+        composePicker = composePicker,
+        composeAvatarLoader = input.pickerRequestedByUser && input.profileStillExists,
+    )
+}
+
 internal fun rememberedPinKind(
     rememberOn: Boolean,
     hasEverSelectedProfile: Boolean,
