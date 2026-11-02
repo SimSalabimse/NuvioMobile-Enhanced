@@ -549,6 +549,7 @@ internal fun settingsSearchEntries(
     val playbackSubtitleRendering = stringResource(Res.string.settings_playback_section_subtitle_rendering)
     val playbackSkipSegments = stringResource(Res.string.settings_playback_section_skip_segments)
     val playbackNextEpisode = stringResource(Res.string.settings_playback_section_next_episode)
+    val playbackAdvanced = stringResource(Res.string.settings_playback_section_advanced)
     addRow(
         page = SettingsPage.Streams,
         key = "stream-addon-logo",
@@ -603,14 +604,10 @@ internal fun settingsSearchEntries(
         icon = Icons.Rounded.PlayArrow,
         rows = listOfNotNull(
             PlaybackSearchRow(
-                "legacy-player-layout",
-                stringResource(Res.string.settings_playback_legacy_layout),
-                stringResource(Res.string.settings_playback_legacy_layout_description),
-            ),
-            PlaybackSearchRow(
-                "loading-overlay",
-                stringResource(Res.string.settings_playback_show_loading_overlay),
-                stringResource(Res.string.settings_playback_show_loading_overlay_description),
+                "loading-screen",
+                stringResource(Res.string.settings_playback_loading_screen),
+                stringResource(Res.string.settings_playback_show_loading_overlay) + " " +
+                    stringResource(Res.string.playback_show_loading_status),
             ),
             PlaybackSearchRow(
                 "pause-overlay",
@@ -629,7 +626,7 @@ internal fun settingsSearchEntries(
             PlaybackSearchRow(
                 "hold-to-speed",
                 stringResource(Res.string.settings_playback_hold_to_speed),
-                stringResource(Res.string.settings_playback_hold_to_speed_description),
+                stringResource(Res.string.settings_playback_hold_speed),
             ),
             PlaybackSearchRow(
                 "seek-preview",
@@ -639,19 +636,54 @@ internal fun settingsSearchEntries(
             PlaybackSearchRow(
                 "touch-gestures",
                 stringResource(Res.string.settings_playback_touch_gestures),
-                stringResource(Res.string.settings_playback_touch_gestures_description),
-            ),
-            PlaybackSearchRow(
-                "swipe-to-seek",
-                stringResource(Res.string.settings_playback_swipe_to_seek),
-                stringResource(Res.string.settings_playback_swipe_to_seek_description),
+                stringResource(Res.string.settings_playback_touch_gestures_no_swipe),
             ),
             PlaybackSearchRow(
                 "movie-recommendations",
                 stringResource(Res.string.settings_playback_movie_recommendations),
                 stringResource(Res.string.settings_playback_movie_recommendations_description),
             ),
-            PlaybackSearchRow("hold-speed", stringResource(Res.string.settings_playback_hold_speed)),
+            if (!isIos) PlaybackSearchRow(
+                "exo-chapters",
+                stringResource(Res.string.settings_playback_exo_chapters),
+                stringResource(Res.string.settings_playback_exo_chapters_description),
+            ) else null,
+        ),
+    )
+    addPlaybackRows(
+        addRow = ::addRow,
+        pageLabel = playbackPage,
+        section = playbackAdvanced,
+        icon = Icons.Rounded.PlayArrow,
+        rows = listOfNotNull(
+            PlaybackSearchRow(
+                "legacy-player-layout",
+                stringResource(Res.string.settings_playback_legacy_layout),
+                stringResource(Res.string.settings_playback_legacy_layout_description),
+            ),
+            PlaybackSearchRow(
+                "debug-readout",
+                stringResource(Res.string.settings_playback_debug_readout),
+                stringResource(Res.string.settings_playback_debug_readout_description),
+            ),
+            if (isIos) PlaybackSearchRow(
+                "ios-extended-dynamic-range",
+                stringResource(Res.string.settings_playback_ios_extended_dynamic_range),
+                stringResource(Res.string.settings_playback_ios_extended_dynamic_range_desc),
+            ) else null,
+            if (isIos) PlaybackSearchRow(
+                "ios-display-color-hint",
+                stringResource(Res.string.settings_playback_ios_display_color_hint),
+                stringResource(Res.string.settings_playback_ios_display_color_hint_desc),
+            ) else null,
+            if (isIos) PlaybackSearchRow(
+                "ios-target-primaries",
+                stringResource(Res.string.settings_playback_ios_target_primaries),
+            ) else null,
+            if (isIos) PlaybackSearchRow(
+                "ios-target-transfer",
+                stringResource(Res.string.settings_playback_ios_target_transfer),
+            ) else null,
         ),
     )
     addPlaybackRows(
@@ -705,7 +737,6 @@ internal fun settingsSearchEntries(
                 PlaybackSearchRow("dv7-hevc", stringResource(Res.string.settings_playback_map_dv7_to_hevc), stringResource(Res.string.settings_playback_map_dv7_to_hevc_description)),
                 PlaybackSearchRow("tunneled-playback", stringResource(Res.string.settings_playback_tunneled_playback), stringResource(Res.string.settings_playback_tunneled_playback_description)),
                 PlaybackSearchRow("audio-passthrough", stringResource(Res.string.settings_playback_audio_passthrough), stringResource(Res.string.settings_playback_audio_passthrough_description)),
-                PlaybackSearchRow("exo-chapters", stringResource(Res.string.settings_playback_exo_chapters), stringResource(Res.string.settings_playback_exo_chapters_description)),
             ),
         )
         addPlaybackRows(

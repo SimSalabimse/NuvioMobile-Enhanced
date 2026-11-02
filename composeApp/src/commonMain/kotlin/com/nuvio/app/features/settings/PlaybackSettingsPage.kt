@@ -374,6 +374,8 @@ private fun PlaybackSettingsSection(
     var showLibassRenderScaleDialog by remember { mutableStateOf(false) }
     var showDecoderPriorityDialog by remember { mutableStateOf(false) }
     var showHoldToSpeedValueDialog by remember { mutableStateOf(false) }
+    var showLoadingScreenDialog by remember { mutableStateOf(false) }
+    var showTouchGesturesDialog by remember { mutableStateOf(false) }
     var skipDirectionDialog by remember { mutableStateOf<Boolean?>(null) } // true = forward
     var showToolbarLayoutDialog by remember { mutableStateOf(false) }
     var showIosAudioOutputDialog by remember { mutableStateOf(false) }
@@ -412,6 +414,19 @@ private fun PlaybackSettingsSection(
     }
     val hapticFeedback = LocalHapticFeedback.current
     val sectionSpacing = if (isTablet) 18.dp else 12.dp
+    val debugReadout by PlayerDebugReadout.enabled.collectAsStateWithLifecycle()
+    val advancedControls = playbackSettingsLayout(isIos)
+        .filter { it.band == PlaybackSettingsBand.Advanced }
+        .map { it.control }
+    val loadingScreen = loadingScreenChoice(
+        showOverlay = showLoadingOverlay,
+        showStatus = autoPlayPlayerSettings.showPlayerLoadingStatus,
+    )
+    val touchGestures = touchGestureChoice(
+        gesturesEnabled = touchGesturesEnabled,
+        swipeToSeekEnabled = autoPlayPlayerSettings.swipeToSeekEnabled,
+    )
+    val holdSpeed = holdSpeedChoice(holdToSpeedEnabled, holdToSpeedValue)
 
     Column(
         verticalArrangement = Arrangement.spacedBy(sectionSpacing),
@@ -421,46 +436,33 @@ private fun PlaybackSettingsSection(
             isTablet = isTablet,
         ) {
             SettingsGroup(isTablet = isTablet) {
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_playback_legacy_layout),
-                    description = stringResource(Res.string.settings_playback_legacy_layout_description),
-                    checked = autoPlayPlayerSettings.useLegacyPlayerLayout,
-                    isTablet = isTablet,
-                    onCheckedChange = PlayerSettingsRepository::setUseLegacyPlayerLayout,
-                )
                 if (!autoPlayPlayerSettings.useLegacyPlayerLayout) {
-                    SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(
                         title = stringResource(Res.string.settings_playback_toolbar_layout),
                         description = stringResource(Res.string.settings_playback_toolbar_layout_description),
                         isTablet = isTablet,
                         onClick = { showToolbarLayoutDialog = true },
                     )
+                    SettingsGroupDivider(isTablet = isTablet)
                 }
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_playback_show_loading_overlay),
-                    description = stringResource(Res.string.settings_playback_show_loading_overlay_description),
-                    checked = showLoadingOverlay,
-                    isTablet = isTablet,
-                    onCheckedChange = PlayerSettingsRepository::setShowLoadingOverlay,
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_playback_exo_chapters),
-                    description = stringResource(Res.string.settings_playback_exo_chapters_description),
-                    checked = autoPlayPlayerSettings.androidExoChaptersEnabled,
-                    isTablet = isTablet,
-                    onCheckedChange = PlayerSettingsRepository::setAndroidExoChaptersEnabled,
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.playback_show_loading_status),
-                    description = stringResource(Res.string.playback_show_loading_status_sub),
-                    checked = autoPlayPlayerSettings.showPlayerLoadingStatus,
-                    isTablet = isTablet,
-                    onCheckedChange = PlayerSettingsRepository::setShowPlayerLoadingStatus,
-                )
+                if (playbackSettingsBand(PlaybackSettingsControl.LoadingScreen, isIos) == PlaybackSettingsBand.Player) {
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.settings_playback_loading_screen),
+                        description = loadingScreenChoiceLabel(loadingScreen),
+                        isTablet = isTablet,
+                        onClick = { showLoadingScreenDialog = true },
+                    )
+                }
+                if (playbackSettingsBand(PlaybackSettingsControl.ShowChapters, isIos) == PlaybackSettingsBand.Player) {
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_playback_exo_chapters),
+                        description = stringResource(Res.string.settings_playback_exo_chapters_description),
+                        checked = autoPlayPlayerSettings.androidExoChaptersEnabled,
+                        isTablet = isTablet,
+                        onCheckedChange = PlayerSettingsRepository::setAndroidExoChaptersEnabled,
+                    )
+                }
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
                     title = stringResource(Res.string.settings_playback_pause_overlay),
@@ -470,13 +472,14 @@ private fun PlaybackSettingsSection(
                     onCheckedChange = PlayerSettingsRepository::setPauseOverlayEnabled,
                 )
                 SettingsGroupDivider(isTablet = isTablet)
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_playback_parental_guide),
-                    description = stringResource(Res.string.settings_playback_parental_guide_description),
-                    checked = autoPlayPlayerSettings.showParentalGuide,
-                    isTablet = isTablet,
-                    onCheckedChange = PlayerSettingsRepository::setShowParentalGuide,
-                )
+                if (playbackSettingsBand(PlaybackSettingsControl.ContentWarnings, isIos) == PlaybackSettingsBand.Player) {
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_playback_parental_guide),
+                        checked = autoPlayPlayerSettings.showParentalGuide,
+                        isTablet = isTablet,
+                        onCheckedChange = PlayerSettingsRepository::setShowParentalGuide,
+                    )
+                }
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(
                     title = stringResource(Res.string.settings_playback_movie_recommendations),
@@ -501,15 +504,6 @@ private fun PlaybackSettingsSection(
                     checked = autoPlayPlayerSettings.privateViewingEnabled,
                     isTablet = isTablet,
                     onCheckedChange = PlayerSettingsRepository::setPrivateViewingEnabled,
-                )
-                SettingsGroupDivider(isTablet = isTablet)
-                val debugReadout by PlayerDebugReadout.enabled.collectAsStateWithLifecycle()
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_playback_debug_readout),
-                    description = stringResource(Res.string.settings_playback_debug_readout_description),
-                    checked = debugReadout,
-                    isTablet = isTablet,
-                    onCheckedChange = PlayerDebugReadout::setEnabled,
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 // Player preference picker: Internal / External
@@ -565,38 +559,21 @@ private fun PlaybackSettingsSection(
                     onCheckedChange = PlayerSettingsRepository::setSeekPreviewEnabled,
                 )
                 SettingsGroupDivider(isTablet = isTablet)
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_playback_touch_gestures),
-                    description = stringResource(Res.string.settings_playback_touch_gestures_description),
-                    checked = touchGesturesEnabled,
-                    enabled = !autoPlayPlayerSettings.externalPlayerEnabled,
-                    isTablet = isTablet,
-                    onCheckedChange = PlayerSettingsRepository::setTouchGesturesEnabled,
-                )
-                if (touchGesturesEnabled && !autoPlayPlayerSettings.externalPlayerEnabled) {
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsSwitchRow(
-                        title = stringResource(Res.string.settings_playback_swipe_to_seek),
-                        description = stringResource(Res.string.settings_playback_swipe_to_seek_description),
-                        checked = autoPlayPlayerSettings.swipeToSeekEnabled,
+                if (playbackSettingsBand(PlaybackSettingsControl.TouchGestures, isIos) == PlaybackSettingsBand.Player) {
+                    SettingsNavigationRow(
+                        title = stringResource(Res.string.settings_playback_touch_gestures),
+                        description = touchGestureChoiceLabel(touchGestures),
+                        enabled = !autoPlayPlayerSettings.externalPlayerEnabled,
                         isTablet = isTablet,
-                        onCheckedChange = PlayerSettingsRepository::setSwipeToSeekEnabled,
+                        onClick = { showTouchGesturesDialog = true },
                     )
                 }
                 SettingsGroupDivider(isTablet = isTablet)
-                SettingsSwitchRow(
-                    title = stringResource(Res.string.settings_playback_hold_to_speed),
-                    description = stringResource(Res.string.settings_playback_hold_to_speed_description),
-                    checked = holdToSpeedEnabled,
-                    enabled = !autoPlayPlayerSettings.externalPlayerEnabled,
-                    isTablet = isTablet,
-                    onCheckedChange = PlayerSettingsRepository::setHoldToSpeedEnabled,
-                )
-                if (holdToSpeedEnabled && !autoPlayPlayerSettings.externalPlayerEnabled) {
-                    SettingsGroupDivider(isTablet = isTablet)
+                if (playbackSettingsBand(PlaybackSettingsControl.HoldToSpeed, isIos) == PlaybackSettingsBand.Player) {
                     SettingsNavigationRow(
-                        title = stringResource(Res.string.settings_playback_hold_speed),
-                        description = formatPlaybackSpeedLabel(holdToSpeedValue),
+                        title = stringResource(Res.string.settings_playback_hold_to_speed),
+                        description = holdSpeedChoiceLabel(holdSpeed),
+                        enabled = !autoPlayPlayerSettings.externalPlayerEnabled,
                         isTablet = isTablet,
                         onClick = { showHoldToSpeedValueDialog = true },
                     )
@@ -1373,42 +1350,14 @@ private fun PlaybackSettingsSection(
                 isTablet = isTablet,
             ) {
                 SettingsGroup(isTablet = isTablet) {
-                    SettingsNavigationRow(
-                        title = stringResource(Res.string.settings_playback_ios_hardware_decoder),
-                        description = autoPlayPlayerSettings.iosHardwareDecoderMode.localizedLabel(),
-                        isTablet = isTablet,
-                        onClick = { showIosHardwareDecoderDialog = true },
-                    )
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsSwitchRow(
-                        title = stringResource(Res.string.settings_playback_ios_extended_dynamic_range),
-                        description = stringResource(Res.string.settings_playback_ios_extended_dynamic_range_desc),
-                        checked = autoPlayPlayerSettings.iosExtendedDynamicRangeEnabled,
-                        isTablet = isTablet,
-                        onCheckedChange = PlayerSettingsRepository::setIosExtendedDynamicRangeEnabled,
-                    )
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsSwitchRow(
-                        title = stringResource(Res.string.settings_playback_ios_display_color_hint),
-                        description = stringResource(Res.string.settings_playback_ios_display_color_hint_desc),
-                        checked = autoPlayPlayerSettings.iosTargetColorspaceHintEnabled,
-                        isTablet = isTablet,
-                        onCheckedChange = PlayerSettingsRepository::setIosTargetColorspaceHintEnabled,
-                    )
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsNavigationRow(
-                        title = stringResource(Res.string.settings_playback_ios_target_primaries),
-                        description = autoPlayPlayerSettings.iosTargetPrimaries.label,
-                        isTablet = isTablet,
-                        onClick = { showIosTargetPrimariesDialog = true },
-                    )
-                    SettingsGroupDivider(isTablet = isTablet)
-                    SettingsNavigationRow(
-                        title = stringResource(Res.string.settings_playback_ios_target_transfer),
-                        description = autoPlayPlayerSettings.iosTargetTransfer.label,
-                        isTablet = isTablet,
-                        onClick = { showIosTargetTransferDialog = true },
-                    )
+                    if (playbackSettingsBand(PlaybackSettingsControl.HardwareDecoder, isIos) == PlaybackSettingsBand.IosVideo) {
+                        SettingsNavigationRow(
+                            title = stringResource(Res.string.settings_playback_ios_hardware_decoder),
+                            description = autoPlayPlayerSettings.iosHardwareDecoderMode.localizedLabel(),
+                            isTablet = isTablet,
+                            onClick = { showIosHardwareDecoderDialog = true },
+                        )
+                    }
                 }
             }
         }
@@ -1766,6 +1715,68 @@ private fun PlaybackSettingsSection(
                 }
             }
         }
+
+        if (advancedControls.isNotEmpty()) {
+            SettingsSection(
+                title = stringResource(Res.string.settings_playback_section_advanced),
+                isTablet = isTablet,
+            ) {
+                SettingsGroup(isTablet = isTablet) {
+                    advancedControls.forEachIndexed { index, control ->
+                        if (index > 0) SettingsGroupDivider(isTablet = isTablet)
+                        when (control) {
+                            PlaybackSettingsControl.LegacyLayout -> SettingsSwitchRow(
+                                title = stringResource(Res.string.settings_playback_legacy_layout),
+                                description = stringResource(Res.string.settings_playback_legacy_layout_description),
+                                checked = autoPlayPlayerSettings.useLegacyPlayerLayout,
+                                isTablet = isTablet,
+                                onCheckedChange = PlayerSettingsRepository::setUseLegacyPlayerLayout,
+                            )
+                            PlaybackSettingsControl.DebugReadout -> SettingsSwitchRow(
+                                title = stringResource(Res.string.settings_playback_debug_readout),
+                                description = stringResource(Res.string.settings_playback_debug_readout_description),
+                                checked = debugReadout,
+                                isTablet = isTablet,
+                                onCheckedChange = PlayerDebugReadout::setEnabled,
+                            )
+                            PlaybackSettingsControl.ExtendedDynamicRange -> SettingsSwitchRow(
+                                title = stringResource(Res.string.settings_playback_ios_extended_dynamic_range),
+                                description = stringResource(Res.string.settings_playback_ios_extended_dynamic_range_desc),
+                                checked = autoPlayPlayerSettings.iosExtendedDynamicRangeEnabled,
+                                isTablet = isTablet,
+                                onCheckedChange = PlayerSettingsRepository::setIosExtendedDynamicRangeEnabled,
+                            )
+                            PlaybackSettingsControl.DisplayColorHint -> SettingsSwitchRow(
+                                title = stringResource(Res.string.settings_playback_ios_display_color_hint),
+                                description = stringResource(Res.string.settings_playback_ios_display_color_hint_desc),
+                                checked = autoPlayPlayerSettings.iosTargetColorspaceHintEnabled,
+                                isTablet = isTablet,
+                                onCheckedChange = PlayerSettingsRepository::setIosTargetColorspaceHintEnabled,
+                            )
+                            PlaybackSettingsControl.TargetPrimaries -> SettingsNavigationRow(
+                                title = stringResource(Res.string.settings_playback_ios_target_primaries),
+                                description = autoPlayPlayerSettings.iosTargetPrimaries.label,
+                                isTablet = isTablet,
+                                onClick = { showIosTargetPrimariesDialog = true },
+                            )
+                            PlaybackSettingsControl.TargetTransfer -> SettingsNavigationRow(
+                                title = stringResource(Res.string.settings_playback_ios_target_transfer),
+                                description = autoPlayPlayerSettings.iosTargetTransfer.label,
+                                isTablet = isTablet,
+                                onClick = { showIosTargetTransferDialog = true },
+                            )
+                            PlaybackSettingsControl.LoadingScreen,
+                            PlaybackSettingsControl.ShowChapters,
+                            PlaybackSettingsControl.ContentWarnings,
+                            PlaybackSettingsControl.TouchGestures,
+                            PlaybackSettingsControl.HoldToSpeed,
+                            PlaybackSettingsControl.HardwareDecoder,
+                            -> Unit
+                        }
+                    }
+                }
+            }
+        }
     }
 
     if (showAutoSkipSegmentDialog) {
@@ -2053,11 +2064,40 @@ private fun PlaybackSettingsSection(
         )
     }
 
+    if (showLoadingScreenDialog) {
+        LoadingScreenDialog(
+            selected = loadingScreen,
+            onChoice = { choice ->
+                applyLoadingScreenChoice(
+                    choice,
+                    LoadingScreenStored(
+                        showOverlay = showLoadingOverlay,
+                        showStatus = autoPlayPlayerSettings.showPlayerLoadingStatus,
+                    ),
+                )
+                showLoadingScreenDialog = false
+            },
+            onDismiss = { showLoadingScreenDialog = false },
+        )
+    }
+
+    if (showTouchGesturesDialog) {
+        TouchGesturesDialog(
+            selected = touchGestures,
+            onChoice = { choice ->
+                applyTouchGestureChoice(choice, autoPlayPlayerSettings.swipeToSeekEnabled)
+                showTouchGesturesDialog = false
+            },
+            onDismiss = { showTouchGesturesDialog = false },
+        )
+    }
+
     if (showHoldToSpeedValueDialog) {
         HoldToSpeedValueDialog(
-            selectedSpeed = holdToSpeedValue,
-            onSpeedSelected = { speed ->
-                PlayerSettingsRepository.setHoldToSpeedValue(speed)
+            selected = holdSpeed,
+            speeds = holdToSpeedPickerSpeeds(holdToSpeedValue),
+            onChoice = { choice ->
+                applyHoldSpeedChoice(choice, holdToSpeedValue)
                 showHoldToSpeedValueDialog = false
             },
             onDismiss = { showHoldToSpeedValueDialog = false },
@@ -2510,28 +2550,139 @@ private fun <T> IosEnumSelectionDialog(
 }
 
 @Composable
+private fun loadingScreenChoiceLabel(choice: LoadingScreenChoice): String = when (choice) {
+    LoadingScreenChoice.Off -> stringResource(Res.string.compose_action_off)
+    LoadingScreenChoice.Plain -> stringResource(Res.string.settings_playback_loading_screen_plain)
+    LoadingScreenChoice.WithStatus -> stringResource(Res.string.settings_playback_loading_screen_with_status)
+}
+
+@Composable
+private fun touchGestureChoiceLabel(choice: TouchGestureChoice): String = when (choice) {
+    TouchGestureChoice.Off -> stringResource(Res.string.compose_action_off)
+    TouchGestureChoice.NoSwipeSeek -> stringResource(Res.string.settings_playback_touch_gestures_no_swipe)
+    TouchGestureChoice.All -> stringResource(Res.string.settings_playback_touch_gestures_all)
+}
+
+@Composable
+private fun holdSpeedChoiceLabel(choice: HoldSpeedChoice): String = when (choice) {
+    HoldSpeedChoice.Off -> stringResource(Res.string.compose_action_off)
+    is HoldSpeedChoice.Speed -> formatPlaybackSpeedLabel(choice.speed)
+}
+
+private fun applyLoadingScreenChoice(choice: LoadingScreenChoice, current: LoadingScreenStored) {
+    val stored = loadingScreenStored(choice, current)
+    PlayerSettingsRepository.setShowLoadingOverlay(stored.showOverlay)
+    PlayerSettingsRepository.setShowPlayerLoadingStatus(stored.showStatus)
+}
+
+private fun applyTouchGestureChoice(choice: TouchGestureChoice, retainedSwipeToSeek: Boolean) {
+    val stored = touchGestureStored(choice, retainedSwipeToSeek)
+    PlayerSettingsRepository.setSwipeToSeekEnabled(stored.swipeToSeekEnabled)
+    PlayerSettingsRepository.setTouchGesturesEnabled(stored.gesturesEnabled)
+}
+
+private fun applyHoldSpeedChoice(choice: HoldSpeedChoice, retainedSpeed: Float) {
+    val stored = holdSpeedStored(choice, retainedSpeed)
+    PlayerSettingsRepository.setHoldToSpeedValue(stored.speed)
+    PlayerSettingsRepository.setHoldToSpeedEnabled(stored.enabled)
+}
+
+@Composable
 @OptIn(ExperimentalMaterial3Api::class)
-private fun HoldToSpeedValueDialog(
-    selectedSpeed: Float,
-    onSpeedSelected: (Float) -> Unit,
+private fun LoadingScreenDialog(
+    selected: LoadingScreenChoice,
+    onChoice: (LoadingScreenChoice) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val options = listOf(1.25f, 1.5f, 1.75f, 2f, 2.5f, 3f)
+    ChoiceDialog(
+        title = stringResource(Res.string.settings_playback_loading_screen),
+        options = LoadingScreenChoice.entries,
+        selected = selected,
+        label = { loadingScreenChoiceLabel(it) },
+        onSelect = onChoice,
+        onDismiss = onDismiss,
+    )
+}
 
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun TouchGesturesDialog(
+    selected: TouchGestureChoice,
+    onChoice: (TouchGestureChoice) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ChoiceDialog(
+        title = stringResource(Res.string.settings_playback_touch_gestures),
+        options = TouchGestureChoice.entries,
+        selected = selected,
+        label = { touchGestureChoiceLabel(it) },
+        onSelect = onChoice,
+        onDismiss = onDismiss,
+    )
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun HoldToSpeedValueDialog(
+    selected: HoldSpeedChoice,
+    speeds: List<Float>,
+    onChoice: (HoldSpeedChoice) -> Unit,
+    onDismiss: () -> Unit,
+) {
     DialogSurface(
         onDismissRequest = onDismiss,
-        title = stringResource(Res.string.settings_playback_hold_speed),
+        title = stringResource(Res.string.settings_playback_hold_to_speed),
     ) {
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            options.forEach { speed ->
-                val isSelected = speed == selectedSpeed
+            DialogOption(
+                text = stringResource(Res.string.compose_action_off),
+                selected = selected is HoldSpeedChoice.Off,
+                onClick = { onChoice(HoldSpeedChoice.Off) },
+            )
+            speeds.forEach { speed ->
                 DialogOption(
                     text = formatPlaybackSpeedLabel(speed),
-                    selected = isSelected,
-                    onClick = { onSpeedSelected(speed) },
+                    selected = selected == HoldSpeedChoice.Speed(speed),
+                    onClick = { onChoice(HoldSpeedChoice.Speed(speed)) },
+                )
+            }
+        }
+
+        DialogButtons {
+            DialogButton(
+                text = stringResource(Res.string.action_done),
+                onClick = onDismiss,
+            )
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun <T> ChoiceDialog(
+    title: String,
+    options: List<T>,
+    selected: T,
+    label: @Composable (T) -> String,
+    onSelect: (T) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    DialogSurface(
+        onDismissRequest = onDismiss,
+        title = title,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            options.forEach { option ->
+                DialogOption(
+                    text = label(option),
+                    selected = option == selected,
+                    onClick = { onSelect(option) },
                 )
             }
         }
