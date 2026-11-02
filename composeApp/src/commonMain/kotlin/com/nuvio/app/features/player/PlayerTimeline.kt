@@ -19,6 +19,7 @@ import androidx.compose.material3.SliderState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,6 +39,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.RunningVersionLine
@@ -56,6 +58,14 @@ internal val PlayerTimelineContentInset = 2.dp
 internal val PlayerChapterMarkWidth = 2.dp
 
 internal val PlayerChapterMarkColor = Color.Black.copy(alpha = 0.6f)
+
+internal data class SubmitBarChrome(
+    val height: Dp,
+    val startFraction: Float?,
+    val endFraction: Float?,
+)
+
+internal val LocalSubmitBarChrome = staticCompositionLocalOf<SubmitBarChrome?> { null }
 
 @Composable
 internal fun PlayerTimelineDetails(
@@ -184,6 +194,9 @@ internal fun PlayerTimeline(
                 interactionSource = interactionSource,
                 thumb = {},
                 track = { state ->
+                    val segmentChrome = LocalSubmitBarChrome.current
+                    val segmentStart = segmentChrome?.startFraction
+                    val segmentEnd = segmentChrome?.endFraction
                     Box(
                         Modifier
                             .fillMaxWidth()
@@ -216,6 +229,30 @@ internal fun PlayerTimeline(
                                         color = PlayerChapterMarkColor,
                                         topLeft = Offset(size.width * fraction - markWidth / 2f, trackOrigin.y),
                                         size = Size(markWidth, trackHeight),
+                                    )
+                                }
+                                if (segmentStart != null && segmentEnd != null) {
+                                    val from = minOf(segmentStart, segmentEnd).coerceIn(0f, 1f)
+                                    val to = maxOf(segmentStart, segmentEnd).coerceIn(0f, 1f)
+                                    val tickWidth = 2.dp.toPx()
+                                    val tickTop = trackOrigin.y - 3.dp.toPx()
+                                    val tickHeight = trackHeight + 6.dp.toPx()
+                                    val leftX = size.width * from
+                                    val rightX = size.width * to
+                                    drawRect(
+                                        color = Color.White.copy(alpha = 0.35f),
+                                        topLeft = Offset(leftX, trackOrigin.y),
+                                        size = Size((rightX - leftX).coerceAtLeast(tickWidth), trackHeight),
+                                    )
+                                    drawRect(
+                                        color = Color.White,
+                                        topLeft = Offset(leftX - tickWidth / 2f, tickTop),
+                                        size = Size(tickWidth, tickHeight),
+                                    )
+                                    drawRect(
+                                        color = Color.White,
+                                        topLeft = Offset(rightX - tickWidth / 2f, tickTop),
+                                        size = Size(tickWidth, tickHeight),
                                     )
                                 }
                             },
