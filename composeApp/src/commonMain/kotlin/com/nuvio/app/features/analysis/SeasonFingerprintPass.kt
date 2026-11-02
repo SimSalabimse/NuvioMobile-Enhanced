@@ -9,7 +9,8 @@ internal const val SEASON_PASS_REFERENCE_CAP = 16
  * After a fingerprint is saved, fill intro, credits, and recap on every stored episode of that
  * season that still needs them. Uses stored fingerprints only: nothing is opened or downloaded,
  * so an episode whose file is already deleted is included.
- * Existing intro and credits stay. User marks are applied by [MediaAnalysisStore.save].
+ * A stored intro or credits time is replaced only when the new score is strictly higher and the
+ * user has not marked that segment. User marks are applied by [MediaAnalysisStore.save].
  */
 internal fun backfillSeasonOnFingerprintSave(
     saved: MediaAnalysisResult,
@@ -31,18 +32,9 @@ internal fun seasonFingerprintPass(
     val ordered = episodes.distinctBy { it.key }
     for (episode in ordered) {
         val current = working[episode.key] ?: episode
-        if (!current.needsIntroOrCredits()) continue
+        if (!current.needsSegmentPass()) continue
         val detected = SeasonSegmentDetector.detect(current, referencesFor(current, working.values, referenceCap))
-        val introWasMissing = current.introEndMs == null
-        var updated = current.copy(
-            introStartMs = current.introStartMs ?: detected.introStartMs,
-            introEndMs = current.introEndMs ?: detected.introEndMs,
-            creditsStartMs = current.creditsStartMs ?: detected.creditsStartMs,
-            creditsEndMs = current.creditsEndMs ?: detected.creditsEndMs,
-        )
-        if (introWasMissing && updated.introEndMs != null && updated.recapStartMs == null) {
-            updated = updated.copy(derivedVersion = 0)
-        }
+        val updated = current.applyingDetection(detected)
         working[current.key] = updated
     }
     if (detectRecap) {
@@ -62,8 +54,12 @@ internal fun seasonFingerprintPass(
     }
 }
 
-private fun MediaAnalysisResult.needsIntroOrCredits(): Boolean =
-    hasStoredFingerprint() && (introEndMs == null || creditsStartMs == null)
+private fun MediaAnalysisResult.needsSegmentPass(): Boolean {
+    if (!hasStoredFingerprint()) return false
+    if (introEndMs == null || creditsStartMs == null) return true
+    if (rejectedSegments.isNotEmpty()) return true
+    return introConfidence != null || creditsConfidence != null
+}
 
 private fun MediaAnalysisResult.needsRecapFromStoredFingerprints(): Boolean =
     hasStoredFingerprint() && introStartMs != null && (recapStartMs == null || recapEndMs == null)
@@ -85,4 +81,7 @@ private fun MediaAnalysisResult.segmentsDiffer(before: MediaAnalysisResult): Boo
         creditsEndMs != before.creditsEndMs ||
         recapStartMs != before.recapStartMs ||
         recapEndMs != before.recapEndMs ||
+        introConfidence != before.introConfidence ||
+        creditsConfidence != before.creditsConfidence ||
+        rejectedSegments != before.rejectedSegments ||
         derivedVersion != before.derivedVersion
