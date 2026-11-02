@@ -13,6 +13,7 @@ import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.collection.CollectionMobileSettingsRepository
 import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.HomeRepository
@@ -334,6 +335,7 @@ object ProfileRepository {
         com.nuvio.app.features.shuffle.EpisodeShuffleRepository.onProfileChanged()
         ContinueWatchingPreferencesRepository.onProfileChanged()
         com.nuvio.app.features.watchprogress.ContinueWatchingEnrichmentCache.onProfileChanged()
+        MetaDetailsRepository.onProfileChanged()
         EpisodeReleaseNotificationsRepository.onProfileChanged()
         TmdbSettingsRepository.onProfileChanged()
         MdbListSettingsRepository.onProfileChanged()

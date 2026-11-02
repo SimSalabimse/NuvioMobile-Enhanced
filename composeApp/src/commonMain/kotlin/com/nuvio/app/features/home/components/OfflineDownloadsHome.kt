@@ -9,6 +9,7 @@ import nuvio.composeapp.generated.resources.offline_home_movie
 import nuvio.composeapp.generated.resources.offline_home_episodes
 import nuvio.composeapp.generated.resources.offline_home_continue
 import nuvio.composeapp.generated.resources.offline_home_downloaded
+import nuvio.composeapp.generated.resources.offline_home_needs_connection
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -46,10 +47,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -58,6 +62,8 @@ import coil3.compose.AsyncImage
 import com.nuvio.app.core.ui.NuvioPrimaryButton
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.downloads.DownloadItem
+import com.nuvio.app.features.profiles.ProfileRepository
+import com.nuvio.app.features.watchprogress.ContinueWatchingEnrichmentCache
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import org.jetbrains.compose.resources.pluralStringResource
@@ -74,12 +80,10 @@ private data class OfflineTitle(
     val updatedAt: Long,
 )
 
-private data class OfflineResume(val item: DownloadItem, val fraction: Float)
-
 /**
- * Home while there is no internet: a header with actions, a "Continue watching" row from what is
- * downloaded and in progress, and every downloaded show or movie as a poster tile. Tapping a show
- * plays its next unwatched downloaded episode; tapping a movie plays it.
+ * Home while there is no internet: a header with actions, Continue Watching from the on-disk cache
+ * (downloaded cards play, the rest are dimmed), and every downloaded show or movie as a poster tile.
+ * Tapping a show plays its next unwatched downloaded episode; tapping a movie plays it.
  */
 @Composable
 internal fun OfflineDownloadsHome(
@@ -97,8 +101,24 @@ internal fun OfflineDownloadsHome(
     val progressByVideo = remember(progress.entries) {
         progress.entries.groupBy { it.videoId }.mapValues { (_, list) -> list.maxBy { it.lastUpdatedEpochMs } }
     }
+    val profileState by ProfileRepository.state.collectAsStateWithLifecycle()
+    val profileId = profileState.activeProfile?.profileIndex ?: 1
+    val cacheGeneration by ContinueWatchingEnrichmentCache.generation.collectAsStateWithLifecycle()
+    val continueCache = remember(profileId, progress.source, cacheGeneration) {
+        val (nextUp, inProgress) = ContinueWatchingEnrichmentCache.getSnapshots(
+            profileId = profileId,
+            source = progress.source,
+        )
+        offlineContinueCacheFromSnapshots(nextUp, inProgress)
+    }
     val titles = remember(items) { groupTitles(items) }
-    val resume = remember(items, progressByVideo) { resumeItems(items, progressByVideo) }
+    val resume = remember(items, progressByVideo, continueCache) {
+        offlineContinueWatchingCards(
+            cache = continueCache,
+            downloads = items,
+            progressByVideoId = progressByVideo,
+        )
+    }
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
     LazyColumn(
@@ -166,7 +186,12 @@ internal fun OfflineDownloadsHome(
                         contentPadding = PaddingValues(horizontal = 20.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        items(resume, key = { it.item.id }) { entry -> ResumeCard(entry, onClick = { onOpenDownload(entry.item) }) }
+                        items(resume, key = { it.key }) { entry ->
+                            ResumeCard(
+                                entry,
+                                onClick = { entry.download?.let(onOpenDownload) },
+                            )
+                        }
                     }
                 }
             }
@@ -245,10 +270,20 @@ private fun PosterTile(title: OfflineTitle, modifier: Modifier, onClick: () -> U
 }
 
 @Composable
-private fun ResumeCard(entry: OfflineResume, onClick: () -> Unit) {
+private fun ResumeCard(entry: OfflineContinueCard, onClick: () -> Unit) {
     val colors = MaterialTheme.nuvio.colors
-    val item = entry.item
-    Column(modifier = Modifier.width(220.dp).clickable(onClick = onClick), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    val needsConnection = stringResource(Res.string.offline_home_needs_connection, entry.title)
+    val cardModifier = Modifier
+        .width(220.dp)
+        .alpha(if (entry.dimmed) 0.4f else 1f)
+        .then(
+            if (entry.tappable) {
+                Modifier.clickable(onClick = onClick)
+            } else {
+                Modifier.clearAndSetSemantics { contentDescription = needsConnection }
+            },
+        )
+    Column(modifier = cardModifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -257,8 +292,8 @@ private fun ResumeCard(entry: OfflineResume, onClick: () -> Unit) {
                 .background(colors.surface),
         ) {
             AsyncImage(
-                model = item.episodeThumbnail ?: item.background ?: item.poster,
-                contentDescription = item.title,
+                model = entry.imageUrl,
+                contentDescription = if (entry.tappable) entry.title else null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
             )
@@ -271,16 +306,16 @@ private fun ResumeCard(entry: OfflineResume, onClick: () -> Unit) {
             }
         }
         Text(
-            item.title,
+            entry.title,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.SemiBold,
             color = colors.textPrimary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        if (item.seasonNumber != null && item.episodeNumber != null) {
+        if (entry.seasonNumber != null && entry.episodeNumber != null) {
             Text(
-                "S${item.seasonNumber} E${item.episodeNumber}" + (item.episodeTitle?.let { " · $it" } ?: ""),
+                "S${entry.seasonNumber} E${entry.episodeNumber}" + (entry.episodeTitle?.let { " · $it" } ?: ""),
                 style = MaterialTheme.typography.labelSmall,
                 color = colors.textSecondary,
                 maxLines = 1,
@@ -308,18 +343,6 @@ private fun groupTitles(items: List<DownloadItem>): List<OfflineTitle> =
             )
         }
         .sortedByDescending { it.updatedAt }
-
-private fun WatchProgressEntry.fraction(): Float =
-    if (durationMs > 0L) (lastPositionMs.toFloat() / durationMs.toFloat()) else 0f
-
-private fun resumeItems(items: List<DownloadItem>, progress: Map<String, WatchProgressEntry>): List<OfflineResume> =
-    items.mapNotNull { item ->
-        val entry = progress[item.videoId] ?: return@mapNotNull null
-        if (entry.isCompleted) return@mapNotNull null
-        val fraction = entry.fraction()
-        if (fraction < 0.02f || fraction > 0.95f) return@mapNotNull null
-        OfflineResume(item, fraction) to entry.lastUpdatedEpochMs
-    }.sortedByDescending { it.second }.map { it.first }.take(10)
 
 private fun nextEpisode(episodes: List<DownloadItem>, progress: Map<String, WatchProgressEntry>): DownloadItem? =
     episodes.firstOrNull { progress[it.videoId]?.isCompleted != true } ?: episodes.firstOrNull()

@@ -3144,6 +3144,7 @@
     <string name="whats_new_version_label">Version %1$s</string>
     <string name="offline_home_continue">Continue watching</string>
     <string name="offline_home_downloaded">Downloaded</string>
+    <string name="offline_home_needs_connection">%1$s, needs a connection</string>
     <plurals name="watch_stats_days_count">
         <item quantity="one">%1$d day</item>
         <item quantity="other">%1$d days</item>
