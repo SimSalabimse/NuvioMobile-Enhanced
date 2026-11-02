@@ -4,6 +4,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.uikit.OnFocusBehavior
 import androidx.compose.ui.window.ComposeUIViewController
+import com.nuvio.app.core.startup.SynchronousLaunch
 import com.nuvio.app.core.ui.LocalFold
 import com.nuvio.app.core.ui.LocalVerticalBarPadding
 import com.nuvio.app.core.ui.NativeProfileSwitcherController
@@ -15,8 +16,11 @@ import platform.UIKit.UIViewController
 private val nuvioBackgroundColor = UIColor(red = 0.051, green = 0.051, blue = 0.051, alpha = 1.0)
 
 @Suppress("unused")
-fun MainViewController(): UIViewController = nuvioComposeViewController {
-    App()
+fun MainViewController(): UIViewController {
+    SynchronousLaunch.prepare()
+    return nuvioComposeViewController {
+        App()
+    }
 }
 
 @Suppress("unused")
@@ -33,6 +37,7 @@ fun MainViewController(
     verticalBar: VerticalBar,
 ): UIViewController {
     val initialTab = AppScreenTab.fromName(initialTabName)
+    SynchronousLaunch.prepare()
     return nuvioComposeViewController(verticalBar) {
         App(
             initialTab = initialTab,
@@ -63,7 +68,9 @@ fun ScreenViewController(
     useTabletFloatingTabBar: Boolean = false,
     verticalBar: VerticalBar,
     hinge: Hinge,
-): UIViewController = nuvioComposeViewController(verticalBar, hinge) {
+): UIViewController {
+    SynchronousLaunch.prepare()
+    return nuvioComposeViewController(verticalBar, hinge) {
     App(
         initialRoute = route,
         useNativeNavigation = true,
@@ -77,6 +84,7 @@ fun ScreenViewController(
         onActivate = { tab -> onActivate(tab.name) },
         appGateController = appGateController,
     )
+    }
 }
 
 @Suppress("unused")
@@ -89,7 +97,9 @@ fun AppGateViewController(
     onMainContentMountChanged: (Boolean) -> Unit,
     onMainContentVisibleChanged: (Boolean) -> Unit,
     verticalBar: VerticalBar,
-): UIViewController = ComposeUIViewController(
+): UIViewController {
+    SynchronousLaunch.prepare()
+    return ComposeUIViewController(
     configure = {
         onFocusBehavior = OnFocusBehavior.DoNothing
         opaque = false
@@ -109,6 +119,7 @@ fun AppGateViewController(
 ).apply {
     ProfileBiometricAuth.initialize(this)
     view.backgroundColor = UIColor.clearColor
+}
 }
 
 private fun nuvioComposeViewController(

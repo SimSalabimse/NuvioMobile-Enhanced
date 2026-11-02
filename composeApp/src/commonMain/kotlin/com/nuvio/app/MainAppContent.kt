@@ -64,7 +64,9 @@ import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
+import com.nuvio.app.core.startup.LaunchRefreshController
 import com.nuvio.app.core.startup.StartupPreloader
+import com.nuvio.app.core.startup.connectivityRegained
 import com.nuvio.app.core.startup.startIosStartupPreloadAfterLaunchReady
 import com.nuvio.app.core.sync.AppForegroundMonitor
 import com.nuvio.app.core.sync.AppVisibility
@@ -424,9 +426,8 @@ internal fun MainAppContent(
         0
     }
     var initialHomeReady by rememberSaveable(ownsAppRuntime, appContentGeneration) {
-        mutableStateOf(!ownsAppRuntime)
+        mutableStateOf(!ownsAppRuntime || HomeRepository.uiState.value.sections.isNotEmpty())
     }
-    var offlineLaunchRouteHandled by rememberSaveable { mutableStateOf(false) }
     var networkToastBaselineReady by rememberSaveable { mutableStateOf(false) }
     var lastNetworkToastCondition by rememberSaveable { mutableStateOf(NetworkCondition.Unknown.name) }
     var watchSourceReconnectPending by remember { mutableStateOf(false) }
@@ -758,39 +759,26 @@ internal fun MainAppContent(
         }
     }
 
-    LaunchedEffect(
-        initialHomeReady,
-        offlineLaunchRouteHandled,
-        networkStatusUiState.condition,
-        downloadsUiState.completedItems,
-        downloadsUiState.items.count { it.isPlayable },
-    ) {
+    var previousConnectivity by remember { mutableStateOf(NetworkCondition.Unknown) }
+    LaunchedEffect(networkStatusUiState.condition) {
         if (!ownsAppRuntime) return@LaunchedEffect
-        if (!initialHomeReady || offlineLaunchRouteHandled) return@LaunchedEffect
-
-        when (networkStatusUiState.condition) {
-            NetworkCondition.Unknown,
-            NetworkCondition.Checking,
-            -> return@LaunchedEffect
-
-            NetworkCondition.Online -> {
-                offlineLaunchRouteHandled = true
-            }
-
+        val previous = previousConnectivity
+        val next = networkStatusUiState.condition
+        previousConnectivity = next
+        when (next) {
             NetworkCondition.NoInternet,
             NetworkCondition.ServersUnreachable,
-            -> {
-                offlineLaunchRouteHandled = true
-                val hasPlayableDownload = downloadsUiState.items.any { item ->
-                    item.isPlayable && DownloadsRepository.playableLocalFileUri(item) != null
-                }
-                if (hasPlayableDownload) {
-                    activateTab(AppScreenTab.Library)
-                    navController.navigate(DownloadsRoute(downloadsTitle)) {
-                        launchSingleTop = true
-                    }
+            -> LaunchRefreshController.noteAttemptFailed()
+
+            NetworkCondition.Online -> {
+                if (connectivityRegained(previous, next) || previous != NetworkCondition.Online) {
+                    LaunchRefreshController.onConnectivityRegained()
                 }
             }
+
+            NetworkCondition.Unknown,
+            NetworkCondition.Checking,
+            -> Unit
         }
     }
 

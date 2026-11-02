@@ -116,12 +116,10 @@ object HomeRepository {
         }
         val activeAddons = addons.enabledAddons()
         val requests = buildHomeCatalogDefinitions(activeAddons)
-        val manifestsStillPending = activeAddons.isNotEmpty() &&
-            activeAddons.none { it.manifest != null } &&
-            activeAddons.any { it.isRefreshing || it.errorMessage.isNullOrBlank() }
+        val manifestsMissing = activeAddons.isNotEmpty() && activeAddons.none { it.manifest != null }
         if (
             requests.isEmpty() &&
-            manifestsStillPending &&
+            manifestsMissing &&
             (showingSnapshot || cachedSections.isNotEmpty() || _uiState.value.sections.isNotEmpty())
         ) {
             return

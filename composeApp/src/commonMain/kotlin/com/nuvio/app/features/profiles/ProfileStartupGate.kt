@@ -112,3 +112,67 @@ internal fun shouldDeferLaunchNetwork(
     snapshotRestorePending: Boolean,
     launchPainted: Boolean,
 ): Boolean = !launchPainted && (cachedSnapshotVisible || snapshotRestorePending)
+
+internal enum class FirstFrameDestination {
+    Home,
+    Picker,
+    SignIn,
+}
+
+internal enum class RememberedPinKind {
+    NoPin,
+    HasPin,
+    Missing,
+}
+
+internal enum class StartupNetworkOutcome {
+    Online,
+    Offline,
+    TimedOut,
+}
+
+internal data class FirstFrameInput(
+    val signedIn: Boolean,
+    val profileCount: Int,
+    val rememberOn: Boolean,
+    val rememberedPin: RememberedPinKind,
+    val cachePresent: Boolean,
+    val network: StartupNetworkOutcome,
+)
+
+internal data class FirstFrameDecision(
+    val destination: FirstFrameDestination,
+    val pickerWasFirstFrame: Boolean,
+)
+
+internal fun decideFirstFrame(input: FirstFrameInput): FirstFrameDecision {
+    when (input.network) {
+        StartupNetworkOutcome.Online,
+        StartupNetworkOutcome.Offline,
+        StartupNetworkOutcome.TimedOut,
+        -> Unit
+    }
+    val destination = when {
+        !input.signedIn -> FirstFrameDestination.SignIn
+        !input.cachePresent || input.profileCount <= 0 -> FirstFrameDestination.Picker
+        input.rememberOn && input.rememberedPin == RememberedPinKind.NoPin -> FirstFrameDestination.Home
+        input.profileCount == 1 && input.rememberedPin == RememberedPinKind.NoPin -> FirstFrameDestination.Home
+        else -> FirstFrameDestination.Picker
+    }
+    return FirstFrameDecision(
+        destination = destination,
+        pickerWasFirstFrame = destination == FirstFrameDestination.Picker,
+    )
+}
+
+internal fun rememberedPinKind(
+    rememberOn: Boolean,
+    hasEverSelectedProfile: Boolean,
+    activeProfileIndex: Int,
+    profiles: List<ProfileStartupProfile>,
+): RememberedPinKind {
+    if (!rememberOn || !hasEverSelectedProfile) return RememberedPinKind.Missing
+    val remembered = profiles.firstOrNull { it.profileIndex == activeProfileIndex }
+        ?: return RememberedPinKind.Missing
+    return if (remembered.pinEnabled) RememberedPinKind.HasPin else RememberedPinKind.NoPin
+}

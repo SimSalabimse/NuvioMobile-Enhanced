@@ -98,6 +98,59 @@ object ProfileRepository {
         persist()
     }
 
+    internal fun applyCacheSynchronously(): SynchronousProfileCache = synchronized(cacheStateLock) {
+        if (_state.value.cachePhase != ProfileCachePhase.Reading && loadedCacheForUserId != null) {
+            return@synchronized synchronousCacheSnapshot()
+        }
+        val stored = decodeStoredPayload()
+        if (stored == null) {
+            loadedCacheForUserId = ""
+            activeProfileIndex = 1
+            _state.value = ProfileState(
+                isLoaded = true,
+                cachePhase = ProfileCachePhase.ConfirmedNone,
+            )
+            return@synchronized synchronousCacheSnapshot()
+        }
+        val profiles = stored.profiles.sortedBy { it.profileIndex }
+        activeProfileIndex = stored.activeProfileIndex
+        loadedCacheForUserId = stored.userId
+        _state.value = ProfileState(
+            profiles = profiles,
+            activeProfile = profiles.find { it.profileIndex == activeProfileIndex } ?: profiles.firstOrNull(),
+            isLoaded = true,
+            cachePhase = profileCachePhaseForProfiles(profiles),
+            hasEverSelectedProfile = stored.hasEverSelectedProfile,
+            rememberLastProfileEnabled = stored.rememberLastProfileEnabled,
+        )
+        _state.value.activeProfile?.let { activeProfileIndex = it.profileIndex }
+        syncPinCache(profiles)
+        synchronousCacheSnapshot()
+    }
+
+    private fun synchronousCacheSnapshot(): SynchronousProfileCache {
+        val fresh = _state.value
+        val profiles = fresh.profiles.map { ProfileStartupProfile(it.profileIndex, it.pinEnabled) }
+        val cachePresent = loadedCacheForUserId != ""
+        return SynchronousProfileCache(
+            cachePresent = cachePresent,
+            profileCount = fresh.profiles.size,
+            rememberOn = fresh.rememberLastProfileEnabled,
+            hasEverSelectedProfile = fresh.hasEverSelectedProfile,
+            activeProfileIndex = activeProfileIndex,
+            rememberedPin = when {
+                fresh.profiles.size == 1 && fresh.profiles.first().pinEnabled -> RememberedPinKind.HasPin
+                fresh.profiles.size == 1 -> RememberedPinKind.NoPin
+                else -> rememberedPinKind(
+                    rememberOn = fresh.rememberLastProfileEnabled,
+                    hasEverSelectedProfile = fresh.hasEverSelectedProfile,
+                    activeProfileIndex = activeProfileIndex,
+                    profiles = profiles,
+                )
+            },
+        )
+    }
+
     suspend fun loadCachedProfiles(): Boolean = readSharedCache(expectedUserId = null)
 
     suspend fun ensureLoaded(userId: String) {
@@ -794,6 +847,15 @@ object ProfileRepository {
         )
     }
 }
+
+internal data class SynchronousProfileCache(
+    val cachePresent: Boolean,
+    val profileCount: Int,
+    val rememberOn: Boolean,
+    val hasEverSelectedProfile: Boolean,
+    val activeProfileIndex: Int,
+    val rememberedPin: RememberedPinKind,
+)
 
 @kotlinx.serialization.Serializable
 data class ProfileLockState(

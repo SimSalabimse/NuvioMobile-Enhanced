@@ -249,6 +249,141 @@ class ProfileStartupGateTest {
         )
     }
 
+    @Test
+    fun `startup frame follows local state and ignores the network`() {
+        assertEquals(
+            FirstFrameDestination.SignIn,
+            decideFirstFrame(frame(signedIn = false, profileCount = 2, rememberOn = true, pin = RememberedPinKind.NoPin)).destination,
+        )
+        assertEquals(
+            FirstFrameDestination.Picker,
+            decideFirstFrame(frame(signedIn = true, profileCount = 0, rememberOn = false, pin = RememberedPinKind.Missing, cachePresent = true)).destination,
+        )
+        assertEquals(
+            FirstFrameDestination.Picker,
+            decideFirstFrame(frame(signedIn = true, profileCount = 3, rememberOn = false, pin = RememberedPinKind.NoPin)).destination,
+        )
+        assertEquals(
+            FirstFrameDestination.Picker,
+            decideFirstFrame(frame(signedIn = true, profileCount = 3, rememberOn = true, pin = RememberedPinKind.HasPin)).destination,
+        )
+        assertEquals(
+            FirstFrameDestination.Picker,
+            decideFirstFrame(frame(signedIn = true, profileCount = 3, rememberOn = true, pin = RememberedPinKind.Missing)).destination,
+        )
+        assertEquals(
+            FirstFrameDestination.Picker,
+            decideFirstFrame(frame(signedIn = true, profileCount = 1, rememberOn = false, pin = RememberedPinKind.HasPin)).destination,
+        )
+        val home = decideFirstFrame(frame(signedIn = true, profileCount = 3, rememberOn = true, pin = RememberedPinKind.NoPin))
+        assertEquals(FirstFrameDestination.Home, home.destination)
+        assertFalse(home.pickerWasFirstFrame)
+        val signedInValues = listOf(false, true)
+        val counts = listOf(0, 1, 3)
+        val rememberValues = listOf(false, true)
+        val pins = RememberedPinKind.entries
+        val caches = listOf(false, true)
+        val networks = StartupNetworkOutcome.entries
+        for (signedIn in signedInValues) {
+            for (count in counts) {
+                for (rememberOn in rememberValues) {
+                    for (pin in pins) {
+                        for (cachePresent in caches) {
+                            val local = FirstFrameInput(
+                                signedIn = signedIn,
+                                profileCount = count,
+                                rememberOn = rememberOn,
+                                rememberedPin = pin,
+                                cachePresent = cachePresent,
+                                network = StartupNetworkOutcome.Online,
+                            )
+                            val expected = expectedFirstFrame(local)
+                            for (network in networks) {
+                                val decision = decideFirstFrame(local.copy(network = network))
+                                assertEquals(expected, decision.destination, "$local network=$network")
+                                if (decision.destination == FirstFrameDestination.Home) {
+                                    assertFalse(decision.pickerWasFirstFrame)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `online and offline share the start destination for the same local state`() {
+        val local = FirstFrameInput(
+            signedIn = true,
+            profileCount = 2,
+            rememberOn = true,
+            rememberedPin = RememberedPinKind.NoPin,
+            cachePresent = true,
+            network = StartupNetworkOutcome.Online,
+        )
+        val online = decideFirstFrame(local)
+        val offline = decideFirstFrame(local.copy(network = StartupNetworkOutcome.Offline))
+        val timedOut = decideFirstFrame(local.copy(network = StartupNetworkOutcome.TimedOut))
+        assertEquals(FirstFrameDestination.Home, online.destination)
+        assertEquals(online, offline)
+        assertEquals(online, timedOut)
+        assertFalse(online.pickerWasFirstFrame)
+    }
+
+    @Test
+    fun `first frame decision does not suspend or read the network`() {
+        val decision = decideFirstFrame(
+            FirstFrameInput(
+                signedIn = true,
+                profileCount = 1,
+                rememberOn = false,
+                rememberedPin = RememberedPinKind.NoPin,
+                cachePresent = true,
+                network = StartupNetworkOutcome.TimedOut,
+            ),
+        )
+        assertEquals(FirstFrameDestination.Home, decision.destination)
+        assertFalse(decision.pickerWasFirstFrame)
+        assertEquals(
+            decision,
+            decideFirstFrame(
+                FirstFrameInput(
+                    signedIn = true,
+                    profileCount = 1,
+                    rememberOn = false,
+                    rememberedPin = RememberedPinKind.NoPin,
+                    cachePresent = true,
+                    network = StartupNetworkOutcome.Offline,
+                ),
+            ),
+        )
+    }
+
+    private fun frame(
+        signedIn: Boolean,
+        profileCount: Int,
+        rememberOn: Boolean,
+        pin: RememberedPinKind,
+        cachePresent: Boolean = true,
+        network: StartupNetworkOutcome = StartupNetworkOutcome.Offline,
+    ) = FirstFrameInput(
+        signedIn = signedIn,
+        profileCount = profileCount,
+        rememberOn = rememberOn,
+        rememberedPin = pin,
+        cachePresent = cachePresent,
+        network = network,
+    )
+
+    private fun expectedFirstFrame(input: FirstFrameInput): FirstFrameDestination = when {
+        !input.signedIn -> FirstFrameDestination.SignIn
+        !input.cachePresent || input.profileCount <= 0 -> FirstFrameDestination.Picker
+        input.rememberOn && input.rememberedPin == RememberedPinKind.NoPin -> FirstFrameDestination.Home
+        input.profileCount == 1 && input.rememberedPin == RememberedPinKind.NoPin -> FirstFrameDestination.Home
+        else -> FirstFrameDestination.Picker
+    }
+
     private fun pinless(index: Int) = ProfileStartupProfile(profileIndex = index, pinEnabled = false)
 
     private fun locked(index: Int) = ProfileStartupProfile(profileIndex = index, pinEnabled = true)

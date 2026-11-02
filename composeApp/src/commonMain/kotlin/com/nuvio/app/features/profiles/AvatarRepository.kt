@@ -2,6 +2,7 @@ package com.nuvio.app.features.profiles
 
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.network.ServerConfigurationRepository
+import com.nuvio.app.core.startup.DeferredLaunchNetworkTimeoutMs
 import com.nuvio.app.core.network.SupabaseProvider
 import com.nuvio.app.features.membership.CosmeticEntitlement
 import com.nuvio.app.features.membership.MemberAccessRepository
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -90,6 +92,10 @@ object AvatarRepository {
             log.w(error) { "Unable to share supporter avatar ${avatar.id}" }
             null
         }
+    }
+
+    fun hydrateCachedCatalog() {
+        hydrateFromCacheIfNeeded()
     }
 
     suspend fun fetchAvatars() {
@@ -164,8 +170,13 @@ object AvatarRepository {
         if (standardFetchInFlight) return
         standardFetchInFlight = true
         try {
-            val result = SupabaseProvider.client.postgrest.rpc("get_avatar_catalog")
-            val items = result.decodeList<AvatarCatalogItem>()
+            val items = withTimeoutOrNull(DeferredLaunchNetworkTimeoutMs) {
+                SupabaseProvider.client.postgrest.rpc("get_avatar_catalog").decodeList<AvatarCatalogItem>()
+            }
+            if (items == null) {
+                log.w { "Avatar catalog refresh timed out" }
+                return
+            }
             standardCatalog = items.filter { it.isActive }.sortedWith(
                 compareBy({ it.category }, { it.sortOrder }),
             )

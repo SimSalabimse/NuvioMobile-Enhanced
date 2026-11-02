@@ -29,9 +29,10 @@ import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.auth.DeviceSessionRegistration
 import com.nuvio.app.core.logging.InAppLogger
-import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
+import com.nuvio.app.core.startup.SynchronousLaunch
 import com.nuvio.app.features.home.HomeRepository
+import com.nuvio.app.features.profiles.FirstFrameDestination
 import com.nuvio.app.core.perf.PerformanceOptimization
 import com.nuvio.app.core.perf.PerformanceSettings
 import com.nuvio.app.core.sync.SyncManager
@@ -56,7 +57,6 @@ import com.nuvio.app.features.profiles.ProfileStartupDestination
 import com.nuvio.app.features.profiles.ProfileStartupGateInput
 import com.nuvio.app.features.profiles.ProfileStartupProfile
 import com.nuvio.app.features.profiles.nextStartupGate
-import com.nuvio.app.features.profiles.profileStartupContinuesAfterReadTimeout
 import com.nuvio.app.features.profiles.profileAvatarImageUrl
 import com.nuvio.app.navigation.AppRoute
 import kotlinx.coroutines.CancellationException
@@ -149,9 +149,7 @@ internal fun AppGate(
     val authState by AuthRepository.state.collectAsStateWithLifecycle()
     val profileState by ProfileRepository.state.collectAsStateWithLifecycle()
     val profileAvatars by AvatarRepository.avatars.collectAsStateWithLifecycle()
-    val networkStatusUiState by remember {
-        NetworkStatusRepository.uiState
-    }.collectAsStateWithLifecycle()
+    val launchFrame = remember { SynchronousLaunch.prepare() }
 
     LaunchedEffect(authState) {
         if (!ownsAppRuntime) return@LaunchedEffect
@@ -179,21 +177,17 @@ internal fun AppGate(
     }
 
     val gateScope = rememberCoroutineScope()
-    var gateScreen by rememberSaveable { mutableStateOf(AppGateScreen.Loading.name) }
-    var profileReadTimedOut by rememberSaveable { mutableStateOf(false) }
-    var profilePickerRequestedByUser by rememberSaveable { mutableStateOf(false) }
-    var snapHomeOverPicker by remember { mutableStateOf(false) }
-    LaunchedEffect(profileState.cachePhase) {
-        if (profileState.cachePhase != ProfileCachePhase.Reading) {
-            profileReadTimedOut = false
-            return@LaunchedEffect
-        }
-        kotlinx.coroutines.delay(ProfileCacheReadTimeoutMs)
-        profileReadTimedOut = profileStartupContinuesAfterReadTimeout(
-            elapsedMs = ProfileCacheReadTimeoutMs,
-            phase = ProfileRepository.state.value.cachePhase,
+    var gateScreen by rememberSaveable {
+        mutableStateOf(
+            when (launchFrame.destination) {
+                FirstFrameDestination.Home -> AppGateScreen.Main.name
+                FirstFrameDestination.Picker -> AppGateScreen.ProfileSelection.name
+                FirstFrameDestination.SignIn -> AppGateScreen.Auth.name
+            },
         )
     }
+    var profilePickerRequestedByUser by rememberSaveable { mutableStateOf(false) }
+    var snapHomeOverPicker by remember { mutableStateOf(false) }
     LaunchedEffect(gateScreen) {
         if (!ownsAppRuntime) return@LaunchedEffect
         if (
@@ -205,7 +199,9 @@ internal fun AppGate(
     }
     var editingProfile by remember { mutableStateOf<NuvioProfile?>(null) }
     var profileEditReturnScreen by rememberSaveable { mutableStateOf(AppGateScreen.ProfileSelection.name) }
-    var autoSkipProfileSelection by rememberSaveable { mutableStateOf(false) }
+    var autoSkipProfileSelection by rememberSaveable {
+        mutableStateOf(launchFrame.destination == FirstFrameDestination.Picker)
+    }
     var profileSelectionLoading by rememberSaveable { mutableStateOf(false) }
     var profileSelectionTransitionActive by rememberSaveable { mutableStateOf(false) }
     // The profile just tapped, shown bouncing into center on the transition overlay below
@@ -400,7 +396,7 @@ internal fun AppGate(
             rememberLastProfileEnabled = fresh.rememberLastProfileEnabled,
             hasEverSelectedProfile = fresh.hasEverSelectedProfile,
             activeProfileIndex = ProfileRepository.activeProfileId,
-            readTimedOut = profileReadTimedOut,
+            readTimedOut = false,
         )
     }
 
@@ -458,11 +454,7 @@ internal fun AppGate(
             }
         }
         when (decision.destination) {
-            ProfileStartupDestination.Loading -> {
-                if (gateScreen == AppGateScreen.Loading.name || gateScreen == AppGateScreen.Auth.name) {
-                    gateScreen = AppGateScreen.Loading.name
-                }
-            }
+            ProfileStartupDestination.Loading -> Unit
             ProfileStartupDestination.Main -> {
                 if (gateScreen != AppGateScreen.Main.name) {
                     val profile = fresh.profiles.firstOrNull { it.profileIndex == decision.selectProfileIndex }
@@ -492,43 +484,32 @@ internal fun AppGate(
 
     LaunchedEffect(
         authState,
-        networkStatusUiState.condition,
         profileState.cachePhase,
         profileState.profiles,
         profileState.rememberLastProfileEnabled,
         profileState.hasEverSelectedProfile,
         profileState.activeProfile?.profileIndex,
-        profileReadTimedOut,
     ) {
         val fresh = ProfileRepository.state.value
-        val stillReading = fresh.cachePhase == ProfileCachePhase.Reading && !profileReadTimedOut
-        val hasCachedProfiles = fresh.profiles.isNotEmpty() && authState !is AuthState.Authenticated
-        val allowCachedProfileAccess =
-            hasCachedProfiles &&
-                (
-                    networkStatusUiState.condition != NetworkCondition.Online ||
-                        gateScreen != AppGateScreen.Auth.name
-                )
-
+        val stillReading = fresh.cachePhase == ProfileCachePhase.Reading
         when (authState) {
             is AuthState.Loading -> {
-                if (hasCachedProfiles && !stillReading) {
-                    applyAutomaticGate()
-                } else if (
-                    gateScreen == AppGateScreen.Loading.name ||
-                    gateScreen == AppGateScreen.Auth.name
+                if (
+                    gateScreen == AppGateScreen.Main.name ||
+                    gateScreen == AppGateScreen.ProfileSelection.name ||
+                    gateScreen == AppGateScreen.Auth.name ||
+                    gateScreen == AppGateScreen.ProfileEdit.name
                 ) {
-                    gateScreen = AppGateScreen.Loading.name
+                    return@LaunchedEffect
+                }
+                if (fresh.profiles.isNotEmpty() && !stillReading) {
+                    applyAutomaticGate()
                 }
             }
             is AuthState.Unauthenticated -> {
-                if (stillReading && fresh.profiles.isEmpty()) {
-                    gateScreen = AppGateScreen.Loading.name
-                } else if (allowCachedProfileAccess || (profileReadTimedOut && fresh.profiles.isNotEmpty() && networkStatusUiState.condition != NetworkCondition.Online)) {
+                if (fresh.profiles.isNotEmpty() && !stillReading) {
                     applyAutomaticGate()
-                } else if (stillReading) {
-                    gateScreen = AppGateScreen.Loading.name
-                } else {
+                } else if (!stillReading) {
                     if (fresh.cachePhase != ProfileCachePhase.Reading) {
                         ProfileRepository.clearInMemory()
                     }
@@ -541,12 +522,11 @@ internal fun AppGate(
             is AuthState.Authenticated -> {
                 val authenticatedState = authState as AuthState.Authenticated
                 val phase = ProfileRepository.state.value.cachePhase
-                if (phase == ProfileCachePhase.Reading && !profileReadTimedOut) {
-                    val finished = withTimeoutOrNull(ProfileCacheReadTimeoutMs) {
+                if (phase == ProfileCachePhase.Reading) {
+                    withTimeoutOrNull(ProfileCacheReadTimeoutMs) {
                         ProfileRepository.ensureLoaded(authenticatedState.userId)
                     }
-                    if (finished == null) profileReadTimedOut = true
-                } else if (phase != ProfileCachePhase.Reading) {
+                } else {
                     ProfileRepository.ensureLoaded(authenticatedState.userId)
                 }
                 applyAutomaticGate()
