@@ -62,6 +62,35 @@ internal data class MediaAnalysisResult(
      * Three means the episode is left alone until the file changes.
      */
     val analysisAttempts: Int = 0,
+    /** Agreeing siblings and mean bit errors for [introStartMs]. Null on older stored results. */
+    val introConfidence: SegmentConfidence? = null,
+    /** Agreeing siblings and mean bit errors for [creditsStartMs]. */
+    val creditsConfidence: SegmentConfidence? = null,
+    /**
+     * Ranges a saved correction moved off. Detection will not put that range back.
+     * A Wrong tap that does not save a new range adds nothing here.
+     */
+    val rejectedSegments: List<RejectedSegment> = emptyList(),
+)
+
+/** How sure a detected intro or credits range is. More agreeing siblings win, then fewer bit errors. */
+@Serializable
+internal data class SegmentConfidence(
+    val agreeingSiblings: Int = 0,
+    val avgBitErrors: Double = 0.0,
+) {
+    fun strictlyBeats(other: SegmentConfidence): Boolean {
+        if (agreeingSiblings != other.agreeingSiblings) return agreeingSiblings > other.agreeingSiblings
+        return avgBitErrors < other.avgBitErrors
+    }
+}
+
+/** A range the user moved a segment away from. [type] is "intro", "outro", or "recap". */
+@Serializable
+internal data class RejectedSegment(
+    val type: String,
+    val startMs: Long,
+    val endMs: Long,
 )
 
 @Serializable

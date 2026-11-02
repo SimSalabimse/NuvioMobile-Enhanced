@@ -6,6 +6,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlinx.coroutines.test.runTest
 
 class SeasonFingerprintPassTest {
     @Test
@@ -104,6 +105,112 @@ class SeasonFingerprintPassTest {
         assertEquals(50_000L, stored.introEndMs)
         assertEquals(1_000L, stored.creditsStartMs)
         assertEquals(2_000L, stored.creditsEndMs)
+    }
+
+    @Test
+    fun aSecondPassReplacesALowConfidenceMiss() {
+        val season = Season(31)
+        val missed = season.episode("sticky__s1e1", introAt = 900, creditsAt = 4300).copy(
+            introStartMs = 200_000L,
+            introEndMs = 280_000L,
+            introConfidence = SegmentConfidence(agreeingSiblings = 1, avgBitErrors = 1.0),
+            creditsStartMs = 2_000_000L,
+            creditsEndMs = 2_400_000L,
+            creditsConfidence = SegmentConfidence(agreeingSiblings = 4, avgBitErrors = 0.0),
+        )
+        val filled = seasonFingerprintPass(listOf(missed) + agreeingSiblings(season, "sticky"))
+            .first { it.key == missed.key }
+        assertEquals(90_000L, filled.introStartMs)
+        assertEquals(130_000L, filled.introEndMs)
+        assertEquals(3, filled.introConfidence?.agreeingSiblings)
+        assertEquals(2_000_000L, filled.creditsStartMs)
+    }
+
+    @Test
+    fun anEqualOrWeakerScoreDoesNotReplaceTheStoredIntro() {
+        val season = Season(32)
+        val stored = season.episode("weaker__s1e1", introAt = 900, creditsAt = 4300).copy(
+            introStartMs = 200_000L,
+            introEndMs = 280_000L,
+            introConfidence = SegmentConfidence(agreeingSiblings = 4, avgBitErrors = 0.0),
+            creditsStartMs = 2_000_000L,
+            creditsEndMs = 2_400_000L,
+            creditsConfidence = SegmentConfidence(agreeingSiblings = 4, avgBitErrors = 0.0),
+        )
+        val updated = seasonFingerprintPass(listOf(stored) + agreeingSiblings(season, "weaker"))
+            .firstOrNull { it.key == stored.key }
+            ?: stored
+        assertEquals(200_000L, updated.introStartMs)
+        assertEquals(280_000L, updated.introEndMs)
+    }
+
+    @Test
+    fun aUserMarkIsNeverReplaced() {
+        val season = Season(33)
+        val marked = UserSegment(startMs = 1_000L, endMs = 20_000L, durationMs = 2_400_000L)
+        val stored = season.episode("marked__s1e1", introAt = 900, creditsAt = 4300).copy(
+            introStartMs = 1_000L,
+            introEndMs = 20_000L,
+            introConfidence = SegmentConfidence(agreeingSiblings = 1, avgBitErrors = 3.0),
+            creditsStartMs = 2_000_000L,
+            creditsEndMs = 2_400_000L,
+            creditsConfidence = SegmentConfidence(agreeingSiblings = 4, avgBitErrors = 0.0),
+            userSegments = mapOf("intro" to marked),
+        )
+        val updated = seasonFingerprintPass(listOf(stored) + agreeingSiblings(season, "marked"))
+            .firstOrNull { it.key == stored.key }
+            ?: stored
+        assertEquals(1_000L, updated.introStartMs)
+        assertEquals(20_000L, updated.introEndMs)
+        assertEquals(marked, updated.userSegments["intro"])
+    }
+
+    @Test
+    fun aWrongTapWithoutASavedRangeRejectsNothing() {
+        assertNull(rejectedRangeForCorrection("intro", 90_000L, 130_000L, 90_000L, 130_000L))
+        assertEquals(
+            RejectedSegment("intro", 90_000L, 130_000L),
+            rejectedRangeForCorrection("intro", 90_000L, 130_000L, 5_000L, 25_000L),
+        )
+    }
+
+    @Test
+    fun aSavedCorrectionKeepsTheOldRangeFromComingBack() = runTest {
+        val show = "oldrange"
+        val season = Season(77)
+        val key = MediaAnalysisStore.keyFor(show, 1, 1)
+        val episode = season.episode(key, introAt = 900, creditsAt = 4300).copy(
+            introStartMs = 90_000L,
+            introEndMs = 130_000L,
+            creditsStartMs = 2_000_000L,
+            creditsEndMs = 2_400_000L,
+            introConfidence = SegmentConfidence(agreeingSiblings = 1, avgBitErrors = 0.0),
+        )
+        MediaAnalysisStore.save(episode)
+        SkipLearning.recordMark(show, 1, 1, "intro", 5_000L, 25_000L, durationMs = 2_400_000L)
+        val marked = assertNotNull(MediaAnalysisStore.load(key))
+        assertEquals(5_000L, marked.introStartMs)
+        assertEquals(25_000L, marked.introEndMs)
+        assertTrue(marked.rejectedSegments.contains(RejectedSegment("intro", 90_000L, 130_000L)))
+
+        val sibling = season.episode(MediaAnalysisStore.keyFor(show, 1, 2), introAt = 30, creditsAt = 4000)
+        val kept = seasonFingerprintPass(listOf(marked, sibling)).firstOrNull { it.key == key } ?: marked
+        assertEquals(5_000L, kept.introStartMs)
+        assertEquals(25_000L, kept.introEndMs)
+
+        val unmarked = marked.copy(
+            userSegments = emptyMap(),
+            introStartMs = 90_000L,
+            introEndMs = 130_000L,
+            introConfidence = SegmentConfidence(agreeingSiblings = 1, avgBitErrors = 0.0),
+        )
+        val cleared = seasonFingerprintPass(listOf(unmarked, sibling)).first { it.key == key }
+        assertNull(cleared.introStartMs)
+        assertNull(cleared.introEndMs)
+    }
+
+    private fun agreeingSiblings(season: Season, show: String) = (2..4).map { episode ->
+        season.episode("${show}__s1e$episode", introAt = 30, creditsAt = 4000).copy(analyzedAtMs = episode.toLong())
     }
 
     private fun fingerprinted(key: String, head: IntArray, tail: IntArray) = MediaAnalysisResult(
