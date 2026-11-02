@@ -51,7 +51,6 @@ import com.nuvio.app.core.ui.NuvioCardDepthSurface
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
-import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
 import com.nuvio.app.core.ui.NuvioPosterWatchedOverlay
 import com.nuvio.app.core.ui.SkeletonPoster
 import com.nuvio.app.core.ui.nuvioCardDepth
@@ -196,7 +195,6 @@ fun CatalogScreen(
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         CatalogEmptyState(
                             errorMessage = uiState.errorMessage,
-                            networkCondition = networkStatusUiState.condition,
                             onRetry = {
                                 NetworkStatusRepository.requestRefresh(force = true)
                                 CatalogRepository.load(
@@ -374,20 +372,8 @@ private fun CatalogPosterTile(
 @Composable
 private fun CatalogEmptyState(
     errorMessage: String?,
-    networkCondition: NetworkCondition,
     onRetry: (() -> Unit)? = null,
 ) {
-    if (
-        !errorMessage.isNullOrBlank() &&
-        (networkCondition == NetworkCondition.NoInternet || networkCondition == NetworkCondition.ServersUnreachable)
-    ) {
-        NuvioNetworkOfflineCard(
-            condition = networkCondition,
-            onRetry = onRetry,
-        )
-        return
-    }
-
     val loadFailed = !errorMessage.isNullOrBlank()
     HomeEmptyStateCard(
         title = stringResource(

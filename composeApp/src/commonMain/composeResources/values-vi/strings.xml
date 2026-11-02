@@ -1605,6 +1605,7 @@
     <string name="network_error_empty_response_body">Nội dung phản hồi trống</string>
     <string name="network_error_request_failed_http">Yêu cầu thất bại (HTTP %1$d)</string>
     <string name="network_no_internet_connection">Không có kết nối Internet</string>
+    <string name="offline_banner_saved_data">Ngoại tuyến: đang hiển thị dữ liệu đã lưu</string>
     <string name="person_age">(%1$d tuổi)</string>
     <string name="person_born">Sinh %1$s%2$s</string>
     <string name="person_died">Mất %1$s</string>

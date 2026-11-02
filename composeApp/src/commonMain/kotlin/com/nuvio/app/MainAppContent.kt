@@ -64,6 +64,7 @@ import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
+import com.nuvio.app.core.network.OfflineBannerSurface
 import com.nuvio.app.core.startup.LaunchRefreshController
 import com.nuvio.app.core.startup.StartupPreloader
 import com.nuvio.app.core.startup.connectivityRegained
@@ -88,6 +89,8 @@ import com.nuvio.app.core.ui.NuvioPosterZoomActionOverlay
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.NuvioToastHost
+import com.nuvio.app.core.ui.OfflineBannerHost
+import com.nuvio.app.core.ui.systemReduceMotionEnabled
 import com.nuvio.app.features.debrid.DebridAddOfferHost
 import com.nuvio.app.core.ui.PosterZoomAnchor
 import com.nuvio.app.core.ui.PosterZoomAnchorHolder
@@ -686,14 +689,6 @@ internal fun MainAppContent(
         InAppLogger.info("Network/Status", "condition changed $previousConditionName -> ${condition.name}")
 
         when (condition) {
-            NetworkCondition.NoInternet -> {
-                NuvioToastController.show(getString(Res.string.network_no_internet_connection))
-            }
-
-            NetworkCondition.ServersUnreachable -> {
-                NuvioToastController.show(getString(Res.string.network_cannot_reach_servers))
-            }
-
             NetworkCondition.Online -> {
                 if (
                     previousConditionName == NetworkCondition.NoInternet.name ||
@@ -704,6 +699,8 @@ internal fun MainAppContent(
                 }
             }
 
+            NetworkCondition.NoInternet,
+            NetworkCondition.ServersUnreachable,
             NetworkCondition.Unknown,
             NetworkCondition.Checking,
             -> Unit
@@ -1620,6 +1617,18 @@ internal fun MainAppContent(
                 nativeTabBarOwnsChrome -> 49.dp
                 else -> settingsRouteBarOverlay
             }
+            val offlineBannerSurface = when {
+                launchOverlayState.currentState || launchOverlayState.targetState -> OfflineBannerSurface.LaunchGate
+                currentRoute is PlayerRoute || visiblePlayerEntries > 0 -> OfflineBannerSurface.Player
+                else -> OfflineBannerSurface.Main
+            }
+            OfflineBannerHost(
+                condition = networkStatusUiState.condition,
+                surface = offlineBannerSurface,
+                reduceMotion = systemReduceMotionEnabled(),
+                onRecheck = { NetworkStatusRepository.requestRefresh(force = true) },
+                modifier = Modifier.fillMaxSize(),
+            ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -2597,6 +2606,7 @@ internal fun MainAppContent(
             )
             DebridAddOfferHost()
 
+            }
             }
         }
 }

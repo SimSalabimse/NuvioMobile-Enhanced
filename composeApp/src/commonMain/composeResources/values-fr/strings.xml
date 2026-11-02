@@ -1258,6 +1258,7 @@
     <string name="network_error_empty_response_body">Corps de réponse vide</string>
     <string name="network_error_request_failed_http">La requête a échoué avec HTTP %1$d</string>
     <string name="network_no_internet_connection">Pas de connexion Internet</string>
+    <string name="offline_banner_saved_data">Hors ligne : affichage des données enregistrées</string>
     <string name="person_age">(âge %1$d)</string>
     <string name="person_born">Né(e) le %1$s%2$s</string>
     <string name="person_died">Décédé(e) le %1$s</string>

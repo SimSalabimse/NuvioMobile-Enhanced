@@ -1403,6 +1403,7 @@
     <string name="network_error_empty_response_body">استجابة الشبكة فارغة</string>
     <string name="network_error_request_failed_http">فشل الطلب برمز HTTP %1$d</string>
     <string name="network_no_internet_connection">لا يوجد اتصال بالإنترنت.</string>
+    <string name="offline_banner_saved_data">غير متصل: عرض البيانات المحفوظة</string>
     <string name="person_age">(العمر %1$d)</string>
     <string name="person_born">تاريخ الميلاد %1$s%2$s</string>
     <string name="person_died">تاريخ الوفاة %1$s</string>

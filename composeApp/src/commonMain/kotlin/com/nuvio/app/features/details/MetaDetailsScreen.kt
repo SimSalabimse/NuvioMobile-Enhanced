@@ -471,11 +471,7 @@ fun MetaDetailsScreen(
                         color = MaterialTheme.colorScheme.onBackground,
                     )
                     Text(
-                        text = when (networkStatusUiState.condition) {
-                            NetworkCondition.NoInternet -> stringResource(Res.string.details_check_connection)
-                            NetworkCondition.ServersUnreachable -> stringResource(Res.string.details_servers_unreachable)
-                            else -> uiState.errorMessage.orEmpty()
-                        },
+                        text = uiState.errorMessage.orEmpty(),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
