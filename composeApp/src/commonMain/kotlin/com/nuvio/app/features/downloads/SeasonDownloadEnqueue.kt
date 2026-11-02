@@ -21,6 +21,7 @@ internal data class SeasonEnqueueResult(
 internal suspend fun enqueueSeasonDownloads(
     meta: MetaDetails,
     rows: List<SeasonEnqueueRow>,
+    startedByUser: Boolean = true,
 ): SeasonEnqueueResult {
     var queued = 0
     var failureMessage: String? = null
@@ -52,7 +53,7 @@ internal suspend fun enqueueSeasonDownloads(
             episodeTitle = row.video.title,
             episodeThumbnail = row.video.thumbnail,
         )
-        val outcome = DownloadEnqueueService.resolveAndEnqueue(target, row.stream, notify = false)
+        val outcome = DownloadEnqueueService.resolveAndEnqueue(target, row.stream, notify = false, startedByUser = startedByUser)
         val enqueueResult = outcome.result ?: run {
             val failure = outcome.failure ?: DirectDebridPlayableResult.Error
             // One add offer for the batch (the first uncached episode), not one per row.

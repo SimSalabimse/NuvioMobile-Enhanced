@@ -76,4 +76,16 @@ actual object DownloadsSettingsStorage {
         if (value == null) NSUserDefaults.standardUserDefaults.removeObjectForKey(key)
         else NSUserDefaults.standardUserDefaults.setObject(value, forKey = key)
     }
+
+    actual fun loadDouble(key: String): Double? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        if (defaults.objectForKey(key) == null) return null
+        return defaults.doubleForKey(key)
+    }
+
+    actual fun saveDouble(key: String, value: Double?) {
+        val defaults = NSUserDefaults.standardUserDefaults
+        if (value == null) defaults.removeObjectForKey(key)
+        else defaults.setDouble(value, forKey = key)
+    }
 }

@@ -85,4 +85,19 @@ actual object DownloadsSettingsStorage {
     actual fun saveString(key: String, value: String?) {
         preferences?.edit()?.apply { if (value == null) remove(key) else putString(key, value) }?.apply()
     }
+
+    actual fun loadDouble(key: String): Double? =
+        preferences?.let { prefs ->
+            if (!prefs.contains(key)) {
+                null
+            } else {
+                runCatching { Double.fromBits(prefs.getLong(key, 0L)) }.getOrNull()
+            }
+        }
+
+    actual fun saveDouble(key: String, value: Double?) {
+        preferences?.edit()?.apply {
+            if (value == null) remove(key) else putLong(key, value.toRawBits())
+        }?.apply()
+    }
 }
