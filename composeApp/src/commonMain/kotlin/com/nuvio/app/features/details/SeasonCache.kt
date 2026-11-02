@@ -3,6 +3,9 @@ package com.nuvio.app.features.details
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
+import kotlin.time.Clock
 
 /**
  * Insertion-ordered cache of OMDb season ratings.
@@ -71,5 +74,65 @@ internal class SeasonCache<V>(
 
     companion object {
         const val MaxEntries = 400
+    }
+}
+
+internal object SeasonEpisodeDisk {
+    private val json = Json { ignoreUnknownKeys = true }
+    private val cache = productionOfflineDiskCache(
+        namespace = "season-episodes",
+        maxEntries = OfflineDetailsCacheLimits.SeasonListMaxEntries,
+        maxBytes = OfflineDetailsCacheLimits.SeasonListMaxBytes,
+        ttlMs = OfflineDetailsCacheLimits.SeasonListTtlMs,
+    )
+    private val listSerializer = ListSerializer(StoredMetaVideo.serializer())
+
+    fun save(profileKey: String, requestKey: String, videos: List<StoredMetaVideo>, savedAtMs: Long) {
+        if (videos.isEmpty()) return
+        val payload = runCatching { json.encodeToString(listSerializer, videos) }.getOrNull() ?: return
+        cache.upsert(profileKey, requestKey, payload, savedAtMs)
+    }
+
+    fun read(profileKey: String, requestKey: String): List<StoredMetaVideo>? {
+        val hit = cache.read(profileKey, requestKey) ?: return null
+        return runCatching { json.decodeFromString(listSerializer, hit.payload) }.getOrNull()
+    }
+}
+
+internal object SeasonRatingsDisk {
+    private val json = Json { ignoreUnknownKeys = true }
+    private val cache = productionOfflineDiskCache(
+        namespace = "season-ratings",
+        maxEntries = OfflineDetailsCacheLimits.SeasonRatingsMaxEntries,
+        maxBytes = OfflineDetailsCacheLimits.SeasonRatingsMaxBytes,
+        ttlMs = OfflineDetailsCacheLimits.SeasonRatingsTtlMs,
+    )
+
+    fun load(profileKey: String): Map<String, CachedOmdbSeason> {
+        val rows = runCatching { cache.readAll(profileKey) }.getOrNull() ?: return emptyMap()
+        val decoded = LinkedHashMap<String, CachedOmdbSeason>()
+        for (row in rows) {
+            val season = runCatching {
+                json.decodeFromString(CachedOmdbSeason.serializer(), row.payload)
+            }.getOrNull() ?: continue
+            decoded[row.key] = season
+        }
+        return decoded
+    }
+
+    fun save(profileKey: String, snapshot: Map<String, CachedOmdbSeason>) {
+        val now = Clock.System.now().toEpochMilliseconds()
+        val rows = snapshot.mapNotNull { (key, season) ->
+            val payload = runCatching {
+                json.encodeToString(CachedOmdbSeason.serializer(), season)
+            }.getOrNull() ?: return@mapNotNull null
+            OfflineDiskEntry(
+                key = key,
+                savedAtMs = season.fetchedAt.takeIf { it > 0L } ?: now,
+                touchedAtMs = now,
+                payload = payload,
+            )
+        }
+        cache.replaceAll(profileKey, rows)
     }
 }

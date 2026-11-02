@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import com.nuvio.app.features.details.OfflineDetailsWriteGate
 
 @Composable
 internal fun MaintainHomeScrollPosition(
@@ -31,8 +32,13 @@ internal fun MaintainHomeScrollPosition(
     }
 
     LaunchedEffect(profileId, listState) {
-        snapshotFlow { listState.isScrollInProgress }.collect { isScrolling ->
-            if (isScrolling) hasScrolled = true
+        try {
+            snapshotFlow { listState.isScrollInProgress }.collect { isScrolling ->
+                OfflineDetailsWriteGate.bindListScrolling("home", isScrolling)
+                if (isScrolling) hasScrolled = true
+            }
+        } finally {
+            OfflineDetailsWriteGate.bindListScrolling("home", false)
         }
     }
 }

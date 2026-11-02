@@ -104,6 +104,7 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - TMDB enrichment modules, MDBList and OMDb ratings: Settings › Integrations. Upstream.
 - Rating map (colour-coded episode ratings) on show and anime pages: Settings › Layout. Upstream 0.6.4. OMDb season ratings are cached so a cancelled load can run again.
 - OMDb season ratings cache is locked against parallel season fetches, and a ratings failure keeps the details page with the data it has instead of crashing iOS: automatic.
+- Opened titles stay on disk per profile (details, season and episode lists, OMDb season ratings, and Continue Watching rows). See Offline details below.
 - Live TV (playlists, EPG): Settings › Integrations › Live TV. Upstream.
 
 ## Profiles, sync and the app
@@ -134,4 +135,22 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - Up-next countdown: EXISTS (next-episode auto-play countdown).
 - Download quality picker with size: EXISTS (Download quality plus a size confirmation in the quality sheet).
 - Watch stats: EXISTS (Profile insights / WatchStats).
-- Offline mode: PARTIAL (downloads keep their artwork offline; there's no app-wide offline mode).
+- Offline mode: PARTIAL (downloads keep their artwork offline; opened titles and Continue Watching rows reopen from disk; there's no app-wide offline mode).
+
+## Offline details and Continue Watching
+
+Opened titles stay available after a restart. The details page, its season and episode list, and the Continue Watching row are saved per profile. A profile only reads its own files. Switching profiles drops the in-memory copy so one profile cannot see another's titles.
+
+Details keep the fields the page needs to draw: name, artwork, description, ratings, cast, trailers, and the episode list (season, episode, title, overview, release, and artwork URLs). Playback streams are not saved. Addon links and website URLs are not saved. An image or thumbnail URL that carries a token, key, or password in the query string is dropped rather than written to disk.
+
+Season lists are saved beside the title. OMDb season ratings are saved separately, still per profile. Continue Watching keeps the next-up and in-progress rows it already stored (title, artwork, episode, progress). That row is stamped with the profile id and a schema version.
+
+A saved title is fresh for 12 hours. Season and episode lists use the same 12 hours. OMDb season ratings stay fresh for 7 days, matching the existing complete-season rating lifetime. Continue Watching rows are fresh for 30 minutes.
+
+Offline, a stale copy is still shown. Online, a stale copy is shown immediately and refreshed in the background. A refresh that times out leaves the saved copy on screen. A title that was never opened has nothing to show when the device is offline.
+
+Titles are capped at 150 entries and about 8 MB, the same entry count as the in-memory details cache. The byte count is the JSON character length, which tracks the file size for this text. Season and episode lists are capped at 400 titles and about 2 MB. OMDb season ratings are capped at 400 seasons and about 1 MB. Continue Watching keeps the 60 most recent next-up rows and the 60 most recent in-progress rows for each profile and source.
+
+When a cap is passed, the least recently opened entries are removed. A file whose schema version is not the current one is discarded. A file that cannot be read is ignored.
+
+Disk reads run off the main thread, and only after a title or Continue Watching row is requested. Nothing is read during launch. Writes are batched, debounced by one second, and held while the player is open or a home, Continue Watching, upcoming, or details list is scrolling.
