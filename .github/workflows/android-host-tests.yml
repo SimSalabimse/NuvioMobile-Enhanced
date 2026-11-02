@@ -1,0 +1,204 @@
+name: Android host tests
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: android-host-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect code changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - name: Check changed paths
+        id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          files="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${{ github.event.pull_request.number }}/files" --jq '.[] | .filename, (.previous_filename // empty)')"
+          code=false
+          while IFS= read -r file; do
+            [[ -z "${file}" ]] && continue
+            case "${file}" in
+              *.md|Docs/*|docs/*) continue ;;
+            esac
+            case "${file}" in
+              composeApp/*|gradle/*|gradlew|gradlew.bat|settings.gradle.kts|build.gradle.kts|gradle.properties|buildSrc/*|native/*|.github/workflows/android-host-tests.yml|.github/android-host-test-gate.py|.github/test-baseline-failures.txt)
+                code=true
+                break
+                ;;
+            esac
+          done <<< "${files}"
+          echo "code=${code}" >> "${GITHUB_OUTPUT}"
+          echo "code=${code}"
+          printf '%s\n' "${files}"
+
+  test:
+    name: Run Android host tests
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Cache Cargo and cargo-ndk
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.rustup/toolchains
+            native/target
+          key: cargo-ndk-${{ runner.os }}-${{ hashFiles('native/Cargo.lock', 'native/**/Cargo.toml') }}
+          restore-keys: |
+            cargo-ndk-${{ runner.os }}-
+
+      - name: Set up Rust
+        run: |
+          set -euo pipefail
+          rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+          # The cargo-ndk executable refuses a direct call. Cargo invokes it as `cargo ndk`.
+          if ! cargo ndk --help >/dev/null 2>&1; then
+            cargo install cargo-ndk --locked
+          fi
+          mkdir -p native/target
+          cargo ndk --help >/dev/null
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          # Robolectric SDK 36, used by AndroidDownloadLifecycleTest, refuses Java 17.
+          java-version: 21
+
+      - name: Restore Robolectric Android jars
+        id: robolectric-jars
+        uses: actions/cache/restore@v5
+        with:
+          path: ~/.m2/repository/org/robolectric/android-all-instrumented
+          key: robolectric-android-all-${{ runner.os }}-4.16-26-34-36
+
+      - name: Download Robolectric Android jars
+        if: steps.robolectric-jars.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          # Robolectric fetches these itself at test time into ~/.m2. A failed fetch
+          # collapses each class into one classMethod error, so download them first.
+          versions=(
+            8.0.0_r4-robolectric-r1-i7
+            14-robolectric-10818077-i7
+            16-robolectric-13921718-i7
+          )
+          base="https://repo1.maven.org/maven2/org/robolectric/android-all-instrumented"
+          for version in "${versions[@]}"; do
+            dir="${HOME}/.m2/repository/org/robolectric/android-all-instrumented/${version}"
+            mkdir -p "${dir}"
+            for ext in jar pom; do
+              name="android-all-instrumented-${version}.${ext}"
+              dest="${dir}/${name}"
+              if [[ -s "${dest}" ]]; then
+                continue
+              fi
+              url="${base}/${version}/${name}"
+              ok=0
+              for attempt in 1 2 3 4 5; do
+                if curl -fL --retry 5 --retry-all-errors -o "${dest}.partial" "${url}"; then
+                  mv "${dest}.partial" "${dest}"
+                  ok=1
+                  break
+                fi
+                rm -f "${dest}.partial"
+                sleep $((attempt * 5))
+              done
+              if [[ "${ok}" != 1 ]]; then
+                echo "Could not download ${url}" >&2
+                exit 1
+              fi
+            done
+            bytes=$(stat -c '%s' "${dir}/android-all-instrumented-${version}.jar")
+            if (( bytes < 10000000 )); then
+              echo "Robolectric jar ${version} is only ${bytes} bytes." >&2
+              exit 1
+            fi
+            echo "Robolectric ${version}: ${bytes} bytes"
+          done
+
+      - name: Save Robolectric Android jars
+        if: steps.robolectric-jars.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.m2/repository/org/robolectric/android-all-instrumented
+          key: robolectric-android-all-${{ runner.os }}-4.16-26-34-36
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-read-only: false
+
+      - name: Prepare runtime properties
+        run: |
+          set -euo pipefail
+          # Same stub the fullDebug APK job uses so generateRuntimeConfigs has a file.
+          # Do not cap the Gradle or Kotlin heaps: this compile needs the project defaults,
+          # and the fullDebug APK job already builds this tree with those defaults.
+          touch local.properties
+
+      - name: Run Android host tests
+        id: gradle
+        run: |
+          set +e
+          ./gradlew :composeApp:testAndroidHostTest --continue
+          status=$?
+          set -e
+          echo "status=${status}" >> "${GITHUB_OUTPUT}"
+          echo "Gradle exited ${status}"
+
+      - name: Summarize tests and apply the baseline
+        if: steps.gradle.outcome == 'success'
+        env:
+          GRADLE_STATUS: ${{ steps.gradle.outputs.status }}
+        run: python3 .github/android-host-test-gate.py
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-host-test-results
+          path: |
+            composeApp/build/test-results/**/TEST-*.xml
+            composeApp/build/reports/tests/**
+          if-no-files-found: ignore
+          retention-days: 7
+
+  status:
+    name: Android host tests
+    needs: [changes, test]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Publish a result when the heavy job is skipped
+        run: |
+          set -euo pipefail
+          changes="${{ needs.changes.result }}"
+          test="${{ needs.test.result }}"
+          echo "changes=${changes} test=${test}"
+          if [[ "${changes}" == "success" && ( "${test}" == "success" || "${test}" == "skipped" ) ]]; then
+            exit 0
+          fi
+          exit 1
