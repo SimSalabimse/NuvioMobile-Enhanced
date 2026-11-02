@@ -11,6 +11,7 @@ import coil3.network.ktor3.KtorNetworkFetcherFactory
 import coil3.request.CachePolicy
 import coil3.request.crossfade
 import coil3.svg.SvgDecoder
+import com.nuvio.app.core.network.ConnectionPathMonitor
 import com.nuvio.app.core.network.DnsPlatform
 import com.nuvio.app.core.perf.addPerformanceInterceptors
 import com.nuvio.app.core.perf.performanceImageHttpClient
@@ -27,6 +28,7 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
     override fun onCreate() {
         super.onCreate()
         DnsPlatform.initialize(this)
+        ConnectionPathMonitor.install(this)
     }
 
     override fun newImageLoader(context: android.content.Context): ImageLoader {
