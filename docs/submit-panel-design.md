@@ -16,6 +16,42 @@ Landscape phone bottom sheet for Flag / Submit timestamps. Three states: editing
 
 IntroDB still cannot send an empty segment. Submit stays disabled and the existing refusal line stays. Preview (the segment, and playing a range) is unchanged.
 
+## States
+
+A cell is the tab, the mode, the selected end, whether the range is valid, and whether a submit is in flight.
+
+| Axis | Values |
+| --- | --- |
+| Tab | Intro, Recap, Credits, Preview. Movies: Intro, Credits. |
+| Mode | Editing, or none after the "No …" chip. |
+| Selected end | Start, End. |
+| Range | Valid, invalid. |
+| Submitting | In flight, or idle. |
+
+Series has 64 cells and movies have 32. Two kinds are unreachable, so a series sheet has 56 reachable cells and a movie sheet has 28:
+
+- Submitting while editing an invalid range. Submit stays disabled, so the tap does not leave the idle cell.
+- Submitting while none, when the service refuses an empty segment (IntroDB). That drops 16 more series cells (every tab, both ends, both range values).
+
+Close is not a cell. It leaves the sheet. A key problem, a block line, or a successful send also keeps Submit off, without adding a cell: success sets sent on the same idle cell until a clock edit, a tab change, or leaving none.
+
+| Event | Effect |
+| --- | --- |
+| Select another tab | Switch. Clears none, sent, and the error. The selected end returns to Start. Draft clocks for that tab come back; a first visit has empty clocks (invalid). Recap and Preview do nothing on a movie. |
+| Tap the open tab | While editing, nothing. While none, return to editing and clear sent. |
+| Tap the "No …" chip | Arms none. A second tap does nothing. Timeline and nudges hide. Sent clears. |
+| Tap Start / Tap End | Selects that end. |
+| Set to now | Writes the playhead onto the selected end. Hidden while none, and ignored while submitting. |
+| Nudge −5 / −1 / +1 / +5 | Adds that step to the selected end. A hold steps 0.1 s instead. A tenth shows up only after a 0.1 step. Hidden while none. |
+| Drag a handle | Moves that end and selects it. An end on the stream length, or at most half a displayed tenth past it, clamps to the length. 5 s past it stays invalid. Hidden while none. |
+| Reset marks | Clears both clocks and leaves none. |
+| Submit | Enters submitting only when the cell is valid: a valid range while editing, or none when the service accepts 0, 0 plus the stream length. |
+| Submit success | Idle, sent. Submit stays off until the next edit. |
+| Submit failure | Idle, not sent. A still-valid cell can submit again. |
+| Close | Leaves the sheet. Disabled while submitting. |
+
+Every reachable cell can return to editing: failure ends a submit, and the open tab leaves none. From editing, Close leaves the sheet. None hides the timeline and the nudges, and a nudge or a drag in that mode does not move a clock. The reducer in `PlayerToolsLogic.kt` is the check: `every submit sheet state can return to editing and only a valid one submits`.
+
 ## Files
 
 - `composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/PlayerToolsStrips.kt` — sheet layout
@@ -38,4 +74,6 @@ IntroDB still cannot send an empty segment. Submit stays disabled and the existi
 - `./gradlew :composeApp:testAndroidHostTest --continue`
 - Known failures stay the seven download tests. Nothing new should fail.
 - Intro, Credits, and No intro: clocks, status, hidden timeline, and the Submit caption.
-- Hold step is covered by the logic tests. End equal to the duration stays valid.
+- Hold step, an end on the stream length, a 1 ms or half-tenth overshoot, a 5 s overshoot, and a none payload of 0, 0 plus the stream length are logic tests.
+- The status line keeps the short error strings, with no line cap and no ellipsis. A source check fails if `markProblems` compares an end with the duration without `clampMarkTimeToDuration`.
+- The sheet reducer test walks every reachable cell.

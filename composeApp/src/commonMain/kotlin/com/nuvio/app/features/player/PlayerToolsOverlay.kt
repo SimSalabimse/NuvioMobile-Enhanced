@@ -210,25 +210,23 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 errorLine = markSubmitError,
                 safeInset = horizontalSafePadding,
                 onBack = { if (!submitting) dismissPlayerTools() },
-                onSegment = { if (!submitting) switchSubmitSegmentType(it) },
+                onSegment = { if (!submitting) handleSegmentTap(it) },
                 onAbsent = {
-                    if (submitting) return@SegmentMarkingLayer
-                    markAbsent = absentAfterNoSegmentTap(markAbsent)
+                    if (submitting || markAbsent) return@SegmentMarkingLayer
+                    markAbsent = absentAfterNoneChip()
                     markSent = false
                     markSubmitError = null
                 },
-                onMarkStart = { setMarkClock(start = true, playhead.positionMs / 1000.0) },
-                onMarkEnd = { setMarkClock(start = false, playhead.positionMs / 1000.0) },
-                onNudgeStart = { delta ->
-                    val next = nudgeMarkSeconds(startSec, delta, durationSec.takeIf { it > 0.0 })
-                    setMarkClock(true, next, showTenth = (delta > -1.0 && delta < 1.0) || markStartShowsTenth)
+                onSetToNow = { handle ->
+                    setMarkClock(handle == MarkHandle.Start, playhead.positionMs / 1000.0)
                 },
-                onNudgeEnd = { delta ->
-                    val next = nudgeMarkSeconds(endSec, delta, durationSec.takeIf { it > 0.0 })
-                    setMarkClock(false, next, showTenth = (delta > -1.0 && delta < 1.0) || markEndShowsTenth)
+                onNudge = { handle, delta ->
+                    val start = handle == MarkHandle.Start
+                    val current = if (start) startSec else endSec
+                    val showing = if (start) markStartShowsTenth else markEndShowsTenth
+                    val next = nudgeMarkSeconds(current, delta, durationSec.takeIf { it > 0.0 })
+                    setMarkClock(start, next, showTenth = nudgeKeepsTenth(delta, showing))
                 },
-                onStartAtZero = { setMarkClock(true, 0.0) },
-                onRunsToEnd = { setMarkClock(false, runsToEndSec(durationSec)) },
                 onSeek = { seconds -> if (markingSeekAllowed(durationSec)) seekWhileMarking(seconds) },
                 onDragStart = { setMarkClock(true, it) },
                 onDragEnd = { setMarkClock(false, it) },
@@ -243,6 +241,7 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                     NuvioToastController.show(linkCopied)
                 },
                 onAddKey = { showKeyDialog = true },
+                onReset = { if (!submitting) resetMarkRange() },
                 onSubmit = {
                     if (submitting || markSent) return@SegmentMarkingLayer
                     val generation = markSubmitGeneration

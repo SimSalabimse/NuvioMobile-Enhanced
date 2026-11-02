@@ -222,6 +222,24 @@ internal fun PlayerScreenRuntime.openMarkingStrip(prefillCurrentSegment: Boolean
     showPlayerTool(PlayerTool.Marking)
 }
 
+internal fun PlayerScreenRuntime.handleSegmentTap(newType: String) {
+    when (segmentTap(submitIntroSegmentType, newType, markAbsent)) {
+        SegmentTap.Stay -> Unit
+        SegmentTap.ReturnToEditing -> {
+            markAbsent = false
+            markSent = false
+            markSubmitError = null
+        }
+        SegmentTap.Switch -> switchSubmitSegmentType(newType)
+    }
+}
+
+internal fun PlayerScreenRuntime.resetMarkRange() {
+    setMarkClock(start = true, seconds = null)
+    setMarkClock(start = false, seconds = null)
+    markSubmitError = null
+}
+
 internal fun PlayerScreenRuntime.switchSubmitSegmentType(newType: String) {
     val wanted = markSegmentId(newType)
     val old = markSegmentId(submitIntroSegmentType)
