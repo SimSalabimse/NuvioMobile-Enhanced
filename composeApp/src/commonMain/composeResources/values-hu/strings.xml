@@ -1063,6 +1063,7 @@
     <string name="network_back_online">Ismét online</string>
     <string name="network_cannot_reach_servers">A szerverek nem érhetők el</string>
     <string name="network_no_internet_connection">Nincs internetkapcsolat</string>
+    <string name="offline_banner_saved_data">Offline: mentett adatok megjelenítése</string>
     <string name="person_age">(életkor: %1$d év)</string>
     <string name="person_born">Született: %1$s%2$s</string>
     <string name="person_died">Meghalt: %1$s</string>

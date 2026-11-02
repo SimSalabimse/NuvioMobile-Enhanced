@@ -1556,6 +1556,7 @@
     <string name="network_error_empty_response_body">খালি রেসপন্স বডি</string>
     <string name="network_error_request_failed_http">রিকোয়েস্ট ব্যর্থ হয়েছে (HTTP %1$d)</string>
     <string name="network_no_internet_connection">ইন্টারনেট সংযোগ নেই</string>
+    <string name="offline_banner_saved_data">অফলাইন: সংরক্ষিত ডেটা দেখানো হচ্ছে</string>
     <string name="person_age">(বয়স %1$d)</string>
     <string name="person_born">জন্ম %1$s%2$s</string>
     <string name="person_died">মারা গেছেন %1$s</string>

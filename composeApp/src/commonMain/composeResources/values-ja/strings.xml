@@ -1238,6 +1238,7 @@
     <string name="network_error_empty_response_body">空のレスポンスボディ</string>
     <string name="network_error_request_failed_http">リクエストが HTTP %1$d で失敗しました</string>
     <string name="network_no_internet_connection">インターネット接続がありません</string>
+    <string name="offline_banner_saved_data">オフライン: 保存したデータを表示しています</string>
     <string name="person_age">（%1$d 歳）</string>
     <string name="person_born">%1$s%2$s 生まれ</string>
     <string name="person_died">%1$s 没</string>

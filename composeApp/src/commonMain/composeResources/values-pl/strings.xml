@@ -1163,6 +1163,7 @@
     <string name="network_back_online">Ponownie online</string>
     <string name="network_cannot_reach_servers">Nie można połączyć się z serwerami</string>
     <string name="network_no_internet_connection">Brak połączenia z internetem</string>
+    <string name="offline_banner_saved_data">Offline: wyświetlanie zapisanych danych</string>
     <string name="person_age">(wiek %1$d)</string>
     <string name="person_born">Urodzony %1$s%2$s</string>
     <string name="person_died">Zmarł %1$s</string>

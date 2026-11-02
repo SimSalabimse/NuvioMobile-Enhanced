@@ -1021,6 +1021,7 @@
     <string name="network_error_empty_response_body">Tom svarbody</string>
     <string name="network_error_request_failed_http">Forespørsel mislyktes med HTTP %1$d</string>
     <string name="network_no_internet_connection">Ingen internettforbindelse</string>
+    <string name="offline_banner_saved_data">Frakoblet: viser lagrede data</string>
     <string name="network_please_check_connection">Sjekk tilkoblingen din og prøv på nytt.</string>
     <string name="network_request_failed_http">Forespørsel mislyktes med HTTP %1$d</string>
     <string name="notifications_channel_episode_releases_description">Varsler når en ny episode for en lagret serie er ute.</string>
