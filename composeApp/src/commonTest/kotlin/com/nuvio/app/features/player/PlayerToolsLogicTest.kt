@@ -1,5 +1,6 @@
 package com.nuvio.app.features.player
 
+import com.nuvio.app.features.player.skip.AutoSkipSegmentType
 import com.nuvio.app.features.player.skip.IntroSubmitService
 import com.nuvio.app.features.player.skip.resolveIntroSubmitTimes
 import com.nuvio.app.features.player.skip.theIntroDbSubmitPayload
@@ -89,17 +90,17 @@ class PlayerToolsLogicTest {
             knownStartSec = 12.4,
             knownEndSec = 101.0,
             knownSegmentType = "intro",
-            isMovie = true,
         )
-        assertNull(clocks.startSec)
-        assertNull(clocks.endSec)
+        assertEquals(0.0, clocks.startSec)
+        assertEquals(0.0, clocks.endSec)
+        assertEquals("0:00:00", formatMarkClock(clocks.startSec!!))
+        assertEquals("0:00:00", formatMarkClock(clocks.endSec!!))
         val seriesCredits = clocksForSegment(
             segmentType = "outro",
             draft = null,
             knownStartSec = 6_760.0,
             knownEndSec = 7_101.0,
             knownSegmentType = "credits",
-            isMovie = false,
         )
         assertEquals(6_760.0, seriesCredits.startSec)
         assertEquals(7_101.0, seriesCredits.endSec)
@@ -109,9 +110,84 @@ class PlayerToolsLogicTest {
             knownStartSec = 12.4,
             knownEndSec = 101.0,
             knownSegmentType = "intro",
-            isMovie = true,
         )
         assertEquals(1.0, drafted.startSec)
+        assertEquals(2.0, drafted.endSec)
+    }
+
+    @Test
+    fun `every segment type defaults to zero unless detected or edited`() {
+        val types = (
+            SubmitPanelTab.entries.map { it.segmentId } +
+                listOf("credits") +
+                AutoSkipSegmentType.entries.map { it.storedValue }
+            ).distinct()
+        assertTrue(types.containsAll(listOf("intro", "recap", "outro", "preview", "credits", "movie-credits")))
+        val detectedStart = 12.0
+        val detectedEnd = 40.0
+        val edited = MarkClocks(3.0, 9.0)
+        for (type in types) {
+            val absent = shownSegmentClocks(type, null, null, edited = null, sameEpisode = false)
+            assertEquals(0.0, absent.startSec, type)
+            assertEquals(0.0, absent.endSec, type)
+            assertEquals("0:00:00", formatMarkClock(absent.startSec!!), type)
+            assertEquals("0:00:00", formatMarkClock(absent.endSec!!), type)
+            assertEquals(formatMarkClock(absent.startSec), formatMarkClock(absent.endSec), type)
+
+            val reopenedAbsent = shownSegmentClocks(type, null, null, edited = null, sameEpisode = true)
+            assertEquals(0.0, reopenedAbsent.startSec, type)
+            assertEquals(0.0, reopenedAbsent.endSec, type)
+
+            val halfDetected = shownSegmentClocks(type, detectedStart, null, edited = null, sameEpisode = true)
+            assertEquals(0.0, halfDetected.startSec, type)
+            assertEquals(0.0, halfDetected.endSec, type)
+
+            val found = shownSegmentClocks(type, detectedStart, detectedEnd, edited = null, sameEpisode = true)
+            assertEquals(detectedStart, found.startSec, type)
+            assertEquals(detectedEnd, found.endSec, type)
+            assertEquals("0:00:12", formatMarkClock(found.startSec!!), type)
+            assertEquals("0:00:40", formatMarkClock(found.endSec!!), type)
+
+            val foundOnReopen = shownSegmentClocks(type, detectedStart, detectedEnd, edited = null, sameEpisode = true)
+            assertEquals(detectedStart, foundOnReopen.startSec, type)
+            assertEquals(detectedEnd, foundOnReopen.endSec, type)
+
+            val kept = shownSegmentClocks(type, detectedStart, detectedEnd, edited, sameEpisode = true)
+            assertEquals(3.0, kept.startSec, type)
+            assertEquals(9.0, kept.endSec, type)
+
+            val keptWithoutDetection = shownSegmentClocks(type, null, null, edited, sameEpisode = true)
+            assertEquals(3.0, keptWithoutDetection.startSec, type)
+            assertEquals(9.0, keptWithoutDetection.endSec, type)
+
+            val blankEdit = shownSegmentClocks(
+                type,
+                detectedStart,
+                detectedEnd,
+                MarkClocks(null, null),
+                sameEpisode = true,
+            )
+            assertNull(blankEdit.startSec, type)
+            assertNull(blankEdit.endSec, type)
+
+            val otherEpisode = shownSegmentClocks(type, null, null, edited, sameEpisode = false)
+            assertEquals(0.0, otherEpisode.startSec, type)
+            assertEquals(0.0, otherEpisode.endSec, type)
+
+            val otherEpisodeDetected = shownSegmentClocks(
+                type,
+                detectedStart,
+                detectedEnd,
+                edited,
+                sameEpisode = false,
+            )
+            assertEquals(detectedStart, otherEpisodeDetected.startSec, type)
+            assertEquals(detectedEnd, otherEpisodeDetected.endSec, type)
+        }
+        val longPreview = shownSegmentClocks("preview", 6_760.0, 7_101.0, edited = null, sameEpisode = true)
+        assertEquals("1:52:40", formatMarkClock(longPreview.startSec!!))
+        assertEquals("1:58:21", formatMarkClock(longPreview.endSec!!))
+        assertEquals(formatMarkClock(0.0).length, formatMarkClock(6_760.0).length)
     }
 
     @Test

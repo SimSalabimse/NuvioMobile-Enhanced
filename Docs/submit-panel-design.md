@@ -68,7 +68,7 @@ In each case the height is at most one eighth of the video height and at most 64
 
 | Event | Effect |
 | --- | --- |
-| Select another tab | Switch. Clears none, sent, and the popover. The selected end returns to Start. Draft clocks for that tab come back; a first visit has empty clocks (invalid). Recap and Preview do nothing on a movie. |
+| Select another tab | Switch. Clears none, sent, and the popover. The selected end returns to Start. An edit of that segment on this episode comes back. With nothing detected and no edit, both clocks are 0:00:00. A detected range wins over that zero. Recap and Preview do nothing on a movie. |
 | Tap the open tab | While editing, nothing. While none, return to editing, clear sent, and leave the popover closed. |
 | Tap "No …" | Arms none and closes the popover. A second tap does nothing. Chips hide. Sent clears. |
 | Tap Start / Tap End | While editing, selects that end and opens its popover. The same chip again closes it. Ignored while none or while submitting. |

@@ -636,6 +636,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         playerSettingsUiState.skipIntroEnabled,
     ) {
         skipIntervals = emptyList()
+        refreshSegmentClocks(emptyList())
         autoSkippedIntervals.clear()
         lastManualSkipSeekPositions = null
         activeSkipInterval = null

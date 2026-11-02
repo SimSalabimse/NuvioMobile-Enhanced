@@ -208,6 +208,10 @@ internal class PlayerScreenRuntime(
     val submitIntroDrafts = mutableMapOf<String, Pair<String, String>>()
     /** Whether each draft's clocks are showing a tenth after a 0.1 s nudge. */
     val submitIntroTenthDrafts = mutableMapOf<String, Pair<Boolean, Boolean>>()
+    /** Segment ids the viewer changed on the episode in [submitIntroDraftEpisodeKey]. */
+    val submitIntroUserEdited = mutableSetOf<String>()
+    /** videoId:season:episode. Drafts belong to this episode until it changes. */
+    var submitIntroDraftEpisodeKey: String = ""
     val submittedSegmentTypesByVideoId = mutableMapOf<String, MutableSet<String>>()
     var episodeStreamsPanelState by mutableStateOf(EpisodeStreamsPanelState())
     var playerMetaVideos by mutableStateOf<List<MetaVideo>>(emptyList())

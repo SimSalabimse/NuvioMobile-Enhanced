@@ -267,9 +267,32 @@ internal fun nudgeMarkSeconds(currentSec: Double?, deltaSec: Double, durationSec
 internal fun runsToEndSec(durationSec: Double): Double = durationSec.coerceAtLeast(0.0)
 
 /**
+ * Clocks shown for one segment. The same rule covers every segment type.
+ * A same-episode edit wins, including a blank edit. A detected start and end
+ * for this segment win over the zero default. Anything else is 0 and 0.
+ * [segmentType] is not switched on: intro, recap, credits, preview, and every
+ * other id share this body.
+ */
+@Suppress("UNUSED_PARAMETER")
+internal fun shownSegmentClocks(
+    segmentType: String,
+    detectedStartSec: Double?,
+    detectedEndSec: Double?,
+    edited: MarkClocks?,
+    sameEpisode: Boolean,
+): MarkClocks {
+    if (sameEpisode && edited != null) return edited
+    if (detectedStartSec != null && detectedEndSec != null) {
+        return MarkClocks(detectedStartSec, detectedEndSec)
+    }
+    return MarkClocks(0.0, 0.0)
+}
+
+/**
  * Clocks after a chip change. A saved draft wins, including a blank draft.
  * A known interval is used only when it is the same kind of segment.
- * Movie Credits never take the intro (or any other) times.
+ * Movie and series share [shownSegmentClocks]: credits never take intro times,
+ * and a segment with nothing detected starts at 0.
  */
 internal fun clocksForSegment(
     segmentType: String,
@@ -277,17 +300,17 @@ internal fun clocksForSegment(
     knownStartSec: Double?,
     knownEndSec: Double?,
     knownSegmentType: String?,
-    isMovie: Boolean,
 ): MarkClocks {
-    if (draft != null) return draft
-    if (knownStartSec == null || knownEndSec == null || knownSegmentType == null) {
-        return MarkClocks(null, null)
-    }
     val wanted = markSegmentId(segmentType)
-    val known = markSegmentId(knownSegmentType)
-    if (wanted != known) return MarkClocks(null, null)
-    if (isMovie && wanted == "outro" && known != "outro") return MarkClocks(null, null)
-    return MarkClocks(knownStartSec, knownEndSec)
+    val known = knownSegmentType?.let(::markSegmentId)
+    val matches = known != null && known == wanted
+    return shownSegmentClocks(
+        segmentType = segmentType,
+        detectedStartSec = knownStartSec.takeIf { matches },
+        detectedEndSec = knownEndSec.takeIf { matches },
+        edited = draft,
+        sameEpisode = true,
+    )
 }
 
 /** An absent intro is not a skip mark, even if the form still holds the playhead. */
