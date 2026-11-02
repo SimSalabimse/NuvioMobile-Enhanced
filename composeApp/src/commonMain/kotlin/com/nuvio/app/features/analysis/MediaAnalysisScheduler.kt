@@ -564,10 +564,11 @@ internal object MediaAnalysisScheduler {
             val siblings = MediaAnalysisStore.seasonSiblings(item.parentMetaId, season, key)
                 .sortedByDescending { it.analyzedAtMs }
                 .take(MAX_SIBLINGS)
-            if (siblings.isNotEmpty()) {
+            result = if (siblings.isNotEmpty()) {
                 stage(AnalysisStage.Matching)
-                val detected = withContext(Dispatchers.Default) { SeasonSegmentDetector.detect(result, siblings) }
-                result = result.applyingDetection(detected)
+                withContext(Dispatchers.Default) { result.applyingSeasonDetection(siblings) }
+            } else {
+                result.rememberingSilentRanges()
             }
             // Episodes the user marked are trusted references: they beat the pairwise guess.
             val references = MediaAnalysisStore.seasonSiblings(item.parentMetaId, season, key)

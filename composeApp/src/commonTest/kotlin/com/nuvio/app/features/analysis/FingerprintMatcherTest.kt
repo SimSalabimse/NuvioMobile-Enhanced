@@ -200,6 +200,80 @@ class FingerprintMatcherTest {
     }
 
     @Test
+    fun creditsLongerThanThreeMinutesKeepTheLastThreeMinutes() {
+        val tail = noise(21, 4_800)
+        val one = episodeWithTails("cap__s1e1", noise(1, 6_000), tail)
+        val two = episodeWithTails("cap__s1e2", noise(2, 6_000), tail)
+        val found = SeasonSegmentDetector.detect(one, listOf(two))
+        assertEquals(2_220_000L, found.creditsStartMs)
+        assertEquals(2_400_000L, found.creditsEndMs)
+        assertNull(found.introStartMs)
+    }
+
+    @Test
+    fun creditsSharedOnlyInTheHeadAreDropped() {
+        val shared = noise(4, 400)
+        val one = episodeWithTails(
+            "headonly__s1e1",
+            shared + noise(11, 5_600),
+            noise(12, 4_800),
+        )
+        val two = episodeWithTails(
+            "headonly__s1e2",
+            noise(13, 200) + shared + noise(14, 5_400),
+            noise(15, 4_800),
+        )
+        val found = SeasonSegmentDetector.detect(one, listOf(two))
+        assertEquals(0L, found.introStartMs)
+        assertEquals(40_000L, found.introEndMs)
+        assertNull(found.creditsStartMs)
+        assertNull(found.creditsEndMs)
+    }
+
+    @Test
+    fun quietRunsNeedThreeTenthsOfASecondAtOrBelowTheSilenceLevel() {
+        val levels = IntArray(20) { 86 }
+        levels[2] = 85
+        levels[3] = 85
+        levels[10] = 85
+        levels[11] = 85
+        levels[12] = 85
+        assertEquals(
+            listOf(SilentRange(1_000L, 1_300L)),
+            silentRangesFromEnergy(encodeEnergyLevels(levels), stepMs = 100),
+        )
+    }
+
+    @Test
+    fun edgesSnapOnlyToAQuietRunWithinTwoSeconds() {
+        val detected = DetectedSegments(
+            introStartMs = 90_000L,
+            introEndMs = 130_000L,
+            creditsStartMs = 2_170_000L,
+            creditsEndMs = 2_220_000L,
+        )
+        val episode = MediaAnalysisResult(
+            key = "edges",
+            analyzedAtMs = 0L,
+            durationMs = 2_400_000L,
+            silentRanges = listOf(
+                SilentRange(88_000L, 89_000L),
+                SilentRange(131_500L, 132_000L),
+                SilentRange(2_218_000L, 2_222_000L),
+            ),
+        )
+        val snapped = episode.snappingEdges(detected)
+        assertEquals(89_000L, snapped.introStartMs)
+        assertEquals(131_500L, snapped.introEndMs)
+        assertEquals(2_218_000L, snapped.creditsEndMs)
+
+        val tooFar = episode.copy(silentRanges = listOf(SilentRange(2_222_100L, 2_223_000L)))
+        val stayed = tooFar.snappingEdges(detected)
+        assertEquals(2_170_000L, stayed.creditsStartMs)
+        assertEquals(2_220_000L, stayed.creditsEndMs)
+    }
+
+    @Test
     fun loudnessGainIsCapped() {
         val quiet = MediaAnalysisResult(key = "k", analyzedAtMs = 0, durationMs = 1, integratedLufs = -40.0)
         val loud = quiet.copy(integratedLufs = -2.0)
@@ -207,6 +281,16 @@ class FingerprintMatcherTest {
         assertEquals(-12.0, loud.loudnessGainDb())
         assertTrue(quiet.copy(integratedLufs = null).loudnessGainDb() == null)
     }
+
+    private fun episodeWithTails(key: String, head: IntArray, tail: IntArray) = MediaAnalysisResult(
+        key = key,
+        analyzedAtMs = 0L,
+        durationMs = 2_400_000L,
+        fingerprintStepMs = 100,
+        headFingerprint = encodeFingerprint(head),
+        tailFingerprint = encodeFingerprint(tail),
+        tailStartMs = 2_400_000L - TAIL_FINGERPRINT_MS,
+    )
 
     private fun episodeFrom(key: String, head: IntArray) = MediaAnalysisResult(
         key = key,

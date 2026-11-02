@@ -1,5 +1,6 @@
 package com.nuvio.app.features.analysis
 
+import com.nuvio.app.core.serialization.LenientDefaultsJson
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -7,6 +8,8 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.encodeToString
 
 class SeasonFingerprintPassTest {
     @Test
@@ -207,6 +210,92 @@ class SeasonFingerprintPassTest {
         val cleared = seasonFingerprintPass(listOf(unmarked, sibling)).first { it.key == key }
         assertNull(cleared.introStartMs)
         assertNull(cleared.introEndMs)
+    }
+
+    @Test
+    fun creditsBedSnapsToTheSilenceBeforeThePostCreditsScene() {
+        val bed = noise(99, 500)
+        val episode = creditsEpisode("bedsnap__s1e1", bed, backgroundSeed = 1).copy(
+            energy = creditsEnergy(),
+            fileName = "e1.mkv",
+        )
+        val remembered = episode.rememberingSilentRanges()
+        MediaAnalysisStore.save(remembered)
+        MediaAnalysisStore.forgetFileData(remembered.key)
+        val kept = assertNotNull(MediaAnalysisStore.load(remembered.key))
+        assertNull(kept.energy)
+        assertTrue(kept.silentRanges.contains(SilentRange(2_219_500L, 2_220_400L)))
+        assertTrue(kept.silentRanges.contains(SilentRange(2_279_500L, 2_280_300L)))
+
+        val sibling = creditsEpisode("bedsnap__s1e2", bed, backgroundSeed = 2)
+        val snapped = seasonFingerprintPass(listOf(kept, sibling)).first { it.key == kept.key }
+        assertEquals(2_170_000L, snapped.creditsStartMs)
+        assertEquals(2_219_500L, snapped.creditsEndMs)
+    }
+
+    @Test
+    fun creditsEdgeStaysWhenNoSilenceIsNear() {
+        val bed = noise(98, 500)
+        val episode = creditsEpisode("bedfar__s1e1", bed, backgroundSeed = 3).copy(
+            silentRanges = listOf(SilentRange(2_300_000L, 2_301_000L)),
+        )
+        val sibling = creditsEpisode("bedfar__s1e2", bed, backgroundSeed = 4)
+        val stayed = seasonFingerprintPass(listOf(episode, sibling)).first { it.key == episode.key }
+        assertEquals(2_170_000L, stayed.creditsStartMs)
+        assertEquals(2_220_000L, stayed.creditsEndMs)
+    }
+
+    @Test
+    fun storedSilentRangesStaySmallAfterTheFileIsGone() {
+        val levels = IntArray(24_000) { 200 }
+        for (i in 100 until 102) levels[i] = 0
+        for (i in 5_000 until 5_020) levels[i] = 40
+        for (i in 22_195 until 22_204) levels[i] = 10
+        val energy = encodeEnergyLevels(levels)
+        assertTrue(energy.length > 20_000)
+        val episode = MediaAnalysisResult(
+            key = "silencesize__s1e1",
+            analyzedAtMs = 0L,
+            durationMs = 2_400_000L,
+            fileName = "ep.mkv",
+            energy = energy,
+        ).rememberingSilentRanges()
+        val stored = LenientDefaultsJson.encodeToString(ListSerializer(SilentRange.serializer()), episode.silentRanges)
+        assertEquals(2, episode.silentRanges.size)
+        assertTrue(stored.length < 500)
+        assertTrue(stored.length * 20 < energy.length)
+        MediaAnalysisStore.save(episode)
+        MediaAnalysisStore.forgetFileData(episode.key)
+        val kept = assertNotNull(MediaAnalysisStore.load(episode.key))
+        assertNull(kept.energy)
+        assertNull(kept.fileName)
+        assertEquals(episode.silentRanges, kept.silentRanges)
+    }
+
+    private fun creditsEpisode(key: String, bed: IntArray, backgroundSeed: Int): MediaAnalysisResult {
+        val tail = noise(backgroundSeed, 4_800)
+        bed.copyInto(tail, destinationOffset = 2_500)
+        return MediaAnalysisResult(
+            key = key,
+            analyzedAtMs = 0L,
+            durationMs = 2_400_000L,
+            fingerprintStepMs = 100,
+            headFingerprint = encodeFingerprint(noise(backgroundSeed + 50, 6_000)),
+            tailFingerprint = encodeFingerprint(tail),
+            tailStartMs = 2_400_000L - TAIL_FINGERPRINT_MS,
+        )
+    }
+
+    private fun creditsEnergy(): String {
+        val levels = IntArray(24_000) { 200 }
+        for (i in 22_195 until 22_204) levels[i] = 0
+        for (i in 22_795 until 22_803) levels[i] = 0
+        return encodeEnergyLevels(levels)
+    }
+
+    private fun noise(seed: Int, size: Int): IntArray {
+        val random = Random(seed)
+        return IntArray(size) { random.nextInt() }
     }
 
     private fun agreeingSiblings(season: Season, show: String) = (2..4).map { episode ->
