@@ -60,7 +60,7 @@ Every reachable cell can return to editing: failure ends a submit, and the open 
 - `PlayerToolsLogic.kt` — tab / none, hold step, status facts
 - `PlayerToolsLogicTest.kt` and an Android host test for the three states
 - `composeApp/src/commonMain/composeResources/values/strings.xml`
-- `docs/FEATURES.md` — short strip description (the file is not in the tree today)
+- `Docs/FEATURES.md` — the submit-sheet lines in the feature map
 
 ## Risks
 
