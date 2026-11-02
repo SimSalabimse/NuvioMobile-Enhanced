@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.ui.NuvioBackButton
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.NuvioInputField
@@ -147,6 +148,8 @@ fun StreamsScreen(
     val useNativeNavigation = LocalUseNativeNavigation.current
     val nativeNavigationBarHidden = LocalNativeNavigationBarHidden.current
     val uiState by StreamsRepository.uiState.collectAsStateWithLifecycle()
+    val networkStatus by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
+    val deviceOffline = networkStatus.condition.streamsDeviceOffline()
     val streamDisplaySettings by remember {
         StreamBadgeSettingsRepository.ensureLoaded()
         StreamBadgeSettingsRepository.uiState
@@ -212,6 +215,16 @@ fun StreamsScreen(
             manualSelection = manualSelection,
         )
     }
+
+    var sawOffline by remember { mutableStateOf(networkStatus.isOfflineLike) }
+    LaunchedEffect(networkStatus.condition) {
+        val offline = networkStatus.isOfflineLike
+        if (sawOffline && networkStatus.isOnline) {
+            StreamsRepository.retryFailedAddons(manual = false)
+        }
+        sawOffline = offline
+    }
+    val retryFailedAddons = { StreamsRepository.retryFailedAddons(manual = true) }
 
     LaunchedEffect(uiState.groups, storedProgress?.providerAddonId, preferredFilterApplied) {
         if (preferredFilterApplied) return@LaunchedEffect
@@ -334,6 +347,8 @@ fun StreamsScreen(
                 },
                 onStreamLongPress = { stream -> streamActionsTarget = stream },
                 onRefresh = reloadStreams,
+                deviceOffline = deviceOffline,
+                onRetryFailedAddons = retryFailedAddons,
             )
         } else {
             MobileStreamsLayout(
@@ -363,6 +378,8 @@ fun StreamsScreen(
                 },
                 onStreamLongPress = { stream -> streamActionsTarget = stream },
                 onRefresh = reloadStreams,
+                deviceOffline = deviceOffline,
+                onRetryFailedAddons = retryFailedAddons,
             )
         } }
 
@@ -464,6 +481,8 @@ private fun MobileStreamsLayout(
     onStreamSelected: (stream: StreamItem, resumePositionMs: Long?, resumeProgressFraction: Float?) -> Unit,
     onStreamLongPress: (StreamItem) -> Unit,
     onRefresh: () -> Unit,
+    deviceOffline: Boolean,
+    onRetryFailedAddons: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val streamsGlassBackdrop = rememberNuvioBackdrop()
@@ -545,6 +564,10 @@ private fun MobileStreamsLayout(
                             onFilterSelected = { addonId -> StreamsRepository.selectFilter(addonId) },
                             onRefresh = onRefresh,
                         )
+                        FailedAddonChipRow(
+                            names = failedAddonChipNames(uiState.groups.map { it.toFetchRow() }),
+                            onRetry = onRetryFailedAddons,
+                        )
 
                         if (showSearchField) {
                             StreamSearchField(
@@ -564,6 +587,7 @@ private fun MobileStreamsLayout(
                             uiState = listUiState.uiState,
                             debridEnabled = debridEnabled,
                             appendInstantServiceToDefaultName = appendInstantServiceToDefaultName,
+                            deviceOffline = deviceOffline,
                             onStreamSelected = onStreamSelected,
                             onStreamLongPress = onStreamLongPress,
                             resumePositionMs = resumePositionMs,
@@ -796,6 +820,7 @@ internal fun StreamList(
     uiState: StreamsUiState,
     debridEnabled: Boolean,
     appendInstantServiceToDefaultName: Boolean,
+    deviceOffline: Boolean = false,
     onStreamSelected: (stream: StreamItem, resumePositionMs: Long?, resumeProgressFraction: Float?) -> Unit,
     onStreamLongPress: (StreamItem) -> Unit,
     resumePositionMs: Long?,
@@ -803,8 +828,6 @@ internal fun StreamList(
     modifier: Modifier = Modifier,
 ) {
     val filteredGroups = uiState.filteredGroups
-    val hasGroups = filteredGroups.isNotEmpty()
-    val hasAnyStreams = filteredGroups.any { it.streams.isNotEmpty() }
     val anyLoading = filteredGroups.any { it.isLoading }
     val torrentNotSupportedText = stringResource(Res.string.streams_torrent_not_supported)
     val fetchingText = stringResource(Res.string.streams_fetching)
@@ -820,6 +843,11 @@ internal fun StreamList(
     val pinnedFirst = remember(filteredGroups, pinnedSourceIds) {
         splitPinnedSources(filteredGroups, pinnedSourceIds)
     }
+    val listPhase = resolveStreamListPhase(
+        statuses = filteredGroups.map { it.resolvedFetchStatus() },
+        streamCounts = filteredGroups.map { it.streams.size },
+        deviceOffline = deviceOffline,
+    )
 
     CompositionLocalProvider(LocalStreamSizeLabelFormat provides formatStreamSize) {
     LazyColumn(
@@ -855,17 +883,26 @@ internal fun StreamList(
                 }
             }
         }
-        when {
-            hasGroups && anyLoading && !hasAnyStreams -> {
+        when (listPhase) {
+            StreamListPhase.Loading -> {
                 item {
                     LoadingStateBlock(findingStreamsText = findingStreamsText)
                 }
             }
 
-            !hasAnyStreams && !uiState.isAnyLoading -> {
+            StreamListPhase.OfflineEmpty,
+            StreamListPhase.Empty,
+            -> {
                 if (sharedStream == null) {
                     item {
-                        EmptyStateBlock(reason = uiState.emptyStateReason)
+                        EmptyStateBlock(
+                            reason = when {
+                                listPhase == StreamListPhase.OfflineEmpty -> StreamsEmptyStateReason.Offline
+                                uiState.emptyStateReason == StreamsEmptyStateReason.Offline ->
+                                    StreamsEmptyStateReason.StreamFetchFailed
+                                else -> uiState.emptyStateReason
+                            },
+                        )
                     }
                 }
             }
@@ -1399,6 +1436,11 @@ private fun EmptyStateBlock(
         StreamsEmptyStateReason.StreamFetchFailed -> {
             title = stringResource(Res.string.streams_empty_load_failed_title)
             message = stringResource(Res.string.streams_empty_load_failed_message)
+        }
+
+        StreamsEmptyStateReason.Offline -> {
+            title = stringResource(Res.string.network_no_internet_connection)
+            message = stringResource(Res.string.details_check_connection)
         }
 
         StreamsEmptyStateReason.NoStreamsFound, null -> {
