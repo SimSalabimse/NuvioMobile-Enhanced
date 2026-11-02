@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
@@ -472,10 +473,10 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
         }
     }
     AnimatedVisibility(
-        visible = (controlsVisible || folded || showParentalGuide) &&
+        visible = (controlsVisible || folded || showParentalGuide || showSubmitIntroModal) &&
             !playerControlsLocked &&
             !isInPip &&
-            !toolChromeOpen() &&
+            (!toolChromeOpen() || showSubmitIntroModal) &&
             !(folded && isPanelOpen),
         enter = fadeIn(),
         exit = fadeOut(),
@@ -488,6 +489,23 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
         val portraitPlayback by PlayerOrientationPreference.portrait.collectAsStateWithLifecycle()
         val pipAvailable = isIos && playerSettingsUiState.miniPlayerEnabled &&
             playerController?.isPictureInPictureSupported() == true
+        val segmentFractions = submitSegmentMarkFractions(
+            open = showSubmitIntroModal,
+            absent = markAbsent,
+            startSec = parseMarkClock(submitIntroStartTimeStr),
+            endSec = parseMarkClock(submitIntroEndTimeStr),
+            durationSec = playbackSnapshot.durationMs / 1000.0,
+        )
+        val submitChrome = if (showSubmitIntroModal) {
+            SubmitBarChrome(
+                height = submitBarHeightDp(),
+                startFraction = segmentFractions?.start,
+                endFraction = segmentFractions?.end,
+            )
+        } else {
+            null
+        }
+        CompositionLocalProvider(LocalSubmitBarChrome provides submitChrome) {
         PlayerControlsShell(
             title = title,
             streamTitle = activeStreamTitle,
@@ -513,7 +531,11 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
                 }
             } else null,
             onInteraction = { controlsActivityTick += 1 },
-            showPlaybackControls = if (controlsFadingOut) shownBeforeExit[0] else controlsVisible,
+            showPlaybackControls = if (controlsFadingOut) {
+                shownBeforeExit[0]
+            } else {
+                controlsVisible || showSubmitIntroModal
+            },
             onLockToggle = {
                 if (playerControlsLocked) unlockPlayerControls() else lockPlayerControls()
             },
@@ -713,6 +735,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
                 controlsActivityTick += 1
             },
         )
+        }
     }
     AnimatedVisibility(
         visible = folded && playerControlsLocked && !isInPip,

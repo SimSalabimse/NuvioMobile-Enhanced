@@ -64,34 +64,85 @@ internal fun markSegmentLimits(segmentType: String): MarkLimits = when (markSegm
 internal fun markSegmentTypes(isMovie: Boolean): List<String> =
     if (isMovie) listOf("intro", "outro") else listOf("intro", "recap", "outro", "preview")
 
-/**
- * The fixed "No …" button on the marking strip. It follows the selected chip.
- * The Credits chip uses the word Credits on this button.
- */
-internal enum class NoSegmentAction {
+internal enum class NoneChip {
     Intro,
     Recap,
     Credits,
     Preview,
 }
 
-internal fun noSegmentAction(segmentType: String): NoSegmentAction = when (markSegmentId(segmentType)) {
-    "recap" -> NoSegmentAction.Recap
-    "outro" -> NoSegmentAction.Credits
-    "preview" -> NoSegmentAction.Preview
-    else -> NoSegmentAction.Intro
+internal fun noneChip(segmentType: String): NoneChip = when (markSegmentId(segmentType)) {
+    "recap" -> NoneChip.Recap
+    "outro" -> NoneChip.Credits
+    "preview" -> NoneChip.Preview
+    else -> NoneChip.Intro
 }
 
-/** Tap again to leave absent mode. A clock edit always leaves it, so the two cannot be sent together. */
-internal fun absentAfterNoSegmentTap(absent: Boolean): Boolean = !absent
+internal enum class MarkHandle { Start, End }
+
+internal enum class SegmentTap { Stay, ReturnToEditing, Switch }
+
+internal fun segmentTap(currentType: String, tappedType: String, absent: Boolean): SegmentTap {
+    val same = markSegmentId(currentType) == markSegmentId(tappedType)
+    return when {
+        !same -> SegmentTap.Switch
+        absent -> SegmentTap.ReturnToEditing
+        else -> SegmentTap.Stay
+    }
+}
+
+internal fun absentAfterNoneChip(): Boolean = true
 
 internal fun absentAfterClockEdit(): Boolean = false
 
-internal fun markSegmentOffersStartAtZero(segmentType: String): Boolean =
-    markSegmentId(segmentType) == "intro" || markSegmentId(segmentType) == "recap"
+internal const val NudgeHoldDelayMs = 400L
 
-internal fun markSegmentOffersRunsToEnd(segmentType: String): Boolean =
-    markSegmentId(segmentType) == "outro" || markSegmentId(segmentType) == "preview"
+internal const val NudgeHoldRepeatMs = 110L
+
+internal fun holdNudgeDelta(buttonDeltaSec: Double): Double = if (buttonDeltaSec < 0.0) -0.1 else 0.1
+
+internal fun nudgeKeepsTenth(deltaSec: Double, alreadyShowing: Boolean): Boolean =
+    alreadyShowing || abs(deltaSec) < 1.0
+
+internal data class MarkRangeStatus(
+    val lengthLabel: String?,
+    val minSec: Int,
+    val maxSec: Int,
+    val problem: MarkProblem?,
+    val bothSet: Boolean,
+)
+
+internal fun markRangeStatus(
+    segmentType: String,
+    startSec: Double?,
+    endSec: Double?,
+    durationSec: Double?,
+): MarkRangeStatus {
+    val limits = markSegmentLimits(segmentType)
+    val duration = durationSec?.takeIf { it > 0.0 }
+    val start = startSec?.let { clampMarkTimeToDuration(it, duration) }
+    val end = endSec?.let { clampMarkTimeToDuration(it, duration) }
+    val problems = if (start != null && end != null) {
+        markProblems(segmentType, start, end, duration)
+    } else {
+        emptyList()
+    }
+    val length = markLengthSec(start, end)
+    return MarkRangeStatus(
+        lengthLabel = length?.let(::markStatusLengthLabel),
+        minSec = limits.minSec.toInt(),
+        maxSec = limits.maxSec.toInt(),
+        problem = problems.firstOrNull(),
+        bothSet = start != null && end != null,
+    )
+}
+
+internal fun markStatusLengthLabel(lengthSec: Double): String {
+    val tenths = (lengthSec * 10.0).roundToInt()
+    val whole = tenths / 10
+    val frac = tenths % 10
+    return if (frac == 0) "$whole s" else "$whole.$frac s"
+}
 
 /**
  * Half of one displayed tenth. Rounding a clock onto a 0.1 s grid, or a
@@ -100,14 +151,10 @@ internal fun markSegmentOffersRunsToEnd(segmentType: String): Boolean =
  */
 internal const val MarkDurationSlopSec = 0.05
 
-/**
- * An end on the stream length is the length. A hair above it (1 ms, or up to
- * half a display tenth) is the same length. A clear overshoot is left alone.
- */
 internal fun clampMarkTimeToDuration(timeSec: Double, durationSec: Double?): Double {
     val time = timeSec.coerceAtLeast(0.0)
     val duration = durationSec?.takeIf { it > 0.0 } ?: return time
-    if (time > duration && time - duration <= MarkDurationSlopSec) return duration
+    if (time > duration && time <= duration + MarkDurationSlopSec) return duration
     return time
 }
 
@@ -220,9 +267,32 @@ internal fun nudgeMarkSeconds(currentSec: Double?, deltaSec: Double, durationSec
 internal fun runsToEndSec(durationSec: Double): Double = durationSec.coerceAtLeast(0.0)
 
 /**
+ * Clocks shown for one segment. The same rule covers every segment type.
+ * A same-episode edit wins, including a blank edit. A detected start and end
+ * for this segment win over the zero default. Anything else is 0 and 0.
+ * [segmentType] is not switched on: intro, recap, credits, preview, and every
+ * other id share this body.
+ */
+@Suppress("UNUSED_PARAMETER")
+internal fun shownSegmentClocks(
+    segmentType: String,
+    detectedStartSec: Double?,
+    detectedEndSec: Double?,
+    edited: MarkClocks?,
+    sameEpisode: Boolean,
+): MarkClocks {
+    if (sameEpisode && edited != null) return edited
+    if (detectedStartSec != null && detectedEndSec != null) {
+        return MarkClocks(detectedStartSec, detectedEndSec)
+    }
+    return MarkClocks(0.0, 0.0)
+}
+
+/**
  * Clocks after a chip change. A saved draft wins, including a blank draft.
  * A known interval is used only when it is the same kind of segment.
- * Movie Credits never take the intro (or any other) times.
+ * Movie and series share [shownSegmentClocks]: credits never take intro times,
+ * and a segment with nothing detected starts at 0.
  */
 internal fun clocksForSegment(
     segmentType: String,
@@ -230,17 +300,17 @@ internal fun clocksForSegment(
     knownStartSec: Double?,
     knownEndSec: Double?,
     knownSegmentType: String?,
-    isMovie: Boolean,
 ): MarkClocks {
-    if (draft != null) return draft
-    if (knownStartSec == null || knownEndSec == null || knownSegmentType == null) {
-        return MarkClocks(null, null)
-    }
     val wanted = markSegmentId(segmentType)
-    val known = markSegmentId(knownSegmentType)
-    if (wanted != known) return MarkClocks(null, null)
-    if (isMovie && wanted == "outro" && known != "outro") return MarkClocks(null, null)
-    return MarkClocks(knownStartSec, knownEndSec)
+    val known = knownSegmentType?.let(::markSegmentId)
+    val matches = known != null && known == wanted
+    return shownSegmentClocks(
+        segmentType = segmentType,
+        detectedStartSec = knownStartSec.takeIf { matches },
+        detectedEndSec = knownEndSec.takeIf { matches },
+        edited = draft,
+        sameEpisode = true,
+    )
 }
 
 /** An absent intro is not a skip mark, even if the form still holds the playhead. */
@@ -493,3 +563,285 @@ internal fun formatByteSize(bytes: Long): String {
 private val QUALITY_PATTERN = Regex("""(?i)\b(2160p|1080p|720p|480p|4k|uhd)\b""")
 private val SIZE_PATTERN = Regex("""(?i)\b(\d+(?:\.\d+)?)\s*(gb|mb)\b""")
 private val SEEDER_PATTERN = Regex("""(?i)\b(\d[\d,]*)\s+seeders?\b""")
+
+internal enum class SubmitPanelTab { Intro, Recap, Credits, Preview }
+
+internal val SubmitPanelTab.segmentId: String
+    get() = when (this) {
+        SubmitPanelTab.Intro -> "intro"
+        SubmitPanelTab.Recap -> "recap"
+        SubmitPanelTab.Credits -> "outro"
+        SubmitPanelTab.Preview -> "preview"
+    }
+
+internal data class SubmitSheet(
+    val closed: Boolean,
+    val isMovie: Boolean,
+    val absentAllowed: Boolean,
+    val tab: SubmitPanelTab,
+    val absent: Boolean,
+    val handle: MarkHandle,
+    val popoverOpen: Boolean,
+    val startSec: Double?,
+    val endSec: Double?,
+    val startShowsTenth: Boolean,
+    val endShowsTenth: Boolean,
+    val durationSec: Double,
+    val playheadSec: Double,
+    val submitting: Boolean,
+    val sent: Boolean,
+    val keyProblem: Boolean,
+    val blocked: Boolean,
+    val drafts: Map<SubmitPanelTab, MarkClocks>,
+    val tenthDrafts: Map<SubmitPanelTab, Pair<Boolean, Boolean>>,
+)
+
+internal fun openSubmitSheet(
+    isMovie: Boolean = false,
+    absentAllowed: Boolean = true,
+    durationSec: Double = 100.0,
+): SubmitSheet = SubmitSheet(
+    closed = false,
+    isMovie = isMovie,
+    absentAllowed = absentAllowed,
+    tab = SubmitPanelTab.Intro,
+    absent = false,
+    handle = MarkHandle.Start,
+    popoverOpen = false,
+    startSec = 10.0,
+    endSec = 40.0,
+    startShowsTenth = false,
+    endShowsTenth = false,
+    durationSec = durationSec,
+    playheadSec = 20.0,
+    submitting = false,
+    sent = false,
+    keyProblem = false,
+    blocked = false,
+    drafts = emptyMap(),
+    tenthDrafts = emptyMap(),
+)
+
+internal sealed interface SubmitSheetEvent {
+    data class SelectTab(val tab: SubmitPanelTab) : SubmitSheetEvent
+    data object TapSameTab : SubmitSheetEvent
+    data object TapNoneChip : SubmitSheetEvent
+    data object TapStart : SubmitSheetEvent
+    data object TapEnd : SubmitSheetEvent
+    data object DismissPopover : SubmitSheetEvent
+    data object SetToNow : SubmitSheetEvent
+    data class Nudge(val deltaSec: Double, val holding: Boolean) : SubmitSheetEvent
+    data class DragHandle(val handle: MarkHandle, val seconds: Double) : SubmitSheetEvent
+    data object ResetMarks : SubmitSheetEvent
+    data object Submit : SubmitSheetEvent
+    data object SubmitSuccess : SubmitSheetEvent
+    data object SubmitFailure : SubmitSheetEvent
+    data object Close : SubmitSheetEvent
+}
+
+internal data class SubmitSheetShape(
+    val tab: SubmitPanelTab,
+    val absent: Boolean,
+    val handle: MarkHandle,
+    val popover: Boolean,
+    val valid: Boolean,
+    val submitting: Boolean,
+)
+
+internal fun SubmitSheet.rangeValid(): Boolean =
+    markProblems(tab.segmentId, startSec, endSec, durationSec.takeIf { it > 0.0 }).isEmpty()
+
+internal fun SubmitSheet.canSubmit(): Boolean = !closed && markSubmitEnabled(
+    sent = sent,
+    submitting = submitting,
+    keyProblem = keyProblem,
+    blocked = blocked,
+    absent = absent,
+    absentAllowed = absentAllowed,
+    timeOk = rangeValid(),
+)
+
+internal fun SubmitSheet.showsSegmentMarks(): Boolean = !closed && !absent
+
+internal fun SubmitSheet.showsNudges(): Boolean = !closed && !absent && popoverOpen
+
+internal fun SubmitSheet.shape(): SubmitSheetShape =
+    SubmitSheetShape(tab, absent, handle, popoverOpen, rangeValid(), submitting)
+
+internal fun submitSheetShapeAllowed(shape: SubmitSheetShape, absentAllowed: Boolean): Boolean {
+    if (shape.popover && shape.absent) return false
+    if (shape.popover && shape.submitting) return false
+    if (shape.submitting && !shape.absent && !shape.valid) return false
+    if (shape.submitting && shape.absent && !absentAllowed) return false
+    return true
+}
+
+internal fun reduceSubmitSheet(state: SubmitSheet, event: SubmitSheetEvent): SubmitSheet {
+    if (state.closed) return state
+    if (state.submitting) {
+        return when (event) {
+            SubmitSheetEvent.SubmitSuccess -> state.copy(submitting = false, sent = true)
+            SubmitSheetEvent.SubmitFailure -> state.copy(submitting = false)
+            else -> state
+        }
+    }
+    return when (event) {
+        is SubmitSheetEvent.SelectTab -> state.applyTab(event.tab)
+        SubmitSheetEvent.TapSameTab -> state.applyTab(state.tab)
+        SubmitSheetEvent.TapNoneChip -> if (state.absent) {
+            state
+        } else {
+            state.copy(absent = absentAfterNoneChip(), sent = false, popoverOpen = false)
+        }
+        SubmitSheetEvent.TapStart -> state.togglePopover(MarkHandle.Start)
+        SubmitSheetEvent.TapEnd -> state.togglePopover(MarkHandle.End)
+        SubmitSheetEvent.DismissPopover -> state.copy(popoverOpen = false)
+        SubmitSheetEvent.SetToNow -> if (state.absent || !state.popoverOpen) {
+            state
+        } else {
+            state.writeClock(state.handle, state.playheadSec, showTenth = false)
+        }
+        is SubmitSheetEvent.Nudge -> if (state.absent || !state.popoverOpen) {
+            state
+        } else {
+            val delta = if (event.holding && abs(event.deltaSec) == 1.0) {
+                holdNudgeDelta(event.deltaSec)
+            } else {
+                event.deltaSec
+            }
+            val current = if (state.handle == MarkHandle.Start) state.startSec else state.endSec
+            val showing = if (state.handle == MarkHandle.Start) state.startShowsTenth else state.endShowsTenth
+            state.writeClock(
+                state.handle,
+                nudgeMarkSeconds(current, delta, state.durationSec),
+                nudgeKeepsTenth(delta, showing),
+            )
+        }
+        is SubmitSheetEvent.DragHandle -> if (state.absent) {
+            state
+        } else {
+            state.copy(handle = event.handle).writeClock(event.handle, event.seconds, showTenth = false)
+        }
+        SubmitSheetEvent.ResetMarks -> state
+            .writeClock(MarkHandle.Start, null, showTenth = false)
+            .writeClock(MarkHandle.End, null, showTenth = false)
+        SubmitSheetEvent.Submit -> if (state.canSubmit()) {
+            state.copy(submitting = true, popoverOpen = false)
+        } else {
+            state
+        }
+        SubmitSheetEvent.SubmitSuccess, SubmitSheetEvent.SubmitFailure -> state
+        SubmitSheetEvent.Close -> state.copy(closed = true)
+    }
+}
+
+private fun SubmitSheet.applyTab(next: SubmitPanelTab): SubmitSheet {
+    if (next.segmentId !in markSegmentTypes(isMovie)) return this
+    return when (segmentTap(tab.segmentId, next.segmentId, absent)) {
+        SegmentTap.Stay -> this
+        SegmentTap.ReturnToEditing -> copy(absent = false, sent = false, popoverOpen = false)
+        SegmentTap.Switch -> switchTab(next)
+    }
+}
+
+private fun SubmitSheet.switchTab(next: SubmitPanelTab): SubmitSheet {
+    val saved = drafts + (tab to MarkClocks(startSec, endSec))
+    val savedTenths = tenthDrafts + (tab to (startShowsTenth to endShowsTenth))
+    val clocks = saved[next]
+    val tenths = savedTenths[next]
+    return copy(
+        tab = next,
+        absent = false,
+        sent = false,
+        popoverOpen = false,
+        handle = MarkHandle.Start,
+        startSec = clocks?.startSec,
+        endSec = clocks?.endSec,
+        startShowsTenth = tenths?.first == true,
+        endShowsTenth = tenths?.second == true,
+        drafts = saved,
+        tenthDrafts = savedTenths,
+    )
+}
+
+private fun SubmitSheet.writeClock(handle: MarkHandle, seconds: Double?, showTenth: Boolean): SubmitSheet {
+    val clamped = seconds?.let { clampMarkTimeToDuration(it, durationSec.takeIf { it > 0.0 }) }
+    val tenth = clamped?.let { markClockShowsTenth(it, showTenth) } == true
+    val start = if (handle == MarkHandle.Start) clamped else startSec
+    val end = if (handle == MarkHandle.End) clamped else endSec
+    val startTenth = if (handle == MarkHandle.Start) tenth else startShowsTenth
+    val endTenth = if (handle == MarkHandle.End) tenth else endShowsTenth
+    return copy(
+        startSec = start,
+        endSec = end,
+        startShowsTenth = startTenth,
+        endShowsTenth = endTenth,
+        absent = absentAfterClockEdit(),
+        sent = false,
+        drafts = drafts + (tab to MarkClocks(start, end)),
+        tenthDrafts = tenthDrafts + (tab to (startTenth to endTenth)),
+    )
+}
+
+private fun SubmitSheet.togglePopover(next: MarkHandle): SubmitSheet {
+    if (closed || absent || submitting) return this
+    val open = !(popoverOpen && handle == next)
+    return copy(handle = next, popoverOpen = open)
+}
+
+internal data class SubmitBarInsets(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+)
+
+internal data class SubmitBarBounds(
+    val left: Float,
+    val top: Float,
+    val width: Float,
+    val height: Float,
+)
+
+internal const val SubmitBarPreferredHeight = 64f
+
+internal const val SubmitBarMaxVideoFraction = 0.125f
+
+internal fun submitBarBounds(
+    screenWidth: Float,
+    screenHeight: Float,
+    insets: SubmitBarInsets,
+): SubmitBarBounds {
+    val videoHeight = screenHeight.coerceAtLeast(0f)
+    val safeHeight = (screenHeight - insets.top - insets.bottom).coerceAtLeast(0f)
+    val height = minOf(
+        SubmitBarPreferredHeight,
+        videoHeight * SubmitBarMaxVideoFraction,
+        safeHeight,
+    ).coerceAtLeast(0f)
+    val left = insets.left.coerceAtLeast(0f)
+    val width = (screenWidth - left - insets.right.coerceAtLeast(0f)).coerceAtLeast(0f)
+    val top = (screenHeight - insets.bottom - height).coerceAtLeast(insets.top)
+    return SubmitBarBounds(left = left, top = top, width = width, height = height)
+}
+
+internal data class SubmitSegmentFractions(
+    val start: Float,
+    val end: Float,
+)
+
+internal fun submitSegmentMarkFractions(
+    open: Boolean,
+    absent: Boolean,
+    startSec: Double?,
+    endSec: Double?,
+    durationSec: Double,
+): SubmitSegmentFractions? {
+    if (!open || absent || durationSec <= 0.0) return null
+    val start = startSec ?: return null
+    val end = endSec ?: return null
+    return SubmitSegmentFractions(
+        start = (start / durationSec).toFloat().coerceIn(0f, 1f),
+        end = (end / durationSec).toFloat().coerceIn(0f, 1f),
+    )
+}

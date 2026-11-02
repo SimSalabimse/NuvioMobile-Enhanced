@@ -194,6 +194,7 @@ internal fun FoldControls(
             }
             .graphicsLayer { alpha = contentAlpha }
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom))
+            .padding(bottom = LocalSubmitBarChrome.current?.height ?: 0.dp)
             .padding(horizontal = 16.dp + horizontalSafePadding, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(TileGap, Alignment.CenterVertically),
     ) {
