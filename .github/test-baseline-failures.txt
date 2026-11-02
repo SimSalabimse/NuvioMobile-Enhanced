@@ -1,0 +1,23 @@
+# Android host tests that already fail on enhanced.
+# The pull request job fails only when a result is not listed here.
+# Robolectric SDK suffixes such as [34] are ignored, so one line covers every SDK run of that method.
+#
+# AndroidDownloadLifecycleTest.missingSystemJobIsPausedInsteadOfSilentlyRescheduling
+# Robolectric's JobScheduler.schedule() returns success, so restore() reschedules the transfer
+# and leaves it Downloading. The test expects Paused when no system job exists. Same failure on
+# the plain run and the [34] run.
+com.nuvio.app.features.downloads.AndroidDownloadLifecycleTest.missingSystemJobIsPausedInsteadOfSilentlyRescheduling
+#
+# DeleteDownloadWhenFinishedTest
+# WatchingActions.onProgressEntryUpdated calls FinishedDownloadDeletion.onPlaybackCompleted,
+# which does nothing. Removal is queued from onLocalProgress. These tests still use the old
+# completion hook, so the file, partial, subtitles, and row are all still there when the wait ends.
+com.nuvio.app.features.downloads.DeleteDownloadWhenFinishedTest.completedPlaybackRemovesTheFileSubtitlesAndRowAfterThePlayerLeaves
+com.nuvio.app.features.downloads.DeleteDownloadWhenFinishedTest.scrubbingBackKeepsTheFileUntilPlaybackLeaves
+com.nuvio.app.features.downloads.DeleteDownloadWhenFinishedTest.movingToAnotherVideoRemovesTheFinishedDownload
+com.nuvio.app.features.downloads.DeleteDownloadWhenFinishedTest.completionAfterTheBytesFinishStillRemovesTheDownload
+#
+# DownloadSubtitlesTest.backgroundDownloadSavesAddonAndStreamSubtitlesBeforeVideo
+# Subtitle fetches run beside the video transfer. The test requires the video request to be last;
+# this run recorded /french last.
+com.nuvio.app.features.downloads.DownloadSubtitlesTest.backgroundDownloadSavesAddonAndStreamSubtitlesBeforeVideo
