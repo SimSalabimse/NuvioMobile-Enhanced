@@ -3,8 +3,15 @@ package com.nuvio.app.features.library
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
+import com.nuvio.app.core.sync.OfflineAccountFlush
+import com.nuvio.app.core.sync.OfflineOutboxEntry
+import com.nuvio.app.core.sync.OfflineOutboxKind
+import com.nuvio.app.core.sync.accountSyncIsOffline
+import com.nuvio.app.core.sync.libraryOutboxEntry
+import com.nuvio.app.core.sync.offlineOutboxId
 import com.nuvio.app.core.tracking.ensureTrackingProvidersRegistered
 import com.nuvio.app.features.library.sync.LibrarySyncAdapter
+import com.nuvio.app.features.library.sync.toLibrarySyncKey
 import com.nuvio.app.features.library.sync.SupabaseLibrarySyncAdapter
 import com.nuvio.app.features.library.sync.consumeCursorPages
 import com.nuvio.app.features.library.sync.libraryDeltaPageSize
@@ -227,6 +234,14 @@ object LibraryRepository {
                         profileId = profileId,
                         pageSize = librarySnapshotPageSize,
                     )
+                    serverItems.forEach { remote ->
+                        acceptRemoteLibraryChange(
+                            profileId = profileId,
+                            contentId = remote.id,
+                            contentType = remote.type,
+                            remoteTimestampEpochMs = remote.savedAtEpochMs,
+                        )
+                    }
                     val applyResult = localState.applyServerItems(
                         pullSnapshot = pullSnapshot,
                         serverItems = serverItems,
@@ -274,6 +289,14 @@ object LibraryRepository {
                 if (!isActiveOperation(token)) {
                     null
                 } else {
+                    events.forEach { event ->
+                        acceptRemoteLibraryChange(
+                            profileId = profileId,
+                            contentId = event.item.id,
+                            contentType = event.item.type,
+                            remoteTimestampEpochMs = event.item.savedAtEpochMs,
+                        )
+                    }
                     localState.applyDeltaEvents(token, events)?.also { snapshot ->
                         persist(snapshot)
                         publish()
@@ -339,6 +362,7 @@ object LibraryRepository {
                     "profile=${result.snapshot.token.profileId}"
             }
         }
+        noteLibraryChange(result.snapshot.token.profileId, result.snapshot, item.id, item.type, result.isSaved)
         persist(result.snapshot)
         publish()
         pushToServer(result.snapshot)
@@ -347,10 +371,12 @@ object LibraryRepository {
 
     fun save(item: LibraryItem) {
         ensureLoaded()
-        val snapshot = localState.upsert(item.copy(savedAtEpochMs = LibraryClock.nowEpochMs()))
+        val stamped = item.copy(savedAtEpochMs = LibraryClock.nowEpochMs())
+        val snapshot = localState.upsert(stamped)
         log.i {
             "Saving local library item item=${item.id} type=${item.type} profile=${snapshot.token.profileId}"
         }
+        noteLibraryChange(snapshot.token.profileId, snapshot, stamped.id, stamped.type, adding = true)
         persist(snapshot)
         publish()
         pushToServer(snapshot)
@@ -364,6 +390,7 @@ object LibraryRepository {
                 "Removing local library item id=$id profile=${result.snapshot.token.profileId} " +
                     "removed=${result.affectedCount}"
             }
+            noteLibraryRemoval(result.snapshot, id)
             persist(result.snapshot)
             publish()
             pushToServer(result.snapshot)
@@ -377,6 +404,7 @@ object LibraryRepository {
             log.i {
                 "Removing local library item id=$id type=$type profile=${result.snapshot.token.profileId}"
             }
+            noteLibraryRemoval(result.snapshot, id)
             persist(result.snapshot)
             publish()
             pushToServer(result.snapshot)
@@ -547,6 +575,7 @@ object LibraryRepository {
         delayMs: Long = pushDebounceMs,
     ) {
         if (!snapshot.hasPendingPush) return
+        if (accountSyncIsOffline()) return
         val authState = AuthRepository.state.value
         val profileId = snapshot.token.profileId
         if (authState !is AuthState.Authenticated) {
@@ -573,25 +602,40 @@ object LibraryRepository {
                 if (currentAuthState !is AuthState.Authenticated || currentAuthState.isAnonymous) {
                     return@withLock
                 }
-                runCatching {
-                    val itemsByKey = snapshot.items.associateBy { item ->
-                        libraryItemKey(item.id, item.type)
-                    }
-                    val upsertItems = snapshot.pendingUpsertKeys.mapNotNull { key ->
-                        itemsByKey[libraryItemKey(key.contentId, key.contentType)]
-                    }.filterNot { ServerItemRef.isServerId(it.id) }
-                    syncAdapter.pushItems(profileId, upsertItems)
-                    syncAdapter.deleteItems(profileId, snapshot.pendingDeleteKeys.filterNot { ServerItemRef.isServerId(it.contentId) })
-                    localState.markPushCompleted(snapshot)?.let(::persist)
-                    log.i {
-                        "Library delta push completed profile=$profileId " +
-                            "upserts=${upsertItems.size} deletes=${snapshot.pendingDeleteKeys.size}"
-                    }
-                }.onFailure { error ->
-                    if (error is CancellationException) throw error
+                seedOfflineOutbox()
+                val claimed = claimPendingLibrary(localState.snapshot())
+                if (claimed.isEmpty()) return@withLock
+                OfflineAccountFlush.persistNow()
+                val ok = try {
+                    val upsertItems = claimed.filter { it.adding }.mapNotNull { it.libraryItem }
+                        .filterNot { ServerItemRef.isServerId(it.id) }
+                    val deleteKeys = claimed.filterNot { it.adding }.mapNotNull { it.libraryItem }
+                        .filterNot { ServerItemRef.isServerId(it.id) }
+                        .map { it.toLibrarySyncKey() }
+                    if (upsertItems.isNotEmpty()) syncAdapter.pushItems(profileId, upsertItems)
+                    if (deleteKeys.isNotEmpty()) syncAdapter.deleteItems(profileId, deleteKeys)
+                    true
+                } catch (error: CancellationException) {
+                    claimed.forEach { entry -> OfflineAccountFlush.release(entry.id) }
+                    throw error
+                } catch (error: Throwable) {
                     log.e(error) {
                         "Failed to push library delta profile=$profileId " +
-                            "upserts=${snapshot.pendingUpsertKeys.size} deletes=${snapshot.pendingDeleteKeys.size}"
+                            "claimed=${claimed.size}"
+                    }
+                    false
+                }
+                if (ok) {
+                    claimed.forEach { entry ->
+                        entry.libraryItem?.let { item ->
+                            localState.dropPendingIfMatches(item.id, item.type, entry.adding)?.let(::persist)
+                        }
+                        OfflineAccountFlush.confirm(entry.id, entry.timestampEpochMs)
+                    }
+                    log.i { "Library delta push completed profile=$profileId claimed=${claimed.size}" }
+                } else {
+                    claimed.forEach { entry ->
+                        OfflineAccountFlush.markFailed(entry.id, scheduleRetry = true)
                     }
                 }
             }
@@ -714,6 +758,132 @@ object LibraryRepository {
         sourceMode: LibrarySourceMode = effectiveLibrarySourceMode(),
     ): TrackingLibraryProvider? =
         sourceMode.providerId?.let(TrackingProviderRegistry::libraryProvider)
+
+    private fun acceptRemoteLibraryChange(
+        profileId: Int,
+        contentId: String,
+        contentType: String,
+        remoteTimestampEpochMs: Long,
+    ) {
+        val remoteWon = OfflineAccountFlush.noteRemoteChange(
+            profileId = profileId,
+            kind = OfflineOutboxKind.LibraryEdit,
+            subjectKey = libraryItemKey(contentId, contentType),
+            remoteTimestampEpochMs = remoteTimestampEpochMs,
+        )
+        if (remoteWon) {
+            localState.abandonPending(contentId, contentType)?.let(::persist)
+        }
+    }
+
+    private fun noteLibraryChange(
+        profileId: Int,
+        snapshot: LibraryLocalSnapshot,
+        contentId: String,
+        contentType: String,
+        adding: Boolean,
+    ) {
+        if (ServerItemRef.isServerId(contentId)) return
+        val stored = snapshot.items.firstOrNull { item -> item.id == contentId && item.type == contentType }
+        val item = when {
+            stored != null && adding -> stored
+            else -> LibraryItem(
+                id = contentId,
+                type = contentType,
+                name = stored?.name ?: contentId,
+                savedAtEpochMs = LibraryClock.nowEpochMs(),
+            )
+        }
+        OfflineAccountFlush.note(libraryOutboxEntry(profileId, item, adding))
+    }
+
+    private fun noteLibraryRemoval(snapshot: LibraryLocalSnapshot, contentId: String) {
+        val now = LibraryClock.nowEpochMs()
+        snapshot.pendingDeleteKeys
+            .filter { key -> key.contentId == contentId }
+            .forEach { key ->
+                if (ServerItemRef.isServerId(key.contentId)) return@forEach
+                OfflineAccountFlush.note(
+                    libraryOutboxEntry(
+                        profileId = snapshot.token.profileId,
+                        item = LibraryItem(
+                            id = key.contentId,
+                            type = key.contentType,
+                            name = key.contentId,
+                            savedAtEpochMs = now,
+                        ),
+                        adding = false,
+                    ),
+                )
+            }
+    }
+
+    private fun claimPendingLibrary(snapshot: LibraryLocalSnapshot): List<OfflineOutboxEntry> {
+        val profileId = snapshot.token.profileId
+        val ids = buildList {
+            snapshot.pendingUpsertKeys.forEach { key ->
+                add(offlineOutboxId(profileId, OfflineOutboxKind.LibraryEdit, libraryItemKey(key.contentId, key.contentType)))
+            }
+            snapshot.pendingDeleteKeys.forEach { key ->
+                add(offlineOutboxId(profileId, OfflineOutboxKind.LibraryEdit, libraryItemKey(key.contentId, key.contentType)))
+            }
+        }
+        return ids.mapNotNull { id -> OfflineAccountFlush.tryClaim(id) }
+    }
+
+    internal fun seedOfflineOutbox() {
+        val snapshot = localState.snapshot()
+        if (!snapshot.hasLoaded) return
+        val profileId = snapshot.token.profileId
+        snapshot.pendingUpsertKeys.forEach { key ->
+            val item = snapshot.items.firstOrNull { stored ->
+                stored.id == key.contentId && stored.type == key.contentType
+            } ?: return@forEach
+            if (ServerItemRef.isServerId(item.id)) return@forEach
+            OfflineAccountFlush.note(libraryOutboxEntry(profileId, item, adding = true))
+        }
+        val now = LibraryClock.nowEpochMs()
+        val known = OfflineAccountFlush.snapshot().entries.mapTo(mutableSetOf()) { it.id }
+        snapshot.pendingDeleteKeys.forEach { key ->
+            if (ServerItemRef.isServerId(key.contentId)) return@forEach
+            val entry = libraryOutboxEntry(
+                profileId = profileId,
+                item = LibraryItem(
+                    id = key.contentId,
+                    type = key.contentType,
+                    name = key.contentId,
+                    savedAtEpochMs = now,
+                ),
+                adding = false,
+            )
+            if (entry.id in known) return@forEach
+            OfflineAccountFlush.note(entry)
+        }
+    }
+
+    internal suspend fun deliverOutbox(entry: OfflineOutboxEntry): Boolean {
+        val item = entry.libraryItem ?: return false
+        if (ServerItemRef.isServerId(item.id)) return true
+        val ok = try {
+            if (entry.adding) {
+                syncAdapter.pushItems(entry.profileId, listOf(item))
+            } else {
+                syncAdapter.deleteItems(entry.profileId, listOf(item.toLibrarySyncKey()))
+            }
+            true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.e(error) { "Failed to push library outbox item profile=${entry.profileId}" }
+            false
+        }
+        if (!ok) return false
+        val snapshot = localState.snapshot()
+        if (snapshot.hasLoaded && snapshot.token.profileId == entry.profileId) {
+            localState.dropPendingIfMatches(item.id, item.type, entry.adding)?.let(::persist)
+        }
+        return true
+    }
 }
 
 internal const val LOCAL_LIBRARY_LIST_KEY = "local"

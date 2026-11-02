@@ -127,6 +127,7 @@ open class MainActivity : AppCompatActivity() {
         LiveTvStorage.initialize(applicationContext)
         AppFileCache.initialize(applicationContext)
         WatchedStorage.initialize(applicationContext)
+        com.nuvio.app.core.sync.PlatformOfflineOutboxDisk.initialize(applicationContext)
         MetaScreenSettingsStorage.initialize(applicationContext)
         com.nuvio.app.features.shuffle.EpisodeShuffleStorage.initialize(applicationContext)
         HomeCatalogSettingsStorage.initialize(applicationContext)

@@ -3,6 +3,14 @@ package com.nuvio.app.features.watched
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
+import com.nuvio.app.core.sync.OfflineAccountFlush
+import com.nuvio.app.core.sync.OfflineOutboxEntry
+import com.nuvio.app.core.sync.OfflineOutboxKind
+import com.nuvio.app.core.sync.accountSyncIsOffline
+import com.nuvio.app.core.sync.offlineOutboxId
+import com.nuvio.app.core.sync.resolveOfflineOutboxConflict
+import com.nuvio.app.core.sync.OfflineConflictWinner
+import com.nuvio.app.core.sync.watchedOutboxEntry
 import com.nuvio.app.core.tracking.ensureTrackingProvidersRegistered
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaVideo
@@ -623,6 +631,13 @@ object WatchedRepository {
 
         events.forEach { event ->
             val key = watchedItemKey(event.contentType, event.contentId, event.season, event.episode)
+            val remoteTimestamp = normalizeWatchedMarkedAtEpochMs(event.watchedAt)
+            OfflineAccountFlush.noteRemoteChange(
+                profileId = currentProfileId,
+                kind = OfflineOutboxKind.WatchedMark,
+                subjectKey = key,
+                remoteTimestampEpochMs = remoteTimestamp,
+            )
             when (event.operation.lowercase()) {
                 watchedDeltaOperationUpsert -> {
                     upsertCount += 1
@@ -665,8 +680,15 @@ object WatchedRepository {
                         return@forEach
                     }
                     if (matchingKey in dirtyKeys) {
-                        preservedDirtyCount += 1
-                        return@forEach
+                        val localTimestamp = targetItems[matchingKey]?.markedAtEpochMs ?: Long.MIN_VALUE
+                        if (
+                            resolveOfflineOutboxConflict(localTimestamp, remoteTimestamp) ==
+                            OfflineConflictWinner.Local
+                        ) {
+                            preservedDirtyCount += 1
+                            return@forEach
+                        }
+                        dirtyKeys.remove(matchingKey)
                     }
                     val removedItem = targetItems.remove(matchingKey)
                     if (removedItem != null) {
@@ -812,11 +834,24 @@ object WatchedRepository {
         publish()
         persist()
         if (syncRemote) {
-            pushMarksToServer(
-                items = timestampedItems,
-                trackerHistorySync = trackerHistorySync,
-                source = source,
-            )
+            timestampedItems.filterNot(ServerWatched::isServerItem).forEach { item ->
+                OfflineAccountFlush.note(
+                    watchedOutboxEntry(
+                        profileId = currentProfileId,
+                        item = item,
+                        played = true,
+                        mirrorTrackers = trackerHistorySync == WatchedTrackerHistorySync.Mirror,
+                        source = source,
+                    ),
+                )
+            }
+            if (!accountSyncIsOffline()) {
+                pushMarksToServer(
+                    items = timestampedItems,
+                    trackerHistorySync = trackerHistorySync,
+                    source = source,
+                )
+            }
         }
     }
 
@@ -890,13 +925,33 @@ object WatchedRepository {
         if (removedItems.isNotEmpty()) {
             publish()
             persist()
-            if (syncRemote) pushDeleteToServer(items = removedItems, source = source)
+            if (syncRemote) {
+                noteWatchedDeletes(removedItems, source)
+                if (!accountSyncIsOffline()) pushDeleteToServer(items = removedItems, source = source)
+            }
         } else if (source.providerId != null) {
             if (removedExtraKeys) {
                 publish()
                 persist()
             }
-            if (syncRemote) pushDeleteToServer(items = items.toList(), source = source)
+            if (syncRemote) {
+                noteWatchedDeletes(items.toList(), source)
+                if (!accountSyncIsOffline()) pushDeleteToServer(items = items.toList(), source = source)
+            }
+        }
+    }
+
+    private fun noteWatchedDeletes(items: Collection<WatchedItem>, source: WatchProgressSource) {
+        items.filterNot(ServerWatched::isServerItem).forEach { item ->
+            OfflineAccountFlush.note(
+                watchedOutboxEntry(
+                    profileId = currentProfileId,
+                    item = item,
+                    played = false,
+                    mirrorTrackers = true,
+                    source = source,
+                ),
+            )
         }
     }
 
@@ -1059,12 +1114,16 @@ object WatchedRepository {
         val profileId = currentProfileId
         val operationGeneration = profileGeneration
         if (trackerHistorySync == WatchedTrackerHistorySync.Mirror) ServerWatched.mirror(items, played = true)
+        val accountItems = items.filterNot(ServerWatched::isServerItem)
+        if (accountItems.isEmpty()) return
         accountScopeSnapshot().launch {
-            runCatching {
-                if (items.isEmpty()) return@runCatching
+            val claimed = claimWatched(profileId, accountItems)
+            if (claimed.isEmpty()) return@launch
+            OfflineAccountFlush.persistNow()
+            val ok = try {
                 val outcome = pushToTargetsForSource(
                     profileId = profileId,
-                    items = items,
+                    items = claimed.map { it.first },
                     trackerHistorySync = trackerHistorySync,
                     source = source,
                 )
@@ -1072,11 +1131,25 @@ object WatchedRepository {
                     recordSuccessfulPush(
                         profileId = profileId,
                         operationGeneration = operationGeneration,
-                        items = items,
+                        items = claimed.map { it.first },
                     )
                 }
-            }.onFailure { e ->
-                log.e(e) { "Failed to push watched items" }
+                source.providerId != null || outcome.nuvioSyncSucceeded
+            } catch (error: CancellationException) {
+                claimed.forEach { (_, id) -> OfflineAccountFlush.release(id) }
+                throw error
+            } catch (error: Throwable) {
+                log.e(error) { "Failed to push watched items" }
+                false
+            }
+            if (ok) {
+                claimed.forEach { (item, id) ->
+                    OfflineAccountFlush.confirm(id, item.markedAtEpochMs)
+                }
+            } else {
+                claimed.forEach { (_, id) ->
+                    OfflineAccountFlush.markFailed(id, scheduleRetry = true)
+                }
             }
         }
     }
@@ -1087,17 +1160,111 @@ object WatchedRepository {
     ) {
         val profileId = currentProfileId
         ServerWatched.mirror(items, played = false)
+        val accountItems = items.filterNot(ServerWatched::isServerItem)
+        if (accountItems.isEmpty()) return
         accountScopeSnapshot().launch {
-            runCatching {
-                if (items.isEmpty()) return@runCatching
+            val claimed = claimWatched(profileId, accountItems)
+            if (claimed.isEmpty()) return@launch
+            OfflineAccountFlush.persistNow()
+            val ok = try {
                 deleteFromTargetsForSource(
                     profileId = profileId,
-                    items = items,
+                    items = claimed.map { it.first },
                     source = source,
                 )
-            }.onFailure { e ->
-                log.e(e) { "Failed to push watched item delete" }
+            } catch (error: CancellationException) {
+                claimed.forEach { (_, id) -> OfflineAccountFlush.release(id) }
+                throw error
+            } catch (error: Throwable) {
+                log.e(error) { "Failed to push watched item delete" }
+                false
             }
+            if (ok) {
+                claimed.forEach { (item, id) ->
+                    OfflineAccountFlush.confirm(id, item.markedAtEpochMs)
+                }
+            } else {
+                claimed.forEach { (_, id) ->
+                    OfflineAccountFlush.markFailed(id, scheduleRetry = true)
+                }
+            }
+        }
+    }
+
+    private fun claimWatched(
+        profileId: Int,
+        items: Collection<WatchedItem>,
+    ): List<Pair<WatchedItem, String>> =
+        items.mapNotNull { item ->
+            val id = offlineOutboxId(
+                profileId,
+                OfflineOutboxKind.WatchedMark,
+                watchedItemKey(item.type, item.id, item.season, item.episode),
+            )
+            OfflineAccountFlush.tryClaim(id)?.let { item to id }
+        }
+
+    internal fun seedOfflineOutbox() {
+        if (!hasLoaded) return
+        val source = activeSource
+        itemsStore.read { nuvioItems, providerItems, dirtyNuvioKeys, dirtyProviderKeys ->
+            val items = source.providerId
+                ?.let { providerId -> providerItems[providerId].orEmpty() }
+                ?: nuvioItems
+            val dirtyKeys = source.providerId
+                ?.let { providerId -> dirtyProviderKeys[providerId].orEmpty() }
+                ?: dirtyNuvioKeys
+            dirtyKeys.forEach { key ->
+                val item = items[key] ?: return@forEach
+                OfflineAccountFlush.note(
+                    watchedOutboxEntry(
+                        profileId = currentProfileId,
+                        item = item,
+                        played = true,
+                        mirrorTrackers = true,
+                        source = source,
+                    ),
+                )
+            }
+        }
+    }
+
+    internal suspend fun deliverOutbox(entry: OfflineOutboxEntry): Boolean {
+        val item = entry.watchedItem ?: return false
+        val source = WatchProgressSource.fromStorage(entry.sourceName)
+        val tracker = if (entry.mirrorTrackers) {
+            WatchedTrackerHistorySync.Mirror
+        } else {
+            WatchedTrackerHistorySync.Skip
+        }
+        return if (entry.played) {
+            if (tracker == WatchedTrackerHistorySync.Mirror) {
+                ServerWatched.mirror(listOf(item), played = true)
+            }
+            val outcome = pushToTargetsForSource(
+                profileId = entry.profileId,
+                items = listOf(item),
+                trackerHistorySync = tracker,
+                source = source,
+            )
+            val ok = source.providerId != null || outcome.nuvioSyncSucceeded
+            if (ok && shouldAcknowledgeNuvioWatchedPush(source = source, outcome = outcome) &&
+                entry.profileId == currentProfileId
+            ) {
+                recordSuccessfulPush(
+                    profileId = entry.profileId,
+                    operationGeneration = profileGeneration,
+                    items = listOf(item),
+                )
+            }
+            ok
+        } else {
+            ServerWatched.mirror(listOf(item), played = false)
+            deleteFromTargetsForSource(
+                profileId = entry.profileId,
+                items = listOf(item),
+                source = source,
+            )
         }
     }
 
@@ -1325,17 +1492,20 @@ object WatchedRepository {
         profileId: Int,
         items: Collection<WatchedItem>,
         source: WatchProgressSource,
-    ) {
+    ): Boolean {
         val (serverItems, items) = items.partition(ServerWatched::isServerItem)
         ServerWatched.apply(serverItems, played = false)
-        if (items.isEmpty()) return
+        if (items.isEmpty()) return true
+        var nuvioOk = source.providerId != null
         if (source.providerId == null) {
             try {
                 syncAdapter.delete(profileId = profileId, items = items)
+                nuvioOk = true
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
                 log.e(error) { "Failed to delete watched items from Nuvio Sync" }
+                nuvioOk = false
             }
         }
 
@@ -1348,6 +1518,7 @@ object WatchedRepository {
                 log.e(error) { "Failed to delete watched items from ${provider.providerId.storageId}" }
             }
         }
+        return nuvioOk
     }
 
     private fun accountScopeSnapshot(): CoroutineScope =
