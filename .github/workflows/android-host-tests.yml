@@ -86,6 +86,65 @@ jobs:
           # Robolectric SDK 36, used by AndroidDownloadLifecycleTest, refuses Java 17.
           java-version: 21
 
+      - name: Restore Robolectric Android jars
+        id: robolectric-jars
+        uses: actions/cache/restore@v5
+        with:
+          path: ~/.m2/repository/org/robolectric/android-all-instrumented
+          key: robolectric-android-all-${{ runner.os }}-4.16-26-34-36
+
+      - name: Download Robolectric Android jars
+        if: steps.robolectric-jars.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          # Robolectric fetches these itself at test time into ~/.m2. A failed fetch
+          # collapses each class into one classMethod error, so download them first.
+          versions=(
+            8.0.0_r4-robolectric-r1-i7
+            14-robolectric-10818077-i7
+            16-robolectric-13921718-i7
+          )
+          base="https://repo1.maven.org/maven2/org/robolectric/android-all-instrumented"
+          for version in "${versions[@]}"; do
+            dir="${HOME}/.m2/repository/org/robolectric/android-all-instrumented/${version}"
+            mkdir -p "${dir}"
+            for ext in jar pom; do
+              name="android-all-instrumented-${version}.${ext}"
+              dest="${dir}/${name}"
+              if [[ -s "${dest}" ]]; then
+                continue
+              fi
+              url="${base}/${version}/${name}"
+              ok=0
+              for attempt in 1 2 3 4 5; do
+                if curl -fL --retry 5 --retry-all-errors -o "${dest}.partial" "${url}"; then
+                  mv "${dest}.partial" "${dest}"
+                  ok=1
+                  break
+                fi
+                rm -f "${dest}.partial"
+                sleep $((attempt * 5))
+              done
+              if [[ "${ok}" != 1 ]]; then
+                echo "Could not download ${url}" >&2
+                exit 1
+              fi
+            done
+            bytes=$(stat -c '%s' "${dir}/android-all-instrumented-${version}.jar")
+            if (( bytes < 10000000 )); then
+              echo "Robolectric jar ${version} is only ${bytes} bytes." >&2
+              exit 1
+            fi
+            echo "Robolectric ${version}: ${bytes} bytes"
+          done
+
+      - name: Save Robolectric Android jars
+        if: steps.robolectric-jars.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ~/.m2/repository/org/robolectric/android-all-instrumented
+          key: robolectric-android-all-${{ runner.os }}-4.16-26-34-36
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
