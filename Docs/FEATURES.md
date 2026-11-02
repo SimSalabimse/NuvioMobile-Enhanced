@@ -3,17 +3,17 @@
 Built from the code at build 198 (0.6.5.1). This comparison build merges the luqmanfadlli enhanced tag 0.6.5-beta (313ca3d1) on top of the player tools work and the download-reason work. Docs/sync-overlaps-0.6.5.md lists each overlap and the decision. The tools panel, marking strip, Play range, Sync strip, TheIntroDB Flag, download reasons, Storage, Diagnostics and Auto Sync are still here. Notch spacing and the player button bar are the fork's. Sync is our bottom strip. The title fades while Sleep or Speed is open, and the seek bar does not move. "You're watching" stays hidden while a panel or strip is open. Each line shows the feature, where it is in the app, and the build or version it was added in when the changelog records it ("upstream" means it came from the base app). Settings pages are under the Settings tab.
 
 ## Playback
-- Player with gestures (swipe to seek, hold for speed and a hold-speed value): Settings › Playback › Player / Touch Gestures. Upstream.
+- Player with gestures: Settings › Playback › Player › Touch gestures (Off, No swipe-seek, or All) and Hold to speed (Off or a speed). Upstream controls, one picker each.
 - Playback engine and decoder (libmpv renderer, hardware decoding, YUV420P compatibility, DV7→HEVC fallback, audio passthrough, buffers, VOD disk cache): Settings › Playback › Decoder. Upstream.
-- iOS audio output and video output (hardware decoder, extended dynamic range, colour hints): Settings › Playback › iOS Audio/Video Output. Upstream.
+- iOS audio output and video output (hardware decoder stays here): Settings › Playback › iOS Audio/Video Output. Extended dynamic range, display colour hint, target primaries and target transfer are under Settings › Playback › Advanced. Upstream.
 - Preferred and secondary audio and subtitle languages, strip SDH, forced subtitles, show only preferred languages, auto-show subtitles on rewind or mute: Settings › Playback › Subtitle and Audio. Upstream.
 - Subtitle rendering (size, offset, bold, colours, outline, shadow, libass on by default): Settings › Playback › Subtitle Rendering. Upstream; shadow and imported subtitle fonts in 0.6.4.1. An imported font is used for Latin subtitles; Chinese, Japanese and Korean keep the bundled face.
 - Player tools open in one right-hand panel (Subtitles, Audio, Sources, Episodes, Info, Video settings) over the playing video. Subtitles keeps Off, language tracks, a pinned Sync row and Style in the same panel. The older separate subtitle, audio, sources, episodes, playback-info and video-settings panels were replaced. Sync drops the panel into a bottom strip (−0.1 / +0.1, Heard it / Saw it, Reset, Done). While that strip is open the subtitle cue is lifted by the strip height and put back on Done. Reset also clears a half-finished Heard it / Saw it. Unwatched episode pictures blur again when that setting is on, and a failed or unfinished episode list offers Retry. Changing episode closes the open tool. Aspect, speed, brightness, contrast, saturation and tone-map stay on the Video tab, with Reset pinned.
 - Audio and subtitle choices and playback speed remembered per show: automatic, in the player. 0.5.10.3.
 - Sleep timer: player › speed popup. 181.
 - Mini player (off by default): Settings › Playback › Mini Player. 0.5.10.1; default off in 190.
-- Private Viewing, Content Warnings, Pause Overlay, Loading Overlay, Movie Recommendations: Settings › Playback › Player. Upstream.
-- Playback debug readout (position, duration and every skip segment with its source): Settings › Playback. 190.
+- Private Viewing, Content Warnings, Pause Overlay, Loading screen (Off, Plain, or With status), Movie Recommendations: Settings › Playback › Player. Upstream. With status still shows the stall reason while buffering after playback has started.
+- Playback debug readout (position, duration and every skip segment with its source): Settings › Playback › Advanced. 190. Legacy layout is in that section too.
 - Skip backward and skip forward lengths: Settings › Playback. Upstream 0.6.4.
 - Tap the on-screen duration to switch between elapsed time and time left. The clock time the stream ends sits above the seek bar. Upstream 0.6.4.
 - Player badges for what is playing, and a choice of badge pack: player. Upstream 0.6.3–0.6.4.
@@ -23,7 +23,7 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - Seek bar thumbnails: Settings › Playback; downloads use on-device scrub previews. 0.5.10.2. The fork's faster thumbnail path is in 0.6.5.1.
 - Player buttons: Settings › Playback › Player buttons. Choose which buttons stay on the bar, which sit behind the arrow, and their order. 0.6.5.1 from the fork. Mark segment and Live TV stay on the bar as extra icons. The arrow grows that row.
 - While Sleep or Speed is open, the title, version and episode fade out and the seek bar stays put.
-- Show Chapters applies to every engine, with marks on the seek bar and a chapters list. 0.6.5.1 from the fork.
+- Show Chapters applies to every engine, with marks on the seek bar and a chapters list. The settings row is hidden on iOS; the saved value is kept. 0.6.5.1 from the fork.
 - Pinch to zoom shows a zoom icon while the picture scales. 0.6.5.1 from the fork.
 - TMDB title language and original-language titles, logos, posters and backdrops: Settings › TMDB, and the home hero. 0.6.5.1 from the fork.
 - Auto-play next episode, binge group, preloading next-episode sources, threshold mode, and the up-next countdown: Settings › Playback › Next Episode. Upstream.

@@ -1319,6 +1319,8 @@
     <string name="settings_playback_touch_gestures">Touch Gestures</string>
     <string name="settings_playback_touch_gestures_description">Allow swipes and double-taps on the player surface to seek, adjust brightness, or adjust volume.</string>
     <string name="settings_playback_swipe_to_seek">Swipe to Seek</string>
+    <string name="settings_playback_touch_gestures_no_swipe">No swipe-seek</string>
+    <string name="settings_playback_touch_gestures_all">All</string>
     <string name="settings_playback_movie_recommendations">Movie Recommendations</string>
     <string name="settings_playback_movie_recommendations_description">Suggest titles from More Like This when a movie reaches its end credits.</string>
     <string name="settings_playback_swipe_to_seek_description">Swipe left or right across the player to scrub through the video. Turn this off to keep only the up and down swipes for brightness and volume — double-tapping to skip still works.</string>
@@ -1403,6 +1405,7 @@
     <string name="settings_playback_libmpv_yuv420p_description">Force YUV420P output for devices with renderer or color issues.</string>
     <string name="settings_playback_section_next_episode">NEXT EPISODE</string>
     <string name="settings_playback_section_player">PLAYER</string>
+    <string name="settings_playback_section_advanced">ADVANCED</string>
     <string name="settings_playback_section_skip_segments">SKIP SEGMENTS</string>
     <string name="settings_playback_section_stream_auto_play">STREAM AUTO-PLAY</string>
     <string name="settings_playback_section_stream_selection">STREAM SELECTION</string>
@@ -1411,6 +1414,9 @@
     <string name="settings_playback_selected_count">%1$d selected</string>
     <string name="settings_playback_show_loading_overlay">Loading Overlay</string>
     <string name="settings_playback_show_loading_overlay_description">Show loading screen until first video frame appears.</string>
+    <string name="settings_playback_loading_screen">Loading screen</string>
+    <string name="settings_playback_loading_screen_plain">Plain</string>
+    <string name="settings_playback_loading_screen_with_status">With status</string>
     <string name="settings_playback_pause_overlay">Pause Overlay</string>
     <string name="settings_playback_pause_overlay_description">Show details overlay after 5 seconds while paused.</string>
     <string name="settings_playback_parental_guide">Content Warnings</string>
