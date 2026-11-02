@@ -90,6 +90,7 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 ## Home
 - Hero section, trailers, catalogs, catalog type labels, hide unreleased: Settings › Layout › Home Layout. Upstream. The hero also shows ratings and the age rating. Upstream 0.6.4.
 - Continue Watching (show/hide, episode thumbnails, Next Up rules, sort order, resume prompt on launch, pause untouched items): Settings › Layout › Continue Watching. Upstream/enhanced.
+- Offline Home Continue Watching shows the saved Continue Watching rows for the active profile, in that order. A downloaded episode or movie plays; a card that is not downloaded is dimmed and does not open. If that save is missing or unreadable, the row stays the downloaded episodes already started, and it hides when there are none.
 - Finish a series row: Settings › Layout › Continue Watching › Finish a series. 178.
 - Up Next Tonight: Home. 181.
 - Continue Watching hold menu (details, play manually, start from beginning, download, auto-skip, Finish a series, remove): Home. Long labels wrap since 193.
