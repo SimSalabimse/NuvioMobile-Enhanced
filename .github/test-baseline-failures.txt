@@ -1,11 +1,13 @@
 # Android host tests that already fail on enhanced.
+# Blank lines and lines whose first non-whitespace character is # are not entries.
+# Each remaining line is one test result: classname.method, including a Robolectric SDK suffix.
 # The pull request job fails only when a result is not listed here.
-# Robolectric SDK suffixes such as [34] are ignored, so one line covers every SDK run of that method.
 #
-# AndroidDownloadLifecycleTest.missingSystemJobIsPausedInsteadOfSilentlyRescheduling
+# AndroidDownloadLifecycleTest, two results.
 # Robolectric's JobScheduler.schedule() returns success, so restore() reschedules the transfer
-# and leaves it Downloading. The test expects Paused when no system job exists. Same failure on
-# the plain run and the [34] run.
+# and leaves it Downloading. The test expects Paused. @Config(sdk = [34, 36]) records the
+# SDK 34 run with a [34] suffix and the other run with no suffix.
+com.nuvio.app.features.downloads.AndroidDownloadLifecycleTest.missingSystemJobIsPausedInsteadOfSilentlyRescheduling[34]
 com.nuvio.app.features.downloads.AndroidDownloadLifecycleTest.missingSystemJobIsPausedInsteadOfSilentlyRescheduling
 #
 # DeleteDownloadWhenFinishedTest

@@ -72,11 +72,12 @@ jobs:
         run: |
           set -euo pipefail
           rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
-          if ! command -v cargo-ndk >/dev/null 2>&1; then
+          # The cargo-ndk executable refuses a direct call. Cargo invokes it as `cargo ndk`.
+          if ! cargo ndk --help >/dev/null 2>&1; then
             cargo install cargo-ndk --locked
           fi
           mkdir -p native/target
-          cargo-ndk --help >/dev/null
+          cargo ndk --help >/dev/null
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -108,7 +109,7 @@ jobs:
           echo "Gradle exited ${status}"
 
       - name: Summarize tests and apply the baseline
-        if: always()
+        if: steps.gradle.outcome == 'success'
         env:
           GRADLE_STATUS: ${{ steps.gradle.outputs.status }}
         run: python3 .github/android-host-test-gate.py

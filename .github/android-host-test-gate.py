@@ -15,8 +15,10 @@ for raw in baseline_path.read_text(encoding="utf-8").splitlines():
 allowed_set = set(allowed)
 
 
-def normalize(name: str) -> str:
-    return name.split("[", 1)[0].strip()
+def test_id(classname: str, name: str) -> str:
+    # Keep the Robolectric SDK suffix. [34] and the unsuffixed run are different results.
+    method = name.strip()
+    return f"{classname}.{method}" if classname else method
 
 
 # Gradle copies the same XML under intermediates/. Count only the task results.
@@ -53,11 +55,10 @@ for path in xml_files:
             if case.find("failure") is None and case.find("error") is None:
                 continue
             classname = case.attrib.get("classname", "").strip()
-            method = normalize(case.attrib.get("name", ""))
-            failed.append(f"{classname}.{method}" if classname else method)
+            failed.append(test_id(classname, case.attrib.get("name", "")))
 
 new_failures = [item for item in failed if item not in allowed_set]
-gradle_status = os.environ.get("GRADLE_STATUS", "1")
+gradle_status = os.environ.get("GRADLE_STATUS", "1").strip()
 lines = [
     "## Android host tests",
     "",
@@ -68,8 +69,18 @@ lines = [
     f"- Baseline entries: {len(allowed)}",
     f"- Failures already in the baseline: {len(failed) - len(new_failures)}",
     f"- New failures: {len(new_failures)}",
-    f"- Gradle exit: {gradle_status}",
+    f"- Gradle exit: {gradle_status or '(empty)'}",
 ]
+if tests == 0 or not xml_files:
+    lines.extend([
+        "",
+        "FAIL: Android host tests produced zero test cases. A run with no results is a failure.",
+    ])
+elif not gradle_status:
+    lines.extend([
+        "",
+        "FAIL: Gradle exit status was empty, so the test run is not trusted.",
+    ])
 if failed:
     lines.extend(["", "### Failures", ""])
     for item in failed:
@@ -82,8 +93,16 @@ if step_summary:
     with open(step_summary, "a", encoding="utf-8") as handle:
         handle.write(summary)
 
-if not xml_files:
-    print("No Android host test results were written.", file=sys.stderr)
+if tests == 0 or not xml_files:
+    print(
+        "FAIL: Android host tests produced zero test cases. "
+        f"Gradle exit: {gradle_status or '(empty)'}. "
+        "A run with no results is a failure.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+if not gradle_status:
+    print("FAIL: Gradle exit status was empty, so the test run is not trusted.", file=sys.stderr)
     sys.exit(1)
 if gradle_status != "0" and not failed:
     print("Gradle failed and reported no test failures.", file=sys.stderr)
