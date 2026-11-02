@@ -57,6 +57,11 @@ internal data class MediaAnalysisResult(
     val learnedTypes: Set<String> = emptySet(),
     /** Segment types found from a clip of another episode ([SiblingClipReference]): type to episode. */
     val foundUsing: Map<String, Int> = emptyMap(),
+    /**
+     * Analyser or sibling-clip failures for this download file. A new file name starts again at 0.
+     * Three means the episode is left alone until the file changes.
+     */
+    val analysisAttempts: Int = 0,
 )
 
 @Serializable
