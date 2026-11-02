@@ -297,12 +297,29 @@ data class StreamClientResolveParsed(
     val unrated: Boolean? = null,
 )
 
+enum class AddonStreamFailureKind {
+    Timeout,
+    HttpError,
+    Offline,
+}
+
+sealed class AddonStreamFetchStatus {
+    data object Loading : AddonStreamFetchStatus()
+    data class Loaded(val count: Int) : AddonStreamFetchStatus()
+    data class Failed(
+        val kind: AddonStreamFailureKind,
+        val httpStatus: Int? = null,
+    ) : AddonStreamFetchStatus()
+}
+
 data class AddonStreamGroup(
     val addonName: String,
     val addonId: String,
     val streams: List<StreamItem>,
     val isLoading: Boolean = false,
     val error: String? = null,
+    val fetchStatus: AddonStreamFetchStatus? = null,
+    val retryUsed: Boolean = false,
 )
 
 enum class StreamsEmptyStateReason {
@@ -310,6 +327,7 @@ enum class StreamsEmptyStateReason {
     NoCompatibleAddons,
     NoStreamsFound,
     StreamFetchFailed,
+    Offline,
 }
 
 data class StreamsUiState(
