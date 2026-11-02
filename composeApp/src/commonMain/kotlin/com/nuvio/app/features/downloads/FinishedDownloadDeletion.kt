@@ -1,6 +1,7 @@
 package com.nuvio.app.features.downloads
 
 import com.nuvio.app.core.serialization.LenientDefaultsJson
+import com.nuvio.app.features.analysis.ANALYSIS_MAX_ATTEMPTS
 import com.nuvio.app.features.analysis.MediaAnalysisResult
 import com.nuvio.app.features.analysis.MediaAnalysisSettings
 import com.nuvio.app.features.analysis.MediaAnalysisStore
@@ -54,6 +55,12 @@ internal object FinishedDownloadDeletion {
     internal var analysisHoldCapMs: Long = ANALYSIS_HOLD_CAP_MS
 
     internal var deletionNowMs: () -> Long = { epochMs() }
+
+    /** Null uses [MediaAnalyzerPlatform.isCharging]. */
+    internal var deletionDeviceCharging: (() -> Boolean)? = null
+
+    /** Null uses the analysis "only while charging" setting. */
+    internal var deletionOnlyWhileCharging: (() -> Boolean)? = null
 
     private var generationClock = 0
     private var holdCapJob: Job? = null
@@ -197,6 +204,8 @@ internal object FinishedDownloadDeletion {
         deletionStoredAnalysis = null
         analysisHoldCapMs = ANALYSIS_HOLD_CAP_MS
         deletionNowMs = { epochMs() }
+        deletionDeviceCharging = null
+        deletionOnlyWhileCharging = null
         clearPersistedHold()
     }
 
@@ -239,6 +248,9 @@ internal object FinishedDownloadDeletion {
             untilOtherPlays = false,
             generation = stored.generation,
             heldSinceEpochMs = stored.heldSinceEpochMs,
+            holdEligibleMs = stored.holdEligibleMs,
+            holdAccountedUntilEpochMs = stored.holdAccountedUntilEpochMs,
+            holdClockFrozen = stored.holdClockFrozen,
         )
         execute(pending!!)
     }
@@ -301,25 +313,55 @@ internal object FinishedDownloadDeletion {
             drop(current)
             return
         }
-        if (!deletion.releaseHold && shouldHold(item, current)) {
-            keepHold(current, item)
-            return
+        if (!deletion.releaseHold) {
+            val accounted = accountPendingHold(current)
+            pending = accounted
+            if (shouldHold(item, accounted)) {
+                keepHold(accounted, item)
+                return
+            }
         }
         drop(current)
         DownloadsRepository.cancelDownload(current.downloadId)
     }
 
     private fun shouldHold(item: DownloadItem, current: PendingDeletion): Boolean {
-        val since = current.heldSinceEpochMs
-        val heldForMs = if (since == null) 0L else (deletionNowMs() - since).coerceAtLeast(0L)
+        val stored = storedAnalysis(item)
         return shouldHoldAutomaticDeletion(
             item = item,
-            storedAnalysis = storedAnalysis(item),
+            storedAnalysis = stored,
             introDetectionEnabled = MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.IntroDetection),
             analyserSupported = deletionAnalyserSupported ?: MediaAnalyzerPlatform.supported,
             automatic = true,
-            heldForMs = heldForMs,
+            heldForMs = current.holdEligibleMs,
             holdCapMs = analysisHoldCapMs,
+            attemptsExhausted = (stored?.analysisAttempts ?: 0) >= ANALYSIS_MAX_ATTEMPTS,
+        )
+    }
+
+    private fun holdClockFrozenNow(): Boolean = analysisHoldClockFrozen(
+        onlyWhileCharging = deletionOnlyWhileCharging?.invoke()
+            ?: MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.OnlyWhileCharging),
+        deviceCharging = deletionDeviceCharging?.invoke() ?: MediaAnalyzerPlatform.isCharging(),
+    )
+
+    private fun accountPendingHold(current: PendingDeletion): PendingDeletion {
+        val now = deletionNowMs()
+        val clock = accountHoldClock(
+            clock = HoldClock(
+                eligibleMs = current.holdEligibleMs,
+                accountedUntilEpochMs = current.holdAccountedUntilEpochMs,
+                frozen = current.holdClockFrozen,
+            ),
+            nowMs = now,
+            frozenNow = holdClockFrozenNow(),
+            heldSinceEpochMs = current.heldSinceEpochMs,
+        )
+        return current.copy(
+            heldSinceEpochMs = current.heldSinceEpochMs ?: now,
+            holdEligibleMs = clock.eligibleMs,
+            holdAccountedUntilEpochMs = clock.accountedUntilEpochMs,
+            holdClockFrozen = clock.frozen,
         )
     }
 
@@ -329,25 +371,26 @@ internal object FinishedDownloadDeletion {
     }
 
     private fun keepHold(current: PendingDeletion, item: DownloadItem) {
-        val since = current.heldSinceEpochMs ?: deletionNowMs()
-        val updated = current.copy(heldSinceEpochMs = since)
-        pending = updated
-        persistHold(updated)
+        pending = current
+        persistHold(current)
         if (holdCapJob?.isActive == true) return
         com.nuvio.app.features.analysis.MediaAnalysisScheduler.prioritiseForPendingDeletion(item)
-        val remaining = analysisHoldCapMs - (deletionNowMs() - since)
-        if (remaining <= 0L) {
-            execute(updated.copy(releaseHold = true))
+        val remaining = analysisHoldCapMs - current.holdEligibleMs
+        if (!current.holdClockFrozen && remaining <= 0L) {
+            execute(current.copy(releaseHold = true))
             return
         }
-        val generation = updated.generation
+        val generation = current.generation
+        val wait = if (current.holdClockFrozen) {
+            ANALYSIS_HOLD_RECHECK_MS
+        } else {
+            remaining.coerceAtMost(ANALYSIS_HOLD_RECHECK_MS).coerceAtLeast(1L)
+        }
         holdCapJob = scope.launch {
-            delay(remaining)
-            if (holdCapJob === coroutineContext[Job]) holdCapJob = null
+            delay(wait)
+            if (holdCapJob === kotlin.coroutines.coroutineContext[Job]) holdCapJob = null
             val latest = pending
-            if (latest != null && latest.generation == generation) {
-                execute(latest.copy(releaseHold = true))
-            }
+            if (latest != null && latest.generation == generation) execute(latest)
         }
     }
 
@@ -398,6 +441,9 @@ private data class PendingDeletion(
     val generation: Int,
     val heldSinceEpochMs: Long? = null,
     val releaseHold: Boolean = false,
+    val holdEligibleMs: Long = 0L,
+    val holdAccountedUntilEpochMs: Long? = null,
+    val holdClockFrozen: Boolean = false,
 )
 
 private const val ANALYSIS_HOLD_KEY = "finished_download_analysis_hold"
@@ -409,6 +455,9 @@ private data class PersistedAnalysisHold(
     val requireCompleted: Boolean,
     val heldSinceEpochMs: Long,
     val generation: Int,
+    val holdEligibleMs: Long = 0L,
+    val holdAccountedUntilEpochMs: Long? = null,
+    val holdClockFrozen: Boolean = false,
 )
 
 private fun persistHold(deletion: PendingDeletion) {
@@ -419,6 +468,9 @@ private fun persistHold(deletion: PendingDeletion) {
         requireCompleted = deletion.requireCompleted,
         heldSinceEpochMs = since,
         generation = deletion.generation,
+        holdEligibleMs = deletion.holdEligibleMs,
+        holdAccountedUntilEpochMs = deletion.holdAccountedUntilEpochMs,
+        holdClockFrozen = deletion.holdClockFrozen,
     )
     DownloadsSettingsStorage.saveString(
         ANALYSIS_HOLD_KEY,

@@ -46,7 +46,8 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - Ask after Skip (Good/Wrong): Settings › Playback › Skip Segments. 0.5.10.3.
 - Your marks and shared nuvio://skip links: player skip menu. 191/192.
 - On-device analysis of downloads (intros/credits, recaps, loudness, scrub previews, subtitle sync, "analyse only while charging"): Settings › Downloads (analysis section). 0.5.10.1–0.5.10.2.
-- Delete after watching and Smart Downloads keep a finished episode until its intro fingerprint is saved (or 30 minutes, or analysis fails for good), so the next episode still has a fingerprint to match. Automatic.
+- Delete after watching and Smart Downloads keep a finished episode until its intro fingerprint is saved (or 30 minutes, or analysis fails for good), so the next episode still has a fingerprint to match. Automatic. The 30 minutes count only while analysis is allowed to run: with charger-only analysis on, time unplugged does not count. The last failed try releases the file.
+- Analysis runs one pass at a time. A kick during that pass runs again when the pass finishes.
 - Sibling clip (fingerprints a nearby episode's intro window from its stream): automatic. 189.
 - Saving an episode fingerprint back-fills intro, credits, and recap for the other stored episodes of that season, including ones whose download is already gone.
 - A failed analysis or a sibling clip that could not be read is retried up to 3 times (after 2 minutes, then 4) and remembered across launches. A new download file starts the count over. Cancelling does not count.
@@ -58,7 +59,7 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - Download quality preference, plus a confirmation showing the size: Settings › Downloads › Download quality. 0.5.10.2.
 - **Allow mobile data**: Settings › Downloads (top). Upstream.
 - **Only on Wi-Fi** (smart downloads, queued episodes and Finish-a-series goals wait for Wi-Fi; on by default): Settings › Downloads. 0.5.10.2. Shown even with Smart downloads off since 193; shows 'Waiting now: …' since 194.
-- Only while charging: Settings › Downloads. 0.5.10.2.
+- Only while charging: Settings › Downloads. 0.5.10.2. On Android, where on-device analysis is not available, this switch does not hold automatic downloads.
 - Smart downloads, "Episodes to keep ready" (1–3): Settings › Downloads. 0.5.10.2.
 - Finish a series (flag a show; downloads continue from the furthest watched episode): details chip, Continue Watching hold menu, flag badge on cards. 178.
 - Finish a series with Smart downloads on: keeps exactly 'Episodes to keep ready' downloaded, lowest first, topped up as you watch. 194.
