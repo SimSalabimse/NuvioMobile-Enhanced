@@ -1170,6 +1170,9 @@ final class AppNavigationCoordinator: ObservableObject {
     let profileTabInteraction = NativeProfileTabInteractionCoordinator()
 
     init() {
+        if MainViewControllerKt.coldLaunchSkipsProfilePicker() {
+            isMainContentMounted = true
+        }
         PlayerPictureInPictureParking.shared.appCoordinator = self
         setTabBarVisible(true)
         reloadTabBarBehavior()
