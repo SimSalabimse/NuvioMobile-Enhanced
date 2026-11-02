@@ -104,10 +104,11 @@ class MoviePublishedCreditsTest {
         assertEquals("introdb", scene.provider)
         assertEquals(6_900.0, scene.startTime)
         assertTrue(credits.endTime <= scene.startTime)
+        assertEquals(MovieCreditsGate.WatchCredits, credits.movieCreditsGate(intervals, 7_200_000))
         assertTrue(credits.showsMovieSceneNotice(intervals, 7_200_000))
         assertNull(credits.internalSkipAction(intervals, 7_200_000))
         assertNull(credits.skipSeekTargetMs(intervals, 7_200_000))
-        assertTrue(credits.shouldAutoSkip(setOf(AutoSkipSegmentType.MOVIE_CREDITS)))
+        assertFalse(credits.shouldAutoSkip(setOf(AutoSkipSegmentType.MOVIE_CREDITS), intervals, 7_200_000))
     }
 
     @Test
@@ -133,6 +134,96 @@ class MoviePublishedCreditsTest {
     }
 
     @Test
+    fun emptyEndWithUnknownPlaceholderOrDifferentCutShowsNoCreditsButton() {
+        val open = TheIntroDbMediaResponse(
+            credits = listOf(TheIntroDbSegment(startMs = 10_000, endMs = null)),
+        )
+        val mismatched = TheIntroDbMediaResponse(
+            credits = listOf(TheIntroDbSegment(startMs = 7_000_000, endMs = null)),
+        )
+        assertNoCreditsButton(open.movieSkipIntervals(durationMs = 0L), 0L)
+        assertNoCreditsButton(open.movieSkipIntervals(durationMs = 60_000L), 60_000L)
+        assertNoCreditsButton(
+            mismatched.movieSkipIntervals(durationMs = 10_800_000L, referenceDurationMs = 7_200_000L),
+            10_800_000L,
+        )
+    }
+
+    @Test
+    fun emptyEndWithRealRuntimeClosesAtTheFileEnd() {
+        val intervals = TheIntroDbMediaResponse(
+            credits = listOf(TheIntroDbSegment(startMs = 7_000_000, endMs = null)),
+        ).movieSkipIntervals(durationMs = 7_200_000)
+        val credits = intervals.single()
+        assertEquals(7_200.0, credits.endTime)
+        assertEquals(MovieCreditsGate.SkipCredits, credits.movieCreditsGate(intervals, 7_200_000))
+        assertEquals(7_200_000L, credits.skipSeekTargetMs(intervals, 7_200_000))
+        assertEquals(false, credits.internalSkipAction(intervals, 7_200_000)?.skipsToPostCredits)
+    }
+
+    @Test
+    fun creditsEndingAFewSecondsBeforeTheFileStaySkipCredits() {
+        assertSkipCredits(endMs = 7_196_000, durationMs = 7_200_000)
+        assertSkipCredits(endMs = 7_194_000, durationMs = 7_200_000)
+    }
+
+    @Test
+    fun publishedEndExactlyEqualToDurationStaysSkipCredits() {
+        assertSkipCredits(endMs = 7_200_000, durationMs = 7_200_000)
+    }
+
+    @Test
+    fun gapOfSevenPointNineSecondsIsNotASceneAndEightSecondsIs() {
+        val under = creditRuns(secondStartSec = 207.9)
+        val roll = under.first { it.type == "movie-credits" }
+        assertTrue(under.none { it.type == "post-credits" })
+        assertEquals(MovieCreditsGate.SkipCredits, roll.movieCreditsGate(under, 400_000))
+        assertEquals(200_000L, roll.skipSeekTargetMs(under, 400_000))
+        assertTrue(roll.shouldAutoSkip(setOf(AutoSkipSegmentType.MOVIE_CREDITS), under, 400_000))
+
+        val scene = creditRuns(secondStartSec = 208.0)
+        assertSceneDoesNotSeekOrAutoSkip(scene)
+    }
+
+    @Test
+    fun postCreditSceneShowsNoticeAndDoesNotSeekOrAutoSkip() {
+        val gap = TheIntroDbMediaResponse(
+            credits = listOf(
+                TheIntroDbSegment(startMs = 6_000_000, endMs = 6_500_000),
+                TheIntroDbSegment(startMs = 6_600_000, endMs = null),
+            ),
+        ).movieSkipIntervals(durationMs = 7_200_000)
+        assertSceneDoesNotSeekOrAutoSkip(gap)
+
+        val introDb = IntroDbSegmentsResponse(
+            outro = IntroDbSegment(startSec = 6_000.0, endSec = 7_000.0),
+            postCredits = IntroDbSegment(startSec = 6_900.0, endSec = 7_100.0),
+        ).movieSkipIntervals(durationMs = 7_200_000)
+        val credits = introDb.first { it.type == "movie-credits" }
+        val scene = introDb.first { it.type == "post-credits" }
+        assertTrue(credits.endTime <= scene.startTime)
+        assertSceneDoesNotSeekOrAutoSkip(introDb)
+    }
+
+    @Test
+    fun normalMovieIntroAndCreditsSeekToThePublishedEnd() {
+        val durationMs = 7_200_000L
+        val intervals = TheIntroDbMediaResponse(
+            intro = listOf(TheIntroDbSegment(startMs = 0, endMs = 90_000)),
+            credits = listOf(TheIntroDbSegment(startMs = 6_800_000, endMs = 7_100_000)),
+        ).movieSkipIntervals(durationMs = durationMs)
+        val intro = intervals.first { it.type == "intro" }
+        val credits = intervals.first { it.type == "movie-credits" }
+        assertEquals(90_000L, intro.skipSeekTargetMs(intervals, durationMs))
+        assertEquals(90_000L, intro.internalSkipAction(intervals, durationMs)?.targetMs)
+        assertTrue(intro.shouldAutoSkip(setOf(AutoSkipSegmentType.INTRO), intervals, durationMs))
+        assertEquals(MovieCreditsGate.SkipCredits, credits.movieCreditsGate(intervals, durationMs))
+        assertEquals(7_100_000L, credits.skipSeekTargetMs(intervals, durationMs))
+        assertEquals(false, credits.internalSkipAction(intervals, durationMs)?.skipsToPostCredits)
+        assertTrue(credits.shouldAutoSkip(setOf(AutoSkipSegmentType.MOVIE_CREDITS), intervals, durationMs))
+    }
+
+    @Test
     fun episodeOutroStillUsesItsOwnPostCreditsSeek() {
         val outro = SkipInterval(startTime = 6_000.0, endTime = 7_100.0, type = "outro", provider = "theintrodb")
         val tail = outro.internalSkipAction(listOf(outro), durationMs = 7_200_000)
@@ -144,4 +235,41 @@ class MoviePublishedCreditsTest {
         assertEquals(true, withScene?.skipsToPostCredits)
         assertEquals(7_100_000L, outro.skipSeekTargetMs(listOf(outro, scene), 7_400_000))
     }
+}
+
+private fun assertNoCreditsButton(intervals: List<SkipInterval>, durationMs: Long) {
+    assertFalse(intervals.hasMovieCreditsButton(durationMs))
+    assertTrue(intervals.none { it.type == "movie-credits" })
+}
+
+private fun assertSkipCredits(endMs: Long, durationMs: Long) {
+    val intervals = TheIntroDbMediaResponse(
+        credits = listOf(TheIntroDbSegment(startMs = 6_000_000, endMs = endMs)),
+    ).movieSkipIntervals(durationMs = durationMs)
+    val credits = intervals.single { it.type == "movie-credits" }
+    assertEquals(endMs / 1000.0, credits.endTime)
+    assertEquals(MovieCreditsGate.SkipCredits, credits.movieCreditsGate(intervals, durationMs))
+    assertEquals(false, credits.internalSkipAction(intervals, durationMs)?.skipsToPostCredits)
+    assertEquals(endMs, credits.skipSeekTargetMs(intervals, durationMs))
+    assertTrue(credits.shouldAutoSkip(setOf(AutoSkipSegmentType.MOVIE_CREDITS), intervals, durationMs))
+}
+
+private fun creditRuns(secondStartSec: Double): List<SkipInterval> =
+    movieCreditIntervals(
+        rows = listOf(
+            PublishedCreditRow(startSec = 100.0, endSec = 200.0),
+            PublishedCreditRow(startSec = secondStartSec, endSec = 250.0),
+        ),
+        durationMs = 400_000L,
+        provider = TheIntroDb.PROVIDER,
+    )
+
+private fun assertSceneDoesNotSeekOrAutoSkip(intervals: List<SkipInterval>) {
+    val durationMs = 7_200_000L
+    val credits = intervals.first { it.type == "movie-credits" }
+    assertTrue(intervals.any { it.type == "post-credits" })
+    assertEquals(MovieCreditsGate.WatchCredits, credits.movieCreditsGate(intervals, durationMs))
+    assertNull(credits.internalSkipAction(intervals, durationMs))
+    assertNull(credits.skipSeekTargetMs(intervals, durationMs))
+    assertFalse(credits.shouldAutoSkip(setOf(AutoSkipSegmentType.MOVIE_CREDITS), intervals, durationMs))
 }

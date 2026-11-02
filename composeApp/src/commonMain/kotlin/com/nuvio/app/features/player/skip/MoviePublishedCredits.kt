@@ -85,3 +85,22 @@ internal fun movieCreditIntervals(
     }
     return out
 }
+
+internal enum class MovieCreditsGate {
+    Hidden,
+    SkipCredits,
+    WatchCredits,
+}
+
+internal fun SkipInterval.movieCreditsGate(
+    intervals: List<SkipInterval>,
+    durationMs: Long,
+): MovieCreditsGate {
+    if (type.trim().lowercase() != "movie-credits") return MovieCreditsGate.Hidden
+    if (showsMovieSceneNotice(intervals, durationMs)) return MovieCreditsGate.WatchCredits
+    if (internalSkipAction(intervals, durationMs) == null) return MovieCreditsGate.Hidden
+    return MovieCreditsGate.SkipCredits
+}
+
+internal fun List<SkipInterval>.hasMovieCreditsButton(durationMs: Long): Boolean =
+    any { it.movieCreditsGate(this, durationMs) != MovieCreditsGate.Hidden }

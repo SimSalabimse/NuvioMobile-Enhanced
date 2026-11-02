@@ -45,7 +45,8 @@ import com.nuvio.app.features.party.PartyRepository
 import com.nuvio.app.features.p2p.formatP2pMegabytes
 import com.nuvio.app.features.p2p.formatP2pSpeed
 import com.nuvio.app.features.player.skip.internalSkipAction
-import com.nuvio.app.features.player.skip.showsMovieSceneNotice
+import com.nuvio.app.features.player.skip.MovieCreditsGate
+import com.nuvio.app.features.player.skip.movieCreditsGate
 import com.nuvio.app.features.player.skip.skipSeekTargetMs
 import com.nuvio.app.features.servers.ServerStreams
 import com.nuvio.app.features.streams.streamAddonInstanceId
@@ -807,7 +808,7 @@ private fun BoxScope.RenderPlaybackOverlays(
         pausedOverlayVisible = pausedOverlayVisible,
         activeSkipInterval = activeSkipInterval,
         skipsToPostCredits = activeSkipInterval?.internalSkipAction(skipIntervals, snapshotDurationMs)?.skipsToPostCredits == true,
-        sceneAfterCredits = activeSkipInterval?.showsMovieSceneNotice(skipIntervals, snapshotDurationMs) == true,
+        sceneAfterCredits = activeSkipInterval?.movieCreditsGate(skipIntervals, snapshotDurationMs) == MovieCreditsGate.WatchCredits,
         skipIntervalDismissed = skipIntervalDismissed,
         controlsVisible = controlsVisible,
         onSkipInterval = { interval ->

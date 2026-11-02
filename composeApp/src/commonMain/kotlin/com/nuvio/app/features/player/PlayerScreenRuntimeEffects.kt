@@ -773,11 +773,10 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                 !isScrubbingTimeline && initialSeekApplied && !isPartyControlLocked &&
                 // The pre-roll only reveals the button; auto-skip waits for the segment itself.
                 positionSec >= current.startTime &&
-                current.shouldAutoSkip(autoSkipTypes) &&
+                current.shouldAutoSkip(autoSkipTypes, skipIntervals, durationForSkip) &&
                 current !in autoSkippedIntervals
             ) {
                 val durationMs = playbackSnapshot.durationMs
-                // A scene after the credits has no seek target, so auto-skip leaves the playhead.
                 val rawMs = current.skipSeekTargetMs(skipIntervals, durationMs) ?: return@collect
                 val seekPositionMs = if (durationMs > 0L) rawMs.coerceAtMost(durationMs - 1) else rawMs
                 val notification = current.autoSkipNotificationMessage(seekPositionMs)
