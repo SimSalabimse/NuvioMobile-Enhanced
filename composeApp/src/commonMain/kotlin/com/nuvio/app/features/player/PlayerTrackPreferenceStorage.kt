@@ -16,6 +16,8 @@ data class PersistedPlayerTrackPreference(
     val playbackSpeed: String? = null,
     /** Per show: auto-skip override, a [ShowAutoSkip] name; null = follow the setting. */
     val autoSkip: String? = null,
+    /** Per series: Smart Downloads count override ("0","1","2","3","5"); null = the global count. */
+    val smartDownloadCount: String? = null,
 )
 
 object PersistedSubtitleSelectionType {

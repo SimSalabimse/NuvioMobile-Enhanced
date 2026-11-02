@@ -57,6 +57,7 @@ import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.themePalette
 import com.nuvio.app.core.ui.appIconPainter
 import com.nuvio.app.features.downloads.DetailsDownloadProgress
+import com.nuvio.app.features.downloads.SeriesSmartDownloadCountPicker
 import com.nuvio.app.features.downloads.resumeDownloadFromMark
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_play
@@ -110,6 +111,8 @@ fun DetailActionButtons(
     iconActions: List<DetailSecondaryAction> = emptyList(),
     userRating: Int? = null,
     onRateClick: (() -> Unit)? = null,
+    metaType: String? = null,
+    seriesId: String? = null,
 ) {
     val playPainter = appIconPainter(AppIconResource.PlayerPlay)
     val downloadProgress = rememberDetailsDownloadProgress(downloadContentKey)
@@ -150,6 +153,9 @@ fun DetailActionButtons(
                     preferredSpacing = if (isTablet) 20.dp else 16.dp,
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+            if (metaType != null && seriesId != null) {
+                SeriesSmartDownloadCountPicker(metaType = metaType, seriesId = seriesId)
             }
             onRateClick?.let { rate ->
                 UserRatingStars(
@@ -295,6 +301,10 @@ fun DetailActionButtons(
         }
     }
 
+        if (actionsExpanded && metaType != null && seriesId != null) {
+            SeriesSmartDownloadCountPicker(metaType = metaType, seriesId = seriesId)
+        }
+
         if (onDownloadClick != null) {
             val downloadGlassActive = isAmbientLiquidGlassActive()
             Surface(
@@ -366,6 +376,8 @@ fun DetailActions(
     iconActionRow: Boolean = false,
     userRating: Int? = null,
     onRateClick: (() -> Unit)? = null,
+    metaType: String? = null,
+    seriesId: String? = null,
 ) {
     val actionSet = detailActionSet(
         isSaved = isSaved,
@@ -402,6 +414,8 @@ fun DetailActions(
         onPlayLongClick = onPlayLongClick,
         userRating = userRating,
         onRateClick = onRateClick,
+        metaType = metaType,
+        seriesId = seriesId,
     )
 }
 
@@ -503,6 +517,8 @@ fun TabletDetailHeroActions(
     onPlayExternallyClick: (() -> Unit)? = null,
     userRating: Int? = null,
     onRateClick: (() -> Unit)? = null,
+    metaType: String? = null,
+    seriesId: String? = null,
 ) {
     val actionSet = detailActionSet(
         isSaved = isSaved,
@@ -522,9 +538,13 @@ fun TabletDetailHeroActions(
     val playShape = RoundedCornerShape(40.dp)
     val resolvedPlayLabel = if (playEnabled) playLabel else stringResource(Res.string.playback_unavailable)
 
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
     if (landscape) {
         Row(
-            modifier = modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(TabletHeroActionGap),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -564,7 +584,7 @@ fun TabletDetailHeroActions(
         }
     } else {
         Column(
-            modifier = modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -593,6 +613,10 @@ fun TabletDetailHeroActions(
                 UserRatingStars(rating = userRating, onClick = rate, starSize = TabletRatingStarSize)
             }
         }
+    }
+    if (metaType != null && seriesId != null) {
+        SeriesSmartDownloadCountPicker(metaType = metaType, seriesId = seriesId)
+    }
     }
 }
 
