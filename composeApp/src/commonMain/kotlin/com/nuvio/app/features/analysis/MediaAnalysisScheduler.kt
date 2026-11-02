@@ -81,8 +81,6 @@ internal object MediaAnalysisScheduler {
     private const val START_DELAY_MS = 20_000L
     private const val PLAYBACK_POLL_MS = 15_000L
     private const val CHARGER_POLL_MS = 60_000L
-    private const val RETRY_DELAY_MS = 2 * 60_000L
-    private const val MAX_ATTEMPTS = 3
     private const val MAX_SIBLINGS = 4
     private const val THUMBNAIL_TARGET_COUNT = 400L
     private const val THUMBNAIL_MIN_INTERVAL_MS = 5_000L
@@ -122,6 +120,7 @@ internal object MediaAnalysisScheduler {
         failedThisSession.clear()
         retries.clear()
         MediaAnalysisStatus.clearAllFailures()
+        clearStoredAttempts()
         val running = MediaAnalysisStatus.job.value is AnalysisJobState.Running
         if (!running) {
             job?.cancel()
@@ -220,17 +219,24 @@ internal object MediaAnalysisScheduler {
             }
             currentItem = item
             currentInBackground = fromBackgroundTask
-            val ok = try {
+            val pass = try {
                 analyzeOne(item)
             } finally {
                 currentItem = null
                 MediaAnalysisStatus.setJob(AnalysisJobState.Idle)
                 MediaAnalysisStatus.resultsChanged()
             }
-            if (!scopeActive()) return false
-            val attempt = if (ok) 0 else (retries[item.id]?.first ?: 0) + 1
-            val terminalFailure = !ok && attempt >= MAX_ATTEMPTS
-            if (ok) {
+            if (pass == PassResult.Cancelled || !scopeActive()) return false
+            val prior = resolveAnalysisAttempts(MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item)), item.fileName)
+            val kind = classifyAnalysisAttempt(
+                scopeActive = pass != PassResult.Cancelled,
+                analyserFailed = pass == PassResult.Retry,
+                clipUnavailable = pass == PassResult.ClipRetry,
+            )
+            val update = updateAnalysisAttempts(prior, kind, com.nuvio.app.features.streams.epochMs())
+            if (update.write) writeAttempts(item, update.attempts)
+            val terminalFailure = update.giveUp
+            if (pass == PassResult.Done) {
                 MediaAnalysisStatus.clearFailure(item.id)
                 retries -= item.id
             } else if (terminalFailure) {
@@ -243,16 +249,49 @@ internal object MediaAnalysisScheduler {
                     MediaAnalysisStatus.recordFailure(item, MediaAnalyzerPlatform.lastError() ?: "Analysis stopped")
                 }
             } else {
-                retries[item.id] = attempt to (com.nuvio.app.features.streams.epochMs() + RETRY_DELAY_MS * attempt)
+                val notBefore = update.retryNotBeforeMs ?: (com.nuvio.app.features.streams.epochMs() + (analysisRetryDelayMs(1) ?: 0L))
+                retries[item.id] = update.attempts to notBefore
             }
             val savedFingerprint = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item)).hasStoredFingerprint()
-            if (playbackStrainExemptId == item.id && (ok || terminalFailure || savedFingerprint)) {
+            val clipStillPending = pass == PassResult.ClipRetry && !terminalFailure
+            if (playbackStrainExemptId == item.id && (pass == PassResult.Done || terminalFailure || savedFingerprint) && !clipStillPending) {
                 playbackStrainExemptId = null
             }
-            if (ok || terminalFailure || savedFingerprint) {
+            // A stored fingerprint normally releases the hold. A sibling clip that could not be read
+            // is not finished, so the file stays until that try succeeds or the attempts run out.
+            if ((pass == PassResult.Done || terminalFailure || savedFingerprint) && !clipStillPending) {
                 FinishedDownloadDeletion.analysisSettled(item.id)
             }
         }
+    }
+
+    private enum class PassResult { Done, Retry, ClipRetry, Cancelled }
+
+    private fun clearStoredAttempts() {
+        DownloadsRepository.uiState.value.items.forEach { item ->
+            val stored = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item)) ?: return@forEach
+            if (stored.fileName == item.fileName && stored.analysisAttempts != 0) {
+                MediaAnalysisStore.save(stored.copy(analysisAttempts = 0))
+            }
+        }
+    }
+
+    /** Keeps the fingerprint already stored for this file and writes [attempts]. */
+    private fun writeAttempts(item: DownloadItem, attempts: Int) {
+        val key = MediaAnalysisStore.keyFor(item)
+        val stored = MediaAnalysisStore.load(key)
+        val base = if (stored != null && stored.fileName == item.fileName) {
+            stored
+        } else {
+            MediaAnalysisResult(
+                key = key,
+                analyzedAtMs = com.nuvio.app.features.streams.epochMs(),
+                durationMs = 0L,
+                fileName = item.fileName,
+                userSegments = stored?.userSegments.orEmpty(),
+            )
+        }
+        MediaAnalysisStore.save(base.copy(fileName = item.fileName, analysisAttempts = attempts))
     }
 
     private fun strainExemptReady(): Boolean {
@@ -312,7 +351,12 @@ internal object MediaAnalysisScheduler {
         .sortedWith(compareBy<DownloadItem> { if (it.id == priorityItemId) 0 else 1 }.then(AnalysisOrder))
         .firstOrNull { item ->
             val existing = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item))
-            existing == null || existing.fileName != item.fileName || needsDerived(existing)
+            shouldQueueAnalysis(
+                stored = existing,
+                fileName = item.fileName,
+                needsDerivedWork = existing == null || existing.fileName != item.fileName || needsDerived(existing),
+                backingOff = false,
+            )
         }
 
     private fun needsDerived(result: MediaAnalysisResult): Boolean =
@@ -329,20 +373,29 @@ internal object MediaAnalysisScheduler {
         }
     }
 
-    private suspend fun analyzeOne(item: DownloadItem): Boolean {
+    private suspend fun analyzeOne(item: DownloadItem): PassResult {
         val uri = DownloadsRepository.playableLocalFileUri(item) ?: run {
             MediaAnalysisStatus.recordFailure(item, "The file is not on this device")
-            return false
+            return if (scopeActive()) PassResult.Retry else PassResult.Cancelled
         }
         if (!uri.startsWith("file:")) {
             MediaAnalysisStatus.recordFailure(item, "The file is not on this device")
-            return false
+            return if (scopeActive()) PassResult.Retry else PassResult.Cancelled
         }
-        val key = MediaAnalysisStore.keyFor(item)
-        val base = MediaAnalysisStore.load(key)?.takeIf { it.fileName == item.fileName }
-            ?: audioAnalysis(item, uri)
-            ?: return false
-        return derivedAnalysis(item, uri, base)
+        val stored = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item))
+            ?.takeIf { it.fileName == item.fileName && it.hasStoredFingerprint() }
+        val base = if (stored != null && !stored.needsSiblingClipRetry()) {
+            stored
+        } else {
+            val audio = audioAnalysis(item, uri, stored) ?: return if (scopeActive()) PassResult.Retry else PassResult.Cancelled
+            if (!scopeActive()) return PassResult.Cancelled
+            if (audio.clipUnavailable) return PassResult.ClipRetry
+            audio.result
+        }
+        if (!scopeActive()) return PassResult.Cancelled
+        return if (derivedAnalysis(item, uri, base)) PassResult.Done else {
+            if (scopeActive()) PassResult.Retry else PassResult.Cancelled
+        }
     }
 
     /** Recap and scrub-preview thumbnails, computed from a stored analysis and the file. */
@@ -397,33 +450,46 @@ internal object MediaAnalysisScheduler {
         return thumbsOk
     }
 
-    private suspend fun audioAnalysis(item: DownloadItem, uri: String): MediaAnalysisResult? {
-        InAppLogger.info("Analysis", "analyse start id=${item.id} file=${item.fileName}")
-        stage(AnalysisStage.Audio)
-        val text = withProgress { MediaAnalyzerPlatform.analyze(uri) } ?: run {
-            InAppLogger.warn("Analysis", "analyse failed id=${item.id}")
-            if (scopeActive()) MediaAnalysisStatus.recordFailure(item, MediaAnalyzerPlatform.lastError() ?: "Could not analyse the audio")
-            return null
-        }
-        val raw = runCatching { json.decodeFromString(RawMediaAnalysis.serializer(), text) }.getOrNull() ?: run {
-            MediaAnalysisStatus.recordFailure(item, "The analyser returned unreadable data")
-            return null
-        }
+    private data class AudioPass(val result: MediaAnalysisResult, val clipUnavailable: Boolean)
+
+    /**
+     * [already] is a stored fingerprint for this same file (a sibling-clip retry). The file is not
+     * decoded again. Null means the audio pass still has to run.
+     */
+    private suspend fun audioAnalysis(item: DownloadItem, uri: String, already: MediaAnalysisResult?): AudioPass? {
         val key = MediaAnalysisStore.keyFor(item)
-        var result = MediaAnalysisResult(
-            key = key,
-            analyzedAtMs = com.nuvio.app.features.streams.epochMs(),
-            durationMs = raw.durationMs,
-            fileName = item.fileName,
-            energyStepMs = raw.energyStepMs,
-            energy = raw.energy,
-            integratedLufs = raw.integratedLufs,
-            fingerprintStepMs = raw.fingerprintStepMs,
-            headFingerprint = raw.head,
-            tailFingerprint = raw.tail,
-            tailStartMs = raw.tailStartMs,
-            userSegments = MediaAnalysisStore.load(key)?.userSegments.orEmpty(),
-        )
+        val previous = already ?: MediaAnalysisStore.load(key)
+        var result = if (already != null && already.fileName == item.fileName && already.hasStoredFingerprint()) {
+            already
+        } else {
+            InAppLogger.info("Analysis", "analyse start id=${item.id} file=${item.fileName}")
+            stage(AnalysisStage.Audio)
+            val text = withProgress { MediaAnalyzerPlatform.analyze(uri) } ?: run {
+                InAppLogger.warn("Analysis", "analyse failed id=${item.id}")
+                if (scopeActive()) MediaAnalysisStatus.recordFailure(item, MediaAnalyzerPlatform.lastError() ?: "Could not analyse the audio")
+                return null
+            }
+            val raw = runCatching { json.decodeFromString(RawMediaAnalysis.serializer(), text) }.getOrNull() ?: run {
+                MediaAnalysisStatus.recordFailure(item, "The analyser returned unreadable data")
+                return null
+            }
+            MediaAnalysisResult(
+                key = key,
+                analyzedAtMs = com.nuvio.app.features.streams.epochMs(),
+                durationMs = raw.durationMs,
+                fileName = item.fileName,
+                energyStepMs = raw.energyStepMs,
+                energy = raw.energy,
+                integratedLufs = raw.integratedLufs,
+                fingerprintStepMs = raw.fingerprintStepMs,
+                headFingerprint = raw.head,
+                tailFingerprint = raw.tail,
+                tailStartMs = raw.tailStartMs,
+                userSegments = previous?.userSegments.orEmpty(),
+                analysisAttempts = resolveAnalysisAttempts(previous, item.fileName),
+            )
+        }
+        var clipUnavailable = false
         val season = item.seasonNumber
         if (season != null && item.episodeNumber != null &&
             MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.IntroDetection)
@@ -440,20 +506,6 @@ internal object MediaAnalysisScheduler {
                     creditsStartMs = detected.creditsStartMs,
                     creditsEndMs = detected.creditsEndMs,
                 )
-                // Earlier episodes that had nobody to match against get their segments now.
-                siblings.filter { it.introEndMs == null || it.creditsStartMs == null }.forEach { sibling ->
-                    val back = withContext(Dispatchers.Default) { SeasonSegmentDetector.detect(sibling, listOf(result)) }
-                    MediaAnalysisStore.save(
-                        sibling.copy(
-                            introStartMs = sibling.introStartMs ?: back.introStartMs,
-                            introEndMs = sibling.introEndMs ?: back.introEndMs,
-                            creditsStartMs = sibling.creditsStartMs ?: back.creditsStartMs,
-                            creditsEndMs = sibling.creditsEndMs ?: back.creditsEndMs,
-                            // A newly found intro lets the recap search run again.
-                            derivedVersion = if (sibling.introEndMs == null && back.introEndMs != null) 0 else sibling.derivedVersion,
-                        ),
-                    )
-                }
             }
             // Episodes the user marked are trusted references: they beat the pairwise guess.
             val references = MediaAnalysisStore.seasonSiblings(item.parentMetaId, season, key)
@@ -465,10 +517,12 @@ internal object MediaAnalysisScheduler {
             // No stored episode to match: fingerprint a clip of the nearest episode with known times.
             if (siblings.isEmpty() && references.isEmpty()) {
                 stage(AnalysisStage.Matching)
-                result = SiblingClipReference.apply(item, result)
+                val clip = SiblingClipReference.apply(item, result)
+                result = clip.result
+                clipUnavailable = clip.attempt == SiblingClipAttempt.Unavailable
             }
         }
-        MediaAnalysisStore.save(result)
+        result = saveFingerprint(item, result)
         // A mark made before this file was analysed now has fingerprints: teach the season.
         if (season != null && item.episodeNumber != null &&
             (result.userSegments.containsKey("intro") || result.userSegments.containsKey("outro"))
@@ -477,10 +531,29 @@ internal object MediaAnalysisScheduler {
         }
         InAppLogger.info(
             "Analysis",
-            "analyse done id=${item.id} durationMs=${raw.durationMs} lufs=${raw.integratedLufs} " +
+            "analyse done id=${item.id} durationMs=${result.durationMs} lufs=${result.integratedLufs} " +
                 "intro=${result.introStartMs}-${result.introEndMs} credits=${result.creditsStartMs}-${result.creditsEndMs}",
         )
-        return result
+        return AudioPass(result, clipUnavailable = clipUnavailable)
+    }
+
+    /** Saves [result], then fills intro, credits, and recap on the rest of the season from stored fingerprints. */
+    private suspend fun saveFingerprint(item: DownloadItem, result: MediaAnalysisResult): MediaAnalysisResult {
+        MediaAnalysisStore.save(result)
+        val season = item.seasonNumber ?: return result
+        if (item.episodeNumber == null || !result.hasStoredFingerprint()) return result
+        if (!MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.IntroDetection)) return result
+        val stored = MediaAnalysisStore.seasonResults(item.parentMetaId, season)
+        val detectRecap = MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.RecapDetection)
+        val filled = withContext(Dispatchers.Default) {
+            backfillSeasonOnFingerprintSave(saved = result, stored = stored, detectRecap = detectRecap)
+        }
+        var current = result
+        filled.forEach { updated ->
+            MediaAnalysisStore.save(updated)
+            if (updated.key == result.key) current = MediaAnalysisStore.load(updated.key) ?: updated
+        }
+        return current
     }
 }
 
