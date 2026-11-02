@@ -18,6 +18,7 @@ import com.nuvio.app.core.deeplink.handleAppUrl
 import com.nuvio.app.core.poster.CustomPosterUrlStorage
 import com.nuvio.app.core.storage.PlatformLocalAccountDataCleaner
 import com.nuvio.app.core.startup.StartupPreloader
+import com.nuvio.app.core.startup.SynchronousLaunch
 import com.nuvio.app.core.sync.SyncClientIdentityStorage
 import com.nuvio.app.core.ui.CardDepthStyleStorage
 import com.nuvio.app.core.ui.NuvioSheetBackdrop
@@ -126,6 +127,7 @@ open class MainActivity : AppCompatActivity() {
         LiveTvStorage.initialize(applicationContext)
         AppFileCache.initialize(applicationContext)
         WatchedStorage.initialize(applicationContext)
+        com.nuvio.app.core.sync.PlatformOfflineOutboxDisk.initialize(applicationContext)
         MetaScreenSettingsStorage.initialize(applicationContext)
         com.nuvio.app.features.shuffle.EpisodeShuffleStorage.initialize(applicationContext)
         HomeCatalogSettingsStorage.initialize(applicationContext)
@@ -203,6 +205,7 @@ open class MainActivity : AppCompatActivity() {
 
     private fun showContent() {
         handleIncomingAppIntent(intent)
+        SynchronousLaunch.prepare()
         setContent {
             val sheetBackdropSource = rememberNuvioBackdrop()
             val sheetBackdrop = remember(sheetBackdropSource) { NuvioSheetBackdrop(sheetBackdropSource) }

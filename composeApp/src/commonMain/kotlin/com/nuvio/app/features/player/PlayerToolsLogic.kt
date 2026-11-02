@@ -64,15 +64,104 @@ internal fun markSegmentLimits(segmentType: String): MarkLimits = when (markSegm
 internal fun markSegmentTypes(isMovie: Boolean): List<String> =
     if (isMovie) listOf("intro", "outro") else listOf("intro", "recap", "outro", "preview")
 
-internal fun markSegmentOffersStartAtZero(segmentType: String): Boolean =
-    markSegmentId(segmentType) == "intro" || markSegmentId(segmentType) == "recap"
+internal enum class NoneChip {
+    Intro,
+    Recap,
+    Credits,
+    Preview,
+}
 
-internal fun markSegmentOffersRunsToEnd(segmentType: String): Boolean =
-    markSegmentId(segmentType) == "outro" || markSegmentId(segmentType) == "preview"
+internal fun noneChip(segmentType: String): NoneChip = when (markSegmentId(segmentType)) {
+    "recap" -> NoneChip.Recap
+    "outro" -> NoneChip.Credits
+    "preview" -> NoneChip.Preview
+    else -> NoneChip.Intro
+}
+
+internal enum class MarkHandle { Start, End }
+
+internal enum class SegmentTap { Stay, ReturnToEditing, Switch }
+
+internal fun segmentTap(currentType: String, tappedType: String, absent: Boolean): SegmentTap {
+    val same = markSegmentId(currentType) == markSegmentId(tappedType)
+    return when {
+        !same -> SegmentTap.Switch
+        absent -> SegmentTap.ReturnToEditing
+        else -> SegmentTap.Stay
+    }
+}
+
+internal fun absentAfterNoneChip(): Boolean = true
+
+internal fun absentAfterClockEdit(): Boolean = false
+
+internal const val NudgeHoldDelayMs = 400L
+
+internal const val NudgeHoldRepeatMs = 110L
+
+internal fun holdNudgeDelta(buttonDeltaSec: Double): Double = if (buttonDeltaSec < 0.0) -0.1 else 0.1
+
+internal fun nudgeKeepsTenth(deltaSec: Double, alreadyShowing: Boolean): Boolean =
+    alreadyShowing || abs(deltaSec) < 1.0
+
+internal data class MarkRangeStatus(
+    val lengthLabel: String?,
+    val minSec: Int,
+    val maxSec: Int,
+    val problem: MarkProblem?,
+    val bothSet: Boolean,
+)
+
+internal fun markRangeStatus(
+    segmentType: String,
+    startSec: Double?,
+    endSec: Double?,
+    durationSec: Double?,
+): MarkRangeStatus {
+    val limits = markSegmentLimits(segmentType)
+    val duration = durationSec?.takeIf { it > 0.0 }
+    val start = startSec?.let { clampMarkTimeToDuration(it, duration) }
+    val end = endSec?.let { clampMarkTimeToDuration(it, duration) }
+    val problems = if (start != null && end != null) {
+        markProblems(segmentType, start, end, duration)
+    } else {
+        emptyList()
+    }
+    val length = markLengthSec(start, end)
+    return MarkRangeStatus(
+        lengthLabel = length?.let(::markStatusLengthLabel),
+        minSec = limits.minSec.toInt(),
+        maxSec = limits.maxSec.toInt(),
+        problem = problems.firstOrNull(),
+        bothSet = start != null && end != null,
+    )
+}
+
+internal fun markStatusLengthLabel(lengthSec: Double): String {
+    val tenths = (lengthSec * 10.0).roundToInt()
+    val whole = tenths / 10
+    val frac = tenths % 10
+    return if (frac == 0) "$whole s" else "$whole.$frac s"
+}
+
+/**
+ * Half of one displayed tenth. Rounding a clock onto a 0.1 s grid, or a
+ * millisecond of float error, can land this far past the stream length.
+ * Anything further is a real overshoot.
+ */
+internal const val MarkDurationSlopSec = 0.05
+
+internal fun clampMarkTimeToDuration(timeSec: Double, durationSec: Double?): Double {
+    val time = timeSec.coerceAtLeast(0.0)
+    val duration = durationSec?.takeIf { it > 0.0 } ?: return time
+    if (time > duration && time <= duration + MarkDurationSlopSec) return duration
+    return time
+}
 
 /**
  * Hard checks. 5.0 s and 300.0 s are valid; 4.9 s and 300.1 s are not.
  * An unknown duration (null or 0) does not count as past the end.
+ * An end equal to the stream length is valid, including Runs to end.
  * A missing clock is [MarkProblem.EndNotAfterStart], so Submit stays disabled.
  */
 internal fun markProblems(
@@ -82,17 +171,19 @@ internal fun markProblems(
     durationSec: Double?,
 ): List<MarkProblem> {
     val problems = mutableListOf<MarkProblem>()
-    if (startSec == null || endSec == null || endSec <= startSec) {
+    val duration = durationSec?.takeIf { it > 0.0 }
+    val start = startSec?.let { clampMarkTimeToDuration(it, duration) }
+    val end = endSec?.let { clampMarkTimeToDuration(it, duration) }
+    if (start == null || end == null || end <= start) {
         problems += MarkProblem.EndNotAfterStart
     }
-    val duration = durationSec?.takeIf { it > 0.0 }
     if (duration != null &&
-        ((startSec != null && startSec > duration) || (endSec != null && endSec > duration))
+        ((start != null && start > duration) || (end != null && end > duration))
     ) {
         problems += MarkProblem.PastDuration
     }
-    if (startSec != null && endSec != null && endSec > startSec) {
-        val length = endSec - startSec
+    if (start != null && end != null && end > start) {
+        val length = end - start
         val limits = markSegmentLimits(segmentType)
         if (length + 1e-9 < limits.minSec) problems += MarkProblem.TooShort
         if (length - 1e-9 > limits.maxSec) problems += MarkProblem.TooLong
@@ -117,27 +208,59 @@ internal fun markLengthLabel(lengthSec: Double): String {
 }
 
 /**
- * Clock shown on Mark start / Mark end. One decimal so a 0.1 s nudge is visible.
- * Hours are unpadded (`0:01:41.0`), matching the marking strip.
+ * Clock shown on Mark start / Mark end. Whole seconds (`0:44:08`), the same
+ * second the video length uses. A tenth (`0:44:08.9`) is shown only after a
+ * 0.1 s nudge left a fraction. Hours stay unpadded so the two clocks line up.
  */
-internal fun formatMarkClock(seconds: Double): String {
-    val clamped = seconds.coerceAtLeast(0.0)
-    val totalTenths = (clamped * 10.0).roundToInt().coerceAtLeast(0)
-    val tenths = totalTenths % 10
-    val whole = totalTenths / 10
+internal fun formatMarkClock(seconds: Double, showTenth: Boolean = false): String {
+    val totalMs = (seconds.coerceAtLeast(0.0) * 1000.0).roundToInt().coerceAtLeast(0)
+    val whole = totalMs / 1000
+    val ms = totalMs % 1000
+    val base = formatMarkHms(whole)
+    if (!showTenth || ms == 0) return base
+    val tenths = (ms + 50) / 100
+    if (tenths >= 10) return formatMarkHms(whole + 1)
+    return "$base.$tenths"
+}
+
+/** True when a 0.1 s nudge should keep the tenth on screen. A whole second does not. */
+internal fun markClockShowsTenth(seconds: Double, allowTenth: Boolean): Boolean {
+    if (!allowTenth) return false
+    val ms = (seconds.coerceAtLeast(0.0) * 1000.0).roundToInt() % 1000
+    return ms != 0
+}
+
+/**
+ * Value stored for Submit. Milliseconds stay in the string so the payload is
+ * not rounded to a tenth or to a whole second.
+ */
+internal fun formatMarkTimestamp(seconds: Double): String {
+    val totalMs = (seconds.coerceAtLeast(0.0) * 1000.0).roundToInt().coerceAtLeast(0)
+    val ms = totalMs % 1000
+    val whole = totalMs / 1000
+    return formatMarkHms(whole) + "." + ms.toString().padStart(3, '0')
+}
+
+private fun formatMarkHms(totalSeconds: Int): String {
+    val whole = totalSeconds.coerceAtLeast(0)
     val hours = whole / 3600
     val minutes = (whole % 3600) / 60
     val secs = whole % 60
-    return "$hours:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.$tenths"
+    return "$hours:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}"
 }
 
 internal fun parseMarkClock(text: String): Double? = parseTimeToSeconds(text)
 
 internal fun nudgeMarkSeconds(currentSec: Double?, deltaSec: Double, durationSec: Double?): Double {
-    val max = durationSec?.takeIf { it > 0.0 } ?: (99 * 3600 + 59 * 60 + 59).toDouble()
-    val stepped = ((currentSec ?: 0.0) + deltaSec)
-    val tenths = (stepped * 10.0).roundToInt() / 10.0
-    return tenths.coerceIn(0.0, max)
+    val duration = durationSec?.takeIf { it > 0.0 }
+    val max = duration ?: (99 * 3600 + 59 * 60 + 59).toDouble()
+    val base = currentSec ?: 0.0
+    val stepped = if (abs(deltaSec) < 1.0) {
+        ((base + deltaSec) * 10.0).roundToInt() / 10.0
+    } else {
+        base + deltaSec
+    }
+    return clampMarkTimeToDuration(stepped.coerceIn(0.0, max), duration)
 }
 
 /** Credits / Preview shortcut: the end handle sits on the last frame. */
@@ -417,3 +540,285 @@ internal fun formatByteSize(bytes: Long): String {
 private val QUALITY_PATTERN = Regex("""(?i)\b(2160p|1080p|720p|480p|4k|uhd)\b""")
 private val SIZE_PATTERN = Regex("""(?i)\b(\d+(?:\.\d+)?)\s*(gb|mb)\b""")
 private val SEEDER_PATTERN = Regex("""(?i)\b(\d[\d,]*)\s+seeders?\b""")
+
+internal enum class SubmitPanelTab { Intro, Recap, Credits, Preview }
+
+internal val SubmitPanelTab.segmentId: String
+    get() = when (this) {
+        SubmitPanelTab.Intro -> "intro"
+        SubmitPanelTab.Recap -> "recap"
+        SubmitPanelTab.Credits -> "outro"
+        SubmitPanelTab.Preview -> "preview"
+    }
+
+internal data class SubmitSheet(
+    val closed: Boolean,
+    val isMovie: Boolean,
+    val absentAllowed: Boolean,
+    val tab: SubmitPanelTab,
+    val absent: Boolean,
+    val handle: MarkHandle,
+    val popoverOpen: Boolean,
+    val startSec: Double?,
+    val endSec: Double?,
+    val startShowsTenth: Boolean,
+    val endShowsTenth: Boolean,
+    val durationSec: Double,
+    val playheadSec: Double,
+    val submitting: Boolean,
+    val sent: Boolean,
+    val keyProblem: Boolean,
+    val blocked: Boolean,
+    val drafts: Map<SubmitPanelTab, MarkClocks>,
+    val tenthDrafts: Map<SubmitPanelTab, Pair<Boolean, Boolean>>,
+)
+
+internal fun openSubmitSheet(
+    isMovie: Boolean = false,
+    absentAllowed: Boolean = true,
+    durationSec: Double = 100.0,
+): SubmitSheet = SubmitSheet(
+    closed = false,
+    isMovie = isMovie,
+    absentAllowed = absentAllowed,
+    tab = SubmitPanelTab.Intro,
+    absent = false,
+    handle = MarkHandle.Start,
+    popoverOpen = false,
+    startSec = 10.0,
+    endSec = 40.0,
+    startShowsTenth = false,
+    endShowsTenth = false,
+    durationSec = durationSec,
+    playheadSec = 20.0,
+    submitting = false,
+    sent = false,
+    keyProblem = false,
+    blocked = false,
+    drafts = emptyMap(),
+    tenthDrafts = emptyMap(),
+)
+
+internal sealed interface SubmitSheetEvent {
+    data class SelectTab(val tab: SubmitPanelTab) : SubmitSheetEvent
+    data object TapSameTab : SubmitSheetEvent
+    data object TapNoneChip : SubmitSheetEvent
+    data object TapStart : SubmitSheetEvent
+    data object TapEnd : SubmitSheetEvent
+    data object DismissPopover : SubmitSheetEvent
+    data object SetToNow : SubmitSheetEvent
+    data class Nudge(val deltaSec: Double, val holding: Boolean) : SubmitSheetEvent
+    data class DragHandle(val handle: MarkHandle, val seconds: Double) : SubmitSheetEvent
+    data object ResetMarks : SubmitSheetEvent
+    data object Submit : SubmitSheetEvent
+    data object SubmitSuccess : SubmitSheetEvent
+    data object SubmitFailure : SubmitSheetEvent
+    data object Close : SubmitSheetEvent
+}
+
+internal data class SubmitSheetShape(
+    val tab: SubmitPanelTab,
+    val absent: Boolean,
+    val handle: MarkHandle,
+    val popover: Boolean,
+    val valid: Boolean,
+    val submitting: Boolean,
+)
+
+internal fun SubmitSheet.rangeValid(): Boolean =
+    markProblems(tab.segmentId, startSec, endSec, durationSec.takeIf { it > 0.0 }).isEmpty()
+
+internal fun SubmitSheet.canSubmit(): Boolean = !closed && markSubmitEnabled(
+    sent = sent,
+    submitting = submitting,
+    keyProblem = keyProblem,
+    blocked = blocked,
+    absent = absent,
+    absentAllowed = absentAllowed,
+    timeOk = rangeValid(),
+)
+
+internal fun SubmitSheet.showsSegmentMarks(): Boolean = !closed && !absent
+
+internal fun SubmitSheet.showsNudges(): Boolean = !closed && !absent && popoverOpen
+
+internal fun SubmitSheet.shape(): SubmitSheetShape =
+    SubmitSheetShape(tab, absent, handle, popoverOpen, rangeValid(), submitting)
+
+internal fun submitSheetShapeAllowed(shape: SubmitSheetShape, absentAllowed: Boolean): Boolean {
+    if (shape.popover && shape.absent) return false
+    if (shape.popover && shape.submitting) return false
+    if (shape.submitting && !shape.absent && !shape.valid) return false
+    if (shape.submitting && shape.absent && !absentAllowed) return false
+    return true
+}
+
+internal fun reduceSubmitSheet(state: SubmitSheet, event: SubmitSheetEvent): SubmitSheet {
+    if (state.closed) return state
+    if (state.submitting) {
+        return when (event) {
+            SubmitSheetEvent.SubmitSuccess -> state.copy(submitting = false, sent = true)
+            SubmitSheetEvent.SubmitFailure -> state.copy(submitting = false)
+            else -> state
+        }
+    }
+    return when (event) {
+        is SubmitSheetEvent.SelectTab -> state.applyTab(event.tab)
+        SubmitSheetEvent.TapSameTab -> state.applyTab(state.tab)
+        SubmitSheetEvent.TapNoneChip -> if (state.absent) {
+            state
+        } else {
+            state.copy(absent = absentAfterNoneChip(), sent = false, popoverOpen = false)
+        }
+        SubmitSheetEvent.TapStart -> state.togglePopover(MarkHandle.Start)
+        SubmitSheetEvent.TapEnd -> state.togglePopover(MarkHandle.End)
+        SubmitSheetEvent.DismissPopover -> state.copy(popoverOpen = false)
+        SubmitSheetEvent.SetToNow -> if (state.absent || !state.popoverOpen) {
+            state
+        } else {
+            state.writeClock(state.handle, state.playheadSec, showTenth = false)
+        }
+        is SubmitSheetEvent.Nudge -> if (state.absent || !state.popoverOpen) {
+            state
+        } else {
+            val delta = if (event.holding && abs(event.deltaSec) == 1.0) {
+                holdNudgeDelta(event.deltaSec)
+            } else {
+                event.deltaSec
+            }
+            val current = if (state.handle == MarkHandle.Start) state.startSec else state.endSec
+            val showing = if (state.handle == MarkHandle.Start) state.startShowsTenth else state.endShowsTenth
+            state.writeClock(
+                state.handle,
+                nudgeMarkSeconds(current, delta, state.durationSec),
+                nudgeKeepsTenth(delta, showing),
+            )
+        }
+        is SubmitSheetEvent.DragHandle -> if (state.absent) {
+            state
+        } else {
+            state.copy(handle = event.handle).writeClock(event.handle, event.seconds, showTenth = false)
+        }
+        SubmitSheetEvent.ResetMarks -> state
+            .writeClock(MarkHandle.Start, null, showTenth = false)
+            .writeClock(MarkHandle.End, null, showTenth = false)
+        SubmitSheetEvent.Submit -> if (state.canSubmit()) {
+            state.copy(submitting = true, popoverOpen = false)
+        } else {
+            state
+        }
+        SubmitSheetEvent.SubmitSuccess, SubmitSheetEvent.SubmitFailure -> state
+        SubmitSheetEvent.Close -> state.copy(closed = true)
+    }
+}
+
+private fun SubmitSheet.applyTab(next: SubmitPanelTab): SubmitSheet {
+    if (next.segmentId !in markSegmentTypes(isMovie)) return this
+    return when (segmentTap(tab.segmentId, next.segmentId, absent)) {
+        SegmentTap.Stay -> this
+        SegmentTap.ReturnToEditing -> copy(absent = false, sent = false, popoverOpen = false)
+        SegmentTap.Switch -> switchTab(next)
+    }
+}
+
+private fun SubmitSheet.switchTab(next: SubmitPanelTab): SubmitSheet {
+    val saved = drafts + (tab to MarkClocks(startSec, endSec))
+    val savedTenths = tenthDrafts + (tab to (startShowsTenth to endShowsTenth))
+    val clocks = saved[next]
+    val tenths = savedTenths[next]
+    return copy(
+        tab = next,
+        absent = false,
+        sent = false,
+        popoverOpen = false,
+        handle = MarkHandle.Start,
+        startSec = clocks?.startSec,
+        endSec = clocks?.endSec,
+        startShowsTenth = tenths?.first == true,
+        endShowsTenth = tenths?.second == true,
+        drafts = saved,
+        tenthDrafts = savedTenths,
+    )
+}
+
+private fun SubmitSheet.writeClock(handle: MarkHandle, seconds: Double?, showTenth: Boolean): SubmitSheet {
+    val clamped = seconds?.let { clampMarkTimeToDuration(it, durationSec.takeIf { it > 0.0 }) }
+    val tenth = clamped?.let { markClockShowsTenth(it, showTenth) } == true
+    val start = if (handle == MarkHandle.Start) clamped else startSec
+    val end = if (handle == MarkHandle.End) clamped else endSec
+    val startTenth = if (handle == MarkHandle.Start) tenth else startShowsTenth
+    val endTenth = if (handle == MarkHandle.End) tenth else endShowsTenth
+    return copy(
+        startSec = start,
+        endSec = end,
+        startShowsTenth = startTenth,
+        endShowsTenth = endTenth,
+        absent = absentAfterClockEdit(),
+        sent = false,
+        drafts = drafts + (tab to MarkClocks(start, end)),
+        tenthDrafts = tenthDrafts + (tab to (startTenth to endTenth)),
+    )
+}
+
+private fun SubmitSheet.togglePopover(next: MarkHandle): SubmitSheet {
+    if (closed || absent || submitting) return this
+    val open = !(popoverOpen && handle == next)
+    return copy(handle = next, popoverOpen = open)
+}
+
+internal data class SubmitBarInsets(
+    val left: Float,
+    val top: Float,
+    val right: Float,
+    val bottom: Float,
+)
+
+internal data class SubmitBarBounds(
+    val left: Float,
+    val top: Float,
+    val width: Float,
+    val height: Float,
+)
+
+internal const val SubmitBarPreferredHeight = 64f
+
+internal const val SubmitBarMaxVideoFraction = 0.125f
+
+internal fun submitBarBounds(
+    screenWidth: Float,
+    screenHeight: Float,
+    insets: SubmitBarInsets,
+): SubmitBarBounds {
+    val videoHeight = screenHeight.coerceAtLeast(0f)
+    val safeHeight = (screenHeight - insets.top - insets.bottom).coerceAtLeast(0f)
+    val height = minOf(
+        SubmitBarPreferredHeight,
+        videoHeight * SubmitBarMaxVideoFraction,
+        safeHeight,
+    ).coerceAtLeast(0f)
+    val left = insets.left.coerceAtLeast(0f)
+    val width = (screenWidth - left - insets.right.coerceAtLeast(0f)).coerceAtLeast(0f)
+    val top = (screenHeight - insets.bottom - height).coerceAtLeast(insets.top)
+    return SubmitBarBounds(left = left, top = top, width = width, height = height)
+}
+
+internal data class SubmitSegmentFractions(
+    val start: Float,
+    val end: Float,
+)
+
+internal fun submitSegmentMarkFractions(
+    open: Boolean,
+    absent: Boolean,
+    startSec: Double?,
+    endSec: Double?,
+    durationSec: Double,
+): SubmitSegmentFractions? {
+    if (!open || absent || durationSec <= 0.0) return null
+    val start = startSec ?: return null
+    val end = endSec ?: return null
+    return SubmitSegmentFractions(
+        start = (start / durationSec).toFloat().coerceIn(0f, 1f),
+        end = (end / durationSec).toFloat().coerceIn(0f, 1f),
+    )
+}

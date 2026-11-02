@@ -860,6 +860,7 @@
   <string name="network_back_online">Di nuovo online</string>
   <string name="network_cannot_reach_servers">Impossibile raggiungere i server</string>
   <string name="network_no_internet_connection">Nessuna connessione internet</string>
+  <string name="offline_banner_saved_data">Offline: visualizzazione dei dati salvati</string>
   <string name="person_age">(età %1$d)</string>
   <string name="person_born">Data di nascita %1$s%2$s</string>
   <string name="person_died">Data di morte %1$s</string>

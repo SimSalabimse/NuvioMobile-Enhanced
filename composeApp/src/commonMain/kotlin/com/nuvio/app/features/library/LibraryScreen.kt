@@ -108,7 +108,6 @@ import com.nuvio.app.core.ui.DisintegrationRequest
 import com.nuvio.app.core.ui.NuvioDropdownChip
 import com.nuvio.app.core.ui.NuvioDropdownOption
 import com.nuvio.app.core.ui.NuvioScreen
-import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
 import com.nuvio.app.core.ui.shimmer
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioShelfSection
@@ -611,28 +610,20 @@ fun LibraryScreen(
 
                     !uiState.errorMessage.isNullOrBlank() && uiState.sections.isEmpty() -> {
                         item {
-                            if (networkStatusUiState.isOfflineLike) {
-                                NuvioNetworkOfflineCard(
-                                    condition = networkStatusUiState.condition,
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                    onRetry = retryLibraryLoad,
-                                )
-                            } else {
-                                HomeEmptyStateCard(
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                    title = when (uiState.sourceMode) {
-                                        LibrarySourceMode.LOCAL -> stringResource(Res.string.library_load_failed)
-                                        LibrarySourceMode.TRAKT -> stringResource(Res.string.library_trakt_load_failed)
-                                        LibrarySourceMode.SIMKL -> stringResource(Res.string.library_simkl_load_failed)
-                                        LibrarySourceMode.MDBLIST -> stringResource(Res.string.library_mdblist_load_failed)
-                                        LibrarySourceMode.ANILIST -> stringResource(Res.string.library_anilist_load_failed)
-                                        LibrarySourceMode.WETRAKR -> stringResource(Res.string.library_wetrakr_load_failed)
-                                    },
-                                    message = uiState.errorMessage.orEmpty(),
-                                    actionLabel = stringResource(Res.string.action_retry),
-                                    onActionClick = retryLibraryLoad,
-                                )
-                            }
+                            HomeEmptyStateCard(
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                title = when (uiState.sourceMode) {
+                                    LibrarySourceMode.LOCAL -> stringResource(Res.string.library_load_failed)
+                                    LibrarySourceMode.TRAKT -> stringResource(Res.string.library_trakt_load_failed)
+                                    LibrarySourceMode.SIMKL -> stringResource(Res.string.library_simkl_load_failed)
+                                    LibrarySourceMode.MDBLIST -> stringResource(Res.string.library_mdblist_load_failed)
+                                    LibrarySourceMode.ANILIST -> stringResource(Res.string.library_anilist_load_failed)
+                                    LibrarySourceMode.WETRAKR -> stringResource(Res.string.library_wetrakr_load_failed)
+                                },
+                                message = uiState.errorMessage.orEmpty(),
+                                actionLabel = stringResource(Res.string.action_retry),
+                                onActionClick = retryLibraryLoad,
+                            )
                         }
                     }
 

@@ -24,13 +24,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
-import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.features.party.PartyRepository
 import com.nuvio.app.features.settings.TheIntroDbApiKeyDialog
@@ -38,9 +35,7 @@ import com.nuvio.app.features.player.skip.IntroSubmitBlockReason
 import com.nuvio.app.features.player.skip.IntroSubmitKeyPrepareResult
 import com.nuvio.app.features.player.skip.IntroSubmitKeyProblem
 import com.nuvio.app.features.player.skip.IntroSubmitService
-import com.nuvio.app.features.player.skip.SharedSkipMark
 import com.nuvio.app.features.player.skip.TheIntroDb
-import com.nuvio.app.features.player.skip.toLink
 import com.nuvio.app.features.player.skip.defaultIntroSubmitService
 import com.nuvio.app.features.player.skip.introSubmitBlockReason
 import com.nuvio.app.features.player.skip.introSubmitKeyProblem
@@ -52,7 +47,6 @@ import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.player_tools_add_key
 import nuvio.composeapp.generated.resources.player_tools_could_not_send
-import nuvio.composeapp.generated.resources.player_tools_link_copied
 import nuvio.composeapp.generated.resources.player_tools_none_refused
 import nuvio.composeapp.generated.resources.player_tools_sent_detail
 import nuvio.composeapp.generated.resources.settings_playback_introdb_invalid_key
@@ -72,7 +66,6 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
     var submitting by remember { mutableStateOf(false) }
     var showKeyDialog by remember { mutableStateOf(false) }
     val couldNotSend = stringResource(Res.string.player_tools_could_not_send)
-    val linkCopied = stringResource(Res.string.player_tools_link_copied)
     val noneRefused = stringResource(Res.string.player_tools_none_refused)
     val noneHint = stringResource(Res.string.submit_intro_none_hint)
     val requiredKeyMessage = stringResource(Res.string.submit_intro_api_key_required)
@@ -81,8 +74,6 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
     val introDbMovieMessage = stringResource(Res.string.submit_intro_introdb_movie)
     val introDbEpisodeMessage = stringResource(Res.string.submit_intro_introdb_episode)
     val invalidKeyMessage = stringResource(Res.string.settings_playback_introdb_invalid_key)
-    val clipboard = LocalClipboardManager.current
-
     LaunchedEffect(Unit) {
         snapshotFlow { markPreviewEndMs to playbackClock.positionMs }
             .collect { (endMs, positionMs) ->
@@ -117,8 +108,6 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
     val durationSec = playbackSnapshot.durationMs / 1000.0
     val startSec = parseMarkClock(submitIntroStartTimeStr)
     val endSec = parseMarkClock(submitIntroEndTimeStr)
-    val timeOk = startSec != null && endSec != null &&
-        markProblems(submitIntroSegmentType, startSec, endSec, durationSec.takeIf { it > 0.0 }).isEmpty()
 
     PlatformBackHandler(enabled = true) {
         when {
@@ -143,16 +132,18 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
     }
 
     Box(Modifier.fillMaxSize()) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(Color.Black.copy(alpha = playerToolDimAlpha(null)))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = { dismissPlayerTools() },
-                ),
-        )
+        if (!showSubmitIntroModal) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = playerToolDimAlpha(null)))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { dismissPlayerTools() },
+                    ),
+            )
+        }
         if (showSubmitIntroModal) {
             val meta = metaUiState.meta?.takeIf { it.id == parentMetaId }
             val year = meta?.releaseInfo?.let { YEAR.find(it)?.value }
@@ -188,15 +179,15 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
             }
             val absentAllowed = resolveIntroSubmitTimes(service, absentSegment = true, startTimeStr = "", endTimeStr = "") != null
             SegmentMarkingLayer(
-                title = markingTitle(year, episodeCode),
                 segmentType = submitIntroSegmentType,
                 isMovie = isMoviePlayback,
                 episodeCode = episodeCode,
                 year = year,
                 startSec = startSec,
                 endSec = endSec,
+                startShowsTenth = markStartShowsTenth,
+                endShowsTenth = markEndShowsTenth,
                 durationSec = durationSec,
-                playheadSec = playhead.positionMs / 1000.0,
                 absent = markAbsent,
                 absentAllowed = absentAllowed,
                 sent = markSent,
@@ -206,37 +197,23 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 addKeyLabel = stringResource(Res.string.player_tools_add_key),
                 blockLine = blockLine,
                 errorLine = markSubmitError,
-                safeInset = horizontalSafePadding,
                 onBack = { if (!submitting) dismissPlayerTools() },
-                onSegment = { if (!submitting) switchSubmitSegmentType(it) },
+                onSegment = { if (!submitting) handleSegmentTap(it) },
                 onAbsent = {
-                    if (submitting) return@SegmentMarkingLayer
-                    markAbsent = true
+                    if (submitting || markAbsent) return@SegmentMarkingLayer
+                    markAbsent = absentAfterNoneChip()
                     markSent = false
                     markSubmitError = null
                 },
-                onMarkStart = { setMarkClock(start = true, playhead.positionMs / 1000.0) },
-                onMarkEnd = { setMarkClock(start = false, playhead.positionMs / 1000.0) },
-                onNudgeStart = { delta ->
-                    setMarkClock(true, nudgeMarkSeconds(startSec, delta, durationSec.takeIf { it > 0.0 }))
+                onSetToNow = { handle ->
+                    setMarkClock(handle == MarkHandle.Start, playhead.positionMs / 1000.0)
                 },
-                onNudgeEnd = { delta ->
-                    setMarkClock(false, nudgeMarkSeconds(endSec, delta, durationSec.takeIf { it > 0.0 }))
-                },
-                onStartAtZero = { setMarkClock(true, 0.0) },
-                onRunsToEnd = { setMarkClock(false, runsToEndSec(durationSec)) },
-                onSeek = { seconds -> if (markingSeekAllowed(durationSec)) seekWhileMarking(seconds) },
-                onDragStart = { setMarkClock(true, it) },
-                onDragEnd = { setMarkClock(false, it) },
-                onPreview = {
-                    if (submitting || startSec == null || endSec == null || endSec <= startSec) return@SegmentMarkingLayer
-                    startMarkPreview(startSec, endSec)
-                },
-                showCopyLink = timeOk && !markAbsent,
-                onCopyLink = {
-                    val mark = sharedMark(startSec, endSec) ?: return@SegmentMarkingLayer
-                    clipboard.setText(AnnotatedString(mark.toLink()))
-                    NuvioToastController.show(linkCopied)
+                onNudge = { handle, delta ->
+                    val start = handle == MarkHandle.Start
+                    val current = if (start) startSec else endSec
+                    val showing = if (start) markStartShowsTenth else markEndShowsTenth
+                    val next = nudgeMarkSeconds(current, delta, durationSec.takeIf { it > 0.0 })
+                    setMarkClock(start, next, showTenth = nudgeKeepsTenth(delta, showing))
                 },
                 onAddKey = { showKeyDialog = true },
                 onSubmit = {
@@ -516,29 +493,10 @@ private fun PlayerScreenRuntime.playerToolTabs(): List<PlayerToolTab> = buildLis
     add(PlayerToolTab.Video)
 }
 
-private fun PlayerScreenRuntime.markingTitle(year: String?, episodeCode: String?): String =
-    if (isMoviePlayback) listOfNotNull(title, year).joinToString(" · ")
-    else listOfNotNull(title, episodeCode).joinToString(" · ")
-
 private fun PlayerScreenRuntime.episodeCodeLine(): String? {
     val season = activeSeasonNumber ?: return null
     val episode = activeEpisodeNumber ?: return null
     return "S$season E$episode"
-}
-
-private fun PlayerScreenRuntime.sharedMark(startSec: Double?, endSec: Double?): SharedSkipMark? {
-    if (startSec == null || endSec == null || endSec <= startSec) return null
-    val id = parentMetaId.ifBlank { metaUiState.meta?.id }.orEmpty()
-    if (id.isBlank()) return null
-    val (season, episode) = movieSubmitSeasonEpisode(isMoviePlayback, activeSeasonNumber, activeEpisodeNumber)
-    return SharedSkipMark(
-        parentMetaId = id,
-        season = season,
-        episode = episode,
-        type = markSegmentId(submitIntroSegmentType),
-        startMs = (startSec * 1000.0).toLong(),
-        endMs = (endSec * 1000.0).toLong(),
-    )
 }
 
 private fun PlayerScreenRuntime.markingImdbId(): String =

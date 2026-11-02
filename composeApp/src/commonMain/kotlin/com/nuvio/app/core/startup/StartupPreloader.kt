@@ -137,9 +137,7 @@ internal fun startupPreloadDispatcher(isIosPlatform: Boolean): CoroutineDispatch
 /**
  * iOS only. [launchReady] must already be true, which is after
  * [com.nuvio.app.core.perf.PerformanceMetrics.recordLaunchReady].
- * Starting earlier touches that object during the intro and the iOS launch clock
- * (first touch of PerformanceMetrics; markProcessStart does not reset it) then
- * includes the 1300 ms intro hold.
+ * The iOS launch clock is the first touch of PerformanceMetrics, and markProcessStart does not reset it.
  */
 internal fun startIosStartupPreloadAfterLaunchReady(
     isIosPlatform: Boolean,

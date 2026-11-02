@@ -1504,6 +1504,7 @@
     <string name="network_error_empty_response_body">Lege responsebody</string>
     <string name="network_error_request_failed_http">Verzoek mislukt met HTTP %1$d</string>
     <string name="network_no_internet_connection">Geen internetverbinding</string>
+    <string name="offline_banner_saved_data">Offline: opgeslagen gegevens worden getoond</string>
     <string name="person_age">(leeftijd %1$d)</string>
     <string name="person_born">Geboren op %1$s%2$s</string>
     <string name="person_died">Overleden op %1$s</string>

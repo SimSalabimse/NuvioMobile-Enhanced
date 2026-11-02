@@ -46,10 +46,17 @@ data class PinVerifyResult(
     val message: String? = null,
 )
 
+enum class ProfileCachePhase {
+    Reading,
+    ConfirmedNone,
+    Ready,
+}
+
 data class ProfileState(
     val profiles: List<NuvioProfile> = emptyList(),
     val activeProfile: NuvioProfile? = null,
     val isLoaded: Boolean = false,
+    val cachePhase: ProfileCachePhase = ProfileCachePhase.Reading,
     val hasEverSelectedProfile: Boolean = false,
     val rememberLastProfileEnabled: Boolean = false,
 )

@@ -1130,6 +1130,7 @@
     <string name="network_back_online">Kembali online</string>
     <string name="network_cannot_reach_servers">Tidak dapat menjangkau server</string>
     <string name="network_no_internet_connection">Tidak ada koneksi internet</string>
+    <string name="offline_banner_saved_data">Offline: menampilkan data tersimpan</string>
     <string name="person_age">(usia %1$d)</string>
     <string name="person_born">Lahir %1$s%2$s</string>
     <string name="person_died">Meninggal %1$s</string>

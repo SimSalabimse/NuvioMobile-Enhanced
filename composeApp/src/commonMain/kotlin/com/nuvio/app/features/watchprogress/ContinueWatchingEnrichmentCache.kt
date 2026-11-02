@@ -1,6 +1,13 @@
 package com.nuvio.app.features.watchprogress
 
 import com.nuvio.app.core.storage.ProfileScopedKey
+import com.nuvio.app.features.details.OfflineCacheLookup
+import com.nuvio.app.features.details.OfflineCacheNetwork
+import com.nuvio.app.features.details.OfflineDetailsCacheLimits
+import com.nuvio.app.features.details.OfflineDetailsWriteGate
+import com.nuvio.app.features.details.currentOfflineDetailsNetwork
+import com.nuvio.app.features.details.offlineCacheDecision
+import com.nuvio.app.features.details.offlineStampIsFresh
 import com.nuvio.app.features.tracking.WatchProgressSource
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
@@ -10,6 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlin.time.Clock
 
 @Serializable
 data class CachedNextUpItem(
@@ -64,11 +72,34 @@ internal fun CachedInProgressItem.resolvedProgressKey(): String =
             episodeNumber = episode,
         )
 
+internal const val ContinueWatchingEnrichmentSchemaVersion = 1
+
 @Serializable
 private data class CachedEnrichmentPayload(
+    val schemaVersion: Int = ContinueWatchingEnrichmentSchemaVersion,
+    val savedAtMs: Long = 0L,
+    val profileId: Int = 0,
     val nextUp: List<CachedNextUpItem> = emptyList(),
     val inProgress: List<CachedInProgressItem> = emptyList(),
 )
+
+internal fun capContinueWatchingItems(
+    nextUp: List<CachedNextUpItem>,
+    inProgress: List<CachedInProgressItem>,
+    maxItems: Int = OfflineDetailsCacheLimits.ContinueWatchingMaxItems,
+): Pair<List<CachedNextUpItem>, List<CachedInProgressItem>> {
+    val cappedNextUp = if (nextUp.size <= maxItems) {
+        nextUp
+    } else {
+        nextUp.sortedByDescending { item -> item.sortTimestamp }.take(maxItems)
+    }
+    val cappedInProgress = if (inProgress.size <= maxItems) {
+        inProgress
+    } else {
+        inProgress.sortedByDescending { item -> item.lastWatched }.take(maxItems)
+    }
+    return cappedNextUp to cappedInProgress
+}
 
 internal object ContinueWatchingEnrichmentCache {
     private val json = Json {
@@ -104,6 +135,25 @@ internal object ContinueWatchingEnrichmentCache {
         return nextUp to inProgress
     }
 
+    fun savedAtMs(profileId: Int, source: WatchProgressSource): Long =
+        loadPayload(profileId = profileId, source = source)?.savedAtMs ?: 0L
+
+    fun refreshDecision(
+        profileId: Int,
+        source: WatchProgressSource,
+        network: OfflineCacheNetwork = currentOfflineDetailsNetwork(),
+        nowMs: Long = Clock.System.now().toEpochMilliseconds(),
+    ): com.nuvio.app.features.details.OfflineCacheDecision {
+        val payload = loadPayload(profileId = profileId, source = source)
+        val lookup = when {
+            payload == null -> OfflineCacheLookup.Miss
+            offlineStampIsFresh(payload.savedAtMs, nowMs, OfflineDetailsCacheLimits.ContinueWatchingTtlMs) ->
+                OfflineCacheLookup.DiskFresh
+            else -> OfflineCacheLookup.DiskStale
+        }
+        return offlineCacheDecision(lookup, network)
+    }
+
     fun saveSnapshots(
         profileId: Int,
         source: WatchProgressSource,
@@ -114,9 +164,22 @@ internal object ContinueWatchingEnrichmentCache {
     ): Boolean = synchronized(cacheLock) {
         if (generation != _generation.value) return@synchronized false
 
-        val payload = CachedEnrichmentPayload(nextUp = nextUp.toList(), inProgress = inProgress.toList())
+        val capped = capContinueWatchingItems(nextUp.toList(), inProgress.toList())
+        val payload = CachedEnrichmentPayload(
+            schemaVersion = ContinueWatchingEnrichmentSchemaVersion,
+            savedAtMs = Clock.System.now().toEpochMilliseconds(),
+            profileId = profileId,
+            nextUp = capped.first,
+            inProgress = capped.second,
+        )
         val scope = CacheScope(profileId = profileId, source = source)
-        if (!force && cachedPayloads[scope] == payload) {
+        val existing = cachedPayloads[scope]
+        if (
+            !force &&
+            existing?.nextUp == payload.nextUp &&
+            existing.inProgress == payload.inProgress &&
+            existing.profileId == payload.profileId
+        ) {
             return@synchronized true
         }
 
@@ -124,11 +187,19 @@ internal object ContinueWatchingEnrichmentCache {
         val encoded = runCatching {
             json.encodeToString(payload)
         }.getOrNull() ?: return@synchronized false
-        ContinueWatchingEnrichmentStorage.savePayload(
-            continueWatchingEnrichmentStorageKey(profileId = profileId, source = source),
-            encoded,
-        )
+        val storageKey = continueWatchingEnrichmentStorageKey(profileId = profileId, source = source)
         cachedPayloads[scope] = payload
+        if (!OfflineDetailsWriteGate.writesAllowed()) {
+            OfflineDetailsWriteGate.defer {
+                synchronized(cacheLock) {
+                    if (generation != _generation.value) return@synchronized
+                    if (cachedPayloads[scope] != payload) return@synchronized
+                    ContinueWatchingEnrichmentStorage.savePayload(storageKey, encoded)
+                }
+            }
+            return@synchronized true
+        }
+        ContinueWatchingEnrichmentStorage.savePayload(storageKey, encoded)
         true
     }
 
@@ -178,17 +249,26 @@ internal object ContinueWatchingEnrichmentCache {
             cachedPayloads[scope] = null
             return@synchronized null
         }
-        runCatching {
-            json.decodeFromString<CachedEnrichmentPayload>(raw)
-        }.getOrNull()?.also { payload ->
-            cachedPayloads[scope] = payload
-        } ?: run {
+        val decoded = decodeStoredEnrichment(raw, profileId)
+        if (decoded == null) {
             cachedPayloads[scope] = null
             ContinueWatchingEnrichmentStorage.removePayload(
                 continueWatchingEnrichmentStorageKey(profileId = profileId, source = source),
             )
-            null
+            return@synchronized null
         }
+        cachedPayloads[scope] = decoded
+        decoded
+    }
+
+    internal fun storedEnrichmentName(raw: String, profileId: Int): String? =
+        decodeStoredEnrichment(raw, profileId)?.nextUp?.firstOrNull()?.name
+
+    private fun decodeStoredEnrichment(raw: String, profileId: Int): CachedEnrichmentPayload? {
+        val decoded = runCatching { json.decodeFromString<CachedEnrichmentPayload>(raw) }.getOrNull() ?: return null
+        if (decoded.schemaVersion != ContinueWatchingEnrichmentSchemaVersion) return null
+        if (decoded.profileId != 0 && decoded.profileId != profileId) return null
+        return decoded
     }
 
     private fun removeLegacyPayload(profileId: Int) {

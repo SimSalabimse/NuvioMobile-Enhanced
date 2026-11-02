@@ -32,12 +32,12 @@ import com.nuvio.app.core.ui.LocalVerticalBarPadding
 import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
 import com.nuvio.app.core.ui.ScreenActivityEffect
 import com.nuvio.app.core.ui.NuvioScreen
-import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.core.ui.rememberHeroStretchState
 import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
 import com.nuvio.app.core.ui.withDuplicateSafeLazyKeys
 import com.nuvio.app.features.addons.AddonRepository
+import com.nuvio.app.features.details.OfflineDetailsWriteGate
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.servers.ServerRepository
 import com.nuvio.app.features.addons.firstEnabledManifestError
@@ -361,14 +361,24 @@ fun HomeScreen(
     var hasUserScrolledUpcoming by remember(activeProfileId) { mutableStateOf(false) }
 
     LaunchedEffect(activeProfileId, continueWatchingListState) {
-        snapshotFlow { continueWatchingListState.isScrollInProgress }.collect { isScrolling ->
-            if (isScrolling) hasUserScrolledContinueWatching = true
+        try {
+            snapshotFlow { continueWatchingListState.isScrollInProgress }.collect { isScrolling ->
+                OfflineDetailsWriteGate.bindListScrolling("continue-watching", isScrolling)
+                if (isScrolling) hasUserScrolledContinueWatching = true
+            }
+        } finally {
+            OfflineDetailsWriteGate.bindListScrolling("continue-watching", false)
         }
     }
 
     LaunchedEffect(activeProfileId, upcomingListState) {
-        snapshotFlow { upcomingListState.isScrollInProgress }.collect { isScrolling ->
-            if (isScrolling) hasUserScrolledUpcoming = true
+        try {
+            snapshotFlow { upcomingListState.isScrollInProgress }.collect { isScrolling ->
+                OfflineDetailsWriteGate.bindListScrolling("upcoming", isScrolling)
+                if (isScrolling) hasUserScrolledUpcoming = true
+            }
+        } finally {
+            OfflineDetailsWriteGate.bindListScrolling("upcoming", false)
         }
     }
 
@@ -1147,17 +1157,6 @@ fun HomeScreen(
                         )
                         item {
                             when {
-                                networkStatusUiState.isOfflineLike && addonManifestErrorMessage != null -> {
-                                    NuvioNetworkOfflineCard(
-                                        condition = networkStatusUiState.condition,
-                                        modifier = Modifier.padding(horizontal = 16.dp),
-                                        onRetry = {
-                                            NetworkStatusRepository.requestRefresh(force = true)
-                                            AddonRepository.refreshAll()
-                                        },
-                                    )
-                                }
-
                                 addonManifestErrorMessage != null -> {
                                     HomeEmptyStateCard(
                                         modifier = Modifier.padding(horizontal = 16.dp),
@@ -1187,38 +1186,27 @@ fun HomeScreen(
                         !hasRenderableCollectionRows -> {
                         item {
                             val loadFailed = !homeUiState.errorMessage.isNullOrBlank()
-                            if (networkStatusUiState.isOfflineLike && loadFailed) {
-                                NuvioNetworkOfflineCard(
-                                    condition = networkStatusUiState.condition,
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                    onRetry = {
+                            HomeEmptyStateCard(
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                title = stringResource(
+                                    if (loadFailed) {
+                                        Res.string.home_load_failed_title
+                                    } else {
+                                        Res.string.home_empty_no_rows_title
+                                    },
+                                ),
+                                message = homeUiState.errorMessage
+                                    ?: stringResource(Res.string.home_empty_no_rows_message),
+                                actionLabel = if (loadFailed) stringResource(Res.string.action_retry) else null,
+                                onActionClick = if (loadFailed) {
+                                    {
                                         NetworkStatusRepository.requestRefresh(force = true)
                                         HomeRepository.refresh(addonsUiState.addons.enabledAddons(), force = true)
-                                    },
-                                )
-                            } else {
-                                HomeEmptyStateCard(
-                                    modifier = Modifier.padding(horizontal = 16.dp),
-                                    title = stringResource(
-                                        if (loadFailed) {
-                                            Res.string.home_load_failed_title
-                                        } else {
-                                            Res.string.home_empty_no_rows_title
-                                        },
-                                    ),
-                                    message = homeUiState.errorMessage
-                                        ?: stringResource(Res.string.home_empty_no_rows_message),
-                                    actionLabel = if (loadFailed) stringResource(Res.string.action_retry) else null,
-                                    onActionClick = if (loadFailed) {
-                                        {
-                                            NetworkStatusRepository.requestRefresh(force = true)
-                                            HomeRepository.refresh(addonsUiState.addons.enabledAddons(), force = true)
-                                        }
-                                    } else {
-                                        null
-                                    },
-                                )
-                            }
+                                    }
+                                } else {
+                                    null
+                                },
+                            )
                         }
                     }
 
