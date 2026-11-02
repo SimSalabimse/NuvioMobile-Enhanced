@@ -122,8 +122,8 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - Startup preload also runs on iOS (after the first home frame, off the main thread), so Settings › Performance shows a Startup preload time and Parallel startup applies: automatic.
 
 ## Parked / ideas
-- Movie intro/credits detection: PARKED.
-- Post-credits detection: PARKED.
+- Movie intro/credits from published TheIntroDB and IntroDB times: EXISTS. Skip Intro and Skip Credits, including an open credits end closed at a real runtime. A short placeholder length or a mismatched cut does not close that end. Still not done: local frame scan, Android analyzer.
+- Post-credits from published times: EXISTS when two credit runs leave a gap of at least 8 seconds, or IntroDB has a post-credits field. The player shows "Watch credits" and "Scene after credits" and does not seek or auto-skip that roll. A credits end a few seconds before the file ends is not a scene. Still not done: local frame scan, Android analyzer.
 - Rest of the UI audit: PARKED.
 - Next-episode-downloaded note: PARTIAL. The Finish-a-series chip shows "The next episode is downloaded"; there's no note in the player or on Continue Watching.
 - Auto-delete watched downloads: EXISTS ("Delete when finished", plus Keep free space).

@@ -20,8 +20,13 @@ enum class AutoSkipSegmentType(val storedValue: String) {
     }
 }
 
-internal fun SkipInterval.shouldAutoSkip(selectedTypes: Set<AutoSkipSegmentType>): Boolean =
-    startTime.isFinite() && endTime.isFinite() && startTime >= 0 && endTime > startTime &&
+internal fun SkipInterval.shouldAutoSkip(
+    selectedTypes: Set<AutoSkipSegmentType>,
+    intervals: List<SkipInterval> = emptyList(),
+    durationMs: Long = 0L,
+): Boolean =
+    !showsMovieSceneNotice(intervals, durationMs) &&
+        startTime.isFinite() && endTime.isFinite() && startTime >= 0 && endTime > startTime &&
         AutoSkipSegmentType.fromSkipIntervalType(type) in selectedTypes
 
 internal fun List<SkipInterval>.intervalsAtSeekPositions(fromMs: Long, toMs: Long): List<SkipInterval> =

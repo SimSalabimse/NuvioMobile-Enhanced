@@ -49,7 +49,8 @@ internal object TheIntroDb {
             imdbId = imdbId,
             durationMs = durationMs,
         ) ?: return emptyList()
-        return data.movieSkipIntervals()
+        val length = durationMs ?: 0L
+        return data.movieSkipIntervals(length, referenceDurationMs = length)
     }
 
     suspend fun getMedia(
@@ -299,14 +300,26 @@ internal fun TheIntroDbMediaResponse.tvSkipIntervals(): List<SkipInterval> = bui
     addAll(preview.toTheIntroDbIntervals("preview"))
 }
 
-internal fun TheIntroDbMediaResponse.movieSkipIntervals(): List<SkipInterval> {
-    val creditIntervals = credits.toTheIntroDbIntervals("movie-credits")
-    val firstCredits = creditIntervals.firstOrNull()
-    val laterCredits = creditIntervals.drop(1).map { it.copy(type = "post-credits") }
-    val introIntervals = intro.toTheIntroDbIntervals("intro")
+internal fun TheIntroDbMediaResponse.movieSkipIntervals(
+    durationMs: Long = 0L,
+    referenceDurationMs: Long = 0L,
+): List<SkipInterval> {
+    val creditRows = credits.orEmpty().mapNotNull { it.toPublishedCreditRow() }
     // Every segment type TheIntroDB has gets its own Skip button, movies included.
-    return listOfNotNull(firstCredits) + laterCredits + introIntervals +
-        recap.toTheIntroDbIntervals("recap") + preview.toTheIntroDbIntervals("preview")
+    // A later credits row is more credits. The scene, when there is one, is the gap.
+    return movieCreditIntervals(creditRows, durationMs, TheIntroDb.PROVIDER, referenceDurationMs) +
+        intro.toTheIntroDbIntervals("intro") +
+        recap.toTheIntroDbIntervals("recap") +
+        preview.toTheIntroDbIntervals("preview")
+}
+
+private fun TheIntroDbSegment.toPublishedCreditRow(): PublishedCreditRow? {
+    val startMs = startMs ?: return null
+    val start = startMs / 1000.0
+    if (!start.isFinite() || start < 0.0) return null
+    val end = endMs?.div(1000.0)
+    if (end != null && (!end.isFinite() || end <= start)) return null
+    return PublishedCreditRow(start, end)
 }
 
 @Serializable
