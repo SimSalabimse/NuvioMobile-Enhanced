@@ -38,6 +38,7 @@ import com.nuvio.app.core.ui.rememberHeroStretchState
 import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
 import com.nuvio.app.core.ui.withDuplicateSafeLazyKeys
 import com.nuvio.app.features.addons.AddonRepository
+import com.nuvio.app.features.details.OfflineDetailsWriteGate
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.servers.ServerRepository
 import com.nuvio.app.features.addons.firstEnabledManifestError
@@ -361,14 +362,24 @@ fun HomeScreen(
     var hasUserScrolledUpcoming by remember(activeProfileId) { mutableStateOf(false) }
 
     LaunchedEffect(activeProfileId, continueWatchingListState) {
-        snapshotFlow { continueWatchingListState.isScrollInProgress }.collect { isScrolling ->
-            if (isScrolling) hasUserScrolledContinueWatching = true
+        try {
+            snapshotFlow { continueWatchingListState.isScrollInProgress }.collect { isScrolling ->
+                OfflineDetailsWriteGate.bindListScrolling("continue-watching", isScrolling)
+                if (isScrolling) hasUserScrolledContinueWatching = true
+            }
+        } finally {
+            OfflineDetailsWriteGate.bindListScrolling("continue-watching", false)
         }
     }
 
     LaunchedEffect(activeProfileId, upcomingListState) {
-        snapshotFlow { upcomingListState.isScrollInProgress }.collect { isScrolling ->
-            if (isScrolling) hasUserScrolledUpcoming = true
+        try {
+            snapshotFlow { upcomingListState.isScrollInProgress }.collect { isScrolling ->
+                OfflineDetailsWriteGate.bindListScrolling("upcoming", isScrolling)
+                if (isScrolling) hasUserScrolledUpcoming = true
+            }
+        } finally {
+            OfflineDetailsWriteGate.bindListScrolling("upcoming", false)
         }
     }
 
