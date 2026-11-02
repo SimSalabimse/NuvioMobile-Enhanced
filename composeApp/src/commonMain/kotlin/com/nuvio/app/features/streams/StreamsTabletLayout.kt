@@ -77,6 +77,8 @@ internal fun TabletStreamsLayout(
     onStreamSelected: (stream: StreamItem, resumePositionMs: Long?, resumeProgressFraction: Float?) -> Unit,
     onStreamLongPress: (StreamItem) -> Unit,
     onRefresh: () -> Unit,
+    deviceOffline: Boolean,
+    onRetryFailedAddons: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val streamsPanelBackdrop = rememberNuvioBackdrop()
@@ -218,6 +220,10 @@ internal fun TabletStreamsLayout(
                                 onFilterSelected = { addonId -> StreamsRepository.selectFilter(addonId) },
                                 onRefresh = onRefresh,
                             )
+                            FailedAddonChipRow(
+                                names = failedAddonChipNames(uiState.groups.map { it.toFetchRow() }),
+                                onRetry = onRetryFailedAddons,
+                            )
 
                             ActiveScrapersStatusBlock(
                                 groups = uiState.groups,
@@ -242,6 +248,7 @@ internal fun TabletStreamsLayout(
                                 uiState = listUiState.uiState,
                                 debridEnabled = debridEnabled,
                                 appendInstantServiceToDefaultName = appendInstantServiceToDefaultName,
+                                deviceOffline = deviceOffline,
                                 onStreamSelected = onStreamSelected,
                                 onStreamLongPress = onStreamLongPress,
                                 resumePositionMs = resumePositionMs,

@@ -3,6 +3,7 @@ package com.nuvio.app.features.streams
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.perf.PerformanceMetrics
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.enabledAddons
@@ -17,12 +18,15 @@ import com.nuvio.app.features.plugins.PluginRepository
 import com.nuvio.app.features.plugins.pluginContentId
 import com.nuvio.app.features.plugins.PluginsUiState
 import com.nuvio.app.features.servers.ServerStreams
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,6 +43,16 @@ object StreamsRepository {
 
     private var activeJob: Job? = null
     private var activeRequestKey: String? = null
+    private var addonRetryJob: Job? = null
+    private var addonFetchSession: AddonFetchSession? = null
+
+    private data class AddonFetchSession(
+        val type: String,
+        val videoId: String,
+        val requestToken: String,
+        val targets: List<InstalledStreamAddonTarget>,
+        val publish: (AddonStreamGroup) -> Unit,
+    )
 
     fun requestToken(
         type: String,
@@ -102,6 +116,9 @@ object StreamsRepository {
 
         activeRequestKey = requestKey
         activeJob?.cancel()
+        addonRetryJob?.cancel()
+        addonRetryJob = null
+        addonFetchSession = null
         _uiState.value = StreamsUiState(requestToken = requestToken)
         PerformanceMetrics.markStreamsRequested(requestToken)
 
@@ -228,14 +245,21 @@ object StreamsRepository {
             return
         }
 
-        // Initialise loading placeholders
+        // Initialise loading placeholders. An offline device fails those addons immediately
+        // so the list can show the offline empty state instead of waiting on a dead socket.
+        val deviceOffline = NetworkStatusRepository.uiState.value.condition.streamsDeviceOffline()
         val installedAddonOrder = streamAddons.map { it.addonName }
         val initialGroups = StreamAutoPlaySelector.orderAddonStreams(streamAddons.map { addon ->
             AddonStreamGroup(
                 addonName = addon.addonName,
                 addonId = addon.addonId,
                 streams = emptyList(),
-                isLoading = true,
+                isLoading = !deviceOffline,
+                fetchStatus = if (deviceOffline) {
+                    AddonStreamFetchStatus.Failed(AddonStreamFailureKind.Offline)
+                } else {
+                    AddonStreamFetchStatus.Loading
+                },
             )
         } + pluginProviderGroups.map { providerGroup ->
             AddonStreamGroup(
@@ -251,7 +275,10 @@ object StreamsRepository {
             groups = initialGroups,
             activeAddonIds = initialGroups.map { it.addonId }.toSet(),
             isAnyLoading = isInitiallyLoading,
-            emptyStateReason = null,
+            emptyStateReason = initialGroups.toEmptyStateReason(
+                anyLoading = isInitiallyLoading,
+                deviceOffline = deviceOffline,
+            ),
             isDirectAutoPlayFlow = isDirectAutoPlayFlow,
             autoPlayDecided = true,
             showDirectAutoPlayOverlay = isDirectAutoPlayFlow,
@@ -384,7 +411,9 @@ object StreamsRepository {
             }
 
             fun publishAddonGroup(group: AddonStreamGroup) {
+                if (_uiState.value.requestToken != requestToken) return
                 _uiState.update { current ->
+                    if (current.requestToken != requestToken) return@update current
                     val updated = StreamAutoPlaySelector.orderAddonStreams(
                         groups = current.groups.map { currentGroup ->
                             if (currentGroup.addonId == group.addonId) group else currentGroup
@@ -396,7 +425,10 @@ object StreamsRepository {
                     current.copy(
                         groups = updated,
                         isAnyLoading = anyLoading,
-                        emptyStateReason = updated.toEmptyStateReason(anyLoading),
+                        emptyStateReason = updated.toEmptyStateReason(
+                            anyLoading = anyLoading,
+                            deviceOffline = streamsDeviceIsOffline(),
+                        ),
                     )
                 }
                 updateAutoPlayAfterStreamsChanged()
@@ -476,50 +508,23 @@ object StreamsRepository {
                 null
             }
 
+            addonFetchSession = AddonFetchSession(
+                type = type,
+                videoId = videoId,
+                requestToken = requestToken,
+                targets = streamAddons,
+                publish = { group -> publishAddonGroupAfterCacheCheck(group) },
+            )
+
             streamAddons.forEach { addon ->
                 launch {
-                    val url = addonStreamRequestUrl(addon.manifest, type, videoId)
-                    log.d { "Fetching streams from: $url" }
-
-                    val displayName = addon.addonName
-                    InAppLogger.info(
-                        "Streams/AddonFetch",
-                        "Fetching streams addon=$displayName addonId=${addon.addonId} url=${InAppLogger.redactUrl(url)}",
-                    )
-                    val group = runCatchingUnlessCancelled {
-                        val payload = fetchAddonResponseText(
-                            url = url,
-                            forceRefresh = forceRefresh,
-                        )
-                        StreamParser.parse(
-                            payload = payload,
-                            addonName = displayName,
-                            addonId = addon.addonId,
-                            addonLogo = addon.manifest.logoUrl,
-                        )
-                    }.fold(
-                        onSuccess = { streams ->
-                            if (streams.isNotEmpty()) PerformanceMetrics.recordStreamsReady(requestToken)
-                            log.d { "Got ${streams.size} streams from ${displayName}" }
-                            InAppLogger.info("Streams/AddonFetch", "Loaded streams addon=$displayName count=${streams.size}")
-                            AddonStreamGroup(
-                                addonName = displayName,
-                                addonId = addon.addonId,
-                                streams = streams,
-                                isLoading = false,
-                            )
-                        },
-                        onFailure = { err ->
-                            log.w(err) { "Failed to fetch streams from ${displayName}" }
-                            InAppLogger.warn("Streams/AddonFetch", "Failed addon=$displayName error=${InAppLogger.throwableSummary(err)}")
-                            AddonStreamGroup(
-                                addonName = displayName,
-                                addonId = addon.addonId,
-                                streams = emptyList(),
-                                isLoading = false,
-                                error = err.message,
-                            )
-                        },
+                    val group = fetchInstalledAddon(
+                        addon = addon,
+                        type = type,
+                        videoId = videoId,
+                        forceRefresh = forceRefresh,
+                        requestToken = requestToken,
+                        autoRetry = true,
                     )
                     publishCompletion(StreamLoadCompletion.Addon(group))
                 }
@@ -622,7 +627,10 @@ object StreamsRepository {
                             current.copy(
                                 groups = updated,
                                 isAnyLoading = anyLoading,
-                                emptyStateReason = updated.toEmptyStateReason(anyLoading),
+                                emptyStateReason = updated.toEmptyStateReason(
+                                    anyLoading = anyLoading,
+                                    deviceOffline = streamsDeviceIsOffline(),
+                                ),
                             )
                         }
                         updateAutoPlayAfterStreamsChanged()
@@ -716,7 +724,18 @@ object StreamsRepository {
                 current
             } else {
                 val updatedGroups = current.groups.map { group ->
-                    if (group.isLoading) group.copy(isLoading = false) else group
+                    if (!group.isLoading) {
+                        group
+                    } else {
+                        group.copy(
+                            isLoading = false,
+                            fetchStatus = when (val status = group.fetchStatus) {
+                                is AddonStreamFetchStatus.Loading, null ->
+                                    AddonStreamFetchStatus.Loaded(group.streams.size)
+                                else -> status
+                            },
+                        )
+                    }
                 }
                 current.copy(
                     groups = updatedGroups,
@@ -724,7 +743,10 @@ object StreamsRepository {
                     emptyStateReason = if (updatedGroups.isEmpty()) {
                         current.emptyStateReason
                     } else {
-                        updatedGroups.toEmptyStateReason(anyLoading = false)
+                        updatedGroups.toEmptyStateReason(
+                            anyLoading = false,
+                            deviceOffline = streamsDeviceIsOffline(),
+                        )
                     },
                 )
             }
@@ -735,11 +757,182 @@ object StreamsRepository {
         PluginRepository.setLocalPluginSearchPaused(true)
         activeJob?.cancel()
         activeJob = null
+        addonRetryJob?.cancel()
+        addonRetryJob = null
+        addonFetchSession = null
         activeRequestKey = null
         _uiState.value = StreamsUiState()
+    }
+
+    /**
+     * Retries addons that are currently failed.
+     * [manual] is the chip tap and retries every failed addon.
+     * The automatic reconnect path retries only the failures a second request can fix,
+     * and only once.
+     */
+    fun retryFailedAddons(manual: Boolean) {
+        val session = addonFetchSession ?: return
+        if (_uiState.value.requestToken != session.requestToken) return
+        val online = NetworkStatusRepository.uiState.value.condition.addonRetriesAllowed()
+        val picked = _uiState.value.groups.mapNotNull { group ->
+            val status = group.fetchStatus as? AddonStreamFetchStatus.Failed ?: return@mapNotNull null
+            val target = session.targets.firstOrNull { it.addonId == group.addonId } ?: return@mapNotNull null
+            val allowed = manual || shouldRetryAddon(
+                status = status,
+                online = online,
+                retryUsed = group.retryUsed,
+                screenOpenWhenConnectionReturns = true,
+            )
+            if (!allowed) null else target
+        }
+        if (picked.isEmpty()) return
+        val token = session.requestToken
+        addonRetryJob?.cancel()
+        addonRetryJob = scope.launch {
+            picked.forEach { target ->
+                launch {
+                    if (_uiState.value.requestToken != token) return@launch
+                    val current = _uiState.value.groups.firstOrNull { it.addonId == target.addonId }
+                    session.publish(
+                        (current ?: AddonStreamGroup(
+                            addonName = target.addonName,
+                            addonId = target.addonId,
+                            streams = emptyList(),
+                        )).copy(
+                            isLoading = true,
+                            error = null,
+                            fetchStatus = AddonStreamFetchStatus.Loading,
+                        ),
+                    )
+                    val result = fetchInstalledAddon(
+                        addon = target,
+                        type = session.type,
+                        videoId = session.videoId,
+                        forceRefresh = true,
+                        requestToken = token,
+                        autoRetry = false,
+                    ).markRetryAttempted()
+                    if (_uiState.value.requestToken != token) return@launch
+                    session.publish(result)
+                }
+            }
+        }
     }
 
     fun setOverlayVisible(visible: Boolean, message: String? = null) {
         _uiState.update { it.copy(showDirectAutoPlayOverlay = visible, overlayMessage = message) }
     }
+
+    private fun streamsDeviceIsOffline(): Boolean =
+        NetworkStatusRepository.uiState.value.condition.streamsDeviceOffline()
+
+    private suspend fun fetchInstalledAddon(
+        addon: InstalledStreamAddonTarget,
+        type: String,
+        videoId: String,
+        forceRefresh: Boolean,
+        requestToken: String,
+        autoRetry: Boolean,
+    ): AddonStreamGroup {
+        val first = fetchInstalledAddonOnce(
+            addon = addon,
+            type = type,
+            videoId = videoId,
+            forceRefresh = forceRefresh,
+            requestToken = requestToken,
+        )
+        if (!autoRetry) return first
+        val online = NetworkStatusRepository.uiState.value.condition.addonRetriesAllowed()
+        if (
+            !shouldRetryAddon(
+                status = first.fetchStatus ?: return first,
+                online = online,
+                retryUsed = false,
+                screenOpenWhenConnectionReturns = true,
+            )
+        ) {
+            return first
+        }
+        delay(ADDON_STREAM_RETRY_DELAY_MS)
+        if (!NetworkStatusRepository.uiState.value.condition.addonRetriesAllowed()) return first
+        return fetchInstalledAddonOnce(
+            addon = addon,
+            type = type,
+            videoId = videoId,
+            forceRefresh = true,
+            requestToken = requestToken,
+        ).markRetryAttempted()
+    }
+
+    private suspend fun fetchInstalledAddonOnce(
+        addon: InstalledStreamAddonTarget,
+        type: String,
+        videoId: String,
+        forceRefresh: Boolean,
+        requestToken: String,
+    ): AddonStreamGroup {
+        val displayName = addon.addonName
+        if (streamsDeviceIsOffline()) {
+            return addon.failedGroup(AddonStreamFetchStatus.Failed(AddonStreamFailureKind.Offline))
+        }
+        InAppLogger.info("Streams/AddonFetch", "Fetching streams addon=$displayName")
+        return try {
+            val payload = withTimeout(ADDON_STREAM_ATTEMPT_TIMEOUT_MS) {
+                fetchAddonResponseText(
+                    url = addonStreamRequestUrl(addon.manifest, type, videoId),
+                    forceRefresh = forceRefresh,
+                )
+            }
+            val streams = StreamParser.parse(
+                payload = payload,
+                addonName = displayName,
+                addonId = addon.addonId,
+                addonLogo = addon.manifest.logoUrl,
+            )
+            if (streams.isNotEmpty()) PerformanceMetrics.recordStreamsReady(requestToken)
+            log.d { "Got ${streams.size} streams from $displayName" }
+            InAppLogger.info("Streams/AddonFetch", "Loaded streams addon=$displayName count=${streams.size}")
+            AddonStreamGroup(
+                addonName = displayName,
+                addonId = addon.addonId,
+                streams = streams,
+                isLoading = false,
+                fetchStatus = AddonStreamFetchStatus.Loaded(streams.size),
+            )
+        } catch (timeout: TimeoutCancellationException) {
+            logAddonFailure(displayName, AddonStreamFailureKind.Timeout, httpStatus = null)
+            addon.failedGroup(AddonStreamFetchStatus.Failed(AddonStreamFailureKind.Timeout))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (err: Throwable) {
+            val failed = classifyAddonFetchFailure(err, deviceOffline = streamsDeviceIsOffline())
+            logAddonFailure(displayName, failed.kind, failed.httpStatus)
+            addon.failedGroup(failed)
+        }
+    }
+
+    private fun logAddonFailure(
+        displayName: String,
+        kind: AddonStreamFailureKind,
+        httpStatus: Int?,
+    ) {
+        val status = httpStatus?.let { " status=$it" }.orEmpty()
+        log.w { "Failed to fetch streams from $displayName kind=$kind$status" }
+        InAppLogger.warn("Streams/AddonFetch", "Failed addon=$displayName kind=$kind$status")
+    }
+}
+
+private fun InstalledStreamAddonTarget.failedGroup(status: AddonStreamFetchStatus.Failed): AddonStreamGroup =
+    AddonStreamGroup(
+        addonName = addonName,
+        addonId = addonId,
+        streams = emptyList(),
+        isLoading = false,
+        fetchStatus = status,
+    )
+
+private fun AddonStreamGroup.markRetryAttempted(): AddonStreamGroup {
+    val failed = fetchStatus as? AddonStreamFetchStatus.Failed
+    if (failed?.kind == AddonStreamFailureKind.Offline) return this
+    return copy(retryUsed = true)
 }
