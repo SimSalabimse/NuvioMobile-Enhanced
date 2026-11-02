@@ -169,6 +169,7 @@ import com.nuvio.app.features.player.MiniPlayerController
 import com.nuvio.app.features.player.MiniPlayerHost
 import com.nuvio.app.features.player.HidePlayerSystemBars
 import com.nuvio.app.features.player.rememberExternalPlayerLauncher
+import com.nuvio.app.features.profiles.AvatarRepository
 import com.nuvio.app.features.profiles.ProfileEditScreen
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.profiles.NuvioProfile
@@ -615,9 +616,8 @@ internal fun MainAppContent(
                 com.nuvio.app.core.perf.PerformanceMetrics.recordLaunchReady(
                     fromCachedHome = HomeRepository.isShowingSnapshot,
                 )
-                // After the launch sample. On iOS the launch clock is the first touch of
-                // PerformanceMetrics, and markProcessStart does not move it. Starting the
-                // preload any earlier (the intro) folds the 1300 ms intro hold into this number.
+                launch { AvatarRepository.fetchAvatars() }
+                HomeRepository.onLaunchContentPainted()
                 startIosStartupPreloadAfterLaunchReady(
                     isIosPlatform = isIos,
                     launchReady = true,
@@ -794,8 +794,8 @@ internal fun MainAppContent(
         }
     }
 
-    LaunchedEffect(authState, profileState.activeProfile?.profileIndex) {
-        if (!ownsAppRuntime) return@LaunchedEffect
+    LaunchedEffect(initialHomeReady, authState, profileState.activeProfile?.profileIndex) {
+        if (!ownsAppRuntime || !initialHomeReady) return@LaunchedEffect
         val authenticatedState = authState as? AuthState.Authenticated
         val activeProfileId = profileState.activeProfile?.profileIndex
         val syncProfileId = activeProfileId?.takeIf {
@@ -804,6 +804,15 @@ internal fun MainAppContent(
         syncProfileId?.let { profileId ->
             InAppLogger.info("Sync/Foreground", "initial pull profile=$profileId")
             SyncManager.pullAllForProfile(profileId)
+        }
+    }
+
+    LaunchedEffect(authState, profileState.activeProfile?.profileIndex) {
+        if (!ownsAppRuntime) return@LaunchedEffect
+        val authenticatedState = authState as? AuthState.Authenticated
+        val activeProfileId = profileState.activeProfile?.profileIndex
+        val syncProfileId = activeProfileId?.takeIf {
+            authenticatedState != null && !authenticatedState.isAnonymous
         }
         try {
             AppForegroundMonitor.events().collect { visibility ->

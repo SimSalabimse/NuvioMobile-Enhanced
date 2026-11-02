@@ -47,15 +47,23 @@ import com.nuvio.app.features.profiles.AvatarRepository
 import com.nuvio.app.features.profiles.ProfileBiometricAuth
 import com.nuvio.app.features.profiles.ProfileBiometricResult
 import com.nuvio.app.features.profiles.NuvioProfile
+import com.nuvio.app.features.profiles.ProfileCachePhase
+import com.nuvio.app.features.profiles.ProfileCacheReadTimeoutMs
 import com.nuvio.app.features.profiles.ProfileEditScreen
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.profiles.ProfileSelectionScreen
+import com.nuvio.app.features.profiles.ProfileStartupDestination
+import com.nuvio.app.features.profiles.ProfileStartupGateInput
+import com.nuvio.app.features.profiles.ProfileStartupProfile
+import com.nuvio.app.features.profiles.nextStartupGate
+import com.nuvio.app.features.profiles.profileStartupContinuesAfterReadTimeout
 import com.nuvio.app.features.profiles.profileAvatarImageUrl
 import com.nuvio.app.navigation.AppRoute
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 private enum class AppGateScreen {
     Loading,
@@ -132,14 +140,10 @@ internal fun AppGate(
         InAppLogger.info("App/Runtime", "Starting network/profile/avatar services")
         NetworkStatusRepository.ensureStarted()
         MemberAccessRepository.ensureStarted()
-        val parallelStartup = PerformanceSettings.isEnabled(PerformanceOptimization.ParallelStartup)
-        // The avatar catalog fetch does not read profiles, so it need not queue behind them.
-        if (parallelStartup) launch { AvatarRepository.fetchAvatars() }
         ProfileRepository.loadCachedProfiles()
         if (PerformanceSettings.isEnabled(PerformanceOptimization.CachedHomeFirst)) {
             withContext(Dispatchers.Default) { HomeRepository.preloadSnapshotForLaunch() }
         }
-        if (!parallelStartup) AvatarRepository.fetchAvatars()
     }
 
     val authState by AuthRepository.state.collectAsStateWithLifecycle()
@@ -176,10 +180,28 @@ internal fun AppGate(
 
     val gateScope = rememberCoroutineScope()
     var gateScreen by rememberSaveable { mutableStateOf(AppGateScreen.Loading.name) }
-    var introHoldElapsed by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(AppIntroMinDurationMs)
-        introHoldElapsed = true
+    var profileReadTimedOut by rememberSaveable { mutableStateOf(false) }
+    var profilePickerRequestedByUser by rememberSaveable { mutableStateOf(false) }
+    var snapHomeOverPicker by remember { mutableStateOf(false) }
+    LaunchedEffect(profileState.cachePhase) {
+        if (profileState.cachePhase != ProfileCachePhase.Reading) {
+            profileReadTimedOut = false
+            return@LaunchedEffect
+        }
+        kotlinx.coroutines.delay(ProfileCacheReadTimeoutMs)
+        profileReadTimedOut = profileStartupContinuesAfterReadTimeout(
+            elapsedMs = ProfileCacheReadTimeoutMs,
+            phase = ProfileRepository.state.value.cachePhase,
+        )
+    }
+    LaunchedEffect(gateScreen) {
+        if (!ownsAppRuntime) return@LaunchedEffect
+        if (
+            gateScreen == AppGateScreen.ProfileSelection.name ||
+            gateScreen == AppGateScreen.ProfileEdit.name
+        ) {
+            AvatarRepository.fetchAvatars()
+        }
     }
     var editingProfile by remember { mutableStateOf<NuvioProfile?>(null) }
     var profileEditReturnScreen by rememberSaveable { mutableStateOf(AppGateScreen.ProfileSelection.name) }
@@ -292,6 +314,8 @@ internal fun AppGate(
         if (renderMainContent) return@LaunchedEffect
         appGateController?.profileSelectionRequests?.collect {
             autoSkipProfileSelection = false
+            profilePickerRequestedByUser = true
+            snapHomeOverPicker = false
             profileSelectionLoading = false
             profileSelectionTransitionActive = false
             skipProfileSelectionEnterAnimation = true
@@ -350,20 +374,6 @@ internal fun AppGate(
         }
     }
 
-    fun rememberedStartupProfile(profiles: List<NuvioProfile>): NuvioProfile? {
-        val currentProfileState = ProfileRepository.state.value
-        if (
-            !currentProfileState.rememberLastProfileEnabled ||
-            !currentProfileState.hasEverSelectedProfile
-        ) {
-            return null
-        }
-
-        return profiles
-            .find { it.profileIndex == ProfileRepository.activeProfileId }
-            ?.takeUnless { it.pinEnabled }
-    }
-
     fun selectProfile(profile: NuvioProfile, sync: Boolean) {
         if (!renderMainContent) {
             appGateController?.beginContentReload()
@@ -374,89 +384,127 @@ internal fun AppGate(
         }
     }
 
-    suspend fun enterProfileGate(profiles: List<NuvioProfile>, syncOnEnter: Boolean) {
-        profileSelectionLoading = false
-        profileSelectionTransitionActive = false
-        if (profiles.isEmpty()) {
-            autoSkipProfileSelection = true
-            gateScreen = AppGateScreen.ProfileSelection.name
-            return
-        }
+    fun startupDestination(): ProfileStartupDestination = when (gateScreen) {
+        AppGateScreen.Main.name -> ProfileStartupDestination.Main
+        AppGateScreen.ProfileSelection.name -> ProfileStartupDestination.ProfileSelection
+        else -> ProfileStartupDestination.Loading
+    }
 
-        rememberedStartupProfile(profiles)?.let { profile ->
-            selectProfile(profile, sync = syncOnEnter)
-            gateScreen = AppGateScreen.Main.name
-            autoSkipProfileSelection = false
-            return
-        }
+    fun startupGateInput(): ProfileStartupGateInput {
+        val fresh = ProfileRepository.state.value
+        return ProfileStartupGateInput(
+            phase = fresh.cachePhase,
+            profiles = fresh.profiles.map { profile ->
+                ProfileStartupProfile(profile.profileIndex, profile.pinEnabled)
+            },
+            rememberLastProfileEnabled = fresh.rememberLastProfileEnabled,
+            hasEverSelectedProfile = fresh.hasEverSelectedProfile,
+            activeProfileIndex = ProfileRepository.activeProfileId,
+            readTimedOut = profileReadTimedOut,
+        )
+    }
 
+    fun openStartupHome(profile: NuvioProfile, snap: Boolean) {
+        if (snap) snapHomeOverPicker = true
+        selectProfile(profile, sync = false)
+        autoSkipProfileSelection = false
+        profilePickerRequestedByUser = false
+        gateScreen = AppGateScreen.Main.name
+    }
+
+    suspend fun applyAutomaticGate() {
+        if (gateScreen == AppGateScreen.ProfileEdit.name) return
+        if (startupBiometricInProgress) return
+        val current = startupDestination()
+        if (profilePickerRequestedByUser && current == ProfileStartupDestination.ProfileSelection) return
+        var decision = nextStartupGate(
+            current = current,
+            input = startupGateInput(),
+            pickerOpenedByUser = profilePickerRequestedByUser,
+        )
+        val fresh = ProfileRepository.state.value
         if (
-            !startupBiometricInProgress &&
-            ProfileRepository.state.value.rememberLastProfileEnabled &&
-            ProfileRepository.state.value.hasEverSelectedProfile
+            decision.destination == ProfileStartupDestination.ProfileSelection &&
+            (gateScreen == AppGateScreen.Loading.name || gateScreen == AppGateScreen.Auth.name) &&
+            fresh.rememberLastProfileEnabled &&
+            fresh.hasEverSelectedProfile
         ) {
-            val rememberedLockedProfile = profiles.find {
-                it.profileIndex == ProfileRepository.activeProfileId
+            val rememberedLockedProfile = fresh.profiles.find {
+                it.profileIndex == ProfileRepository.activeProfileId && it.pinEnabled && it.profileIndex == 1
             }
-            if (
-                rememberedLockedProfile?.pinEnabled == true &&
-                rememberedLockedProfile.profileIndex == 1
-            ) {
+            if (rememberedLockedProfile != null) {
                 startupBiometricInProgress = true
-                try {
+                val unlocked = try {
                     val biometricResult = try {
                         ProfileBiometricAuth.authenticate(1, rememberedLockedProfile.userId)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (_: Exception) {
-                        // A platform/storage exception is an authentication failure, never a bypass.
-                        // Continue to the normal profile/PIN gate rather than leaving startup stuck.
                         ProfileBiometricResult.Failed
                     }
-                    when (biometricResult) {
-                        ProfileBiometricResult.Success -> {
-                            selectProfile(rememberedLockedProfile, sync = syncOnEnter)
-                            gateScreen = AppGateScreen.Main.name
-                            autoSkipProfileSelection = false
-                            return
-                        }
-                        ProfileBiometricResult.Invalidated -> Unit
-                        ProfileBiometricResult.FallbackRequested,
-                        ProfileBiometricResult.Cancelled,
-                        ProfileBiometricResult.Unavailable,
-                        ProfileBiometricResult.NotConfigured,
-                        ProfileBiometricResult.Failed,
-                        -> Unit
-                    }
+                    biometricResult == ProfileBiometricResult.Success
                 } finally {
                     startupBiometricInProgress = false
                 }
+                if (unlocked) {
+                    openStartupHome(rememberedLockedProfile, snap = false)
+                    return
+                }
+                decision = nextStartupGate(
+                    current = startupDestination(),
+                    input = startupGateInput(),
+                    pickerOpenedByUser = false,
+                )
             }
         }
-
-        autoSkipProfileSelection = true
-        if (profiles.size == 1) {
-            val onlyProfile = profiles.first()
-            if (onlyProfile.pinEnabled) {
-                gateScreen = AppGateScreen.ProfileSelection.name
-                return
+        when (decision.destination) {
+            ProfileStartupDestination.Loading -> {
+                if (gateScreen == AppGateScreen.Loading.name || gateScreen == AppGateScreen.Auth.name) {
+                    gateScreen = AppGateScreen.Loading.name
+                }
             }
-            selectProfile(onlyProfile, sync = syncOnEnter)
-            gateScreen = AppGateScreen.Main.name
-            autoSkipProfileSelection = false
-        } else {
-            gateScreen = AppGateScreen.ProfileSelection.name
+            ProfileStartupDestination.Main -> {
+                if (gateScreen != AppGateScreen.Main.name) {
+                    val profile = fresh.profiles.firstOrNull { it.profileIndex == decision.selectProfileIndex }
+                        ?: ProfileRepository.state.value.profiles.firstOrNull {
+                            it.profileIndex == decision.selectProfileIndex
+                        }
+                    if (profile != null) {
+                        openStartupHome(profile, snap = decision.snapHomeOverPicker)
+                    }
+                }
+            }
+            ProfileStartupDestination.ProfileSelection -> {
+                if (
+                    gateScreen == AppGateScreen.Loading.name ||
+                    gateScreen == AppGateScreen.Auth.name ||
+                    (gateScreen == AppGateScreen.ProfileSelection.name && decision.snapHomeOverPicker)
+                ) {
+                    autoSkipProfileSelection = true
+                    profilePickerRequestedByUser = false
+                    profileSelectionLoading = false
+                    profileSelectionTransitionActive = false
+                    gateScreen = AppGateScreen.ProfileSelection.name
+                }
+            }
         }
     }
 
-    LaunchedEffect(authState, networkStatusUiState.condition, profileState.profiles, introHoldElapsed) {
-        if (!introHoldElapsed) return@LaunchedEffect
-        val cachedProfiles = profileState.profiles
-        val hasCachedProfileAccess =
-            cachedProfiles.isNotEmpty() &&
-                authState !is AuthState.Authenticated
+    LaunchedEffect(
+        authState,
+        networkStatusUiState.condition,
+        profileState.cachePhase,
+        profileState.profiles,
+        profileState.rememberLastProfileEnabled,
+        profileState.hasEverSelectedProfile,
+        profileState.activeProfile?.profileIndex,
+        profileReadTimedOut,
+    ) {
+        val fresh = ProfileRepository.state.value
+        val stillReading = fresh.cachePhase == ProfileCachePhase.Reading && !profileReadTimedOut
+        val hasCachedProfiles = fresh.profiles.isNotEmpty() && authState !is AuthState.Authenticated
         val allowCachedProfileAccess =
-            hasCachedProfileAccess &&
+            hasCachedProfiles &&
                 (
                     networkStatusUiState.condition != NetworkCondition.Online ||
                         gateScreen != AppGateScreen.Auth.name
@@ -464,28 +512,44 @@ internal fun AppGate(
 
         when (authState) {
             is AuthState.Loading -> {
-                if (hasCachedProfileAccess) {
-                    enterProfileGate(cachedProfiles, syncOnEnter = false)
-                } else {
+                if (hasCachedProfiles && !stillReading) {
+                    applyAutomaticGate()
+                } else if (
+                    gateScreen == AppGateScreen.Loading.name ||
+                    gateScreen == AppGateScreen.Auth.name
+                ) {
                     gateScreen = AppGateScreen.Loading.name
                 }
             }
             is AuthState.Unauthenticated -> {
-                if (allowCachedProfileAccess) {
-                    enterProfileGate(cachedProfiles, syncOnEnter = false)
+                if (stillReading && fresh.profiles.isEmpty()) {
+                    gateScreen = AppGateScreen.Loading.name
+                } else if (allowCachedProfileAccess || (profileReadTimedOut && fresh.profiles.isNotEmpty() && networkStatusUiState.condition != NetworkCondition.Online)) {
+                    applyAutomaticGate()
+                } else if (stillReading) {
+                    gateScreen = AppGateScreen.Loading.name
                 } else {
-                    ProfileRepository.clearInMemory()
+                    if (fresh.cachePhase != ProfileCachePhase.Reading) {
+                        ProfileRepository.clearInMemory()
+                    }
                     profileSelectionLoading = false
                     profileSelectionTransitionActive = false
+                    profilePickerRequestedByUser = false
                     gateScreen = AppGateScreen.Auth.name
                 }
             }
             is AuthState.Authenticated -> {
                 val authenticatedState = authState as AuthState.Authenticated
-                ProfileRepository.ensureLoaded(authenticatedState.userId)
-                if (gateScreen == AppGateScreen.Loading.name || gateScreen == AppGateScreen.Auth.name) {
-                    enterProfileGate(ProfileRepository.state.value.profiles, syncOnEnter = true)
+                val phase = ProfileRepository.state.value.cachePhase
+                if (phase == ProfileCachePhase.Reading && !profileReadTimedOut) {
+                    val finished = withTimeoutOrNull(ProfileCacheReadTimeoutMs) {
+                        ProfileRepository.ensureLoaded(authenticatedState.userId)
+                    }
+                    if (finished == null) profileReadTimedOut = true
+                } else if (phase != ProfileCachePhase.Reading) {
+                    ProfileRepository.ensureLoaded(authenticatedState.userId)
                 }
+                applyAutomaticGate()
             }
         }
     }
@@ -496,43 +560,22 @@ internal fun AppGate(
         ProfileRepository.pullProfiles()
     }
 
-    LaunchedEffect(
-        gateScreen,
-        autoSkipProfileSelection,
-        profileState.profiles,
-        profileState.hasEverSelectedProfile,
-        profileState.rememberLastProfileEnabled,
-        profileState.activeProfile?.profileIndex,
-        profileState.activeProfile?.pinEnabled,
-    ) {
-        if (
-            autoSkipProfileSelection &&
-            gateScreen == AppGateScreen.ProfileSelection.name
-        ) {
-            rememberedStartupProfile(profileState.profiles)?.let { profile ->
-                selectProfile(profile, sync = true)
-                gateScreen = AppGateScreen.Main.name
-                autoSkipProfileSelection = false
-                return@LaunchedEffect
-            }
-
-            if (profileState.profiles.size != 1) return@LaunchedEffect
-
-            val onlyProfile = profileState.profiles.first()
-            if (onlyProfile.pinEnabled) return@LaunchedEffect
-
-            selectProfile(onlyProfile, sync = true)
-            gateScreen = AppGateScreen.Main.name
-            autoSkipProfileSelection = false
-        }
-    }
-
     val profileOverlayVisible =
         gateScreen == AppGateScreen.ProfileSelection.name || profileSelectionLoading
     val profileOverlayState = remember {
         MutableTransitionState(profileOverlayVisible)
     }
     profileOverlayState.targetState = profileOverlayVisible
+    LaunchedEffect(snapHomeOverPicker, gateScreen, profileOverlayState.isIdle, profileOverlayState.currentState) {
+        if (
+            snapHomeOverPicker &&
+            gateScreen == AppGateScreen.Main.name &&
+            profileOverlayState.isIdle &&
+            !profileOverlayState.currentState
+        ) {
+            snapHomeOverPicker = false
+        }
+    }
     val launchOverlayVisible =
         !renderMainContent &&
             gateScreen == AppGateScreen.Main.name &&
@@ -572,8 +615,13 @@ internal fun AppGate(
             targetState = gateScreen,
             label = "app_gate",
             transitionSpec = {
-                (fadeIn(tween(400)) + scaleIn(tween(400), initialScale = 0.94f))
-                    .togetherWith(fadeOut(tween(250)))
+                if (snapHomeOverPicker) {
+                    androidx.compose.animation.EnterTransition.None
+                        .togetherWith(androidx.compose.animation.ExitTransition.None)
+                } else {
+                    (fadeIn(tween(400)) + scaleIn(tween(400), initialScale = 0.94f))
+                        .togetherWith(fadeOut(tween(250)))
+                }
             },
         ) { currentGate ->
             when (currentGate) {
@@ -650,6 +698,8 @@ internal fun AppGate(
                             },
                             onSwitchProfile = {
                                 autoSkipProfileSelection = false
+                                profilePickerRequestedByUser = true
+                                snapHomeOverPicker = false
                                 profileSelectionLoading = false
                                 profileSelectionTransitionActive = false
                                 skipProfileSelectionEnterAnimation = false
@@ -680,7 +730,11 @@ internal fun AppGate(
             } else {
                 fadeIn(tween(400))
             },
-            exit = fadeOut(tween(400)),
+            exit = if (snapHomeOverPicker) {
+                androidx.compose.animation.ExitTransition.None
+            } else {
+                fadeOut(tween(400))
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .zIndex(NuvioTokens.Z.dialog),
