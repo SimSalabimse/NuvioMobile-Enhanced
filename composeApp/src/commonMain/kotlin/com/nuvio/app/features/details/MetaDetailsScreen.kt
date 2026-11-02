@@ -56,6 +56,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -1169,6 +1170,15 @@ fun MetaDetailsScreen(
                     )
                 }
                 val listState = rememberLazyListState()
+                LaunchedEffect(listState) {
+                    try {
+                        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+                            OfflineDetailsWriteGate.bindListScrolling("details", scrolling)
+                        }
+                    } finally {
+                        OfflineDetailsWriteGate.bindListScrolling("details", false)
+                    }
+                }
                 val episodeNavigator = rememberEpisodeNavigatorState(meta.id)
                 val heroStretchState = rememberHeroStretchState(listState)
                 val density = LocalDensity.current
