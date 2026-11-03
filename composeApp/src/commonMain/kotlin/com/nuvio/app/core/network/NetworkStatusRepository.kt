@@ -3,6 +3,7 @@ package com.nuvio.app.core.network
 import com.nuvio.app.core.sync.AppForegroundMonitor
 import com.nuvio.app.core.sync.AppVisibility
 import com.nuvio.app.features.addons.httpRequestRaw
+import kotlin.concurrent.Volatile
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CoroutineScope

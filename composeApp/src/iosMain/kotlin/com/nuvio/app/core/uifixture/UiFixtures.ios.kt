@@ -1,6 +1,7 @@
 package com.nuvio.app.core.uifixture
 
 import com.nuvio.app.core.network.NetworkStatusRepository
+import kotlin.experimental.ExperimentalNativeApi
 import kotlin.native.Platform
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.CoroutineScope
@@ -19,6 +20,7 @@ import platform.Foundation.stringWithContentsOfFile
  * Debug binaries only. [decideUiFixture] does not call [readLaunchRaw] when
  * [Platform.isDebugBinary] is false, so Release never reads arguments or the environment.
  */
+@OptIn(ExperimentalNativeApi::class)
 actual fun activeUiFixture(): UiFixture? {
     val decision = decideUiFixture(Platform.isDebugBinary) {
         val raw = readLaunchRaw()
@@ -40,7 +42,7 @@ private fun readLaunchRaw(): String? {
     return arguments.firstOrNull { argument -> argument.startsWith("$UI_FIXTURE_ARGUMENT=") }
 }
 
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, ExperimentalNativeApi::class)
 internal actual fun startConnectivityFixturePoller() {
     if (!Platform.isDebugBinary || !uiFixturesActive()) return
     val documents = "${NSHomeDirectory()}/Documents"
