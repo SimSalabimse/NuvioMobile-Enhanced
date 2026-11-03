@@ -410,25 +410,25 @@ final class MediaAnalyzerSampleLoop {
         let step = vDSP_Stride(stride)
         switch format {
         case AV_SAMPLE_FMT_FLT, AV_SAMPLE_FMT_FLTP:
-            let src = base.advanced(by: start * MemoryLayout<Float>.size).assumingMemoryBound(to: Float.self)
+            let src = UnsafeMutableRawPointer(base).advanced(by: start * MemoryLayout<Float>.size).assumingMemoryBound(to: Float.self)
             dst.withUnsafeMutableBufferPointer { out in
                 vDSP_vspdp(src, step, out.baseAddress!, 1, n)
             }
         case AV_SAMPLE_FMT_DBL, AV_SAMPLE_FMT_DBLP:
-            let src = base.advanced(by: start * MemoryLayout<Double>.size).assumingMemoryBound(to: Double.self)
+            let src = UnsafeMutableRawPointer(base).advanced(by: start * MemoryLayout<Double>.size).assumingMemoryBound(to: Double.self)
             var one = 1.0
             dst.withUnsafeMutableBufferPointer { out in
                 vDSP_vsmulD(src, step, &one, out.baseAddress!, 1, n)
             }
         case AV_SAMPLE_FMT_S16, AV_SAMPLE_FMT_S16P:
-            let src = base.advanced(by: start * MemoryLayout<Int16>.size).assumingMemoryBound(to: Int16.self)
+            let src = UnsafeMutableRawPointer(base).advanced(by: start * MemoryLayout<Int16>.size).assumingMemoryBound(to: Int16.self)
             var scale = 32768.0
             dst.withUnsafeMutableBufferPointer { out in
                 vDSP_vflt16D(src, step, out.baseAddress!, 1, n)
                 vDSP_vsdivD(out.baseAddress!, 1, &scale, out.baseAddress!, 1, n)
             }
         case AV_SAMPLE_FMT_S32, AV_SAMPLE_FMT_S32P:
-            let src = base.advanced(by: start * MemoryLayout<Int32>.size).assumingMemoryBound(to: Int32.self)
+            let src = UnsafeMutableRawPointer(base).advanced(by: start * MemoryLayout<Int32>.size).assumingMemoryBound(to: Int32.self)
             var scale = 2147483648.0
             dst.withUnsafeMutableBufferPointer { out in
                 vDSP_vflt32D(src, step, out.baseAddress!, 1, n)
