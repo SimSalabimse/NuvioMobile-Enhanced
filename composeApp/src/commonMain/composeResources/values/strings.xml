@@ -3115,7 +3115,13 @@
     <string name="analysis_status_done">Analysed</string>
     <string name="analysis_status_partly">Partly analysed, more queued</string>
     <string name="analysis_status_failed">Analysis failed: %1$s</string>
-    <string name="analysis_part_intro_credits">Intro/credits</string>
+    <string name="analysis_part_intro">Intro</string>
+    <string name="analysis_part_credits">Credits</string>
+    <string name="analysis_part_a11y">%1$s: %2$s</string>
+    <string name="analysis_part_state_ready">ready</string>
+    <string name="analysis_part_state_not_found">not found</string>
+    <string name="analysis_part_state_needs_episodes">needs more episodes</string>
+    <string name="analysis_part_state_pending">pending</string>
     <string name="analysis_part_recap">Recap</string>
     <string name="analysis_part_subtitle_sync">Subtitle sync</string>
     <string name="analysis_part_loudness">Loudness</string>

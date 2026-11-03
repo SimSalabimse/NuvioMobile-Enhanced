@@ -109,14 +109,15 @@ private fun externalSkipSource(key: String, result: MediaAnalysisResult?, kind: 
     return skipSourceLabel(online) ?: online
 }
 
-/** Intro/credits and recap sources from marks or online providers, for the analysis chips. */
-internal data class ExternalSkipSources(val introCredits: String?, val recap: String?)
+/** Intro, credits and recap sources from marks or online providers, for the analysis chips. */
+internal data class ExternalSkipSources(val intro: String?, val credits: String?, val recap: String?)
 
 internal fun externalSkipSources(item: DownloadItem): ExternalSkipSources {
     val key = MediaAnalysisStore.keyFor(item)
     val result = MediaAnalysisStore.load(key)
     return ExternalSkipSources(
-        introCredits = externalSkipSource(key, result, "intro") ?: externalSkipSource(key, result, "outro"),
+        intro = externalSkipSource(key, result, "intro"),
+        credits = externalSkipSource(key, result, "outro"),
         recap = externalSkipSource(key, result, "recap"),
     )
 }

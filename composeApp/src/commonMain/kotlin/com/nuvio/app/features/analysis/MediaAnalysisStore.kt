@@ -143,6 +143,8 @@ internal object MediaAnalysisStore {
         MediaAnalysisFiles.write(IMPORT_CLEANUP_FLAG, "1")
     }
 
+    internal fun clearCacheForTests() = synchronized(lock) { cache.clear() }
+
     fun save(result: MediaAnalysisResult) = synchronized(lock) {
         // User marks always win over whatever was detected.
         val applied = result.withUserSegmentsApplied()
