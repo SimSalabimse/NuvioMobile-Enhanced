@@ -24,17 +24,28 @@ class OfflineActionCallerTest {
         assertEquals(listOf("HomeScreen.kt"), callersOf("OfflineDownloadsHome("))
 
         assertTrue(app.contains("onRecheck = { NetworkStatusRepository.requestRefresh(force = true) }"))
+        assertTrue(app.contains("screen = offlineBannerScreen"))
         assertTrue(bannerHost.contains("onOfflineBannerTap(onRecheck)"))
-        assertTrue(bannerHost.contains("offlineBannerChrome("))
-        assertTrue(bannerHost.contains("backgroundHeightDp"))
+        assertTrue(bannerHost.contains("offlineScene("))
+        assertTrue(bannerHost.contains("platformPhysicalTopInset("))
         assertTrue(bannerHost.contains("contentTopOffsetDp"))
+        assertTrue(bannerHost.contains("bannerHeightDp"))
         assertTrue(!bannerHost.contains("padding(top = frame.topInsetDp"))
         assertTrue(bannerHost.contains("Animatable"))
-        assertTrue(bannerHost.contains("OfflineBannerHideFadeMs"))
+        assertTrue(bannerHost.contains("finiteSpec()"))
+        assertTrue(!bannerHost.contains("if (motion && !latch.visible)"))
         assertTrue(home.contains("homeReconnectMotion("))
+        assertTrue(home.contains("offlineTransitionMotion("))
         assertTrue(home.contains("heroReveal"))
+        assertTrue(home.contains("heroSlide"))
         assertTrue(home.contains("offlineCoverAlpha"))
+        assertTrue(home.contains("offlineCoverSlide"))
+        assertTrue(!home.contains("homeCoverSnapsOn("))
         assertTrue(!bannerHost.contains("statusTop + OfflineBannerStripHeight"))
+        assertEquals(
+            listOf("OfflineBannerHost.kt", "OfflineBannerLayout.kt"),
+            callersOf("offlineScene(").filter { it != "OfflineScene.kt" },
+        )
 
         assertTrue(downloadsHome.contains("offline_home_show_home"))
         assertTrue(downloadsHome.contains("onShowHome"))

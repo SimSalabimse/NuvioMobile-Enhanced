@@ -65,6 +65,7 @@ import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.network.ConnectivityEdgeState
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
+import com.nuvio.app.core.network.OfflineBannerScreen
 import com.nuvio.app.core.network.OfflineBannerSurface
 import com.nuvio.app.core.network.reduceConnectivityEdge
 import com.nuvio.app.core.startup.LaunchRefreshController
@@ -1636,9 +1637,15 @@ internal fun MainAppContent(
                 currentRoute is PlayerRoute || visiblePlayerEntries > 0 -> OfflineBannerSurface.Player
                 else -> OfflineBannerSurface.Main
             }
+            val offlineBannerScreen = if (currentRoute is DetailRoute) {
+                OfflineBannerScreen.Details
+            } else {
+                OfflineBannerScreen.Home
+            }
             OfflineBannerHost(
                 condition = networkStatusUiState.condition,
                 surface = offlineBannerSurface,
+                screen = offlineBannerScreen,
                 reduceMotion = systemReduceMotionEnabled(),
                 onRecheck = { NetworkStatusRepository.requestRefresh(force = true) },
                 modifier = Modifier.fillMaxSize(),

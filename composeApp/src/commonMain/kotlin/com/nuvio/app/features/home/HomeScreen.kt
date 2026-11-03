@@ -4,6 +4,9 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import com.nuvio.app.core.network.offlineTransitionMotion
+import com.nuvio.app.core.ui.asComposeEasing
+import com.nuvio.app.core.ui.finiteSpec
 import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.gestures.stopScroll
 import androidx.compose.foundation.layout.Box
@@ -253,23 +256,34 @@ fun HomeScreen(
     val showDownloadsFirst = !showOnlineHomeWhileOffline &&
         completedOffline.isNotEmpty() &&
         onOpenDownload != null &&
-        (trulyOffline || (holdDownloadsHome && !catalogsReady))
-    // #77 kept this page until catalogs were ready, then returned and built the online
-    // column in one frame. That cut skipped the banner fade. The online column stays
-    // composed underneath, the hero slot grows, and the downloads cover fades.
+        trulyOffline
+    // The cover used to wait for catalogs and snap on the way offline, so the banner
+    // fade and the page change were not the same moment. Both directions use the
+    // shared clock now. holdDownloadsHome still tracks the refresh.
     val reduceMotion = systemReduceMotionEnabled()
     val reconnectMotion = homeReconnectMotion(reduceMotion)
+    val coverTravel = offlineTransitionMotion(reduceMotion = false).contentSlideDp
     val offlineCoverAlpha = remember { Animatable(if (showDownloadsFirst) 1f else 0f) }
+    val offlineCoverSlide = remember { Animatable(if (showDownloadsFirst) 0f else coverTravel) }
     val heroReveal = remember { Animatable(if (showDownloadsFirst) 0f else 1f) }
+    val heroSlide = remember { Animatable(if (showDownloadsFirst) -coverTravel else 0f) }
     LaunchedEffect(showDownloadsFirst, reduceMotion) {
-        if (showDownloadsFirst || homeCoverSnapsOn(goingOffline = showDownloadsFirst, reduceMotion = reduceMotion)) {
-            offlineCoverAlpha.snapTo(if (showDownloadsFirst) 1f else 0f)
-            heroReveal.snapTo(if (showDownloadsFirst) 0f else 1f)
+        val motion = offlineTransitionMotion(reduceMotion)
+        val spec = motion.finiteSpec()
+        val coverAlphaTarget = if (showDownloadsFirst) 1f else 0f
+        val coverSlideTarget = if (showDownloadsFirst) 0f else motion.contentSlideDp
+        val heroAlphaTarget = if (showDownloadsFirst) 0f else 1f
+        val heroSlideTarget = if (showDownloadsFirst) -motion.contentSlideDp else 0f
+        if (motion.snap) {
+            offlineCoverAlpha.snapTo(coverAlphaTarget)
+            offlineCoverSlide.snapTo(coverSlideTarget)
+            heroReveal.snapTo(heroAlphaTarget)
+            heroSlide.snapTo(heroSlideTarget)
         } else {
-            launch {
-                offlineCoverAlpha.animateTo(0f, tween(reconnectMotion.durationMs))
-            }
-            heroReveal.animateTo(1f, tween(reconnectMotion.durationMs))
+            launch { offlineCoverAlpha.animateTo(coverAlphaTarget, spec) }
+            launch { offlineCoverSlide.animateTo(coverSlideTarget, spec) }
+            launch { heroReveal.animateTo(heroAlphaTarget, spec) }
+            heroSlide.animateTo(heroSlideTarget, spec)
         }
     }
 
@@ -1122,7 +1136,10 @@ fun HomeScreen(
                                 .fillMaxWidth()
                                 .height(maxHeight * reveal)
                                 .clipToBounds()
-                                .graphicsLayer { alpha = reveal }
+                                .graphicsLayer {
+                                    alpha = reveal
+                                    translationY = heroSlide.value.dp.toPx()
+                                }
                                 .nuvioHorizontalScrollBleed(LocalVerticalBarPadding.current),
                             animationSpec = if (reconnectMotion.snap) snap() else tween(reconnectMotion.durationMs),
                             label = "HomeHeroLoading",
@@ -1350,7 +1367,10 @@ fun HomeScreen(
             },
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer { alpha = offlineCoverAlpha.value },
+                .graphicsLayer {
+                    alpha = offlineCoverAlpha.value
+                    translationY = offlineCoverSlide.value.dp.toPx()
+                },
         )
     }
     }
@@ -1473,8 +1493,13 @@ private fun LazyListScope.homeContinueWatchingSections(
 }
 
 private fun LazyItemScope.homeColumnMotion(motion: HomeReconnectMotion): Modifier {
-    val fade = if (motion.snap) snap() else tween<Float>(motion.durationMs)
-    val place = if (motion.snap) snap() else tween<IntOffset>(motion.durationMs)
+    val shared = offlineTransitionMotion(reduceMotion = motion.snap)
+    val fade = shared.finiteSpec()
+    val place = if (shared.snap) {
+        snap<IntOffset>()
+    } else {
+        tween<IntOffset>(durationMillis = shared.durationMs, easing = shared.easing.asComposeEasing())
+    }
     return Modifier.animateItem(
         fadeInSpec = fade,
         placementSpec = place,

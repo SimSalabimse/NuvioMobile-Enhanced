@@ -16,6 +16,8 @@ class OfflineBannerChromeTest {
             listOf(
                 OfflineBannerPhase.Online,
                 OfflineBannerPhase.Offline,
+                OfflineBannerPhase.GoingOffline,
+                OfflineBannerPhase.ComingOnline,
                 OfflineBannerPhase.Reconnecting,
             ),
             phases,
@@ -41,7 +43,7 @@ class OfflineBannerChromeTest {
                         chrome.backgroundHeightDp,
                         "$screen $phase inset=$inset",
                     )
-                    assertEquals(inset, chrome.contentTopOffsetDp, "$screen $phase inset=$inset")
+                    assertEquals(0f, chrome.contentTopOffsetDp, "$screen $phase inset=$inset")
                     assertEquals(phase != OfflineBannerPhase.Online, chrome.drawn, "$screen $phase")
                 }
             }
