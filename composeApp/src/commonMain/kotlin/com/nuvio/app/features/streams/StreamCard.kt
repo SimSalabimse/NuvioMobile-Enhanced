@@ -28,8 +28,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.a11y.LongPressSite
+import com.nuvio.app.core.a11y.installLongPressAccessibility
+import com.nuvio.app.core.a11y.longPressAccessibilityActions
+import com.nuvio.app.core.a11y.longPressMenuLabels
+import com.nuvio.app.core.a11y.streamCardLongPressFacts
+import com.nuvio.app.features.player.PlayerSettingsRepository
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -74,6 +82,29 @@ internal fun StreamCard(
     outlined: Boolean = false,
 ) {
     val partyLabel = if (isCurrent) null else LocalStreamHighlight.current(stream)
+    val pinnedSourceIds by rememberPinnedStreamSourceIds()
+    val playerSettings by remember {
+        PlayerSettingsRepository.ensureLoaded()
+        PlayerSettingsRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val opensLongPressMenu = onLongClick != null && (
+        stream.playableDirectUrl != null ||
+            stream.shouldOpenExternally ||
+            stream.isAddonDebridCandidate
+        )
+    val longPressActions = if (!opensLongPressMenu) {
+        emptyList()
+    } else {
+        longPressAccessibilityActions(
+            site = LongPressSite.StreamCard,
+            facts = streamCardLongPressFacts(
+                canPin = stream.addonId.isNotBlank() && !stream.isDirectDebridStream,
+                pinned = PinnedStreamSourcesRepository.sourceKeyFor(stream) in pinnedSourceIds,
+                externalPlayerEnabled = playerSettings.externalPlayerEnabled,
+            ),
+            labels = longPressMenuLabels(),
+        )
+    }
     val cardShape = RoundedCornerShape(12.dp)
     val badgeImages = stream.badges.filter { it.imageURL.isNotBlank() }
     val hasBadges = badgeImages.isNotEmpty() || (showFileSizeBadges && stream.behaviorHints.videoSize != null)
@@ -117,6 +148,13 @@ internal fun StreamCard(
                 enabled = enabled,
                 onClick = onClick,
                 onLongClick = onLongClick,
+            )
+            .then(
+                if (opensLongPressMenu && onLongClick != null) {
+                    Modifier.installLongPressAccessibility(longPressActions, onLongClick)
+                } else {
+                    Modifier
+                },
             )
             .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,

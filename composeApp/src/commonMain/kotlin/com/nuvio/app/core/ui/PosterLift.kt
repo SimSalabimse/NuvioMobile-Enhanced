@@ -12,6 +12,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import com.nuvio.app.core.a11y.LongPressAccessibilityAction
+import com.nuvio.app.core.a11y.installLongPressAccessibility
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.GraphicsContext
@@ -71,6 +73,7 @@ internal fun Modifier.posterCardClickable(
     onLongClick: (() -> Unit)?,
     zoomImageUrl: String? = null,
     zoomCornerRadius: Dp = NuvioTokens.Radius.poster,
+    longPressActions: List<LongPressAccessibilityAction> = emptyList(),
 ): Modifier {
     val graphicsContext = LocalGraphicsContext.current
     val source = remember(graphicsContext, zoomImageUrl) { PosterLiftSource(graphicsContext) }
@@ -91,6 +94,18 @@ internal fun Modifier.posterCardClickable(
         }
         .then(this)
     if (onClick == null && onLongClick == null) return posterModifier
+    val performLongClick = onLongClick?.let { longClick ->
+        {
+            source.bounds?.let { cardBounds ->
+                PosterZoomAnchorHolder.stash(
+                    PosterZoomAnchor(cardBounds, zoomImageUrl, zoomCornerRadius).also {
+                        it.source = source
+                    },
+                )
+            }
+            longClick()
+        }
+    }
     return posterModifier
         .combinedClickable(
             interactionSource = null,
@@ -105,17 +120,13 @@ internal fun Modifier.posterCardClickable(
                     onClick()
                 }
             },
-            onLongClick = onLongClick?.let { longClick ->
-                {
-                    source.bounds?.let { cardBounds ->
-                        PosterZoomAnchorHolder.stash(
-                            PosterZoomAnchor(cardBounds, zoomImageUrl, zoomCornerRadius).also {
-                                it.source = source
-                            },
-                        )
-                    }
-                    longClick()
-                }
+            onLongClick = performLongClick,
+        )
+        .then(
+            if (performLongClick != null && longPressActions.isNotEmpty()) {
+                Modifier.installLongPressAccessibility(longPressActions, performLongClick)
+            } else {
+                Modifier
             },
         )
 }

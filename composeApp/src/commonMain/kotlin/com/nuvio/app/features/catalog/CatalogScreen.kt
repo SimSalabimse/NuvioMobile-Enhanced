@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.nuvio.app.core.a11y.posterShelfLongPressActions
 import com.nuvio.app.core.ui.NuvioBackButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -323,6 +324,12 @@ private fun CatalogPosterTile(
                     onLongClick = onLongClick,
                     zoomImageUrl = item.poster,
                     zoomCornerRadius = cornerRadiusDp.dp,
+                    longPressActions = posterShelfLongPressActions(
+                        id = item.id,
+                        type = item.type,
+                        watched = isWatched,
+                        enabled = onLongClick != null,
+                    ),
                 ),
         ) {
             if (item.poster != null) {

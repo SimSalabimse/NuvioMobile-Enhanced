@@ -141,6 +141,7 @@ fun NuvioPosterCard(
     statusLabel: String? = null,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
+    longPressActions: List<com.nuvio.app.core.a11y.LongPressAccessibilityAction> = emptyList(),
 ) {
     val posterCardStyle = rememberPosterCardStyleUiState()
     val tokens = MaterialTheme.nuvio
@@ -171,6 +172,7 @@ fun NuvioPosterCard(
                     onLongClick = onLongClick,
                     zoomImageUrl = imageUrl,
                     zoomCornerRadius = posterCardStyle.cornerRadiusDp.dp,
+                    longPressActions = longPressActions,
                 ),
             contentAlignment = Alignment.Center,
         ) {

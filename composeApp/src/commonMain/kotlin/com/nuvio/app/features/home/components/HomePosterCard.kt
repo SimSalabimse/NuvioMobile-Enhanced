@@ -2,6 +2,7 @@ package com.nuvio.app.features.home.components
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.nuvio.app.core.a11y.posterShelfLongPressActions
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.ui.NuvioPosterCard
 import com.nuvio.app.core.ui.NuvioPosterShape
@@ -47,6 +48,12 @@ fun HomePosterCard(
         statusLabel = statusLabel,
         onClick = onClick,
         onLongClick = onLongClick,
+        longPressActions = posterShelfLongPressActions(
+            id = item.id,
+            type = item.type,
+            watched = isWatched,
+            enabled = onLongClick != null,
+        ),
     )
 }
 

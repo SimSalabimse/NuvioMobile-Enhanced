@@ -114,6 +114,9 @@ import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
+import com.nuvio.app.core.a11y.episodeLongPressActions
+import com.nuvio.app.core.a11y.installLongPressAccessibility
+import com.nuvio.app.core.a11y.seasonLongPressActions
 import com.nuvio.app.core.ui.glass.ambientLiquidGlass
 
 private val log = Logger.withTag("SeriesContent")
@@ -138,6 +141,7 @@ fun DetailSeriesContent(
     onEpisodeLongPress: ((MetaVideo) -> Unit)? = null,
     onSeasonLongPress: ((Int) -> Unit)? = null,
     onDownloadEpisode: ((MetaVideo) -> Unit)? = null,
+    manualPlayAvailable: Boolean = false,
 ) {
     val hasVideos = meta.videos.isNotEmpty()
     if (meta.type != "series" && !hasVideos) return
@@ -220,6 +224,8 @@ fun DetailSeriesContent(
                 onSelect = { selectedSeasonOverride = it },
                 onLongPress = onSeasonLongPress,
                 onDownloadSeason = openSeasonDownload?.let { open -> { open(currentSeason) } },
+                progressByVideoId = progressByVideoId,
+                watchedKeys = watchedKeys,
             )
 
             AnimatedContent(
@@ -328,6 +334,9 @@ fun DetailSeriesContent(
                             ),
                             onEpisodeClick = onEpisodeClick,
                             onEpisodeLongPress = onEpisodeLongPress,
+                            meta = meta,
+                            manualPlayAvailable = manualPlayAvailable,
+                            downloadEnabled = onDownloadEpisode != null,
                         )
                     } else {
                         var episodesExpanded by remember(seasonForContent) { mutableStateOf(false) }
@@ -370,6 +379,12 @@ fun DetailSeriesContent(
                                     sizing = sizing,
                                     onClick = { onEpisodeClick?.invoke(episode) },
                                     onLongPress = { onEpisodeLongPress?.invoke(episode) },
+                                    meta = meta,
+                                    watchedKeys = watchedKeys,
+                                    progressByVideoId = progressByVideoId,
+                                    manualPlayAvailable = manualPlayAvailable,
+                                    downloadEnabled = onDownloadEpisode != null,
+                                    sheetMenu = true,
                                 )
                             }
                             if (!episodesExpanded && seasonEpisodes.size > VerticalEpisodesInitialVisibleCount) {
@@ -471,6 +486,8 @@ internal fun DetailSeriesListHeader(
     onSeasonSelect: (Int) -> Unit,
     onSeasonLongPress: ((Int) -> Unit)?,
     modifier: Modifier = Modifier,
+    progressByVideoId: Map<String, WatchProgressEntry> = emptyMap(),
+    watchedKeys: Set<String> = emptySet(),
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val sizing = seriesContentSizing(maxWidth.value)
@@ -487,6 +504,8 @@ internal fun DetailSeriesListHeader(
                 horizontalScrollPadding = horizontalScrollPadding,
                 onSelect = onSeasonSelect,
                 onLongPress = onSeasonLongPress,
+                progressByVideoId = progressByVideoId,
+                watchedKeys = watchedKeys,
             )
             if (seasons.size == 1) {
                 SeasonHeaderTitle(
@@ -514,6 +533,8 @@ internal fun DetailSeriesListEpisode(
     onEpisodeClick: ((MetaVideo) -> Unit)?,
     onEpisodeLongPress: ((MetaVideo) -> Unit)?,
     modifier: Modifier = Modifier,
+    manualPlayAvailable: Boolean = false,
+    downloadEnabled: Boolean = false,
     highlightQuery: String? = null,
     jumpHighlighted: Boolean = false,
 ) {
@@ -552,6 +573,12 @@ internal fun DetailSeriesListEpisode(
             highlightQuery = highlightQuery,
             onClick = { onEpisodeClick?.invoke(episode) },
             onLongPress = { onEpisodeLongPress?.invoke(episode) },
+            meta = meta,
+            watchedKeys = watchedKeys,
+            progressByVideoId = progressByVideoId,
+            manualPlayAvailable = manualPlayAvailable,
+            downloadEnabled = downloadEnabled,
+            sheetMenu = true,
         )
     }
 }
@@ -591,6 +618,8 @@ private fun SeriesSeasonSelector(
     onSelect: (Int) -> Unit,
     onLongPress: ((Int) -> Unit)?,
     onDownloadSeason: (() -> Unit)? = null,
+    progressByVideoId: Map<String, WatchProgressEntry> = emptyMap(),
+    watchedKeys: Set<String> = emptySet(),
 ) {
     if (seasons.size <= 1) return
 
@@ -659,6 +688,8 @@ private fun SeriesSeasonSelector(
                         horizontalScrollPadding = horizontalScrollPadding,
                         onSelect = onSelect,
                         onLongPress = onLongPress,
+                        progressByVideoId = progressByVideoId,
+                        watchedKeys = watchedKeys,
                     )
                     SeasonViewMode.Text -> SeasonTextChipScrollRow(
                         seasons = seasons,
@@ -667,6 +698,9 @@ private fun SeriesSeasonSelector(
                         horizontalScrollPadding = horizontalScrollPadding,
                         onSelect = onSelect,
                         onLongPress = onLongPress,
+                        meta = meta,
+                        progressByVideoId = progressByVideoId,
+                        watchedKeys = watchedKeys,
                     )
                 }
             }
@@ -678,6 +712,9 @@ private fun SeriesSeasonSelector(
                 horizontalScrollPadding = horizontalScrollPadding,
                 onSelect = onSelect,
                 onLongPress = onLongPress,
+                meta = meta,
+                progressByVideoId = progressByVideoId,
+                watchedKeys = watchedKeys,
             )
         }
     }
@@ -732,6 +769,9 @@ private fun SeasonTextChipScrollRow(
     horizontalScrollPadding: Dp,
     onSelect: (Int) -> Unit,
     onLongPress: ((Int) -> Unit)?,
+    meta: MetaDetails,
+    progressByVideoId: Map<String, WatchProgressEntry>,
+    watchedKeys: Set<String>,
 ) {
     val seasonListState = rememberLazyListState()
     var hasPositionedSeasonRow by remember(seasons) { mutableStateOf(false) }
@@ -758,6 +798,15 @@ private fun SeasonTextChipScrollRow(
     ) {
         items(seasons, key = { season -> season }) { season ->
             val isSelected = season == currentSeason
+            val seasonLongPress = onLongPress?.let { handler -> { handler(season) } }
+            val seasonActions = seasonLongPressActions(
+                meta = meta,
+                season = season,
+                isEpisodeWatched = { episode ->
+                    meta.isEpisodeWatchedForNavigator(episode, progressByVideoId, watchedKeys)
+                },
+                enabled = seasonLongPress != null,
+            )
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(sizing.seasonChipRadius))
@@ -774,7 +823,14 @@ private fun SeasonTextChipScrollRow(
                     )
                     .combinedClickable(
                         onClick = { onSelect(season) },
-                        onLongClick = onLongPress?.let { handler -> { handler(season) } },
+                        onLongClick = seasonLongPress,
+                    )
+                    .then(
+                        if (seasonLongPress != null) {
+                            Modifier.installLongPressAccessibility(seasonActions, seasonLongPress)
+                        } else {
+                            Modifier
+                        },
                     )
                     .padding(
                         horizontal = sizing.seasonChipHorizontalPadding,
@@ -809,6 +865,8 @@ private fun SeasonPosterScrollRow(
     horizontalScrollPadding: Dp,
     onSelect: (Int) -> Unit,
     onLongPress: ((Int) -> Unit)?,
+    progressByVideoId: Map<String, WatchProgressEntry>,
+    watchedKeys: Set<String>,
 ) {
     val seasonListState = rememberLazyListState()
     var hasPositionedSeasonRow by remember(seasons) { mutableStateOf(false) }
@@ -834,6 +892,7 @@ private fun SeasonPosterScrollRow(
         horizontalArrangement = Arrangement.spacedBy(sizing.seasonChipGap),
     ) {
         items(seasons, key = { season -> season }) { season ->
+            val seasonLongPress = onLongPress?.let { handler -> { handler(season) } }
             SeasonPosterButton(
                 label = season.label(),
                 imageUrl = resolveSeasonPoster(
@@ -846,7 +905,15 @@ private fun SeasonPosterScrollRow(
                 isSelected = season == currentSeason,
                 sizing = sizing,
                 onClick = { onSelect(season) },
-                onLongClick = onLongPress?.let { handler -> { handler(season) } },
+                onLongClick = seasonLongPress,
+                longPressActions = seasonLongPressActions(
+                    meta = meta,
+                    season = season,
+                    isEpisodeWatched = { episode ->
+                        meta.isEpisodeWatchedForNavigator(episode, progressByVideoId, watchedKeys)
+                    },
+                    enabled = seasonLongPress != null,
+                ),
             )
         }
     }
@@ -870,6 +937,7 @@ private fun SeasonPosterButton(
     sizing: SeriesContentSizing,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)?,
+    longPressActions: List<com.nuvio.app.core.a11y.LongPressAccessibilityAction> = emptyList(),
 ) {
     Column(
         modifier = Modifier
@@ -877,6 +945,13 @@ private fun SeasonPosterButton(
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
+            )
+            .then(
+                if (onLongClick != null) {
+                    Modifier.installLongPressAccessibility(longPressActions, onLongClick)
+                } else {
+                    Modifier
+                },
             ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -961,6 +1036,9 @@ private fun EpisodeHorizontalRow(
     highlightedKey: String? = null,
     onEpisodeClick: ((MetaVideo) -> Unit)?,
     onEpisodeLongPress: ((MetaVideo) -> Unit)?,
+    meta: MetaDetails? = null,
+    manualPlayAvailable: Boolean = false,
+    downloadEnabled: Boolean = false,
 ) {
     val rowMetrics = rememberEpisodeHorizontalCardMetrics(maxWidthDp)
     var positionedFor by remember { mutableStateOf<Int?>(null) }
@@ -1028,6 +1106,12 @@ private fun EpisodeHorizontalRow(
                 metrics = rowMetrics,
                 onClick = { onEpisodeClick?.invoke(episode) },
                 onLongPress = { onEpisodeLongPress?.invoke(episode) },
+                meta = meta,
+                watchedKeys = watchedKeys,
+                progressByVideoId = progressByVideoId,
+                manualPlayAvailable = manualPlayAvailable,
+                downloadEnabled = downloadEnabled,
+                sheetMenu = false,
             )
             }
         }
@@ -1050,6 +1134,12 @@ private fun EpisodeHorizontalCard(
     metrics: EpisodeHorizontalCardMetrics,
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
+    meta: MetaDetails? = null,
+    watchedKeys: Set<String> = emptySet(),
+    progressByVideoId: Map<String, WatchProgressEntry> = emptyMap(),
+    manualPlayAvailable: Boolean = false,
+    downloadEnabled: Boolean = false,
+    sheetMenu: Boolean = false,
 ) {
     val cardShape = RoundedCornerShape(metrics.cornerRadius)
     val playEnabled = rememberItemPlayEnabled(
@@ -1104,6 +1194,23 @@ private fun EpisodeHorizontalCard(
                 onLongClick = onLongPress,
                 zoomImageUrl = imageUrl,
                 zoomCornerRadius = metrics.cornerRadius,
+                longPressActions = if (meta == null) {
+                    emptyList()
+                } else {
+                    episodeLongPressActions(
+                        meta = meta,
+                        episode = video,
+                        isWatched = isWatched,
+                        isEpisodeWatched = { episode ->
+                            meta.isEpisodeWatchedForNavigator(episode, progressByVideoId, watchedKeys)
+                        },
+                        sheetMenu = sheetMenu,
+                        downloadEnabled = downloadEnabled,
+                        downloadLabel = downloadProgressLabel(downloadProgress),
+                        manualPlayAvailable = manualPlayAvailable,
+                        enabled = onLongPress != null,
+                    )
+                },
             ),
     ) {
         val shouldBlurArtwork = blurUnwatchedEpisodes && !isWatched
@@ -1546,6 +1653,12 @@ private fun EpisodeListCard(
     highlightQuery: String? = null,
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
+    meta: MetaDetails? = null,
+    watchedKeys: Set<String> = emptySet(),
+    progressByVideoId: Map<String, WatchProgressEntry> = emptyMap(),
+    manualPlayAvailable: Boolean = false,
+    downloadEnabled: Boolean = false,
+    sheetMenu: Boolean = true,
 ) {
     val playEnabled = rememberItemPlayEnabled(
         parentMetaId = parentMetaId,
@@ -1596,6 +1709,28 @@ private fun EpisodeListCard(
                 enabled = resolvedClick != null || onLongPress != null,
                 onClick = { resolvedClick?.invoke() },
                 onLongClick = onLongPress,
+            )
+            .then(
+                if (meta != null && onLongPress != null) {
+                    Modifier.installLongPressAccessibility(
+                        episodeLongPressActions(
+                            meta = meta,
+                            episode = video,
+                            isWatched = isWatched,
+                            isEpisodeWatched = { episode ->
+                                meta.isEpisodeWatchedForNavigator(episode, progressByVideoId, watchedKeys)
+                            },
+                            sheetMenu = sheetMenu,
+                            downloadEnabled = downloadEnabled,
+                            downloadLabel = downloadProgressLabel(downloadProgress),
+                            manualPlayAvailable = manualPlayAvailable,
+                            enabled = true,
+                        ),
+                        onLongPress,
+                    )
+                } else {
+                    Modifier
+                },
             ),
     ) {
         Row(

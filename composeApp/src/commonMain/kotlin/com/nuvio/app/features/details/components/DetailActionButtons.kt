@@ -83,6 +83,9 @@ import nuvio.composeapp.generated.resources.details_action_start_from_beginning
 import nuvio.composeapp.generated.resources.sidebar_library
 import nuvio.composeapp.generated.resources.streams_open_external_player
 import org.jetbrains.compose.resources.stringResource
+import com.nuvio.app.core.a11y.LongPressSite
+import com.nuvio.app.core.a11y.detailLongPressActions
+import com.nuvio.app.core.a11y.installLongPressAccessibility
 import com.nuvio.app.core.ui.glass.ambientLiquidGlass
 import com.nuvio.app.core.ui.glass.isAmbientLiquidGlassActive
 
@@ -93,6 +96,7 @@ data class DetailSecondaryAction(
     val isActive: Boolean = false,
     val onClick: () -> Unit = {},
     val onLongClick: (() -> Unit)? = null,
+    val longPressSite: LongPressSite? = null,
     val downloadProgress: DetailsDownloadProgress = DetailsDownloadProgress.None,
     val enabled: Boolean = true,
 )
@@ -244,6 +248,7 @@ fun DetailActionButtons(
                                         longClick()
                                     }
                                 },
+                                longPressSite = action.longPressSite,
                             )
                         }
                     }
@@ -474,6 +479,7 @@ private fun detailActionSet(
         isActive = isSaved,
         onClick = onSaveClick,
         onLongClick = onSaveLongClick,
+        longPressSite = LongPressSite.DetailSave,
     )
     val downloadLabel = downloadProgressLabel(downloadProgress)
     val playFromStartLabel = stringResource(Res.string.details_action_start_from_beginning)
@@ -695,6 +701,7 @@ private fun DetailIconActionRow(
                     size = layout.size,
                     onClick = action.onClick,
                     onLongClick = action.onLongClick,
+                    longPressSite = action.longPressSite,
                     downloadProgress = action.downloadProgress,
                     enabled = action.enabled,
                 )
@@ -715,9 +722,15 @@ internal fun DetailIconAction(
     size: Dp,
     drawable: DrawableResource? = null,
     onLongClick: (() -> Unit)? = null,
+    longPressSite: LongPressSite? = null,
     downloadProgress: DetailsDownloadProgress = DetailsDownloadProgress.None,
     enabled: Boolean = true,
 ) {
+    val longPressActions = if (longPressSite != null && onLongClick != null) {
+        detailLongPressActions(longPressSite, enabled = true)
+    } else {
+        emptyList()
+    }
     val glassActive = !active && isAmbientLiquidGlassActive()
     val shown = if (enabled) progress else progress * 0.38f
     Surface(
@@ -761,7 +774,8 @@ internal fun DetailIconAction(
                     onClick = onClick,
                     onLongClick = onLongClick,
                     role = Role.Button,
-                ),
+                )
+                .installLongPressAccessibility(longPressActions) { onLongClick?.invoke() },
             contentAlignment = Alignment.Center,
         ) {
             if (downloadProgress.showsMark) {
@@ -799,6 +813,10 @@ private fun PlayButton(
     onPlayLongClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
+    val playLongPressActions = detailLongPressActions(
+        site = LongPressSite.DetailPlay,
+        enabled = onPlayLongClick != null,
+    )
         Surface(
             modifier = modifier
                 .height(buttonHeight)
@@ -830,6 +848,7 @@ private fun PlayButton(
                         onLongClick = onPlayLongClick,
                         role = Role.Button,
                     )
+                    .installLongPressAccessibility(playLongPressActions) { onPlayLongClick?.invoke() }
                     .height(buttonHeight),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,

@@ -1,5 +1,7 @@
 package com.nuvio.app.features.home.components
 
+import com.nuvio.app.core.a11y.continueWatchingLongPressActions
+import com.nuvio.app.core.a11y.installLongPressAccessibility
 import com.nuvio.app.features.downloads.FinishSeriesGoalBadge
 import com.nuvio.app.features.settings.ThemeSettingsRepository
 import androidx.compose.runtime.collectAsState
@@ -732,6 +734,7 @@ private fun ContinueWatchingCard(
                 onLongClick = onLongClick,
                 zoomImageUrl = imageUrl,
                 zoomCornerRadius = cardMetrics.cornerRadius,
+                longPressActions = continueWatchingLongPressActions(item, enabled = onLongClick != null),
             ),
     ) {
         if (imageUrl != null) {
@@ -928,6 +931,14 @@ private fun ContinueWatchingWideCard(
                 enabled = onClick != null || onLongClick != null,
                 onClick = { onClick?.invoke() },
                 onLongClick = onLongClick,
+            )
+            .then(
+                onLongClick?.let { longClick ->
+                    Modifier.installLongPressAccessibility(
+                        continueWatchingLongPressActions(item, enabled = true),
+                        longClick,
+                    )
+                } ?: Modifier,
             ),
     ) {
         val artworkUrl = item.continueWatchingArtworkUrl(useEpisodeThumbnails)
@@ -1069,6 +1080,7 @@ private fun ContinueWatchingPosterCard(
                     onLongClick = onLongClick,
                     zoomImageUrl = imageUrl,
                     zoomCornerRadius = cornerRadius,
+                    longPressActions = continueWatchingLongPressActions(item, enabled = onLongClick != null),
                 ),
         ) {
             val shouldBlurArtwork = item.shouldBlurContinueWatchingArtwork(

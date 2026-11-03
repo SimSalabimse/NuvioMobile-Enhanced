@@ -90,6 +90,9 @@ import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.debrid.DirectDebridPlayableResult
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
 import com.nuvio.app.features.debrid.toastMessage
+import com.nuvio.app.core.a11y.LongPressSite
+import com.nuvio.app.core.a11y.installLongPressAccessibility
+import com.nuvio.app.core.a11y.sourcePinLongPressActions
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
@@ -1155,6 +1158,7 @@ private fun StreamSectionHeader(
     val pinTarget = remember(group) { group.soleSourcePin() }
     val isPinned = pinTarget?.key in pinnedSourceIds
     var pinSheetVisible by remember { mutableStateOf(false) }
+    val openPinSheet = { pinSheetVisible = true }
 
     Row(
         modifier = modifier
@@ -1162,8 +1166,16 @@ private fun StreamSectionHeader(
             // Tap or long-press opens the pin sheet; headers that can't be pinned don't react at all.
             .combinedClickable(
                 enabled = pinTarget != null,
-                onClick = { pinSheetVisible = true },
-                onLongClick = { pinSheetVisible = true },
+                onClick = openPinSheet,
+                onLongClick = openPinSheet,
+            )
+            .installLongPressAccessibility(
+                sourcePinLongPressActions(
+                    site = LongPressSite.StreamSourceHeader,
+                    enabled = pinTarget != null,
+                    pinned = isPinned,
+                ),
+                openPinSheet,
             )
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -1215,6 +1227,7 @@ private fun StreamSourceHeader(
     val pinnedSourceIds by rememberPinnedStreamSourceIds()
     val isPinned = pinTarget?.key in pinnedSourceIds
     var pinSheetVisible by remember { mutableStateOf(false) }
+    val openPinSheet = { pinSheetVisible = true }
 
     Row(
         modifier = modifier
@@ -1222,8 +1235,16 @@ private fun StreamSourceHeader(
             // Tap or long-press opens the pin sheet; headers that can't be pinned don't react at all.
             .combinedClickable(
                 enabled = pinTarget != null,
-                onClick = { pinSheetVisible = true },
-                onLongClick = { pinSheetVisible = true },
+                onClick = openPinSheet,
+                onLongClick = openPinSheet,
+            )
+            .installLongPressAccessibility(
+                sourcePinLongPressActions(
+                    site = LongPressSite.StreamSourceHeader,
+                    enabled = pinTarget != null,
+                    pinned = isPinned,
+                ),
+                openPinSheet,
             )
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
