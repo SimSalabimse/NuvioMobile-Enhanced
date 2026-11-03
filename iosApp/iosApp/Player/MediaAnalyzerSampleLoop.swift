@@ -491,30 +491,53 @@ final class MediaAnalyzerSampleLoop {
         }
     }
 
+    /// Copies each plane into its own 32-byte-aligned buffer, then passes that table to [body].
+    /// Nested `withUnsafeMutableBytes` on `planes` is an overlapping access: the recursive walk
+    /// held one element's bytes while still indexing `planes`. Only [consumeFast(planar:)] uses
+    /// this; decoded frames already have their own pointers. [body]'s pointers die with the
+    /// buffers. Bytes written through them are copied back, so the planes stay what [body] left.
     private static func withDoublePlanes(
         _ planes: inout [[Double]],
         _ body: (UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>) -> Void
     ) {
-        var pointers = [UnsafeMutablePointer<UInt8>?](repeating: nil, count: max(planes.count, 1))
-        func walk(_ index: Int) {
-            if index >= planes.count {
-                pointers.withUnsafeMutableBufferPointer { buffer in
-                    if let base = buffer.baseAddress {
-                        body(base)
-                    }
-                }
-                return
-            }
-            planes[index].withUnsafeMutableBytes { raw in
-                if let base = raw.baseAddress {
-                    pointers[index] = UnsafeMutableRawPointer(base).assumingMemoryBound(to: UInt8.self)
-                } else {
-                    pointers[index] = nil
-                }
-                walk(index + 1)
+        let width = max(planes.count, 1)
+        let sampleStride = MemoryLayout<Double>.stride
+        var buffers = [UnsafeMutableRawPointer?](repeating: nil, count: width)
+        var byteCounts = [Int](repeating: 0, count: width)
+        defer {
+            for buffer in buffers {
+                buffer?.deallocate()
             }
         }
-        walk(0)
+        for index in 0..<planes.count {
+            let sampleCount = planes[index].count
+            guard sampleCount > 0 else { continue }
+            let byteCount = sampleCount * sampleStride
+            let buffer = UnsafeMutableRawPointer.allocate(byteCount: byteCount, alignment: 32)
+            buffer.initializeMemory(as: UInt8.self, repeating: 0, count: byteCount)
+            buffers[index] = buffer
+            byteCounts[index] = byteCount
+            planes[index].withUnsafeBytes { src in
+                guard let base = src.baseAddress, src.count > 0 else { return }
+                buffer.copyMemory(from: base, byteCount: min(src.count, byteCount))
+            }
+        }
+        var pointers: [UnsafeMutablePointer<UInt8>?] = buffers.map { raw in
+            raw?.assumingMemoryBound(to: UInt8.self)
+        }
+        pointers.withUnsafeMutableBufferPointer { table in
+            if let base = table.baseAddress {
+                body(base)
+            }
+        }
+        for index in 0..<planes.count {
+            guard let buffer = buffers[index], byteCounts[index] > 0 else { continue }
+            let byteCount = byteCounts[index]
+            planes[index].withUnsafeMutableBytes { dst in
+                guard let base = dst.baseAddress, dst.count > 0 else { return }
+                UnsafeMutableRawPointer(base).copyMemory(from: buffer, byteCount: min(dst.count, byteCount))
+            }
+        }
     }
 }
 

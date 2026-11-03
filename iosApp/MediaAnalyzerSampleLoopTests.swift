@@ -393,7 +393,10 @@ final class MediaAnalyzerSampleLoopTests: XCTestCase {
             var sample = Int16(clamping: Int((value * 32_767).rounded()))
             return withUnsafeBytes(of: &sample) { Array($0) }
         case .int32:
-            var sample = Int32(clamping: Int((value * 1_000_000).rounded()))
+            // Same full-scale mapping as int16 (`value * 32_767`). A 0.25 sine is then about
+            // -12 dBFS and clears the loudness gate. Scaling by 1_000_000 left it near -78 dBFS,
+            // under the gate, so both loops returned no LUFS and the comparison never ran.
+            var sample = Int32(clamping: Int((value * 2_147_483_647).rounded()))
             return withUnsafeBytes(of: &sample) { Array($0) }
         case .uint8:
             let scaled = Int((value * 128 + 128).rounded())
