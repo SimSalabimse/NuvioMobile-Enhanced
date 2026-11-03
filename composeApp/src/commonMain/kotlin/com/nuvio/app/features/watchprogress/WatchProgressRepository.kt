@@ -354,7 +354,26 @@ object WatchProgressRepository {
         _uiState.value = WatchProgressUiState()
     }
 
+    private var fixtureEntries: List<WatchProgressEntry>? = null
+
+    internal fun installFixtureEntries(entries: List<WatchProgressEntry>) {
+        fixtureEntries = entries
+        synchronized(loadLock) {
+            hasLoaded = true
+            currentProfileId = ProfileRepository.activeProfileId
+            replaceLocalEntries(entries)
+            publish()
+        }
+    }
+
     private fun loadFromDisk(profileId: Int) {
+        fixtureEntries?.let { entries ->
+            currentProfileId = profileId
+            hasLoaded = true
+            replaceLocalEntries(entries)
+            publish()
+            return
+        }
         cancelMetadataResolution(resetProviderHistory = true)
         currentProfileId = profileId
         profileGeneration += 1L

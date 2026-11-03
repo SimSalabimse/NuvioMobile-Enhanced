@@ -626,8 +626,19 @@ internal fun MainAppContent(
                 com.nuvio.app.core.perf.PerformanceMetrics.recordLaunchReady(
                     fromCachedHome = HomeRepository.isShowingSnapshot,
                 )
-                launch { AvatarRepository.fetchAvatars() }
+                if (!com.nuvio.app.core.uifixture.uiFixturesActive()) {
+                    launch { AvatarRepository.fetchAvatars() }
+                }
                 HomeRepository.onLaunchContentPainted()
+                val fixtureRoute = com.nuvio.app.core.uifixture.UiFixtureSession.pendingRoute
+                if (fixtureRoute != null) {
+                    com.nuvio.app.core.uifixture.UiFixtureSession.pendingRoute = null
+                    launch {
+                        kotlinx.coroutines.delay(800)
+                        if (onNavigate != null) onNavigate(fixtureRoute, false) else navController.navigate(fixtureRoute)
+                    }
+                }
+                if (com.nuvio.app.core.uifixture.uiFixturesActive()) return@LaunchedEffect
                 startIosStartupPreloadAfterLaunchReady(
                     isIosPlatform = isIos,
                     launchReady = true,
@@ -669,7 +680,9 @@ internal fun MainAppContent(
         if (!ownsAppRuntime) return@LaunchedEffect
         InAppLogger.info("App/Runtime", "Starting main app runtime services")
         NetworkStatusRepository.ensureStarted()
-        EpisodeReleaseNotificationsRepository.refreshAsync()
+        if (!com.nuvio.app.core.uifixture.uiFixturesActive()) {
+            EpisodeReleaseNotificationsRepository.refreshAsync()
+        }
         // Safety-net timeout only: the real signal is onInitialHomeContentRendered below, which
         // flips initialHomeReady as soon as the first catalog section renders (often well under
         // 5s) so it always wins the race on its own. This just bounds how long a user can get
@@ -697,8 +710,11 @@ internal fun MainAppContent(
         when (condition) {
             NetworkCondition.Online -> {
                 if (
-                    previousConditionName == NetworkCondition.NoInternet.name ||
-                    previousConditionName == NetworkCondition.ServersUnreachable.name
+                    !com.nuvio.app.core.uifixture.uiFixturesActive() &&
+                    (
+                        previousConditionName == NetworkCondition.NoInternet.name ||
+                            previousConditionName == NetworkCondition.ServersUnreachable.name
+                        )
                 ) {
                     MemberAccessRepository.refresh()
                 }
@@ -732,6 +748,10 @@ internal fun MainAppContent(
 
             NetworkCondition.Online -> {
                 if (!watchSourceReconnectPending) return@LaunchedEffect
+                if (com.nuvio.app.core.uifixture.uiFixturesActive()) {
+                    watchSourceReconnectPending = false
+                    return@LaunchedEffect
+                }
 
                 val profileId = profileState.activeProfile?.profileIndex
                     ?: ProfileRepository.activeProfileId
@@ -770,7 +790,7 @@ internal fun MainAppContent(
         previousConnectivity = next
         val edge = reduceConnectivityEdge(connectivityEdge, next)
         connectivityEdge = edge.state
-        if (edge.flushOutbox) {
+        if (edge.flushOutbox && !com.nuvio.app.core.uifixture.uiFixturesActive()) {
             OfflineAccountFlush.onOfflineToOnlineEdge()
         }
         when (next) {
@@ -779,7 +799,10 @@ internal fun MainAppContent(
             -> LaunchRefreshController.noteAttemptFailed()
 
             NetworkCondition.Online -> {
-                if (connectivityRegained(previous, next) || previous != NetworkCondition.Online) {
+                if (
+                    !com.nuvio.app.core.uifixture.uiFixturesActive() &&
+                    (connectivityRegained(previous, next) || previous != NetworkCondition.Online)
+                ) {
                     LaunchRefreshController.onConnectivityRegained()
                 }
             }
@@ -817,6 +840,7 @@ internal fun MainAppContent(
             AppForegroundMonitor.events().collect { visibility ->
                 when (visibility) {
                     AppVisibility.Foreground -> {
+                        if (com.nuvio.app.core.uifixture.uiFixturesActive()) return@collect
                         InAppLogger.debug("App/Foreground", "foreground event: refreshing network status")
                         NetworkStatusRepository.requestForegroundRefresh()
                         DeviceSessionRegistration.registerIfAuthenticated()

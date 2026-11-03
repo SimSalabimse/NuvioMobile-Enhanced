@@ -170,8 +170,17 @@ actual suspend fun httpRequestRaw(
     followRedirects: Boolean,
     maxResponseBodyBytes: Int,
     bodyBytes: ByteArray?,
-): RawHttpResponse =
-    addonHttpClient
+): RawHttpResponse {
+    if (com.nuvio.app.core.uifixture.uiFixturesActive()) {
+        return RawHttpResponse(
+            status = 0,
+            statusText = "fixture",
+            url = url,
+            body = "",
+            headers = emptyMap(),
+        )
+    }
+    return addonHttpClient
         .request {
             url(url)
             this.method = HttpMethod.parse(method.uppercase())
@@ -197,3 +206,4 @@ actual suspend fun httpRequestRaw(
                 },
             )
         }
+}
