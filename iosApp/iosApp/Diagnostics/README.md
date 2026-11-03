@@ -146,7 +146,7 @@ Tests cover:
 ## Implementation Notes
 
 - All file I/O happens on a background queue (`DispatchQueue` with `.utility` QoS)
-- Crash detection uses UserDefaults marker set on launch, cleared after 5 seconds
+- Crash detection uses a UserDefaults marker set on launch and while the app is active. It is cleared when the app enters the background or is about to terminate, so a normal background is not reported as a crash. A full disk cannot crash the app: file writes use throwing APIs, pause for 30 seconds after a failure, and are skipped while important-usage free space is under 50 MB. The in-app debug log is a separate buffer and is not paused.
 - Log rotation keeps newest 50% of entries when size exceeds ~4MB
 - Export uses iOS native share sheet (AirDrop, Files, etc.)
 - Settings integrate with native iOS Settings UI paradigms
