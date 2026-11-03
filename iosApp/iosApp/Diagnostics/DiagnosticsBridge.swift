@@ -38,6 +38,10 @@ import UIKit
     @objc public static func logPlaybackStall(_ duration: Double) {
         DiagnosticsManager.shared.logPlaybackStall(duration: duration)
     }
+
+    @objc public static func logPerformance(_ message: String) {
+        DiagnosticsManager.shared.logAnalysisTimings(message)
+    }
     
     /// The screen the user is looking at. The app has one navigation stack per tab, so there is
     /// no single navigation controller to push on; presenting from the top keeps it visible.

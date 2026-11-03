@@ -16,6 +16,10 @@ actual object DiagnosticsLogger {
     actual fun logPlaybackStall(durationSeconds: Double) {
         // No-op on Android
     }
+
+    actual fun logPerformance(message: String) {
+        // No-op on Android. The in-app debug log still receives the same line.
+    }
     
     actual fun isEnabled(): Boolean {
         return false

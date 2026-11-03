@@ -57,6 +57,22 @@ final class DiagnosticsManager {
     func logPlaybackStall(duration: TimeInterval) {
         log(category: .playback, message: "Playback stalled for \(String(format: "%.2f", duration))s")
     }
+
+    static let latestAnalysisTimingKey = "NuvioDiagnosticsLatestAnalysisTiming"
+
+    /// Keeps the latest analysis stage line for the diagnostics screen, and appends it to the log when saving is on.
+    func logAnalysisTimings(_ message: String) {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if trimmed.hasPrefix("timings ") {
+            UserDefaults.standard.set(trimmed, forKey: Self.latestAnalysisTimingKey)
+        }
+        log(category: .performance, message: trimmed)
+    }
+
+    func latestAnalysisTiming() -> String? {
+        UserDefaults.standard.string(forKey: Self.latestAnalysisTimingKey)
+    }
     
     func logNetworkError(statusCode: Int, url: String) {
         let host = URL(string: url)?.host ?? "unknown"
@@ -80,6 +96,7 @@ final class DiagnosticsManager {
     }
     
     func clearLog() {
+        UserDefaults.standard.removeObject(forKey: Self.latestAnalysisTimingKey)
         queue.async { [weak self] in
             guard let self = self else { return }
             try? FileManager.default.removeItem(at: self.fileURL)

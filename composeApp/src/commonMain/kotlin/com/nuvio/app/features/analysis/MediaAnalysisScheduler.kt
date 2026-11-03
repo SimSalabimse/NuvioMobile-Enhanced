@@ -14,6 +14,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlin.time.TimeSource
 import com.nuvio.app.core.serialization.LenientJson
 
 /** What the platform analyzer returns for one file (see MediaAnalyzer.swift). */
@@ -27,6 +28,30 @@ internal data class RawMediaAnalysis(
     val head: String? = null,
     val tail: String? = null,
     val tailStartMs: Long = 0L,
+    /** Monotonic milliseconds. Not stored with the analysis; see [AnalysisStageTimings]. */
+    val decodeMs: Long = 0L,
+    val sampleLoopMs: Long = 0L,
+    val fingerprintMs: Long = 0L,
+)
+
+internal fun RawMediaAnalysis.toStoredResult(
+    key: String,
+    fileName: String?,
+    analyzedAtMs: Long,
+    userSegments: Map<String, UserSegment>,
+): MediaAnalysisResult = MediaAnalysisResult(
+    key = key,
+    analyzedAtMs = analyzedAtMs,
+    durationMs = durationMs,
+    fileName = fileName,
+    energyStepMs = energyStepMs,
+    energy = energy,
+    integratedLufs = integratedLufs,
+    fingerprintStepMs = fingerprintStepMs,
+    headFingerprint = head,
+    tailFingerprint = tail,
+    tailStartMs = tailStartMs,
+    userSegments = userSegments,
 )
 
 /** Platform decoder (iOS: FFmpeg from the player's engine). */
@@ -373,6 +398,16 @@ internal object MediaAnalysisScheduler {
     }
 
     private suspend fun audioAnalysis(item: DownloadItem, uri: String): MediaAnalysisResult? {
+        val started = TimeSource.Monotonic.markNow()
+        var matchMs = 0L
+        suspend fun <T> duringMatch(block: suspend () -> T): T {
+            val mark = TimeSource.Monotonic.markNow()
+            try {
+                return block()
+            } finally {
+                matchMs += mark.elapsedNow().inWholeMilliseconds
+            }
+        }
         InAppLogger.info("Analysis", "analyse start id=${item.id} file=${item.fileName}")
         stage(AnalysisStage.Audio)
         val text = withProgress { MediaAnalyzerPlatform.analyze(uri) } ?: run {
@@ -385,18 +420,10 @@ internal object MediaAnalysisScheduler {
             return null
         }
         val key = MediaAnalysisStore.keyFor(item)
-        var result = MediaAnalysisResult(
+        var result = raw.toStoredResult(
             key = key,
-            analyzedAtMs = com.nuvio.app.features.streams.epochMs(),
-            durationMs = raw.durationMs,
             fileName = item.fileName,
-            energyStepMs = raw.energyStepMs,
-            energy = raw.energy,
-            integratedLufs = raw.integratedLufs,
-            fingerprintStepMs = raw.fingerprintStepMs,
-            headFingerprint = raw.head,
-            tailFingerprint = raw.tail,
-            tailStartMs = raw.tailStartMs,
+            analyzedAtMs = com.nuvio.app.features.streams.epochMs(),
             userSegments = MediaAnalysisStore.load(key)?.userSegments.orEmpty(),
         )
         val season = item.seasonNumber
@@ -408,7 +435,7 @@ internal object MediaAnalysisScheduler {
                 .take(MAX_SIBLINGS)
             if (siblings.isNotEmpty()) {
                 stage(AnalysisStage.Matching)
-                val detected = withContext(Dispatchers.Default) { SeasonSegmentDetector.detect(result, siblings) }
+                val detected = duringMatch { withContext(Dispatchers.Default) { SeasonSegmentDetector.detect(result, siblings) } }
                 result = result.copy(
                     introStartMs = detected.introStartMs,
                     introEndMs = detected.introEndMs,
@@ -417,7 +444,7 @@ internal object MediaAnalysisScheduler {
                 )
                 // Earlier episodes that had nobody to match against get their segments now.
                 siblings.filter { it.introEndMs == null || it.creditsStartMs == null }.forEach { sibling ->
-                    val back = withContext(Dispatchers.Default) { SeasonSegmentDetector.detect(sibling, listOf(result)) }
+                    val back = duringMatch { withContext(Dispatchers.Default) { SeasonSegmentDetector.detect(sibling, listOf(result)) } }
                     MediaAnalysisStore.save(
                         sibling.copy(
                             introStartMs = sibling.introStartMs ?: back.introStartMs,
@@ -435,12 +462,12 @@ internal object MediaAnalysisScheduler {
                 .filter { it.userSegments.containsKey("intro") || it.userSegments.containsKey("outro") }
             if (references.isNotEmpty()) {
                 stage(AnalysisStage.Matching)
-                result = withContext(Dispatchers.Default) { SkipLearning.learnFromReferences(result, references) }
+                result = duringMatch { withContext(Dispatchers.Default) { SkipLearning.learnFromReferences(result, references) } }
             }
             // No stored episode to match: fingerprint a clip of the nearest episode with known times.
             if (siblings.isEmpty() && references.isEmpty()) {
                 stage(AnalysisStage.Matching)
-                result = SiblingClipReference.apply(item, result)
+                result = duringMatch { SiblingClipReference.apply(item, result) }
             }
         }
         MediaAnalysisStore.save(result)
@@ -448,12 +475,22 @@ internal object MediaAnalysisScheduler {
         if (season != null && item.episodeNumber != null &&
             (result.userSegments.containsKey("intro") || result.userSegments.containsKey("outro"))
         ) {
-            SkipLearning.teachSeason(item.parentMetaId, season, key)
+            duringMatch { SkipLearning.teachSeason(item.parentMetaId, season, key) }
         }
         InAppLogger.info(
             "Analysis",
             "analyse done id=${item.id} durationMs=${raw.durationMs} lufs=${raw.integratedLufs} " +
                 "intro=${result.introStartMs}-${result.introEndMs} credits=${result.creditsStartMs}-${result.creditsEndMs}",
+        )
+        logAnalysisStageTimings(
+            item.id,
+            AnalysisStageTimings(
+                decodeMs = raw.decodeMs.coerceAtLeast(0L),
+                sampleLoopMs = raw.sampleLoopMs.coerceAtLeast(0L),
+                fingerprintMs = raw.fingerprintMs.coerceAtLeast(0L),
+                matchMs = matchMs.coerceAtLeast(0L),
+                totalMs = started.elapsedNow().inWholeMilliseconds.coerceAtLeast(0L),
+            ),
         )
         return result
     }
