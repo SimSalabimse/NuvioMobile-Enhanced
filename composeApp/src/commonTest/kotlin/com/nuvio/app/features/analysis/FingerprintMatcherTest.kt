@@ -3,6 +3,7 @@ package com.nuvio.app.features.analysis
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -20,6 +21,7 @@ class FingerprintMatcherTest {
         assertEquals(300, segment.startA)
         assertEquals(900, segment.endA)
         assertEquals(900, segment.startB)
+        assertEquals(2.0, segment.avgBitErrors)
     }
 
     @Test
@@ -60,6 +62,9 @@ class FingerprintMatcherTest {
         assertEquals(one.tailStartMs + 430_000L, found.creditsStartMs)
         // The credits run to the end of the tail window, so they end at the file's duration.
         assertEquals(2_400_000L, found.creditsEndMs)
+        assertEquals(1, found.introConfidence?.agreeingSiblings)
+        assertEquals(0.0, found.introConfidence?.avgBitErrors)
+        assertEquals(1, found.creditsConfidence?.agreeingSiblings)
     }
 
     @Test
@@ -86,11 +91,159 @@ class FingerprintMatcherTest {
     }
 
     @Test
+    fun twoOfThreeShorterRunsBeatOneLongerRun() {
+        val found = SeasonSegmentDetector.detect(
+            episodeFrom("vote2__s1e1", headWithShortAndLong()),
+            listOf(
+                episodeFrom("vote2__s1e2", headWith(shortAt = 40)),
+                episodeFrom("vote2__s1e3", headWith(shortAt = 80)),
+                episodeFrom("vote2__s1e4", headWithLongOnly()),
+            ),
+        )
+        assertEquals(10_000L, found.introStartMs)
+        assertEquals(30_000L, found.introEndMs)
+        assertEquals(2, found.introConfidence?.agreeingSiblings)
+    }
+
+    @Test
+    fun threeAgreeingShorterRunsBeatOneLongDecoy() {
+        val found = SeasonSegmentDetector.detect(
+            episodeFrom("vote3__s1e1", headWithShortAndLong()),
+            listOf(
+                episodeFrom("vote3__s1e2", headWith(shortAt = 40)),
+                episodeFrom("vote3__s1e3", headWith(shortAt = 90)),
+                episodeFrom("vote3__s1e4", headWith(shortAt = 140)),
+                episodeFrom("vote3__s1e5", headWithLongOnly()),
+            ),
+        )
+        assertEquals(10_000L, found.introStartMs)
+        assertEquals(30_000L, found.introEndMs)
+        assertEquals(3, found.introConfidence?.agreeingSiblings)
+        assertEquals(0.0, found.introConfidence?.avgBitErrors)
+        assertNull(found.creditsStartMs)
+    }
+
+    @Test
+    fun twoSiblingsKeepTheLongestRun() {
+        val found = SeasonSegmentDetector.detect(
+            episodeFrom("vote1__s1e1", headWithShortAndLong()),
+            listOf(
+                episodeFrom("vote1__s1e2", headWith(shortAt = 40)),
+                episodeFrom("vote1__s1e3", headWithLongOnly()),
+            ),
+        )
+        assertEquals(150_000L, found.introStartMs)
+        assertEquals(230_000L, found.introEndMs)
+        assertEquals(1, found.introConfidence?.agreeingSiblings)
+    }
+
+    @Test
+    fun aSingleLongRunDoesNotWinWhenThreeSiblingsExist() {
+        val found = SeasonSegmentDetector.detect(
+            episodeFrom("vote0__s1e1", headWithShortAndLong()),
+            listOf(
+                episodeFrom("vote0__s1e2", headWithLongOnly()),
+                episodeFrom("vote0__s1e3", noise(7, HEAD_FRAMES)),
+                episodeFrom("vote0__s1e4", noise(8, HEAD_FRAMES)),
+            ),
+        )
+        assertNull(found.introStartMs)
+        assertNull(found.introConfidence)
+    }
+
+    @Test
+    fun aStraySingleHitDoesNotStretchTheRecap() {
+        val random = Random(19)
+        fun noise(size: Int) = IntArray(size) { random.nextInt() }
+        val recap = IntArray(150) { 0x51A00000 + it * 17 }
+        val stray = IntArray(50) { 0x575A0000 + it * 13 }
+        val intro = IntArray(400) { 0x11F00000 + it * 19 }
+        val head = recap + noise(350) + stray + noise(350) + intro + noise(400)
+        val episode = episodeFrom("recapvote__s1e1", head).copy(introStartMs = 90_000L, introEndMs = 130_000L)
+        fun sibling(key: String, clip: IntArray, at: Int) =
+            episodeFrom(key, noise(at) + clip + noise(2_000 - at - clip.size))
+        val found = RecapDetector.detect(
+            episode,
+            listOf(
+                sibling("recapvote__s1e2", recap, 400),
+                sibling("recapvote__s1e3", recap, 700),
+                sibling("recapvote__s1e4", recap, 200),
+                sibling("recapvote__s1e5", stray, 100),
+            ),
+        )
+        assertEquals(0L, found?.first)
+        assertEquals(15_000L, found?.second)
+    }
+
+    @Test
+    fun aRejectedIntroIsNotDetectedAgain() {
+        val season = Season(8)
+        val episode = season.episode("reject__s1e1", introAt = 900, creditsAt = 4300).copy(
+            rejectedSegments = listOf(RejectedSegment("intro", 90_000L, 130_000L)),
+        )
+        val other = season.episode("reject__s1e2", introAt = 30, creditsAt = 4000)
+        val found = SeasonSegmentDetector.detect(episode, listOf(other))
+        assertNull(found.introStartMs)
+        assertEquals(episode.tailStartMs + 430_000L, found.creditsStartMs)
+    }
+
+    @Test
+    fun higherSiblingCountBeatsLowerBitErrors() {
+        val few = SegmentConfidence(agreeingSiblings = 2, avgBitErrors = 1.0)
+        val many = SegmentConfidence(agreeingSiblings = 3, avgBitErrors = 4.0)
+        val cleaner = SegmentConfidence(agreeingSiblings = 3, avgBitErrors = 1.0)
+        assertTrue(many.strictlyBeats(few))
+        assertFalse(few.strictlyBeats(many))
+        assertTrue(cleaner.strictlyBeats(many))
+        assertFalse(many.strictlyBeats(cleaner))
+        assertFalse(cleaner.strictlyBeats(cleaner))
+    }
+
+    @Test
     fun loudnessGainIsCapped() {
         val quiet = MediaAnalysisResult(key = "k", analyzedAtMs = 0, durationMs = 1, integratedLufs = -40.0)
         val loud = quiet.copy(integratedLufs = -2.0)
         assertEquals(6.0, quiet.loudnessGainDb())
         assertEquals(-12.0, loud.loudnessGainDb())
         assertTrue(quiet.copy(integratedLufs = null).loudnessGainDb() == null)
+    }
+
+    private fun episodeFrom(key: String, head: IntArray) = MediaAnalysisResult(
+        key = key,
+        analyzedAtMs = 0L,
+        durationMs = 2_400_000L,
+        fingerprintStepMs = 100,
+        headFingerprint = encodeFingerprint(head),
+        tailStartMs = 2_400_000L - TAIL_FINGERPRINT_MS,
+    )
+
+    private fun headWithShortAndLong(): IntArray {
+        val head = noise(1, HEAD_FRAMES)
+        shortPattern().copyInto(head, destinationOffset = 100)
+        longPattern().copyInto(head, destinationOffset = 1_500)
+        return head
+    }
+
+    private fun headWith(shortAt: Int): IntArray {
+        val head = noise(100 + shortAt, HEAD_FRAMES)
+        shortPattern().copyInto(head, destinationOffset = shortAt)
+        return head
+    }
+
+    private fun headWithLongOnly(): IntArray {
+        val head = noise(50, HEAD_FRAMES)
+        longPattern().copyInto(head, destinationOffset = 400)
+        return head
+    }
+
+    private fun shortPattern() = noise(200, 200)
+    private fun longPattern() = noise(800, 800)
+    private fun noise(seed: Int, size: Int): IntArray {
+        val random = Random(seed)
+        return IntArray(size) { random.nextInt() }
+    }
+
+    private companion object {
+        const val HEAD_FRAMES = 3_000
     }
 }

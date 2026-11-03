@@ -11,6 +11,23 @@ import kotlinx.coroutines.withContext
  * matched against the other episodes (also ones where nothing was found before), and new episodes
  * are matched against it when they are analysed.
  */
+/**
+ * The range a saved correction moved off, or null when nothing moved.
+ * A Wrong tap does not call this: nothing is stored until a different range is saved.
+ */
+internal fun rejectedRangeForCorrection(
+    category: String,
+    previousStartMs: Long?,
+    previousEndMs: Long?,
+    savedStartMs: Long,
+    savedEndMs: Long,
+): RejectedSegment? {
+    if (category != "intro" && category != "outro" && category != "recap") return null
+    if (previousStartMs == null || previousEndMs == null) return null
+    if (previousStartMs == savedStartMs && previousEndMs == savedEndMs) return null
+    return RejectedSegment(category, previousStartMs, previousEndMs)
+}
+
 internal object SkipLearning {
     /** Provider name of skip intervals that come from the user's own marks. */
     const val PROVIDER = "you"
@@ -54,10 +71,25 @@ internal object SkipLearning {
         val key = MediaAnalysisStore.keyFor(parentMetaId, season, episode)
         val existing = MediaAnalysisStore.load(key)
             ?: MediaAnalysisResult(key = key, analyzedAtMs = 0L, durationMs = 0L)
+        val previous = when (category) {
+            "intro" -> existing.introStartMs to existing.introEndMs
+            "outro" -> existing.creditsStartMs to existing.creditsEndMs
+            "recap" -> existing.recapStartMs to existing.recapEndMs
+            else -> null to null
+        }
+        val rejection = rejectedRangeForCorrection(category, previous.first, previous.second, startMs, endMs)
+        val rejected = if (rejection == null || rejection in existing.rejectedSegments) {
+            existing.rejectedSegments
+        } else {
+            existing.rejectedSegments + rejection
+        }
         val updated = existing.copy(
             userSegments = existing.userSegments +
                 (category to UserSegment(startMs, endMs, com.nuvio.app.features.streams.epochMs(), durationMs = durationMs)),
             learnedTypes = existing.learnedTypes - category,
+            rejectedSegments = rejected,
+            introConfidence = if (category == "intro") null else existing.introConfidence,
+            creditsConfidence = if (category == "outro") null else existing.creditsConfidence,
             // A new intro bounds the recap search, so run it again.
             derivedVersion = if (category == "intro") 0 else existing.derivedVersion,
         )
@@ -138,13 +170,19 @@ internal object SkipLearning {
                 if (match.third > (best?.third ?: 0)) best = match
             }
             val found = best ?: continue
+            if (episode.rejectedSegments.covers(category, found.first, found.second)) continue
             out = when (category) {
                 "intro" -> out.copy(
                     introStartMs = found.first,
                     introEndMs = found.second,
+                    introConfidence = if (out.introStartMs != found.first || out.introEndMs != found.second) null else out.introConfidence,
                     derivedVersion = if (out.introStartMs != found.first || out.introEndMs != found.second) 0 else out.derivedVersion,
                 )
-                else -> out.copy(creditsStartMs = found.first, creditsEndMs = found.second)
+                else -> out.copy(
+                    creditsStartMs = found.first,
+                    creditsEndMs = found.second,
+                    creditsConfidence = if (out.creditsStartMs != found.first || out.creditsEndMs != found.second) null else out.creditsConfidence,
+                )
             }
             out = out.copy(learnedTypes = out.learnedTypes + category)
         }

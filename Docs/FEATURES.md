@@ -50,6 +50,7 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - Analysis runs one pass at a time. A kick during that pass runs again when the pass finishes.
 - Sibling clip (fingerprints a nearby episode's intro window from its stream): automatic. 189.
 - Saving an episode fingerprint back-fills intro, credits, and recap for the other stored episodes of that season, including ones whose download is already gone.
+- Season intro and credits take a start time other episodes agree on, and a later pass replaces a weaker score only when that segment was not marked.
 - A failed analysis or a sibling clip that could not be read is retried up to 3 times (after 2 minutes, then 4) and remembered across launches. A new download file starts the count over. Cancelling does not count.
 - Analysis queue order: lowest season and episode first, per show. 193.
 - "Playing an episode that isn't analysed yet" prompt (Play now / Finish first / In background / Don't ask again): Settings › Playback. Only shown when the file has no stored analysis (193).
