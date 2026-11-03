@@ -136,35 +136,44 @@ Nothing here has been tested on a phone yet.
 
 After a file is analysed, one line is written for that file:
 
-`timings id=<download id> decodeMs=<n> sampleLoopMs=<n> fingerprintMs=<n> matchMs=<n> totalMs=<n>`
+`timings id=<download id> decodeMs=<n> sampleLoopMs=<n> fingerprintMs=<n> matchMs=<n> totalMs=<n> throttledMs=<n> decodeNetMs=<n> throttleLevelStart=<n> throttleYields=<n> qos=<name>`
 
 It shows on the Diagnostics screen (Settings › Advanced › Diagnostics) and in the in-app debug log
 (Settings › Advanced › Debug Logs). The clocks are monotonic (`DispatchTime.uptimeNanoseconds` on
 device, `TimeSource.Monotonic` for match and total). They are not saved on the analysis result, so
-intro, credits and recap times are unchanged.
+intro, credits and recap times are unchanged. A line from an older build, or a JSON result that
+omits the newer fields, still parses: the new numbers default to 0 and `qos` to empty.
 
 | Number | What it counts |
 | --- | --- |
-| decodeMs | Opening the file and decoding audio packets. The per-sample loop is not included. |
+| decodeMs | Opening the file and decoding audio packets. The per-sample loop is not included. Sleeps in the analysis throttle are still included. |
 | sampleLoopMs | The per-sample loop: K-weighting, the 100 ms energy byte, and the decimated mono used for fingerprints. |
 | fingerprintMs | Head and tail sub-fingerprint FFTs after that loop. |
 | matchMs | Intro/credits matching against up to four siblings, back-fill, learned marks, a sibling clip, and teaching the season. Recap search and scrub previews are a later pass and are not in this number. |
-| totalMs | From the start of this file's audio analysis until the line is written, including match. It is larger than the sum of the other four because scheduling, JSON and saving sit in the gap. |
+| totalMs | From the start of this file's audio analysis until the line is written, including match. It is larger than the sum of the other stages because scheduling, JSON and saving sit in the gap. |
+| throttledMs | Time spent asleep in the analysis throttle during that decode (`usleep` while a player session is holding the analyser back). |
+| decodeNetMs | `decodeMs - throttledMs`. The same decode with the throttle sleeps taken out. |
+| throttleLevelStart | Throttle level when packet reading started. 0 is full speed, 1 is a player playing, 2 is the player struggling. |
+| throttleYields | How many times the throttle check ran. It runs every 64 packets, including checks that did not sleep. |
+| qos | QoS class name of the analyser thread (`utility` on the queue this ships with, or `userInitiated`, `background`, `default`, `userInteractive`, `unspecified`, `unknown`). |
 
-The per-sample loop uses Accelerate `vDSP`: `vDSP_deq22D` for the two K-weighting biquads,
-`vDSP_svesqD` for channel power, and the convert calls (`vDSP_vspdp`, `vDSP_vflt16D`,
-`vDSP_vflt32D`, `vDSP_vfltu8`) for packet samples. Strides are in elements. The mono mix stays a
-plain ordered add and divide so the fingerprint samples stay bit-identical to the scalar loop.
-Each call gets the exact sample count, including a tail that is not a multiple of 4 or of the
-decimation window. A half-finished decimation window or 100 ms step is kept for the next frame,
-including across the gap between the head and the tail.
+The per-sample loop keeps the original scalar math and runs it with the frame's state in local
+variables, loading each sample through a raw pointer (`UnsafeMutableRawPointer` advanced to the
+sample, then `assumingMemoryBound`). That is the path used for real files. It covers planar and
+interleaved FLT, FLTP, DBL, S16, S32 and U8. An unknown format contributes zeros. A frame with no
+samples is skipped and does not reset the filters, including a format change in the middle of the
+file that carries no samples. A half-finished decimation window or 100 ms step is kept for the
+next frame, including across the gap between the head and the tail.
 
-Fingerprint samples and energy bytes stay bit-identical with the old scalar loop, because that
-mono path is still sequential. K-weighted block power may differ by the biquad rounding:
-absolute `1e-6` or relative `1e-4`, whichever is larger, and integrated loudness within `0.05` LU.
-Intro, credits and recap times come from the fingerprint samples, not from loudness.
+Energy bytes, fingerprint samples and integrated loudness stay bit-identical with the old scalar
+loop, because the mono mix, the direct-form biquads, the 100 ms squares and the decimation run
+in the same order. Intro, credits and recap times come from the fingerprint samples, not from
+loudness.
 
 A debug build can set `MediaAnalyzerSampleLoop.forceScalar = true` and analyse the same file
-again with the old loop. Release builds always use vDSP. `iosApp/MediaAnalyzerSampleLoopTests.swift`
-runs both loops on a synthetic buffer and prints `scalarMs`, `vectorMs` and the speed-up. Those
-numbers come only from a Mac run of that test.
+again with the old per-property loop. Release builds always use the local-state loop.
+`iosApp/MediaAnalyzerSampleLoopTests.swift` runs both loops on a synthetic buffer and on packed
+PCM (stereo FLTP, 5.1 FLTP, S16 interleaved, FLT interleaved 5.1, an odd-sized last frame, and a
+mid-file zero-sample frame) and prints `scalarMs`, `vectorMs` and the speed-up. Those numbers
+come only from a Mac run of that test. There is no Xcode in the cloud build, so that test is not
+executed there.

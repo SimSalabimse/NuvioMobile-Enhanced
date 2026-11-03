@@ -1,4 +1,3 @@
-import Accelerate
 import Foundation
 import Libavcodec
 import Libavutil
@@ -6,21 +5,20 @@ import Libavutil
 /// Per-sample work for one decoded audio file: K-weighted loudness, one RMS byte per 100 ms,
 /// and a boxcar-decimated mono stream for the head and tail fingerprints.
 ///
-/// The vDSP path is the one used for real files. A debug build can set `forceScalar` so the
-/// original scalar loop runs on that same file. `processPlanar` runs either loop on a buffer
-/// the tests own, with no decoder.
+/// Real files take the fast path: the same direct-form biquads and ordered mono mix as the
+/// original scalar loop, with that state kept in local variables for the frame and with each
+/// sample loaded through a raw pointer. A debug build can set `forceScalar` so the original
+/// per-property loop runs on that same file. `processPlanar` and `processPcm` run either loop
+/// on a buffer the tests own, with no decoder.
 ///
-/// Fingerprint samples and energy bytes stay bit-identical with the scalar loop: the mono mix
-/// is an ordered double add, and the decimation and the 100 ms squares are sequential. K-weighted
-/// block power uses `vDSP_deq22D` and `vDSP_svesqD`, which round differently, so loudness is
-/// allowed to differ (see [MediaAnalyzerSampleLoopTolerance]). Intro and credits times come from
-/// the fingerprint samples, not from loudness.
+/// Energy bytes, fingerprint samples and integrated loudness stay bit-identical with the scalar
+/// loop. Intro and credits times come from the fingerprint samples.
 final class MediaAnalyzerSampleLoop {
     static let headWindowMs: Int64 = 10 * 60_000
     static let fingerprintTargetRate = 6000.0
 
-    /// Debug-only switch for timing the old loop against vDSP on one file.
-    /// Release builds ignore this and always use vDSP.
+    /// Debug-only switch for timing the old loop against the fast loop on one file.
+    /// Release builds ignore this and always use the fast loop.
     #if DEBUG
     static var forceScalar = false
     #endif
@@ -57,15 +55,6 @@ final class MediaAnalyzerSampleLoop {
     private var decimSum: Float = 0
     private var decimCount = 0
 
-    private let shelfCoeff: [Double]
-    private let highPassCoeff: [Double]
-    private var shelfDelay: [BiquadDelay]
-    private var highPassDelay: [BiquadDelay]
-    private var filteredPlanes: [[Double]] = []
-    private var monoPlane: [Double] = []
-    private var deqIn: [Double] = []
-    private var deqOut: [Double] = []
-
     var decodedMs: Int64 { sampleIndex * 1000 / Int64(max(1, rate)) }
 
     init(rate: Int, channels: Int, durationMs: Int64, tailStartMs: Int64, headWindowMs: Int64 = MediaAnalyzerSampleLoop.headWindowMs, scalar: Bool = MediaAnalyzerSampleLoop.usesScalarPath) {
@@ -81,10 +70,6 @@ final class MediaAnalyzerSampleLoop {
         let highPass = Biquad.kHighPass(rate: Double(rate))
         shelves = Array(repeating: shelf, count: channels)
         highPasses = Array(repeating: highPass, count: channels)
-        shelfCoeff = [shelf.b0, shelf.b1, shelf.b2, shelf.a1, shelf.a2]
-        highPassCoeff = [highPass.b0, highPass.b1, highPass.b2, highPass.a1, highPass.a2]
-        shelfDelay = Array(repeating: BiquadDelay(), count: channels)
-        highPassDelay = Array(repeating: BiquadDelay(), count: channels)
         // BS.1770 channel weights for 5.1 (L R C LFE Ls Rs): surrounds 1.41, LFE excluded.
         if channels == 6 {
             weights = [1, 1, 1, 0, 1.41, 1.41]
@@ -101,7 +86,7 @@ final class MediaAnalyzerSampleLoop {
         if scalar {
             consumeScalar(frame: frame)
         } else {
-            consumeVector(frame: frame)
+            consumeFast(frame: frame)
         }
     }
 
@@ -119,7 +104,7 @@ final class MediaAnalyzerSampleLoop {
     ) -> MediaAnalyzerSampleLoopOutput {
         let channelCount = planar.count
         let total = planar.map(\.count).min() ?? 0
-        var loop = MediaAnalyzerSampleLoop(
+        let loop = MediaAnalyzerSampleLoop(
             rate: max(1, rate),
             channels: max(1, channelCount),
             durationMs: durationMs,
@@ -136,9 +121,55 @@ final class MediaAnalyzerSampleLoop {
             if scalar {
                 loop.consumeScalar(planar: frame)
             } else {
-                loop.consumeVector(planar: frame)
+                loop.consumeFast(planar: frame)
             }
             offset += count
+        }
+        return loop.output()
+    }
+
+    /// Same loops as [consume], fed with packed PCM instead of an `AVFrame`. A frame whose
+    /// `sampleCount` is 0 is skipped, including a format change that carries no samples.
+    /// A nil plane is a missing `extended_data` pointer and reads as zeros. An unknown format
+    /// reads as zeros.
+    static func processPcm(
+        frames: [MediaAnalyzerPcmFrame],
+        rate: Int,
+        channels: Int,
+        durationMs: Int64,
+        tailStartMs: Int64,
+        scalar: Bool,
+        headWindowMs: Int64 = MediaAnalyzerSampleLoop.headWindowMs
+    ) -> MediaAnalyzerSampleLoopOutput {
+        let loop = MediaAnalyzerSampleLoop(
+            rate: max(1, rate),
+            channels: max(1, channels),
+            durationMs: durationMs,
+            tailStartMs: tailStartMs,
+            headWindowMs: headWindowMs,
+            scalar: scalar
+        )
+        for frame in frames {
+            let frameChannels = min(loop.channels, max(0, frame.channels))
+            Self.withPlaneTable(bytes: frame.planes, slots: max(frame.channels, 1)) { data in
+                if scalar {
+                    loop.consumeScalar(
+                        data: data,
+                        format: frame.avFormat,
+                        planar: frame.planar,
+                        frameChannels: frameChannels,
+                        count: frame.sampleCount
+                    )
+                } else {
+                    loop.consumeFast(
+                        data: data,
+                        format: frame.avFormat,
+                        planar: frame.planar,
+                        frameChannels: frameChannels,
+                        count: frame.sampleCount
+                    )
+                }
+            }
         }
         return loop.output()
     }
@@ -178,6 +209,17 @@ final class MediaAnalyzerSampleLoop {
         let format = AVSampleFormat(rawValue: frame.pointee.format)
         let planar = av_sample_fmt_is_planar(format) != 0
         let frameChannels = min(channels, Int(frame.pointee.ch_layout.nb_channels))
+        consumeScalar(data: data, format: format, planar: planar, frameChannels: frameChannels, count: count)
+    }
+
+    private func consumeScalar(
+        data: UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>,
+        format: AVSampleFormat,
+        planar: Bool,
+        frameChannels: Int,
+        count: Int
+    ) {
+        guard count > 0 else { return }
         let speechChannels = weights.prefix(frameChannels).filter { $0 > 0 }.count
 
         for i in 0..<count {
@@ -234,151 +276,118 @@ final class MediaAnalyzerSampleLoop {
         sampleIndex += 1
     }
 
-    // MARK: - vDSP
+    // MARK: - Fast path (scalar math, locals, raw sample loads)
 
-    private func consumeVector(frame: UnsafeMutablePointer<AVFrame>) {
+    private func consumeFast(frame: UnsafeMutablePointer<AVFrame>) {
         let count = Int(frame.pointee.nb_samples)
         guard count > 0, let data = frame.pointee.extended_data else { return }
         let format = AVSampleFormat(rawValue: frame.pointee.format)
-        let isPlanar = av_sample_fmt_is_planar(format) != 0
+        let planar = av_sample_fmt_is_planar(format) != 0
         let frameChannels = min(channels, Int(frame.pointee.ch_layout.nb_channels))
-        guard frameChannels > 0 else { return }
-        var planar = Array(repeating: [Double](), count: frameChannels)
-        for ch in 0..<frameChannels {
-            let plane = isPlanar ? ch : 0
-            guard let base = data[plane] else {
-                planar[ch] = [Double](repeating: 0, count: count)
-                continue
-            }
-            let stride = isPlanar ? 1 : frameChannels
-            let start = isPlanar ? 0 : ch
-            planar[ch] = Self.convert(base: base, format: format, start: start, stride: stride, count: count)
-        }
-        consumeVector(planar: planar)
+        consumeFast(data: data, format: format, planar: planar, frameChannels: frameChannels, count: count)
     }
 
-    private func consumeVector(planar: [[Double]]) {
-        let frameChannels = min(channels, planar.count)
-        let count = planar.prefix(frameChannels).map(\.count).min() ?? 0
-        guard count > 0, frameChannels > 0 else { return }
-        preparePlanes(count: count, frameChannels: frameChannels)
-
-        for ch in 0..<frameChannels {
-            // Shelf and high-pass cannot share a buffer: the second stage reads the first stage's output.
-            let shelf = apply(source: planar[ch], count: count, coefficients: shelfCoeff, delay: &shelfDelay[ch])
-            let highPassed = apply(source: shelf, count: count, coefficients: highPassCoeff, delay: &highPassDelay[ch])
-            for i in 0..<count {
-                filteredPlanes[ch][i] = highPassed[i]
-            }
-        }
-
-        // Ordered scalar mix, same as the old loop. A vector add/divide can round differently
-        // and would move fingerprint bits. Channel count is at most 8; the biquads are the vDSP work.
-        for i in 0..<count {
-            monoPlane[i] = 0
-        }
-        var speech = 0
-        for ch in 0..<frameChannels where weights[ch] > 0 {
-            let plane = planar[ch]
-            for i in 0..<count {
-                monoPlane[i] += plane[i]
-            }
-            speech += 1
-        }
-        if speech > 1 {
-            let divisor = Double(speech)
-            for i in 0..<count {
-                monoPlane[i] /= divisor
-            }
-        }
-
-        // Step edges only. A step that ends mid-frame has to flush channel power before the next
-        // samples are added. `slice` is the exact remainder, so a length that is not a multiple
-        // of 4 (or of the decimation) is passed through to vDSP as that count, not padded.
-        var offset = 0
-        while offset < count {
-            let slice = min(stepSamples - stepCount, count - offset)
-            guard slice > 0 else { break }
-            for ch in 0..<frameChannels {
-                var sum = 0.0
-                filteredPlanes[ch].withUnsafeBufferPointer { plane in
-                    vDSP_svesqD(plane.baseAddress! + offset, 1, &sum, vDSP_Length(slice))
-                }
-                channelSquares[ch] += sum
-            }
-            for i in 0..<slice {
-                pushMono(monoPlane[offset + i])
-            }
-            offset += slice
+    /// Doubles the tests already decoded. Presented to the fast loop as planar float64 so the
+    /// sample load is the same raw-pointer read real DBLP frames use.
+    private func consumeFast(planar source: [[Double]]) {
+        let frameChannels = min(channels, source.count)
+        let count = source.prefix(frameChannels).map(\.count).min() ?? 0
+        guard count > 0 else { return }
+        var planes = (0..<frameChannels).map { Array(source[$0].prefix(count)) }
+        Self.withDoublePlanes(&planes) { data in
+            consumeFast(data: data, format: AV_SAMPLE_FMT_DBLP, planar: true, frameChannels: frameChannels, count: count)
         }
     }
 
-    /// `vDSP_deq22D` writes [count] new samples.
-    /// Input and output each hold count + 2 values: index 0 and 1 are the previous two
-    /// inputs or outputs (`x[n-2]`, `x[n-1]` and `y[n-2]`, `y[n-1]`).
-    /// Coefficients are `b0, b1, b2, a1, a2` for
-    /// `y[n] = b0*x[n] + b1*x[n-1] + b2*x[n-2] - a1*y[n-1] - a2*y[n-2]`.
-    /// Stride is 1. [count] is the exact number of new samples, including a short tail.
-    private func apply(
-        source: [Double],
-        count: Int,
-        coefficients: [Double],
-        delay: inout BiquadDelay
-    ) -> [Double] {
-        var produced = [Double](repeating: 0, count: count)
-        guard count > 0, coefficients.count == 5 else { return produced }
-        let need = count + 2
-        if deqIn.count < need {
-            deqIn = [Double](repeating: 0, count: need)
-            deqOut = [Double](repeating: 0, count: need)
-        }
-        let limit = min(count, source.count)
-        deqIn[0] = delay.x2
-        deqIn[1] = delay.x1
-        for i in 0..<limit {
-            deqIn[i + 2] = source[i]
-        }
-        if limit < count {
-            for i in limit..<count {
-                deqIn[i + 2] = 0
-            }
-        }
-        deqOut[0] = delay.y2
-        deqOut[1] = delay.y1
-        deqIn.withUnsafeBufferPointer { input in
-            deqOut.withUnsafeMutableBufferPointer { output in
-                coefficients.withUnsafeBufferPointer { coeff in
-                    vDSP_deq22D(
-                        input.baseAddress!,
-                        1,
-                        coeff.baseAddress!,
-                        output.baseAddress!,
-                        1,
-                        vDSP_Length(count)
-                    )
+    /// Same math and order as [consumeScalar], with filter and step state in locals for the frame.
+    private func consumeFast(
+        data: UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>,
+        format: AVSampleFormat,
+        planar: Bool,
+        frameChannels: Int,
+        count: Int
+    ) {
+        guard count > 0 else { return }
+        let speechChannels = weights.prefix(frameChannels).filter { $0 > 0 }.count
+        let divisor = Double(max(1, speechChannels))
+        var sh = shelves
+        var hp = highPasses
+        var sq = channelSquares
+        var stepSq = stepSquares
+        var stepCnt = stepCount
+        var idx = sampleIndex
+        var dSum = decimSum
+        var dCnt = decimCount
+        let headEnd = headEndSample
+        let tailStart = tailStartSample
+        let dec = decimation
+        let stepN = stepSamples
+        // Own storage, so the read pointer is not the class property closeStep reads.
+        var w = weights
+        w.reserveCapacity(w.count + 1)
+        sh.withUnsafeMutableBufferPointer { shp in
+            hp.withUnsafeMutableBufferPointer { hpp in
+                sq.withUnsafeMutableBufferPointer { sqp in
+                    w.withUnsafeBufferPointer { wp in
+                        guard let shelfBase = shp.baseAddress,
+                              let highBase = hpp.baseAddress,
+                              let squareBase = sqp.baseAddress,
+                              let weightBase = wp.baseAddress else { return }
+                        for i in 0..<count {
+                            var mono = 0.0
+                            for ch in 0..<frameChannels {
+                                let value = Self.sampleFast(
+                                    data: data,
+                                    format: format,
+                                    planar: planar,
+                                    channel: ch,
+                                    index: i,
+                                    channels: frameChannels
+                                )
+                                var shelf = shelfBase[ch]
+                                var high = highBase[ch]
+                                let k = high.process(shelf.process(value))
+                                shelfBase[ch] = shelf
+                                highBase[ch] = high
+                                squareBase[ch] += k * k
+                                if weightBase[ch] > 0 { mono += value }
+                            }
+                            mono /= divisor
+                            stepSq += mono * mono
+                            stepCnt += 1
+                            if idx < headEnd || idx >= tailStart {
+                                dSum += Float(mono)
+                                dCnt += 1
+                                if dCnt == dec {
+                                    let value = dSum / Float(dec)
+                                    if idx < headEnd { headSamples.append(value) } else { tailSamples.append(value) }
+                                    dSum = 0
+                                    dCnt = 0
+                                }
+                            }
+                            if stepCnt == stepN {
+                                for c in 0..<sqp.count { channelSquares[c] = squareBase[c] }
+                                stepSquares = stepSq
+                                stepCount = stepCnt
+                                closeStep()
+                                for c in 0..<sqp.count { squareBase[c] = 0 }
+                                stepSq = 0
+                                stepCnt = 0
+                            }
+                            idx += 1
+                        }
+                    }
                 }
             }
         }
-        delay.x2 = deqIn[count]
-        delay.x1 = deqIn[count + 1]
-        delay.y2 = deqOut[count]
-        delay.y1 = deqOut[count + 1]
-        for i in 0..<count {
-            produced[i] = deqOut[i + 2]
-        }
-        return produced
-    }
-
-    private func preparePlanes(count: Int, frameChannels: Int) {
-        if filteredPlanes.count < frameChannels {
-            filteredPlanes.append(contentsOf: repeatElement([Double](), count: frameChannels - filteredPlanes.count))
-        }
-        for ch in 0..<frameChannels where filteredPlanes[ch].count < count {
-            filteredPlanes[ch] = [Double](repeating: 0, count: count)
-        }
-        if monoPlane.count < count {
-            monoPlane = [Double](repeating: 0, count: count)
-        }
+        shelves = sh
+        highPasses = hp
+        channelSquares = sq
+        stepSquares = stepSq
+        stepCount = stepCnt
+        sampleIndex = idx
+        decimSum = dSum
+        decimCount = dCnt
     }
 
     private func closeStep() {
@@ -395,66 +404,39 @@ final class MediaAnalyzerSampleLoop {
         stepCount = 0
     }
 
-    /// Converts [count] samples starting at element [start], stepping by [stride].
-    /// [count] is exact: a tail that is not a multiple of the vector width is included, not dropped.
-    private static func convert(
-        base: UnsafeMutablePointer<UInt8>,
+    /// One sample, loaded without `withMemoryRebound`. [base] is the plane pointer from FFmpeg
+    /// (or an aligned test buffer). The byte offset is applied on a raw pointer, then bound to
+    /// the sample type. Unknown formats are zeros, matching [sample].
+    @inline(__always)
+    private static func sampleFast(
+        data: UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>,
         format: AVSampleFormat,
-        start: Int,
-        stride: Int,
-        count: Int
-    ) -> [Double] {
-        guard count > 0, stride > 0 else { return [] }
-        var dst = [Double](repeating: 0, count: count)
-        let n = vDSP_Length(count)
-        let step = vDSP_Stride(stride)
+        planar: Bool,
+        channel: Int,
+        index: Int,
+        channels: Int
+    ) -> Double {
+        let plane = planar ? channel : 0
+        let offset = planar ? index : index * channels + channel
+        guard let base = data[plane] else { return 0 }
         switch format {
         case AV_SAMPLE_FMT_FLT, AV_SAMPLE_FMT_FLTP:
-            let src = UnsafeMutableRawPointer(base).advanced(by: start * MemoryLayout<Float>.size).assumingMemoryBound(to: Float.self)
-            dst.withUnsafeMutableBufferPointer { out in
-                vDSP_vspdp(src, step, out.baseAddress!, 1, n)
-            }
+            let raw = UnsafeMutableRawPointer(base).advanced(by: offset * MemoryLayout<Float>.stride)
+            return Double(raw.assumingMemoryBound(to: Float.self).pointee)
         case AV_SAMPLE_FMT_DBL, AV_SAMPLE_FMT_DBLP:
-            let src = UnsafeMutableRawPointer(base).advanced(by: start * MemoryLayout<Double>.size).assumingMemoryBound(to: Double.self)
-            var one = 1.0
-            dst.withUnsafeMutableBufferPointer { out in
-                vDSP_vsmulD(src, step, &one, out.baseAddress!, 1, n)
-            }
+            let raw = UnsafeMutableRawPointer(base).advanced(by: offset * MemoryLayout<Double>.stride)
+            return raw.assumingMemoryBound(to: Double.self).pointee
         case AV_SAMPLE_FMT_S16, AV_SAMPLE_FMT_S16P:
-            let src = UnsafeMutableRawPointer(base).advanced(by: start * MemoryLayout<Int16>.size).assumingMemoryBound(to: Int16.self)
-            var scale = 32768.0
-            dst.withUnsafeMutableBufferPointer { out in
-                vDSP_vflt16D(src, step, out.baseAddress!, 1, n)
-                vDSP_vsdivD(out.baseAddress!, 1, &scale, out.baseAddress!, 1, n)
-            }
+            let raw = UnsafeMutableRawPointer(base).advanced(by: offset * MemoryLayout<Int16>.stride)
+            return Double(raw.assumingMemoryBound(to: Int16.self).pointee) / 32768.0
         case AV_SAMPLE_FMT_S32, AV_SAMPLE_FMT_S32P:
-            let src = UnsafeMutableRawPointer(base).advanced(by: start * MemoryLayout<Int32>.size).assumingMemoryBound(to: Int32.self)
-            var scale = 2147483648.0
-            dst.withUnsafeMutableBufferPointer { out in
-                vDSP_vflt32D(src, step, out.baseAddress!, 1, n)
-                vDSP_vsdivD(out.baseAddress!, 1, &scale, out.baseAddress!, 1, n)
-            }
+            let raw = UnsafeMutableRawPointer(base).advanced(by: offset * MemoryLayout<Int32>.stride)
+            return Double(raw.assumingMemoryBound(to: Int32.self).pointee) / 2147483648.0
         case AV_SAMPLE_FMT_U8, AV_SAMPLE_FMT_U8P:
-            // UInt8 -> Float is exact, and Float -> Double is exact, so this matches
-            // (Double(byte) - 128) / 128.
-            var floats = [Float](repeating: 0, count: count)
-            let src = base.advanced(by: start)
-            floats.withUnsafeMutableBufferPointer { floatOut in
-                vDSP_vfltu8(src, step, floatOut.baseAddress!, 1, n)
-            }
-            dst.withUnsafeMutableBufferPointer { out in
-                floats.withUnsafeBufferPointer { floatOut in
-                    vDSP_vspdp(floatOut.baseAddress!, 1, out.baseAddress!, 1, n)
-                }
-                var bias = -128.0
-                vDSP_vsaddD(out.baseAddress!, 1, &bias, out.baseAddress!, 1, n)
-                var scale = 128.0
-                vDSP_vsdivD(out.baseAddress!, 1, &scale, out.baseAddress!, 1, n)
-            }
+            return (Double(base[offset]) - 128.0) / 128.0
         default:
-            break
+            return 0
         }
-        return dst
     }
 
     private static func sample(
@@ -483,6 +465,117 @@ final class MediaAnalyzerSampleLoop {
             return 0
         }
     }
+
+    /// [body] sees an `extended_data` table. Nil entries and empty buffers are null planes.
+    /// Storage is 32-byte aligned so a later `assumingMemoryBound` to Float or Double is valid.
+    /// Pointers are only valid inside [body].
+    private static func withPlaneTable(
+        bytes: [Data?],
+        slots: Int,
+        _ body: (UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>) -> Void
+    ) {
+        let width = max(slots, bytes.count, 1)
+        var held: [AlignedBytes?] = Array(repeating: nil, count: width)
+        for index in 0..<width {
+            guard index < bytes.count, let data = bytes[index], !data.isEmpty else { continue }
+            held[index] = AlignedBytes(copying: data)
+        }
+        var pointers = [UnsafeMutablePointer<UInt8>?](repeating: nil, count: width)
+        for index in 0..<width {
+            pointers[index] = held[index]?.pointer
+        }
+        pointers.withUnsafeMutableBufferPointer { buffer in
+            if let base = buffer.baseAddress {
+                body(base)
+            }
+        }
+    }
+
+    /// Copies each plane into its own 32-byte-aligned buffer, then passes that table to [body].
+    /// Nested `withUnsafeMutableBytes` on `planes` is an overlapping access: the recursive walk
+    /// held one element's bytes while still indexing `planes`. Only [consumeFast(planar:)] uses
+    /// this; decoded frames already have their own pointers. [body]'s pointers die with the
+    /// buffers. Bytes written through them are copied back, so the planes stay what [body] left.
+    private static func withDoublePlanes(
+        _ planes: inout [[Double]],
+        _ body: (UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>) -> Void
+    ) {
+        let width = max(planes.count, 1)
+        let sampleStride = MemoryLayout<Double>.stride
+        var buffers = [UnsafeMutableRawPointer?](repeating: nil, count: width)
+        var byteCounts = [Int](repeating: 0, count: width)
+        defer {
+            for buffer in buffers {
+                buffer?.deallocate()
+            }
+        }
+        for index in 0..<planes.count {
+            let sampleCount = planes[index].count
+            guard sampleCount > 0 else { continue }
+            let byteCount = sampleCount * sampleStride
+            let buffer = UnsafeMutableRawPointer.allocate(byteCount: byteCount, alignment: 32)
+            buffer.initializeMemory(as: UInt8.self, repeating: 0, count: byteCount)
+            buffers[index] = buffer
+            byteCounts[index] = byteCount
+            planes[index].withUnsafeBytes { src in
+                guard let base = src.baseAddress, src.count > 0 else { return }
+                buffer.copyMemory(from: base, byteCount: min(src.count, byteCount))
+            }
+        }
+        var pointers: [UnsafeMutablePointer<UInt8>?] = buffers.map { raw in
+            raw?.assumingMemoryBound(to: UInt8.self)
+        }
+        pointers.withUnsafeMutableBufferPointer { table in
+            if let base = table.baseAddress {
+                body(base)
+            }
+        }
+        for index in 0..<planes.count {
+            guard let buffer = buffers[index], byteCounts[index] > 0 else { continue }
+            let byteCount = byteCounts[index]
+            planes[index].withUnsafeMutableBytes { dst in
+                guard let base = dst.baseAddress, dst.count > 0 else { return }
+                UnsafeMutableRawPointer(base).copyMemory(from: buffer, byteCount: min(dst.count, byteCount))
+            }
+        }
+    }
+}
+
+/// Packed PCM for [MediaAnalyzerSampleLoop.processPcm]. One entry is one decoded frame.
+struct MediaAnalyzerPcmFrame {
+    enum Format {
+        case float32
+        case float64
+        case int16
+        case int32
+        case uint8
+        case unknown
+    }
+
+    var format: Format
+    /// Planar: `planes[channel]` holds `sampleCount` native-endian samples.
+    /// Interleaved: `planes[0]` holds `sampleCount * channels` samples.
+    var planar: Bool
+    var channels: Int
+    var sampleCount: Int
+    /// A nil plane matches a null `extended_data` entry and reads as zeros.
+    var planes: [Data?]
+
+    fileprivate var avFormat: AVSampleFormat {
+        switch (format, planar) {
+        case (.float32, false): return AV_SAMPLE_FMT_FLT
+        case (.float32, true): return AV_SAMPLE_FMT_FLTP
+        case (.float64, false): return AV_SAMPLE_FMT_DBL
+        case (.float64, true): return AV_SAMPLE_FMT_DBLP
+        case (.int16, false): return AV_SAMPLE_FMT_S16
+        case (.int16, true): return AV_SAMPLE_FMT_S16P
+        case (.int32, false): return AV_SAMPLE_FMT_S32
+        case (.int32, true): return AV_SAMPLE_FMT_S32P
+        case (.uint8, false): return AV_SAMPLE_FMT_U8
+        case (.uint8, true): return AV_SAMPLE_FMT_U8P
+        case (.unknown, _): return AVSampleFormat(rawValue: -1)
+        }
+    }
 }
 
 struct MediaAnalyzerSampleLoopOutput {
@@ -493,21 +586,14 @@ struct MediaAnalyzerSampleLoopOutput {
     var integratedLufs: Double?
 }
 
-/// How close the vDSP loop stays to the scalar loop.
-/// Fingerprint samples and energy bytes are exact. Block power and loudness use the K-weighting
-/// filters, where `vDSP_deq22D` rounds differently from the scalar direct form.
+/// How close an older vector path stayed to the scalar loop.
+/// The fast path matches the scalar loop exactly, including loudness. These ceilings remain so a
+/// comparison can still allow the margin that path used.
 enum MediaAnalyzerSampleLoopTolerance {
     static let blockPowerAbsolute = 1e-6
     static let blockPowerRelative = 1e-4
     /// LU. Downstream intro, credits and recap times do not use loudness.
     static let loudnessLu = 0.05
-}
-
-private struct BiquadDelay {
-    var x1 = 0.0
-    var x2 = 0.0
-    var y1 = 0.0
-    var y2 = 0.0
 }
 
 private struct Biquad {
@@ -543,5 +629,32 @@ private struct Biquad {
         let k = tan(Double.pi * f0 / rate)
         let a0 = 1.0 + k / q + k * k
         return Biquad(b0: 1.0, b1: -2.0, b2: 1.0, a1: 2.0 * (k * k - 1.0) / a0, a2: (1.0 - k / q + k * k) / a0)
+    }
+}
+
+/// 32-byte aligned copy of a PCM plane. FFmpeg frame planes are aligned; `[UInt8]` is not.
+private final class AlignedBytes {
+    private let raw: UnsafeMutableRawPointer
+    private let size: Int
+
+    init(copying data: Data) {
+        size = data.count
+        raw = UnsafeMutableRawPointer.allocate(byteCount: max(size, 1), alignment: 32)
+        raw.initializeMemory(as: UInt8.self, repeating: 0, count: max(size, 1))
+        if size > 0 {
+            data.withUnsafeBytes { src in
+                if let base = src.baseAddress {
+                    raw.copyMemory(from: base, byteCount: size)
+                }
+            }
+        }
+    }
+
+    deinit {
+        raw.deallocate()
+    }
+
+    var pointer: UnsafeMutablePointer<UInt8> {
+        raw.assumingMemoryBound(to: UInt8.self)
     }
 }

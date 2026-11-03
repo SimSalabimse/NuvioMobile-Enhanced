@@ -32,6 +32,14 @@ internal data class RawMediaAnalysis(
     val decodeMs: Long = 0L,
     val sampleLoopMs: Long = 0L,
     val fingerprintMs: Long = 0L,
+    /** Milliseconds spent sleeping in the analysis throttle. Included in [decodeMs]. */
+    val throttledMs: Long = 0L,
+    /** Throttle level when packet reading started. 0 full speed, 1 playing, 2 struggling. */
+    val throttleLevelStart: Int = 0,
+    /** How many times the throttle check ran during the decode. */
+    val throttleYields: Int = 0,
+    /** Analyser thread QoS class name. Empty when the platform did not report one. */
+    val qos: String = "",
 )
 
 internal fun RawMediaAnalysis.toStoredResult(
@@ -419,6 +427,12 @@ internal object MediaAnalysisScheduler {
             MediaAnalysisStatus.recordFailure(item, "The analyser returned unreadable data")
             return null
         }
+        // Taken while `raw` is in scope. The timings log below uses these locals, so a merge
+        // that narrows the `raw` block does not leave `raw.throttledMs` unresolved.
+        val throttledMs = raw.throttledMs.coerceAtLeast(0L)
+        val throttleLevelStart = raw.throttleLevelStart
+        val throttleYields = raw.throttleYields.coerceAtLeast(0)
+        val qos = raw.qos
         val key = MediaAnalysisStore.keyFor(item)
         var result = raw.toStoredResult(
             key = key,
@@ -490,6 +504,10 @@ internal object MediaAnalysisScheduler {
                 fingerprintMs = raw.fingerprintMs.coerceAtLeast(0L),
                 matchMs = matchMs.coerceAtLeast(0L),
                 totalMs = started.elapsedNow().inWholeMilliseconds.coerceAtLeast(0L),
+                throttledMs = throttledMs,
+                throttleLevelStart = throttleLevelStart,
+                throttleYields = throttleYields,
+                qos = qos,
             ),
         )
         return result
