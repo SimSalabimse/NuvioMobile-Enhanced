@@ -1,15 +1,23 @@
 import Foundation
+import UIKit
 
 final class DiagnosticsManager {
     static let shared = DiagnosticsManager()
     
     private let fileURL: URL
+    private let fileLog: DiagnosticsFileLogWriter
     private let queue = DispatchQueue(label: "tv.nuvio.diagnostics", qos: .utility)
     private let maxFileSize: Int = 4 * 1024 * 1024
+    private var lifecycleObservers: [NSObjectProtocol] = []
     
     private init() {
         let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        fileURL = documentsPath.appendingPathComponent("diagnostics.jsonl")
+        let url = documentsPath.appendingPathComponent("diagnostics.jsonl")
+        fileURL = url
+        fileLog = DiagnosticsFileLogWriter(
+            appender: DiagnosticsFileAppender(fileURL: url),
+            freeBytes: { DiagnosticsDiskSpace.importantUsageFreeBytes(at: url) }
+        )
         
         checkForCrash()
     }
@@ -41,7 +49,6 @@ final class DiagnosticsManager {
             guard let jsonLine = entry.toJSONLine() else { return }
             
             self.appendLine(jsonLine)
-            self.rotateIfNeeded()
         }
     }
     
@@ -123,31 +130,53 @@ final class DiagnosticsManager {
     }
     
     private func checkForCrash() {
-        let crashMarkerKey = "NuvioDiagnosticsCrashMarker"
-        
-        if UserDefaults.standard.bool(forKey: crashMarkerKey) {
+        let defaults = UserDefaults.standard
+        let wasSet = defaults.bool(forKey: DiagnosticsCrashMarker.storageKey)
+        let markerDecision = DiagnosticsCrashMarker.markerAfterLaunch(
+            markerWasSet: wasSet,
+            alreadyInBackground: applicationState() == .background
+        )
+        defaults.set(markerDecision.markerSet, forKey: DiagnosticsCrashMarker.storageKey)
+
+        if markerDecision.logUncleanTermination {
             log(category: .crash, message: "App did not terminate cleanly on previous launch (possible crash)")
         }
-        
-        UserDefaults.standard.set(true, forKey: crashMarkerKey)
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-            UserDefaults.standard.set(false, forKey: crashMarkerKey)
+
+        let center = NotificationCenter.default
+        let namesAndSignals: [(Notification.Name, DiagnosticsProcessSignal)] = [
+            (UIApplication.didEnterBackgroundNotification, .enteredBackground),
+            (UIApplication.willTerminateNotification, .willTerminate),
+            (UIApplication.didBecomeActiveNotification, .becameActive),
+        ]
+        for (name, signal) in namesAndSignals {
+            lifecycleObservers.append(
+                center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    self?.applyCrashSignal(signal)
+                }
+            )
         }
+    }
+
+    private func applyCrashSignal(_ signal: DiagnosticsProcessSignal) {
+        let defaults = UserDefaults.standard
+        let markerDecision = DiagnosticsCrashMarker.decisionAfter(
+            markerWasSet: defaults.bool(forKey: DiagnosticsCrashMarker.storageKey),
+            signal: signal
+        )
+        defaults.set(markerDecision.markerSet, forKey: DiagnosticsCrashMarker.storageKey)
+    }
+
+    private func applicationState() -> UIApplication.State {
+        let readState = { UIApplication.shared.applicationState }
+        if Thread.isMainThread {
+            return readState()
+        }
+        return DispatchQueue.main.sync(execute: readState)
     }
     
     private func appendLine(_ line: String) {
-        let data = (line + "\n").data(using: .utf8)!
-        
-        if FileManager.default.fileExists(atPath: fileURL.path) {
-            if let fileHandle = try? FileHandle(forWritingTo: fileURL) {
-                fileHandle.seekToEndOfFile()
-                fileHandle.write(data)
-                try? fileHandle.close()
-            }
-        } else {
-            try? data.write(to: fileURL, options: .atomic)
-        }
+        guard fileLog.append(line: line) else { return }
+        rotateIfNeeded()
     }
     
     private func rotateIfNeeded() {
