@@ -2,6 +2,7 @@ package com.nuvio.app.features.downloads
 
 import android.app.Application
 import android.content.Context
+import com.nuvio.app.features.analysis.ANALYSIS_MAX_ATTEMPTS
 import com.nuvio.app.features.analysis.MediaAnalysisResult
 import com.nuvio.app.features.analysis.MediaAnalysisSettings
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
@@ -145,6 +146,68 @@ class HoldDownloadForIntroAnalysisTest {
         assertFalse(smartDownloadsDefersToPendingDeletion())
         FinishedDownloadDeletion.analysisSettled(stored.id)
         assertTrue(DownloadsRepository.uiState.value.items.isEmpty())
+    }
+
+    @Test
+    fun twentyNineMinutesUnpluggedStaysHeld() {
+        val stored = seedEpisode()
+        DownloadsSettingsRepository.setDeleteWhenFinished(true)
+        FinishedDownloadDeletion.deletionAnalyserSupported = true
+        FinishedDownloadDeletion.deletionOnlyWhileCharging = { true }
+        FinishedDownloadDeletion.deletionDeviceCharging = { false }
+        finishPlayback(stored)
+        nowMs += 29L * 60L * 1000L
+        FinishedDownloadDeletion.reevaluateHeldDeletion()
+        assertEquals(stored.id, DownloadsRepository.uiState.value.items.single().id)
+        assertTrue(FinishedDownloadDeletion.hasPendingDeletion())
+    }
+
+    @Test
+    fun chargingLetsAnalysisFinishThenDeletes() {
+        val stored = seedEpisode()
+        DownloadsSettingsRepository.setDeleteWhenFinished(true)
+        FinishedDownloadDeletion.deletionAnalyserSupported = true
+        FinishedDownloadDeletion.deletionOnlyWhileCharging = { true }
+        FinishedDownloadDeletion.deletionDeviceCharging = { false }
+        finishPlayback(stored)
+        assertTrue(FinishedDownloadDeletion.hasPendingDeletion())
+
+        FinishedDownloadDeletion.deletionDeviceCharging = { true }
+        FinishedDownloadDeletion.reevaluateHeldDeletion()
+        assertEquals(stored.id, DownloadsRepository.uiState.value.items.single().id)
+
+        FinishedDownloadDeletion.deletionStoredAnalysis = { fingerprint() }
+        FinishedDownloadDeletion.analysisSettled(stored.id)
+        assertTrue(DownloadsRepository.uiState.value.items.isEmpty())
+        assertFalse(videoFile().exists())
+    }
+
+    @Test
+    fun thirtyMinutesOfEligibleWaitDeletes() {
+        val stored = seedEpisode()
+        DownloadsSettingsRepository.setDeleteWhenFinished(true)
+        FinishedDownloadDeletion.deletionAnalyserSupported = true
+        FinishedDownloadDeletion.deletionOnlyWhileCharging = { true }
+        FinishedDownloadDeletion.deletionDeviceCharging = { true }
+        finishPlayback(stored)
+        nowMs += ANALYSIS_HOLD_CAP_MS
+        FinishedDownloadDeletion.reevaluateHeldDeletion()
+        assertTrue(DownloadsRepository.uiState.value.items.isEmpty())
+        assertFalse(videoFile().exists())
+        assertFalse(FinishedDownloadDeletion.hasPendingDeletion())
+    }
+
+    @Test
+    fun exhaustedAttemptsReleaseTheHold() {
+        val stored = seedEpisode()
+        DownloadsSettingsRepository.setDeleteWhenFinished(true)
+        FinishedDownloadDeletion.deletionAnalyserSupported = true
+        FinishedDownloadDeletion.deletionStoredAnalysis = {
+            fingerprint().copy(headFingerprint = null, tailFingerprint = null, analysisAttempts = ANALYSIS_MAX_ATTEMPTS)
+        }
+        finishPlayback(stored)
+        assertTrue(DownloadsRepository.uiState.value.items.isEmpty())
+        assertFalse(FinishedDownloadDeletion.hasPendingDeletion())
     }
 
     @Test

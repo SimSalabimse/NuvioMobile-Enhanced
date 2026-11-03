@@ -506,9 +506,13 @@ internal object SmartDownloads {
     /** Why automatic downloads can't start now, or null when they can. */
     private fun waitReason(): String? {
         val settings = SmartDownloadSettings.snapshot()
-        if (settings.onlyOnWifi && !DownloadNetworkGuard.isOnWifi()) return "Waiting for Wi-Fi (Settings > Downloads > Only on Wi-Fi)"
-        if (settings.onlyWhileCharging && !MediaAnalyzerPlatform.isCharging()) return "Waiting for charging"
-        return null
+        return smartDownloadWaitReason(
+            onlyOnWifi = settings.onlyOnWifi,
+            onWifi = DownloadNetworkGuard.isOnWifi(),
+            onlyWhileCharging = settings.onlyWhileCharging,
+            charging = MediaAnalyzerPlatform.isCharging(),
+            analyserSupported = MediaAnalyzerPlatform.supported,
+        )
     }
 
     private suspend fun runPending() {
@@ -840,6 +844,23 @@ internal fun installedAddonNames(): Set<String> =
     AddonRepository.uiState.value.addons.enabledAddons()
         .mapNotNull { addon -> addon.manifest?.let { addon.displayTitle.ifBlank { it.name } } }
         .toSet()
+
+/**
+ * Why automatic downloads wait, or null when they can start.
+ * The charger switch is ignored when this device has no on-device analyser: its charging
+ * flag stays false, and downloads would otherwise wait forever.
+ */
+internal fun smartDownloadWaitReason(
+    onlyOnWifi: Boolean,
+    onWifi: Boolean,
+    onlyWhileCharging: Boolean,
+    charging: Boolean,
+    analyserSupported: Boolean,
+): String? {
+    if (onlyOnWifi && !onWifi) return "Waiting for Wi-Fi (Settings > Downloads > Only on Wi-Fi)"
+    if (onlyWhileCharging && analyserSupported && !charging) return "Waiting for charging"
+    return null
+}
 
 private fun smartDownloadsQueuedMessage(count: Int, title: String): String =
     if (count == 1) "Smart downloads: next episode of $title is downloading"
