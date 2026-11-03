@@ -8,6 +8,7 @@ import platform.darwin.dispatch_sync
 
 internal actual object PlatformOfflineOutboxDisk : OfflineOutboxDisk {
     private const val documentKey = "offline_account_outbox"
+    private const val badDocumentKey = "offline_account_outbox.bad"
 
     actual override fun read(): String? =
         NSUserDefaults.standardUserDefaults.stringForKey(documentKey)
@@ -15,6 +16,15 @@ internal actual object PlatformOfflineOutboxDisk : OfflineOutboxDisk {
     actual override fun write(payload: String) {
         val defaults = NSUserDefaults.standardUserDefaults
         defaults.setObject(payload, forKey = documentKey)
+        defaults.synchronize()
+    }
+
+    override fun readBad(): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(badDocumentKey)
+
+    override fun writeBad(payload: String) {
+        val defaults = NSUserDefaults.standardUserDefaults
+        defaults.setObject(payload, forKey = badDocumentKey)
         defaults.synchronize()
     }
 }

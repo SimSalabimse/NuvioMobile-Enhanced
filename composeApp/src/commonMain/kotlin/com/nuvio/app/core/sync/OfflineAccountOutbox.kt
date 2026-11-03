@@ -4,6 +4,14 @@ import com.nuvio.app.features.library.LibraryItem
 import com.nuvio.app.features.watched.WatchedItem
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.longOrNull
 
 internal enum class OfflineOutboxKind {
     WatchedMark,
@@ -320,6 +328,96 @@ internal fun offlineOutboxDocument(outbox: OfflineOutbox): OfflineOutboxDocument
 
 internal fun offlineOutboxFromDocument(document: OfflineOutboxDocument): OfflineOutbox =
     OfflineOutbox(entries = document.entries, nextSequence = document.nextSequence)
+
+internal data class DecodedOfflineOutbox(
+    val outbox: OfflineOutbox,
+    val documentFailed: Boolean,
+    val documentError: String?,
+    val entryFailures: List<String>,
+)
+
+/** Error class plus message, with the raw payload and credential-like values left out. */
+internal fun offlineOutboxLogDetail(error: Throwable): String {
+    val type = error::class.simpleName ?: "Throwable"
+    val message = error.message
+        ?.substringBefore("JSON input:")
+        ?.replace(Regex("\\s+"), " ")
+        ?.replace(
+            Regex("(?i)\\b(bearer|token|authorization|password|secret)\\b(\\s*[:=]\\s*)(\\S+)"),
+            "$1$2<redacted>",
+        )
+        ?.trim()
+        .orEmpty()
+        .take(180)
+    return if (message.isEmpty()) type else "$type: $message"
+}
+
+/**
+ * Decodes each saved entry on its own. One unknown value keeps the other entries,
+ * and [documentFailed] means the surrounding text could not be read as an outbox.
+ */
+internal fun decodeOfflineOutboxText(raw: String, json: Json): DecodedOfflineOutbox {
+    val root = try {
+        json.parseToJsonElement(raw)
+    } catch (error: Throwable) {
+        return failedOfflineOutboxDocument(error)
+    }
+    val obj = root as? JsonObject
+        ?: return failedOfflineOutboxDocument(IllegalArgumentException("outbox root is not an object"))
+    val entriesElement = obj["entries"]
+    if (entriesElement != null && entriesElement !is JsonArray) {
+        return failedOfflineOutboxDocument(IllegalArgumentException("entries is not an array"))
+    }
+    val entries = mutableListOf<OfflineOutboxEntry>()
+    val entryFailures = mutableListOf<String>()
+    (entriesElement as? JsonArray).orEmpty().forEach { element ->
+        try {
+            entries += json.decodeFromJsonElement(OfflineOutboxEntry.serializer(), element)
+        } catch (error: Throwable) {
+            entryFailures += offlineOutboxLogDetail(error)
+        }
+    }
+    val sequence = readOfflineOutboxNextSequence(obj["nextSequence"], entries)
+    return DecodedOfflineOutbox(
+        outbox = OfflineOutbox(entries = entries, nextSequence = sequence.value),
+        documentFailed = sequence.failed,
+        documentError = sequence.error,
+        entryFailures = entryFailures,
+    )
+}
+
+private fun failedOfflineOutboxDocument(error: Throwable): DecodedOfflineOutbox =
+    DecodedOfflineOutbox(
+        outbox = OfflineOutbox(),
+        documentFailed = true,
+        documentError = offlineOutboxLogDetail(error),
+        entryFailures = emptyList(),
+    )
+
+private data class OfflineOutboxSequenceRead(
+    val value: Long,
+    val failed: Boolean,
+    val error: String?,
+)
+
+private fun readOfflineOutboxNextSequence(
+    element: JsonElement?,
+    entries: List<OfflineOutboxEntry>,
+): OfflineOutboxSequenceRead {
+    val fallback = (entries.maxOfOrNull { it.sequence } ?: 0L) + 1L
+    if (element == null) {
+        return OfflineOutboxSequenceRead(value = maxOf(1L, fallback), failed = false, error = null)
+    }
+    val number = (element as? JsonPrimitive)?.longOrNull
+    if (element !is JsonNull && number != null) {
+        return OfflineOutboxSequenceRead(value = maxOf(number, fallback), failed = false, error = null)
+    }
+    return OfflineOutboxSequenceRead(
+        value = maxOf(1L, fallback),
+        failed = true,
+        error = offlineOutboxLogDetail(IllegalArgumentException("nextSequence is not a number")),
+    )
+}
 
 private fun flushOrder(): Comparator<OfflineOutboxEntry> =
     compareBy({ it.kind.ordinal }, { it.profileId }, { it.sequence })
