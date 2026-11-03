@@ -120,6 +120,7 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - Long-press menus, the details page, and watched or unwatched toggles work offline for a saved or downloaded title: Home, Continue Watching, Library, downloaded movies and episodes, and a series page whose details or episode list is saved. Streams, trailers, remote search, and account-list sync stay disabled until the connection is back. An offline watched change shows at once and is kept in the account outbox.
 - Coming back online fades the offline banner out over the screen, so the lists do not jump. Home stays on the downloads page until saved catalogs are on screen. Search, Discover, and Catalog keep the rows already showing while they refresh. Queued account edits send in the background with no toast. Reduce Motion snaps the fade.
 - The offline account outbox is written to disk before the edit call returns, so the last change is still there if the app is killed.
+- A saved account outbox this version cannot decode keeps its original text on the device. Entries that still decode are sent. Decode and send failures are written to the in-app debug log.
 - One offline sync entry that fails three times is held aside; the other queued entries still send.
 - In-app rating can be turned off per profile: Settings › Account › Tracking. Upstream 0.6.3.
 - Discord Rich Presence: Settings › Account. Upstream 0.6.3. Login on iOS and the Keychain token are in 0.6.5.1 from the fork.
