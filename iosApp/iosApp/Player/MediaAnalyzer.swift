@@ -162,7 +162,8 @@ private final class ThumbnailSheetBuilder {
             let last = min(count, first + perSheet)
             for index in first..<last {
                 if abort.isSet { removeSheets(upTo: sheet); return nil }
-                MediaAnalyzerThrottle.yield(abort: abort)
+                // No measured work window: keep the 25 ms floor while a video is playing.
+                MediaAnalyzerThrottle.yield(abort: abort, workedNs: 0)
                 MediaAnalyzerStatus.shared.set(Double(index) / Double(count))
                 let positionMs = min(durationMs - 1000, Int64(index) * intervalMs + intervalMs / 2)
                 let image: UIImage? = autoreleasepool {
@@ -257,6 +258,9 @@ private final class MediaAnalysisRun {
     }
 
     func run() -> String? {
+        // Drop back to the queue's utility class when this job ends, including on failure,
+        // so a later thumbnail on the same thread is not left elevated.
+        defer { MediaAnalyzerQosName.restoreUtility() }
         let path: String
         if let url = URL(string: fileUri), url.isFileURL { path = url.path } else { path = fileUri }
         // Monotonic. Date() can jump; uptime does not.
@@ -331,17 +335,24 @@ private final class MediaAnalysisRun {
 
         var packetsSinceProgress = 0
         var packetsSinceThrottle = 0
-        // The queue is created at utility. Read the thread here, once packet reading starts.
+        // The queue is created at utility. Raise it only when no player session is open, then
+        // read the thread so the timings line matches the class actually applied.
+        MediaAnalyzerQosName.applyForCurrentSession()
         let qos = MediaAnalyzerQosName.current()
         let throttleLevelStart = MediaAnalyzerThrottle.currentLevel()
+        var sliceStartedNs = DispatchTime.now().uptimeNanoseconds
         while !abort.isSet {
-            // Playback comes first (PlaybackPriority in the shared code): while the player is open
-            // the decode runs in small slices with short sleeps, and holds while it buffers.
+            // Playback comes first (PlaybackPriority in the shared code): while a video is
+            // actually playing the decode sleeps at least as much as before. A pause, the end,
+            // or no player session does not sleep. QoS follows the session on each slice.
+            MediaAnalyzerQosName.applyForCurrentSession()
             packetsSinceThrottle += 1
-            if packetsSinceThrottle >= 64 {
+            if packetsSinceThrottle >= MediaAnalyzerThrottle.packetsPerCheck {
                 packetsSinceThrottle = 0
+                let workedNs = DispatchTime.now().uptimeNanoseconds &- sliceStartedNs
                 throttleYields += 1
-                throttledNs &+= MediaAnalyzerThrottle.yield(abort: abort)
+                throttledNs &+= MediaAnalyzerThrottle.yield(abort: abort, workedNs: workedNs)
+                sliceStartedNs = DispatchTime.now().uptimeNanoseconds
             }
             let read = av_read_frame(context, packet)
             if read < 0 { break }
@@ -601,30 +612,67 @@ enum NuvioMediaAnalyzerRegistration {
 }
 
 
-/// Set from Kotlin (setAnalysisThrottleLevel): 0 full speed, 1 playing, 2 the player is buffering.
+/// Set from Kotlin (setAnalysisThrottleLevel): 0 full speed, 1 a video is playing, 2 the player is buffering.
+///
+/// While a video is actually playing, one check sleeps at least [playingSleepFloorUs] (the previous
+/// fixed 25 ms every [packetsPerCheck] packets). If that slice of work was longer than
+/// [playingWorkBudgetMs], the sleep grows by [playingSleepPerBudgetMs] per budget window, so the
+/// analyser is never hotter during playback than it was before. A shorter slice keeps the floor.
+/// Level 0 (no player, or playback paused or ended) does not sleep. Level 2 is unchanged.
 private enum MediaAnalyzerThrottle {
     private static let key = "NuvioAnalysisThrottleLevel"
+
+    /// Packets between throttle checks. Same slice as the previous loop.
+    static let packetsPerCheck = 64
+    /// Minimum sleep while a video is playing, once per [packetsPerCheck]. The old fixed sleep.
+    static let playingSleepFloorUs: useconds_t = 25_000
+    /// Work window that can earn extra sleep while a video is playing.
+    static let playingWorkBudgetMs: UInt64 = 20
+    /// Extra sleep per [playingWorkBudgetMs] of work, used only when it exceeds the floor.
+    /// 25 ms of sleep per 20 ms of work. Not 5 ms: that duty cycle would be hotter than the floor
+    /// on a short slice, and a playing video must not get a hotter analyser than before.
+    static let playingSleepPerBudgetMs: UInt64 = 25
+    /// Unchanged hold while the player is struggling (level 2).
+    static let strainedSleepUs: useconds_t = 250_000
+    /// Unchanged cap so a level that is never cleared cannot stall the queue (about a minute).
+    static let strainedMaxWaits = 240
 
     static func currentLevel() -> Int {
         UserDefaults.standard.integer(forKey: key)
     }
 
-    /// Sleeps when a player session is holding the analyser back.
-    /// Returns the nanoseconds spent inside those sleeps (0 when the level does not sleep).
-    static func yield(abort: MediaAnalyzerAbortFlag) -> UInt64 {
+    /// Sleeps when a playing or struggling player is holding the analyser back.
+    /// [workedNs] is the time since the previous check, not including that check's sleep.
+    /// Returns the nanoseconds spent inside the sleeps (0 when the level does not sleep).
+    static func yield(abort: MediaAnalyzerAbortFlag, workedNs: UInt64) -> UInt64 {
         var sleptNs: UInt64 = 0
         var level = currentLevel()
         if level == 1 {
-            sleptNs &+= measuredSleep(25_000)
+            sleptNs &+= sleepPlaying(workedNs: workedNs, abort: abort)
             return sleptNs
         }
         // Hold while the player struggles, but never for more than a minute at a time, so a level
         // that is never cleared cannot stall the queue.
         var waited = 0
-        while level >= 2 && !abort.isSet && waited < 240 {
-            sleptNs &+= measuredSleep(250_000)
+        while level >= 2 && !abort.isSet && waited < strainedMaxWaits {
+            sleptNs &+= measuredSleep(strainedSleepUs)
             waited += 1
             level = currentLevel()
+        }
+        return sleptNs
+    }
+
+    /// At least the old 25 ms. Longer work sleeps more, in slices `usleep` is known to honour.
+    private static func sleepPlaying(workedNs: UInt64, abort: MediaAnalyzerAbortFlag) -> UInt64 {
+        let workedMs = workedNs / 1_000_000
+        let budgetMs = workedMs * playingSleepPerBudgetMs / playingWorkBudgetMs
+        let floorMs = UInt64(playingSleepFloorUs) / 1_000
+        var remainingUs = max(floorMs, budgetMs) * 1_000
+        var sleptNs: UInt64 = 0
+        while remainingUs > 0 && !abort.isSet {
+            let slice = useconds_t(min(remainingUs, UInt64(strainedSleepUs)))
+            sleptNs &+= measuredSleep(slice)
+            remainingUs -= UInt64(slice)
         }
         return sleptNs
     }
@@ -636,8 +684,26 @@ private enum MediaAnalyzerThrottle {
     }
 }
 
-/// QoS class name of the analyser thread, for the timings line (`utility`, `userInitiated`, ...).
+/// Analyser-thread QoS. The queue is created at utility. The thread is raised to userInitiated
+/// only while no player session is open (`NuvioAnalysisPlayerSessionOpen`), and put back when one is.
 private enum MediaAnalyzerQosName {
+    private static let sessionKey = "NuvioAnalysisPlayerSessionOpen"
+    private static var lastApplied: qos_class_t = QOS_CLASS_UNSPECIFIED
+
+    static func applyForCurrentSession() {
+        let target: qos_class_t = sessionOpen() ? QOS_CLASS_UTILITY : QOS_CLASS_USER_INITIATED
+        guard target != lastApplied else { return }
+        if pthread_set_qos_class_self_np(target, 0) == 0 {
+            lastApplied = target
+        }
+    }
+
+    static func restoreUtility() {
+        if pthread_set_qos_class_self_np(QOS_CLASS_UTILITY, 0) == 0 {
+            lastApplied = QOS_CLASS_UTILITY
+        }
+    }
+
     static func current() -> String {
         let klass = qos_class_self()
         if klass == QOS_CLASS_USER_INTERACTIVE { return "userInteractive" }
@@ -647,5 +713,9 @@ private enum MediaAnalyzerQosName {
         if klass == QOS_CLASS_BACKGROUND { return "background" }
         if klass == QOS_CLASS_UNSPECIFIED { return "unspecified" }
         return "unknown"
+    }
+
+    private static func sessionOpen() -> Bool {
+        UserDefaults.standard.bool(forKey: sessionKey)
     }
 }

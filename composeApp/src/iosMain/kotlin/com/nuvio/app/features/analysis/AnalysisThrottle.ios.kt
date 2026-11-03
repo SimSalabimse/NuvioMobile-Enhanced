@@ -6,3 +6,8 @@ import platform.Foundation.NSUserDefaults
 internal actual fun setAnalysisThrottleLevel(level: Int) {
     NSUserDefaults.standardUserDefaults.setInteger(level.toLong(), forKey = "NuvioAnalysisThrottleLevel")
 }
+
+/** Read by MediaAnalyzer.swift to choose the analyser thread QoS. */
+internal actual fun setAnalysisPlayerSessionOpen(open: Boolean) {
+    NSUserDefaults.standardUserDefaults.setBool(open, forKey = "NuvioAnalysisPlayerSessionOpen")
+}

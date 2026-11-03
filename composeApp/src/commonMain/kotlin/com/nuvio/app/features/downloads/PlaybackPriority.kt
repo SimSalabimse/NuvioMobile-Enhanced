@@ -1,13 +1,16 @@
 package com.nuvio.app.features.downloads
 
 import com.nuvio.app.core.logging.InAppLogger
+import com.nuvio.app.features.analysis.setAnalysisPlayerSessionOpen
 import com.nuvio.app.features.analysis.setAnalysisThrottleLevel
 
 /**
  * Playback first, then downloads, then on-device analysis. Throttles rather than stops:
  *
  * - [Level.Normal]: no player, or it has been paused for [PAUSED_RELEASE_MS]. Full speed.
- * - [Level.Playing]: one download at a time, analysis keeps going in small slices with sleeps.
+ * - [Level.Playing]: one download at a time. While the video is actually playing, analysis
+ *   keeps going in small slices with sleeps. A pause or the end of playback does not sleep analysis.
+ *   Downloads still use this level's cap until [PAUSED_RELEASE_MS].
  * - [Level.Strained]: the player stalled mid-playback (a local file read at ~150 kB/s with two
  *   downloads writing and the analyser decoding is how this was found): waiting for data for
  *   [STRAIN_AFTER_MS] at the spot it was playing. Downloads wait and analysis pauses until
@@ -39,6 +42,8 @@ internal object PlaybackPriority {
     private var playedSinceLoad = false
     private var lastPositionMs = -1L
     private var lastTickMs = 0L
+    /** Last level written to the platform, so a playing snapshot does not rewrite it every tick. */
+    private var appliedAnalysisThrottle = 0
 
     fun sessionStarted(isLocalFile: Boolean) {
         sessionOpen = true
@@ -48,6 +53,7 @@ internal object PlaybackPriority {
         playedSinceLoad = false
         lastPositionMs = -1L
         lastTickMs = 0L
+        setAnalysisPlayerSessionOpen(true)
         InAppLogger.info("PlaybackPriority", "player opened local=$isLocalFile")
         apply(Level.Playing, always = true)
     }
@@ -70,6 +76,9 @@ internal object PlaybackPriority {
         if (!wantsToPlay) {
             bufferingSinceMs = 0L
             if (pausedSinceMs == 0L) pausedSinceMs = nowMs
+            // The video is not playing. Analysis stops sleeping immediately. Download cap is unchanged
+            // until the pause has lasted [PAUSED_RELEASE_MS].
+            publishAnalysisThrottle(videoPlaying = false)
             if (level != Level.Normal && nowMs - pausedSinceMs >= PAUSED_RELEASE_MS) {
                 InAppLogger.info("PlaybackPriority", "paused for a while, background work at full speed")
                 apply(Level.Normal)
@@ -98,7 +107,7 @@ internal object PlaybackPriority {
         when (level) {
             Level.Normal -> apply(Level.Playing)
             Level.Strained -> if (nowMs - lastStrainMs >= STRAIN_COOL_DOWN_MS) apply(Level.Playing)
-            Level.Playing -> Unit
+            Level.Playing -> publishAnalysisThrottle(videoPlaying = true)
         }
     }
 
@@ -108,11 +117,12 @@ internal object PlaybackPriority {
 
     fun boostAnalysis(on: Boolean) {
         analysisBoosted = on
-        setAnalysisThrottleLevel(if (on) 0 else level.analysisThrottle)
+        publishAnalysisThrottle(videoPlaying = sessionOpen && pausedSinceMs == 0L)
     }
 
     fun sessionEnded() {
         analysisBoosted = false
+        setAnalysisPlayerSessionOpen(false)
         if (!sessionOpen) return
         sessionOpen = false
         InAppLogger.info("PlaybackPriority", "player closed")
@@ -131,10 +141,43 @@ internal object PlaybackPriority {
     private fun apply(next: Level, always: Boolean = false) {
         if (level == next && !always) return
         level = next
-        setAnalysisThrottleLevel(if (analysisBoosted) 0 else next.analysisThrottle)
+        publishAnalysisThrottle(videoPlaying = sessionOpen && pausedSinceMs == 0L)
         InAppLogger.info("PlaybackPriority", "level=$next downloads allowed=${downloadCap()}")
         reapplyDownloadCap()
         // Make sure queued analysis is running (throttled) rather than left waiting.
         if (next != Level.Strained) com.nuvio.app.features.analysis.MediaAnalysisScheduler.kick()
     }
+
+    private fun publishAnalysisThrottle(videoPlaying: Boolean) {
+        val next = analysisThrottleLevel(level, videoPlaying = videoPlaying, boosted = analysisBoosted)
+        if (next == appliedAnalysisThrottle) return
+        appliedAnalysisThrottle = next
+        setAnalysisThrottleLevel(next)
+    }
+
+    /** Process start: drop a session flag or throttle left behind by a player in an earlier run. */
+    fun clearStaleSession() {
+        sessionOpen = false
+        analysisBoosted = false
+        pausedSinceMs = 0L
+        level = Level.Normal
+        appliedAnalysisThrottle = 0
+        setAnalysisPlayerSessionOpen(false)
+        setAnalysisThrottleLevel(0)
+    }
+}
+
+/**
+ * Analysis throttle while [level] is the download/playback level.
+ * 0 is full speed, 1 is the playing slice, 2 holds while the player is struggling.
+ * A video that is not actually playing (no session, paused, or ended) does not sleep analysis.
+ * [Level.Strained] still holds, but only while [videoPlaying] is true.
+ */
+internal fun analysisThrottleLevel(
+    level: PlaybackPriority.Level,
+    videoPlaying: Boolean,
+    boosted: Boolean,
+): Int {
+    if (boosted || !videoPlaying) return 0
+    return level.analysisThrottle
 }
