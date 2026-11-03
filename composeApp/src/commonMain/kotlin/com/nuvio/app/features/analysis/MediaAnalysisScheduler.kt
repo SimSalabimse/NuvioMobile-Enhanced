@@ -575,6 +575,10 @@ internal object MediaAnalysisScheduler {
         var fingerprintMs = 0L
         var rawChapters: List<RawChapter> = emptyList()
         var rawChaptersMs = 0L
+        var throttledMs = 0L
+        var throttleLevelStart = 0
+        var throttleYields = 0
+        var qos = ""
         val key = MediaAnalysisStore.keyFor(item)
         val previous = already ?: MediaAnalysisStore.load(key)
         var result = if (already != null && already.fileName == item.fileName && already.hasStoredFingerprint()) {
@@ -604,6 +608,10 @@ internal object MediaAnalysisScheduler {
             fingerprintMs = raw.fingerprintMs
             rawChapters = raw.chapters
             rawChaptersMs = raw.chaptersMs
+            throttledMs = raw.throttledMs
+            throttleLevelStart = raw.throttleLevelStart
+            throttleYields = raw.throttleYields
+            qos = raw.qos
             MediaAnalysisResult(
                 key = key,
                 analyzedAtMs = com.nuvio.app.features.streams.epochMs(),
@@ -699,10 +707,10 @@ internal object MediaAnalysisScheduler {
                 totalMs = started.elapsedNow().inWholeMilliseconds.coerceAtLeast(0L),
                 chaptersMs = chaptersMs.coerceAtLeast(0L),
                 chapterSource = chapterSource,
-                throttledMs = raw.throttledMs.coerceAtLeast(0L),
-                throttleLevelStart = raw.throttleLevelStart,
-                throttleYields = raw.throttleYields.coerceAtLeast(0),
-                qos = raw.qos,
+                throttledMs = throttledMs.coerceAtLeast(0L),
+                throttleLevelStart = throttleLevelStart,
+                throttleYields = throttleYields.coerceAtLeast(0),
+                qos = qos,
             ),
         )
         return AudioPass(result, clipUnavailable = clipUnavailable)

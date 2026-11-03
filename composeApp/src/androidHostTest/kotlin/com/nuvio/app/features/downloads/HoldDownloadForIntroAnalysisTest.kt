@@ -72,14 +72,16 @@ class HoldDownloadForIntroAnalysisTest {
     }
 
     @Test
-    fun smartDownloadsAloneHoldTheSameWay() {
+    fun smartDownloadsAloneNeitherDeleteNorHold() {
         val stored = seedEpisode()
         DownloadsSettingsRepository.setDeleteWhenFinished(false)
         SmartDownloadSettings.setEnabled(true)
         FinishedDownloadDeletion.deletionAnalyserSupported = true
         finishPlayback(stored)
         assertEquals(stored.id, DownloadsRepository.uiState.value.items.single().id)
-        assertTrue(smartDownloadsDefersToPendingDeletion())
+        assertTrue(videoFile().isFile)
+        assertFalse(FinishedDownloadDeletion.hasPendingDeletion())
+        assertFalse(smartDownloadsDefersToPendingDeletion())
     }
 
     @Test
