@@ -89,6 +89,39 @@ internal fun playerFlagHome(useLegacyLayout: Boolean, submitAvailable: Boolean):
     else -> PlayerFlagHome.TopPill
 }
 
+internal enum class PlayerFlagEntry {
+    LegacyHeader,
+    TopPill,
+    FoldRow,
+}
+
+/**
+ * The one Flag that may be on screen. The bottom-bar Submit button and the mark-segment
+ * icon open the same panel, so they are never entries. Portrait does not add another.
+ */
+@Suppress("UNUSED_PARAMETER")
+internal fun visiblePlayerFlagEntries(
+    legacy: Boolean,
+    folded: Boolean,
+    portrait: Boolean,
+    submitAvailable: Boolean,
+    toolsOpen: Boolean,
+    submitBarOpen: Boolean,
+    controlsShown: Boolean,
+    bottomSubmitPinned: Boolean,
+): List<PlayerFlagEntry> {
+    if (!submitAvailable) return emptyList()
+    if (toolsOpen && !submitBarOpen) return emptyList()
+    if (!controlsShown && !submitBarOpen) return emptyList()
+    return listOf(
+        when {
+            folded -> PlayerFlagEntry.FoldRow
+            legacy -> PlayerFlagEntry.LegacyHeader
+            else -> PlayerFlagEntry.TopPill
+        },
+    )
+}
+
 internal enum class PlayerToolbarSlot {
     Download,
     PictureInPicture,
@@ -241,7 +274,6 @@ internal fun PlayerControlActions(
     onVideoSettingsClick: (() -> Unit)?,
     onOpenInExternalPlayer: (() -> Unit)?,
     onStreamInfoClick: () -> Unit,
-    onSubmitIntroClick: (() -> Unit)? = null,
     qualityLabel: String? = null,
     onQualityClick: (() -> Unit)? = null,
     onSwitchEngineClick: (() -> Unit)? = null,
@@ -249,7 +281,6 @@ internal fun PlayerControlActions(
     onRateClick: (() -> Unit)? = null,
     userRating: Int? = null,
     onInteraction: () -> Unit,
-    onMarkSegmentClick: (() -> Unit)? = null,
     onLiveChannelsClick: (() -> Unit)? = null,
 ) {
     val playerSettings by PlayerSettingsRepository.uiState.collectAsState()
@@ -342,12 +373,6 @@ internal fun PlayerControlActions(
                 icon = Icons.Rounded.Build,
             )
         }
-        onSubmitIntroClick?.let {
-            this[PlayerToolbarButton.SUBMIT_INTRO] = PlayerControlAction(
-                stringResource(Res.string.submit_intro_action), it,
-                icon = Icons.Rounded.Flag,
-            )
-        }
     }
     val toolbarLayout = playerSettings.toolbarLayout
     val primaryActions = toolbarLayout.visibleButtons.mapNotNull(availableActions::get)
@@ -359,9 +384,6 @@ internal fun PlayerControlActions(
         if (expanded) scrollState.animateScrollTo(scrollState.maxValue) else scrollState.scrollTo(0)
     }
     val extraActions = listOfNotNull(
-        onMarkSegmentClick?.let {
-            PlayerControlAction(stringResource(Res.string.player_tools_mark_segment), it, icon = Icons.Rounded.Flag)
-        },
         onLiveChannelsClick?.let {
             PlayerControlAction(stringResource(Res.string.compose_player_channels), it, icon = Icons.Rounded.Tv)
         },

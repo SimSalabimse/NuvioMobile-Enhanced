@@ -22,7 +22,8 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - Player controls fade out instead of disappearing at once. Upstream 0.6.4.
 - External player app (sends subtitles and intro/outro times): Settings › Playback › Player. Upstream.
 - Seek bar thumbnails: Settings › Playback; downloads use on-device scrub previews. 0.5.10.2. The fork's faster thumbnail path is in 0.6.5.1.
-- Player buttons: Settings › Playback › Player buttons. Choose which buttons stay on the bar, which sit behind the arrow, and their order. 0.6.5.1 from the fork. Mark segment and Live TV stay on the bar as extra icons. The arrow grows that row.
+- Player buttons: Settings › Playback › Player buttons. Choose which buttons stay on the bar, which sit behind the arrow, and their order. 0.6.5.1 from the fork. Live TV stays on the bar as an extra icon. The arrow grows that row.
+- The player shows one Flag button: the top pill, the legacy header, or the fold row. The bottom-bar Flag and the mark-segment Flag opened the same submit bar, so they are not shown.
 - While Sleep or Speed is open, the title, version and episode fade out and the seek bar stays put.
 - Show Chapters applies to every engine, with marks on the seek bar and a chapters list. The settings row is hidden on iOS; the saved value is kept. 0.6.5.1 from the fork.
 - Pinch to zoom shows a zoom icon while the picture scales. 0.6.5.1 from the fork.
