@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -1120,9 +1121,9 @@ fun HomeScreen(
                             targetState = showHeroSkeleton,
                             modifier = homeColumnMotion(reconnectMotion)
                                 .fillMaxWidth()
-                                .height(maxHeight * reveal)
-                                .clipToBounds()
                                 .graphicsLayer { alpha = reveal }
+                                .clipToBounds()
+                                .homeHeroGrowSlot(reveal, maxHeight)
                                 .nuvioHorizontalScrollBleed(LocalVerticalBarPadding.current),
                             animationSpec = if (reconnectMotion.snap) snap() else tween(reconnectMotion.durationMs),
                             label = "HomeHeroLoading",
@@ -1471,6 +1472,31 @@ private fun LazyListScope.homeContinueWatchingSections(
         }
     }
 }
+
+/**
+ * Reports [homeHeroSlotHeightDp] as the item height. The artwork is measured at its own height
+ * and placed at the top, so a slot taller than the artwork is empty space above the next row.
+ * While the slot is still shorter than the artwork, [clipToBounds] keeps the overflow hidden.
+ */
+private fun Modifier.homeHeroGrowSlot(reveal: Float, viewportHeight: Dp): Modifier =
+    layout { measurable, constraints ->
+        val placeable = measurable.measure(constraints.copy(minHeight = 0))
+        val contentDp = placeable.height.toDp().value
+        val slotDp = homeHeroSlotHeightDp(
+            viewportHeightDp = viewportHeight.value,
+            heroContentHeightDp = contentDp,
+            heroReveal = reveal,
+        )
+        // Same pixel height when the slot is the artwork, so pull-to-stretch is not rounded off.
+        val slotPx = if (kotlin.math.abs(slotDp - contentDp) < 0.5f) {
+            placeable.height
+        } else {
+            slotDp.dp.roundToPx().coerceAtLeast(0)
+        }
+        layout(placeable.width, slotPx) {
+            placeable.place(0, 0)
+        }
+    }
 
 private fun LazyItemScope.homeColumnMotion(motion: HomeReconnectMotion): Modifier {
     val fade = if (motion.snap) snap() else tween<Float>(motion.durationMs)
