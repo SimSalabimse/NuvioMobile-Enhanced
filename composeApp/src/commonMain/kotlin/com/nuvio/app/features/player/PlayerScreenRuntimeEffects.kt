@@ -28,6 +28,7 @@ import com.nuvio.app.features.player.skip.NextEpisodeInfo
 import com.nuvio.app.features.player.skip.PlayerNextEpisodeRules
 import com.nuvio.app.features.player.skip.SkipIntroRepository
 import com.nuvio.app.features.player.skip.SkipInterval
+import com.nuvio.app.features.player.skip.SkipUndo
 import com.nuvio.app.features.player.skip.shouldAutoSkip
 import com.nuvio.app.features.player.skip.internalSkipAction
 import com.nuvio.app.features.player.skip.intervalsAtSeekPositions
@@ -745,14 +746,17 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                 // The pre-roll only reveals the button; auto-skip waits for the segment itself.
                 positionSec >= current.startTime &&
                 current.shouldAutoSkip(autoSkipTypes) &&
-                current !in autoSkippedIntervals
+                current !in autoSkippedIntervals &&
+                !SkipUndo.blocksAutoSkip(skipUndo, positionMs)
             ) {
                 val durationMs = playbackSnapshot.durationMs
                 val rawMs = current.internalSkipAction(skipIntervals, durationMs)?.targetMs ?: return@collect
                 val seekPositionMs = if (durationMs > 0L) rawMs.coerceAtMost(durationMs - 1) else rawMs
                 val notification = current.autoSkipNotificationMessage(seekPositionMs)
                 autoSkippedIntervals.add(current)
-                com.nuvio.app.features.stats.WatchStats.recordSkip(seekPositionMs - (positionSec * 1000).toLong())
+                val fromMs = (positionSec * 1000).toLong()
+                com.nuvio.app.features.stats.WatchStats.recordSkip(seekPositionMs - fromMs)
+                offerSkipUndo(fromMs, seekPositionMs - fromMs, current)
                 noteSeek()
                 controller.seekTo(seekPositionMs)
                 scheduleProgressSyncAfterSeek()
@@ -911,6 +915,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
             showMovieRecommendationCard = stage > movieRecommendationDismissedStage
         }
     }
+    BindSkipUndoEffects()
 }
 
 private fun PlayerScreenRuntime.buildNowPlayingInfo(): PlayerNowPlayingInfo {
