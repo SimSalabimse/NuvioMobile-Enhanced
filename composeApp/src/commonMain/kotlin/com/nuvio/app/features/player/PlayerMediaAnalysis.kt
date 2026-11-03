@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.isIos
 import com.nuvio.app.features.addons.httpGetTextWithHeaders
 import com.nuvio.app.features.analysis.MediaAnalysisResult
 import com.nuvio.app.features.analysis.MediaAnalysisSettings
@@ -89,6 +90,31 @@ internal fun PlayerScreenRuntime.onDeviceSkipIntervals(): List<SkipInterval> {
     }
     return out
 }
+
+/**
+ * Segment ids whose times come from this app's own analysis: intro, recap, or credits
+ * (including a time learned from another episode). A type the person marked is left out,
+ * because that mark is theirs to submit. Preview is never produced by the analysis.
+ * Empty when there is no stored analysis.
+ */
+internal fun segmentTypesSyncedByAnalysis(result: MediaAnalysisResult?): Set<String> {
+    if (result == null) return emptySet()
+    val marked = result.userSegments.keys
+    return buildSet {
+        if ("intro" !in marked && result.hasAnalysedRange(result.introStartMs, result.introEndMs)) add("intro")
+        if ("recap" !in marked && result.hasAnalysedRange(result.recapStartMs, result.recapEndMs)) add("recap")
+        if ("outro" !in marked && result.hasAnalysedRange(result.creditsStartMs, result.creditsEndMs)) add("outro")
+    }
+}
+
+private fun MediaAnalysisResult.hasAnalysedRange(startMs: Long?, endMs: Long?): Boolean =
+    startMs != null && endMs != null && endMs > startMs
+
+/**
+ * Types the submit bar may mark Auto synced. Android only: iOS keeps the bar as it is.
+ */
+internal fun PlayerScreenRuntime.autoSyncedSubmitTypes(): Set<String> =
+    if (isIos) emptySet() else segmentTypesSyncedByAnalysis(episodeSkipAnalysis())
 
 /** Segments the user marked or confirmed for the episode on screen (streamed or downloaded). */
 internal fun PlayerScreenRuntime.userMarkedSkipIntervals(): List<SkipInterval> =

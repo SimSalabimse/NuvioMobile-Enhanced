@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -66,6 +67,7 @@ import com.nuvio.app.core.ui.nuvio
 import kotlinx.coroutines.withTimeoutOrNull
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_close
+import nuvio.composeapp.generated.resources.autosync_label_synced
 import nuvio.composeapp.generated.resources.action_done
 import nuvio.composeapp.generated.resources.player_tools_clock_empty
 import nuvio.composeapp.generated.resources.player_tools_clock_value
@@ -220,6 +222,7 @@ internal fun SegmentMarkingLayer(
     onRunsToEnd: () -> Unit = {},
     onPreview: () -> Unit = {},
     onCopyLink: () -> Unit = {},
+    autoSyncedTypes: Set<String> = emptySet(),
     modifier: Modifier = Modifier,
 ) {
     val range = markRangeStatus(segmentType, startSec, endSec, durationSec.takeIf { it > 0.0 })
@@ -326,6 +329,13 @@ internal fun SegmentMarkingLayer(
                     hPad = hPad,
                     onSegment = onSegment,
                 )
+                if (markSegmentId(segmentType) in autoSyncedTypes) {
+                    AutoSyncedMarkChip(
+                        chipHeight = chipHeight.dp,
+                        labelSize = labelSize,
+                        hPad = hPad,
+                    )
+                }
                 if (!absent) {
                     ClockChip(
                         title = stringResource(Res.string.submit_intro_start_short),
@@ -529,6 +539,47 @@ private fun SegmentTabs(
                 }
             }
         }
+    }
+}
+
+/**
+ * Static status for a segment type this app's analysis already has.
+ * It does not move, so Reduce Motion has nothing new to follow.
+ */
+@Composable
+private fun AutoSyncedMarkChip(
+    chipHeight: Dp,
+    labelSize: androidx.compose.ui.unit.TextUnit,
+    hPad: Dp,
+) {
+    val label = stringResource(Res.string.autosync_label_synced)
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        modifier = Modifier
+            .height(chipHeight)
+            .clip(shape)
+            .background(Color.White.copy(alpha = 0.10f))
+            .semantics(mergeDescendants = true) {
+                contentDescription = label
+            }
+            .padding(horizontal = hPad),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.Sync,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(12.dp),
+        )
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = labelSize,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            softWrap = false,
+        )
     }
 }
 
