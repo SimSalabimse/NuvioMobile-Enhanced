@@ -64,6 +64,9 @@ import nuvio.composeapp.generated.resources.streams_pinned_source
 import nuvio.composeapp.generated.resources.streams_refresh
 import nuvio.composeapp.generated.resources.streams_unpin_source
 import org.jetbrains.compose.resources.stringResource
+import com.nuvio.app.core.a11y.LongPressSite
+import com.nuvio.app.core.a11y.installLongPressAccessibility
+import com.nuvio.app.core.a11y.sourcePinLongPressActions
 import com.nuvio.app.core.ui.glass.ambientLiquidGlass
 
 @Composable
@@ -86,12 +89,14 @@ internal fun ProviderFilterRow(
     var pinSheetTarget by remember { mutableStateOf<PinTarget?>(null) }
     val chip: @Composable (AddonStreamGroup?, Boolean, () -> Unit) -> Unit =
         filterChip ?: { group, isSelected, onClick ->
+            val pinTarget = group?.soleSourcePin()
             FilterChip(
                 label = group?.addonName ?: stringResource(Res.string.collections_tab_all),
                 isSelected = isSelected,
-                isPinned = group != null && group.soleSourcePin()?.key in pinnedSourceIds,
+                isPinned = pinTarget?.key in pinnedSourceIds,
                 onClick = onClick,
                 onLongClick = group?.let { pinnedGroup -> { pinSheetTarget = pinnedGroup.soleSourcePin() } },
+                exposeLongPress = pinTarget != null,
             )
         }
     LaunchedEffect(addonGroups, selectedFilter) {
@@ -248,6 +253,7 @@ private fun FilterChip(
     isPinned: Boolean = false,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
+    exposeLongPress: Boolean = false,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -294,6 +300,20 @@ private fun FilterChip(
                 indication = null,
                 onClick = onClick,
                 onLongClick = onLongClick,
+            )
+            .then(
+                if (exposeLongPress && onLongClick != null) {
+                    Modifier.installLongPressAccessibility(
+                        sourcePinLongPressActions(
+                            site = LongPressSite.ProviderFilterChip,
+                            enabled = true,
+                            pinned = isPinned,
+                        ),
+                        onLongClick,
+                    )
+                } else {
+                    Modifier
+                },
             )
             .padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center,

@@ -1848,6 +1848,11 @@
     </plurals>
     <string name="downloads_group_cancel_message">This stops every download of %1$s and deletes their partial files.</string>
     <string name="downloads_season_cancel">Cancel season</string>
+    <string name="a11y_reanalyze">Re-analyze</string>
+    <string name="a11y_mark_watched_up_to_here">Mark watched up to here</string>
+    <string name="a11y_library_lists">Library lists</string>
+    <string name="a11y_subtitle_decrease">Decrease</string>
+    <string name="a11y_subtitle_increase">Increase</string>
     <string name="downloads_not_enough_space">Not enough space</string>
     <string name="downloads_storage_title">Storage</string>
     <string name="downloads_storage_nuvio">Nuvio %1$s</string>

@@ -1,5 +1,6 @@
 package com.nuvio.app.features.home.components
 
+import com.nuvio.app.core.a11y.posterShelfLongPressActions
 import com.nuvio.app.features.settings.ThemeSettingsRepository
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
@@ -138,6 +139,12 @@ private fun PosterGridTile(
                     onLongClick = onLongClick,
                     zoomImageUrl = item.poster,
                     zoomCornerRadius = cornerRadiusDp.dp,
+                    longPressActions = posterShelfLongPressActions(
+                        id = item.id,
+                        type = item.type,
+                        watched = isWatched,
+                        enabled = onLongClick != null,
+                    ),
                 ),
         ) {
             if (item.poster != null) {

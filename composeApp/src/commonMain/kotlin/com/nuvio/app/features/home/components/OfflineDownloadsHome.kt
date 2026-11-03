@@ -1,5 +1,10 @@
 package com.nuvio.app.features.home.components
 
+import com.nuvio.app.core.a11y.LongPressSite
+import com.nuvio.app.core.a11y.continueWatchingLongPressActions
+import com.nuvio.app.core.a11y.installLongPressAccessibility
+import com.nuvio.app.core.a11y.offlineTitleLongPressActions
+import com.nuvio.app.features.watched.WatchedRepository
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.offline_home_open_downloads
 import nuvio.composeapp.generated.resources.offline_home_show_home
@@ -50,8 +55,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -223,8 +230,24 @@ private fun PosterTile(
     onLongClick: () -> Unit,
 ) {
     val colors = MaterialTheme.nuvio.colors
+    val sample = title.movie ?: title.episodes.firstOrNull()
+    val longPressActions = if (sample == null) {
+        emptyList()
+    } else {
+        offlineTitleLongPressActions(
+            id = sample.parentMetaId,
+            type = sample.parentMetaType.ifBlank { if (sample.isEpisode) "series" else "movie" },
+            watched = WatchedRepository.isWatched(
+                id = sample.parentMetaId,
+                type = sample.parentMetaType.ifBlank { if (sample.isEpisode) "series" else "movie" },
+            ),
+            enabled = true,
+        )
+    }
     Column(
-        modifier = modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        modifier = modifier
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .installLongPressAccessibility(longPressActions, onLongClick),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Box(
@@ -270,6 +293,16 @@ private fun ResumeCard(
 ) {
     val colors = MaterialTheme.nuvio.colors
     val needsConnection = stringResource(Res.string.offline_home_needs_connection, entry.title)
+    val resumeItem = entry.toContinueWatchingItem()
+    val longPressActions = if (resumeItem == null) {
+        emptyList()
+    } else {
+        continueWatchingLongPressActions(
+            item = resumeItem,
+            enabled = true,
+            site = LongPressSite.OfflineHomeResume,
+        )
+    }
     val cardModifier = Modifier
         .width(220.dp)
         .alpha(if (entry.dimmed) 0.4f else 1f)
@@ -279,9 +312,17 @@ private fun ResumeCard(
         )
         .then(
             if (entry.tappable) {
-                Modifier
+                Modifier.installLongPressAccessibility(longPressActions, onLongClick)
             } else {
-                Modifier.clearAndSetSemantics { contentDescription = needsConnection }
+                Modifier.clearAndSetSemantics {
+                    contentDescription = needsConnection
+                    customActions = longPressActions.map { action ->
+                        CustomAccessibilityAction(action.label) {
+                            onLongClick()
+                            true
+                        }
+                    }
+                }
             },
         )
     Column(modifier = cardModifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {

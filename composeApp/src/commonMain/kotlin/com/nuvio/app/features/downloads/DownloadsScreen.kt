@@ -4,6 +4,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import org.jetbrains.compose.resources.pluralStringResource
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.asPaddingValues
+import com.nuvio.app.core.a11y.LongPressSite
+import com.nuvio.app.core.a11y.downloadsLongPressActions
+import com.nuvio.app.core.a11y.installLongPressAccessibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -356,6 +359,7 @@ private fun LazyListScope.downloadsRootContent(
                         onLongPress = unfinishedSeasonGroup(uiState.items, entry.item)?.let { group ->
                             { onCancelSeasonGroup(group) }
                         },
+                        longPressSite = LongPressSite.DownloadsActiveRow,
                     )
                 }
                 is ActiveDownloadEntry.Season -> {
@@ -381,6 +385,7 @@ private fun LazyListScope.downloadsRootContent(
                                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                                 onDelete = { onDeleteDownload(item.id) },
                                 onLongPress = { onCancelSeasonGroup(group) },
+                                longPressSite = LongPressSite.DownloadsActiveRow,
                             )
                         }
                     }
@@ -405,6 +410,7 @@ private fun LazyListScope.downloadsRootContent(
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                 onDelete = { onDeleteDownload(item.id) },
                 onLongPress = { onReanalyze(ReanalyzeTarget(item.title, listOf(item.id))) },
+                longPressSite = LongPressSite.DownloadsCompletedItem,
             )
         }
     }
@@ -417,13 +423,18 @@ private fun LazyListScope.downloadsRootContent(
             items = completedShows,
             key = { (item, _) -> item.parentMetaId },
         ) { (item, episodes) ->
+            val reanalyzeShow = { onReanalyze(ReanalyzeTarget(item.title, episodes.map { it.id })) }
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 6.dp)
                     .combinedClickable(
                         onClick = { onOpenShow(item.parentMetaId, item.title) },
-                        onLongClick = { onReanalyze(ReanalyzeTarget(item.title, episodes.map { it.id })) },
+                        onLongClick = reanalyzeShow,
+                    )
+                    .installLongPressAccessibility(
+                        downloadsLongPressActions(LongPressSite.DownloadsCompletedShow, enabled = true),
+                        reanalyzeShow,
                     ),
                 shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.surfaceContainer,
@@ -637,6 +648,11 @@ private fun LazyListScope.downloadsShowContent(
                 } else {
                     null
                 },
+                longPressSite = if (item.status == DownloadStatus.Completed) {
+                    LongPressSite.DownloadsCompletedItem
+                } else {
+                    LongPressSite.DownloadsActiveRow
+                },
             )
         }
     }
@@ -652,8 +668,13 @@ private fun DownloadRow(
     onRetry: () -> Unit,
     onDelete: () -> Unit,
     onLongPress: (() -> Unit)? = null,
+    longPressSite: LongPressSite? = null,
 ) {
     val displayTitle = item.displayTitle()
+    val longPressActions = downloadsLongPressActions(
+        site = longPressSite ?: LongPressSite.DownloadsCompletedItem,
+        enabled = onLongPress != null && longPressSite != null,
+    )
     val displaySubtitle = downloadDisplaySubtitle(
         item = item,
         displayTitle = displayTitle,
@@ -665,10 +686,12 @@ private fun DownloadRow(
             .padding(horizontal = 12.dp, vertical = 6.dp)
             .then(
                 if (onLongPress != null) {
-                    Modifier.combinedClickable(
-                        onClick = { if (item.isPlayable) onOpen() },
-                        onLongClick = onLongPress,
-                    )
+                    Modifier
+                        .combinedClickable(
+                            onClick = { if (item.isPlayable) onOpen() },
+                            onLongClick = onLongPress,
+                        )
+                        .installLongPressAccessibility(longPressActions, onLongPress)
                 } else {
                     Modifier.clickable(enabled = item.isPlayable, onClick = onOpen)
                 },
