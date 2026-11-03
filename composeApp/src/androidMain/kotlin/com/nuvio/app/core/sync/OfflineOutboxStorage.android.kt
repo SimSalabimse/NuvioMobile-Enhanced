@@ -9,6 +9,7 @@ import kotlin.concurrent.thread
 internal actual object PlatformOfflineOutboxDisk : OfflineOutboxDisk {
     private const val preferencesName = "nuvio_offline_outbox"
     private const val documentKey = "offline_account_outbox"
+    private const val badDocumentKey = "offline_account_outbox.bad"
 
     private var preferences: SharedPreferences? = null
 
@@ -22,6 +23,15 @@ internal actual object PlatformOfflineOutboxDisk : OfflineOutboxDisk {
     actual override fun write(payload: String) {
         val editor = preferences?.edit() ?: return
         editor.putString(documentKey, payload)
+        editor.commit()
+    }
+
+    override fun readBad(): String? =
+        preferences?.getString(badDocumentKey, null)
+
+    override fun writeBad(payload: String) {
+        val editor = preferences?.edit() ?: return
+        editor.putString(badDocumentKey, payload)
         editor.commit()
     }
 }

@@ -2,6 +2,7 @@ package com.nuvio.app.core.sync
 
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
+import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.perf.PlaybackQuietMode
 import com.nuvio.app.core.startup.ConnectivityRegainDebounceMs
@@ -39,6 +40,11 @@ internal fun accountSyncIsOffline(): Boolean =
 internal interface OfflineOutboxDisk {
     fun read(): String?
     fun write(payload: String)
+
+    /** Raw text kept when a saved outbox cannot be decoded. One copy. */
+    fun readBad(): String? = null
+
+    fun writeBad(payload: String) {}
 }
 
 internal fun interface OfflineAccountTransport {
@@ -107,6 +113,8 @@ internal fun libraryOutboxEntry(
 }
 
 internal object OfflineAccountFlush {
+    private const val OfflineOutboxLogTag = "Sync/OfflineOutbox"
+
     private val lock = SynchronizedObject()
     private val job = SupervisorJob()
     private val scope = CoroutineScope(job + Dispatchers.Default)
@@ -252,6 +260,7 @@ internal object OfflineAccountFlush {
             outbox = noteSendFailed(outbox, id)
             outbox.entries.firstOrNull { it.id == id }
         }
+        logHeldAfterMaxRetries(attempt)
         persistAsync()
         val held = attempt?.state == OfflineOutboxEntryState.HeldForNextEdge
         if (scheduleRetry && !held && attempt != null && online() && accountReady()) {
@@ -274,6 +283,16 @@ internal object OfflineAccountFlush {
     }
 
     fun snapshot(): OfflineOutbox = synchronized(lock) { outbox }
+
+    /** Test hook. Drops the in-memory queue and reads whatever the disk currently has. */
+    internal fun reloadFromDiskForTest() {
+        synchronized(lock) {
+            loaded = false
+            outbox = OfflineOutbox()
+            suppressedIds.clear()
+        }
+        ensureLoaded()
+    }
 
     suspend fun persistNow() {
         writeSnapshot()
@@ -331,7 +350,11 @@ internal object OfflineAccountFlush {
         if (loaded) return
         val raw = try {
             disk.read()
-        } catch (_: Throwable) {
+        } catch (error: Throwable) {
+            InAppLogger.error(
+                OfflineOutboxLogTag,
+                "outbox read failed error=${offlineOutboxLogDetail(error)}",
+            )
             null
         }
         synchronized(lock) {
@@ -339,21 +362,66 @@ internal object OfflineAccountFlush {
             val recovered = if (raw.isNullOrBlank()) {
                 OfflineOutbox()
             } else {
-                try {
-                    recoverOfflineOutbox(
-                        offlineOutboxFromDocument(
-                            json.decodeFromString(OfflineOutboxDocument.serializer(), raw),
-                        ),
-                    )
-                } catch (_: Throwable) {
-                    OfflineOutbox()
+                val decoded = decodeOfflineOutboxText(raw, json)
+                if (decoded.documentFailed || decoded.entryFailures.isNotEmpty()) {
+                    preserveBadCopy(raw)
+                    if (decoded.documentFailed) {
+                        InAppLogger.error(
+                            OfflineOutboxLogTag,
+                            "outbox decode failed error=${decoded.documentError}",
+                        )
+                    }
+                    decoded.entryFailures.forEach { detail ->
+                        InAppLogger.error(
+                            OfflineOutboxLogTag,
+                            "outbox entry decode failed error=$detail",
+                        )
+                    }
                 }
+                recoverOfflineOutbox(decoded.outbox)
             }
             val merged = mergeLoadedOutbox(recovered, outbox)
             outbox = merged.copy(entries = merged.entries.filterNot { it.id in suppressedIds })
             suppressedIds.clear()
             loaded = true
         }
+    }
+
+    private fun preserveBadCopy(raw: String) {
+        val existing = try {
+            disk.readBad()
+        } catch (error: Throwable) {
+            InAppLogger.error(
+                OfflineOutboxLogTag,
+                "outbox bad-copy read failed error=${offlineOutboxLogDetail(error)}",
+            )
+            return
+        }
+        if (existing == raw) return
+        try {
+            disk.writeBad(raw)
+        } catch (error: Throwable) {
+            InAppLogger.error(
+                OfflineOutboxLogTag,
+                "outbox bad-copy write failed error=${offlineOutboxLogDetail(error)}",
+            )
+        }
+    }
+
+    private fun logSendFailure(entry: OfflineOutboxEntry, error: Throwable?) {
+        val detail = if (error == null) "rejected" else offlineOutboxLogDetail(error)
+        InAppLogger.error(
+            OfflineOutboxLogTag,
+            "send failed kind=${entry.kind.name} error=$detail",
+        )
+    }
+
+    private fun logHeldAfterMaxRetries(entry: OfflineOutboxEntry?) {
+        if (entry?.state != OfflineOutboxEntryState.HeldForNextEdge) return
+        InAppLogger.warn(
+            OfflineOutboxLogTag,
+            "held after max retries kind=${entry.kind.name} attempts=${entry.attempts}",
+        )
     }
 
     private fun encode(snapshot: OfflineOutbox): String =
@@ -402,12 +470,14 @@ internal object OfflineAccountFlush {
                 var current = entry
                 var delivered = false
                 while (!delivered) {
+                    var sendError: Throwable? = null
                     val ok = try {
                         transport.send(current)
                     } catch (error: CancellationException) {
                         synchronized(lock) { outbox = releaseSending(outbox, current.id) }
                         throw error
-                    } catch (_: Throwable) {
+                    } catch (error: Throwable) {
+                        sendError = error
                         false
                     }
                     if (!online()) {
@@ -418,10 +488,12 @@ internal object OfflineAccountFlush {
                         confirm(current.id, current.sendingTimestampEpochMs)
                         delivered = true
                     } else {
+                        logSendFailure(current, sendError)
                         val failed = synchronized(lock) {
                             outbox = noteSendFailed(outbox, current.id)
                             outbox.entries.firstOrNull { it.id == current.id }
                         }
+                        logHeldAfterMaxRetries(failed)
                         if (failed == null || failed.state == OfflineOutboxEntryState.HeldForNextEdge) {
                             break
                         }

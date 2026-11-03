@@ -1,5 +1,6 @@
 package com.nuvio.app.core.sync
 
+import com.nuvio.app.core.logging.InAppLogger
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
@@ -274,6 +275,117 @@ class OfflineAccountOutboxTest {
             OfflineAccountFlush.resetForTest()
         }
     }
+
+    @Test
+    fun unknownEnumKeepsTheOtherEntriesAndTheRawCopy() {
+        val raw = outboxDocument(
+            entryJson(kind = "WatchedMark", subject = "movie:kept"),
+            entryJson(kind = "RetiredKind", subject = "movie:old"),
+            entryJson(kind = "LibraryEdit", subject = "movie:also"),
+        )
+        val disk = MemoryOfflineOutboxDisk()
+        loadOutbox(disk, raw)
+        assertEquals(listOf("movie:kept", "movie:also"), diskSubjects())
+        assertEquals(raw, disk.bad)
+        assertEquals(raw, disk.payload)
+        assertEquals(1, disk.badWrites)
+        assertTrue(outboxLogLines().any { it.contains("outbox entry decode failed") })
+
+        loadOutbox(disk, raw)
+        assertEquals(1, disk.badWrites)
+        assertEquals(raw, disk.bad)
+    }
+
+    @Test
+    fun transportThrowKeepsTheEntryQueuedAndWritesALogLine() = runBlocking {
+        OfflineAccountFlush.resetForTest()
+        InAppLogger.clear()
+        try {
+            OfflineAccountFlush.disk = MemoryOfflineOutboxDisk()
+            OfflineAccountFlush.suspendDelay = { }
+            OfflineAccountFlush.accountReady = { true }
+            OfflineAccountFlush.playbackActive = { false }
+            OfflineAccountFlush.seedStoredQueues = false
+            OfflineAccountFlush.online = { true }
+            OfflineAccountFlush.transport = object : OfflineAccountTransport {
+                override suspend fun send(entry: OfflineOutboxEntry): Boolean {
+                    throw IllegalStateException("transport down")
+                }
+            }
+            OfflineAccountFlush.note(sample(OfflineOutboxKind.WatchedMark, 1, "movie:queued", 1L, 1L))
+            OfflineAccountFlush.onOfflineToOnlineEdge()
+            OfflineAccountFlush.awaitIdle()
+            val remaining = OfflineAccountFlush.snapshot().entries.single()
+            assertEquals("movie:queued", remaining.subjectKey)
+            assertEquals(OfflineOutboxEntryState.HeldForNextEdge, remaining.state)
+            assertEquals(OfflineFlushMaxAttempts, remaining.attempts)
+            assertTrue(
+                outboxLogLines().any {
+                    it.contains("send failed") &&
+                        it.contains("IllegalStateException: transport down") &&
+                        !it.contains("movie:queued")
+                },
+            )
+            assertTrue(outboxLogLines().any { it.contains("held after max retries") })
+        } finally {
+            OfflineAccountFlush.resetForTest()
+            InAppLogger.clear()
+        }
+    }
+
+    @Test
+    fun corruptOutboxTextStaysOnDiskAndDoesNotCrash() {
+        val disk = MemoryOfflineOutboxDisk()
+        val first = "%%%not-json"
+        loadOutbox(disk, first)
+        assertTrue(OfflineAccountFlush.snapshot().entries.isEmpty())
+        assertEquals(first, disk.payload)
+        assertEquals(first, disk.bad)
+        assertEquals(1, disk.badWrites)
+        assertTrue(outboxLogLines().any { it.contains("outbox decode failed") })
+
+        loadOutbox(disk, first)
+        assertEquals(1, disk.badWrites)
+
+        val second = "{{{still-not"
+        loadOutbox(disk, second)
+        assertEquals(second, disk.bad)
+        assertEquals(2, disk.badWrites)
+        assertTrue(OfflineAccountFlush.snapshot().entries.isEmpty())
+    }
+
+    @Test
+    fun healthyOutboxIsUnchanged() {
+        val raw = """{"entries":[${entryJson(kind = "WatchedMark", subject = "movie:disk", timestamp = 10L, value = 4L)}],"nextSequence":3}"""
+        val disk = MemoryOfflineOutboxDisk().also { it.bad = "leave-me" }
+        loadOutbox(disk, raw)
+        val entry = OfflineAccountFlush.snapshot().entries.single()
+        assertEquals("movie:disk", entry.subjectKey)
+        assertEquals(4L, entry.valueToken)
+        assertEquals(OfflineOutboxEntryState.Pending, entry.state)
+        assertEquals(3L, OfflineAccountFlush.snapshot().nextSequence)
+        assertEquals(raw, disk.payload)
+        assertEquals("leave-me", disk.bad)
+        assertEquals(0, disk.badWrites)
+        assertTrue(outboxLogLines().none { it.contains("decode failed") || it.contains("send failed") })
+
+        OfflineAccountFlush.resetForTest()
+        InAppLogger.clear()
+        val stored = MemoryOfflineOutboxDisk()
+        OfflineAccountFlush.disk = stored
+        OfflineAccountFlush.online = { false }
+        OfflineAccountFlush.note(sample(OfflineOutboxKind.WatchProgress, 2, "show_s1e2", 9L, 40L))
+        val saved = stored.payload
+        OfflineAccountFlush.reloadFromDiskForTest()
+        assertEquals(saved, stored.payload)
+        assertEquals(null, stored.bad)
+        assertEquals(0, stored.badWrites)
+        assertEquals("show_s1e2", OfflineAccountFlush.snapshot().entries.single().subjectKey)
+        assertEquals(40L, OfflineAccountFlush.snapshot().entries.single().valueToken)
+        assertTrue(outboxLogLines().none { it.contains("decode failed") })
+        OfflineAccountFlush.resetForTest()
+        InAppLogger.clear()
+    }
 }
 
 private enum class OutboxEvent {
@@ -387,15 +499,50 @@ private fun sample(
         valueToken = value,
     )
 
+private fun loadOutbox(disk: MemoryOfflineOutboxDisk, raw: String) {
+    OfflineAccountFlush.resetForTest()
+    InAppLogger.clear()
+    disk.payload = raw
+    OfflineAccountFlush.disk = disk
+    OfflineAccountFlush.seedStoredQueues = false
+    OfflineAccountFlush.reloadFromDiskForTest()
+}
+
+private fun diskSubjects(): List<String> =
+    OfflineAccountFlush.snapshot().entries.map { it.subjectKey }
+
+private fun outboxLogLines(): List<String> =
+    InAppLogger.entries.value.filter { it.tag == "Sync/OfflineOutbox" }.map { it.message }
+
+private fun entryJson(
+    kind: String,
+    subject: String,
+    timestamp: Long = 10L,
+    value: Long = 1L,
+): String =
+    """{"id":"1|$kind|$subject","profileId":1,"kind":"$kind","subjectKey":"$subject","timestampEpochMs":$timestamp,"valueToken":$value}"""
+
+private fun outboxDocument(vararg entries: String): String =
+    """{"entries":[${entries.joinToString(",")}],"nextSequence":4}"""
+
 private class MemoryOfflineOutboxDisk : OfflineOutboxDisk {
     var payload: String? = null
     var writes: Int = 0
+    var bad: String? = null
+    var badWrites: Int = 0
 
     override fun read(): String? = payload
 
     override fun write(payload: String) {
         writes += 1
         this.payload = payload
+    }
+
+    override fun readBad(): String? = bad
+
+    override fun writeBad(payload: String) {
+        badWrites += 1
+        bad = payload
     }
 }
 
