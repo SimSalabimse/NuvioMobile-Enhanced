@@ -168,10 +168,13 @@ internal object OfflineAccountFlush {
     }
 
     fun note(incoming: OfflineOutboxEntry) {
-        synchronized(lock) {
-            outbox = enqueueOfflineOutbox(outbox, incoming)
+        runOfflineOutboxDiskWrite {
+            ensureLoaded()
+            synchronized(lock) {
+                outbox = enqueueOfflineOutbox(outbox, incoming)
+                disk.write(encode(outbox))
+            }
         }
-        persistAsync()
     }
 
     fun noteRemoteChange(
@@ -366,7 +369,6 @@ internal object OfflineAccountFlush {
             }
         }
         if (!start) return
-        var stopForOrder = false
         try {
             if (!online() || !accountReady()) {
                 synchronized(lock) {
@@ -421,9 +423,7 @@ internal object OfflineAccountFlush {
                             outbox.entries.firstOrNull { it.id == current.id }
                         }
                         if (failed == null || failed.state == OfflineOutboxEntryState.HeldForNextEdge) {
-                            synchronized(lock) { outbox = releaseAllSending(outbox) }
-                            stopForOrder = true
-                            return
+                            break
                         }
                         suspendDelay(offlineFlushBackoffMs(failed.attempts))
                         if (!online()) {
@@ -450,9 +450,8 @@ internal object OfflineAccountFlush {
                 if (outbox.run != OfflineFlushRunState.PausedOffline) {
                     outbox = finishFlushRun(outbox)
                 }
-                val held = outbox.entries.any { it.state == OfflineOutboxEntryState.HeldForNextEdge }
                 val pending = outbox.entries.any { it.state == OfflineOutboxEntryState.Pending }
-                !stopForOrder && !held && pending && online() && accountReady() && !playbackActive()
+                pending && online() && accountReady() && !playbackActive()
             }
             persistAsync()
             if (followUp) drain()
