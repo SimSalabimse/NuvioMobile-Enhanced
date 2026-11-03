@@ -221,9 +221,6 @@ class PlayerToolsLogicTest {
         assertTrue(!markPlayRangeEnabled(absent = true, timeOk = true, submitting = false))
         assertTrue(!markPlayRangeEnabled(absent = false, timeOk = false, submitting = false))
         assertTrue(!markPlayRangeEnabled(absent = false, timeOk = true, submitting = true))
-        assertTrue(markCopyLinkEnabled(absent = false, timeOk = true))
-        assertTrue(!markCopyLinkEnabled(absent = false, timeOk = false))
-        assertTrue(!markCopyLinkEnabled(absent = true, timeOk = true))
     }
 
     @Test

@@ -13,6 +13,7 @@ import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -44,7 +45,6 @@ class SubmitPanelRestoreTest {
         val duration = mutableStateOf(3_000.0)
         val submitted = mutableStateOf(setOf<String>())
         val previews = mutableStateOf(0)
-        val copies = mutableStateOf(0)
         val flagLayout = mutableStateOf(PlayerToolbarLayout.decode(null))
         val flagLegacy = mutableStateOf(false)
         val flagPhase = mutableStateOf(false)
@@ -91,7 +91,6 @@ class SubmitPanelRestoreTest {
                             onStartAtZero = { start.value = 0.0 },
                             onRunsToEnd = { end.value = runsToEndSec(duration.value) },
                             onPreview = { previews.value += 1 },
-                            onCopyLink = { copies.value += 1 },
                         )
                     } else {
                         PlayerToolbar(
@@ -110,25 +109,32 @@ class SubmitPanelRestoreTest {
             }
         }
 
+        compose.onAllNodesWithContentDescription("Copy link").assertCountEquals(0)
+        compose.onNodeWithText("End  0:00:40", substring = true).assertIsDisplayed().performClick()
+        compose.onNodeWithText("Set to now").assertIsDisplayed()
+        compose.onNodeWithText("End  0:00:40", substring = true).performClick()
+        compose.onAllNodesWithText("Set to now").assertCountEquals(0)
+
         compose.onNodeWithContentDescription("Starts at 0:00").assertIsDisplayed().performClick()
         compose.waitForIdle()
         compose.onNodeWithText("0:00:00", substring = true).assertIsDisplayed()
         assertEquals(0.0, start.value)
+        compose.onAllNodesWithContentDescription("Copy link").assertCountEquals(0)
 
         compose.onNodeWithContentDescription("Play range").assertIsEnabled().performClick()
-        compose.onNodeWithContentDescription("Copy link").assertIsEnabled().performClick()
         assertEquals(1, previews.value)
-        assertEquals(1, copies.value)
 
         end.value = 0.0
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Play range").assertIsNotEnabled()
-        compose.onNodeWithContentDescription("Copy link").assertIsNotEnabled()
+        compose.onNodeWithText("End  0:00:00", substring = true).assertIsDisplayed()
+        compose.onAllNodesWithContentDescription("Copy link").assertCountEquals(0)
 
         start.value = 10.0
         end.value = 40.0
         type.value = "outro"
         compose.waitForIdle()
+        compose.onAllNodesWithContentDescription("Copy link").assertCountEquals(0)
         compose.onNodeWithContentDescription("Runs to end").assertIsNotSelected().performClick()
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Runs to end").assertIsSelected()
@@ -157,6 +163,7 @@ class SubmitPanelRestoreTest {
         compose.onNodeWithContentDescription("Recap Sent").assertIsDisplayed()
         compose.onNodeWithContentDescription("Preview Sent").assertIsDisplayed()
         compose.onAllNodesWithContentDescription("Credits Sent").assertCountEquals(0)
+        compose.onAllNodesWithContentDescription("Copy link").assertCountEquals(0)
 
         val savedWithoutSubmitIntro = PlayerToolbarLayout.Default.encode()
             .split(',')
@@ -183,6 +190,7 @@ class SubmitPanelRestoreTest {
             } else {
                 compose.onAllNodesWithContentDescription("Submit Intro").assertCountEquals(0)
             }
+            compose.onAllNodesWithContentDescription("Copy link").assertCountEquals(0)
         }
     }
 }

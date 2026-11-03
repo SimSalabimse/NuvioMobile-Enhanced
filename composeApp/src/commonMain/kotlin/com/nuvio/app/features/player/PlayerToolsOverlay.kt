@@ -24,13 +24,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
-import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.features.party.PartyRepository
 import com.nuvio.app.features.player.skip.FlagSubmitLedger
@@ -41,7 +38,6 @@ import com.nuvio.app.features.player.skip.IntroSubmitBlockReason
 import com.nuvio.app.features.player.skip.IntroSubmitKeyPrepareResult
 import com.nuvio.app.features.player.skip.IntroSubmitKeyProblem
 import com.nuvio.app.features.player.skip.IntroSubmitService
-import com.nuvio.app.features.player.skip.SharedSkipMark
 import com.nuvio.app.features.player.skip.TheIntroDb
 import com.nuvio.app.features.player.skip.defaultIntroSubmitService
 import com.nuvio.app.features.player.skip.flagChecksForTitle
@@ -55,7 +51,6 @@ import com.nuvio.app.features.player.skip.savedKeyForService
 import com.nuvio.app.features.player.skip.submitManualSkipSegment
 import com.nuvio.app.features.player.skip.submittedFlagTypesForTitle
 import com.nuvio.app.features.player.skip.toFlagRecord
-import com.nuvio.app.features.player.skip.toLink
 import com.nuvio.app.features.settings.TheIntroDbApiKeyDialog
 import com.nuvio.app.features.tmdb.TmdbService
 import kotlinx.coroutines.CancellationException
@@ -63,7 +58,6 @@ import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.player_tools_add_key
 import nuvio.composeapp.generated.resources.player_tools_could_not_send
-import nuvio.composeapp.generated.resources.player_tools_link_copied
 import nuvio.composeapp.generated.resources.player_tools_none_refused
 import nuvio.composeapp.generated.resources.player_tools_sent_detail
 import nuvio.composeapp.generated.resources.settings_playback_introdb_invalid_key
@@ -82,8 +76,6 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
     val open = panelOpen || showSubmitIntroModal || showSubtitleSyncByEar
     var submitting by remember { mutableStateOf(false) }
     var showKeyDialog by remember { mutableStateOf(false) }
-    val clipboard = LocalClipboardManager.current
-    val linkCopied = stringResource(Res.string.player_tools_link_copied)
     val couldNotSend = stringResource(Res.string.player_tools_could_not_send)
     val noneRefused = stringResource(Res.string.player_tools_none_refused)
     val noneHint = stringResource(Res.string.submit_intro_none_hint)
@@ -292,11 +284,6 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 onPreview = {
                     if (submitting || startSec == null || endSec == null || endSec <= startSec) return@SegmentMarkingLayer
                     startMarkPreview(startSec, endSec)
-                },
-                onCopyLink = {
-                    val mark = sharedMark(startSec, endSec) ?: return@SegmentMarkingLayer
-                    clipboard.setText(AnnotatedString(mark.toLink()))
-                    NuvioToastController.show(linkCopied)
                 },
                 onAddKey = { showKeyDialog = true },
                 onSubmit = {
@@ -580,21 +567,6 @@ private fun PlayerScreenRuntime.episodeCodeLine(): String? {
     val season = activeSeasonNumber ?: return null
     val episode = activeEpisodeNumber ?: return null
     return "S$season E$episode"
-}
-
-private fun PlayerScreenRuntime.sharedMark(startSec: Double?, endSec: Double?): SharedSkipMark? {
-    if (startSec == null || endSec == null || endSec <= startSec) return null
-    val id = parentMetaId.ifBlank { metaUiState.meta?.id }.orEmpty()
-    if (id.isBlank()) return null
-    val (season, episode) = movieSubmitSeasonEpisode(isMoviePlayback, activeSeasonNumber, activeEpisodeNumber)
-    return SharedSkipMark(
-        parentMetaId = id,
-        season = season,
-        episode = episode,
-        type = markSegmentId(submitIntroSegmentType),
-        startMs = (startSec * 1000.0).toLong(),
-        endMs = (endSec * 1000.0).toLong(),
-    )
 }
 
 private fun PlayerScreenRuntime.markingImdbId(): String =
