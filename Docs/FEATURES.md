@@ -48,6 +48,8 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - On-device analysis of downloads (intros/credits, recaps, loudness, scrub previews, subtitle sync, "analyse only while charging"): Settings › Downloads (analysis section). 0.5.10.1–0.5.10.2.
 - Delete after watching and Smart Downloads keep a finished episode until its intro fingerprint is saved (or 30 minutes, or analysis fails for good), so the next episode still has a fingerprint to match. Automatic.
 - Sibling clip (fingerprints a nearby episode's intro window from its stream): automatic. 189.
+- Saving an episode fingerprint back-fills intro, credits, and recap for the other stored episodes of that season, including ones whose download is already gone.
+- A failed analysis or a sibling clip that could not be read is retried up to 3 times (after 2 minutes, then 4) and remembered across launches. A new download file starts the count over. Cancelling does not count.
 - Analysis queue order: lowest season and episode first, per show. 193.
 - "Playing an episode that isn't analysed yet" prompt (Play now / Finish first / In background / Don't ask again): Settings › Playback. Only shown when the file has no stored analysis (193).
 

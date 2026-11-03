@@ -35,19 +35,28 @@ internal data class SiblingTimes(
  * clip is decoded in memory and dropped when the call returns, so nothing is left to delete.
  * The episode is then stored with its own fingerprints, the reference for later episodes.
  */
+/** A clip was read, or there was nothing to fetch. [Unavailable] is tried again. */
+internal enum class SiblingClipAttempt { Finished, Unavailable }
+
+internal data class SiblingClipOutcome(val result: MediaAnalysisResult, val attempt: SiblingClipAttempt)
+
 internal object SiblingClipReference {
     private const val PAD_MS = 5_000L
     private const val MIN_MATCH_MS = 8_000L
     private const val MAX_ONLINE_LOOKUPS = 4
     private val json = LenientJson
 
-    suspend fun apply(item: DownloadItem, result: MediaAnalysisResult): MediaAnalysisResult {
-        val season = item.seasonNumber ?: return result
-        val episode = item.episodeNumber ?: return result
-        if (SmartDownloadSettings.snapshot().onlyOnWifi && !DownloadNetworkGuard.isOnWifi()) return result
+    suspend fun apply(item: DownloadItem, result: MediaAnalysisResult): SiblingClipOutcome {
+        fun finished(value: MediaAnalysisResult = result) = SiblingClipOutcome(value, SiblingClipAttempt.Finished)
+        fun unavailable(value: MediaAnalysisResult = result) = SiblingClipOutcome(value, SiblingClipAttempt.Unavailable)
+        val season = item.seasonNumber ?: return finished()
+        val episode = item.episodeNumber ?: return finished()
+        // Cellular with "only on Wi-Fi" is a chosen skip. Unreachable is not reported here, so a
+        // failed clip read below is what counts as a retry, not this check.
+        if (SmartDownloadSettings.snapshot().onlyOnWifi && !DownloadNetworkGuard.isOnWifi()) return finished()
         val free = DownloadDiskInfo.volumeSpace()?.availableBytes
-        if (free != null && free < SMART_DOWNLOAD_MIN_FREE_BYTES) return result
-        val meta = MetaDetailsRepository.fetch(item.parentMetaType, item.parentMetaId) ?: return result
+        if (free != null && free < SMART_DOWNLOAD_MIN_FREE_BYTES) return unavailable()
+        val meta = MetaDetailsRepository.fetch(item.parentMetaType, item.parentMetaId) ?: return unavailable()
         val episodes = meta.videos.filter { it.season == season }.mapNotNull { it.episode }.distinct()
         var resolvedImdb: String? = null
         var imdbResolved = false
@@ -57,44 +66,69 @@ internal object SiblingClipReference {
                 resolvedImdb = resolveSkipImdbId(item.parentMetaId, null, "series")
             }
             onlineTimes(SkipIntroRepository.getSkipIntervals(resolvedImdb, season, e, requireSkipIntroEnabled = false), e)
-        } ?: return result
-        val video = meta.videos.firstOrNull { it.season == season && it.episode == reference.episode } ?: return result
-        val (url, headers) = streamFor(meta, video, item) ?: return result
+        } ?: return finished()
+        val video = meta.videos.firstOrNull { it.season == season && it.episode == reference.episode } ?: return finished()
+        val (url, headers) = streamFor(meta, video, item) ?: return unavailable()
         val step = result.fingerprintStepMs.toLong().coerceAtLeast(1L)
 
         var updated = result
+        var missing = false
+        var read = false
         if (result.introStartMs == null) {
-            clipMatch(url, headers, decodeFingerprint(result.headFingerprint), 0L, step, reference.intro)?.let { (start, end) ->
-                updated = updated.copy(introStartMs = start, introEndMs = end, foundUsing = updated.foundUsing + ("intro" to reference.episode))
+            when (val clip = readClip(url, headers, decodeFingerprint(result.headFingerprint), 0L, step, reference.intro)) {
+                ClipRead.Missing -> missing = true
+                ClipRead.Skipped -> Unit
+                is ClipRead.Read -> {
+                    read = true
+                    clip.range?.let { (start, end) ->
+                        updated = updated.copy(introStartMs = start, introEndMs = end, foundUsing = updated.foundUsing + ("intro" to reference.episode))
+                    }
+                }
             }
         }
         val credits = reference.credits
         if (credits != null && result.creditsStartMs == null) {
-            clipMatch(url, headers, decodeFingerprint(result.tailFingerprint), result.tailStartMs, step, credits)?.let { (start, end) ->
-                updated = updated.copy(creditsStartMs = start, creditsEndMs = end, foundUsing = updated.foundUsing + ("outro" to reference.episode))
+            when (val clip = readClip(url, headers, decodeFingerprint(result.tailFingerprint), result.tailStartMs, step, credits)) {
+                ClipRead.Missing -> missing = true
+                ClipRead.Skipped -> Unit
+                is ClipRead.Read -> {
+                    read = true
+                    clip.range?.let { (start, end) ->
+                        updated = updated.copy(creditsStartMs = start, creditsEndMs = end, foundUsing = updated.foundUsing + ("outro" to reference.episode))
+                    }
+                }
             }
         }
+        if (missing && !read) return unavailable(updated)
         InAppLogger.info(
             "Analysis",
             "sibling clip e${reference.episode} for ${item.id}: intro=${updated.introStartMs}-${updated.introEndMs} " +
                 "credits=${updated.creditsStartMs}-${updated.creditsEndMs}",
         )
-        return updated
+        return finished(updated)
     }
 
-    private suspend fun clipMatch(
+    private sealed interface ClipRead {
+        data object Missing : ClipRead
+        data object Skipped : ClipRead
+        data class Read(val range: Pair<Long, Long>?) : ClipRead
+    }
+
+    private suspend fun readClip(
         url: String,
         headers: Map<String, String>,
         frames: IntArray,
         framesOffsetMs: Long,
         step: Long,
         segment: Pair<Long, Long>,
-    ): Pair<Long, Long>? {
-        if (frames.isEmpty()) return null
+    ): ClipRead {
+        if (frames.isEmpty()) return ClipRead.Skipped
         val text = MediaAnalyzerPlatform.fingerprintClip(url, headers, (segment.first - PAD_MS).coerceAtLeast(0L), segment.second + PAD_MS)
-        val clip = text?.let { runCatching { json.decodeFromString(RawClipFingerprint.serializer(), it) }.getOrNull() } ?: return null
-        if (clip.stepMs.toLong() != step) return null
-        return locate(frames, framesOffsetMs, decodeFingerprint(clip.fingerprint), clip.startMs, step, segment)
+            ?: return ClipRead.Missing
+        val clip = runCatching { json.decodeFromString(RawClipFingerprint.serializer(), text) }.getOrNull()
+            ?: return ClipRead.Missing
+        if (clip.stepMs.toLong() != step) return ClipRead.Skipped
+        return ClipRead.Read(locate(frames, framesOffsetMs, decodeFingerprint(clip.fingerprint), clip.startMs, step, segment))
     }
 
     /** Your marks on other episodes of the season (also those never downloaded or analysed). */
