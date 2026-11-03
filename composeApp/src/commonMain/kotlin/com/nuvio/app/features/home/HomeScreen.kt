@@ -113,6 +113,7 @@ import kotlinx.coroutines.yield
 import com.nuvio.app.features.home.components.continueWatchingHeroViewportReserveHeight
 import com.nuvio.app.features.home.components.homeSectionHorizontalPaddingForWidth
 import com.nuvio.app.features.home.components.rememberContinueWatchingLayout
+import com.nuvio.app.features.home.components.toContinueWatchingItem
 import kotlinx.coroutines.CancellationException
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
@@ -225,6 +226,21 @@ fun HomeScreen(
             onOpenDownload = onOpenDownload,
             onOpenDownloads = onOpenDownloads,
             onShowHome = { showOnlineHomeWhileOffline = true },
+            onTitleLongPress = { item ->
+                onPosterLongClick?.invoke(
+                    MetaPreview(
+                        id = item.parentMetaId,
+                        type = item.parentMetaType.ifBlank { if (item.isEpisode) "series" else "movie" },
+                        name = item.title,
+                        poster = item.poster,
+                        banner = item.background,
+                        logo = item.logo,
+                    ),
+                )
+            },
+            onResumeLongPress = { card ->
+                card.toContinueWatchingItem()?.let { item -> onContinueWatchingLongPress?.invoke(item) }
+            },
             modifier = modifier,
         )
         return

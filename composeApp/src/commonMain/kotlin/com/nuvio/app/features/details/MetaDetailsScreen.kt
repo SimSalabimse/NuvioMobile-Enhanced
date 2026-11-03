@@ -137,6 +137,7 @@ import com.nuvio.app.features.details.components.TrailerPlayerPopup
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.mdblist.MdbListSettingsRepository
 import com.nuvio.app.features.library.LibraryRepository
+import com.nuvio.app.features.offline.rememberItemPlayEnabled
 import com.nuvio.app.features.library.PendingTrackingMembershipRemoval
 import com.nuvio.app.features.library.TrackingMembershipRemovalConfirmationHost
 import com.nuvio.app.features.library.executeTrackingMembershipOperation
@@ -193,6 +194,7 @@ private val watchedMarkerDiagnosticLog = Logger.withTag("WatchedMarkerDiag")
 fun MetaDetailsScreen(
     type: String,
     id: String,
+    fallbackTitle: String? = null,
     initialSeasonNumber: Int? = null,
     initialEpisodeNumber: Int? = null,
     onBack: () -> Unit,
@@ -390,7 +392,7 @@ fun MetaDetailsScreen(
     LaunchedEffect(type, id, displayedMeta, uiState.isLoading, autoLoadAttempted) {
         if (!autoLoadAttempted && displayedMeta == null && !uiState.isLoading) {
             autoLoadAttempted = true
-            MetaDetailsRepository.load(type, id)
+            MetaDetailsRepository.load(type, id, fallbackTitle)
         }
     }
 
@@ -408,7 +410,7 @@ fun MetaDetailsScreen(
         mdbListSettings,
     ) {
         if (displayedMeta != null && !uiState.isLoading && uiState.episodesComplete) {
-            MetaDetailsRepository.load(type, id)
+            MetaDetailsRepository.load(type, id, fallbackTitle)
         }
     }
 
@@ -424,7 +426,7 @@ fun MetaDetailsScreen(
                 if (!observedOfflineState) return@LaunchedEffect
                 observedOfflineState = false
                 if (displayedMeta == null && !uiState.isLoading) {
-                    MetaDetailsRepository.load(type, id)
+                    MetaDetailsRepository.load(type, id, fallbackTitle)
                 }
             }
 
@@ -480,7 +482,7 @@ fun MetaDetailsScreen(
                     Button(
                         onClick = {
                             NetworkStatusRepository.requestRefresh(force = true)
-                            MetaDetailsRepository.load(type, id)
+                            MetaDetailsRepository.load(type, id, fallbackTitle)
                         },
                     ) {
                         Text(stringResource(Res.string.action_retry))
@@ -747,17 +749,19 @@ fun MetaDetailsScreen(
                     )
                 }
                 val heroTrailerStartDelaySeconds = metaScreenSettingsUiState.heroTrailerStartDelaySeconds
+                val networkActionsEnabled = !networkStatusUiState.isOfflineLike
                 LaunchedEffect(
                     heroTrailerPlaybackEnabled,
                     heroTrailerCandidate?.id,
                     heroTrailerCandidate?.key,
                     deferredMetaWorkAllowed,
                     heroTrailerStartDelaySeconds,
+                    networkActionsEnabled,
                 ) {
                     heroTrailerPlaybackSource = null
                     heroTrailerReady = false
                     heroTrailerFinished = false
-                    if (!deferredMetaWorkAllowed || !heroTrailerPlaybackEnabled || heroTrailerCandidate == null) {
+                    if (!deferredMetaWorkAllowed || !heroTrailerPlaybackEnabled || heroTrailerCandidate == null || !networkActionsEnabled) {
                         return@LaunchedEffect
                     }
                     val resolvedSource = async {
@@ -784,8 +788,9 @@ fun MetaDetailsScreen(
                     stopHeroTrailerForNavigation()
                     onBack()
                 }
-                val resolveTrailer: (MetaTrailer) -> Unit = remember(meta.id, inAppTrailerPlaybackEnabled, uriHandler) {
-                    { trailer ->
+                val resolveTrailer: (MetaTrailer) -> Unit = remember(meta.id, inAppTrailerPlaybackEnabled, uriHandler, networkActionsEnabled) {
+                    trailer@{ trailer ->
+                        if (!networkActionsEnabled) return@trailer
                         val youtubeUrl = trailer.youtubePlaybackUrl()
                         if (!inAppTrailerPlaybackEnabled) {
                             runCatching { uriHandler.openUri(youtubeUrl) }
@@ -816,13 +821,21 @@ fun MetaDetailsScreen(
                 }
                 val primaryVideoId = seriesStreamVideoId ?: seriesAction?.videoId ?: meta.id
                 val shufflePoolEmpty = shuffleSettings.enabled && seriesAction == null
-                val isPrimaryPlayEnabled = shufflePoolEmpty || playbackAvailability.canPlay(
-                    type = meta.type,
-                    videoId = primaryVideoId,
+                val primaryPlayOnDevice = rememberItemPlayEnabled(
                     parentMetaId = meta.id,
                     seasonNumber = seriesAction?.seasonNumber,
                     episodeNumber = seriesAction?.episodeNumber,
+                    videoId = primaryVideoId,
                 )
+                val isPrimaryPlayEnabled = shufflePoolEmpty || (
+                    playbackAvailability.canPlay(
+                        type = meta.type,
+                        videoId = primaryVideoId,
+                        parentMetaId = meta.id,
+                        seasonNumber = seriesAction?.seasonNumber,
+                        episodeNumber = seriesAction?.episodeNumber,
+                    ) && primaryPlayOnDevice
+                    )
                 val playText = stringResource(Res.string.action_play)
                 val resumeText = stringResource(Res.string.action_resume)
                 val watchAgainText = stringResource(Res.string.action_watch_again)
@@ -893,6 +906,7 @@ fun MetaDetailsScreen(
                     resumePositionMs: Long?,
                 ) {
                     handler ?: return
+                    if (!primaryPlayOnDevice) return
                     stopHeroTrailerForNavigation()
                     if ((meta.type == "series" || hasEpisodes) && seriesAction != null) {
                         handler(
@@ -949,7 +963,8 @@ fun MetaDetailsScreen(
                 }.collectAsStateWithLifecycle()
                 val downloadHandler = onDownload
                 val onDownloadClick: (() -> Unit)? = if (showDownloadButton && downloadHandler != null) {
-                    {
+                    download@{
+                        if (!networkActionsEnabled) return@download
                         stopHeroTrailerForNavigation()
                         if ((meta.type == "series" || hasEpisodes) && seriesAction != null) {
                             downloadHandler(
@@ -1000,7 +1015,8 @@ fun MetaDetailsScreen(
                     downloadLogicalContentKey(meta.id, null, null)
                 }
                 val onEpisodeDownloadClick: ((MetaVideo) -> Unit)? = if (showDownloadButton && downloadHandler != null) {
-                    { video ->
+                    downloadEpisode@{ video ->
+                        if (!networkActionsEnabled) return@downloadEpisode
                         stopHeroTrailerForNavigation()
                         val playbackVideoId = buildPlaybackVideoId(
                             parentMetaId = meta.id,
@@ -1032,7 +1048,7 @@ fun MetaDetailsScreen(
                 val manualPlayHandler = onPlayManually
                 val showManualPlayOption = manualPlayHandler != null && StreamAutoPlayPolicy.isEffectivelyEnabled(playerSettingsUiState)
                 val onPrimaryPlayLongClick: (() -> Unit)? = manualPlayHandler
-                    ?.takeIf { !shufflePoolEmpty && showManualPlayOption && playbackAvailability.canStream(meta.type, primaryVideoId) }
+                    ?.takeIf { !shufflePoolEmpty && showManualPlayOption && networkActionsEnabled && playbackAvailability.canStream(meta.type, primaryVideoId) }
                     ?.let { manualPlay ->
                         {
                             stopHeroTrailerForNavigation()
@@ -1077,9 +1093,20 @@ fun MetaDetailsScreen(
                             }
                         }
                     }
-                val onEpisodePlayClick: (MetaVideo) -> Unit = { video ->
+                val onEpisodePlayClick: (MetaVideo) -> Unit = onEpisodePlay@{ video ->
                     val season = video.season
                     val episode = video.episode
+                    if (
+                        !networkActionsEnabled &&
+                        DownloadsRepository.findPlayableDownload(
+                            parentMetaId = meta.id,
+                            seasonNumber = season,
+                            episodeNumber = episode,
+                            videoId = video.id,
+                        ) == null
+                    ) {
+                        return@onEpisodePlay
+                    }
                     val playbackVideoId = buildPlaybackVideoId(
                         parentMetaId = meta.id,
                         seasonNumber = season,
@@ -1112,7 +1139,8 @@ fun MetaDetailsScreen(
                         savedProgress?.lastPositionMs,
                     )
                 }
-                val onEpisodeManualPlayClick: (MetaVideo) -> Unit = { video ->
+                val onEpisodeManualPlayClick: (MetaVideo) -> Unit = onEpisodeManualPlay@{ video ->
+                    if (!networkActionsEnabled) return@onEpisodeManualPlay
                     val season = video.season
                     val episode = video.episode
                     val playbackVideoId = buildPlaybackVideoId(
@@ -1157,8 +1185,19 @@ fun MetaDetailsScreen(
                         blurUnwatchedEpisodes = metaScreenSettingsUiState.blurUnwatchedEpisodes,
                         onDismiss = { showShuffle = false },
                         onPlay = onEpisodePlayClick,
-                        onPlayManually = onEpisodeManualPlayClick.takeIf { showManualPlayOption },
-                        onStartFromBeginning = { video ->
+                        onPlayManually = onEpisodeManualPlayClick.takeIf { showManualPlayOption && networkActionsEnabled },
+                        onStartFromBeginning = start@{ video ->
+                            if (
+                                !networkActionsEnabled &&
+                                DownloadsRepository.findPlayableDownload(
+                                    parentMetaId = meta.id,
+                                    seasonNumber = video.season,
+                                    episodeNumber = video.episode,
+                                    videoId = video.id,
+                                ) == null
+                            ) {
+                                return@start
+                            }
                             onPlay?.invoke(meta.type, video.id, meta.id, meta.type, meta.name, meta.logo,
                                 meta.poster, meta.background, video.season, video.episode, video.title,
                                 video.thumbnail, video.overview, 0L)
@@ -1637,6 +1676,7 @@ fun MetaDetailsScreen(
                                 seasonLabel = selectedEpisode.season?.let {
                                     stringResource(Res.string.episodes_season, it)
                                 } ?: stringResource(Res.string.episodes_specials),
+                                networkActionsEnabled = networkActionsEnabled,
                                 isEpisodeWatched = isSelectedEpisodeWatched,
                                 canMarkPreviousEpisodes = previousEpisodes.isNotEmpty(),
                                 arePreviousEpisodesWatched = arePreviousEpisodesWatched,
@@ -1749,6 +1789,7 @@ fun MetaDetailsScreen(
                             val seasonUserRating = rememberUserRating(seasonRatingTarget)
                             SeasonWatchedActionSheet(
                                 seasonLabel = seasonLabel,
+                                networkActionsEnabled = networkActionsEnabled,
                                 isSeasonWatched = isSeasonWatched,
                                 canMarkPreviousSeasons = canMarkPreviousSeasons,
                                 onDismiss = { selectedSeasonForActions = null },
@@ -2059,6 +2100,7 @@ fun MetaDetailsScreen(
                             PosterZoomOverlayAction(
                                 icon = if (zoomEpisodeUserRating != null) Icons.Rounded.Star else Icons.Rounded.StarBorder,
                                 label = rateEpisodeLabel,
+                                enabled = !networkStatusUiState.isOfflineLike,
                                 onSelected = {
                                     val request = UserRatingSheetRequest(
                                         target = zoomEpisodeRatingTarget,
@@ -2081,6 +2123,7 @@ fun MetaDetailsScreen(
                             PosterZoomOverlayAction(
                                 icon = Icons.Default.PlayArrow,
                                 label = stringResource(Res.string.play_manually),
+                                enabled = !networkStatusUiState.isOfflineLike,
                                 onSelected = {
                                     val playbackVideoId = buildPlaybackVideoId(
                                         parentMetaId = meta.id,

@@ -365,6 +365,7 @@ fun NuvioInputField(
     modifier: Modifier = Modifier,
     trailingContent: (@Composable (() -> Unit))? = null,
     containerColor: Color = MaterialTheme.nuvio.colors.surfaceCard,
+    enabled: Boolean = true,
 ) {
     val tokens = MaterialTheme.nuvio
     val dismissKeyboard = rememberDismissSoftwareKeyboard()
@@ -372,6 +373,7 @@ fun NuvioInputField(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier.fillMaxWidth(),
+        enabled = enabled,
         singleLine = true,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = { dismissKeyboard() }),

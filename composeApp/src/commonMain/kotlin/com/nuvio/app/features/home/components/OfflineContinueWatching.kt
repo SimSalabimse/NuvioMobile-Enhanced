@@ -4,6 +4,7 @@ import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.downloadLogicalContentKey
 import com.nuvio.app.features.watchprogress.CachedInProgressItem
 import com.nuvio.app.features.watchprogress.CachedNextUpItem
+import com.nuvio.app.features.watchprogress.ContinueWatchingItem
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 
 /**
@@ -33,7 +34,36 @@ internal data class OfflineContinueCard(
     val dimmed: Boolean,
     val tappable: Boolean,
     val download: DownloadItem?,
+    val contentId: String = "",
+    val contentType: String = "",
+    val videoId: String = "",
 )
+
+internal fun OfflineContinueCard.toContinueWatchingItem(): ContinueWatchingItem? {
+    val id = contentId.ifBlank { download?.parentMetaId }.orEmpty()
+    if (id.isBlank()) return null
+    val type = contentType.ifBlank { download?.parentMetaType }.orEmpty().ifBlank {
+        if (seasonNumber != null) "series" else "movie"
+    }
+    return ContinueWatchingItem(
+        parentMetaId = id,
+        parentMetaType = type,
+        videoId = videoId.ifBlank { download?.videoId ?: id },
+        title = title,
+        subtitle = episodeTitle.orEmpty(),
+        imageUrl = imageUrl,
+        poster = download?.poster ?: imageUrl,
+        background = download?.background,
+        logo = download?.logo,
+        seasonNumber = seasonNumber,
+        episodeNumber = episodeNumber,
+        episodeTitle = episodeTitle,
+        episodeThumbnail = download?.episodeThumbnail,
+        resumePositionMs = 0L,
+        durationMs = 0L,
+        progressFraction = fraction,
+    )
+}
 
 internal fun offlineContinueCacheFromSnapshots(
     nextUp: List<CachedNextUpItem>?,
@@ -72,6 +102,8 @@ internal fun offlineContinueWatchingCards(
             add(
                 CacheRow(
                     contentId = item.contentId,
+                    contentType = item.contentType,
+                    videoId = item.videoId,
                     title = item.name,
                     imageUrl = item.episodeThumbnail ?: item.backdrop ?: item.poster,
                     season = item.season,
@@ -89,6 +121,8 @@ internal fun offlineContinueWatchingCards(
             add(
                 CacheRow(
                     contentId = item.contentId,
+                    contentType = item.contentType,
+                    videoId = item.videoId,
                     title = item.name,
                     imageUrl = item.episodeThumbnail ?: item.backdrop ?: item.poster,
                     season = item.season,
@@ -130,6 +164,9 @@ internal fun offlineContinueWatchingCards(
             dimmed = download == null,
             tappable = download != null,
             download = download,
+            contentId = row.contentId,
+            contentType = row.contentType,
+            videoId = row.videoId,
         )
     }
 
@@ -145,6 +182,8 @@ internal fun offlineContinueWatchingCards(
 
 private data class CacheRow(
     val contentId: String,
+    val contentType: String,
+    val videoId: String,
     val title: String,
     val imageUrl: String?,
     val season: Int?,
@@ -178,6 +217,9 @@ private fun downloadedResumeCards(
                 dimmed = false,
                 tappable = true,
                 download = item,
+                contentId = item.parentMetaId,
+                contentType = item.parentMetaType,
+                videoId = item.videoId,
             )
         }
 
