@@ -88,7 +88,7 @@ class ProfileStartupGateTest {
     }
 
     @Test
-    fun `read timeout continues with the picker when nothing is known`() {
+    fun `read timeout keeps waiting when nothing is known`() {
         assertTrue(ProfileCacheReadTimeoutMs in 250L..3_000L)
         assertFalse(profileStartupContinuesAfterReadTimeout(ProfileCacheReadTimeoutMs - 1, ProfileCachePhase.Reading))
         assertTrue(profileStartupContinuesAfterReadTimeout(ProfileCacheReadTimeoutMs, ProfileCachePhase.Reading))
@@ -97,7 +97,7 @@ class ProfileStartupGateTest {
         val decision = decideProfileStartupGate(
             input(phase = ProfileCachePhase.Reading, profiles = emptyList(), readTimedOut = true),
         )
-        assertEquals(ProfileStartupDestination.ProfileSelection, decision.destination)
+        assertEquals(ProfileStartupDestination.Loading, decision.destination)
     }
 
     @Test
@@ -135,14 +135,14 @@ class ProfileStartupGateTest {
     }
 
     @Test
-    fun `late cache after the read timeout snaps home without fading the picker`() {
+    fun `late cache after the read timeout goes home without composing the picker`() {
         var current = ProfileStartupDestination.Loading
         current = nextStartupGate(
             current,
             input(phase = ProfileCachePhase.Reading, profiles = emptyList(), readTimedOut = true),
             pickerOpenedByUser = false,
         ).destination
-        assertEquals(ProfileStartupDestination.ProfileSelection, current)
+        assertEquals(ProfileStartupDestination.Loading, current)
 
         val late = nextStartupGate(
             current,
@@ -151,7 +151,102 @@ class ProfileStartupGateTest {
         )
         assertEquals(ProfileStartupDestination.Main, late.destination)
         assertEquals(1, late.selectProfileIndex)
-        assertTrue(late.snapHomeOverPicker)
+        assertFalse(late.snapHomeOverPicker)
+    }
+
+    @Test
+    fun `picker is composed only when remember is off or no pinless profile exists or the user asked`() {
+        val moments = ProfileGateMoment.entries
+        val signedInValues = listOf(false, true)
+        val rememberValues = listOf(false, true)
+        val everValues = listOf(false, true)
+        val existsValues = listOf(false, true)
+        val pinValues = listOf(false, true)
+        val counts = listOf(0, 1, 3)
+        val askedValues = listOf(false, true)
+        for (moment in moments) {
+            for (signedIn in signedInValues) {
+                for (rememberOn in rememberValues) {
+                    for (hasEver in everValues) {
+                        for (exists in existsValues) {
+                            for (hasPin in pinValues) {
+                                for (count in counts) {
+                                    for (asked in askedValues) {
+                                        if (exists && count == 0) continue
+                                        val choice = ProfilePickerChoice(
+                                            moment = moment,
+                                            signedIn = signedIn,
+                                            rememberOn = rememberOn,
+                                            hasEverSelectedProfile = hasEver,
+                                            rememberedExists = exists,
+                                            rememberedHasPin = hasPin,
+                                            profileCount = count,
+                                            userAskedToSwitch = asked,
+                                            network = StartupNetworkOutcome.Online,
+                                        )
+                                        val expected = startupComposesProfilePicker(choice)
+                                        for (network in StartupNetworkOutcome.entries) {
+                                            val decision = startupComposesProfilePicker(choice.copy(network = network))
+                                            assertEquals(expected, decision, "$choice network=$network")
+                                        }
+                                        if (expected) {
+                                            val allowed = asked ||
+                                                !rememberOn ||
+                                                !exists ||
+                                                hasPin ||
+                                                count == 0
+                                            assertTrue(allowed, "$choice")
+                                        }
+                                        val gate = decideProfileStartupGate(choice.toGateInput())
+                                        if (!asked && signedIn) {
+                                            val gateShowsPicker = gate.destination == ProfileStartupDestination.ProfileSelection
+                                            if (
+                                                moment == ProfileGateMoment.BeforeStorageRead ||
+                                                moment == ProfileGateMoment.BeforeProfileListLoads ||
+                                                moment == ProfileGateMoment.RememberedIdNotInLoadedList
+                                            ) {
+                                                assertFalse(gateShowsPicker, "$choice")
+                                            } else if (rememberOn && exists && !hasPin) {
+                                                assertEquals(ProfileStartupDestination.Main, gate.destination, "$choice")
+                                            } else if (count == 1 && !hasPin) {
+                                                assertEquals(ProfileStartupDestination.Main, gate.destination, "$choice")
+                                            } else {
+                                                assertEquals(
+                                                    ProfileStartupDestination.ProfileSelection,
+                                                    gate.destination,
+                                                    "$choice",
+                                                )
+                                            }
+                                        }
+                                        if (asked) {
+                                            val stay = nextStartupGate(
+                                                ProfileStartupDestination.ProfileSelection,
+                                                choice.toGateInput(),
+                                                pickerOpenedByUser = true,
+                                            )
+                                            assertEquals(ProfileStartupDestination.ProfileSelection, stay.destination)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assertFalse(
+            showStartupLaunchCover(
+                destination = FirstFrameDestination.Home,
+                gateIsHome = true,
+                mainContentReady = false,
+            ),
+        )
+        assertTrue(coldLaunchSkipsProfilePicker(FirstFrameDestination.Home))
+        assertFalse(coldLaunchSkipsProfilePicker(FirstFrameDestination.Picker))
+        val withEver = startupComposesProfilePicker(settledRemembered(hasEver = true))
+        val withoutEver = startupComposesProfilePicker(settledRemembered(hasEver = false))
+        assertFalse(withEver)
+        assertEquals(withEver, withoutEver)
     }
 
     @Test
@@ -382,6 +477,49 @@ class ProfileStartupGateTest {
         input.rememberOn && input.rememberedPin == RememberedPinKind.NoPin -> FirstFrameDestination.Home
         input.profileCount == 1 && input.rememberedPin == RememberedPinKind.NoPin -> FirstFrameDestination.Home
         else -> FirstFrameDestination.Picker
+    }
+
+    private fun settledRemembered(hasEver: Boolean) = ProfilePickerChoice(
+        moment = ProfileGateMoment.StorageSettled,
+        signedIn = true,
+        rememberOn = true,
+        hasEverSelectedProfile = hasEver,
+        rememberedExists = true,
+        rememberedHasPin = false,
+        profileCount = 3,
+        userAskedToSwitch = false,
+        network = StartupNetworkOutcome.Offline,
+    )
+
+    private fun ProfilePickerChoice.toGateInput(): ProfileStartupGateInput {
+        val unresolved = moment == ProfileGateMoment.BeforeStorageRead ||
+            moment == ProfileGateMoment.BeforeProfileListLoads ||
+            moment == ProfileGateMoment.RememberedIdNotInLoadedList
+        val profiles = when {
+            unresolved || profileCount <= 0 -> emptyList()
+            else -> List(profileCount) { index ->
+                val profileIndex = index + 1
+                val pin = when {
+                    rememberedExists && profileIndex == 1 -> rememberedHasPin
+                    !rememberedExists && profileCount == 1 -> rememberedHasPin
+                    else -> false
+                }
+                ProfileStartupProfile(profileIndex = profileIndex, pinEnabled = pin)
+            }
+        }
+        val phase = when {
+            unresolved -> ProfileCachePhase.Reading
+            profiles.isEmpty() -> ProfileCachePhase.ConfirmedNone
+            else -> ProfileCachePhase.Ready
+        }
+        return input(
+            phase = phase,
+            profiles = profiles,
+            rememberLastProfileEnabled = rememberOn,
+            hasEverSelectedProfile = hasEverSelectedProfile,
+            activeProfileIndex = if (rememberedExists) 1 else 99,
+            readTimedOut = moment == ProfileGateMoment.RememberedIdNotInLoadedList,
+        )
     }
 
     private fun pinless(index: Int) = ProfileStartupProfile(profileIndex = index, pinEnabled = false)

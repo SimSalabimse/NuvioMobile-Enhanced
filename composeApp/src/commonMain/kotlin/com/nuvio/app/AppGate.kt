@@ -33,6 +33,8 @@ import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.startup.SynchronousLaunch
 import com.nuvio.app.features.home.HomeRepository
 import com.nuvio.app.features.profiles.FirstFrameDestination
+import com.nuvio.app.features.profiles.coldLaunchSkipsProfilePicker
+import com.nuvio.app.features.profiles.showStartupLaunchCover
 import com.nuvio.app.core.perf.PerformanceOptimization
 import com.nuvio.app.core.perf.PerformanceSettings
 import com.nuvio.app.core.sync.SyncManager
@@ -187,6 +189,13 @@ internal fun AppGate(
         )
     }
     var profilePickerRequestedByUser by rememberSaveable { mutableStateOf(false) }
+    if (
+        coldLaunchSkipsProfilePicker(launchFrame.destination) &&
+        !profilePickerRequestedByUser &&
+        gateScreen != AppGateScreen.Main.name
+    ) {
+        gateScreen = AppGateScreen.Main.name
+    }
     var snapHomeOverPicker by remember { mutableStateOf(false) }
     LaunchedEffect(gateScreen) {
         if (!ownsAppRuntime) return@LaunchedEffect
@@ -558,8 +567,11 @@ internal fun AppGate(
     }
     val launchOverlayVisible =
         !renderMainContent &&
-            gateScreen == AppGateScreen.Main.name &&
-            !externalMainContentReady
+            showStartupLaunchCover(
+                destination = launchFrame.destination,
+                gateIsHome = gateScreen == AppGateScreen.Main.name,
+                mainContentReady = externalMainContentReady,
+            )
     val launchOverlayState = remember {
         MutableTransitionState(launchOverlayVisible)
     }
@@ -661,7 +673,8 @@ internal fun AppGate(
                             useNativeTabBar = useNativeTabBar,
                             useTabletFloatingTabBar = useTabletFloatingTabBar,
                             ownsAppRuntime = ownsAppRuntime,
-                            showLaunchOverlay = !profileSelectionLoading,
+                            showLaunchOverlay = !profileSelectionLoading &&
+                                !coldLaunchSkipsProfilePicker(launchFrame.destination),
                             onNavigate = onNavigate,
                             onGoBack = onGoBack,
                             onReplace = onReplace,

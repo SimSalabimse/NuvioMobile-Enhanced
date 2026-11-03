@@ -144,7 +144,6 @@ object ProfileRepository {
                 fresh.profiles.size == 1 -> RememberedPinKind.NoPin
                 else -> rememberedPinKind(
                     rememberOn = fresh.rememberLastProfileEnabled,
-                    hasEverSelectedProfile = fresh.hasEverSelectedProfile,
                     activeProfileIndex = activeProfileIndex,
                     profiles = profiles,
                 )
