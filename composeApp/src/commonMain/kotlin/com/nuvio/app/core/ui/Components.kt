@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -314,6 +315,7 @@ fun NuvioPrimaryButton(
     text: String,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    minHeight: Dp? = null,
     onClick: () -> Unit = {},
 ) {
     val tokens = MaterialTheme.nuvio
@@ -331,7 +333,13 @@ fun NuvioPrimaryButton(
         },
         modifier = modifier
             .fillMaxWidth()
-            .height(NuvioTokens.Space.s48 + NuvioTokens.Space.s4)
+            .then(
+                if (minHeight == null) {
+                    Modifier.height(NuvioTokens.Space.s48 + NuvioTokens.Space.s4)
+                } else {
+                    Modifier.heightIn(min = minHeight)
+                },
+            )
             .clip(tokens.shapes.button)
             .background(containerBrush),
         enabled = enabled,
@@ -352,6 +360,8 @@ fun NuvioPrimaryButton(
                 text = animatedText,
                 style = MaterialTheme.typography.titleMedium,
                 textAlign = TextAlign.Center,
+                maxLines = if (minHeight == null) Int.MAX_VALUE else 3,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
