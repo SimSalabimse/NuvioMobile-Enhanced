@@ -3064,7 +3064,7 @@
     <string name="analysis_recap_detection_title">Find recaps in downloads</string>
     <string name="analysis_recap_detection_description">Detect “Previously on” recaps at the start of downloaded episodes and offer Skip Recap.</string>
     <string name="smart_downloads_title">Smart downloads</string>
-    <string name="smart_downloads_description">When you finish a downloaded episode, delete it and download the next ones. Wi-Fi only.</string>
+    <string name="smart_downloads_description">When you finish a downloaded episode, download the next ones. The finished episode stays unless Delete when finished is on. Wi-Fi only.</string>
     <string name="smart_downloads_count_title">Episodes to keep ready</string>
     <string name="smart_downloads_count_value">Next %1$d</string>
     <string name="smart_downloads_charging_title">Only while charging</string>
