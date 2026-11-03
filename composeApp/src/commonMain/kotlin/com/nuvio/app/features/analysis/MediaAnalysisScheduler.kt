@@ -32,6 +32,14 @@ internal data class RawMediaAnalysis(
     val decodeMs: Long = 0L,
     val sampleLoopMs: Long = 0L,
     val fingerprintMs: Long = 0L,
+    /** Milliseconds spent sleeping in the analysis throttle. Included in [decodeMs]. */
+    val throttledMs: Long = 0L,
+    /** Throttle level when packet reading started. 0 full speed, 1 playing, 2 struggling. */
+    val throttleLevelStart: Int = 0,
+    /** How many times the throttle check ran during the decode. */
+    val throttleYields: Int = 0,
+    /** Analyser thread QoS class name. Empty when the platform did not report one. */
+    val qos: String = "",
 )
 
 internal fun RawMediaAnalysis.toStoredResult(
@@ -490,6 +498,10 @@ internal object MediaAnalysisScheduler {
                 fingerprintMs = raw.fingerprintMs.coerceAtLeast(0L),
                 matchMs = matchMs.coerceAtLeast(0L),
                 totalMs = started.elapsedNow().inWholeMilliseconds.coerceAtLeast(0L),
+                throttledMs = raw.throttledMs.coerceAtLeast(0L),
+                throttleLevelStart = raw.throttleLevelStart,
+                throttleYields = raw.throttleYields.coerceAtLeast(0),
+                qos = raw.qos,
             ),
         )
         return result

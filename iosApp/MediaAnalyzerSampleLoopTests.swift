@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import iosApp
 
-/// Old scalar loop against the vDSP loop, on a buffer this test builds.
+/// Old scalar loop against the fast loop, on a buffer this test builds.
 /// Needs a Mac with Xcode. This VM has no Swift compiler, so the numbers are not invented here.
 final class MediaAnalyzerSampleLoopTests: XCTestCase {
     func testVectorMatchesScalarOnSyntheticBuffer() {
@@ -121,6 +121,95 @@ final class MediaAnalyzerSampleLoopTests: XCTestCase {
         print("sample-loop synthetic scalarMs=\(scalarMs) vectorMs=\(vectorMs) speedup=\(String(format: "%.2f", speedup)) frames=\(frames) channels=2")
     }
 
+    /// Packed PCM through the same two loops `consume` uses. `scalar: true` is the old loop
+    /// (`forceScalar` selects that loop for a real file). Energy bytes, fingerprint samples and
+    /// loudness have to match exactly.
+    func testFastLoopMatchesScalarOnPackedFormats() {
+        let body = Array(repeating: 1024, count: 19) + [13]
+        comparePcm(
+            label: "stereo FLTP",
+            format: .float32,
+            planar: true,
+            channels: 2,
+            sizes: body,
+            expectLoudness: true
+        )
+        comparePcm(
+            label: "5.1 FLTP",
+            format: .float32,
+            planar: true,
+            channels: 6,
+            sizes: body,
+            expectLoudness: true
+        )
+        comparePcm(
+            label: "S16 interleaved stereo",
+            format: .int16,
+            planar: false,
+            channels: 2,
+            sizes: body,
+            expectLoudness: true
+        )
+        comparePcm(
+            label: "FLT interleaved 5.1",
+            format: .float32,
+            planar: false,
+            channels: 6,
+            sizes: body,
+            expectLoudness: true
+        )
+        comparePcm(
+            label: "odd-sized last frame",
+            format: .float64,
+            planar: true,
+            channels: 2,
+            sizes: Array(repeating: 1000, count: 20) + [13],
+            expectLoudness: true
+        )
+        comparePcm(
+            label: "mid-file format with zero samples",
+            format: .float32,
+            planar: true,
+            channels: 2,
+            sizes: [10000, 9469],
+            insertZeroAfter: 0,
+            zeroFormat: .int16,
+            expectLoudness: true
+        )
+        comparePcm(
+            label: "DBL interleaved",
+            format: .float64,
+            planar: false,
+            channels: 2,
+            sizes: body,
+            expectLoudness: true
+        )
+        comparePcm(
+            label: "S32 planar",
+            format: .int32,
+            planar: true,
+            channels: 1,
+            sizes: body,
+            expectLoudness: true
+        )
+        comparePcm(
+            label: "U8 interleaved",
+            format: .uint8,
+            planar: false,
+            channels: 2,
+            sizes: body,
+            expectLoudness: true
+        )
+        comparePcm(
+            label: "unknown format is zeros",
+            format: .unknown,
+            planar: false,
+            channels: 2,
+            sizes: body,
+            expectLoudness: false
+        )
+    }
+
     #if DEBUG
     func testDebugFlagSelectsTheScalarPath() {
         let previous = MediaAnalyzerSampleLoop.forceScalar
@@ -163,6 +252,154 @@ final class MediaAnalyzerSampleLoopTests: XCTestCase {
             XCTAssertEqual(a, b, accuracy: MediaAnalyzerSampleLoopTolerance.loudnessLu, file: file, line: line)
         default:
             XCTFail("loudness presence differs scalar=\(String(describing: scalar.integratedLufs)) vector=\(String(describing: vector.integratedLufs))", file: file, line: line)
+        }
+    }
+
+    private func comparePcm(
+        label: String,
+        format: MediaAnalyzerPcmFrame.Format,
+        planar: Bool,
+        channels: Int,
+        sizes: [Int],
+        insertZeroAfter: Int? = nil,
+        zeroFormat: MediaAnalyzerPcmFrame.Format = .unknown,
+        expectLoudness: Bool,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let rate = 48_000
+        let frames = pcmFrames(
+            format: format,
+            planar: planar,
+            channels: channels,
+            sizes: sizes,
+            insertZeroAfter: insertZeroAfter,
+            zeroFormat: zeroFormat
+        )
+        let scalar = MediaAnalyzerSampleLoop.processPcm(
+            frames: frames,
+            rate: rate,
+            channels: channels,
+            durationMs: 1_000,
+            tailStartMs: 300,
+            scalar: true,
+            headWindowMs: 200
+        )
+        let fast = MediaAnalyzerSampleLoop.processPcm(
+            frames: frames,
+            rate: rate,
+            channels: channels,
+            durationMs: 1_000,
+            tailStartMs: 300,
+            scalar: false,
+            headWindowMs: 200
+        )
+        XCTAssertEqual(scalar.energyLevels, fast.energyLevels, label, file: file, line: line)
+        XCTAssertEqual(scalar.headSamples, fast.headSamples, "\(label) fingerprint", file: file, line: line)
+        XCTAssertEqual(scalar.tailSamples, fast.tailSamples, label, file: file, line: line)
+        XCTAssertEqual(scalar.blockPowers, fast.blockPowers, label, file: file, line: line)
+        switch (scalar.integratedLufs, fast.integratedLufs) {
+        case (nil, nil):
+            if expectLoudness {
+                XCTFail("\(label) produced no loudness", file: file, line: line)
+            }
+        case let (left?, right?):
+            XCTAssertEqual(left, right, label, file: file, line: line)
+            if !expectLoudness {
+                XCTFail("\(label) produced loudness from zeros", file: file, line: line)
+            }
+        default:
+            XCTFail("\(label) loudness presence differs", file: file, line: line)
+        }
+        if expectLoudness {
+            XCTAssertFalse(scalar.energyLevels.isEmpty, label, file: file, line: line)
+            XCTAssertFalse(scalar.headSamples.isEmpty, label, file: file, line: line)
+            XCTAssertFalse(scalar.tailSamples.isEmpty, label, file: file, line: line)
+        } else {
+            XCTAssertTrue(scalar.energyLevels.allSatisfy { $0 == 0 }, label, file: file, line: line)
+        }
+    }
+
+    private func pcmFrames(
+        format: MediaAnalyzerPcmFrame.Format,
+        planar: Bool,
+        channels: Int,
+        sizes: [Int],
+        insertZeroAfter: Int?,
+        zeroFormat: MediaAnalyzerPcmFrame.Format
+    ) -> [MediaAnalyzerPcmFrame] {
+        var frames: [MediaAnalyzerPcmFrame] = []
+        var start = 0
+        for (index, size) in sizes.enumerated() {
+            frames.append(pcmFrame(format: format, planar: planar, channels: channels, start: start, count: size))
+            start += size
+            if insertZeroAfter == index {
+                frames.append(MediaAnalyzerPcmFrame(
+                    format: zeroFormat,
+                    planar: true,
+                    channels: channels,
+                    sampleCount: 0,
+                    planes: []
+                ))
+            }
+        }
+        return frames
+    }
+
+    private func pcmFrame(
+        format: MediaAnalyzerPcmFrame.Format,
+        planar: Bool,
+        channels: Int,
+        start: Int,
+        count: Int
+    ) -> MediaAnalyzerPcmFrame {
+        guard count > 0 else {
+            return MediaAnalyzerPcmFrame(format: format, planar: planar, channels: channels, sampleCount: 0, planes: [])
+        }
+        if planar {
+            var planes: [Data?] = []
+            for channel in 0..<channels {
+                var bytes: [UInt8] = []
+                for index in 0..<count {
+                    bytes.append(contentsOf: encode(signal(channel: channel, index: start + index), format: format))
+                }
+                planes.append(Data(bytes))
+            }
+            return MediaAnalyzerPcmFrame(format: format, planar: true, channels: channels, sampleCount: count, planes: planes)
+        }
+        var bytes: [UInt8] = []
+        for index in 0..<count {
+            for channel in 0..<channels {
+                bytes.append(contentsOf: encode(signal(channel: channel, index: start + index), format: format))
+            }
+        }
+        return MediaAnalyzerPcmFrame(format: format, planar: false, channels: channels, sampleCount: count, planes: [Data(bytes)])
+    }
+
+    private func signal(channel: Int, index: Int) -> Double {
+        let t = Double(index) / 48_000
+        return 0.25 * sin(2 * Double.pi * Double(90 * (channel + 1)) * t)
+    }
+
+    private func encode(_ value: Double, format: MediaAnalyzerPcmFrame.Format) -> [UInt8] {
+        switch format {
+        case .float32:
+            var sample = Float(value)
+            return withUnsafeBytes(of: &sample) { Array($0) }
+        case .float64:
+            var sample = value
+            return withUnsafeBytes(of: &sample) { Array($0) }
+        case .int16:
+            var sample = Int16(clamping: Int((value * 32_767).rounded()))
+            return withUnsafeBytes(of: &sample) { Array($0) }
+        case .int32:
+            var sample = Int32(clamping: Int((value * 1_000_000).rounded()))
+            return withUnsafeBytes(of: &sample) { Array($0) }
+        case .uint8:
+            let scaled = Int((value * 128 + 128).rounded())
+            return [UInt8(max(0, min(255, scaled)))]
+        case .unknown:
+            return [0, 0, 0, 0]
         }
     }
 
