@@ -68,6 +68,7 @@ private fun HomeCatalogRowSectionContent(
     onPosterLongClick: ((MetaPreview) -> Unit)?,
 ) {
     val posterCardStyle = rememberPosterCardStyleUiState()
+    val movieProgressById = rememberMoviePosterProgressById()
 
     NuvioShelfSection(
         title = section.title,
@@ -86,6 +87,11 @@ private fun HomeCatalogRowSectionContent(
                 watchedKeys = watchedKeys,
                 item = item,
                 fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+            ),
+            resumeFraction = WatchingState.posterProgress(
+                movieId = item.id,
+                progressByMovieId = movieProgressById,
+                type = item.type,
             ),
             onClick = onPosterClick?.let { { it(item) } },
             onLongClick = onPosterLongClick?.let { { it(item) } },

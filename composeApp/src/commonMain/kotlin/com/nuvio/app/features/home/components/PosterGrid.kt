@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.ui.NuvioCardDepthSurface
+import com.nuvio.app.core.ui.NuvioPosterResumeBar
 import com.nuvio.app.core.ui.NuvioPosterWatchedOverlay
 import com.nuvio.app.core.ui.SkeletonPoster
 import com.nuvio.app.core.ui.nuvioCardDepth
@@ -60,6 +61,7 @@ internal fun PosterGridRow(
     onPosterLongClick: ((MetaPreview) -> Unit)? = null,
 ) {
     val posterCardStyle = rememberPosterCardStyleUiState()
+    val movieProgressById = rememberMoviePosterProgressById()
 
     Row(
         modifier = modifier.fillMaxWidth(),
@@ -76,6 +78,11 @@ internal fun PosterGridRow(
                     watchedKeys = watchedKeys,
                     item = item,
                     fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+                ),
+                resumeFraction = WatchingState.posterProgress(
+                    movieId = item.id,
+                    progressByMovieId = movieProgressById,
+                    type = item.type,
                 ),
                 onClick = onPosterClick?.let { { it(item) } },
                 onLongClick = onPosterLongClick?.let { { it(item) } },
@@ -116,6 +123,7 @@ private fun PosterGridTile(
     hideLabels: Boolean,
     modifier: Modifier = Modifier,
     isWatched: Boolean = false,
+    resumeFraction: Float? = null,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
 ) {
@@ -160,6 +168,12 @@ private fun PosterGridTile(
                 )
             }
             NuvioPosterWatchedOverlay(isWatched = isWatched)
+            if (resumeFraction != null) {
+                NuvioPosterResumeBar(
+                    fraction = resumeFraction,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
+            }
         }
         if (!hideLabels) {
             Text(
