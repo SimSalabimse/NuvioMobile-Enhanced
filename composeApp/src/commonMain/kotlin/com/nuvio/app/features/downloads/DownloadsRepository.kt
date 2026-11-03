@@ -245,7 +245,7 @@ object DownloadsRepository {
             activeHandles.remove(existing.id)?.cancel()
             partialPrefixCache.remove(existing.id)
             startQueue.discard(existing.id)
-            deleteFilesOf(existing)
+            deleteFilesOf(existing, reason = "replaced")
             currentItems.removeAll { it.id == existing.id }
         }
 
@@ -378,7 +378,7 @@ object DownloadsRepository {
         reason?.let { com.nuvio.app.core.ui.NuvioToastController.show("$it, re-downloading ${if (item.isEpisode) "${item.title} S${item.seasonNumber}E${item.episodeNumber}" else item.title}") }
         com.nuvio.app.features.analysis.MediaAnalysisScheduler.releaseFile(item.id)
         com.nuvio.app.features.analysis.MediaAnalysisStore.forgetFileData(com.nuvio.app.features.analysis.MediaAnalysisStore.keyFor(item))
-        deleteFilesOf(item)
+        deleteFilesOf(item, reason = "redownload")
         replaceItem(item.copy(status = DownloadStatus.Failed, downloadedBytes = 0L, localFileUri = null))
         retryDownload(downloadId)
     }
@@ -665,8 +665,8 @@ object DownloadsRepository {
         }
     }
 
-    fun cancelDownloads(downloadIds: List<String>) {
-        downloadIds.forEach(::cancelDownload)
+    fun cancelDownloads(downloadIds: List<String>, reason: String = "unspecified") {
+        downloadIds.forEach { cancelDownload(it, reason) }
     }
 
     /**
@@ -740,19 +740,24 @@ object DownloadsRepository {
     private fun DownloadItem.hasBytesOnDisk(): Boolean =
         downloadedBytes > 0L || (DownloadsPlatformDownloader.playableBytesOnDisk(fileName) ?: 0L) > 0L
 
-    fun cancelDownload(downloadId: String) {
+    fun cancelDownload(downloadId: String, reason: String = "unspecified") {
         ensureLoaded()
         val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
 
         // Let go of the file first (analysis run, preview reader, audio capture), then stop the
         // transfer without resume data, then delete and check.
+        com.nuvio.app.core.logging.InAppLogger.info(
+            "Downloads",
+            "removed id=${item.id} video=${item.videoId} status=${item.status} file=${item.fileName} reason=$reason",
+        )
         com.nuvio.app.features.analysis.MediaAnalysisScheduler.releaseFile(downloadId)
         DownloadsPlatformDownloader.discardTransfer(downloadId)
         activeHandles.remove(downloadId)?.cancel()
         linkRefreshAttempts.remove(downloadId)
         linkRefreshBytes.remove(downloadId)
         partialPrefixCache.remove(downloadId)
-        deleteFilesOf(item)
+        // Logged above with [reason]; file deletion itself has nothing further to say.
+        deleteFilesOf(item, reason = null)
 
         publish(_uiState.value.items.filterNot { it.id == downloadId })
         persistStatus()
@@ -781,7 +786,13 @@ object DownloadsRepository {
      * that is still there, or a finished file that was found nowhere, goes on the failed-deletes
      * list, retried at launch and on Clean up leftovers.
      */
-    private fun deleteFilesOf(item: DownloadItem) {
+    private fun deleteFilesOf(item: DownloadItem, reason: String?) {
+        if (reason != null) {
+            com.nuvio.app.core.logging.InAppLogger.info(
+                "Downloads",
+                "removed id=${item.id} video=${item.videoId} status=${item.status} file=${item.fileName} reason=$reason",
+            )
+        }
         val playable = runCatching { playableLocalFileUri(item) }.getOrNull()
         val outcome = DownloadsPlatformDownloader.removeFileVerified(
             listOf(playable, item.localFileUri),
@@ -803,7 +814,13 @@ object DownloadsRepository {
             // Downloaded again since: that file is in use.
             if (entry.fileName in owned) return@retry true
             val outcome = DownloadsPlatformDownloader.removeFileVerified(listOf(entry.localFileUri), entry.fileName)
-            if (outcome == FileDeleteOutcome.Deleted) done++
+            if (outcome == FileDeleteOutcome.Deleted) {
+                done++
+                com.nuvio.app.core.logging.InAppLogger.info(
+                    "Downloads",
+                    "removed file=${entry.fileName} reason=retry-failed-delete",
+                )
+            }
             outcome == FileDeleteOutcome.Deleted
         }
         if (done > 0) {
@@ -819,7 +836,7 @@ object DownloadsRepository {
         val incomplete = _uiState.value.items
             .filter { it.id in ids && (it.status == DownloadStatus.Failed || it.status == DownloadStatus.Paused) }
             .map { it.id }
-        incomplete.forEach(::cancelDownload)
+        incomplete.forEach { cancelDownload(it, reason = "incomplete-cleanup") }
     }
 
     private fun loadFromDisk() {
@@ -1389,7 +1406,15 @@ object DownloadsRepository {
         var freed = 0L
         summary.orphans
             .filter { file -> owned.none { ownsDiskFile(it, file.name) } }
-            .forEach { file -> if (DownloadDiskInfo.deleteDownloadFile(file.name)) freed += file.sizeBytes }
+            .forEach { file ->
+                if (DownloadDiskInfo.deleteDownloadFile(file.name)) {
+                    freed += file.sizeBytes
+                    com.nuvio.app.core.logging.InAppLogger.info(
+                        "Downloads",
+                        "removed file=${file.name} reason=orphan-cleanup",
+                    )
+                }
+            }
         summary.app?.leftovers.orEmpty().forEach { leftover ->
             val name = leftover.path.substringAfterLast('/').removeSuffix(".resumedata")
             if (owned.none { it.isNotBlank() && (it == name || ownsDiskFile(it, name)) }) {

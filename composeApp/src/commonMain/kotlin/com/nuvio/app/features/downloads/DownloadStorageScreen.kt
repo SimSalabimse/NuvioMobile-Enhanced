@@ -491,7 +491,7 @@ internal fun DownloadStorageScreen(
             confirmText = stringResource(Res.string.action_yes),
             dismissText = stringResource(Res.string.action_no),
             onConfirm = {
-                DownloadsRepository.cancelDownloads(pending.ids)
+                DownloadsRepository.cancelDownloads(pending.ids, reason = "manual")
                 pendingDelete = null
                 refresh++
             },

@@ -278,7 +278,7 @@ fun DownloadsScreen(
             confirmText = stringResource(Res.string.action_yes),
             dismissText = stringResource(Res.string.action_no),
             onConfirm = {
-                DownloadsRepository.cancelDownload(pendingDeletionId)
+                DownloadsRepository.cancelDownload(pendingDeletionId, reason = "manual")
                 downloadPendingDeletionId = null
             },
             onDismiss = { downloadPendingDeletionId = null },
@@ -295,7 +295,7 @@ fun DownloadsScreen(
             confirmText = stringResource(Res.string.action_yes),
             dismissText = stringResource(Res.string.action_no),
             onConfirm = {
-                DownloadsRepository.cancelDownloads(pendingGroup.items.map { it.id })
+                DownloadsRepository.cancelDownloads(pendingGroup.items.map { it.id }, reason = "manual")
                 groupPendingCancel = null
             },
             onDismiss = { groupPendingCancel = null },

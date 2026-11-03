@@ -4,11 +4,14 @@ import android.app.Application
 import android.content.Context
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaVideo
+import com.nuvio.app.features.player.PlayerPlaybackSnapshot
+import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.watched.WatchedItem
 import com.nuvio.app.features.watched.WatchedRepository
 import com.nuvio.app.features.watched.WatchedStorage
 import com.nuvio.app.features.watching.application.WatchingActions
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
+import com.nuvio.app.features.watchprogress.WatchProgressPlaybackSession
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.WatchProgressSourceTraktHistory
 import com.nuvio.app.features.watchprogress.WatchProgressStorage
@@ -51,6 +54,7 @@ class DeleteDownloadWhenFinishedTest {
         WatchProgressRepository.clearLocalState()
         FinishedDownloadDeletion.reset()
         FinishedDownloadDeletion.closeGraceMs = 0L
+        SmartDownloadSettings.setEnabled(false)
         directory = File(context.filesDir, "downloads").apply { mkdirs() }
     }
 
@@ -59,6 +63,7 @@ class DeleteDownloadWhenFinishedTest {
         FinishedDownloadDeletion.reset()
         DownloadsRepository.clearLocalState()
         DownloadsSettingsRepository.clearLocalState()
+        SmartDownloadSettings.setEnabled(false)
         WatchedRepository.clearLocalState()
         WatchProgressRepository.clearLocalState()
     }
@@ -234,6 +239,61 @@ class DeleteDownloadWhenFinishedTest {
     }
 
     @Test
+    fun playingADownloadedEpisodeToTheEndWithTheSwitchOffKeepsTheFile(): Unit = runBlocking {
+        val stored = seedCompletedEpisode()
+        val sourceUrl = checkNotNull(stored.localFileUri)
+        // Nothing saved yet, then the switch explicitly off. Both read false.
+        // The end path uses this, not an in-memory default of true.
+        assertFalse(DownloadsSettingsRepository.isDeleteWhenFinishedEnabled())
+        DownloadsSettingsRepository.setDeleteWhenFinished(false)
+        assertFalse(DownloadsSettingsRepository.isDeleteWhenFinishedEnabled())
+        assertFalse(SmartDownloads.isEnabled())
+
+        // Player: progress hits the end (upsert, including the watched mark), close flushes, then playbackEnded.
+        playToTheEndAndClose(stored)
+        // Autoplay disposes the finished episode before the next one opens.
+        FinishedDownloadDeletion.playbackOpened("tt123:1:2", "https://example.com/next.mkv")
+        FinishedDownloadDeletion.playbackPlaying("tt123:1:2")
+
+        assertEquals(stored.id, DownloadsRepository.uiState.value.items.single().id)
+        assertTrue(videoFile().isFile)
+
+        // That same end path used to treat Smart Downloads as the delete switch.
+        SmartDownloadSettings.setEnabled(true)
+        assertFalse(DownloadsSettingsRepository.isDeleteWhenFinishedEnabled())
+        FinishedDownloadDeletion.reset()
+        playToTheEndAndClose(stored)
+
+        assertEquals(stored.id, DownloadsRepository.uiState.value.items.single().id)
+        assertTrue(videoFile().isFile)
+
+        FinishedDownloadDeletion.playbackOpened(stored.videoId, sourceUrl)
+        val entry = completedEpisodeEntry(stored)
+        FinishedDownloadDeletion.onLocalProgress(entry, entry.durationMs - 180_000L, entry.durationMs)
+        FinishedDownloadDeletion.playbackOpened("tt123:1:2", "https://example.com/next.mkv")
+        FinishedDownloadDeletion.playbackPlaying("tt123:1:2")
+
+        assertEquals(stored.id, DownloadsRepository.uiState.value.items.single().id)
+        assertTrue(videoFile().isFile)
+    }
+
+    @Test
+    fun deleteWhenFinishedStillRemovesTheFileFromRealPlaybackProgress(): Unit = runBlocking {
+        val stored = seedCompletedDownload()
+        val sourceUrl = checkNotNull(stored.localFileUri)
+        DownloadsSettingsRepository.setDeleteWhenFinished(true)
+        SmartDownloadSettings.setEnabled(false)
+        FinishedDownloadDeletion.playbackOpened(videoId, sourceUrl)
+        val entry = completedEntry()
+        FinishedDownloadDeletion.onLocalProgress(entry, entry.lastPositionMs, entry.durationMs)
+        FinishedDownloadDeletion.playbackEnded(videoId)
+        awaitRemoval(stored)
+
+        assertTrue(DownloadsRepository.uiState.value.items.isEmpty())
+        assertFalse(videoFile().exists())
+    }
+
+    @Test
     fun turningTheSwitchOffBeforeLeavingKeepsTheQueuedFile() {
         val stored = seedCompletedDownload()
         DownloadsSettingsRepository.setDeleteWhenFinished(true)
@@ -245,6 +305,67 @@ class DeleteDownloadWhenFinishedTest {
         assertEquals(stored.id, DownloadsRepository.uiState.value.items.single().id)
         assertTrue(videoFile().isFile)
     }
+
+    /**
+     * What the player does at the end: the watch-progress upsert (real position, [PlayerPlaybackSnapshot.isEnded],
+     * which also marks the episode watched) while it is still open, the same flush on close, then
+     * [FinishedDownloadDeletion.playbackEnded]. Trakt or MDBList return later in that upsert; the
+     * delete decision is the call before they can.
+     */
+    private fun playToTheEndAndClose(stored: DownloadItem) {
+        val sourceUrl = checkNotNull(stored.localFileUri)
+        val durationMs = 3_600_000L
+        FinishedDownloadDeletion.playbackOpened(stored.videoId, sourceUrl)
+        val session = WatchProgressPlaybackSession(
+            profileId = ProfileRepository.activeProfileId,
+            contentType = "series",
+            parentMetaId = stored.parentMetaId,
+            parentMetaType = "series",
+            videoId = stored.videoId,
+            title = stored.title,
+            seasonNumber = stored.seasonNumber,
+            episodeNumber = stored.episodeNumber,
+            episodeTitle = stored.episodeTitle,
+            lastSourceUrl = sourceUrl,
+        )
+        val ended = PlayerPlaybackSnapshot(
+            isLoading = false,
+            isPlaying = false,
+            isEnded = true,
+            positionMs = durationMs,
+            durationMs = durationMs,
+        )
+        WatchProgressRepository.upsertPlaybackProgress(session, ended, syncRemote = false)
+        WatchProgressRepository.flushPlaybackProgress(session, ended, syncRemote = false)
+        FinishedDownloadDeletion.playbackEnded(stored.videoId)
+    }
+
+    private fun seedCompletedEpisode(): DownloadItem {
+        val stored = seedCompletedDownload(id = "finished-episode")
+        val episode = stored.copy(
+            contentType = "series",
+            parentMetaId = videoId,
+            parentMetaType = "series",
+            videoId = "$videoId:1:1",
+            title = "Show",
+            seasonNumber = 1,
+            episodeNumber = 1,
+            episodeTitle = "Pilot",
+        )
+        DownloadsRepository.replaceItems(listOf(episode))
+        return DownloadsRepository.uiState.value.items.single()
+    }
+
+    private fun completedEpisodeEntry(stored: DownloadItem) = completedEntry().copy(
+        contentType = "series",
+        parentMetaType = "series",
+        videoId = stored.videoId,
+        title = stored.title,
+        seasonNumber = stored.seasonNumber,
+        episodeNumber = stored.episodeNumber,
+        episodeTitle = stored.episodeTitle,
+        lastSourceUrl = stored.localFileUri,
+    )
 
     private fun seedCompletedDownload(id: String = "finished-download"): DownloadItem {
         directory.mkdirs()

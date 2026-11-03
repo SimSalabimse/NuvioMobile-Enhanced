@@ -49,7 +49,7 @@ internal object StorageAutopilot {
                 val plan = plan(SmartDownloadSettings.snapshot().keepFreeGb)
                 if (plan.ids.isEmpty()) return@withLock
                 withContext(Dispatchers.Main) {
-                    DownloadsRepository.cancelDownloads(plan.ids)
+                    DownloadsRepository.cancelDownloads(plan.ids, reason = "autopilot")
                     NuvioToastController.show("Storage autopilot freed ${formatDownloadBytes(plan.bytes)} of watched downloads")
                 }
             }
