@@ -45,7 +45,7 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - AnimeSkip: Settings › Playback › Skip Segments. Upstream.
 - Ask after Skip (Good/Wrong): Settings › Playback › Skip Segments. 0.5.10.3.
 - Your marks and shared nuvio://skip links: player skip menu. 191/192.
-- On-device analysis of downloads (intros/credits, recaps, loudness, scrub previews, subtitle sync, "analyse only while charging"): Settings › Downloads (analysis section). 0.5.10.1–0.5.10.2.
+- On-device analysis of downloads (intros/credits, recaps, loudness, scrub previews, subtitle sync, "analyse only while charging"): Settings › Downloads (analysis section). 0.5.10.1–0.5.10.2. Each analysed file logs decode, per-sample loop, fingerprint, match and total milliseconds. Read them in Settings › Advanced › Diagnostics, and the same line in Settings › Advanced › Debug Logs.
 - Sibling clip (fingerprints a nearby episode's intro window from its stream): automatic. 189.
 - Analysis queue order: lowest season and episode first, per show. 193.
 - "Playing an episode that isn't analysed yet" prompt (Play now / Finish first / In background / Don't ask again): Settings › Playback. Only shown when the file has no stored analysis (193).

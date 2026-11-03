@@ -241,47 +241,11 @@ private final class MediaAnalyzerAbortFlag {
     func reset() { lock.lock(); value = false; lock.unlock() }
 }
 
-private struct Biquad {
-    var b0 = 1.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0
-    var z1 = 0.0, z2 = 0.0
-
-    mutating func process(_ x: Double) -> Double {
-        let y = b0 * x + z1
-        z1 = b1 * x - a1 * y + z2
-        z2 = b2 * x - a2 * y
-        return y
-    }
-
-    /// BS.1770 stage 1 (head-related high shelf), for any sample rate.
-    static func kShelf(rate: Double) -> Biquad {
-        let f0 = 1681.974450955533, g = 3.999843853973347, q = 0.7071752369554196
-        let k = tan(Double.pi * f0 / rate)
-        let vh = pow(10.0, g / 20.0)
-        let vb = pow(vh, 0.4996667741545416)
-        let a0 = 1.0 + k / q + k * k
-        return Biquad(
-            b0: (vh + vb * k / q + k * k) / a0,
-            b1: 2.0 * (k * k - vh) / a0,
-            b2: (vh - vb * k / q + k * k) / a0,
-            a1: 2.0 * (k * k - 1.0) / a0,
-            a2: (1.0 - k / q + k * k) / a0
-        )
-    }
-
-    /// BS.1770 stage 2 (RLB high-pass).
-    static func kHighPass(rate: Double) -> Biquad {
-        let f0 = 38.13547087602444, q = 0.5003270373238773
-        let k = tan(Double.pi * f0 / rate)
-        let a0 = 1.0 + k / q + k * k
-        return Biquad(b0: 1.0, b1: -2.0, b2: 1.0, a1: 2.0 * (k * k - 1.0) / a0, a2: (1.0 - k / q + k * k) / a0)
-    }
-}
-
 private final class MediaAnalysisRun {
     static let stepMs = 100
-    static let headMs: Int64 = 10 * 60_000
+    static let headMs: Int64 = MediaAnalyzerSampleLoop.headWindowMs
     static let tailMs: Int64 = 8 * 60_000
-    static let fingerprintRate = 6000.0
+    static let fingerprintRate = MediaAnalyzerSampleLoop.fingerprintTargetRate
 
     private let fileUri: String
     private let abort: MediaAnalyzerAbortFlag
@@ -294,6 +258,9 @@ private final class MediaAnalysisRun {
     func run() -> String? {
         let path: String
         if let url = URL(string: fileUri), url.isFileURL { path = url.path } else { path = fileUri }
+        // Monotonic. Date() can jump; uptime does not.
+        let startedNs = DispatchTime.now().uptimeNanoseconds
+        var sampleLoopNs: UInt64 = 0
 
         guard let allocated = avformat_alloc_context() else { return nil }
         allocated.pointee.interrupt_callback.callback = { opaque in
@@ -334,7 +301,7 @@ private final class MediaAnalysisRun {
         let durationMs: Int64 = context.pointee.duration > 0 ? context.pointee.duration / 1000 : 0
         let tailStartMs: Int64 = durationMs > Self.tailMs ? durationMs - Self.tailMs : 0
 
-        var accumulator: Accumulator?
+        var accumulator: MediaAnalyzerSampleLoop?
         guard let packet = av_packet_alloc(), let frame = av_frame_alloc() else { return nil }
         var packetPointer: UnsafeMutablePointer<AVPacket>? = packet
         var framePointer: UnsafeMutablePointer<AVFrame>? = frame
@@ -349,9 +316,11 @@ private final class MediaAnalysisRun {
                 let channels = Int(frame.pointee.ch_layout.nb_channels)
                 if rate > 0, channels > 0 {
                     if accumulator == nil {
-                        accumulator = Accumulator(rate: rate, channels: channels, durationMs: durationMs, tailStartMs: tailStartMs)
+                        accumulator = MediaAnalyzerSampleLoop(rate: rate, channels: channels, durationMs: durationMs, tailStartMs: tailStartMs)
                     }
+                    let sampleStartedNs = DispatchTime.now().uptimeNanoseconds
                     accumulator?.consume(frame: frame)
+                    sampleLoopNs &+= DispatchTime.now().uptimeNanoseconds &- sampleStartedNs
                 }
                 av_frame_unref(frame)
             }
@@ -388,20 +357,26 @@ private final class MediaAnalysisRun {
 
         guard let acc = accumulator else { return nil }
         let measuredMs = durationMs > 0 ? durationMs : acc.decodedMs
+        let elapsedNs = DispatchTime.now().uptimeNanoseconds &- startedNs
+        let decodeMs = Int((elapsedNs > sampleLoopNs ? elapsedNs - sampleLoopNs : 0) / 1_000_000)
+        let sampleLoopMs = Int(sampleLoopNs / 1_000_000)
+        let fingerprintStartedNs = DispatchTime.now().uptimeNanoseconds
+        let headPrint = Fingerprinter.fingerprint(samples: acc.headSamples, rate: acc.fingerprintRate)
+        let tailPrint = durationMs > 0 ? Fingerprinter.fingerprint(samples: acc.tailSamples, rate: acc.fingerprintRate) : nil
+        let fingerprintMs = Int((DispatchTime.now().uptimeNanoseconds &- fingerprintStartedNs) / 1_000_000)
         var output: [String: Any] = [
             "durationMs": measuredMs,
             "energyStepMs": Self.stepMs,
             "energy": Data(acc.energyLevels).base64EncodedString(),
             "fingerprintStepMs": Self.stepMs,
             "tailStartMs": tailStartMs,
+            "decodeMs": decodeMs,
+            "sampleLoopMs": sampleLoopMs,
+            "fingerprintMs": fingerprintMs,
         ]
         if let lufs = acc.integratedLoudness() { output["integratedLufs"] = lufs }
-        if let head = Fingerprinter.fingerprint(samples: acc.headSamples, rate: acc.fingerprintRate) {
-            output["head"] = head
-        }
-        if durationMs > 0, let tail = Fingerprinter.fingerprint(samples: acc.tailSamples, rate: acc.fingerprintRate) {
-            output["tail"] = tail
-        }
+        if let headPrint { output["head"] = headPrint }
+        if let tailPrint { output["tail"] = tailPrint }
         guard let data = try? JSONSerialization.data(withJSONObject: output) else { return nil }
         log("done durationMs=\(measuredMs) steps=\(acc.energyLevels.count) head=\(acc.headSamples.count) tail=\(acc.tailSamples.count)")
         return String(data: data, encoding: .utf8)
@@ -480,7 +455,7 @@ private final class ClipFingerprintRun {
         let timeBase = stream.pointee.time_base
         let streamStart = stream.pointee.start_time != Self.noPtsValue ? stream.pointee.start_time : 0
 
-        var accumulator: Accumulator?
+        var accumulator: MediaAnalyzerSampleLoop?
         var originMs: Int64 = -1
         var reachedEnd = false
         guard let packet = av_packet_alloc(), let frame = av_frame_alloc() else { return nil }
@@ -506,7 +481,7 @@ private final class ClipFingerprintRun {
                     let channels = Int(frame.pointee.ch_layout.nb_channels)
                     guard rate > 0, channels > 0 else { continue }
                     if accumulator == nil {
-                        accumulator = Accumulator(rate: rate, channels: channels, durationMs: 0, tailStartMs: 0)
+                        accumulator = MediaAnalyzerSampleLoop(rate: rate, channels: channels, durationMs: 0, tailStartMs: 0)
                     }
                     accumulator?.consume(frame: frame)
                 }
@@ -523,152 +498,6 @@ private final class ClipFingerprintRun {
 
     private func log(_ message: String) {
         InAppLogBridge.shared.info(tag: "Analysis/iOS", message: message)
-    }
-}
-
-/// Everything measured from the decoded PCM in one pass.
-private struct Accumulator {
-    let rate: Int
-    let channels: Int
-    let tailStartSample: Int64
-    let headEndSample: Int64
-    let decimation: Int
-    let fingerprintRate: Double
-
-    var energyLevels: [UInt8] = []
-    var headSamples: [Float] = []
-    var tailSamples: [Float] = []
-
-    private let stepSamples: Int
-    private var sampleIndex: Int64 = 0
-    private var stepSquares = 0.0
-    private var stepCount = 0
-    private var shelves: [Biquad]
-    private var highPasses: [Biquad]
-    private let weights: [Double]
-    private var channelSquares: [Double]
-    private var blockPowers: [Double] = []
-    private var decimSum: Float = 0
-    private var decimCount = 0
-
-    var decodedMs: Int64 { sampleIndex * 1000 / Int64(rate) }
-
-    init(rate: Int, channels: Int, durationMs: Int64, tailStartMs: Int64) {
-        self.rate = rate
-        self.channels = channels
-        stepSamples = max(1, rate / 10)
-        tailStartSample = durationMs > 0 ? tailStartMs * Int64(rate) / 1000 : Int64.max
-        headEndSample = MediaAnalysisRun.headMs * Int64(rate) / 1000
-        decimation = max(1, Int((Double(rate) / MediaAnalysisRun.fingerprintRate).rounded()))
-        fingerprintRate = Double(rate) / Double(max(1, Int((Double(rate) / MediaAnalysisRun.fingerprintRate).rounded())))
-        shelves = Array(repeating: Biquad.kShelf(rate: Double(rate)), count: channels)
-        highPasses = Array(repeating: Biquad.kHighPass(rate: Double(rate)), count: channels)
-        // BS.1770 channel weights for 5.1 (L R C LFE Ls Rs): surrounds 1.41, LFE excluded.
-        if channels == 6 {
-            weights = [1, 1, 1, 0, 1.41, 1.41]
-        } else if channels == 8 {
-            weights = [1, 1, 1, 0, 1.41, 1.41, 1.41, 1.41]
-        } else {
-            weights = Array(repeating: 1, count: channels)
-        }
-        channelSquares = Array(repeating: 0, count: channels)
-        energyLevels.reserveCapacity(Int(max(durationMs, 0) / 100) + 16)
-    }
-
-    mutating func consume(frame: UnsafeMutablePointer<AVFrame>) {
-        let count = Int(frame.pointee.nb_samples)
-        guard count > 0, let data = frame.pointee.extended_data else { return }
-        let format = AVSampleFormat(rawValue: frame.pointee.format)
-        let planar = av_sample_fmt_is_planar(format) != 0
-        let frameChannels = min(channels, Int(frame.pointee.ch_layout.nb_channels))
-        let speechChannels = weights.prefix(frameChannels).filter { $0 > 0 }.count
-
-        for i in 0..<count {
-            var mono = 0.0
-            for ch in 0..<frameChannels {
-                let value = Self.sample(data: data, format: format, planar: planar, channel: ch, index: i, channels: frameChannels)
-                let k = highPasses[ch].process(shelves[ch].process(value))
-                channelSquares[ch] += k * k
-                if weights[ch] > 0 { mono += value }
-            }
-            mono /= Double(max(1, speechChannels))
-            stepSquares += mono * mono
-            stepCount += 1
-
-            if sampleIndex < headEndSample || sampleIndex >= tailStartSample {
-                decimSum += Float(mono)
-                decimCount += 1
-                if decimCount == decimation {
-                    let value = decimSum / Float(decimation)
-                    if sampleIndex < headEndSample { headSamples.append(value) } else { tailSamples.append(value) }
-                    decimSum = 0
-                    decimCount = 0
-                }
-            }
-
-            if stepCount == stepSamples {
-                closeStep()
-            }
-            sampleIndex += 1
-        }
-    }
-
-    private mutating func closeStep() {
-        let rms = sqrt(stepSquares / Double(max(1, stepCount)))
-        let db = rms > 0 ? 20 * log10(rms) : -90
-        energyLevels.append(UInt8(max(0, min(255, ((db + 90) / 90 * 255).rounded()))))
-        var power = 0.0
-        for ch in 0..<channels {
-            power += weights[ch] * channelSquares[ch] / Double(max(1, stepCount))
-            channelSquares[ch] = 0
-        }
-        blockPowers.append(power)
-        stepSquares = 0
-        stepCount = 0
-    }
-
-    /// Integrated loudness from 400 ms blocks (four 100 ms steps, 75 % overlap), gated per BS.1770-4.
-    func integratedLoudness() -> Double? {
-        guard blockPowers.count >= 4 else { return nil }
-        var blocks: [Double] = []
-        blocks.reserveCapacity(blockPowers.count)
-        for j in 0...(blockPowers.count - 4) {
-            blocks.append((blockPowers[j] + blockPowers[j + 1] + blockPowers[j + 2] + blockPowers[j + 3]) / 4)
-        }
-        func lufs(_ power: Double) -> Double { -0.691 + 10 * log10(power) }
-        let absolute = blocks.filter { $0 > 0 && lufs($0) > -70 }
-        guard !absolute.isEmpty else { return nil }
-        let relativeGate = lufs(absolute.reduce(0, +) / Double(absolute.count)) - 10
-        let gated = absolute.filter { lufs($0) > relativeGate }
-        guard !gated.isEmpty else { return nil }
-        return lufs(gated.reduce(0, +) / Double(gated.count))
-    }
-
-    private static func sample(
-        data: UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>,
-        format: AVSampleFormat,
-        planar: Bool,
-        channel: Int,
-        index: Int,
-        channels: Int
-    ) -> Double {
-        let plane = planar ? channel : 0
-        let offset = planar ? index : index * channels + channel
-        guard let base = data[plane] else { return 0 }
-        switch format {
-        case AV_SAMPLE_FMT_FLT, AV_SAMPLE_FMT_FLTP:
-            return Double(base.withMemoryRebound(to: Float.self, capacity: offset + 1) { $0[offset] })
-        case AV_SAMPLE_FMT_DBL, AV_SAMPLE_FMT_DBLP:
-            return base.withMemoryRebound(to: Double.self, capacity: offset + 1) { $0[offset] }
-        case AV_SAMPLE_FMT_S16, AV_SAMPLE_FMT_S16P:
-            return Double(base.withMemoryRebound(to: Int16.self, capacity: offset + 1) { $0[offset] }) / 32768.0
-        case AV_SAMPLE_FMT_S32, AV_SAMPLE_FMT_S32P:
-            return Double(base.withMemoryRebound(to: Int32.self, capacity: offset + 1) { $0[offset] }) / 2147483648.0
-        case AV_SAMPLE_FMT_U8, AV_SAMPLE_FMT_U8P:
-            return (Double(base[offset]) - 128.0) / 128.0
-        default:
-            return 0
-        }
     }
 }
 
