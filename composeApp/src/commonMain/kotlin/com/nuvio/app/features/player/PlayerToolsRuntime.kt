@@ -1,7 +1,10 @@
 package com.nuvio.app.features.player
 
 import com.nuvio.app.core.logging.InAppLogger
+import com.nuvio.app.features.player.skip.FlagSubmitLedger
+import com.nuvio.app.features.player.skip.rememberType
 import com.nuvio.app.features.player.skip.SkipInterval
+import com.nuvio.app.features.player.skip.flagSubmitContentKey
 /**
  * Opens and closes the player tools without touching the lock.
  * A tool that was already open is cleared first, so two panels never stack.
@@ -288,6 +291,7 @@ private fun PlayerScreenRuntime.showSegmentClocks(
 }
 
 internal fun PlayerScreenRuntime.noteMarkingSubmitted(result: IntroSubmitResult) {
+    FlagSubmitLedger.rememberType(flagSubmitContentKey(), result.segmentType)
     InAppLogger.info(
         "Player/SkipIntro",
         "submit success videoId=${activeVideoId.orEmpty()} s=${activeSeasonNumber ?: 0} " +
@@ -305,6 +309,20 @@ internal fun PlayerScreenRuntime.noteMarkingSubmitted(result: IntroSubmitResult)
     }
     markSent = true
     markSubmitError = null
+}
+
+private fun PlayerScreenRuntime.flagSubmitContentKey(): String {
+    val imdb = activeVideoId?.split(":")?.firstOrNull()?.takeIf { it.startsWith("tt") }
+        ?: parentMetaId.takeIf { it.startsWith("tt") }
+        ?: metaUiState.meta?.id?.takeIf { it.startsWith("tt") }
+        ?: metaUiState.meta?.imdbId?.takeIf { it.startsWith("tt") }
+        ?: ""
+    return flagSubmitContentKey(
+        imdb,
+        activeSeasonNumber ?: 0,
+        activeEpisodeNumber ?: 0,
+        isMoviePlayback,
+    )
 }
 
 internal fun PlayerScreenRuntime.setMarkClock(

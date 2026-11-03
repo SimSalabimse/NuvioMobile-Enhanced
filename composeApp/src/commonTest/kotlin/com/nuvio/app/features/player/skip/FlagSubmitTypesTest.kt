@@ -68,6 +68,37 @@ class FlagSubmitTypesTest {
     }
 
     @Test
+    fun checksKeepSubmittedTypesAndDropRejectedOnes() {
+        val records = listOf(
+            record(segment = "intro", status = "accepted"),
+            record(segment = "recap", status = "pending"),
+            record(segment = "credits", status = "rejected"),
+            record(segment = "preview", status = "rejected"),
+        )
+        val remote = submittedFlagTypesForTitle(records, tmdbId = 42, isMovie = false, season = 1, episode = 3)
+        val rejected = rejectedFlagTypesForTitle(records, tmdbId = 42, isMovie = false, season = 1, episode = 3)
+        assertEquals(setOf("intro", "recap"), remote)
+        assertEquals(setOf("outro", "preview"), rejected)
+        assertEquals(
+            setOf("intro", "recap"),
+            flagChecksForTitle(
+                ledgerTypes = setOf("outro", "intro"),
+                sessionTypes = setOf("credits", "preview"),
+                remoteTypes = remote,
+                rejectedTypes = rejected,
+            ),
+        )
+        assertEquals(
+            setOf("intro", "outro"),
+            flagChecksForTitle(
+                ledgerTypes = setOf("outro"),
+                sessionTypes = setOf("intro"),
+                remoteTypes = null,
+            ),
+        )
+    }
+
+    @Test
     fun remoteSetReplacesOneLedgerEntryAndEmptyDropsTheKey() {
         val ledger = mapOf(
             "tt1:1:2" to setOf("intro", "outro"),

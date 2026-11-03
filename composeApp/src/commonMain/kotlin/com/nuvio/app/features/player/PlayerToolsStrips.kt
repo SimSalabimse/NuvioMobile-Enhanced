@@ -27,6 +27,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -52,7 +53,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -81,8 +84,13 @@ import nuvio.composeapp.generated.resources.player_tools_nudge_minus_5
 import nuvio.composeapp.generated.resources.player_tools_nudge_plus_1
 import nuvio.composeapp.generated.resources.player_tools_nudge_plus_5
 import nuvio.composeapp.generated.resources.player_tools_past_video
+import nuvio.composeapp.generated.resources.player_tools_copy_link
+import nuvio.composeapp.generated.resources.player_tools_play_range
 import nuvio.composeapp.generated.resources.player_tools_preview
 import nuvio.composeapp.generated.resources.player_tools_recap
+import nuvio.composeapp.generated.resources.player_tools_runs_to_end
+import nuvio.composeapp.generated.resources.player_tools_sent
+import nuvio.composeapp.generated.resources.player_tools_starts_at_zero
 import nuvio.composeapp.generated.resources.player_tools_reset
 import nuvio.composeapp.generated.resources.player_tools_saw_it
 import nuvio.composeapp.generated.resources.player_tools_sent
@@ -207,6 +215,11 @@ internal fun SegmentMarkingLayer(
     onNudge: (MarkHandle, Double) -> Unit,
     onAddKey: () -> Unit,
     onSubmit: () -> Unit,
+    submittedTypes: Set<String> = emptySet(),
+    onStartAtZero: () -> Unit = {},
+    onRunsToEnd: () -> Unit = {},
+    onPreview: () -> Unit = {},
+    onCopyLink: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val range = markRangeStatus(segmentType, startSec, endSec, durationSec.takeIf { it > 0.0 })
@@ -307,6 +320,7 @@ internal fun SegmentMarkingLayer(
                     segmentType = segmentType,
                     isMovie = isMovie,
                     enabled = editable,
+                    submittedTypes = submittedTypes,
                     chipHeight = chipHeight.dp,
                     labelSize = labelSize,
                     hPad = hPad,
@@ -327,6 +341,18 @@ internal fun SegmentMarkingLayer(
                         },
                         modifier = Modifier.onGloballyPositioned { startWindowX = it.positionInWindow().x },
                     )
+                    if (markSegmentOffersStartAtZero(segmentType)) {
+                        BarChip(
+                            label = "0:00",
+                            description = stringResource(Res.string.player_tools_starts_at_zero),
+                            enabled = editable,
+                            selected = false,
+                            chipHeight = chipHeight.dp,
+                            labelSize = labelSize,
+                            hPad = hPad,
+                            onClick = onStartAtZero,
+                        )
+                    }
                     ClockChip(
                         title = stringResource(Res.string.submit_intro_end_short),
                         clock = endSec?.let { formatMarkClock(it, showTenth = endShowsTenth) }
@@ -341,6 +367,18 @@ internal fun SegmentMarkingLayer(
                         },
                         modifier = Modifier.onGloballyPositioned { endWindowX = it.positionInWindow().x },
                     )
+                    if (markSegmentOffersRunsToEnd(segmentType)) {
+                        BarChip(
+                            label = stringResource(Res.string.submit_intro_end_short),
+                            description = stringResource(Res.string.player_tools_runs_to_end),
+                            enabled = editable && durationSec > 0.0,
+                            selected = markRunsToEndSelected(endSec, durationSec),
+                            chipHeight = chipHeight.dp,
+                            labelSize = labelSize,
+                            hPad = hPad,
+                            onClick = onRunsToEnd,
+                        )
+                    }
                 }
                 MarkStatus(
                     range = range,
@@ -371,6 +409,28 @@ internal fun SegmentMarkingLayer(
                             .padding(horizontal = hPad, vertical = 4.dp),
                     )
                 }
+                val playRange = stringResource(Res.string.player_tools_play_range)
+                BarChip(
+                    label = playRange,
+                    description = playRange,
+                    enabled = markPlayRangeEnabled(absent, timeOk, submitting),
+                    selected = false,
+                    chipHeight = chipHeight.dp,
+                    labelSize = labelSize,
+                    hPad = hPad,
+                    onClick = onPreview,
+                )
+                val copyLink = stringResource(Res.string.player_tools_copy_link)
+                BarChip(
+                    label = copyLink,
+                    description = copyLink,
+                    enabled = markCopyLinkEnabled(absent, timeOk),
+                    selected = false,
+                    chipHeight = chipHeight.dp,
+                    labelSize = labelSize,
+                    hPad = hPad,
+                    onClick = onCopyLink,
+                )
                 SubmitPill(
                     text = pillText,
                     enabled = canSend,
@@ -422,15 +482,19 @@ private fun SegmentTabs(
     segmentType: String,
     isMovie: Boolean,
     enabled: Boolean,
+    submittedTypes: Set<String>,
     chipHeight: Dp,
     labelSize: androidx.compose.ui.unit.TextUnit,
     hPad: Dp,
     onSegment: (String) -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
+    val sentLabel = stringResource(Res.string.player_tools_sent)
     Row(verticalAlignment = Alignment.CenterVertically) {
         markSegmentTypes(isMovie).forEach { type ->
             val selected = markSegmentId(segmentType) == type
+            val label = markSegmentLabel(type)
+            val submitted = markSegmentId(type) in submittedTypes
             val shape = RoundedCornerShape(12.dp)
             Box(
                 modifier = Modifier
@@ -441,20 +505,76 @@ private fun SegmentTabs(
                     .padding(horizontal = hPad),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = markSegmentLabel(type),
-                    color = when {
-                        !enabled -> Color.White.copy(alpha = 0.35f)
-                        selected -> tokens.colors.onAccent
-                        else -> Color.White.copy(alpha = 0.86f)
-                    },
-                    fontSize = labelSize,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-                    maxLines = 1,
-                    softWrap = false,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = label,
+                        color = when {
+                            !enabled -> Color.White.copy(alpha = 0.35f)
+                            selected -> tokens.colors.onAccent
+                            else -> Color.White.copy(alpha = 0.86f)
+                        },
+                        fontSize = labelSize,
+                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                    if (submitted) {
+                        Icon(
+                            imageVector = Icons.Rounded.Check,
+                            contentDescription = "$label $sentLabel",
+                            tint = if (selected) tokens.colors.onAccent else MarkOk,
+                            modifier = Modifier.padding(start = 3.dp).size(12.dp),
+                        )
+                    }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun BarChip(
+    label: String,
+    description: String,
+    enabled: Boolean,
+    selected: Boolean,
+    chipHeight: Dp,
+    labelSize: androidx.compose.ui.unit.TextUnit,
+    hPad: Dp,
+    onClick: () -> Unit,
+) {
+    val shape = RoundedCornerShape(12.dp)
+    Box(
+        modifier = Modifier
+            .height(chipHeight)
+            .clip(shape)
+            .background(
+                when {
+                    selected -> MaterialTheme.nuvio.colors.accent
+                    else -> Color.White.copy(alpha = 0.10f)
+                },
+            )
+            .border(if (selected) 1.5.dp else 0.dp, if (selected) Color.White else Color.Transparent, shape)
+            .semantics(mergeDescendants = true) {
+                contentDescription = description
+                this.selected = selected
+            }
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = hPad),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = when {
+                !enabled -> Color.White.copy(alpha = 0.35f)
+                selected -> MaterialTheme.nuvio.colors.onAccent
+                else -> Color.White
+            },
+            fontSize = labelSize,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            maxLines = 1,
+            softWrap = false,
+        )
     }
 }
 

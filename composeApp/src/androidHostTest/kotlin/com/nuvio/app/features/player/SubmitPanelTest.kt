@@ -12,6 +12,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
@@ -80,7 +81,9 @@ class SubmitPanelTest {
         compose.onNodeWithText("Submit").assertIsEnabled()
         compose.onAllNodesWithText("Set to now").assertCountEquals(0)
         compose.onAllNodesWithText("\u22125").assertCountEquals(0)
-        compose.onAllNodesWithContentDescription("Play range").assertCountEquals(0)
+        compose.onNodeWithContentDescription("Play range").assertIsEnabled()
+        compose.onNodeWithContentDescription("Copy link").assertIsEnabled()
+        compose.onNodeWithContentDescription("Starts at 0:00").assertIsDisplayed()
         compose.onAllNodesWithContentDescription("More").assertCountEquals(0)
 
         compose.onNodeWithText("0:03:29", substring = true).performClick()

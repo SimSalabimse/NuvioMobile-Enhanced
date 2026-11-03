@@ -205,6 +205,28 @@ class PlayerToolsLogicTest {
     }
 
     @Test
+    fun `start and end shortcuts and the range actions`() {
+        val duration = 7_101.0
+        assertTrue(markSegmentOffersRunsToEnd("credits"))
+        assertTrue(markSegmentOffersRunsToEnd("preview"))
+        assertTrue(!markSegmentOffersRunsToEnd("intro"))
+        assertTrue(!markSegmentOffersRunsToEnd("recap"))
+        assertTrue(markSegmentOffersStartAtZero("intro"))
+        assertTrue(markSegmentOffersStartAtZero("recap"))
+        assertTrue(!markSegmentOffersStartAtZero("credits"))
+        assertTrue(markRunsToEndSelected(duration, duration))
+        assertTrue(!markRunsToEndSelected(duration - 1.0, duration))
+        assertTrue(!markRunsToEndSelected(null, duration))
+        assertTrue(markPlayRangeEnabled(absent = false, timeOk = true, submitting = false))
+        assertTrue(!markPlayRangeEnabled(absent = true, timeOk = true, submitting = false))
+        assertTrue(!markPlayRangeEnabled(absent = false, timeOk = false, submitting = false))
+        assertTrue(!markPlayRangeEnabled(absent = false, timeOk = true, submitting = true))
+        assertTrue(markCopyLinkEnabled(absent = false, timeOk = true))
+        assertTrue(!markCopyLinkEnabled(absent = false, timeOk = false))
+        assertTrue(!markCopyLinkEnabled(absent = true, timeOk = true))
+    }
+
+    @Test
     fun `an end on the stream length is valid and a hair past it clamps`() {
         val duration = 44 * 60 + 8.9
         val start = duration - 36.7

@@ -89,6 +89,14 @@ internal fun playerFlagHome(useLegacyLayout: Boolean, submitAvailable: Boolean):
     else -> PlayerFlagHome.TopPill
 }
 
+/**
+ * The Player buttons "Submit intro" row shows or hides the Flag.
+ * It is on unless this layout explicitly hides it.
+ * The legacy layout has no Player buttons screen, so its Flag stays.
+ */
+internal fun submitIntroFlagShown(legacyLayout: Boolean, layout: PlayerToolbarLayout): Boolean =
+    legacyLayout || PlayerToolbarButton.SUBMIT_INTRO in layout.visibleButtons
+
 internal enum class PlayerToolbarSlot {
     Download,
     PictureInPicture,
