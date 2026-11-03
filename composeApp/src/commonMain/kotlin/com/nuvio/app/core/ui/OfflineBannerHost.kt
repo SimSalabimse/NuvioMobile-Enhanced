@@ -1,6 +1,6 @@
 package com.nuvio.app.core.ui
 
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -59,11 +59,13 @@ internal fun OfflineBannerHost(
     var latch by remember {
         mutableStateOf(reduceOfflineBannerLatch(OfflineBannerLatch(), offline, surface, nowMs = 0L))
     }
-    // Matches reduceOfflineBannerLatch: offline is visible on this frame; leaving it
-    // waits OfflineBannerHoldMs before the fade. Reduce Motion snaps that fade.
+    // #77 set animated only while the banner was visible, and animateFloatAsState
+    // retargeted in the same frame Home swapped trees, so the 140ms fade finished
+    // before the next draw. This animatable stays composed until alpha reaches 0.
+    // OfflineBannerHoldMs is 0: the fade starts on the online frame. Reduce Motion snaps.
     LaunchedEffect(offline, surface) {
         latch = reduceOfflineBannerLatch(latch, offline, surface, nowMs = 0L)
-        if (surface == OfflineBannerSurface.Main && !offline && latch.visible) {
+        if (surface == OfflineBannerSurface.Main && !offline && latch.visible && OfflineBannerHoldMs > 0L) {
             delay(OfflineBannerHoldMs)
             latch = reduceOfflineBannerLatch(
                 latch,
@@ -74,15 +76,17 @@ internal fun OfflineBannerHost(
         }
     }
     val motion = offlineBannerMotionEnabled(surface, reduceMotion)
-    val fraction by animateFloatAsState(
-        targetValue = if (latch.visible) 1f else 0f,
-        animationSpec = if (motion && !latch.visible) {
-            tween(durationMillis = OfflineBannerHideFadeMs)
+    val bannerAlpha = remember { Animatable(if (latch.visible) 1f else 0f) }
+    LaunchedEffect(latch.visible, motion) {
+        val target = if (latch.visible) 1f else 0f
+        val spec = if (motion && !latch.visible) {
+            tween<Float>(durationMillis = OfflineBannerHideFadeMs)
         } else {
             snap()
-        },
-        label = "offlineBanner",
-    )
+        }
+        bannerAlpha.animateTo(target, spec)
+    }
+    val fraction = bannerAlpha.value
     val showStrip = latch.visible || fraction > 0f
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val frame = offlineBannerFrame(

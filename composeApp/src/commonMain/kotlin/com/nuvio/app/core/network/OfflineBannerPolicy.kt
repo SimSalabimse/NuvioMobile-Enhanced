@@ -1,10 +1,14 @@
 package com.nuvio.app.core.network
 
-const val OfflineBannerHoldMs = 1_000L
+/**
+ * No extra wait before the hide fade. A dead network stays offline until the probe
+ * succeeds, so the fade can start on the online frame. [OfflineBannerHideFadeMs] is that fade.
+ */
+const val OfflineBannerHoldMs = 0L
 const val OfflineBannerShowMs = 220
-const val OfflineBannerHideFadeMs = 140
+const val OfflineBannerHideFadeMs = 250
 
-/** Appear has no hold. [OfflineBannerHoldMs] is only the delay before hiding. */
+/** Appear has no hold. [OfflineBannerHoldMs] stays 0 so the hide fade is not postponed. */
 const val OfflineBannerAppearDelayMs = 0L
 
 enum class OfflineBannerSurface {
@@ -37,9 +41,9 @@ fun offlineBannerMotionEnabled(
 ): Boolean = surface == OfflineBannerSurface.Main && !reduceMotion
 
 /**
- * Offline shows at once. Leaving that state keeps the banner up until
- * [OfflineBannerHoldMs] has passed, so a brief recovery does not flicker.
- * [animated] is the fade used only when the banner finishes hiding.
+ * Offline shows at once. Leaving that state hides on this sample when
+ * [onlineHeldMs] has reached [OfflineBannerHoldMs] (0, so the fade starts immediately).
+ * [animated] is that hide fade. The probe, not this timer, rejects a dead network.
  */
 fun offlineBannerView(
     condition: NetworkCondition,

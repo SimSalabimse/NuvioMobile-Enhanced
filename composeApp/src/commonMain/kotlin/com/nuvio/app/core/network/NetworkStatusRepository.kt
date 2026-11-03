@@ -36,9 +36,6 @@ data class NetworkStatusUiState(
 }
 
 object NetworkStatusRepository {
-    private const val REQUEST_TIMEOUT_MS = 4_500L
-    private const val FOREGROUND_REFRESH_DELAY_MS = 6_000L
-    private const val FOREGROUND_FAILURE_CONFIRM_DELAY_MS = 2_000L
     private const val PUBLIC_PROBE_PRIMARY = "https://www.gstatic.com/generate_204"
     private const val PUBLIC_PROBE_FALLBACK = "https://cloudflare.com/cdn-cgi/trace"
 
@@ -74,9 +71,10 @@ object NetworkStatusRepository {
 
     fun requestForegroundRefresh() {
         ensureStarted()
+        val delayMs = foregroundRefreshDelayMs(_uiState.value.condition)
         foregroundRefreshJob?.cancel()
         foregroundRefreshJob = scope.launch {
-            delay(FOREGROUND_REFRESH_DELAY_MS)
+            if (delayMs > 0L) delay(delayMs)
             requestRefresh(force = true, confirmFailures = true)
         }
     }
@@ -249,8 +247,11 @@ object NetworkStatusRepository {
             }
             val watchOnly = ticket.watchGeneration != null && !ticket.confirmFailures && !ticket.explicitFollowUp
             if (!watchOnly) messages.trySend(WatchMessage.ProbeBegan)
-            val timeoutMs = if (watchOnly) ConnectionWatchProbeTimeoutMs else REQUEST_TIMEOUT_MS
-            val condition = if (watchOnly) {
+            val offlineLike = _uiState.value.isOfflineLike
+            val timeoutMs = watchProbeTimeoutMs(watchOnly = watchOnly, offlineLike = offlineLike)
+            // The short cap is only for a path check while we are not already showing offline.
+            // Offline uses the full budget so the first slow answer after airplane mode is not a false drop.
+            val condition = if (watchOnly && !offlineLike) {
                 withTimeoutOrNull(timeoutMs) { runProbe(confirmFailures = false, timeoutMs = timeoutMs) }
                     ?: NetworkCondition.NoInternet
             } else {
@@ -296,12 +297,8 @@ object NetworkStatusRepository {
     private suspend fun runProbe(confirmFailures: Boolean, timeoutMs: Long): NetworkCondition {
         val previousCondition = _uiState.value.condition
         var nextCondition = probeCondition(timeoutMs)
-        if (
-            confirmFailures &&
-            previousCondition == NetworkCondition.Online &&
-            nextCondition.isOfflineLike()
-        ) {
-            delay(FOREGROUND_FAILURE_CONFIRM_DELAY_MS)
+        if (shouldConfirmForegroundFailure(confirmFailures, previousCondition, nextCondition)) {
+            delay(ForegroundFailureConfirmDelayMs)
             nextCondition = probeCondition(timeoutMs)
         }
         return nextCondition
@@ -349,9 +346,6 @@ object NetworkStatusRepository {
 
         return response.status in 100..599
     }
-
-    private fun NetworkCondition.isOfflineLike(): Boolean =
-        this == NetworkCondition.NoInternet || this == NetworkCondition.ServersUnreachable
 
     private data class ProbeTicket(
         val watchGeneration: Long?,

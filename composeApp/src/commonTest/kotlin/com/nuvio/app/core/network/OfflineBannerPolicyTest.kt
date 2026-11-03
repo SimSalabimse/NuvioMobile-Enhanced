@@ -28,16 +28,6 @@ class OfflineBannerPolicyTest {
         assertTrue(servers.visible)
         assertFalse(servers.animated)
 
-        val stillUp = offlineBannerView(
-            condition = NetworkCondition.Online,
-            onlineHeldMs = OfflineBannerHoldMs - 1,
-            showingBefore = true,
-            surface = OfflineBannerSurface.Main,
-            reduceMotion = false,
-        )
-        assertTrue(stillUp.visible)
-        assertFalse(stillUp.animated)
-
         val hidden = offlineBannerView(
             condition = NetworkCondition.Online,
             onlineHeldMs = OfflineBannerHoldMs,
@@ -91,7 +81,7 @@ class OfflineBannerPolicyTest {
     }
 
     @Test
-    fun aDropShowsImmediatelyAndAReturnWaitsOutTheHold() {
+    fun aDropShowsImmediatelyAndAReturnHidesWithAFade() {
         val marks = listOf(
             OfflineBannerMark(0L, NetworkCondition.NoInternet),
             OfflineBannerMark(400L, NetworkCondition.ServersUnreachable),
@@ -101,21 +91,19 @@ class OfflineBannerPolicyTest {
         val shown = offlineBannerViewAt(marks, 0L, OfflineBannerSurface.Main, reduceMotion = false)
         assertTrue(shown.visible)
         assertFalse(shown.animated)
-        assertTrue(offlineBannerViewAt(marks, 1_000L, OfflineBannerSurface.Main, reduceMotion = true).visible)
+        assertTrue(offlineBannerViewAt(marks, 1_000L, OfflineBannerSurface.Main, reduceMotion = false).visible)
         assertFalse(offlineBannerViewAt(marks, 0L, OfflineBannerSurface.Player, reduceMotion = false).visible)
         assertFalse(offlineBannerViewAt(marks, 0L, OfflineBannerSurface.LaunchGate, reduceMotion = false).visible)
-        assertTrue(offlineBannerViewAt(marks, 2_500L, OfflineBannerSurface.Main, reduceMotion = false).visible)
-        assertTrue(offlineBannerViewAt(marks, 3_499L, OfflineBannerSurface.Main, reduceMotion = false).visible)
-        val hidden = offlineBannerViewAt(marks, 3_500L, OfflineBannerSurface.Main, reduceMotion = false)
+        val hidden = offlineBannerViewAt(marks, 2_500L, OfflineBannerSurface.Main, reduceMotion = false)
         assertFalse(hidden.visible)
         assertTrue(hidden.animated)
-        val hiddenStill = offlineBannerViewAt(marks, 3_500L, OfflineBannerSurface.Main, reduceMotion = true)
+        val hiddenStill = offlineBannerViewAt(marks, 2_500L, OfflineBannerSurface.Main, reduceMotion = true)
         assertFalse(hiddenStill.visible)
         assertFalse(hiddenStill.animated)
     }
 
     @Test
-    fun returningOfflineBeforeTheHoldCancelsTheHide() {
+    fun aNewDropAfterOnlineShowsAgainImmediately() {
         val marks = listOf(
             OfflineBannerMark(0L, NetworkCondition.NoInternet),
             OfflineBannerMark(400L, NetworkCondition.Online),
@@ -123,17 +111,20 @@ class OfflineBannerPolicyTest {
             OfflineBannerMark(2_000L, NetworkCondition.Online),
         )
         assertTrue(offlineBannerViewAt(marks, 0L, OfflineBannerSurface.Main, reduceMotion = false).visible)
-        assertTrue(offlineBannerViewAt(marks, 400L, OfflineBannerSurface.Main, reduceMotion = false).visible)
-        assertTrue(offlineBannerViewAt(marks, 899L, OfflineBannerSurface.Main, reduceMotion = false).visible)
+        val faded = offlineBannerViewAt(marks, 400L, OfflineBannerSurface.Main, reduceMotion = false)
+        assertFalse(faded.visible)
+        assertTrue(faded.animated)
         assertTrue(offlineBannerViewAt(marks, 900L, OfflineBannerSurface.Main, reduceMotion = false).visible)
-        assertTrue(offlineBannerViewAt(marks, 2_999L, OfflineBannerSurface.Main, reduceMotion = false).visible)
-        assertFalse(offlineBannerViewAt(marks, 3_000L, OfflineBannerSurface.Main, reduceMotion = false).visible)
+        val fadedAgain = offlineBannerViewAt(marks, 2_000L, OfflineBannerSurface.Main, reduceMotion = false)
+        assertFalse(fadedAgain.visible)
+        assertTrue(fadedAgain.animated)
     }
 
     @Test
     fun hideFadesOnTheMainScreenUnlessReduceMotionIsOn() {
-        assertTrue(OfflineBannerHideFadeMs in 1 until OfflineBannerHoldMs)
-        assertTrue(OfflineBannerShowMs in 1 until OfflineBannerHoldMs)
+        assertEquals(250, OfflineBannerHideFadeMs)
+        assertEquals(0L, OfflineBannerHoldMs)
+        assertTrue(OfflineBannerShowMs > 0)
         assertEquals(0L, OfflineBannerAppearDelayMs)
         assertTrue(offlineBannerMotionEnabled(OfflineBannerSurface.Main, reduceMotion = false))
         assertFalse(offlineBannerMotionEnabled(OfflineBannerSurface.Main, reduceMotion = true))
@@ -154,10 +145,6 @@ class OfflineBannerPolicyTest {
         latch = reduceOfflineBannerLatch(latch, offline = true, OfflineBannerSurface.Main, nowMs = 10L)
         assertTrue(latch.visible)
         latch = reduceOfflineBannerLatch(latch, offline = false, OfflineBannerSurface.Main, nowMs = 10L)
-        assertTrue(latch.visible)
-        latch = reduceOfflineBannerLatch(latch, offline = false, OfflineBannerSurface.Main, nowMs = 10L + OfflineBannerHoldMs - 1)
-        assertTrue(latch.visible)
-        latch = reduceOfflineBannerLatch(latch, offline = false, OfflineBannerSurface.Main, nowMs = 10L + OfflineBannerHoldMs)
         assertFalse(latch.visible)
         val player = reduceOfflineBannerLatch(
             OfflineBannerLatch(visible = true),
