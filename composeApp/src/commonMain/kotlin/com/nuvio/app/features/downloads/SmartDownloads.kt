@@ -620,7 +620,7 @@ internal object SmartDownloads {
      */
     private fun noSpace(request: SmartDownloadRequest): SmartDownloadRequest {
         request.report("Not enough free space for the next episode")
-        if (FinishedDownloadDeletion.hasPendingDeletion()) return request
+        if (smartDownloadsDefersToPendingDeletion()) return request
         StorageAutopilot.run()
         val key = "${request.parentMetaId}:${request.season}:${request.episode}"
         if (noSpaceShown.add(key)) NuvioToastController.show(SMART_DOWNLOADS_NO_SPACE)
@@ -714,6 +714,8 @@ internal fun smartDownloadRetryAfterEnqueue(
     report("$reason. Trying again in 1 h")
     return nowMs + HOUR_MS
 }
+
+internal fun smartDownloadsDefersToPendingDeletion(): Boolean = FinishedDownloadDeletion.hasPendingDeletion()
 
 /** Below this much free space Smart Downloads don't even look for streams. */
 internal const val SMART_DOWNLOAD_MIN_FREE_BYTES = 1_000_000_000L

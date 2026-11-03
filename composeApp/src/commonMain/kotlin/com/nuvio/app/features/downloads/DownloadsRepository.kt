@@ -761,6 +761,7 @@ object DownloadsRepository {
         appUsageDirty = true
         scheduleSpaceRetry()
         SmartDownloads.retryPending()
+        FinishedDownloadDeletion.onDownloadRemoved(downloadId)
     }
 
     /**
@@ -830,6 +831,7 @@ object DownloadsRepository {
         if (payload.isEmpty()) {
             _uiState.value = DownloadsUiState()
             notifyLiveStatusPlatform()
+            FinishedDownloadDeletion.resumeAfterLaunch()
             return
         }
 
@@ -855,6 +857,7 @@ object DownloadsRepository {
         resumeWaitingForAppOpen()
         runCatching { retryFailedDeletes() }
         StorageAutopilot.run()
+        FinishedDownloadDeletion.resumeAfterLaunch()
     }
 
     private fun startDownload(item: DownloadItem) {

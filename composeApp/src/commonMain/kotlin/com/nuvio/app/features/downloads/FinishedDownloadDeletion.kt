@@ -1,5 +1,11 @@
 package com.nuvio.app.features.downloads
 
+import com.nuvio.app.core.serialization.LenientDefaultsJson
+import com.nuvio.app.features.analysis.MediaAnalysisResult
+import com.nuvio.app.features.analysis.MediaAnalysisSettings
+import com.nuvio.app.features.analysis.MediaAnalysisStore
+import com.nuvio.app.features.analysis.MediaAnalyzerPlatform
+import com.nuvio.app.features.streams.epochMs
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -7,6 +13,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 
 /**
  * Queues removal of a finished download when in-app playback completes, and
@@ -20,6 +29,10 @@ import kotlinx.coroutines.launch
  *
  * Completion is reported from the watch-progress upsert for every completed in-app playback,
  * also when Trakt or MDBList owns watched history (that path used to skip this entirely).
+ *
+ * An automatic delete of a finished episode waits until its intro fingerprint is stored (or the
+ * wait hits [ANALYSIS_HOLD_CAP_MS], or analysis fails for good). The file is not needed after that.
+ * A delete the user asked for is not held.
  */
 internal object FinishedDownloadDeletion {
     private var session: OpenPlayback? = null
@@ -34,6 +47,16 @@ internal object FinishedDownloadDeletion {
      * a stream (TorBox) mid episode. Reopening the same video within this time keeps the file.
      */
     internal var closeGraceMs: Long = 5_000L
+
+    internal var deletionAnalyserSupported: Boolean? = null
+    internal var deletionStoredAnalysis: ((DownloadItem) -> MediaAnalysisResult?)? = null
+
+    internal var analysisHoldCapMs: Long = ANALYSIS_HOLD_CAP_MS
+
+    internal var deletionNowMs: () -> Long = { epochMs() }
+
+    private var generationClock = 0
+    private var holdCapJob: Job? = null
 
     fun playbackOpened(videoId: String, sourceUrl: String) {
         cancelPendingFor(videoId, sourceUrl)
@@ -168,6 +191,56 @@ internal object FinishedDownloadDeletion {
         pending = null
         pendingJob?.cancel()
         pendingJob = null
+        holdCapJob?.cancel()
+        holdCapJob = null
+        deletionAnalyserSupported = null
+        deletionStoredAnalysis = null
+        analysisHoldCapMs = ANALYSIS_HOLD_CAP_MS
+        deletionNowMs = { epochMs() }
+        clearPersistedHold()
+    }
+
+    internal fun discardMemoryForRestart() {
+        pendingJob?.cancel()
+        pendingJob = null
+        holdCapJob?.cancel()
+        holdCapJob = null
+        pending = null
+        session = null
+    }
+
+    fun analysisSettled(downloadId: String) {
+        val current = pending ?: return
+        if (current.downloadId != downloadId || current.heldSinceEpochMs == null) return
+        execute(current.copy(releaseHold = true))
+    }
+
+    internal fun reevaluateHeldDeletion() {
+        val current = pending ?: return
+        if (current.heldSinceEpochMs == null) return
+        execute(current)
+    }
+
+    internal fun onDownloadRemoved(downloadId: String) {
+        val current = pending ?: return
+        if (current.downloadId != downloadId) return
+        drop(current)
+    }
+
+    internal fun resumeAfterLaunch() {
+        val stored = loadPersistedHold() ?: return
+        val current = pending
+        if (current != null && current.downloadId == stored.downloadId && current.heldSinceEpochMs != null) return
+        if (stored.generation > generationClock) generationClock = stored.generation
+        pending = PendingDeletion(
+            downloadId = stored.downloadId,
+            videoId = stored.videoId,
+            requireCompleted = stored.requireCompleted,
+            untilOtherPlays = false,
+            generation = stored.generation,
+            heldSinceEpochMs = stored.heldSinceEpochMs,
+        )
+        execute(pending!!)
     }
 
     private fun release(current: OpenPlayback, untilOtherPlays: Boolean) {
@@ -179,9 +252,12 @@ internal object FinishedDownloadDeletion {
             videoId = current.videoId,
             requireCompleted = current.queuedDownloadId == null,
             untilOtherPlays = untilOtherPlays,
+            generation = nextGeneration(),
         )
         if (untilOtherPlays) {
             pendingJob?.cancel()
+            holdCapJob?.cancel()
+            holdCapJob = null
             pending = deletion
         } else {
             schedule(deletion, closeGraceMs)
@@ -190,6 +266,8 @@ internal object FinishedDownloadDeletion {
 
     private fun schedule(deletion: PendingDeletion, delayMs: Long) {
         pendingJob?.cancel()
+        holdCapJob?.cancel()
+        holdCapJob = null
         pending = deletion
         if (delayMs <= 0L) {
             pendingJob = null
@@ -203,16 +281,87 @@ internal object FinishedDownloadDeletion {
     }
 
     private fun execute(deletion: PendingDeletion) {
-        if (pending !== deletion) return
-        pending = null
-        pendingJob = null
-        if (!deletionEnabled()) return
-        val item = DownloadsRepository.uiState.value.items.firstOrNull { it.id == deletion.downloadId } ?: return
-        if (deletion.requireCompleted && item.status != DownloadStatus.Completed) return
+        val current = pending ?: return
+        if (current.generation != deletion.generation) return
+        if (!deletionEnabled()) {
+            drop(current)
+            return
+        }
+        val item = DownloadsRepository.uiState.value.items.firstOrNull { it.id == current.downloadId }
+        if (item == null) {
+            drop(current)
+            return
+        }
+        if (current.requireCompleted && item.status != DownloadStatus.Completed) {
+            drop(current)
+            return
+        }
         // Never the episode on screen, whatever path got here.
-        if (session?.videoId == deletion.videoId || isOpen(item)) return
-        DownloadsRepository.cancelDownload(deletion.downloadId)
+        if (session?.videoId == current.videoId || isOpen(item)) {
+            drop(current)
+            return
+        }
+        if (!deletion.releaseHold && shouldHold(item, current)) {
+            keepHold(current, item)
+            return
+        }
+        drop(current)
+        DownloadsRepository.cancelDownload(current.downloadId)
     }
+
+    private fun shouldHold(item: DownloadItem, current: PendingDeletion): Boolean {
+        val since = current.heldSinceEpochMs
+        val heldForMs = if (since == null) 0L else (deletionNowMs() - since).coerceAtLeast(0L)
+        return shouldHoldAutomaticDeletion(
+            item = item,
+            storedAnalysis = storedAnalysis(item),
+            introDetectionEnabled = MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.IntroDetection),
+            analyserSupported = deletionAnalyserSupported ?: MediaAnalyzerPlatform.supported,
+            automatic = true,
+            heldForMs = heldForMs,
+            holdCapMs = analysisHoldCapMs,
+        )
+    }
+
+    private fun storedAnalysis(item: DownloadItem): MediaAnalysisResult? {
+        deletionStoredAnalysis?.let { return it(item) }
+        return runCatching { MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item)) }.getOrNull()
+    }
+
+    private fun keepHold(current: PendingDeletion, item: DownloadItem) {
+        val since = current.heldSinceEpochMs ?: deletionNowMs()
+        val updated = current.copy(heldSinceEpochMs = since)
+        pending = updated
+        persistHold(updated)
+        if (holdCapJob?.isActive == true) return
+        com.nuvio.app.features.analysis.MediaAnalysisScheduler.prioritiseForPendingDeletion(item)
+        val remaining = analysisHoldCapMs - (deletionNowMs() - since)
+        if (remaining <= 0L) {
+            execute(updated.copy(releaseHold = true))
+            return
+        }
+        val generation = updated.generation
+        holdCapJob = scope.launch {
+            delay(remaining)
+            if (holdCapJob === coroutineContext[Job]) holdCapJob = null
+            val latest = pending
+            if (latest != null && latest.generation == generation) {
+                execute(latest.copy(releaseHold = true))
+            }
+        }
+    }
+
+    private fun drop(current: PendingDeletion) {
+        if (pending?.generation == current.generation) pending = null
+        pendingJob?.cancel()
+        pendingJob = null
+        holdCapJob?.cancel()
+        holdCapJob = null
+        val stored = loadPersistedHold()
+        if (stored == null || stored.downloadId == current.downloadId) clearPersistedHold()
+    }
+
+    private fun nextGeneration(): Int = ++generationClock
 
     /** The same video (or the same file) is open again: keep its file. */
     private fun cancelPendingFor(videoId: String, sourceUrl: String) {
@@ -223,7 +372,11 @@ internal object FinishedDownloadDeletion {
         if (waiting.videoId != videoId && !sameFile) return
         pendingJob?.cancel()
         pendingJob = null
+        holdCapJob?.cancel()
+        holdCapJob = null
         pending = null
+        val stored = loadPersistedHold()
+        if (stored == null || stored.downloadId == waiting.downloadId) clearPersistedHold()
         // Back on the same episode: it is still watched, so closing again queues it again.
         val current = session
         if (current == null || current.videoId != videoId) {
@@ -242,7 +395,46 @@ private data class PendingDeletion(
     val videoId: String,
     val requireCompleted: Boolean,
     val untilOtherPlays: Boolean,
+    val generation: Int,
+    val heldSinceEpochMs: Long? = null,
+    val releaseHold: Boolean = false,
 )
+
+private const val ANALYSIS_HOLD_KEY = "finished_download_analysis_hold"
+
+@Serializable
+private data class PersistedAnalysisHold(
+    val downloadId: String,
+    val videoId: String,
+    val requireCompleted: Boolean,
+    val heldSinceEpochMs: Long,
+    val generation: Int,
+)
+
+private fun persistHold(deletion: PendingDeletion) {
+    val since = deletion.heldSinceEpochMs ?: return
+    val payload = PersistedAnalysisHold(
+        downloadId = deletion.downloadId,
+        videoId = deletion.videoId,
+        requireCompleted = deletion.requireCompleted,
+        heldSinceEpochMs = since,
+        generation = deletion.generation,
+    )
+    DownloadsSettingsStorage.saveString(
+        ANALYSIS_HOLD_KEY,
+        LenientDefaultsJson.encodeToString(PersistedAnalysisHold.serializer(), payload),
+    )
+}
+
+private fun loadPersistedHold(): PersistedAnalysisHold? {
+    val text = DownloadsSettingsStorage.loadString(ANALYSIS_HOLD_KEY) ?: return null
+    return runCatching { LenientDefaultsJson.decodeFromString(PersistedAnalysisHold.serializer(), text) }.getOrNull()
+}
+
+private fun clearPersistedHold() {
+    if (DownloadsSettingsStorage.loadString(ANALYSIS_HOLD_KEY) == null) return
+    DownloadsSettingsStorage.saveString(ANALYSIS_HOLD_KEY, null)
+}
 
 private data class OpenPlayback(
     val videoId: String,
