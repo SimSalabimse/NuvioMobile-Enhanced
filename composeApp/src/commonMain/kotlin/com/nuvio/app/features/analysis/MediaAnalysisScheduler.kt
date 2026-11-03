@@ -731,8 +731,9 @@ internal object MediaAnalysisScheduler {
 /** Entry points for the iOS app delegate and background task. */
 object MediaAnalysisBackground {
     fun appDidLaunch() {
-        // A throttle left from a player in an earlier process must not hold the analyser.
-        setAnalysisThrottleLevel(0)
+        // A throttle or a player-open flag left from an earlier process must not hold the analyser
+        // or keep its queue at the lower QoS.
+        com.nuvio.app.features.downloads.PlaybackPriority.clearStaleSession()
         MediaAnalysisScheduler.kick()
         com.nuvio.app.features.downloads.DownloadsRepository.ensureLoaded()
         com.nuvio.app.features.offline.OfflineArtwork.cacheAll(

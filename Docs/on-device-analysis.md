@@ -117,7 +117,7 @@ Top pick: measured static gain for downloads (built), dynaudnorm as an optional 
   BS.1770 loudness, head/tail sub-fingerprints. Cancellable (interrupt callback + per-packet check).
 * `features/analysis/*` (Kotlin): result model and per-episode store (Application Support/
   NuvioAnalysis, one JSON per episode, fingerprints kept after the file is deleted), scheduler
-  (after a download finishes, at launch after 20 s, waits while something plays, "only while
+  (after a download finishes, at launch after 20 s, throttled while a video is playing, "only while
   charging"), season matcher, settings.
 * `MediaAnalysisBackgroundTask.swift`: BGProcessingTask `com.nuvio.app.media-analysis`, scheduled
   when the app goes to the background, requires power when "Analyse only while charging" is on,
@@ -155,7 +155,23 @@ omits the newer fields, still parses: the new numbers default to 0 and `qos` to 
 | decodeNetMs | `decodeMs - throttledMs`. The same decode with the throttle sleeps taken out. |
 | throttleLevelStart | Throttle level when packet reading started. 0 is full speed, 1 is a player playing, 2 is the player struggling. |
 | throttleYields | How many times the throttle check ran. It runs every 64 packets, including checks that did not sleep. |
-| qos | QoS class name of the analyser thread (`utility` on the queue this ships with, or `userInitiated`, `background`, `default`, `userInteractive`, `unspecified`, `unknown`). |
+| qos | QoS class name of the analyser thread when packet reading starts (`utility` while a player session is open, `userInitiated` when none is, or `background`, `default`, `userInteractive`, `unspecified`, `unknown`). |
+
+## Analysis throttle
+
+The decode loop checks the throttle every `packetsPerCheck` (64) packets, the same slice as before.
+
+| Constant | Value | When it applies |
+| --- | --- | --- |
+| `playingSleepFloorUs` | 25 ms | Floor while a video is actually playing (level 1). This is the old fixed sleep, so a short slice is unchanged. |
+| `playingWorkBudgetMs` | 20 ms | Work window that can earn extra sleep while a video is playing. |
+| `playingSleepPerBudgetMs` | 25 ms | Sleep per work window, used only when it is longer than the floor. A ~5 ms sleep per 20 ms of work would be a hotter duty cycle than the floor on a short slice, so it is not used. |
+| `strainedSleepUs` | 250 ms | Unchanged hold while the player is struggling (level 2), repeated until the level drops. |
+| `strainedMaxWaits` | 240 | Unchanged cap, about a minute, so a level that is never cleared cannot stall the queue. |
+
+Level 0 does not sleep. That is no player session, playback paused or ended, or "Finish first". Downloads still use the playing cap until a pause has lasted two minutes. The strained hold stays while a video is actually playing and the player is stalled.
+
+The analyser queue is created at utility. The analysis thread is raised to `userInitiated` only while no player session is open, and put back to utility when a session is open and again when the job ends. QoS is reconsidered on each 64-packet check.
 
 The per-sample loop keeps the original scalar math and runs it with the frame's state in local
 variables, loading each sample through a raw pointer (`UnsafeMutableRawPointer` advanced to the
