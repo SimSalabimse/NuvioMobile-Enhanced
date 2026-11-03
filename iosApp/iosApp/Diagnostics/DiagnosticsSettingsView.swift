@@ -15,6 +15,14 @@ struct DiagnosticsSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            if let analysisTiming = viewModel.analysisTiming, !analysisTiming.isEmpty {
+                Section {
+                    Text(analysisTiming)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+            }
             
             if viewModel.isEnabled {
                 Section {
@@ -86,6 +94,7 @@ final class DiagnosticsViewModel: ObservableObject {
     @Published var showingShareSheet = false
     @Published var showingClearConfirmation = false
     @Published var logURL: URL?
+    @Published var analysisTiming: String?
     
     init() {
         self.isEnabled = DiagnosticsManager.shared.isEnabled
@@ -95,6 +104,7 @@ final class DiagnosticsViewModel: ObservableObject {
     func refresh() {
         logSize = DiagnosticsManager.shared.getLogSize()
         hasLog = DiagnosticsManager.shared.exportLog() != nil
+        analysisTiming = DiagnosticsManager.shared.latestAnalysisTiming()
     }
     
     func shareLog() {

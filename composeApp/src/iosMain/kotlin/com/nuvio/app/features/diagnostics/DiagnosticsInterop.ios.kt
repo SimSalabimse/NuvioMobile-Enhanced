@@ -3,6 +3,7 @@ package com.nuvio.app.features.diagnostics
 import com.nuvio.app.nativebridge.NuvioDiagnosticsLogColdLaunchTime
 import com.nuvio.app.nativebridge.NuvioDiagnosticsLogError
 import com.nuvio.app.nativebridge.NuvioDiagnosticsLogNetworkError
+import com.nuvio.app.nativebridge.NuvioDiagnosticsLogPerformance
 import com.nuvio.app.nativebridge.NuvioDiagnosticsLogPlaybackStall
 import com.nuvio.app.nativebridge.NuvioDiagnosticsOpenSettings
 import kotlinx.cinterop.ExperimentalForeignApi
@@ -23,6 +24,10 @@ actual object DiagnosticsLogger {
 
     actual fun logPlaybackStall(durationSeconds: Double) {
         NuvioDiagnosticsLogPlaybackStall(durationSeconds)
+    }
+
+    actual fun logPerformance(message: String) {
+        NuvioDiagnosticsLogPerformance(message)
     }
 
     actual fun isEnabled(): Boolean = true

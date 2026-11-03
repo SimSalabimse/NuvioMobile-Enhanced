@@ -48,7 +48,7 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - AnimeSkip: Settings › Playback › Skip Segments. Upstream.
 - Ask after Skip (Good/Wrong): Settings › Playback › Skip Segments. 0.5.10.3.
 - Your marks and shared nuvio://skip links: player skip menu. 191/192.
-- On-device analysis of downloads (intros/credits, recaps, loudness, scrub previews, subtitle sync, "analyse only while charging"): Settings › Downloads (analysis section). 0.5.10.1–0.5.10.2.
+- On-device analysis of downloads (intros/credits, recaps, loudness, scrub previews, subtitle sync, "analyse only while charging"): Settings › Downloads (analysis section). 0.5.10.1–0.5.10.2. Each analysed file logs decode, per-sample loop, fingerprint, match and total milliseconds. Read them in Settings › Advanced › Diagnostics, and the same line in Settings › Advanced › Debug Logs.
 - Delete after watching and Smart Downloads keep a finished episode until its intro fingerprint is saved (or 30 minutes, or analysis fails for good), so the next episode still has a fingerprint to match. Automatic. The 30 minutes count only while analysis is allowed to run: with charger-only analysis on, time unplugged does not count. The last failed try releases the file.
 - Analysis runs one pass at a time. A kick during that pass runs again when the pass finishes.
 - Downloads analysis chips: episodes show Intro and Credits separately; movies show Credits only.

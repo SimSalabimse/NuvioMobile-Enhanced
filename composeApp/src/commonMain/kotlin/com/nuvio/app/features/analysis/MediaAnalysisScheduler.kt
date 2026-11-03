@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlin.time.TimeSource
 import com.nuvio.app.core.serialization.LenientJson
 
 /** What the platform analyzer returns for one file (see MediaAnalyzer.swift). */
@@ -31,6 +32,30 @@ internal data class RawMediaAnalysis(
     val head: String? = null,
     val tail: String? = null,
     val tailStartMs: Long = 0L,
+    /** Monotonic milliseconds. Not stored with the analysis; see [AnalysisStageTimings]. */
+    val decodeMs: Long = 0L,
+    val sampleLoopMs: Long = 0L,
+    val fingerprintMs: Long = 0L,
+)
+
+internal fun RawMediaAnalysis.toStoredResult(
+    key: String,
+    fileName: String?,
+    analyzedAtMs: Long,
+    userSegments: Map<String, UserSegment>,
+): MediaAnalysisResult = MediaAnalysisResult(
+    key = key,
+    analyzedAtMs = analyzedAtMs,
+    durationMs = durationMs,
+    fileName = fileName,
+    energyStepMs = energyStepMs,
+    energy = energy,
+    integratedLufs = integratedLufs,
+    fingerprintStepMs = fingerprintStepMs,
+    headFingerprint = head,
+    tailFingerprint = tail,
+    tailStartMs = tailStartMs,
+    userSegments = userSegments,
 )
 
 /** Platform decoder (iOS: FFmpeg from the player's engine). */
@@ -521,6 +546,19 @@ internal object MediaAnalysisScheduler {
      * decoded again. Null means the audio pass still has to run.
      */
     private suspend fun audioAnalysis(item: DownloadItem, uri: String, already: MediaAnalysisResult?): AudioPass? {
+        val started = TimeSource.Monotonic.markNow()
+        var matchMs = 0L
+        suspend fun <T> duringMatch(block: suspend () -> T): T {
+            val mark = TimeSource.Monotonic.markNow()
+            try {
+                return block()
+            } finally {
+                matchMs += mark.elapsedNow().inWholeMilliseconds
+            }
+        }
+        var decodeMs = 0L
+        var sampleLoopMs = 0L
+        var fingerprintMs = 0L
         val key = MediaAnalysisStore.keyFor(item)
         val previous = already ?: MediaAnalysisStore.load(key)
         var result = if (already != null && already.fileName == item.fileName && already.hasStoredFingerprint()) {
@@ -540,6 +578,9 @@ internal object MediaAnalysisScheduler {
                 MediaAnalysisStatus.recordFailure(item, "The analyser returned unreadable data")
                 return null
             }
+            decodeMs = raw.decodeMs
+            sampleLoopMs = raw.sampleLoopMs
+            fingerprintMs = raw.fingerprintMs
             MediaAnalysisResult(
                 key = key,
                 analyzedAtMs = com.nuvio.app.features.streams.epochMs(),
@@ -566,7 +607,7 @@ internal object MediaAnalysisScheduler {
                 .take(MAX_SIBLINGS)
             result = if (siblings.isNotEmpty()) {
                 stage(AnalysisStage.Matching)
-                withContext(Dispatchers.Default) { result.applyingSeasonDetection(siblings) }
+                duringMatch { withContext(Dispatchers.Default) { result.applyingSeasonDetection(siblings) } }
             } else {
                 result.rememberingSilentRanges()
             }
@@ -575,27 +616,37 @@ internal object MediaAnalysisScheduler {
                 .filter { it.userSegments.containsKey("intro") || it.userSegments.containsKey("outro") }
             if (references.isNotEmpty()) {
                 stage(AnalysisStage.Matching)
-                result = withContext(Dispatchers.Default) { SkipLearning.learnFromReferences(result, references) }
+                result = duringMatch { withContext(Dispatchers.Default) { SkipLearning.learnFromReferences(result, references) } }
             }
             // No stored episode to match: fingerprint a clip of the nearest episode with known times.
             if (siblings.isEmpty() && references.isEmpty()) {
                 stage(AnalysisStage.Matching)
-                val clip = SiblingClipReference.apply(item, result)
+                val clip = duringMatch { SiblingClipReference.apply(item, result) }
                 result = clip.result
                 clipUnavailable = clip.attempt == SiblingClipAttempt.Unavailable
             }
         }
-        result = saveFingerprint(item, result)
+        result = duringMatch { saveFingerprint(item, result) }
         // A mark made before this file was analysed now has fingerprints: teach the season.
         if (season != null && item.episodeNumber != null &&
             (result.userSegments.containsKey("intro") || result.userSegments.containsKey("outro"))
         ) {
-            SkipLearning.teachSeason(item.parentMetaId, season, key)
+            duringMatch { SkipLearning.teachSeason(item.parentMetaId, season, key) }
         }
         InAppLogger.info(
             "Analysis",
             "analyse done id=${item.id} durationMs=${result.durationMs} lufs=${result.integratedLufs} " +
                 "intro=${result.introStartMs}-${result.introEndMs} credits=${result.creditsStartMs}-${result.creditsEndMs}",
+        )
+        logAnalysisStageTimings(
+            item.id,
+            AnalysisStageTimings(
+                decodeMs = decodeMs.coerceAtLeast(0L),
+                sampleLoopMs = sampleLoopMs.coerceAtLeast(0L),
+                fingerprintMs = fingerprintMs.coerceAtLeast(0L),
+                matchMs = matchMs.coerceAtLeast(0L),
+                totalMs = started.elapsedNow().inWholeMilliseconds.coerceAtLeast(0L),
+            ),
         )
         return AudioPass(result, clipUnavailable = clipUnavailable)
     }
