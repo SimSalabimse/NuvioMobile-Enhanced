@@ -18,6 +18,10 @@ internal expect fun nuvioBottomNavigationBarInsets(): WindowInsets
 @Composable
 internal expect fun platformPhysicalTopInset(): Dp
 
+/** Physical display-safe bottom inset, including the home indicator. */
+@Composable
+internal expect fun platformPhysicalBottomInset(): Dp
+
 @Composable
 internal expect fun ResizeForKeyboard()
 
@@ -29,14 +33,19 @@ internal val LocalBottomInsetsConsumed = staticCompositionLocalOf { false }
 val LocalNuvioNavBarScrollState = staticCompositionLocalOf<NuvioNavBarScrollState?> { null }
 
 @Composable
-internal fun nuvioSafeBottomPadding(extra: Dp = 0.dp): Dp {
-	if (LocalBottomInsetsConsumed.current) return extra
-	val navigationBarBottom = nuvioBottomNavigationBarInsets()
+internal fun nuvioBottomSafeInset(): Dp {
+	val reported = nuvioBottomNavigationBarInsets()
 		.asPaddingValues()
 		.calculateBottomPadding()
-	return navigationBarBottom.coerceAtLeast(nuvioPlatformExtraBottomPadding) +
-		LocalNuvioBottomNavigationOverlayPadding.current +
-		extra
+	return maxOf(reported, platformPhysicalBottomInset())
+		.coerceAtLeast(nuvioPlatformExtraBottomPadding)
+}
+
+@Composable
+internal fun nuvioSafeBottomPadding(extra: Dp = 0.dp): Dp {
+	if (LocalBottomInsetsConsumed.current) return extra
+	val tabBar = LocalNuvioBottomNavigationOverlayPadding.current
+	return tabBarContentInsetDp(tabBar.value, nuvioBottomSafeInset().value).dp + extra
 }
 
 /** Apple's 44pt minimum control. Android keeps the size the caller already chose. */

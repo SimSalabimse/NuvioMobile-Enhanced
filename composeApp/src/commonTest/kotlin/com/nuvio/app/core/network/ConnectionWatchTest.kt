@@ -80,7 +80,7 @@ class ConnectionWatchTest {
                 probes = 1,
             ),
             WatchCase(
-                name = "flapping within the debounce yields one probe",
+                name = "a drop and return probes again, repeats while a probe is up do not",
                 start = offline,
                 steps = listOf(
                     ConnectionWatchInput.PathSatisfied,
@@ -91,7 +91,7 @@ class ConnectionWatchTest {
                     ConnectionWatchInput.DebounceElapsed,
                 ),
                 status = ConnectionWatchStatus.Offline,
-                probes = 1,
+                probes = 2,
             ),
             WatchCase(
                 name = "satisfied events during a probe do not request another",
@@ -143,7 +143,7 @@ class ConnectionWatchTest {
                 probes = 1,
             ),
             WatchCase(
-                name = "background cancels a pending probe",
+                name = "background after an immediate reconnect probe does not request another",
                 start = offline,
                 steps = listOf(
                     ConnectionWatchInput.PathSatisfied,
@@ -151,7 +151,7 @@ class ConnectionWatchTest {
                     ConnectionWatchInput.DebounceElapsed,
                 ),
                 status = ConnectionWatchStatus.Offline,
-                probes = 0,
+                probes = 1,
             ),
             WatchCase(
                 name = "an already online path hint does not probe",
@@ -242,8 +242,8 @@ class ConnectionWatchTest {
 
         val resumed = reduceConnectionWatch(state, ConnectionWatchInput.AppForeground)
         assertTrue(resumed.startWatching)
-        assertTrue(resumed.armDebounce)
-        assertFalse(resumed.probeRequested)
+        assertTrue(resumed.probeRequested)
+        assertFalse(resumed.armDebounce)
         state = resumed.state
 
         val flap = reduceConnectionWatch(state, ConnectionWatchInput.PathSatisfied)
@@ -252,8 +252,18 @@ class ConnectionWatchTest {
         state = flap.state
 
         val elapsed = reduceConnectionWatch(state, ConnectionWatchInput.DebounceElapsed)
-        assertTrue(elapsed.probeRequested)
-        assertEquals(1, if (elapsed.probeRequested) 1 else 0)
+        assertFalse(elapsed.probeRequested)
+
+        val online = reduceConnectionWatch(
+            ConnectionWatchState(status = ConnectionWatchStatus.Online, foreground = false),
+            ConnectionWatchInput.AppForeground,
+        )
+        assertTrue(online.armDebounce)
+        assertFalse(online.probeRequested)
+        assertEquals(ConnectionWatchDebounceMs, reconnectConfirmDelayMs(ConnectionWatchStatus.Online))
+        assertEquals(0L, reconnectConfirmDelayMs(ConnectionWatchStatus.Offline))
+        assertTrue(reconnectConfirmDelayMs(ConnectionWatchStatus.Offline) <= 300L)
+        assertTrue(reconnectConfirmDelayMs(ConnectionWatchStatus.Unknown) <= 300L)
     }
 
     @Test

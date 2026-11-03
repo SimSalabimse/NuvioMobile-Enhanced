@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -47,6 +48,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -57,8 +60,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import com.nuvio.app.core.network.offlineDownloadsHomeTopPaddingDp
+import com.nuvio.app.core.network.offlineHomeActionMinHeightDp
 import com.nuvio.app.core.ui.NuvioPrimaryButton
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.watchprogress.ContinueWatchingEnrichmentCache
@@ -120,30 +126,36 @@ internal fun OfflineDownloadsHome(
             progressByVideoId = progressByVideo,
         )
     }
-    val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val fontScale = LocalDensity.current.fontScale
+    val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val actionMin = offlineHomeActionMinHeightDp(fontScale).dp
+    val top = offlineDownloadsHomeTopPaddingDp(statusTop.value, fontScale).dp
 
     LazyColumn(
         modifier = modifier.fillMaxSize().background(colors.background),
-        contentPadding = PaddingValues(top = top + 20.dp, bottom = 140.dp),
+        contentPadding = PaddingValues(top = top, bottom = nuvioSafeBottomPadding(16.dp)),
         verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         item(key = "header") {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                     NuvioPrimaryButton(
                         text = stringResource(Res.string.offline_home_open_downloads),
                         modifier = Modifier.weight(1f),
+                        minHeight = actionMin,
                         onClick = onOpenDownloads,
                     )
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .height(48.dp)
+                            .heightIn(min = actionMin)
                             .clip(RoundedCornerShape(24.dp))
                             .border(1.dp, colors.textSecondary.copy(alpha = 0.35f), RoundedCornerShape(24.dp))
-                            .clickable(onClick = onShowHome),
+                            .clickable(onClick = onShowHome)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
@@ -151,6 +163,9 @@ internal fun OfflineDownloadsHome(
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.SemiBold,
                             color = colors.textPrimary,
+                            textAlign = TextAlign.Center,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
             }

@@ -1,12 +1,18 @@
 package com.nuvio.app.features.home
 
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.gestures.stopScroll
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -18,8 +24,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.auth.AuthRepository
@@ -32,6 +41,7 @@ import com.nuvio.app.core.ui.LocalVerticalBarPadding
 import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
 import com.nuvio.app.core.ui.ScreenActivityEffect
 import com.nuvio.app.core.ui.NuvioScreen
+import com.nuvio.app.core.ui.systemReduceMotionEnabled
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.core.ui.rememberHeroStretchState
 import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
@@ -244,30 +254,23 @@ fun HomeScreen(
         completedOffline.isNotEmpty() &&
         onOpenDownload != null &&
         (trulyOffline || (holdDownloadsHome && !catalogsReady))
-    if (showDownloadsFirst) {
-        com.nuvio.app.features.home.components.OfflineDownloadsHome(
-            items = completedOffline,
-            onOpenDownload = onOpenDownload,
-            onOpenDownloads = onOpenDownloads,
-            onShowHome = { showOnlineHomeWhileOffline = true },
-            onTitleLongPress = { item ->
-                onPosterLongClick?.invoke(
-                    MetaPreview(
-                        id = item.parentMetaId,
-                        type = item.parentMetaType.ifBlank { if (item.isEpisode) "series" else "movie" },
-                        name = item.title,
-                        poster = item.poster,
-                        banner = item.background,
-                        logo = item.logo,
-                    ),
-                )
-            },
-            onResumeLongPress = { card ->
-                card.toContinueWatchingItem()?.let { item -> onContinueWatchingLongPress?.invoke(item) }
-            },
-            modifier = modifier,
-        )
-        return
+    // #77 kept this page until catalogs were ready, then returned and built the online
+    // column in one frame. That cut skipped the banner fade. The online column stays
+    // composed underneath, the hero slot grows, and the downloads cover fades.
+    val reduceMotion = systemReduceMotionEnabled()
+    val reconnectMotion = homeReconnectMotion(reduceMotion)
+    val offlineCoverAlpha = remember { Animatable(if (showDownloadsFirst) 1f else 0f) }
+    val heroReveal = remember { Animatable(if (showDownloadsFirst) 0f else 1f) }
+    LaunchedEffect(showDownloadsFirst, reduceMotion) {
+        if (showDownloadsFirst || homeCoverSnapsOn(goingOffline = showDownloadsFirst, reduceMotion = reduceMotion)) {
+            offlineCoverAlpha.snapTo(if (showDownloadsFirst) 1f else 0f)
+            heroReveal.snapTo(if (showDownloadsFirst) 0f else 1f)
+        } else {
+            launch {
+                offlineCoverAlpha.animateTo(0f, tween(reconnectMotion.durationMs))
+            }
+            heroReveal.animateTo(1f, tween(reconnectMotion.durationMs))
+        }
     }
 
     val progressProviderOwnsCompletedHistory = remember(effectiveWatchProgressSource) {
@@ -1053,7 +1056,8 @@ fun HomeScreen(
         homeCatalogLoading = homeUiState.isLoading,
     )
 
-    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+    Box(modifier = modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val homeSectionPadding = homeSectionHorizontalPaddingForWidth(maxWidth.value)
         val posterCardStyle = rememberPosterCardStyleUiState()
         val continueWatchingLayout = rememberContinueWatchingLayout(maxWidth.value, posterCardStyle)
@@ -1099,7 +1103,7 @@ fun HomeScreen(
             { url -> activeHeroArtworkUrl = url }
         }
 
-        DynamicArtworkBackground(artworkUrl = activeHeroArtworkUrl) {
+        DynamicArtworkBackground(artworkUrl = if (showDownloadsFirst) null else activeHeroArtworkUrl) {
             NuvioScreen(
                 modifier = Modifier.fillMaxSize().then(heroStretchModifier),
                 horizontalPadding = 0.dp,
@@ -1109,10 +1113,18 @@ fun HomeScreen(
             ) {
                 if (showHeroSlot) {
                     item(key = "home_hero", contentType = "hero") {
-                        Crossfade(
+                        val reveal = heroReveal.value
+                        if (reveal <= 0f) {
+                            Box(Modifier.fillMaxWidth().height(0.dp))
+                        } else Crossfade(
                             targetState = showHeroSkeleton,
-                            modifier = Modifier.nuvioHorizontalScrollBleed(LocalVerticalBarPadding.current),
-                            animationSpec = tween(320),
+                            modifier = homeColumnMotion(reconnectMotion)
+                                .fillMaxWidth()
+                                .height(maxHeight * reveal)
+                                .clipToBounds()
+                                .graphicsLayer { alpha = reveal }
+                                .nuvioHorizontalScrollBleed(LocalVerticalBarPadding.current),
+                            animationSpec = if (reconnectMotion.snap) snap() else tween(reconnectMotion.durationMs),
                             label = "HomeHeroLoading",
                         ) { isLoading ->
                             when {
@@ -1135,7 +1147,9 @@ fun HomeScreen(
                                     // turns false whenever a screen (like Details) is pushed on top of it, which
                                     // is also exactly when hero trailer playback must stop, not just pause.
                                     trailerPlaybackEnabled = homeSettingsUiState.heroTrailerPlaybackEnabled &&
-                                        animateCollectionGifs,
+                                        animateCollectionGifs &&
+                                        reveal > 0.98f &&
+                                        !showDownloadsFirst,
                                     trailerStartDelaySeconds = homeSettingsUiState.heroTrailerStartDelaySeconds,
                                     trailerStartUnmuted = homeSettingsUiState.heroTrailerStartUnmuted,
                                     showImdbRating = homeHeroState.showImdbRating,
@@ -1170,7 +1184,8 @@ fun HomeScreen(
                             pausedListState = pausedListState,
                             onItemClick = onContinueWatchingClick,
                             onItemLongPress = onContinueWatchingLongPress,
-                        disintegrationRequest = continueWatchingDisintegrationRequest,
+                            disintegrationRequest = continueWatchingDisintegrationRequest,
+                            reconnectMotion = reconnectMotion,
                         )
                         items(3) {
                             HomeSkeletonRow(
@@ -1193,7 +1208,8 @@ fun HomeScreen(
                             pausedListState = pausedListState,
                             onItemClick = onContinueWatchingClick,
                             onItemLongPress = onContinueWatchingLongPress,
-                        disintegrationRequest = continueWatchingDisintegrationRequest,
+                            disintegrationRequest = continueWatchingDisintegrationRequest,
+                            reconnectMotion = reconnectMotion,
                         )
                         item {
                             when {
@@ -1264,7 +1280,8 @@ fun HomeScreen(
                             pausedListState = pausedListState,
                             onItemClick = onContinueWatchingClick,
                             onItemLongPress = onContinueWatchingLongPress,
-                        disintegrationRequest = continueWatchingDisintegrationRequest,
+                            disintegrationRequest = continueWatchingDisintegrationRequest,
+                            reconnectMotion = reconnectMotion,
                         )
 
                         keyedEnabledHomeItems.forEach { keyedSettingsItem ->
@@ -1310,6 +1327,33 @@ fun HomeScreen(
             }
         }
     }
+    if ((showDownloadsFirst || offlineCoverAlpha.value > 0f) && onOpenDownload != null) {
+        com.nuvio.app.features.home.components.OfflineDownloadsHome(
+            items = completedOffline,
+            onOpenDownload = onOpenDownload,
+            onOpenDownloads = onOpenDownloads,
+            onShowHome = { showOnlineHomeWhileOffline = true },
+            onTitleLongPress = { item ->
+                onPosterLongClick?.invoke(
+                    MetaPreview(
+                        id = item.parentMetaId,
+                        type = item.parentMetaType.ifBlank { if (item.isEpisode) "series" else "movie" },
+                        name = item.title,
+                        poster = item.poster,
+                        banner = item.background,
+                        logo = item.logo,
+                    ),
+                )
+            },
+            onResumeLongPress = { card ->
+                card.toContinueWatchingItem()?.let { item -> onContinueWatchingLongPress?.invoke(item) }
+            },
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = offlineCoverAlpha.value },
+        )
+    }
+    }
 }
 
 private fun LazyListScope.homeContinueWatchingSections(
@@ -1326,6 +1370,7 @@ private fun LazyListScope.homeContinueWatchingSections(
     onItemClick: ((ContinueWatchingItem) -> Unit)?,
     onItemLongPress: ((ContinueWatchingItem) -> Unit)?,
     disintegrationRequest: DisintegrationRequest<String>?,
+    reconnectMotion: HomeReconnectMotion,
 ) {
     if (!preferences.isVisible) return
 
@@ -1337,7 +1382,8 @@ private fun LazyListScope.homeContinueWatchingSections(
                 style = preferences.style,
                 useEpisodeThumbnails = preferences.useEpisodeThumbnails,
                 blurNextUp = preferences.blurNextUp,
-                modifier = Modifier.padding(bottom = HomeContinueWatchingSectionBottomPadding),
+                modifier = homeColumnMotion(reconnectMotion)
+                    .padding(bottom = HomeContinueWatchingSectionBottomPadding),
                 sectionPadding = sectionPadding,
                 layout = layout,
                 listState = continueWatchingListState,
@@ -1354,7 +1400,8 @@ private fun LazyListScope.homeContinueWatchingSections(
             com.nuvio.app.features.home.components.HomeFinishSeriesSection(
                 items = continueWatchingItems,
                 sectionPadding = sectionPadding,
-                modifier = Modifier.padding(bottom = HomeContinueWatchingSectionBottomPadding),
+                modifier = homeColumnMotion(reconnectMotion)
+                    .padding(bottom = HomeContinueWatchingSectionBottomPadding),
                 onItemClick = onItemClick,
                 onItemLongPress = onItemLongPress,
                 blurNextUp = preferences.blurNextUp,
@@ -1370,7 +1417,8 @@ private fun LazyListScope.homeContinueWatchingSections(
                 dataSourceKey = dataSourceKey,
                 sectionPadding = sectionPadding,
                 layout = layout,
-                modifier = Modifier.padding(bottom = HomeContinueWatchingSectionBottomPadding),
+                modifier = homeColumnMotion(reconnectMotion)
+                    .padding(bottom = HomeContinueWatchingSectionBottomPadding),
                 onItemClick = onItemClick,
                 onItemLongPress = onItemLongPress,
                 blurNextUp = preferences.blurNextUp,
@@ -1386,7 +1434,8 @@ private fun LazyListScope.homeContinueWatchingSections(
                 style = preferences.style,
                 useEpisodeThumbnails = preferences.useEpisodeThumbnails,
                 blurNextUp = preferences.blurNextUp,
-                modifier = Modifier.padding(bottom = HomeContinueWatchingSectionBottomPadding),
+                modifier = homeColumnMotion(reconnectMotion)
+                    .padding(bottom = HomeContinueWatchingSectionBottomPadding),
                 title = stringResource(Res.string.upcoming_section_title),
                 sectionPadding = sectionPadding,
                 layout = layout,
@@ -1407,7 +1456,8 @@ private fun LazyListScope.homeContinueWatchingSections(
                 style = preferences.style,
                 useEpisodeThumbnails = preferences.useEpisodeThumbnails,
                 blurNextUp = preferences.blurNextUp,
-                modifier = Modifier.padding(bottom = HomeContinueWatchingSectionBottomPadding),
+                modifier = homeColumnMotion(reconnectMotion)
+                    .padding(bottom = HomeContinueWatchingSectionBottomPadding),
                 title = "Paused · tap to restore",
                 sectionPadding = sectionPadding,
                 layout = layout,
@@ -1420,6 +1470,16 @@ private fun LazyListScope.homeContinueWatchingSections(
             )
         }
     }
+}
+
+private fun LazyItemScope.homeColumnMotion(motion: HomeReconnectMotion): Modifier {
+    val fade = if (motion.snap) snap() else tween<Float>(motion.durationMs)
+    val place = if (motion.snap) snap() else tween<IntOffset>(motion.durationMs)
+    return Modifier.animateItem(
+        fadeInSpec = fade,
+        placementSpec = place,
+        fadeOutSpec = fade,
+    )
 }
 
 private const val HOME_CATALOG_PREVIEW_LIMIT = 18

@@ -4,6 +4,14 @@ internal const val ConnectionWatchDebounceMs = 750L
 
 internal const val ConnectionWatchProbeTimeoutMs = 1_500L
 
+/**
+ * Debounce only when the UI is already online (a foreground recheck).
+ * Offline, or any state that is not online yet, probes on this turn so a reconnect is not held for [ConnectionWatchDebounceMs].
+ * A path drop does not use this delay: offline is published immediately.
+ */
+internal fun reconnectConfirmDelayMs(status: ConnectionWatchStatus): Long =
+    if (status == ConnectionWatchStatus.Online) ConnectionWatchDebounceMs else ForegroundOfflineProbeDelayMs
+
 internal enum class ConnectionWatchStatus {
     Unknown,
     Online,
@@ -117,9 +125,11 @@ private fun reducePathSatisfied(state: ConnectionWatchState): ConnectionWatchDec
     if (waitForForeground || alreadyConfirming || alreadyOnline) {
         return ConnectionWatchDecision(state)
     }
+    // The path is up and we are not online yet. Probe now. A drop still publishes offline with no debounce.
     return ConnectionWatchDecision(
-        state = state.copy(debounceArmed = true),
-        armDebounce = true,
+        state = state.copy(probeInFlight = true, debounceArmed = false),
+        probeRequested = true,
+        cancelDebounce = state.debounceArmed,
     )
 }
 
@@ -165,9 +175,17 @@ private fun reduceAppForeground(state: ConnectionWatchState): ConnectionWatchDec
             startWatching = true,
         )
     }
+    // Already online: keep the debounce so a foreground blip does not probe on the same turn.
+    if (resumed.status == ConnectionWatchStatus.Online) {
+        return ConnectionWatchDecision(
+            state = resumed.copy(debounceArmed = true),
+            armDebounce = true,
+            startWatching = true,
+        )
+    }
     return ConnectionWatchDecision(
-        state = resumed.copy(debounceArmed = true),
-        armDebounce = true,
+        state = resumed.copy(probeInFlight = true, debounceArmed = false),
+        probeRequested = true,
         startWatching = true,
     )
 }

@@ -25,6 +25,10 @@ internal actual fun platformPhysicalTopInset(): Dp =
     WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
 @Composable
+internal actual fun platformPhysicalBottomInset(): Dp =
+    WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+@Composable
 internal actual fun ResizeForKeyboard() {
     val view = LocalView.current
     DisposableEffect(view) {

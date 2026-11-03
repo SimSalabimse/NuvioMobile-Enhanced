@@ -32,5 +32,16 @@ internal actual fun platformPhysicalTopInset(): Dp {
         ?: WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 }
 
+@OptIn(ExperimentalForeignApi::class)
+@Composable
+internal actual fun platformPhysicalBottomInset(): Dp {
+    val physicalBottom = LocalUIViewController.current.view.window
+        ?.safeAreaInsets
+        ?.useContents { bottom.toFloat() }
+
+    return physicalBottom?.dp
+        ?: nuvioBottomNavigationBarInsets().asPaddingValues().calculateBottomPadding()
+}
+
 @Composable
 internal actual fun ResizeForKeyboard() = Unit
