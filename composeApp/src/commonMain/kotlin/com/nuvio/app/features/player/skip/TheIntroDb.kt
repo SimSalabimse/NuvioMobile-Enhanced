@@ -10,6 +10,23 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
+/** Query string for GET /v4/media. `duration_ms` is included only when the file length is known. */
+internal fun theIntroDbMediaQuery(
+    tmdbId: Int? = null,
+    imdbId: String? = null,
+    season: Int? = null,
+    episode: Int? = null,
+    durationMs: Long? = null,
+): String = buildList {
+    if (tmdbId != null && tmdbId > 0) add("tmdb_id=$tmdbId")
+    else imdbId?.takeIf { it.isNotBlank() }?.let { add("imdb_id=$it") }
+    if (season != null && episode != null) {
+        add("season=$season")
+        add("episode=$episode")
+    }
+    if (durationMs != null && durationMs > 0) add("duration_ms=$durationMs")
+}.joinToString("&")
+
 internal object TheIntroDb {
 
     /** API v4 (2026-10-17): TVDB is the identity; tmdb_id/imdb_id still address a media. */
@@ -62,16 +79,7 @@ internal object TheIntroDb {
         apiKey: String? = null,
     ): TheIntroDbMediaResponse? {
         if (tmdbId == null && imdbId.isNullOrBlank()) return null
-        val params = buildList {
-            if (tmdbId != null && tmdbId > 0) add("tmdb_id=$tmdbId")
-            else imdbId?.takeIf { it.isNotBlank() }?.let { add("imdb_id=$it") }
-            if (season != null && episode != null) {
-                add("season=$season")
-                add("episode=$episode")
-            }
-            if (durationMs != null && durationMs > 0) add("duration_ms=$durationMs")
-        }
-        val url = "$MEDIA_URL?${params.joinToString("&")}"
+        val url = "$MEDIA_URL?${theIntroDbMediaQuery(tmdbId, imdbId, season, episode, durationMs)}"
         return try {
             val text = if (apiKey.isNullOrBlank()) {
                 httpGetText(url)

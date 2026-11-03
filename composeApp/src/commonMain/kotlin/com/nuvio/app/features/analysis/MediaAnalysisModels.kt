@@ -80,10 +80,13 @@ internal data class MediaAnalysisResult(
 internal data class SegmentConfidence(
     val agreeingSiblings: Int = 0,
     val avgBitErrors: Double = 0.0,
+    /** TheIntroDB named the same range. This only raises a score; it never drops one. */
+    val theIntroDbAgrees: Boolean = false,
 ) {
     fun strictlyBeats(other: SegmentConfidence): Boolean {
         if (agreeingSiblings != other.agreeingSiblings) return agreeingSiblings > other.agreeingSiblings
-        return avgBitErrors < other.avgBitErrors
+        if (avgBitErrors != other.avgBitErrors) return avgBitErrors < other.avgBitErrors
+        return theIntroDbAgrees && !other.theIntroDbAgrees
     }
 }
 
@@ -113,8 +116,8 @@ internal data class UserSegment(
     val durationMs: Long = 0L,
 )
 
-/** A mark on an unknown cut can be wrong for every other file, so it never teaches other episodes. */
-internal val UserSegment.canTeach: Boolean get() = !imported || durationMs > 0L
+/** A mark with no file length can belong to another cut, so it never teaches other episodes. */
+internal val UserSegment.canTeach: Boolean get() = durationMs > 0L
 
 /** The user's marks override what was detected for this episode. */
 internal fun MediaAnalysisResult.withUserSegmentsApplied(): MediaAnalysisResult {

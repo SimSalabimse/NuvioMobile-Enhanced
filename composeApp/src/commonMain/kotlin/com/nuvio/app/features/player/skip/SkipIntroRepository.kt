@@ -26,6 +26,10 @@ internal class SkipIntervalLookupCache {
     }
 }
 
+/** Cache key for one episode. A known file length is part of the key so two cuts do not share a row. */
+internal fun skipLookupCacheKey(base: String, durationMs: Long): String =
+    if (durationMs > 0L) "$base:$durationMs" else base
+
 object SkipIntroRepository {
 
     internal val skipIntervalCache = SkipIntervalLookupCache()
@@ -46,16 +50,17 @@ object SkipIntroRepository {
         contentId: String?,
         videoId: String?,
         requireSkipIntroEnabled: Boolean = true,
+        durationMs: Long = 0L,
     ): List<SkipInterval> = coroutineScope {
         if (requireSkipIntroEnabled && !PlayerSettingsRepository.uiState.value.skipIntroEnabled) {
             return@coroutineScope emptyList()
         }
         val imdbId = resolveSkipImdbId(contentId, videoId, "movie")
         if (imdbId == null) return@coroutineScope emptyList()
-        val cacheKey = "movie:$imdbId"
+        val cacheKey = skipLookupCacheKey("movie:$imdbId", durationMs)
         skipIntervalCache.lookup(cacheKey)?.let { return@coroutineScope it }
 
-        val theIntroDbDeferred = async { fetchMovieFromTheIntroDb(imdbId) }
+        val theIntroDbDeferred = async { fetchMovieFromTheIntroDb(imdbId, durationMs) }
         val introDbDeferred = async {
             if (introDbConfigured) {
                 SkipIntroApi.getIntroDbMovieSegments(imdbId)?.movieSkipIntervals().orEmpty()
@@ -71,6 +76,7 @@ object SkipIntroRepository {
         season: Int,
         episode: Int,
         requireSkipIntroEnabled: Boolean = true,
+        durationMs: Long = 0L,
     ): List<SkipInterval> = coroutineScope {
         if (imdbId == null) {
             InAppLogger.debug("Player/SkipIntro", "skip lookup ignored: imdbId missing s=$season e=$episode")
@@ -82,7 +88,7 @@ object SkipIntroRepository {
             return@coroutineScope emptyList()
         }
 
-        val cacheKey = "$imdbId:$season:$episode"
+        val cacheKey = skipLookupCacheKey("$imdbId:$season:$episode", durationMs)
         skipIntervalCache.lookup(cacheKey)?.let { cached ->
             InAppLogger.debug("Player/SkipIntro", "skip lookup cache hit imdb=$imdbId s=$season e=$episode count=${cached.size}")
             return@coroutineScope cached
@@ -93,7 +99,7 @@ object SkipIntroRepository {
                 "animeSkip=${settings.animeSkipEnabled}",
         )
 
-        val theIntroDbDeferred = async { fetchFromTheIntroDb(imdbId, season, episode) }
+        val theIntroDbDeferred = async { fetchFromTheIntroDb(imdbId, season, episode, durationMs) }
         val introDbDeferred = async {
             if (introDbConfigured) fetchFromIntroDb(imdbId, season, episode) else emptyList()
         }
@@ -156,6 +162,7 @@ object SkipIntroRepository {
         imdbId: String? = null,
         imdbSeason: Int? = null,
         imdbEpisode: Int? = null,
+        durationMs: Long = 0L,
     ): List<SkipInterval> = coroutineScope {
         val settings = PlayerSettingsRepository.uiState.value
         if (requireSkipIntroEnabled && !settings.skipIntroEnabled) {
@@ -163,7 +170,7 @@ object SkipIntroRepository {
             return@coroutineScope emptyList()
         }
 
-        val cacheKey = "mal:$malId:$episode"
+        val cacheKey = skipLookupCacheKey("mal:$malId:$episode", durationMs)
         skipIntervalCache.lookup(cacheKey)?.let { cached ->
             InAppLogger.debug("Player/SkipIntro", "skip lookup cache hit mal=$malId e=$episode count=${cached.size}")
             return@coroutineScope cached
@@ -184,7 +191,7 @@ object SkipIntroRepository {
         if (resolvedImdb != null) {
             val entries = resolveImdbEntries(resolvedImdb)
             val season = entries.indexOfFirst { it.myanimelist == malId.toIntOrNull() } + 1
-            val theIntroDbDeferred = async { fetchFromTheIntroDb(resolvedImdb, season, episode) }
+            val theIntroDbDeferred = async { fetchFromTheIntroDb(resolvedImdb, season, episode, durationMs) }
             val introDbDeferred = async {
                 if (introDbConfigured) fetchFromIntroDb(resolvedImdb, season, episode) else emptyList()
             }
@@ -216,6 +223,7 @@ object SkipIntroRepository {
         imdbId: String? = null,
         imdbSeason: Int? = null,
         imdbEpisode: Int? = null,
+        durationMs: Long = 0L,
     ): List<SkipInterval> = coroutineScope {
         val settings = PlayerSettingsRepository.uiState.value
         if (requireSkipIntroEnabled && !settings.skipIntroEnabled) {
@@ -223,7 +231,7 @@ object SkipIntroRepository {
             return@coroutineScope emptyList()
         }
 
-        val cacheKey = "kitsu:$kitsuId:$episode"
+        val cacheKey = skipLookupCacheKey("kitsu:$kitsuId:$episode", durationMs)
         skipIntervalCache.lookup(cacheKey)?.let { cached ->
             InAppLogger.debug("Player/SkipIntro", "skip lookup cache hit kitsu=$kitsuId e=$episode count=${cached.size}")
             return@coroutineScope cached
@@ -250,7 +258,7 @@ object SkipIntroRepository {
         if (resolvedImdb != null) {
             val entries = resolveImdbEntries(resolvedImdb)
             val season = entries.indexOfFirst { it.kitsu == kitsuId.toIntOrNull() } + 1
-            val theIntroDbDeferred = async { fetchFromTheIntroDb(resolvedImdb, season, episode) }
+            val theIntroDbDeferred = async { fetchFromTheIntroDb(resolvedImdb, season, episode, durationMs) }
             val introDbDeferred = async {
                 if (introDbConfigured) fetchFromIntroDb(resolvedImdb, season, episode) else emptyList()
             }
@@ -334,9 +342,15 @@ object SkipIntroRepository {
         imdbId: String,
         season: Int,
         episode: Int,
+        durationMs: Long = 0L,
     ): List<SkipInterval> = withSkipProviderTimeout("TheIntroDB", THE_INTRO_DB_TIMEOUT_MS, emptyList()) {
         try {
-            TheIntroDb.fetchTvIntervals(imdbId = imdbId, season = season, episode = episode)
+            TheIntroDb.fetchTvIntervals(
+                imdbId = imdbId,
+                season = season,
+                episode = episode,
+                durationMs = durationMs,
+            )
         } catch (error: CancellationException) {
             throw error
         } catch (_: Exception) {
@@ -344,10 +358,10 @@ object SkipIntroRepository {
         }
     }
 
-    private suspend fun fetchMovieFromTheIntroDb(imdbId: String): List<SkipInterval> =
+    private suspend fun fetchMovieFromTheIntroDb(imdbId: String, durationMs: Long = 0L): List<SkipInterval> =
         withSkipProviderTimeout("TheIntroDB", THE_INTRO_DB_TIMEOUT_MS, emptyList()) {
             try {
-                TheIntroDb.fetchMovieIntervals(imdbId = imdbId)
+                TheIntroDb.fetchMovieIntervals(imdbId = imdbId, durationMs = durationMs)
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {

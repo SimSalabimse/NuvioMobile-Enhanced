@@ -664,9 +664,10 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         val season = activeSeasonNumber
         val episode = activeEpisodeNumber
         val vid = activeVideoId
+        val durationMs = playbackSnapshot.durationMs
         if (!playerSettingsUiState.skipIntroEnabled) return@LaunchedEffect
         if ((contentType ?: parentMetaType).equals("movie", ignoreCase = true)) {
-            skipIntervals = withOnDeviceSkips(filterSkipSources(SkipIntroRepository.getMovieSkipIntervals(parentMetaId, vid)))
+            skipIntervals = withOnDeviceSkips(filterSkipSources(SkipIntroRepository.getMovieSkipIntervals(parentMetaId, vid, durationMs = durationMs)))
             return@LaunchedEffect
         }
         if (season == null || episode == null || vid == null) return@LaunchedEffect
@@ -687,11 +688,11 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
             val intervals = when {
                 vid.startsWith("mal:") -> {
                     val malId = vid.removePrefix("mal:").substringBefore(':')
-                    SkipIntroRepository.getSkipIntervalsForMal(malId = malId, episode = episode, imdbId = imdbFromContent, imdbSeason = season, imdbEpisode = episode)
+                    SkipIntroRepository.getSkipIntervalsForMal(malId = malId, episode = episode, imdbId = imdbFromContent, imdbSeason = season, imdbEpisode = episode, durationMs = durationMs)
                 }
                 vid.startsWith("kitsu:") -> {
                     val kitsuId = vid.removePrefix("kitsu:").substringBefore(':')
-                    SkipIntroRepository.getSkipIntervalsForKitsu(kitsuId = kitsuId, episode = episode, imdbId = imdbFromContent, imdbSeason = season, imdbEpisode = episode)
+                    SkipIntroRepository.getSkipIntervalsForKitsu(kitsuId = kitsuId, episode = episode, imdbId = imdbFromContent, imdbSeason = season, imdbEpisode = episode, durationMs = durationMs)
                 }
                 // A TMDB-keyed show (tmdb:…) still gets TheIntroDB/IntroDB times via its IMDb id.
                 else -> SkipIntroRepository.getSkipIntervals(
@@ -699,6 +700,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                         ?: com.nuvio.app.features.player.skip.resolveSkipImdbId(parentMetaId, vid, "tv"),
                     season = season,
                     episode = episode,
+                    durationMs = durationMs,
                 )
             }
             // Settings: TheIntroDB only, and the on-device detection when nothing came back.
