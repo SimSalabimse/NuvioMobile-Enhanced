@@ -51,6 +51,7 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - On-device analysis of downloads (intros/credits, recaps, loudness, scrub previews, subtitle sync, "analyse only while charging"): Settings › Downloads (analysis section). 0.5.10.1–0.5.10.2.
 - Delete after watching and Smart Downloads keep a finished episode until its intro fingerprint is saved (or 30 minutes, or analysis fails for good), so the next episode still has a fingerprint to match. Automatic. The 30 minutes count only while analysis is allowed to run: with charger-only analysis on, time unplugged does not count. The last failed try releases the file.
 - Analysis runs one pass at a time. A kick during that pass runs again when the pass finishes.
+- Downloads analysis chips: episodes show Intro and Credits separately; movies show Credits only.
 - Sibling clip (fingerprints a nearby episode's intro window from its stream): automatic. 189.
 - Saving an episode fingerprint back-fills intro, credits, and recap for the other stored episodes of that season, including ones whose download is already gone.
 - Season intro and credits take a start time other episodes agree on, and a later pass replaces a weaker score only when that segment was not marked.
