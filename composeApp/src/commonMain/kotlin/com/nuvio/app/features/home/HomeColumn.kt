@@ -1,19 +1,20 @@
 package com.nuvio.app.features.home
 
-/** How long the offline home cover fades and the hero slot grows. */
-const val HomeReconnectMotionMs = 250
+import com.nuvio.app.core.network.OfflineTransitionDurationMs
+import com.nuvio.app.core.network.offlineTransitionMotion
+
+/** Same clock as the offline banner. */
+const val HomeReconnectMotionMs = OfflineTransitionDurationMs
 
 data class HomeReconnectMotion(
     val durationMs: Int,
     val snap: Boolean,
 )
 
-fun homeReconnectMotion(reduceMotion: Boolean): HomeReconnectMotion =
-    if (reduceMotion) {
-        HomeReconnectMotion(durationMs = 0, snap = true)
-    } else {
-        HomeReconnectMotion(durationMs = HomeReconnectMotionMs, snap = false)
-    }
+fun homeReconnectMotion(reduceMotion: Boolean): HomeReconnectMotion {
+    val motion = offlineTransitionMotion(reduceMotion)
+    return HomeReconnectMotion(durationMs = motion.durationMs, snap = motion.snap)
+}
 
 /**
  * Sections of Home in each mode. Offline-only rows are faded out by the cover.
@@ -52,9 +53,15 @@ fun homeSectionFadesOutWhenLeavingOffline(section: HomeColumnSection): Boolean =
         section == HomeColumnSection.OfflineContinueWatching ||
         section == HomeColumnSection.Downloaded
 
-/** Going offline shows the downloads cover on this frame. Leaving it fades unless Reduce Motion is on. */
-fun homeCoverSnapsOn(goingOffline: Boolean, reduceMotion: Boolean): Boolean =
-    goingOffline || reduceMotion
+/**
+ * Reduce Motion snaps. Going offline used to snap as well, which hid the fade.
+ * Both directions now use [offlineTransitionMotion]. The flag stays so callers
+ * can still say which way the cover is moving.
+ */
+fun homeCoverSnapsOn(goingOffline: Boolean, reduceMotion: Boolean): Boolean {
+    if (goingOffline && reduceMotion) return true
+    return offlineTransitionMotion(reduceMotion).snap
+}
 
 /**
  * Space between Home sections. [com.nuvio.app.core.ui.NuvioScreen] uses the same 12dp list gap.

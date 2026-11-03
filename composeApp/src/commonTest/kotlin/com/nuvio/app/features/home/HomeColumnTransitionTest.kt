@@ -39,12 +39,15 @@ class HomeColumnTransitionTest {
     fun reconnectMotionIsAQuarterSecondAndReduceMotionSnaps() {
         val motion = homeReconnectMotion(reduceMotion = false)
         assertEquals(250, motion.durationMs)
+        assertEquals(com.nuvio.app.core.network.OfflineTransitionDurationMs, motion.durationMs)
+        assertTrue(motion.durationMs < 300)
         assertFalse(motion.snap)
         val snapped = homeReconnectMotion(reduceMotion = true)
         assertEquals(0, snapped.durationMs)
         assertTrue(snapped.snap)
-        assertTrue(homeCoverSnapsOn(goingOffline = true, reduceMotion = false))
+        assertFalse(homeCoverSnapsOn(goingOffline = true, reduceMotion = false))
         assertFalse(homeCoverSnapsOn(goingOffline = false, reduceMotion = false))
+        assertTrue(homeCoverSnapsOn(goingOffline = true, reduceMotion = true))
         assertTrue(homeCoverSnapsOn(goingOffline = false, reduceMotion = true))
     }
 }
