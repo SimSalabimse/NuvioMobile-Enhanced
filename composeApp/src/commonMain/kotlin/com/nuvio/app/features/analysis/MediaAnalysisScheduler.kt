@@ -40,6 +40,14 @@ internal data class RawMediaAnalysis(
     val chapters: List<RawChapter> = emptyList(),
     /** Milliseconds spent reading those markers, from the same monotonic clock as the other stages. */
     val chaptersMs: Long = 0L,
+    /** Milliseconds spent sleeping in the analysis throttle. Included in [decodeMs]. */
+    val throttledMs: Long = 0L,
+    /** Throttle level when packet reading started. 0 full speed, 1 playing, 2 struggling. */
+    val throttleLevelStart: Int = 0,
+    /** How many times the throttle check ran during the decode. */
+    val throttleYields: Int = 0,
+    /** Analyser thread QoS class name. Empty when the platform did not report one. */
+    val qos: String = "",
 )
 
 internal fun RawMediaAnalysis.toStoredResult(
@@ -691,6 +699,10 @@ internal object MediaAnalysisScheduler {
                 totalMs = started.elapsedNow().inWholeMilliseconds.coerceAtLeast(0L),
                 chaptersMs = chaptersMs.coerceAtLeast(0L),
                 chapterSource = chapterSource,
+                throttledMs = raw.throttledMs.coerceAtLeast(0L),
+                throttleLevelStart = raw.throttleLevelStart,
+                throttleYields = raw.throttleYields.coerceAtLeast(0),
+                qos = raw.qos,
             ),
         )
         return AudioPass(result, clipUnavailable = clipUnavailable)

@@ -1,5 +1,6 @@
 import Accelerate
 import ComposeApp
+import Darwin
 import Foundation
 import UIKit
 import Libavcodec
@@ -261,6 +262,8 @@ private final class MediaAnalysisRun {
         // Monotonic. Date() can jump; uptime does not.
         let startedNs = DispatchTime.now().uptimeNanoseconds
         var sampleLoopNs: UInt64 = 0
+        var throttledNs: UInt64 = 0
+        var throttleYields = 0
 
         guard let allocated = avformat_alloc_context() else { return nil }
         allocated.pointee.interrupt_callback.callback = { opaque in
@@ -331,13 +334,17 @@ private final class MediaAnalysisRun {
 
         var packetsSinceProgress = 0
         var packetsSinceThrottle = 0
+        // The queue is created at utility. Read the thread here, once packet reading starts.
+        let qos = MediaAnalyzerQosName.current()
+        let throttleLevelStart = MediaAnalyzerThrottle.currentLevel()
         while !abort.isSet {
             // Playback comes first (PlaybackPriority in the shared code): while the player is open
             // the decode runs in small slices with short sleeps, and holds while it buffers.
             packetsSinceThrottle += 1
             if packetsSinceThrottle >= 64 {
                 packetsSinceThrottle = 0
-                MediaAnalyzerThrottle.yield(abort: abort)
+                throttleYields += 1
+                throttledNs &+= MediaAnalyzerThrottle.yield(abort: abort)
             }
             let read = av_read_frame(context, packet)
             if read < 0 { break }
@@ -388,6 +395,10 @@ private final class MediaAnalysisRun {
             "fingerprintMs": fingerprintMs,
             "chapters": chapters,
             "chaptersMs": chaptersMs,
+            "throttledMs": Int(throttledNs / 1_000_000),
+            "throttleLevelStart": throttleLevelStart,
+            "throttleYields": throttleYields,
+            "qos": qos,
         ]
         if let lufs = acc.integratedLoudness() { output["integratedLufs"] = lufs }
         if let headPrint { output["head"] = headPrint }
@@ -641,19 +652,47 @@ enum NuvioMediaAnalyzerRegistration {
 private enum MediaAnalyzerThrottle {
     private static let key = "NuvioAnalysisThrottleLevel"
 
-    static func yield(abort: MediaAnalyzerAbortFlag) {
-        var level = UserDefaults.standard.integer(forKey: key)
+    static func currentLevel() -> Int {
+        UserDefaults.standard.integer(forKey: key)
+    }
+
+    /// Sleeps when a player session is holding the analyser back.
+    /// Returns the nanoseconds spent inside those sleeps (0 when the level does not sleep).
+    static func yield(abort: MediaAnalyzerAbortFlag) -> UInt64 {
+        var sleptNs: UInt64 = 0
+        var level = currentLevel()
         if level == 1 {
-            usleep(25_000)
-            return
+            sleptNs &+= measuredSleep(25_000)
+            return sleptNs
         }
         // Hold while the player struggles, but never for more than a minute at a time, so a level
         // that is never cleared cannot stall the queue.
         var waited = 0
         while level >= 2 && !abort.isSet && waited < 240 {
-            usleep(250_000)
+            sleptNs &+= measuredSleep(250_000)
             waited += 1
-            level = UserDefaults.standard.integer(forKey: key)
+            level = currentLevel()
         }
+        return sleptNs
+    }
+
+    private static func measuredSleep(_ microseconds: useconds_t) -> UInt64 {
+        let started = DispatchTime.now().uptimeNanoseconds
+        usleep(microseconds)
+        return DispatchTime.now().uptimeNanoseconds &- started
+    }
+}
+
+/// QoS class name of the analyser thread, for the timings line (`utility`, `userInitiated`, ...).
+private enum MediaAnalyzerQosName {
+    static func current() -> String {
+        let klass = qos_class_self()
+        if klass == QOS_CLASS_USER_INTERACTIVE { return "userInteractive" }
+        if klass == QOS_CLASS_USER_INITIATED { return "userInitiated" }
+        if klass == QOS_CLASS_DEFAULT { return "default" }
+        if klass == QOS_CLASS_UTILITY { return "utility" }
+        if klass == QOS_CLASS_BACKGROUND { return "background" }
+        if klass == QOS_CLASS_UNSPECIFIED { return "unspecified" }
+        return "unknown"
     }
 }
