@@ -495,26 +495,27 @@ final class MediaAnalyzerSampleLoop {
         _ planes: inout [[Double]],
         _ body: (UnsafeMutablePointer<UnsafeMutablePointer<UInt8>?>) -> Void
     ) {
+        // Own copies, so no closure touches `planes` while its bytes are borrowed (exclusivity).
+        let storage: [UnsafeMutableBufferPointer<Double>] = planes.map { plane in
+            let buffer = UnsafeMutableBufferPointer<Double>.allocate(capacity: max(plane.count, 1))
+            _ = buffer.initialize(from: plane)
+            return buffer
+        }
+        defer { storage.forEach { $0.deallocate() } }
         var pointers = [UnsafeMutablePointer<UInt8>?](repeating: nil, count: max(planes.count, 1))
-        func walk(_ index: Int) {
-            if index >= planes.count {
-                pointers.withUnsafeMutableBufferPointer { buffer in
-                    if let base = buffer.baseAddress {
-                        body(base)
-                    }
-                }
-                return
-            }
-            planes[index].withUnsafeMutableBytes { raw in
-                if let base = raw.baseAddress {
-                    pointers[index] = UnsafeMutableRawPointer(base).assumingMemoryBound(to: UInt8.self)
-                } else {
-                    pointers[index] = nil
-                }
-                walk(index + 1)
+        for index in 0..<planes.count where !planes[index].isEmpty {
+            pointers[index] = storage[index].baseAddress.map {
+                UnsafeMutableRawPointer($0).assumingMemoryBound(to: UInt8.self)
             }
         }
-        walk(0)
+        pointers.withUnsafeMutableBufferPointer { buffer in
+            if let base = buffer.baseAddress {
+                body(base)
+            }
+        }
+        for index in 0..<planes.count {
+            planes[index] = Array(storage[index].prefix(planes[index].count))
+        }
     }
 }
 
