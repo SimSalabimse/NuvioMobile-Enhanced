@@ -59,6 +59,71 @@ class PlayerToolbarSlotsTest {
     }
 
     @Test
+    fun `one flag across layout submit tools orientation and the bottom pin`() {
+        val layouts = listOf(false, true)
+        val folds = listOf(false, true)
+        val portraits = listOf(false, true)
+        val submits = listOf(false, true)
+        val tools = listOf(false, true)
+        val bars = listOf(false, true)
+        val shown = listOf(false, true)
+        val pinned = listOf(false, true)
+        for (legacy in layouts) {
+            for (folded in folds) {
+                for (portrait in portraits) {
+                    for (submitAvailable in submits) {
+                        for (toolsOpen in tools) {
+                            for (submitBarOpen in bars) {
+                                for (controlsShown in shown) {
+                                    for (bottomSubmitPinned in pinned) {
+                                        val entries = visiblePlayerFlagEntries(
+                                            legacy = legacy,
+                                            folded = folded,
+                                            portrait = portrait,
+                                            submitAvailable = submitAvailable,
+                                            toolsOpen = toolsOpen,
+                                            submitBarOpen = submitBarOpen,
+                                            controlsShown = controlsShown,
+                                            bottomSubmitPinned = bottomSubmitPinned,
+                                        )
+                                        assertTrue(entries.size <= 1, entries.toString())
+                                        assertFalse(entries.size > 1)
+                                        val flipped = visiblePlayerFlagEntries(
+                                            legacy = legacy,
+                                            folded = folded,
+                                            portrait = !portrait,
+                                            submitAvailable = submitAvailable,
+                                            toolsOpen = toolsOpen,
+                                            submitBarOpen = submitBarOpen,
+                                            controlsShown = controlsShown,
+                                            bottomSubmitPinned = !bottomSubmitPinned,
+                                        )
+                                        assertEquals(entries, flipped)
+                                        val chromeUp = submitAvailable && (controlsShown || submitBarOpen) && !(toolsOpen && !submitBarOpen)
+                                        if (chromeUp) {
+                                            assertEquals(1, entries.size)
+                                            assertEquals(
+                                                when {
+                                                    folded -> PlayerFlagEntry.FoldRow
+                                                    legacy -> PlayerFlagEntry.LegacyHeader
+                                                    else -> PlayerFlagEntry.TopPill
+                                                },
+                                                entries.single(),
+                                            )
+                                        } else {
+                                            assertTrue(entries.isEmpty())
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     fun `each layout has exactly one flag home`() {
         assertEquals(PlayerFlagHome.LegacyHeader, playerFlagHome(useLegacyLayout = true, submitAvailable = true))
         assertEquals(PlayerFlagHome.TopPill, playerFlagHome(useLegacyLayout = false, submitAvailable = true))

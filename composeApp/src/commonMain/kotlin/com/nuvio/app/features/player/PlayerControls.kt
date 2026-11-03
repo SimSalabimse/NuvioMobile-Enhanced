@@ -171,7 +171,6 @@ internal fun PlayerControlsShell(
     onQualityClick: (() -> Unit)? = null,
     onOpenInExternalPlayer: (() -> Unit)? = null,
     onSubmitIntroClick: (() -> Unit)? = null,
-    onMarkSegmentClick: (() -> Unit)? = null,
     onSwitchEngineClick: (() -> Unit)? = null,
     onStreamInfoClick: () -> Unit = {},
     parentalWarnings: List<ParentalWarning> = emptyList(),
@@ -187,6 +186,16 @@ internal fun PlayerControlsShell(
     gestureController: PlayerGestureController? = null,
     onWake: () -> Unit = {},
 ) {
+    val flagEntries = visiblePlayerFlagEntries(
+        legacy = useLegacyLayout,
+        folded = foldLayout,
+        portrait = isPortraitPlayback,
+        submitAvailable = onSubmitIntroClick != null,
+        toolsOpen = false,
+        submitBarOpen = LocalSubmitBarChrome.current != null,
+        controlsShown = showPlaybackControls,
+        bottomSubmitPinned = true,
+    )
     if (foldLayout) {
         FoldControls(
             title = title,
@@ -221,7 +230,7 @@ internal fun PlayerControlsShell(
             onVideoSettingsClick = onVideoSettingsClick,
             onOpenInExternalPlayer = onOpenInExternalPlayer,
             onStreamInfoClick = onStreamInfoClick,
-            onSubmitIntroClick = onSubmitIntroClick,
+            onSubmitIntroClick = onSubmitIntroClick.takeIf { PlayerFlagEntry.FoldRow in flagEntries },
             onSwitchEngineClick = onSwitchEngineClick,
             gestureController = gestureController,
             dimmed = !showPlaybackControls,
@@ -277,10 +286,6 @@ internal fun PlayerControlsShell(
         Box(
             modifier = Modifier.fillMaxSize(),
         ) {
-            val flagHome = playerFlagHome(
-                useLegacyLayout = useLegacyLayout,
-                submitAvailable = onSubmitIntroClick != null,
-            )
             if (useLegacyLayout) {
                 PlayerHeader(
                     title = title,
@@ -307,7 +312,7 @@ internal fun PlayerControlsShell(
                     onRateClick = onRateClick,
                     userRating = userRating,
                     onOpenInExternalPlayer = onOpenInExternalPlayer,
-                    onSubmitIntroClick = onSubmitIntroClick.takeIf { flagHome == PlayerFlagHome.LegacyHeader },
+                    onSubmitIntroClick = onSubmitIntroClick.takeIf { PlayerFlagEntry.LegacyHeader in flagEntries },
                     onPartyClick = onPartyClick,
                     partyActive = partyActive,
                     onSwitchEngineClick = onSwitchEngineClick,
@@ -324,7 +329,7 @@ internal fun PlayerControlsShell(
                         isLocked = isLocked,
                         onLockToggle = onLockToggle,
                         onBack = onBack,
-                        onSubmitIntroClick = onSubmitIntroClick.takeIf { flagHome == PlayerFlagHome.TopPill },
+                        onSubmitIntroClick = onSubmitIntroClick.takeIf { PlayerFlagEntry.TopPill in flagEntries },
                         onCastClick = onCastClick,
                         isCasting = isCasting,
                         downloadAction = downloadAction,
@@ -406,7 +411,6 @@ internal fun PlayerControlsShell(
                     chapters = chapters,
                     onChaptersClick = onChaptersClick,
                     onLiveChannelsClick = onLiveChannelsClick,
-                    onMarkSegmentClick = onMarkSegmentClick,
                     qualityLabel = qualityLabel,
                     onQualityClick = onQualityClick,
                     seekPreview = seekPreview,
@@ -513,8 +517,6 @@ internal fun PlayerControlsShell(
                         onRateClick = onRateClick,
                         userRating = userRating,
                         onInteraction = onInteraction,
-                        onSubmitIntroClick = onSubmitIntroClick,
-                        onMarkSegmentClick = onMarkSegmentClick,
                         onLiveChannelsClick = onLiveChannelsClick,
                     )
                 }
@@ -966,7 +968,6 @@ private fun ProgressControls(
     chapters: List<PlayerChapter> = emptyList(),
     onChaptersClick: (() -> Unit)? = null,
     onLiveChannelsClick: (() -> Unit)? = null,
-    onMarkSegmentClick: (() -> Unit)? = null,
     qualityLabel: String? = null,
     onQualityClick: (() -> Unit)? = null,
     seekPreview: SeekPreviewController? = null,
@@ -1063,13 +1064,6 @@ private fun ProgressControls(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (onMarkSegmentClick != null) {
-                        PlayerActionPillButton(
-                            label = stringResource(Res.string.player_tools_mark_segment),
-                            icon = Icons.Rounded.Flag,
-                            onClick = onMarkSegmentClick,
-                        )
-                    }
                     PlayerActionPillButton(
                         label = stringResource(resizeMode.labelRes),
                         painter = aspectRatioPainter,

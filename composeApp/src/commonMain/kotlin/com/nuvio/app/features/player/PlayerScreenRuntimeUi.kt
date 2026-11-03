@@ -695,9 +695,6 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
                 )
                 openMarkingStrip(prefillCurrentSegment = true)
             },
-            onMarkSegmentClick = {
-                openMarkingStrip(prefillCurrentSegment = false)
-            },
             onSwitchEngineClick = if (playerController?.playbackEngine != null) {
                 { showSwitchEngineConfirm = true }
             } else {
