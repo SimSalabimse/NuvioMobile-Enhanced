@@ -90,6 +90,7 @@ internal object SkipLearning {
             rejectedSegments = rejected,
             introConfidence = if (category == "intro") null else existing.introConfidence,
             creditsConfidence = if (category == "outro") null else existing.creditsConfidence,
+            chapterTypes = existing.chapterTypes - category,
             // A new intro bounds the recap search, so run it again.
             derivedVersion = if (category == "intro") 0 else existing.derivedVersion,
         )
@@ -125,6 +126,7 @@ internal object SkipLearning {
             existing.copy(
                 userSegments = existing.userSegments + (category to UserSegment(startMs, endMs, 0L, imported = fromTheIntroDb, durationMs = durationMs)),
                 learnedTypes = existing.learnedTypes - category,
+                chapterTypes = existing.chapterTypes - category,
                 derivedVersion = if (category == "intro") 0 else existing.derivedVersion,
             )
         }

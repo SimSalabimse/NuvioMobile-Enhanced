@@ -1,6 +1,7 @@
 package com.nuvio.app.features.player.skip
 
 import com.nuvio.app.features.analysis.SkipLearning
+import com.nuvio.app.features.player.CHAPTER_SKIP_PROVIDER
 import com.nuvio.app.features.player.ON_DEVICE_SKIP_PROVIDER
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -11,6 +12,7 @@ class SkipSourceLabelTest {
     @Test fun yourTheIntroDbSubmission() = assertEquals("TheIntroDB (yours)", skipSourceLabel(SkipLearning.PROVIDER_IMPORTED))
     @Test fun theIntroDb() = assertEquals("TheIntroDB", skipSourceLabel(TheIntroDb.PROVIDER))
     @Test fun onDevice() = assertEquals("On-device", skipSourceLabel(ON_DEVICE_SKIP_PROVIDER))
+    @Test fun chapters() = assertEquals("Chapters", skipSourceLabel(CHAPTER_SKIP_PROVIDER))
     @Test fun introDb() = assertEquals("IntroDB", skipSourceLabel("introdb"))
     @Test fun aniSkip() = assertEquals("AniSkip", skipSourceLabel("aniskip"))
     @Test fun animeSkip() = assertEquals("Anime-Skip", skipSourceLabel("animeskip"))

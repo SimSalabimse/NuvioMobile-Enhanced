@@ -73,6 +73,15 @@ internal data class MediaAnalysisResult(
     val rejectedSegments: List<RejectedSegment> = emptyList(),
     /** Quiet runs kept after the energy track is dropped, so edges can still snap. */
     val silentRanges: List<SilentRange> = emptyList(),
+    /** Next-episode preview read from a chapter marker. Fingerprint matching does not set this. */
+    val previewStartMs: Long? = null,
+    val previewEndMs: Long? = null,
+    /**
+     * Kinds whose stored times came from chapter markers ("intro", "recap", "outro", "preview").
+     * Rank 2 in [SkipSourcePriority]: above fingerprint matches, below user marks and the
+     * external databases the player applies at playback.
+     */
+    val chapterTypes: Set<String> = emptySet(),
 )
 
 /** How sure a detected intro or credits range is. More agreeing siblings win, then fewer bit errors. */

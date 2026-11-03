@@ -114,7 +114,7 @@ object MediaAnalysisStatus {
     val revision: StateFlow<Int> = _revision.asStateFlow()
 
     /**
-     * Host tests set this to read status where the analyzer binary is absent.
+     * Host tests set this to read chip status where the analyzer binary is absent.
      * Null follows [MediaAnalyzerPlatform.supported].
      */
     internal var supportedForTests: Boolean? = null

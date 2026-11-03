@@ -60,6 +60,9 @@ internal fun filterSkipSources(intervals: List<SkipInterval>): List<SkipInterval
 
 internal const val ON_DEVICE_SKIP_PROVIDER = "on-device"
 
+/** Skip times read from chapter markers in the file. Below user marks and external databases. */
+internal const val CHAPTER_SKIP_PROVIDER = "chapters"
+
 /**
  * Intro, recap and credits found on this phone (when the fallback is on). Intro and credits need
  * intro detection, the recap needs recap detection.
@@ -67,28 +70,49 @@ internal const val ON_DEVICE_SKIP_PROVIDER = "on-device"
 internal fun PlayerScreenRuntime.onDeviceSkipIntervals(): List<SkipInterval> {
     if (!MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.OnDeviceSkipFallback)) return emptyList()
     val analysis = episodeSkipAnalysis() ?: return emptyList()
+    return onDeviceSkipIntervalsFrom(
+        analysis,
+        recapDetection = MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.RecapDetection),
+        introDetection = MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.IntroDetection),
+    )
+}
+
+/** Stored intro, recap, credits and preview. Chapter-backed kinds use the chapters provider. */
+internal fun onDeviceSkipIntervalsFrom(
+    analysis: MediaAnalysisResult,
+    recapDetection: Boolean,
+    introDetection: Boolean,
+): List<SkipInterval> {
     val out = mutableListOf<SkipInterval>()
-    if (MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.RecapDetection)) {
+    if (recapDetection) {
         val recapStart = analysis.recapStartMs
         val recapEnd = analysis.recapEndMs
         if (recapStart != null && recapEnd != null && recapEnd > recapStart) {
-            out += SkipInterval(recapStart / 1000.0, recapEnd / 1000.0, "recap", ON_DEVICE_SKIP_PROVIDER)
+            out += SkipInterval(recapStart / 1000.0, recapEnd / 1000.0, "recap", analysis.skipProviderFor("recap"))
         }
     }
-    if (MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.IntroDetection)) {
+    if (introDetection) {
         val introStart = analysis.introStartMs
         val introEnd = analysis.introEndMs
         if (introStart != null && introEnd != null && introEnd > introStart) {
-            out += SkipInterval(introStart / 1000.0, introEnd / 1000.0, "intro", ON_DEVICE_SKIP_PROVIDER)
+            out += SkipInterval(introStart / 1000.0, introEnd / 1000.0, "intro", analysis.skipProviderFor("intro"))
         }
         val creditsStart = analysis.creditsStartMs
         val creditsEnd = analysis.creditsEndMs
         if (creditsStart != null && creditsEnd != null && creditsEnd > creditsStart) {
-            out += SkipInterval(creditsStart / 1000.0, creditsEnd / 1000.0, "outro", ON_DEVICE_SKIP_PROVIDER)
+            out += SkipInterval(creditsStart / 1000.0, creditsEnd / 1000.0, "outro", analysis.skipProviderFor("outro"))
+        }
+        val previewStart = analysis.previewStartMs
+        val previewEnd = analysis.previewEndMs
+        if (previewStart != null && previewEnd != null && previewEnd > previewStart) {
+            out += SkipInterval(previewStart / 1000.0, previewEnd / 1000.0, "preview", analysis.skipProviderFor("preview"))
         }
     }
     return out
 }
+
+internal fun MediaAnalysisResult.skipProviderFor(kind: String): String =
+    if (kind in chapterTypes) CHAPTER_SKIP_PROVIDER else ON_DEVICE_SKIP_PROVIDER
 
 /** Segments the user marked or confirmed for the episode on screen (streamed or downloaded). */
 internal fun PlayerScreenRuntime.userMarkedSkipIntervals(): List<SkipInterval> =

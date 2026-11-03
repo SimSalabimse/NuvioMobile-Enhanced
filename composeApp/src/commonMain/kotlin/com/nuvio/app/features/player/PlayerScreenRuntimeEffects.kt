@@ -1127,7 +1127,7 @@ internal fun smartDownloadCreditsStartMs(intervals: List<com.nuvio.app.features.
     fun rank(provider: String): Int = when {
         com.nuvio.app.features.analysis.SkipLearning.isUserProvider(provider) -> 0
         provider == com.nuvio.app.features.player.skip.TheIntroDb.PROVIDER -> 1
-        provider == ON_DEVICE_SKIP_PROVIDER -> 2
+        provider == ON_DEVICE_SKIP_PROVIDER || provider == CHAPTER_SKIP_PROVIDER -> 2
         else -> 3
     }
     return intervals

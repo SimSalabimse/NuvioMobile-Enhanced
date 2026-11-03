@@ -36,6 +36,10 @@ internal data class RawMediaAnalysis(
     val decodeMs: Long = 0L,
     val sampleLoopMs: Long = 0L,
     val fingerprintMs: Long = 0L,
+    /** Chapter markers read from the container. Not stored on [MediaAnalysisResult]. */
+    val chapters: List<RawChapter> = emptyList(),
+    /** Milliseconds spent reading those markers, from the same monotonic clock as the other stages. */
+    val chaptersMs: Long = 0L,
 )
 
 internal fun RawMediaAnalysis.toStoredResult(
@@ -497,7 +501,9 @@ internal object MediaAnalysisScheduler {
             val siblings = MediaAnalysisStore.seasonSiblings(item.parentMetaId, season, result.key)
             stage(AnalysisStage.Recap)
             val recap = withContext(Dispatchers.Default) { RecapDetector.detect(result, siblings) }
-            result = result.copy(recapStartMs = recap?.first, recapEndMs = recap?.second)
+            // A chapter recap stays. Otherwise this is the same assignment as before, including
+            // clearing a recap the search did not find again.
+            result = result.withDetectedRecap(recap)
         }
         var thumbsOk = true
         if (MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.ScrubPreviews) && result.thumbnails == null &&
@@ -559,6 +565,8 @@ internal object MediaAnalysisScheduler {
         var decodeMs = 0L
         var sampleLoopMs = 0L
         var fingerprintMs = 0L
+        var rawChapters: List<RawChapter> = emptyList()
+        var rawChaptersMs = 0L
         val key = MediaAnalysisStore.keyFor(item)
         val previous = already ?: MediaAnalysisStore.load(key)
         var result = if (already != null && already.fileName == item.fileName && already.hasStoredFingerprint()) {
@@ -566,9 +574,14 @@ internal object MediaAnalysisScheduler {
         } else {
             InAppLogger.info("Analysis", "analyse start id=${item.id} file=${item.fileName}")
             stage(AnalysisStage.Audio)
-            val text = withProgress {
-                val hook = analyzeFileForTest
-                if (hook != null) hook(uri) else MediaAnalyzerPlatform.analyze(uri)
+            ChapterSkipClassifier.prepare(key, item.parentMetaId, item.seasonNumber ?: -1)
+            val text = try {
+                withProgress {
+                    val hook = analyzeFileForTest
+                    if (hook != null) hook(uri) else MediaAnalyzerPlatform.analyze(uri)
+                }
+            } finally {
+                ChapterSkipClassifier.clear()
             } ?: run {
                 InAppLogger.warn("Analysis", "analyse failed id=${item.id}")
                 if (scopeActive()) MediaAnalysisStatus.recordFailure(item, MediaAnalyzerPlatform.lastError() ?: "Could not analyse the audio")
@@ -581,6 +594,8 @@ internal object MediaAnalysisScheduler {
             decodeMs = raw.decodeMs
             sampleLoopMs = raw.sampleLoopMs
             fingerprintMs = raw.fingerprintMs
+            rawChapters = raw.chapters
+            rawChaptersMs = raw.chaptersMs
             MediaAnalysisResult(
                 key = key,
                 analyzedAtMs = com.nuvio.app.features.streams.epochMs(),
@@ -626,7 +641,35 @@ internal object MediaAnalysisScheduler {
                 clipUnavailable = clip.attempt == SiblingClipAttempt.Unavailable
             }
         }
+        val chapterMark = TimeSource.Monotonic.markNow()
+        val protected = result.userSegments.keys + result.learnedTypes + result.foundUsing.keys
+        val introDetectionOn = MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.IntroDetection)
+        val recapDetectionOn = MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.RecapDetection)
+        val fileChapters = rawChapters.map { FileChapter(it.title, it.startMs, it.endMs) }
+        result = result.applyingChapterSegments(
+            chapters = fileChapters,
+            durationMs = result.durationMs,
+            protectedKinds = protected,
+            introDetection = introDetectionOn,
+            recapDetection = recapDetectionOn,
+        )
+        val chaptersMs = rawChaptersMs.coerceAtLeast(0L) + chapterMark.elapsedNow().inWholeMilliseconds
+        val chapterSource = if (result.chapterTypes.isEmpty()) "-" else com.nuvio.app.features.player.CHAPTER_SKIP_PROVIDER
         result = duringMatch { saveFingerprint(item, result) }
+        // The season back-fill can re-run detection on this episode; chapter times outrank it.
+        if (fileChapters.isNotEmpty() && result.chapterTypes.isNotEmpty()) {
+            val again = result.applyingChapterSegments(
+                chapters = fileChapters,
+                durationMs = result.durationMs,
+                protectedKinds = protected,
+                introDetection = introDetectionOn,
+                recapDetection = recapDetectionOn,
+            )
+            if (again != result) {
+                MediaAnalysisStore.save(again)
+                result = again
+            }
+        }
         // A mark made before this file was analysed now has fingerprints: teach the season.
         if (season != null && item.episodeNumber != null &&
             (result.userSegments.containsKey("intro") || result.userSegments.containsKey("outro"))
@@ -646,6 +689,8 @@ internal object MediaAnalysisScheduler {
                 fingerprintMs = fingerprintMs.coerceAtLeast(0L),
                 matchMs = matchMs.coerceAtLeast(0L),
                 totalMs = started.elapsedNow().inWholeMilliseconds.coerceAtLeast(0L),
+                chaptersMs = chaptersMs.coerceAtLeast(0L),
+                chapterSource = chapterSource,
             ),
         )
         return AudioPass(result, clipUnavailable = clipUnavailable)
