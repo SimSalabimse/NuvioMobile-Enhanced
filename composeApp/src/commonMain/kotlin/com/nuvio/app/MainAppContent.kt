@@ -62,9 +62,11 @@ import com.nuvio.app.core.deeplink.AppDeepLink
 import com.nuvio.app.core.deeplink.AppDeepLinkRepository
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
+import com.nuvio.app.core.network.ConnectivityEdgeState
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.network.OfflineBannerSurface
+import com.nuvio.app.core.network.reduceConnectivityEdge
 import com.nuvio.app.core.startup.LaunchRefreshController
 import com.nuvio.app.core.startup.StartupPreloader
 import com.nuvio.app.core.startup.connectivityRegained
@@ -699,7 +701,6 @@ internal fun MainAppContent(
                     previousConditionName == NetworkCondition.ServersUnreachable.name
                 ) {
                     MemberAccessRepository.refresh()
-                    NuvioToastController.show(getString(Res.string.network_back_online))
                 }
             }
 
@@ -761,20 +762,23 @@ internal fun MainAppContent(
     }
 
     var previousConnectivity by remember { mutableStateOf(NetworkCondition.Unknown) }
+    var connectivityEdge by remember { mutableStateOf(ConnectivityEdgeState()) }
     LaunchedEffect(networkStatusUiState.condition) {
         if (!ownsAppRuntime) return@LaunchedEffect
         val previous = previousConnectivity
         val next = networkStatusUiState.condition
         previousConnectivity = next
+        val edge = reduceConnectivityEdge(connectivityEdge, next)
+        connectivityEdge = edge.state
+        if (edge.flushOutbox) {
+            OfflineAccountFlush.onOfflineToOnlineEdge()
+        }
         when (next) {
             NetworkCondition.NoInternet,
             NetworkCondition.ServersUnreachable,
             -> LaunchRefreshController.noteAttemptFailed()
 
             NetworkCondition.Online -> {
-                if (connectivityRegained(previous, next)) {
-                    OfflineAccountFlush.onOfflineToOnlineEdge()
-                }
                 if (connectivityRegained(previous, next) || previous != NetworkCondition.Online) {
                     LaunchRefreshController.onConnectivityRegained()
                 }

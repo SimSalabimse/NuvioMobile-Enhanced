@@ -212,12 +212,14 @@ fun SearchScreen(
                     SearchRepository.refreshDiscover(
                         addons = addonsUiState.addons,
                         forceRefresh = true,
+                        keepVisibleItems = true,
                     )
                 } else {
                     SearchRepository.search(
                         query = normalizedQuery,
                         addons = addonsUiState.addons,
                         forceRefresh = true,
+                        keepVisibleItems = true,
                     )
                 }
             }

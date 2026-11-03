@@ -114,6 +114,12 @@ class OfflineBannerHintInventoryTest {
             "offline_home_message",
             "The downloads home tagline restated the offline banner.",
         ),
+        Hint(
+            "back-online-toast",
+            "composeApp/src/commonMain/kotlin/com/nuvio/app/MainAppContent.kt",
+            "network_back_online",
+            "Coming back online sends queued edits quietly, with no toast.",
+        ),
     )
 
     private val kept = listOf(
@@ -154,12 +160,6 @@ class OfflineBannerHintInventoryTest {
             "A PIN that has not been unlocked online yet is a different message.",
         ),
         Hint(
-            "back-online-toast",
-            "composeApp/src/commonMain/kotlin/com/nuvio/app/MainAppContent.kt",
-            "network_back_online",
-            "Coming back online is a different message from being offline.",
-        ),
-        Hint(
             "party-presence",
             "composeApp/src/commonMain/kotlin/com/nuvio/app/features/party/PartyUi.kt",
             "party_status_offline",
@@ -179,6 +179,7 @@ class OfflineBannerHintInventoryTest {
         "details-servers-unreachable",
         "downloads-home-title",
         "downloads-home-message",
+        "back-online-toast",
     )
 
     private val keptIds = listOf(
@@ -188,7 +189,6 @@ class OfflineBannerHintInventoryTest {
         "details-load-failed",
         "player-stall",
         "profile-pin",
-        "back-online-toast",
         "party-presence",
     )
 
