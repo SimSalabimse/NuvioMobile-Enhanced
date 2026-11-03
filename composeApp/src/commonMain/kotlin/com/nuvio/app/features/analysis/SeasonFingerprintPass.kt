@@ -33,8 +33,7 @@ internal fun seasonFingerprintPass(
     for (episode in ordered) {
         val current = working[episode.key] ?: episode
         if (!current.needsSegmentPass()) continue
-        val detected = SeasonSegmentDetector.detect(current, referencesFor(current, working.values, referenceCap))
-        val updated = current.applyingDetection(detected)
+        val updated = current.applyingSeasonDetection(referencesFor(current, working.values, referenceCap))
         working[current.key] = updated
     }
     if (detectRecap) {
@@ -84,4 +83,5 @@ private fun MediaAnalysisResult.segmentsDiffer(before: MediaAnalysisResult): Boo
         introConfidence != before.introConfidence ||
         creditsConfidence != before.creditsConfidence ||
         rejectedSegments != before.rejectedSegments ||
+        silentRanges != before.silentRanges ||
         derivedVersion != before.derivedVersion
