@@ -1,6 +1,8 @@
 package com.nuvio.app.features.downloads
 
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -20,11 +22,18 @@ import kotlinx.coroutines.launch
  *
  * Completion is reported from the watch-progress upsert for every completed in-app playback,
  * also when Trakt or MDBList owns watched history (that path used to skip this entirely).
+ *
+ * Anything played in this process is remembered for storage autopilot. Keep free space may
+ * remove older watched downloads, but not one played here, not the one on screen, and not a
+ * file that is still transferring. Only "delete when finished" removes the episode just played.
  */
 internal object FinishedDownloadDeletion {
     private var session: OpenPlayback? = null
     private var pending: PendingDeletion? = null
     private var pendingJob: Job? = null
+    private val playedLock = SynchronizedObject()
+    private val playedVideoIds = mutableSetOf<String>()
+    private val playedDownloadIds = mutableSetOf<String>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     /**
@@ -36,6 +45,14 @@ internal object FinishedDownloadDeletion {
     internal var closeGraceMs: Long = 5_000L
 
     fun playbackOpened(videoId: String, sourceUrl: String) {
+        notePlayed(videoId, downloadIdForSource(sourceUrl))
+        val previous = session
+        if (previous != null && previous.videoId != videoId) {
+            notePlayed(previous.videoId, previous.queuedDownloadId)
+            notePlayed(previous.videoId, previous.linkedDownloadId)
+            notePlayed(previous.videoId, previous.incompleteDownloadId)
+            notePlayed(previous.videoId, downloadIdForSource(previous.sourceUrl))
+        }
         cancelPendingFor(videoId, sourceUrl)
         val current = session
         if (current != null && current.videoId == videoId) {
@@ -56,6 +73,7 @@ internal object FinishedDownloadDeletion {
     }
 
     fun playbackSourceChanged(videoId: String, sourceUrl: String) {
+        notePlayed(videoId, downloadIdForSource(sourceUrl))
         cancelPendingFor(videoId, sourceUrl)
         val current = session ?: return
         if (current.videoId != videoId) return
@@ -68,6 +86,7 @@ internal object FinishedDownloadDeletion {
      * two is on screen when completion fires.
      */
     fun linkDownload(videoId: String, downloadId: String) {
+        notePlayed(videoId, downloadId)
         val current = session ?: return
         if (current.videoId != videoId) return
         session = current.copy(linkedDownloadId = downloadId)
@@ -84,6 +103,10 @@ internal object FinishedDownloadDeletion {
     fun playbackEnded(videoId: String) {
         val current = session ?: return
         if (current.videoId != videoId) return
+        notePlayed(current.videoId, current.queuedDownloadId)
+        notePlayed(current.videoId, current.linkedDownloadId)
+        notePlayed(current.videoId, current.incompleteDownloadId)
+        notePlayed(current.videoId, downloadIdForSource(current.sourceUrl))
         session = null
         release(current, untilOtherPlays = false)
     }
@@ -110,6 +133,7 @@ internal object FinishedDownloadDeletion {
      * smart downloads for the next episodes near the end.
      */
     fun onLocalProgress(entry: WatchProgressEntry, positionMs: Long, durationMs: Long) {
+        notePlayed(entry.videoId, null)
         val current = session ?: return
         if (entry.videoId != current.videoId) return
         val items = DownloadsRepository.uiState.value.items
@@ -117,6 +141,7 @@ internal object FinishedDownloadDeletion {
             ?: current.incompleteDownloadId?.let { id -> items.firstOrNull { it.id == id } }
             ?: downloadOpenedBySource(current.sourceUrl, items)
             ?: current.linkedDownloadId?.let { id -> items.firstOrNull { it.id == id } }
+        item?.let { notePlayed(entry.videoId, it.id) }
         val creditsStartMs = item?.let { creditsStartFor(it) }
         val near = PlaybackEndRules.nearEnd(positionMs, durationMs, creditsStartMs)
         SmartDownloads.onProgress(entry, positionMs, durationMs, creditsStartMs)
@@ -156,6 +181,22 @@ internal object FinishedDownloadDeletion {
             ?.creditsStartMs
     }.getOrNull()
 
+    /**
+     * Storage autopilot must leave this file alone: it is transferring, on screen, or was played
+     * in this process. "Delete when finished" is the only path that removes the one just played.
+     */
+    fun blocksStorageAutopilot(item: DownloadItem): Boolean {
+        if (item.status == DownloadStatus.Downloading || item.status == DownloadStatus.Queued) return true
+        if (isOpen(item)) return true
+        val waiting = pending
+        if (waiting != null && (waiting.downloadId == item.id || waiting.videoId == item.videoId)) return true
+        val open = session
+        if (open != null && (open.queuedDownloadId == item.id || open.incompleteDownloadId == item.id)) return true
+        return synchronized(playedLock) {
+            item.videoId in playedVideoIds || item.id in playedDownloadIds
+        }
+    }
+
     /** [item] is the video in the player now (never deleted from under it). */
     fun isOpen(item: DownloadItem): Boolean {
         val open = session ?: return false
@@ -172,7 +213,25 @@ internal object FinishedDownloadDeletion {
         pending = null
         pendingJob?.cancel()
         pendingJob = null
+        synchronized(playedLock) {
+            playedVideoIds.clear()
+            playedDownloadIds.clear()
+        }
     }
+
+    private fun notePlayed(videoId: String?, downloadId: String?) {
+        val video = videoId?.trim().orEmpty()
+        val download = downloadId?.trim().orEmpty()
+        if (video.isEmpty() && download.isEmpty()) return
+        synchronized(playedLock) {
+            if (video.isNotEmpty()) playedVideoIds += video
+            if (download.isNotEmpty()) playedDownloadIds += download
+        }
+    }
+
+    private fun downloadIdForSource(sourceUrl: String): String? = runCatching {
+        downloadOpenedBySource(sourceUrl, DownloadsRepository.uiState.value.items)?.id
+    }.getOrNull()
 
     private fun release(current: OpenPlayback, untilOtherPlays: Boolean) {
         if (session === current) session = null
