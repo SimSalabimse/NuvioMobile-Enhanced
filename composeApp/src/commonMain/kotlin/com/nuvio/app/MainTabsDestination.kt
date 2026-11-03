@@ -26,6 +26,8 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.LocalNuvioBottomNavigationOverlayPadding
+import com.nuvio.app.core.ui.floatingTabContentBottomInsetDp
+import com.nuvio.app.core.ui.nuvioBottomSafeInset
 import com.nuvio.app.core.ui.FloatingNavigationBar
 import com.nuvio.app.core.ui.FloatingNavigationItem
 import com.nuvio.app.core.ui.LocalNuvioNavBarScrollState
@@ -137,14 +139,20 @@ internal fun MainTabsDestination(
             },
         ) { innerPadding ->
             Box(modifier = Modifier.fillMaxSize()) {
+                val safeBottom = nuvioBottomSafeInset()
+                val reserveTabBar = tabsRouteActive && !floatingBarOnTop &&
+                    (useNativeBottomTabs || navBarStyleSetting != NavBarStyle.CLASSIC)
+                val tabBarAboveSafe = if (reserveTabBar) {
+                    val full = floatingTabContentBottomInsetDp(
+                        nativeTabs = useNativeBottomTabs,
+                        safeAreaBottomDp = safeBottom.value,
+                    )
+                    (full - safeBottom.value).coerceAtLeast(0f).dp
+                } else {
+                    0.dp
+                }
                 CompositionLocalProvider(
-                    LocalNuvioBottomNavigationOverlayPadding provides when {
-                        tabsRouteActive && useNativeBottomTabs -> 49.dp
-                        // A top pill floats over the content like the tablet CLASSIC bar, so
-                        // nothing needs to be kept clear at the bottom.
-                        tabsRouteActive && navBarStyleSetting != NavBarStyle.CLASSIC && !floatingBarOnTop -> 72.dp
-                        else -> 0.dp
-                    },
+                    LocalNuvioBottomNavigationOverlayPadding provides tabBarAboveSafe,
                     LocalNuvioNavBarScrollState provides navBarScrollState,
                     LocalNuvioTabletNavLayout provides isTabletLayout,
                 ) {
