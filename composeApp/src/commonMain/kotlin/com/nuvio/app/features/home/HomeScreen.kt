@@ -185,6 +185,8 @@ fun HomeScreen(
         }
     }
 
+    var holdDownloadsHome by remember { mutableStateOf(false) }
+    var reconnectRefreshStarted by remember { mutableStateOf(false) }
     ScreenActivityEffect(networkStatusUiState.condition) { active ->
         if (!active) return@ScreenActivityEffect
         when (networkStatusUiState.condition) {
@@ -192,11 +194,13 @@ fun HomeScreen(
             NetworkCondition.ServersUnreachable,
             -> {
                 observedOfflineState = true
+                reconnectRefreshStarted = false
             }
 
             NetworkCondition.Online -> {
                 if (observedOfflineState) {
                     observedOfflineState = false
+                    reconnectRefreshStarted = true
                     HomeRepository.refresh(addonsUiState.addons.enabledAddons(), force = true)
                 }
             }
@@ -220,7 +224,27 @@ fun HomeScreen(
     // Only a confirmed "no internet" swaps Home. "Servers unreachable" (our account backend slow or
     // down while the internet works) used to show the offline page while online.
     val trulyOffline = networkStatusUiState.condition == com.nuvio.app.core.network.NetworkCondition.NoInternet
-    if (trulyOffline && !showOnlineHomeWhileOffline && completedOffline.isNotEmpty() && onOpenDownload != null) {
+    val catalogsReady = homeUiState.sections.isNotEmpty() || homeUiState.heroItems.isNotEmpty()
+    if (trulyOffline && completedOffline.isNotEmpty()) {
+        holdDownloadsHome = true
+    } else if (
+        holdDownloadsHome &&
+        (
+            catalogsReady ||
+                (
+                    reconnectRefreshStarted &&
+                        networkStatusUiState.condition == com.nuvio.app.core.network.NetworkCondition.Online &&
+                        !homeUiState.isLoading
+                    )
+            )
+    ) {
+        holdDownloadsHome = false
+    }
+    val showDownloadsFirst = !showOnlineHomeWhileOffline &&
+        completedOffline.isNotEmpty() &&
+        onOpenDownload != null &&
+        (trulyOffline || (holdDownloadsHome && !catalogsReady))
+    if (showDownloadsFirst) {
         com.nuvio.app.features.home.components.OfflineDownloadsHome(
             items = completedOffline,
             onOpenDownload = onOpenDownload,
