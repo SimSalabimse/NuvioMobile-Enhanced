@@ -113,6 +113,23 @@ import kotlin.math.roundToLong
 import com.nuvio.app.core.i18n.localizedEpisodeTitle
 import com.nuvio.app.core.ui.glass.isAmbientLiquidGlassActive
 
+internal data class PlayerTransportVisibility(
+    val playPause: Boolean,
+    val seek: Boolean,
+)
+
+/** Play/pause and seek stay up while the submit bar is open, on every layout. */
+@Suppress("UNUSED_PARAMETER")
+internal fun playerTransportVisibility(
+    submitOpen: Boolean,
+    controlsShown: Boolean,
+    legacy: Boolean,
+    portrait: Boolean,
+): PlayerTransportVisibility {
+    val available = controlsShown || submitOpen
+    return PlayerTransportVisibility(playPause = available, seek = available)
+}
+
 @Composable
 internal fun PlayerControlsShell(
     title: String,
@@ -360,7 +377,13 @@ internal fun PlayerControlsShell(
             }
 
             val submitChrome = LocalSubmitBarChrome.current
-            if (showPlaybackControls && submitChrome == null) {
+            val transport = playerTransportVisibility(
+                submitOpen = submitChrome != null,
+                controlsShown = showPlaybackControls,
+                legacy = useLegacyLayout,
+                portrait = isPortraitPlayback,
+            )
+            if (transport.playPause) {
                 CompositionLocalProvider(
                     LocalLayoutDirection provides if (useLegacyLayout) LocalLayoutDirection.current else LayoutDirection.Ltr,
                 ) {
@@ -388,7 +411,7 @@ internal fun PlayerControlsShell(
                 }
             }
 
-            if (showPlaybackControls && useLegacyLayout) {
+            if (transport.seek && useLegacyLayout) {
                 ProgressControls(
                     playbackSnapshot = playbackSnapshot,
                     playbackClock = playbackClock,
@@ -423,7 +446,7 @@ internal fun PlayerControlsShell(
                         .padding(horizontal = metrics.horizontalPadding),
                 )
             }
-            if (showPlaybackControls && !useLegacyLayout) {
+            if (transport.seek && !useLegacyLayout) {
                 Column(
                     modifier = Modifier
                         .onSizeChanged { size -> timelineHeight = with(density) { size.height.toDp() } }
