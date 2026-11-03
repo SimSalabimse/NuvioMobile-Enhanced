@@ -1,5 +1,6 @@
 package com.nuvio.app.features.catalog
 
+import com.nuvio.app.core.network.keepExistingItemsDuringRefresh
 import com.nuvio.app.core.poster.CustomPosterUrlRepository
 import com.nuvio.app.core.poster.withCustomPosterUrls
 import com.nuvio.app.features.collection.CollectionRepository
@@ -43,6 +44,7 @@ object CatalogRepository {
     fun load(
         target: CatalogTarget,
         force: Boolean = false,
+        keepVisibleItems: Boolean = false,
     ) {
         val request = catalogRequest(target)
         if (!force && activeRequest == request && (_uiState.value.items.isNotEmpty() || _uiState.value.isLoading)) {
@@ -57,6 +59,7 @@ object CatalogRepository {
             request = request,
             reset = true,
             forceRefresh = force,
+            keepVisibleItems = keepVisibleItems,
         )
     }
 
@@ -134,15 +137,17 @@ object CatalogRepository {
         request: CatalogRequest,
         reset: Boolean,
         forceRefresh: Boolean,
+        keepVisibleItems: Boolean = false,
     ) {
         activeJob?.cancel()
         val current = _uiState.value
         val requestedSkip = if (reset) 0 else current.nextSkip ?: return
 
+        val keepRows = keepExistingItemsDuringRefresh(current.items.size, keepVisibleItems)
         _uiState.value = current.copy(
-            items = if (reset) emptyList() else current.items,
-            isLoading = true,
-            nextSkip = if (reset) null else current.nextSkip,
+            items = if (reset && !keepRows) emptyList() else current.items,
+            isLoading = !keepRows,
+            nextSkip = if (reset && !keepRows) null else current.nextSkip,
             errorMessage = null,
         )
 
@@ -209,9 +214,9 @@ object CatalogRepository {
                     if (activeRequest != request) return@fold
 
                     _uiState.value = current.copy(
-                        items = if (reset) emptyList() else current.items,
+                        items = if (reset && !keepRows) emptyList() else current.items,
                         isLoading = false,
-                        nextSkip = null,
+                        nextSkip = if (reset && !keepRows) null else current.nextSkip,
                         errorMessage = error.serverMessage() ?: error.message ?: getString(Res.string.catalog_load_failed),
                     )
                 },

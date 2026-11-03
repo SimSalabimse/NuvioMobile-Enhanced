@@ -153,6 +153,7 @@ fun CatalogScreen(
                 CatalogRepository.load(
                     target = target,
                     force = true,
+                    keepVisibleItems = true,
                 )
             }
 

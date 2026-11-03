@@ -1,5 +1,7 @@
 package com.nuvio.app.features.search
 
+import com.nuvio.app.core.network.keepExistingItemsDuringRefresh
+
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.i18n.localizedMediaTypeLabel
 import com.nuvio.app.features.addons.AddonCatalog
@@ -79,6 +81,7 @@ object SearchRepository {
         query: String,
         addons: List<ManagedAddon>,
         forceRefresh: Boolean = false,
+        keepVisibleItems: Boolean = false,
     ) {
         val normalizedQuery = query.trim()
         if (normalizedQuery.isBlank()) {
@@ -152,7 +155,12 @@ object SearchRepository {
         lastRequestKey = requestKey
 
         activeJob?.cancel()
-        _uiState.value = SearchUiState(isLoading = true)
+        val keepSearchRows = keepExistingItemsDuringRefresh(_uiState.value.sections.size, keepVisibleItems)
+        _uiState.value = if (keepSearchRows) {
+            _uiState.value.copy(isLoading = false, errorMessage = null)
+        } else {
+            SearchUiState(isLoading = true)
+        }
 
         activeJob = scope.launch {
             val resultChannel = Channel<IndexedSearchResult>(Channel.UNLIMITED)
@@ -203,9 +211,14 @@ object SearchRepository {
             }
 
             val completedResults = results.filterNotNull()
-            val sections = results.orderedSections()
+            val fetchedSections = results.orderedSections()
             val firstFailure = completedResults.firstNotNullOfOrNull { result -> result.error?.let { it.serverMessage() ?: it.message } }
             val allFailed = completedResults.isNotEmpty() && completedResults.all { it.error != null }
+            val sections = if (keepSearchRows && (fetchedSections.isEmpty() || allFailed)) {
+                _uiState.value.sections
+            } else {
+                fetchedSections
+            }
 
             _uiState.value = SearchUiState(
                 isLoading = sections.isEmpty() && hasPendingAddonManifests,
@@ -240,6 +253,7 @@ object SearchRepository {
     fun refreshDiscover(
         addons: List<ManagedAddon>,
         forceRefresh: Boolean = false,
+        keepVisibleItems: Boolean = false,
     ) {
         val enabledAddons = addons.enabledAddons()
         val hasPendingAddonManifests = enabledAddons.hasPendingEnabledManifests()
@@ -317,15 +331,17 @@ object SearchRepository {
         val catalogOptions = sources.filter { it.type == selectedType }
         val selectedGenre = selectedCatalog.resolveGenreSelection(current.selectedGenre)
 
+        val keepDiscoverRows = keepExistingItemsDuringRefresh(current.items.size, keepVisibleItems) &&
+            current.selectedCatalogKey == selectedCatalog.key
         _discoverUiState.value = DiscoverUiState(
             typeOptions = typeOptions,
             selectedType = selectedType,
             catalogOptions = catalogOptions,
             selectedCatalogKey = selectedCatalog.key,
             selectedGenre = selectedGenre,
-            items = emptyList(),
+            items = if (keepDiscoverRows) current.items else emptyList(),
             isLoading = false,
-            nextSkip = null,
+            nextSkip = if (keepDiscoverRows) current.nextSkip else null,
             emptyStateReason = null,
             errorMessage = null,
         )
@@ -338,6 +354,7 @@ object SearchRepository {
         loadDiscoverFeed(
             reset = true,
             forceRefresh = forceRefresh,
+            keepVisibleItems = keepDiscoverRows,
         )
     }
 
@@ -512,6 +529,7 @@ object SearchRepository {
     private fun loadDiscoverFeed(
         reset: Boolean,
         forceRefresh: Boolean,
+        keepVisibleItems: Boolean = false,
     ) {
         activeDiscoverJob?.cancel()
         val current = _discoverUiState.value
@@ -536,10 +554,11 @@ object SearchRepository {
                 "genre=${current.selectedGenre ?: "<all>"} skip=$requestedSkip url=$requestUrl"
         }
 
+        val keepRows = keepExistingItemsDuringRefresh(current.items.size, keepVisibleItems)
         _discoverUiState.value = current.copy(
-            isLoading = true,
-            items = if (reset) emptyList() else current.items,
-            nextSkip = if (reset) null else current.nextSkip,
+            isLoading = !keepRows,
+            items = if (reset && !keepRows) emptyList() else current.items,
+            nextSkip = if (reset && !keepRows) null else current.nextSkip,
             consecutiveDuplicatePages = if (reset) 0 else current.consecutiveDuplicatePages,
             emptyStateReason = null,
             errorMessage = null,
@@ -620,9 +639,9 @@ object SearchRepository {
                             "genre=${current.selectedGenre ?: "<all>"} skip=$requestedSkip url=$requestUrl"
                     }
                     _discoverUiState.value = latest.copy(
-                        items = if (reset) emptyList() else latest.items,
+                        items = if (reset && !keepRows) emptyList() else latest.items,
                         isLoading = false,
-                        nextSkip = null,
+                        nextSkip = if (reset && !keepRows) null else latest.nextSkip,
                         emptyStateReason = DiscoverEmptyStateReason.RequestFailed,
                         errorMessage = error.message ?: getString(Res.string.discover_empty_load_failed_message),
                     )

@@ -6,10 +6,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -88,12 +86,16 @@ internal fun OfflineBannerHost(
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val label = stringResource(Res.string.offline_banner_saved_data)
     val tokens = MaterialTheme.nuvio
-    Column(modifier) {
+    // Overlay. The strip fades in place and never pushes the list down.
+    Box(modifier) {
+        content()
         if (showStrip) {
             Box(
                 modifier = Modifier
+                    .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .height(statusTop + OfflineBannerStripHeight * fraction)
+                    .height(statusTop + OfflineBannerStripHeight)
+                    .graphicsLayer { alpha = fraction }
                     .clipToBounds()
                     .background(tokens.colors.surfaceElevated)
                     .clickable { onOfflineBannerTap(onRecheck) }
@@ -104,8 +106,7 @@ internal fun OfflineBannerHost(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp)
-                        .graphicsLayer { alpha = fraction },
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
                     style = MaterialTheme.typography.labelLarge,
                     color = tokens.colors.textPrimary,
                     textAlign = TextAlign.Center,
@@ -113,20 +114,6 @@ internal fun OfflineBannerHost(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-        }
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .then(
-                    if (showStrip) {
-                        Modifier.consumeWindowInsets(WindowInsets.statusBars)
-                    } else {
-                        Modifier
-                    },
-                ),
-        ) {
-            content()
         }
     }
 }
