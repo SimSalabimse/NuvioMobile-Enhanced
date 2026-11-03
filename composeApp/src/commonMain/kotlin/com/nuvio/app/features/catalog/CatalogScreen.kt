@@ -52,6 +52,7 @@ import com.nuvio.app.core.ui.NuvioCardDepthSurface
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
+import com.nuvio.app.core.ui.NuvioPosterResumeBar
 import com.nuvio.app.core.ui.NuvioPosterWatchedOverlay
 import com.nuvio.app.core.ui.SkeletonPoster
 import com.nuvio.app.core.ui.nuvioCardDepth
@@ -65,6 +66,7 @@ import com.nuvio.app.features.settings.ThemeSettingsRepository
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.PosterShape
 import com.nuvio.app.features.home.components.HomeEmptyStateCard
+import com.nuvio.app.features.home.components.rememberMoviePosterProgressById
 import com.nuvio.app.features.home.stableKey
 import com.nuvio.app.features.watched.WatchedRepository
 import com.nuvio.app.features.watching.application.WatchingState
@@ -94,6 +96,7 @@ fun CatalogScreen(
         WatchedRepository.uiState
     }.collectAsStateWithLifecycle()
     val fullyWatchedSeriesKeys by WatchedRepository.fullyWatchedSeriesKeys.collectAsStateWithLifecycle()
+    val movieProgressById = rememberMoviePosterProgressById()
     val initialScrollPosition = remember(
         target,
         homeCatalogSettingsUiState.hideUnreleasedContent,
@@ -221,6 +224,11 @@ fun CatalogScreen(
                                 item = item,
                                 fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
                             ),
+                            resumeFraction = WatchingState.posterProgress(
+                                movieId = item.id,
+                                progressByMovieId = movieProgressById,
+                                type = item.type,
+                            ),
                             onClick = onPosterClick?.let { { it(item) } },
                             onLongClick = onPosterLongClick?.let { { it(item) } },
                         )
@@ -303,6 +311,7 @@ private fun CatalogPosterTile(
     cornerRadiusDp: Int,
     hideLabels: Boolean,
     isWatched: Boolean,
+    resumeFraction: Float? = null,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
 ) {
@@ -352,6 +361,12 @@ private fun CatalogPosterTile(
                 )
             }
             NuvioPosterWatchedOverlay(isWatched = isWatched)
+            if (resumeFraction != null) {
+                NuvioPosterResumeBar(
+                    fraction = resumeFraction,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
+            }
         }
         if (!hideLabels) {
             Text(

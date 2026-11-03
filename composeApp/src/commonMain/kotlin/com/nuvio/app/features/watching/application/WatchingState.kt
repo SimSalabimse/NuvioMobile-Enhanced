@@ -101,10 +101,80 @@ object WatchingState {
         @Suppress("UNUSED_PARAMETER")
         latestCompletedBySeries: Map<WatchingContentRef, WatchingCompletedEpisode>,
     ): List<WatchProgressEntry> = progressEntries.continueWatchingEntries()
+
+    /**
+     * Fraction watched for a movie poster, or null when the resume bar stays hidden.
+     * [progressByMovieId] is the already-built map from [moviePosterProgressById].
+     * A non-movie [type] never shows the bar.
+     */
+    fun posterProgress(
+        movieId: String,
+        progressByMovieId: Map<String, Float>,
+        type: String? = null,
+    ): Float? {
+        if (type != null && !type.isMoviePosterType()) return null
+        val id = movieId.trim()
+        if (id.isEmpty()) return null
+        return progressByMovieId[id]
+    }
+
+    /** In-range movie fractions keyed by parent id. Series and episode rows are left out. */
+    fun moviePosterProgressById(entries: List<WatchProgressEntry>): Map<String, Float> {
+        val newestById = HashMap<String, WatchProgressEntry>()
+        for (entry in entries) {
+            if (!entry.isMoviePosterCandidate()) continue
+            val id = entry.parentMetaId.trim()
+            if (id.isEmpty()) continue
+            val current = newestById[id]
+            if (current == null || entry.lastUpdatedEpochMs >= current.lastUpdatedEpochMs) {
+                newestById[id] = entry
+            }
+        }
+        return newestById.mapNotNull { (id, entry) ->
+            posterResumeFraction(
+                positionMs = entry.lastPositionMs,
+                durationMs = entry.durationMs,
+                progressPercent = entry.progressPercent,
+            )?.let { fraction -> id to fraction }
+        }.toMap()
+    }
+
+    /**
+     * Fraction to draw, or null when the movie is missing, unstarted (< ~3%),
+     * finished (>= ~95%), or has no duration to measure.
+     * An explicit [progressPercent] wins, matching [WatchProgressEntry.progressFraction].
+     */
+    fun posterResumeFraction(
+        positionMs: Long,
+        durationMs: Long,
+        progressPercent: Float? = null,
+    ): Float? {
+        val explicitPercent = progressPercent?.takeIf(Float::isFinite)
+        val percent = when {
+            explicitPercent != null -> explicitPercent.toDouble()
+            durationMs <= 0L -> return null
+            else -> positionMs.toDouble() * 100.0 / durationMs.toDouble()
+        }
+        if (!percent.isFinite()) return null
+        if (percent < PosterResumeMinPercent || percent >= PosterResumeMaxPercent) return null
+        return (percent / 100.0).toFloat()
+    }
 }
+
+private const val PosterResumeMinPercent = 3.0
+private const val PosterResumeMaxPercent = 95.0
 
 private fun String.isSeriesLikePosterType(): Boolean =
     trim().lowercase() in setOf("series", "show", "tv", "tvshow", "anime")
+
+private fun String.isMoviePosterType(): Boolean =
+    trim().lowercase() in setOf("movie", "film")
+
+private fun WatchProgressEntry.isMoviePosterCandidate(): Boolean {
+    if (seasonNumber != null || episodeNumber != null) return false
+    if (parentMetaType.isSeriesLikePosterType() || contentType.isSeriesLikePosterType()) return false
+    return parentMetaType.isMoviePosterType() || contentType.isMoviePosterType()
+}
 
 private fun WatchProgressEntry.toDomainProgressRecord(): WatchingProgressRecord =
     normalizedCompletion().let { entry ->

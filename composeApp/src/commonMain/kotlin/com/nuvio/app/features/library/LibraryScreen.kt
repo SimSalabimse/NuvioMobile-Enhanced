@@ -133,6 +133,7 @@ import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.components.HomeEmptyStateCard
 import com.nuvio.app.features.servers.ServerRepository
 import com.nuvio.app.features.home.components.HomePosterCard
+import com.nuvio.app.features.home.components.rememberMoviePosterProgressById
 import com.nuvio.app.features.home.components.HomeSkeletonRow
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.tracking.TrackingRefreshIntent
@@ -1973,6 +1974,7 @@ private fun LazyListScope.librarySections(
         items = displaySections,
         key = { section -> "library-horizontal:${section.type}" },
     ) { section ->
+        val movieProgressById = rememberMoviePosterProgressById()
         NuvioShelfSection(
             title = localizedLibrarySectionTitle(section.type, section.displayTitle),
             entries = section.previewEntries,
@@ -2006,6 +2008,11 @@ private fun LazyListScope.librarySections(
                         watchedKeys = watchedKeys,
                         item = posterItem,
                         fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+                    ),
+                    resumeFraction = WatchingState.posterProgress(
+                        movieId = posterItem.id,
+                        progressByMovieId = movieProgressById,
+                        type = posterItem.type,
                     ),
                     onClick = if (entry.exiting) null else onPosterClick?.let { { it(item) } },
                     onLongClick = if (entry.exiting || entrySource == null) {
