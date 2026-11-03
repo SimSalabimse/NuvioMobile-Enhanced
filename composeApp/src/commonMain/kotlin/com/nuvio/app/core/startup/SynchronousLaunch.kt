@@ -30,7 +30,7 @@ internal object SynchronousLaunch {
             FirstFrameInput(
                 signedIn = signedIn,
                 profileCount = cache.profileCount,
-                rememberOn = cache.rememberOn && cache.hasEverSelectedProfile,
+                rememberOn = cache.rememberOn,
                 rememberedPin = cache.rememberedPin,
                 cachePresent = cache.cachePresent,
                 network = StartupNetworkOutcome.Offline,
@@ -38,9 +38,8 @@ internal object SynchronousLaunch {
         )
         if (frame.destination == FirstFrameDestination.Home) {
             val index = when {
-                cache.rememberOn &&
-                    cache.hasEverSelectedProfile &&
-                    cache.rememberedPin == RememberedPinKind.NoPin -> cache.activeProfileIndex
+                cache.rememberOn && cache.rememberedPin == RememberedPinKind.NoPin ->
+                    cache.activeProfileIndex
                 cache.profileCount == 1 && cache.rememberedPin == RememberedPinKind.NoPin ->
                     cache.activeProfileIndex
                 else -> null

@@ -65,11 +65,10 @@ internal fun profileStartupContinuesAfterReadTimeout(elapsedMs: Long, phase: Pro
     phase == ProfileCachePhase.Reading && elapsedMs >= ProfileCacheReadTimeoutMs
 
 internal fun decideProfileStartupGate(input: ProfileStartupGateInput): ProfileStartupGateDecision {
-    if (!profileStartupReadSettled(input.phase, input.readTimedOut)) {
+    if (input.phase == ProfileCachePhase.Reading && !input.readTimedOut) {
         return ProfileStartupGateDecision(ProfileStartupDestination.Loading)
     }
-
-    val remembered = if (input.rememberLastProfileEnabled && input.hasEverSelectedProfile) {
+    val remembered = if (input.rememberLastProfileEnabled) {
         input.profiles.firstOrNull { it.profileIndex == input.activeProfileIndex }
     } else {
         null
@@ -85,6 +84,10 @@ internal fun decideProfileStartupGate(input: ProfileStartupGateInput): ProfileSt
             destination = ProfileStartupDestination.Main,
             selectProfileIndex = input.profiles.first().profileIndex,
         )
+    }
+    // Timed out with no pinless profile yet: keep waiting. Settled storage may open the picker.
+    if (input.phase == ProfileCachePhase.Reading) {
+        return ProfileStartupGateDecision(ProfileStartupDestination.Loading)
     }
     return ProfileStartupGateDecision(ProfileStartupDestination.ProfileSelection)
 }
@@ -167,12 +170,70 @@ internal fun decideFirstFrame(input: FirstFrameInput): FirstFrameDecision {
 
 internal fun rememberedPinKind(
     rememberOn: Boolean,
-    hasEverSelectedProfile: Boolean,
     activeProfileIndex: Int,
     profiles: List<ProfileStartupProfile>,
 ): RememberedPinKind {
-    if (!rememberOn || !hasEverSelectedProfile) return RememberedPinKind.Missing
+    if (!rememberOn) return RememberedPinKind.Missing
     val remembered = profiles.firstOrNull { it.profileIndex == activeProfileIndex }
         ?: return RememberedPinKind.Missing
     return if (remembered.pinEnabled) RememberedPinKind.HasPin else RememberedPinKind.NoPin
+}
+
+/** Home on the first frame. The profile picker and the launch avatar cover stay off. */
+internal fun coldLaunchSkipsProfilePicker(destination: FirstFrameDestination): Boolean =
+    destination == FirstFrameDestination.Home
+
+/**
+ * The launch avatar cover sits on top of Home until the tabs are ready.
+ * A straight-home launch never draws it, so the remembered profile is the first thing on screen.
+ */
+internal fun showStartupLaunchCover(
+    destination: FirstFrameDestination,
+    gateIsHome: Boolean,
+    mainContentReady: Boolean,
+): Boolean = gateIsHome && !mainContentReady && !coldLaunchSkipsProfilePicker(destination)
+
+internal enum class ProfileGateMoment {
+    BeforeStorageRead,
+    BeforeProfileListLoads,
+    AfterSignInRestore,
+    RememberedIdNotInLoadedList,
+    StorageSettled,
+}
+
+internal data class ProfilePickerChoice(
+    val moment: ProfileGateMoment,
+    val signedIn: Boolean,
+    val rememberOn: Boolean,
+    val hasEverSelectedProfile: Boolean,
+    val rememberedExists: Boolean,
+    val rememberedHasPin: Boolean,
+    val profileCount: Int,
+    val userAskedToSwitch: Boolean,
+    val network: StartupNetworkOutcome,
+)
+
+/** Picker only when remember is off, no remembered pinless profile exists, or the user asked to switch. */
+internal fun startupComposesProfilePicker(choice: ProfilePickerChoice): Boolean {
+    when (choice.network) {
+        StartupNetworkOutcome.Online,
+        StartupNetworkOutcome.Offline,
+        StartupNetworkOutcome.TimedOut,
+        -> Unit
+    }
+    if (!choice.signedIn) return false
+    if (choice.userAskedToSwitch) return true
+    if (
+        choice.moment == ProfileGateMoment.BeforeStorageRead ||
+        choice.moment == ProfileGateMoment.BeforeProfileListLoads ||
+        choice.moment == ProfileGateMoment.RememberedIdNotInLoadedList
+    ) {
+        return false
+    }
+    // A remembered pinless profile skips the picker whether or not the older
+    // "has ever selected" flag was stored with it.
+    val rememberedPinless = choice.rememberOn && choice.rememberedExists && !choice.rememberedHasPin
+    val singlePinless = choice.profileCount == 1 && !choice.rememberedHasPin
+    if (rememberedPinless || singlePinless) return false
+    return true
 }

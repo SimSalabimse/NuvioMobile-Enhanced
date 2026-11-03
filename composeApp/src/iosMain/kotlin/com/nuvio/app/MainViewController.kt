@@ -5,6 +5,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.uikit.OnFocusBehavior
 import androidx.compose.ui.window.ComposeUIViewController
 import com.nuvio.app.core.startup.SynchronousLaunch
+import com.nuvio.app.features.profiles.coldLaunchSkipsProfilePicker as destinationSkipsProfilePicker
 import com.nuvio.app.core.ui.LocalFold
 import com.nuvio.app.core.ui.LocalVerticalBarPadding
 import com.nuvio.app.core.ui.NativeProfileSwitcherController
@@ -14,6 +15,10 @@ import platform.UIKit.UIColor
 import platform.UIKit.UIViewController
 
 private val nuvioBackgroundColor = UIColor(red = 0.051, green = 0.051, blue = 0.051, alpha = 1.0)
+
+@Suppress("unused")
+fun coldLaunchSkipsProfilePicker(): Boolean =
+    destinationSkipsProfilePicker(SynchronousLaunch.prepare().destination)
 
 @Suppress("unused")
 fun MainViewController(): UIViewController {
