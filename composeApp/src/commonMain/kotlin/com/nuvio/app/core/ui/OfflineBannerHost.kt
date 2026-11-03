@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.material3.MaterialTheme
@@ -35,9 +35,10 @@ import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.OfflineBannerHideFadeMs
 import com.nuvio.app.core.network.OfflineBannerHoldMs
 import com.nuvio.app.core.network.OfflineBannerLatch
+import com.nuvio.app.core.network.OfflineBannerPhase
 import com.nuvio.app.core.network.OfflineBannerSurface
 import com.nuvio.app.core.network.isOfflineBannerCondition
-import com.nuvio.app.core.network.offlineBannerFrame
+import com.nuvio.app.core.network.offlineBannerChrome
 import com.nuvio.app.core.network.offlineBannerMotionEnabled
 import com.nuvio.app.core.network.onOfflineBannerTap
 import com.nuvio.app.core.network.reduceOfflineBannerLatch
@@ -87,42 +88,54 @@ internal fun OfflineBannerHost(
         bannerAlpha.animateTo(target, spec)
     }
     val fraction = bannerAlpha.value
-    val showStrip = latch.visible || fraction > 0f
+    val phase = when {
+        latch.visible -> OfflineBannerPhase.Offline
+        fraction > 0f -> OfflineBannerPhase.Reconnecting
+        else -> OfflineBannerPhase.Online
+    }
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val frame = offlineBannerFrame(
+    // Home and the details screen both draw this frame. The background includes
+    // the status inset so the page and the poster cannot show through above it.
+    val chrome = offlineBannerChrome(
+        phase = phase,
         statusInsetDp = statusTop.value,
-        statusInsetAlreadyApplied = false,
         fontScale = LocalDensity.current.fontScale,
     )
     val label = stringResource(Res.string.offline_banner_saved_data)
     val tokens = MaterialTheme.nuvio
-    // Overlay. The strip fades in place and never pushes the list down.
+    // Overlay. The frame stays put while the 250ms hide fade changes alpha.
     Box(modifier) {
         content()
-        if (showStrip) {
+        if (chrome.drawn) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .padding(top = frame.topInsetDp.dp)
-                    .heightIn(min = frame.stripHeightDp.dp)
+                    .height(chrome.backgroundHeightDp.dp)
                     .graphicsLayer { alpha = fraction }
-                    .background(tokens.colors.surfaceElevated)
+                    .background(tokens.colors.surfaceElevated.copy(alpha = 1f))
                     .clickable { onOfflineBannerTap(onRecheck) }
                     .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
-                contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = label,
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = tokens.colors.textPrimary,
-                    textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                        .padding(top = chrome.contentTopOffsetDp.dp)
+                        .height(chrome.contentHeightDp.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = label,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = tokens.colors.textPrimary,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
     }
