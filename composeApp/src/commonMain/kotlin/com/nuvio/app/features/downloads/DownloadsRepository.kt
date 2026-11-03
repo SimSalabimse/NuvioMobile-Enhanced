@@ -39,6 +39,18 @@ object DownloadsRepository {
     private val linkRefreshBytes = mutableMapOf<String, Long>()
     private val linkRefreshHandles = mutableMapOf<String, DownloadsTaskHandle>()
 
+    private var fixtureItems: List<DownloadItem>? = null
+
+    internal fun installFixtureItems(items: List<DownloadItem>) {
+        fixtureItems = items
+        activeHandles.values.forEach(DownloadsTaskHandle::cancel)
+        activeHandles.clear()
+        partialPrefixCache.clear()
+        startQueue.clear()
+        hasLoaded = true
+        publish(items)
+    }
+
     fun ensureLoaded() {
         ensureThermalObserver()
         if (hasLoaded) return
@@ -844,6 +856,11 @@ object DownloadsRepository {
     }
 
     private fun loadFromDisk() {
+        fixtureItems?.let { items ->
+            hasLoaded = true
+            publish(items)
+            return
+        }
         ensureThermalObserver()
         _hasUnseenCompleted.value = false
         hasLoaded = true

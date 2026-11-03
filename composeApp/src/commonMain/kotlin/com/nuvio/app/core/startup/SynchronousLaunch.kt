@@ -9,6 +9,8 @@ import com.nuvio.app.features.profiles.FirstFrameInput
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.profiles.RememberedPinKind
 import com.nuvio.app.features.profiles.StartupNetworkOutcome
+import com.nuvio.app.core.uifixture.UiFixtureInstaller
+import com.nuvio.app.core.uifixture.uiFixturesActive
 import com.nuvio.app.features.profiles.decideFirstFrame
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
@@ -23,6 +25,15 @@ internal object SynchronousLaunch {
 
     fun prepare(): FirstFrameDecision = synchronized(lock) {
         if (prepared) return@synchronized decision
+        if (uiFixturesActive()) {
+            UiFixtureInstaller.install()
+            decision = FirstFrameDecision(
+                destination = FirstFrameDestination.Home,
+                pickerWasFirstFrame = false,
+            )
+            prepared = true
+            return@synchronized decision
+        }
         val cache = ProfileRepository.applyCacheSynchronously()
         AvatarRepository.hydrateCachedCatalog()
         val signedIn = !AuthStorage.loadAnonymousUserId().isNullOrBlank() || cache.cachePresent

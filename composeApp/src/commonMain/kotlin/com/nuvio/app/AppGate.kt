@@ -132,7 +132,7 @@ internal fun AppGate(
     }
 
     LaunchedEffect(Unit) {
-        if (!ownsAppRuntime) return@LaunchedEffect
+        if (!ownsAppRuntime || com.nuvio.app.core.uifixture.uiFixturesActive()) return@LaunchedEffect
         InAppLogger.info("App", "Application started")
         AuthRepository.initialize()
     }
@@ -141,8 +141,10 @@ internal fun AppGate(
         if (!ownsAppRuntime) return@LaunchedEffect
         InAppLogger.info("App/Runtime", "Starting network/profile/avatar services")
         NetworkStatusRepository.ensureStarted()
-        MemberAccessRepository.ensureStarted()
-        ProfileRepository.loadCachedProfiles()
+        if (!com.nuvio.app.core.uifixture.uiFixturesActive()) {
+            MemberAccessRepository.ensureStarted()
+            ProfileRepository.loadCachedProfiles()
+        }
         if (PerformanceSettings.isEnabled(PerformanceOptimization.CachedHomeFirst)) {
             withContext(Dispatchers.Default) { HomeRepository.preloadSnapshotForLaunch() }
         }
@@ -499,6 +501,10 @@ internal fun AppGate(
         profileState.hasEverSelectedProfile,
         profileState.activeProfile?.profileIndex,
     ) {
+        if (com.nuvio.app.core.uifixture.uiFixturesActive()) {
+            if (gateScreen != AppGateScreen.Main.name) gateScreen = AppGateScreen.Main.name
+            return@LaunchedEffect
+        }
         val fresh = ProfileRepository.state.value
         val stillReading = fresh.cachePhase == ProfileCachePhase.Reading
         when (authState) {
@@ -544,6 +550,7 @@ internal fun AppGate(
     }
 
     LaunchedEffect((authState as? AuthState.Authenticated)?.userId) {
+        if (com.nuvio.app.core.uifixture.uiFixturesActive()) return@LaunchedEffect
         val authenticatedState = authState as? AuthState.Authenticated ?: return@LaunchedEffect
         ProfileRepository.ensureLoaded(authenticatedState.userId)
         ProfileRepository.pullProfiles()

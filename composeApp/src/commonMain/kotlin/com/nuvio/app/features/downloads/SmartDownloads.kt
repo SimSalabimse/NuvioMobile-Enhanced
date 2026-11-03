@@ -116,6 +116,16 @@ object SmartDownloadSettings {
         return _state.value
     }
 
+    internal fun installFixture(enabled: Boolean, count: Int, goalKey: String?) {
+        loaded = true
+        _state.value = State(
+            enabled = enabled,
+            count = count.coerceIn(1, 3),
+            goals = if (goalKey.isNullOrBlank()) emptySet() else setOf(goalKey),
+            onlyOnWifi = false,
+        )
+    }
+
     fun setEnabled(enabled: Boolean) {
         update { it.copy(enabled = enabled) }
         ENABLED.save(enabled)
@@ -287,6 +297,7 @@ internal object SmartDownloads {
     /** Why waiting automatic downloads (goals, queued, smart) can't start right now; null when they can or none wait. */
     val waitReason: StateFlow<String?> = _waitReason.asStateFlow()
 
+    private var fixtureGoalHeld = false
     private val _goalStatus = MutableStateFlow<Map<String, String>>(emptyMap())
     /** What each Finish a series goal is doing ("Waiting for Wi-Fi", ...), by show id; shown on its chip. */
     val goalStatus: StateFlow<Map<String, String>> = _goalStatus.asStateFlow()
@@ -318,7 +329,13 @@ internal object SmartDownloads {
 
     fun isEnabled(): Boolean = SmartDownloadSettings.snapshot().enabled
 
+    internal fun installFixtureGoalStatus(metaId: String, text: String) {
+        fixtureGoalHeld = true
+        _goalStatus.value = mapOf(metaId to text)
+    }
+
     fun appDidLaunch() {
+        if (fixtureGoalHeld) return
         retryPending()
         SmartDownloadSettings.snapshot().goals.forEach { key ->
             val (type, id) = key.split('|', limit = 2).let { it[0] to it.getOrElse(1) { "" } }
@@ -459,6 +476,7 @@ internal object SmartDownloads {
      * launch, when pinned and near the end of each episode; a finished show is unpinned.
      */
     fun checkGoal(type: String, id: String, announce: Boolean = false) {
+        if (fixtureGoalHeld) return
         if (announce) announceGoals += id
         scope.launch {
             val meta = MetaDetailsRepository.fetch(type, id)

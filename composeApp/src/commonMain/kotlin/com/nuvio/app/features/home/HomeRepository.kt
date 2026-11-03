@@ -99,7 +99,17 @@ object HomeRepository {
         flushDeferredLaunchRefresh()
     }
 
+    private var fixtureHold: HomeUiState? = null
+
+    internal fun installFixture(state: HomeUiState) {
+        fixtureHold = state
+        activeJob?.cancel()
+        activeJob = null
+        _uiState.value = state
+    }
+
     fun refresh(addons: List<ManagedAddon>, force: Boolean = false) {
+        if (fixtureHold != null) return
         if (shouldHoldLaunchRefresh()) {
             deferredLaunchRefreshAddons = addons
             deferredLaunchRefreshForce = deferredLaunchRefreshForce || force
@@ -233,6 +243,7 @@ object HomeRepository {
     }
 
     fun applyCurrentSettings(heroSourcesChanged: Boolean = false) {
+        if (fixtureHold != null) return
         publishCurrentState(
             isLoading = _uiState.value.isLoading,
             requestKey = currentRequestKey,
@@ -247,6 +258,10 @@ object HomeRepository {
     }
 
     fun clear() {
+        fixtureHold?.let { held ->
+            _uiState.value = held
+            return
+        }
         launchPaintReleased = false
         snapshotRestorePending = false
         deferredLaunchRefreshAddons = null
@@ -359,6 +374,10 @@ object HomeRepository {
         requestKey: String?,
         keepVisibleHeroWhilePending: Boolean = true,
     ) {
+        fixtureHold?.let { held ->
+            _uiState.value = held
+            return
+        }
         if (currentDefinitions.isEmpty() && cachedSections.isNotEmpty()) return
         val snapshot = HomeCatalogSettingsRepository.snapshot()
         val preferences = snapshot.preferences
