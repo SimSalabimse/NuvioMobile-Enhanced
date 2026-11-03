@@ -61,6 +61,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -203,11 +204,18 @@ internal fun PlayerControlsShell(
     gestureController: PlayerGestureController? = null,
     onWake: () -> Unit = {},
 ) {
+    val playerSettings by PlayerSettingsRepository.uiState.collectAsState()
+    val submitIntroClick = onSubmitIntroClick?.takeIf {
+        submitIntroFlagShown(
+            legacyLayout = useLegacyLayout && !foldLayout,
+            layout = playerSettings.toolbarLayout,
+        )
+    }
     val flagEntries = visiblePlayerFlagEntries(
         legacy = useLegacyLayout,
         folded = foldLayout,
         portrait = isPortraitPlayback,
-        submitAvailable = onSubmitIntroClick != null,
+        submitAvailable = submitIntroClick != null,
         toolsOpen = false,
         submitBarOpen = LocalSubmitBarChrome.current != null,
         controlsShown = showPlaybackControls,
@@ -247,7 +255,7 @@ internal fun PlayerControlsShell(
             onVideoSettingsClick = onVideoSettingsClick,
             onOpenInExternalPlayer = onOpenInExternalPlayer,
             onStreamInfoClick = onStreamInfoClick,
-            onSubmitIntroClick = onSubmitIntroClick.takeIf { PlayerFlagEntry.FoldRow in flagEntries },
+            onSubmitIntroClick = submitIntroClick.takeIf { PlayerFlagEntry.FoldRow in flagEntries },
             onSwitchEngineClick = onSwitchEngineClick,
             gestureController = gestureController,
             dimmed = !showPlaybackControls,
@@ -329,7 +337,7 @@ internal fun PlayerControlsShell(
                     onRateClick = onRateClick,
                     userRating = userRating,
                     onOpenInExternalPlayer = onOpenInExternalPlayer,
-                    onSubmitIntroClick = onSubmitIntroClick.takeIf { PlayerFlagEntry.LegacyHeader in flagEntries },
+                    onSubmitIntroClick = submitIntroClick.takeIf { PlayerFlagEntry.LegacyHeader in flagEntries },
                     onPartyClick = onPartyClick,
                     partyActive = partyActive,
                     onSwitchEngineClick = onSwitchEngineClick,
@@ -346,7 +354,7 @@ internal fun PlayerControlsShell(
                         isLocked = isLocked,
                         onLockToggle = onLockToggle,
                         onBack = onBack,
-                        onSubmitIntroClick = onSubmitIntroClick.takeIf { PlayerFlagEntry.TopPill in flagEntries },
+                        onSubmitIntroClick = submitIntroClick.takeIf { PlayerFlagEntry.TopPill in flagEntries },
                         onCastClick = onCastClick,
                         isCasting = isCasting,
                         downloadAction = downloadAction,
