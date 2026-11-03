@@ -166,7 +166,7 @@ internal fun LazyListScope.downloadsSettingsContent(
                     description = if (smart.keepFreeGb == 0) {
                         "Off"
                     } else {
-                        "${keepFreeLabel(smart.keepFreeGb)}: delete watched downloads, oldest first"
+                        "${keepFreeLabel(smart.keepFreeGb)}. Older watched downloads; not the one you just played"
                     },
                     isTablet = isTablet,
                     onClick = { showKeepFree = true },

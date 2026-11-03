@@ -80,6 +80,6 @@ internal fun KeepFreeSpaceSheet(current: Int, onDismiss: () -> Unit) {
 internal fun keepFreePreview(gb: Int, plan: AutopilotPlan?): String = when {
     gb == 0 -> "Watched downloads are never deleted for space."
     plan == null -> "Checking…"
-    plan.ids.isEmpty() -> "Nothing would be removed now. Later, watched downloads go oldest first when free space drops below $gb GB."
-    else -> "Would remove ${plan.ids.size} watched ${if (plan.ids.size == 1) "episode" else "episodes"}, ${formatDownloadBytes(plan.bytes)}, oldest first."
+    plan.ids.isEmpty() -> "Nothing would be removed now. Later, older watched downloads go oldest first when free space drops below $gb GB. The episode you just played stays, and a notice says what was removed."
+    else -> "Would remove ${plan.ids.size} watched ${if (plan.ids.size == 1) "episode" else "episodes"}, ${formatDownloadBytes(plan.bytes)}, oldest first. A notice says what was removed. The episode you just played stays."
 }

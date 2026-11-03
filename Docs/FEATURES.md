@@ -69,7 +69,7 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - **Allow mobile data**: Settings › Downloads (top). Upstream.
 - **Only on Wi-Fi** (smart downloads, queued episodes and Finish-a-series goals wait for Wi-Fi; on by default): Settings › Downloads. 0.5.10.2. Shown even with Smart downloads off since 193; shows 'Waiting now: …' since 194.
 - Only while charging: Settings › Downloads. 0.5.10.2. On Android, where on-device analysis is not available, this switch does not hold automatic downloads.
-- Smart downloads queue the next episodes ("Episodes to keep ready", 1–3) and leave the one just watched. Only "Delete when finished" removes it: Settings › Downloads. 0.5.10.2.
+- Smart downloads queue the next episodes ("Episodes to keep ready", 1–3) and never delete a watched episode on their own. A played episode is removed only when "Delete when finished" is on: Settings › Downloads. 0.5.10.2.
 - Per-series Smart Downloads count (Default, 0, 1, 2, 3, or 5): series page, under the action icons, or in the ⋯ actions menu. Default follows Episodes to keep ready; 0 turns smart next-episode downloads off for that series.
 - Finish a series (flag a show; downloads continue from the furthest watched episode): details chip, Continue Watching hold menu, flag badge on cards. 178.
 - Finish a series with Smart downloads on: keeps exactly 'Episodes to keep ready' downloaded, lowest first, topped up as you watch. 194.
@@ -82,8 +82,8 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - A Downloads row shows Downloading only while its transfer runs and Waiting only while none does, also for a transfer stopped while it was still opening; a file that finishes as the cap stops it shows Completed. A row the open player holds back says "Waiting while you watch" with its bytes; after a stall the 30 s cool-down also runs out while paused or at the end of the episode: automatic. Checked by PlaybackThrottleRepositoryTest.
 - An unfinished download opens at the resume point only when its bytes on disk reach it (otherwise the stream plays); reaching the end of the downloaded part buffers until the download is further and plays on by itself, also when the file finishes there: no Play next, no watched mark, no jump to the start. If the download is not moving, the player says why (paused, failed, no space, Wi-Fi, or paused while you watch): automatic. Checked by PartialFileEndTest.
 - Pause downloads while watching starts nothing new (a file already running may keep going). A progress or finish report from an older attempt cannot overwrite the current one: automatic. Checked by PlaybackThrottleRepositoryTest.
-- Keep free space (storage autopilot frees watched downloads): Settings › Downloads › Keep free space. 181.
-- Delete when finished (auto-delete watched downloads): Settings › Downloads. Upstream/enhanced.
+- Keep free space: when free space drops below the chosen amount, only older watched downloads are removed, oldest first, and a notice says how many and why. It never removes the episode just played in this session, the one open in the player, or a file that is still transferring. Settings › Downloads › Keep free space. 181.
+- Delete when finished: the episode you just played is deleted only when this is on. Settings › Downloads. Upstream/enhanced.
 - Switch to the downloaded file while watching: Settings › Downloads. Enhanced.
 - Show download button, Download Location, Reset to Default: Settings › Downloads. Upstream.
 - Resume validation (same file and exact position, otherwise restart) and damaged-download check: automatic. 186.
@@ -156,10 +156,10 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - Post-credits detection: PARKED.
 - Rest of the UI audit: PARKED.
 - Next-episode-downloaded note: PARTIAL. The Finish-a-series chip shows "The next episode is downloaded"; there's no note in the player or on Continue Watching.
-- Auto-delete watched downloads: EXISTS ("Delete when finished", plus Keep free space).
+- Auto-delete watched downloads: EXISTS ("Delete when finished" for the episode just played; Keep free space only for older watched downloads, with a notice).
 - Wi-Fi-only downloads: EXISTS ("Only on Wi-Fi", "Allow mobile data").
 - Sleep timer: EXISTS (player speed popup).
-- Smart downloads (queue the next 1–3, do not delete the watched episode): EXISTS ("Episodes to keep ready").
+- Smart downloads (queue the next 1–3, never delete the watched episode; only "Delete when finished" does): EXISTS ("Episodes to keep ready").
 - Auto-skip recaps: EXISTS (recap segment type plus on-device recap detection).
 - Up-next countdown: EXISTS (next-episode auto-play countdown).
 - Download quality picker with size: EXISTS (Download quality plus a size confirmation in the quality sheet).

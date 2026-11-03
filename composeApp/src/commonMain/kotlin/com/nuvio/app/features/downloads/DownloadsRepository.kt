@@ -546,6 +546,10 @@ object DownloadsRepository {
         val differentFile = freshTotal != null && knownTotal != null && freshTotal != knownTotal
         if (differentFile) {
             partialPrefixCache.remove(downloadId)
+            com.nuvio.app.core.logging.InAppLogger.info(
+                "Downloads",
+                "removed file=${current.fileName}.part reason=link-refresh-partial",
+            )
             DownloadsPlatformDownloader.removePartialFile(current.fileName)
         }
         val updated = current.copy(
@@ -1418,7 +1422,13 @@ object DownloadsRepository {
         summary.app?.leftovers.orEmpty().forEach { leftover ->
             val name = leftover.path.substringAfterLast('/').removeSuffix(".resumedata")
             if (owned.none { it.isNotBlank() && (it == name || ownsDiskFile(it, name)) }) {
-                if (DownloadDiskInfo.deleteLeftover(leftover.path)) freed += leftover.sizeBytes
+                if (DownloadDiskInfo.deleteLeftover(leftover.path)) {
+                    freed += leftover.sizeBytes
+                    com.nuvio.app.core.logging.InAppLogger.info(
+                        "Downloads",
+                        "removed file=${leftover.path} reason=leftover-cleanup",
+                    )
+                }
             }
         }
         appUsageDirty = true
@@ -1433,7 +1443,14 @@ object DownloadsRepository {
             storedFileNames(DownloadDiskInfo.allProfilePayloads())
         orphans
             .filter { file -> owned.none { ownsDiskFile(it, file.name) } }
-            .forEach { DownloadDiskInfo.deleteDownloadFile(it.name) }
+            .forEach { file ->
+                if (DownloadDiskInfo.deleteDownloadFile(file.name)) {
+                    com.nuvio.app.core.logging.InAppLogger.info(
+                        "Downloads",
+                        "removed file=${file.name} reason=orphan-cleanup",
+                    )
+                }
+            }
         appUsageDirty = true
         scheduleSpaceRetry()
     }
