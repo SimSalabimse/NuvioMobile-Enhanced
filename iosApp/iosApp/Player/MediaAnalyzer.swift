@@ -300,6 +300,9 @@ private final class MediaAnalysisRun {
 
         let durationMs: Int64 = context.pointee.duration > 0 ? context.pointee.duration / 1000 : 0
         let tailStartMs: Int64 = durationMs > Self.tailMs ? durationMs - Self.tailMs : 0
+        let chaptersStartedNs = DispatchTime.now().uptimeNanoseconds
+        let chapters = readChapters(context)
+        let chaptersMs = Int((DispatchTime.now().uptimeNanoseconds &- chaptersStartedNs) / 1_000_000)
 
         var accumulator: MediaAnalyzerSampleLoop?
         guard let packet = av_packet_alloc(), let frame = av_frame_alloc() else { return nil }
@@ -360,9 +363,19 @@ private final class MediaAnalysisRun {
         let elapsedNs = DispatchTime.now().uptimeNanoseconds &- startedNs
         let decodeMs = Int((elapsedNs > sampleLoopNs ? elapsedNs - sampleLoopNs : 0) / 1_000_000)
         let sampleLoopMs = Int(sampleLoopNs / 1_000_000)
+        // Chapter titles are classified in the shared Kotlin code. A part they already cover
+        // skips that print. Energy, loudness and the other print are unchanged.
+        var skipFingerprint = ""
+        if !chapters.isEmpty,
+           let chapterData = try? JSONSerialization.data(withJSONObject: chapters),
+           let chapterJson = String(data: chapterData, encoding: .utf8) {
+            skipFingerprint = ChapterSkipClassifier.shared.fingerprintSkip(chaptersJson: chapterJson, durationMs: measuredMs)
+        }
+        let skipHead = skipFingerprint.contains("head")
+        let skipTail = skipFingerprint.contains("tail")
         let fingerprintStartedNs = DispatchTime.now().uptimeNanoseconds
-        let headPrint = Fingerprinter.fingerprint(samples: acc.headSamples, rate: acc.fingerprintRate)
-        let tailPrint = durationMs > 0 ? Fingerprinter.fingerprint(samples: acc.tailSamples, rate: acc.fingerprintRate) : nil
+        let headPrint = skipHead ? nil : Fingerprinter.fingerprint(samples: acc.headSamples, rate: acc.fingerprintRate)
+        let tailPrint = (!skipTail && durationMs > 0) ? Fingerprinter.fingerprint(samples: acc.tailSamples, rate: acc.fingerprintRate) : nil
         let fingerprintMs = Int((DispatchTime.now().uptimeNanoseconds &- fingerprintStartedNs) / 1_000_000)
         var output: [String: Any] = [
             "durationMs": measuredMs,
@@ -373,6 +386,8 @@ private final class MediaAnalysisRun {
             "decodeMs": decodeMs,
             "sampleLoopMs": sampleLoopMs,
             "fingerprintMs": fingerprintMs,
+            "chapters": chapters,
+            "chaptersMs": chaptersMs,
         ]
         if let lufs = acc.integratedLoudness() { output["integratedLufs"] = lufs }
         if let headPrint { output["head"] = headPrint }
@@ -384,6 +399,38 @@ private final class MediaAnalysisRun {
 
     private func log(_ message: String) {
         InAppLogBridge.shared.info(tag: "Analysis/iOS", message: message)
+    }
+
+    /// Container chapters (title plus start/end in ms). Best-effort: a file with none, or a
+    /// chapter FFmpeg did not fill in, contributes nothing and the audio fingerprints stay.
+    private func readChapters(_ context: UnsafeMutablePointer<AVFormatContext>) -> [[String: Any]] {
+        let count = Int(context.pointee.nb_chapters)
+        if count <= 0 { return [] }
+        guard let chapterList = context.pointee.chapters else { return [] }
+        var rows: [[String: Any]] = []
+        for index in 0..<min(count, 300) {
+            guard let chapter = chapterList[index] else { continue }
+            let startMs = chapterMillis(chapter.pointee.start, chapter.pointee.time_base)
+            if startMs < 0 { continue }
+            let endMs = chapterMillis(chapter.pointee.end, chapter.pointee.time_base)
+            var row: [String: Any] = ["startMs": startMs, "endMs": endMs > startMs ? endMs : 0]
+            if let title = chapterTitle(chapter) { row["title"] = title }
+            rows.append(row)
+        }
+        return rows
+    }
+
+    private func chapterMillis(_ ticks: Int64, _ timeBase: AVRational) -> Int64 {
+        if ticks < 0 || timeBase.den == 0 { return -1 }
+        let ms = Double(ticks) * Double(timeBase.num) / Double(timeBase.den) * 1000.0
+        if !ms.isFinite || ms < 0 || ms > Double(Int64.max) { return -1 }
+        return Int64(ms.rounded())
+    }
+
+    private func chapterTitle(_ chapter: UnsafeMutablePointer<AVChapter>) -> String? {
+        guard let entry = av_dict_get(chapter.pointee.metadata, "title", nil, 0) else { return nil }
+        let title = String(cString: entry.pointee.value).trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty ? nil : title
     }
 }
 

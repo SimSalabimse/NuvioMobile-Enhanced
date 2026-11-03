@@ -58,6 +58,7 @@ internal object SkipLearning {
             userSegments = existing.userSegments +
                 (category to UserSegment(startMs, endMs, com.nuvio.app.features.streams.epochMs(), durationMs = durationMs)),
             learnedTypes = existing.learnedTypes - category,
+            chapterTypes = existing.chapterTypes - category,
             // A new intro bounds the recap search, so run it again.
             derivedVersion = if (category == "intro") 0 else existing.derivedVersion,
         )
@@ -93,6 +94,7 @@ internal object SkipLearning {
             existing.copy(
                 userSegments = existing.userSegments + (category to UserSegment(startMs, endMs, 0L, imported = fromTheIntroDb, durationMs = durationMs)),
                 learnedTypes = existing.learnedTypes - category,
+                chapterTypes = existing.chapterTypes - category,
                 derivedVersion = if (category == "intro") 0 else existing.derivedVersion,
             )
         }

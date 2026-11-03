@@ -19,6 +19,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadStatus
 import com.nuvio.app.features.downloads.DownloadsSettingsStorage
+import com.nuvio.app.features.player.CHAPTER_SKIP_PROVIDER
 import com.nuvio.app.features.player.ON_DEVICE_SKIP_PROVIDER
 import com.nuvio.app.features.player.skip.SkipInterval
 import com.nuvio.app.features.player.skip.skipSourceLabel
@@ -55,7 +56,11 @@ internal object SkipSourceLedger {
         if (parentMetaId.isBlank() || season == null || episode == null) return
         val key = MediaAnalysisStore.keyFor(parentMetaId, season, episode)
         val online = intervals
-            .filter { it.provider != ON_DEVICE_SKIP_PROVIDER && !SkipLearning.isUserProvider(it.provider) }
+            .filter {
+                it.provider != ON_DEVICE_SKIP_PROVIDER &&
+                    it.provider != CHAPTER_SKIP_PROVIDER &&
+                    !SkipLearning.isUserProvider(it.provider)
+            }
             .associate { skipKind(it.type) to it.provider }
         val map = all()
         if (online.isEmpty() || map[key] == online) return
@@ -89,6 +94,7 @@ internal fun skipSourcesFor(item: DownloadItem): List<Pair<String, String>> {
                 when {
                     kind in result.learnedTypes -> "From your mark"
                     kind in result.foundUsing -> "Found using E${result.foundUsing.getValue(kind)}"
+                    kind in result.chapterTypes -> skipSourceLabel(CHAPTER_SKIP_PROVIDER)
                     else -> skipSourceLabel(ON_DEVICE_SKIP_PROVIDER)
                 }
             else -> null
@@ -125,6 +131,7 @@ private fun MediaAnalysisResult.hasOnDevice(kind: String): Boolean = when (kind)
     "intro" -> introStartMs != null && introEndMs != null && introEndMs > introStartMs
     "recap" -> recapStartMs != null && recapEndMs != null && recapEndMs > recapStartMs
     "outro" -> creditsStartMs != null && creditsEndMs != null && creditsEndMs > creditsStartMs
+    "preview" -> previewStartMs != null && previewEndMs != null && previewEndMs > previewStartMs
     else -> false
 }
 
