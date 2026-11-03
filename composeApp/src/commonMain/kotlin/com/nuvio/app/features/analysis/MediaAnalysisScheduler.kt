@@ -427,6 +427,12 @@ internal object MediaAnalysisScheduler {
             MediaAnalysisStatus.recordFailure(item, "The analyser returned unreadable data")
             return null
         }
+        // Taken while `raw` is in scope. The timings log below uses these locals, so a merge
+        // that narrows the `raw` block does not leave `raw.throttledMs` unresolved.
+        val throttledMs = raw.throttledMs.coerceAtLeast(0L)
+        val throttleLevelStart = raw.throttleLevelStart
+        val throttleYields = raw.throttleYields.coerceAtLeast(0)
+        val qos = raw.qos
         val key = MediaAnalysisStore.keyFor(item)
         var result = raw.toStoredResult(
             key = key,
@@ -498,10 +504,10 @@ internal object MediaAnalysisScheduler {
                 fingerprintMs = raw.fingerprintMs.coerceAtLeast(0L),
                 matchMs = matchMs.coerceAtLeast(0L),
                 totalMs = started.elapsedNow().inWholeMilliseconds.coerceAtLeast(0L),
-                throttledMs = raw.throttledMs.coerceAtLeast(0L),
-                throttleLevelStart = raw.throttleLevelStart,
-                throttleYields = raw.throttleYields.coerceAtLeast(0),
-                qos = raw.qos,
+                throttledMs = throttledMs,
+                throttleLevelStart = throttleLevelStart,
+                throttleYields = throttleYields,
+                qos = qos,
             ),
         )
         return result
