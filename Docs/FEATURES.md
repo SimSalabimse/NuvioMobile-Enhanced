@@ -69,7 +69,7 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - **Allow mobile data**: Settings › Downloads (top). Upstream.
 - **Only on Wi-Fi** (smart downloads, queued episodes and Finish-a-series goals wait for Wi-Fi; on by default): Settings › Downloads. 0.5.10.2. Shown even with Smart downloads off since 193; shows 'Waiting now: …' since 194.
 - Only while charging: Settings › Downloads. 0.5.10.2. On Android, where on-device analysis is not available, this switch does not hold automatic downloads.
-- Smart downloads, "Episodes to keep ready" (1–3): Settings › Downloads. 0.5.10.2.
+- Smart downloads queue the next episodes ("Episodes to keep ready", 1–3) and leave the one just watched. Only "Delete when finished" removes it: Settings › Downloads. 0.5.10.2.
 - Per-series Smart Downloads count (Default, 0, 1, 2, 3, or 5): series page, under the action icons, or in the ⋯ actions menu. Default follows Episodes to keep ready; 0 turns smart next-episode downloads off for that series.
 - Finish a series (flag a show; downloads continue from the furthest watched episode): details chip, Continue Watching hold menu, flag badge on cards. 178.
 - Finish a series with Smart downloads on: keeps exactly 'Episodes to keep ready' downloaded, lowest first, topped up as you watch. 194.
@@ -159,7 +159,7 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - Auto-delete watched downloads: EXISTS ("Delete when finished", plus Keep free space).
 - Wi-Fi-only downloads: EXISTS ("Only on Wi-Fi", "Allow mobile data").
 - Sleep timer: EXISTS (player speed popup).
-- Smart downloads (keep the next 2–3): EXISTS ("Episodes to keep ready" 1–3).
+- Smart downloads (queue the next 1–3, do not delete the watched episode): EXISTS ("Episodes to keep ready").
 - Auto-skip recaps: EXISTS (recap segment type plus on-device recap detection).
 - Up-next countdown: EXISTS (next-episode auto-play countdown).
 - Download quality picker with size: EXISTS (Download quality plus a size confirmation in the quality sheet).
