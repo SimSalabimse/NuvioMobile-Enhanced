@@ -58,9 +58,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.network.NetworkStatusRepository
+import com.nuvio.app.features.offline.rememberItemPlayEnabled
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.nuvio.app.core.ui.spoilerBlur
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -446,11 +450,13 @@ private fun SeasonHeaderTitle(
 
 @Composable
 private fun SeasonDownloadIconButton(onClick: () -> Unit) {
-    IconButton(onClick = onClick) {
+    val network by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
+    val enabled = !network.isOfflineLike
+    IconButton(onClick = onClick, enabled = enabled) {
         Icon(
             imageVector = Icons.Rounded.Download,
             contentDescription = stringResource(Res.string.season_download_action),
-            tint = MaterialTheme.colorScheme.onBackground,
+            tint = MaterialTheme.colorScheme.onBackground.copy(alpha = if (enabled) 1f else 0.38f),
         )
     }
 }
@@ -1046,6 +1052,13 @@ private fun EpisodeHorizontalCard(
     onLongPress: (() -> Unit)? = null,
 ) {
     val cardShape = RoundedCornerShape(metrics.cornerRadius)
+    val playEnabled = rememberItemPlayEnabled(
+        parentMetaId = parentMetaId,
+        seasonNumber = video.season,
+        episodeNumber = video.episode,
+        videoId = video.id,
+    )
+    val resolvedClick = if (playEnabled) onClick else null
     val showsRating = episodeRatingsVisibility.showRating(isWatched)
     val tmdbRatingLabel = remember(tmdbRating, showsRating) {
         tmdbRating?.takeIf { it > 0.0 && showsRating }?.let(::formatEpisodeRating)
@@ -1073,6 +1086,7 @@ private fun EpisodeHorizontalCard(
         modifier = Modifier
             .width(metrics.cardWidth)
             .height(metrics.cardHeight)
+            .alpha(if (onClick == null || playEnabled) 1f else 0.38f)
             .clip(cardShape)
             .ambientLiquidGlass(
                 shape = cardShape,
@@ -1086,7 +1100,7 @@ private fun EpisodeHorizontalCard(
                 fallbackBorderAlpha = 0.12f,
             )
             .posterCardClickable(
-                onClick = onClick,
+                onClick = resolvedClick,
                 onLongClick = onLongPress,
                 zoomImageUrl = imageUrl,
                 zoomCornerRadius = metrics.cornerRadius,
@@ -1533,6 +1547,13 @@ private fun EpisodeListCard(
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
 ) {
+    val playEnabled = rememberItemPlayEnabled(
+        parentMetaId = parentMetaId,
+        seasonNumber = video.season,
+        episodeNumber = video.episode,
+        videoId = video.id,
+    )
+    val resolvedClick = if (playEnabled) onClick else null
     val matchStyle = episodeMatchStyle()
     val titleText = remember(video.title, highlightQuery, matchStyle) {
         highlightEpisodeMatches(video.title, highlightQuery, matchStyle)
@@ -1558,6 +1579,7 @@ private fun EpisodeListCard(
         modifier = modifier
             .fillMaxWidth()
             .height(sizing.cardHeight)
+            .alpha(if (onClick == null || playEnabled) 1f else 0.38f)
             .clip(cardShape)
             .ambientLiquidGlass(
                 shape = cardShape,
@@ -1571,8 +1593,8 @@ private fun EpisodeListCard(
                 shape = cardShape,
             )
             .combinedClickable(
-                enabled = onClick != null || onLongPress != null,
-                onClick = { onClick?.invoke() },
+                enabled = resolvedClick != null || onLongPress != null,
+                onClick = { resolvedClick?.invoke() },
                 onLongClick = onLongPress,
             ),
     ) {

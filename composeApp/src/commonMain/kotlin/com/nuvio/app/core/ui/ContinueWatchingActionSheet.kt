@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CheckCircleOutline
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
@@ -43,6 +45,8 @@ import com.nuvio.app.features.watchprogress.ContinueWatchingItem
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.cw_action_go_to_details
+import nuvio.composeapp.generated.resources.hero_mark_unwatched
+import nuvio.composeapp.generated.resources.hero_mark_watched
 import nuvio.composeapp.generated.resources.cw_action_remove
 import nuvio.composeapp.generated.resources.cw_action_start_from_beginning
 import nuvio.composeapp.generated.resources.play_manually
@@ -55,6 +59,12 @@ fun NuvioContinueWatchingActionSheet(
     item: ContinueWatchingItem?,
     showManualPlayOption: Boolean,
     showDetailsOption: Boolean = true,
+    detailsEnabled: Boolean = true,
+    manualPlayEnabled: Boolean = true,
+    startEnabled: Boolean = true,
+    downloadEnabled: Boolean = true,
+    isWatched: Boolean = false,
+    onToggleWatched: (() -> Unit)? = null,
     onDismiss: () -> Unit,
     onOpenDetails: () -> Unit,
     onStartFromBeginning: (() -> Unit)? = null,
@@ -98,13 +108,26 @@ fun NuvioContinueWatchingActionSheet(
                 NuvioBottomSheetActionRow(
                     icon = Icons.Default.Info,
                     title = stringResource(Res.string.cw_action_go_to_details),
+                    enabled = detailsEnabled,
                     onClick = { dismissAfter(onOpenDetails) },
+                )
+            }
+            if (onToggleWatched != null) {
+                NuvioBottomSheetActionRow(
+                    icon = if (isWatched) Icons.Default.CheckCircle else Icons.Default.CheckCircleOutline,
+                    title = if (isWatched) {
+                        stringResource(Res.string.hero_mark_unwatched)
+                    } else {
+                        stringResource(Res.string.hero_mark_watched)
+                    },
+                    onClick = { dismissAfter(onToggleWatched) },
                 )
             }
             if (showManualPlayOption && onPlayManually != null) {
                 NuvioBottomSheetActionRow(
                     icon = Icons.Default.PlayArrow,
                     title = stringResource(Res.string.play_manually),
+                    enabled = manualPlayEnabled,
                     onClick = { dismissAfter(onPlayManually) },
                 )
             }
@@ -112,6 +135,7 @@ fun NuvioContinueWatchingActionSheet(
                 NuvioBottomSheetActionRow(
                     icon = Icons.Default.Replay,
                     title = stringResource(Res.string.cw_action_start_from_beginning),
+                    enabled = startEnabled,
                     onClick = { dismissAfter(onStartFromBeginning) },
                 )
             }
@@ -120,6 +144,7 @@ fun NuvioContinueWatchingActionSheet(
                     NuvioBottomSheetActionRow(
                         icon = Icons.Rounded.Download,
                         title = downloadState.label,
+                        enabled = downloadEnabled,
                         onClick = { dismissAfter(onDownload) },
                     )
                 }

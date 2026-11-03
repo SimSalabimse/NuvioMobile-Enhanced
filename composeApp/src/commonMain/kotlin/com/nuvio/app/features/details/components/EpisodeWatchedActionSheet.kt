@@ -49,6 +49,7 @@ fun EpisodeWatchedActionSheet(
     onToggleSeasonWatched: () -> Unit,
     showPlayManually: Boolean = false,
     onPlayManually: (() -> Unit)? = null,
+    networkActionsEnabled: Boolean = true,
     onDownload: (() -> Unit)? = null,
     downloadContentKey: String? = null,
     userRating: Int? = null,
@@ -138,6 +139,7 @@ fun EpisodeWatchedActionSheet(
                 UserRatingActionRow(
                     title = stringResource(Res.string.user_rating_rate_episode),
                     userRating = userRating,
+                    enabled = networkActionsEnabled,
                     onClick = {
                         onRate()
                         coroutineScope.launch {
@@ -152,6 +154,8 @@ fun EpisodeWatchedActionSheet(
                     // Shows the episode's download state: "Download 42%", Waiting, "Paused 42%",
                     // failed or downloaded. Paused resumes and failed retries instead of re-queuing.
                     title = downloadProgressLabel(downloadProgress),
+                    enabled = networkActionsEnabled || downloadProgress.showsMark &&
+                        downloadProgress.kind != com.nuvio.app.features.downloads.DetailsDownloadProgressKind.Completed,
                     onClick = {
                         if (!com.nuvio.app.features.downloads.resumeDownloadFromMark(downloadProgress)) onDownload()
                         coroutineScope.launch {
@@ -164,6 +168,7 @@ fun EpisodeWatchedActionSheet(
                 NuvioBottomSheetActionRow(
                     icon = Icons.Default.PlayArrow,
                     title = stringResource(Res.string.play_manually),
+                    enabled = networkActionsEnabled,
                     onClick = {
                         onPlayManually()
                         coroutineScope.launch {
@@ -187,6 +192,7 @@ fun SeasonWatchedActionSheet(
     onMarkPreviousSeasonsWatched: () -> Unit,
     userRating: Int? = null,
     onRate: (() -> Unit)? = null,
+    networkActionsEnabled: Boolean = true,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
@@ -232,6 +238,7 @@ fun SeasonWatchedActionSheet(
                 UserRatingActionRow(
                     title = stringResource(Res.string.user_rating_rate_season, seasonLabel),
                     userRating = userRating,
+                    enabled = networkActionsEnabled,
                     onClick = {
                         onRate()
                         coroutineScope.launch {
@@ -261,10 +268,12 @@ private fun UserRatingActionRow(
     title: String,
     userRating: Int?,
     onClick: () -> Unit,
+    enabled: Boolean = true,
 ) {
     NuvioBottomSheetActionRow(
         icon = if (userRating != null) Icons.Rounded.Star else Icons.Rounded.StarBorder,
         title = title,
+        enabled = enabled,
         onClick = onClick,
         trailingContent = if (userRating != null) {
             {

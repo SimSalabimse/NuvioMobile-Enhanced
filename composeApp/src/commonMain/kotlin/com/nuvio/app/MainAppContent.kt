@@ -205,6 +205,9 @@ import com.nuvio.app.features.updater.AppUpdaterHost
 import com.nuvio.app.features.updater.AppUpdaterPlatform
 import com.nuvio.app.features.updater.rememberAppUpdaterController
 import com.nuvio.app.features.watched.WatchedRepository
+import com.nuvio.app.features.offline.OfflineItemFacts
+import com.nuvio.app.features.offline.OfflineSurfaceAction
+import com.nuvio.app.features.offline.offlineSurfaceActionEnabled
 import com.nuvio.app.features.watching.application.WatchingActions
 import com.nuvio.app.features.watching.application.WatchingState
 import com.nuvio.app.features.watchprogress.ContinueWatchingItem
@@ -2154,6 +2157,11 @@ internal fun MainAppContent(
                     )
                     val removesFromLibrary = isSaved &&
                         (posterActionTarget.libraryItem != null || !isRemoteLibrarySource)
+                    val offline = networkStatusUiState.isOfflineLike
+                    val accountSyncEnabled = offlineSurfaceActionEnabled(
+                        OfflineItemFacts(online = !offline, cached = true, downloaded = false),
+                        OfflineSurfaceAction.AccountSync,
+                    )
                     NuvioPosterZoomActionOverlay(
                         imageUrl = selectedPosterAnchor?.imageUrl ?: preview.poster,
                         title = preview.name,
@@ -2167,6 +2175,19 @@ internal fun MainAppContent(
                         anchor = selectedPosterAnchor,
                         actions = listOf(
                             PosterZoomOverlayAction(
+                                icon = Icons.Default.Info,
+                                label = stringResource(Res.string.cw_action_go_to_details),
+                                onSelected = {
+                                    navController.navigate(
+                                        DetailRoute(
+                                            type = preview.type,
+                                            id = preview.id,
+                                            title = preview.name,
+                                        ),
+                                    )
+                                },
+                            ),
+                            PosterZoomOverlayAction(
                                 icon = if (isSaved) Icons.Default.DeleteOutline else Icons.Default.Add,
                                 label = if (isSaved) {
                                     stringResource(Res.string.hero_remove_from_library)
@@ -2179,6 +2200,7 @@ internal fun MainAppContent(
                                 } else {
                                     PosterZoomOverlayExitAnimation.COLLAPSE
                                 },
+                                enabled = !isRemoteLibrarySource || accountSyncEnabled,
                                 onSelected = {
                                     val libraryItem = posterActionTarget.libraryItem
                                         ?: preview.toLibraryItem(savedAtEpochMs = 0L)
@@ -2311,6 +2333,34 @@ internal fun MainAppContent(
                     key(item.videoId, anchor) {
                         val showManualPlayOption = StreamAutoPlayPolicy.isEffectivelyEnabled(playerSettingsUiState) && canSelectContinueWatchingStreams(item)
                         val showDetailsOption = !item.isCloudLibraryContinueWatchingItem()
+                        val streamsEnabled = offlineSurfaceActionEnabled(
+                            OfflineItemFacts(
+                                online = !networkStatusUiState.isOfflineLike,
+                                cached = true,
+                                downloaded = false,
+                            ),
+                            OfflineSurfaceAction.StreamsLookup,
+                        )
+                        val itemDownloaded = DownloadsRepository.findPlayableDownload(
+                            parentMetaId = item.parentMetaId,
+                            seasonNumber = item.seasonNumber,
+                            episodeNumber = item.episodeNumber,
+                            videoId = item.videoId,
+                        ) != null
+                        val localPlayEnabled = offlineSurfaceActionEnabled(
+                            OfflineItemFacts(
+                                online = !networkStatusUiState.isOfflineLike,
+                                cached = true,
+                                downloaded = itemDownloaded,
+                            ),
+                            OfflineSurfaceAction.Play,
+                        )
+                        val itemWatched = WatchedRepository.isWatched(
+                            id = item.parentMetaId,
+                            type = item.parentMetaType,
+                            season = item.seasonNumber,
+                            episode = item.episodeNumber,
+                        )
                         NuvioPosterZoomActionOverlay(
                             imageUrl = cloudLibraryDisplayArtworkUrl(anchor.imageUrl ?: item.poster ?: item.imageUrl),
                             title = item.title,
@@ -2340,11 +2390,27 @@ internal fun MainAppContent(
                                         ),
                                     )
                                 }
+                                add(
+                                    PosterZoomOverlayAction(
+                                        icon = if (itemWatched) Icons.Default.CheckCircle else Icons.Default.CheckCircleOutline,
+                                        label = if (itemWatched) {
+                                            stringResource(Res.string.hero_mark_unwatched)
+                                        } else {
+                                            stringResource(Res.string.hero_mark_watched)
+                                        },
+                                        onSelected = {
+                                            coroutineScope.launch {
+                                                WatchingActions.toggleContinueWatchingWatched(item)
+                                            }
+                                        },
+                                    ),
+                                )
                                 if (showManualPlayOption) {
                                     add(
                                         PosterZoomOverlayAction(
                                             icon = Icons.Default.PlayArrow,
                                             label = stringResource(Res.string.play_manually),
+                                            enabled = streamsEnabled,
                                             onSelected = { onContinueWatchingPlayManually(item) },
                                         ),
                                     )
@@ -2354,6 +2420,7 @@ internal fun MainAppContent(
                                         PosterZoomOverlayAction(
                                             icon = Icons.Default.Replay,
                                             label = stringResource(Res.string.cw_action_start_from_beginning),
+                                            enabled = localPlayEnabled,
                                             onSelected = { onContinueWatchingStartFromBeginning(item) },
                                         ),
                                     )
@@ -2363,6 +2430,7 @@ internal fun MainAppContent(
                                         PosterZoomOverlayAction(
                                             icon = Icons.Rounded.Download,
                                             label = downloadState.label,
+                                            enabled = streamsEnabled,
                                             onSelected = { onContinueWatchingDownload(item) },
                                         ),
                                     )
@@ -2425,6 +2493,45 @@ internal fun MainAppContent(
                 showManualPlayOption = StreamAutoPlayPolicy.isEffectivelyEnabled(playerSettingsUiState) &&
                     selectedContinueWatchingForActions?.let(::canSelectContinueWatchingStreams) == true,
                 showDetailsOption = selectedContinueWatchingForActions?.isCloudLibraryContinueWatchingItem() != true,
+                detailsEnabled = true,
+                manualPlayEnabled = offlineSurfaceActionEnabled(
+                    OfflineItemFacts(online = !networkStatusUiState.isOfflineLike, cached = true, downloaded = false),
+                    OfflineSurfaceAction.StreamsLookup,
+                ),
+                startEnabled = offlineSurfaceActionEnabled(
+                    OfflineItemFacts(
+                        online = !networkStatusUiState.isOfflineLike,
+                        cached = true,
+                        downloaded = selectedContinueWatchingForActions?.let { item ->
+                            DownloadsRepository.findPlayableDownload(
+                                parentMetaId = item.parentMetaId,
+                                seasonNumber = item.seasonNumber,
+                                episodeNumber = item.episodeNumber,
+                                videoId = item.videoId,
+                            ) != null
+                        } == true,
+                    ),
+                    OfflineSurfaceAction.Play,
+                ),
+                downloadEnabled = offlineSurfaceActionEnabled(
+                    OfflineItemFacts(online = !networkStatusUiState.isOfflineLike, cached = true, downloaded = false),
+                    OfflineSurfaceAction.StreamsLookup,
+                ),
+                isWatched = selectedContinueWatchingForActions?.let { item ->
+                    WatchedRepository.isWatched(
+                        id = item.parentMetaId,
+                        type = item.parentMetaType,
+                        season = item.seasonNumber,
+                        episode = item.episodeNumber,
+                    )
+                } == true,
+                onToggleWatched = selectedContinueWatchingForActions?.let { item ->
+                    {
+                        coroutineScope.launch {
+                            WatchingActions.toggleContinueWatchingWatched(item)
+                        }
+                    }
+                },
                 onDismiss = { selectedContinueWatchingForActions = null },
                 onOpenDetails = {
                     selectedContinueWatchingForActions?.let { item ->
