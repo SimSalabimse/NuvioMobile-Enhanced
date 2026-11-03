@@ -9,9 +9,11 @@ import nuvio.composeapp.generated.resources.offline_home_continue
 import nuvio.composeapp.generated.resources.offline_home_downloaded
 import nuvio.composeapp.generated.resources.offline_home_needs_connection
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -81,12 +83,15 @@ private data class OfflineTitle(
  * (downloaded cards play, the rest are dimmed), and every downloaded show or movie as a poster tile.
  * Tapping a show plays its next unwatched downloaded episode; tapping a movie plays it.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun OfflineDownloadsHome(
     items: List<DownloadItem>,
     onOpenDownload: (DownloadItem) -> Unit,
     onOpenDownloads: () -> Unit,
     onShowHome: () -> Unit,
+    onTitleLongPress: (DownloadItem) -> Unit = {},
+    onResumeLongPress: (OfflineContinueCard) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.nuvio.colors
@@ -163,6 +168,7 @@ internal fun OfflineDownloadsHome(
                             ResumeCard(
                                 entry,
                                 onClick = { entry.download?.let(onOpenDownload) },
+                                onLongClick = { onResumeLongPress(entry) },
                             )
                         }
                     }
@@ -185,6 +191,10 @@ internal fun OfflineDownloadsHome(
                             val target = title.movie ?: nextEpisode(title.episodes, progressByVideo)
                             if (target != null && target.isPlayable) onOpenDownload(target) else onOpenDownloads()
                         },
+                        onLongClick = {
+                            val sample = title.movie ?: title.episodes.firstOrNull()
+                            if (sample != null) onTitleLongPress(sample)
+                        },
                     )
                 }
                 repeat(3 - rows[index].size) { Spacer(Modifier.weight(1f)) }
@@ -204,10 +214,19 @@ private fun SectionHeader(text: String) {
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PosterTile(title: OfflineTitle, modifier: Modifier, onClick: () -> Unit) {
+private fun PosterTile(
+    title: OfflineTitle,
+    modifier: Modifier,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
     val colors = MaterialTheme.nuvio.colors
-    Column(modifier = modifier.clickable(onClick = onClick), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(
+        modifier = modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -242,16 +261,25 @@ private fun PosterTile(title: OfflineTitle, modifier: Modifier, onClick: () -> U
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ResumeCard(entry: OfflineContinueCard, onClick: () -> Unit) {
+private fun ResumeCard(
+    entry: OfflineContinueCard,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
     val colors = MaterialTheme.nuvio.colors
     val needsConnection = stringResource(Res.string.offline_home_needs_connection, entry.title)
     val cardModifier = Modifier
         .width(220.dp)
         .alpha(if (entry.dimmed) 0.4f else 1f)
+        .combinedClickable(
+            onClick = { if (entry.tappable) onClick() },
+            onLongClick = onLongClick,
+        )
         .then(
             if (entry.tappable) {
-                Modifier.clickable(onClick = onClick)
+                Modifier
             } else {
                 Modifier.clearAndSetSemantics { contentDescription = needsConnection }
             },

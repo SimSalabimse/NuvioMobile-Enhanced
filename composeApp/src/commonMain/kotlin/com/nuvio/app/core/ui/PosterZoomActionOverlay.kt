@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -106,6 +107,7 @@ class PosterZoomOverlayAction(
     } else {
         PosterZoomOverlayExitAnimation.COLLAPSE
     },
+    val enabled: Boolean = true,
     val onSelected: () -> Unit,
 )
 
@@ -346,7 +348,7 @@ fun NuvioPosterZoomActionOverlay(
                     }
                     PosterZoomMenuRow(
                         action = action,
-                        enabled = phase == PosterZoomPhase.Open,
+                        enabled = phase == PosterZoomPhase.Open && action.enabled,
                         onSelected = { select(action) },
                         modifier = Modifier.graphicsLayer {
                             val stagger = index * 0.07f
@@ -494,6 +496,7 @@ private fun PosterZoomMenuRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .alpha(if (action.enabled) 1f else 0.38f)
             .clickable(enabled = enabled, onClick = onSelected)
             .padding(horizontal = NuvioTokens.Space.s18, vertical = NuvioTokens.Space.s16),
         horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),

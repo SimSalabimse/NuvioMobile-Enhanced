@@ -149,12 +149,12 @@ fun SearchScreen(
     val addonManifestsLoading = addonsUiState.addons.hasPendingEnabledManifests()
 
     ScreenActivityEffect(addonRefreshKey, homeCatalogSettingsUiState.hideUnreleasedContent) { screenActive ->
-        if (!screenActive) return@ScreenActivityEffect
+        if (!screenActive || networkStatusUiState.isOfflineLike) return@ScreenActivityEffect
         SearchRepository.refreshDiscover(addonsUiState.addons)
     }
 
     ScreenActivityEffect(query, addonRefreshKey, homeCatalogSettingsUiState.hideUnreleasedContent) { screenActive ->
-        if (!screenActive) return@ScreenActivityEffect
+        if (!screenActive || networkStatusUiState.isOfflineLike) return@ScreenActivityEffect
         val normalizedQuery = query.trim()
         if (normalizedQuery.isBlank()) {
             lastRequestedQuery = null
@@ -180,6 +180,7 @@ fun SearchScreen(
             .distinctUntilChanged()
             .filter { it && discoverUiState.canLoadMore && !discoverUiState.isLoading }
             .collect {
+                if (networkStatusUiState.isOfflineLike) return@collect
                 SearchRepository.loadMoreDiscover()
             }
     }
@@ -256,6 +257,7 @@ fun SearchScreen(
                         NuvioInputField(
                             value = query,
                             onValueChange = { query = it },
+                            enabled = !networkStatusUiState.isOfflineLike,
                             placeholder = stringResource(Res.string.compose_search_placeholder),
                             modifier = Modifier
                                 .focusRequester(focusRequester)

@@ -29,7 +29,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.network.NetworkStatusRepository
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -59,6 +62,9 @@ fun DetailTrailersSection(
     horizontalScrollPadding: Dp = 0.dp,
 ) {
     if (trailers.isEmpty()) return
+
+    val network by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
+    val trailersEnabled = !network.isOfflineLike
 
     val trailerLabel = stringResource(Res.string.detail_tab_trailer)
     val grouped = remember(trailers) {
@@ -177,6 +183,7 @@ fun DetailTrailersSection(
                         cornerRadius = sizing.cardRadius,
                         titleFontSize = sizing.titleFontSize,
                         metaFontSize = sizing.metaFontSize,
+                        enabled = trailersEnabled,
                         onClick = { onTrailerClick(trailer) },
                     )
                 }
@@ -192,10 +199,13 @@ private fun TrailerCard(
     cornerRadius: androidx.compose.ui.unit.Dp,
     titleFontSize: androidx.compose.ui.unit.TextUnit,
     metaFontSize: androidx.compose.ui.unit.TextUnit,
+    enabled: Boolean,
     onClick: () -> Unit,
 ) {
     Column(
-        modifier = Modifier.width(cardWidth),
+        modifier = Modifier
+            .width(cardWidth)
+            .alpha(if (enabled) 1f else 0.38f),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Box(
@@ -206,7 +216,7 @@ private fun TrailerCard(
                     shape = RoundedCornerShape(cornerRadius),
                     surface = NuvioCardDepthSurface.Trailers,
                 )
-                .clickable(onClick = onClick),
+                .clickable(enabled = enabled, onClick = onClick),
         ) {
             AsyncImage(
                 model = "https://img.youtube.com/vi/${trailer.key}/hqdefault.jpg",

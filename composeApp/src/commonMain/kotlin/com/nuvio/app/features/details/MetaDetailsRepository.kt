@@ -15,6 +15,7 @@ import com.nuvio.app.features.addons.httpRequestRaw
 import com.nuvio.app.core.poster.withCustomPosterUrls
 import com.nuvio.app.features.addons.supportsResource
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
+import com.nuvio.app.features.offline.downloadedMetaFor
 import com.nuvio.app.features.home.filterReleasedItems
 import com.nuvio.app.features.mdblist.MdbListMetadataService
 import com.nuvio.app.features.mdblist.MdbListSettingsRepository
@@ -77,13 +78,13 @@ object MetaDetailsRepository {
     private val refreshing = mutableSetOf<String>()
     private var boundProfileKey: String? = null
 
-    fun load(type: String, id: String) {
+    fun load(type: String, id: String, offlineTitle: String? = null) {
         bindProfile()
         log.d { "load() called — type=$type id=$id" }
         InAppLogger.info("Metadata/MetaDetailsRepository", "Loading meta type=$type id=$id")
         val requestKey = "$type:$id"
         ServerItemRef.parse(id)?.let { ref ->
-            loadServerMeta(requestKey, ref)
+            loadServerMeta(requestKey, ref, type, id, offlineTitle)
             return
         }
         val currentState = _uiState.value
@@ -102,7 +103,10 @@ object MetaDetailsRepository {
                 }
 
             val cachedBaseMeta = cachedEntry.baseMeta
-            if (!shouldEnrichForMetaScreen(cachedBaseMeta, id, mdbListSettings)) {
+            if (
+                currentOfflineDetailsNetwork() == OfflineCacheNetwork.Offline ||
+                !shouldEnrichForMetaScreen(cachedBaseMeta, id, mdbListSettings)
+            ) {
                 InAppLogger.debug("Metadata/MetaDetailsRepository", "Using cached base meta type=$type id=$id")
                 _uiState.value = MetaDetailsUiState(meta = cachedBaseMeta.withUnreleasedFilter())
                 activeRequestKey = requestKey
@@ -183,14 +187,20 @@ object MetaDetailsRepository {
                     activeRequestKey = requestKey
                     return@launch
                 }
-            } else if (
+                } else if (
                 activeRequestKey == requestKey &&
                 currentOfflineDetailsNetwork() == OfflineCacheNetwork.Offline
             ) {
-                _uiState.value = MetaDetailsUiState(
-                    errorMessage = getString(Res.string.network_no_internet_connection),
-                )
-                activeRequestKey = null
+                val local = localOfflineMeta(type, id, offlineTitle)
+                if (local != null) {
+                    _uiState.value = MetaDetailsUiState(meta = local)
+                    activeRequestKey = requestKey
+                } else {
+                    _uiState.value = MetaDetailsUiState(
+                        errorMessage = getString(Res.string.network_no_internet_connection),
+                    )
+                    activeRequestKey = null
+                }
                 return@launch
             }
             val keepVisibleOnFailure = _uiState.value.meta != null
@@ -259,6 +269,15 @@ object MetaDetailsRepository {
             InAppLogger.error("Metadata/MetaDetailsRepository", "Failed to load meta from all providers type=$type id=$id lookup=$metaLookupId")
             publishUnavailable(requestKey, getString(Res.string.details_load_failed_all_addons), keepVisibleOnFailure)
         }
+    }
+
+    suspend fun cachedMeta(type: String, id: String): MetaDetails? {
+        bindProfile()
+        peek(type, id)?.let { return it }
+        val requestKey = "$type:$id"
+        val diskHit = readDiskTitle(requestKey) ?: return null
+        rememberDisk(requestKey, diskHit)
+        return diskHit.meta.withUnreleasedFilter()
     }
 
     fun peek(type: String, id: String): MetaDetails? {
@@ -490,7 +509,13 @@ object MetaDetailsRepository {
     private const val MIN_BACKGROUND_BACKOFF_MS = 30_000L
     private const val MAX_BACKGROUND_BACKOFF_MS = 15L * 60_000L
 
-    private fun loadServerMeta(requestKey: String, ref: ServerItemRef) {
+    private fun loadServerMeta(
+        requestKey: String,
+        ref: ServerItemRef,
+        type: String,
+        id: String,
+        offlineTitle: String?,
+    ) {
         if (_uiState.value.isLoading && activeRequestKey == requestKey) return
         activeRequestKey = requestKey
         _uiState.value = MetaDetailsUiState(
@@ -510,10 +535,16 @@ object MetaDetailsRepository {
                     )
                     if (!decision.refreshRequested) return@launch
                 } else if (currentOfflineDetailsNetwork() == OfflineCacheNetwork.Offline) {
-                    _uiState.value = MetaDetailsUiState(
-                        errorMessage = getString(Res.string.network_no_internet_connection),
-                    )
-                    activeRequestKey = null
+                    val local = localOfflineMeta(type, id, offlineTitle)
+                    if (local != null) {
+                        _uiState.value = MetaDetailsUiState(meta = local)
+                        activeRequestKey = requestKey
+                    } else {
+                        _uiState.value = MetaDetailsUiState(
+                            errorMessage = getString(Res.string.network_no_internet_connection),
+                        )
+                        activeRequestKey = null
+                    }
                     return@launch
                 }
             }
@@ -991,6 +1022,13 @@ object MetaDetailsRepository {
 
     private fun savedAtMs(requestKey: String): Long = synchronized(savedAtLock) {
         savedAtMsByRequestKey[requestKey] ?: 0L
+    }
+
+    private fun localOfflineMeta(type: String, id: String, offlineTitle: String?): MetaDetails? {
+        downloadedMetaFor(type, id)?.let { return it }
+        val title = offlineTitle?.trim().orEmpty()
+        if (title.isEmpty()) return null
+        return MetaDetails(id = id, type = type, name = title)
     }
 
     private fun rememberDisk(requestKey: String, hit: OpenedTitleHit) {

@@ -31,6 +31,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.network.NetworkStatusRepository
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -57,6 +59,7 @@ import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.themePalette
 import com.nuvio.app.core.ui.appIconPainter
 import com.nuvio.app.features.downloads.DetailsDownloadProgress
+import com.nuvio.app.features.downloads.DetailsDownloadProgressKind
 import com.nuvio.app.features.downloads.resumeDownloadFromMark
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_play
@@ -90,6 +93,7 @@ data class DetailSecondaryAction(
     val onClick: () -> Unit = {},
     val onLongClick: (() -> Unit)? = null,
     val downloadProgress: DetailsDownloadProgress = DetailsDownloadProgress.None,
+    val enabled: Boolean = true,
 )
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -113,6 +117,7 @@ fun DetailActionButtons(
 ) {
     val playPainter = appIconPainter(AppIconResource.PlayerPlay)
     val downloadProgress = rememberDetailsDownloadProgress(downloadContentKey)
+    val networkActionsEnabled = rememberDetailNetworkActionsEnabled()
     val buttonHeight = if (isTablet) 56.dp else 52.dp
     val iconButtonSize = buttonHeight
     val playShape = RoundedCornerShape(40.dp)
@@ -155,6 +160,7 @@ fun DetailActionButtons(
                 UserRatingStars(
                     rating = userRating,
                     onClick = rate,
+                    enabled = networkActionsEnabled,
                     modifier = Modifier.align(Alignment.CenterHorizontally),
                 )
             }
@@ -193,6 +199,7 @@ fun DetailActionButtons(
                     active = pinnedAction.isActive,
                     progress = 1f,
                     size = iconButtonSize,
+                    enabled = pinnedAction.enabled,
                     onClick = {
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                         pinnedAction.onClick()
@@ -220,6 +227,7 @@ fun DetailActionButtons(
                                 active = action.isActive,
                                 progress = menuProgress,
                                 size = iconButtonSize,
+                                enabled = action.enabled,
                                 onClick = {
                                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                                     action.onClick()
@@ -301,6 +309,7 @@ fun DetailActionButtons(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(buttonHeight)
+                    .graphicsLayer { alpha = if (networkActionsEnabled) 1f else 0.38f }
                     .then(
                         if (downloadGlassActive) {
                             Modifier.ambientLiquidGlass(
@@ -319,7 +328,7 @@ fun DetailActionButtons(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable(role = Role.Button, onClick = {
+                        .clickable(enabled = networkActionsEnabled, role = Role.Button, onClick = {
                             if (!resumeDownloadFromMark(downloadProgress)) onDownloadClick()
                         })
                         .height(buttonHeight),
@@ -336,6 +345,7 @@ fun DetailActionButtons(
             UserRatingStars(
                 rating = userRating,
                 onClick = rate,
+                enabled = networkActionsEnabled,
                 modifier = Modifier.align(Alignment.CenterHorizontally),
             )
         }
@@ -427,6 +437,8 @@ private fun detailActionSet(
     onPlayExternallyClick: (() -> Unit)?,
 ): DetailActionSet {
     val downloadProgress = rememberDetailsDownloadProgress(downloadContentKey)
+    val networkActionsEnabled = rememberDetailNetworkActionsEnabled()
+    val localPlayback = networkActionsEnabled || downloadProgress.kind == DetailsDownloadProgressKind.Completed
     val shuffleAction = onShuffleClick?.let { onClick ->
         DetailSecondaryAction(
             label = stringResource(if (shuffleEnabled) Res.string.shuffle_stop else Res.string.random_episode_title),
@@ -460,11 +472,19 @@ private fun detailActionSet(
                     icon = Icons.Rounded.Download,
                     onClick = { if (!resumeDownloadFromMark(downloadProgress)) download() },
                     downloadProgress = downloadProgress,
+                    enabled = networkActionsEnabled,
                 ),
             )
         }
         onPlayFromStartClick?.let { playFromStart ->
-            add(DetailSecondaryAction(label = playFromStartLabel, icon = Icons.Rounded.Replay, onClick = playFromStart))
+            add(
+                DetailSecondaryAction(
+                    label = playFromStartLabel,
+                    icon = Icons.Rounded.Replay,
+                    onClick = playFromStart,
+                    enabled = localPlayback,
+                ),
+            )
         }
         shuffleAction?.let(::add)
         onPlayExternallyClick?.let { playExternally ->
@@ -473,6 +493,7 @@ private fun detailActionSet(
                     label = externalLabel,
                     icon = Icons.AutoMirrored.Rounded.OpenInNew,
                     onClick = playExternally,
+                    enabled = localPlayback,
                 ),
             )
         }
@@ -518,6 +539,7 @@ fun TabletDetailHeroActions(
         onPlayExternallyClick = onPlayExternallyClick,
     )
     val playPainter = appIconPainter(AppIconResource.PlayerPlay)
+    val networkActionsEnabled = rememberDetailNetworkActionsEnabled()
     val buttonHeight = 56.dp
     val playShape = RoundedCornerShape(40.dp)
     val resolvedPlayLabel = if (playEnabled) playLabel else stringResource(Res.string.playback_unavailable)
@@ -544,7 +566,12 @@ fun TabletDetailHeroActions(
                     modifier = Modifier.weight(1f),
                     contentAlignment = Alignment.Center,
                 ) {
-                    UserRatingStars(rating = userRating, onClick = onRateClick, starSize = TabletRatingStarSize)
+                    UserRatingStars(
+                        rating = userRating,
+                        onClick = onRateClick,
+                        enabled = networkActionsEnabled,
+                        starSize = TabletRatingStarSize,
+                    )
                 }
                 DetailIconActionRow(
                     actions = actionSet.icons,
@@ -590,7 +617,12 @@ fun TabletDetailHeroActions(
                     .fillMaxWidth(),
             )
             onRateClick?.let { rate ->
-                UserRatingStars(rating = userRating, onClick = rate, starSize = TabletRatingStarSize)
+                UserRatingStars(
+                    rating = userRating,
+                    onClick = rate,
+                    enabled = networkActionsEnabled,
+                    starSize = TabletRatingStarSize,
+                )
             }
         }
     }
@@ -640,6 +672,7 @@ private fun DetailIconActionRow(
                     onClick = action.onClick,
                     onLongClick = action.onLongClick,
                     downloadProgress = action.downloadProgress,
+                    enabled = action.enabled,
                 )
             }
         }
@@ -659,12 +692,14 @@ internal fun DetailIconAction(
     drawable: DrawableResource? = null,
     onLongClick: (() -> Unit)? = null,
     downloadProgress: DetailsDownloadProgress = DetailsDownloadProgress.None,
+    enabled: Boolean = true,
 ) {
     val glassActive = !active && isAmbientLiquidGlassActive()
+    val shown = if (enabled) progress else progress * 0.38f
     Surface(
         modifier = modifier
             .graphicsLayer {
-                alpha = progress
+                alpha = shown
                 scaleX = 0.86f + (0.14f * progress)
                 scaleY = 0.86f + (0.14f * progress)
             }
@@ -698,6 +733,7 @@ internal fun DetailIconAction(
             modifier = Modifier
                 .size(size)
                 .combinedClickable(
+                    enabled = enabled,
                     onClick = onClick,
                     onLongClick = onLongClick,
                     role = Role.Button,
@@ -819,4 +855,10 @@ private fun fitIconActionRow(
     } else {
         IconActionRowLayout(minSize, minSpacing, false)
     }
+}
+
+@Composable
+private fun rememberDetailNetworkActionsEnabled(): Boolean {
+    val network by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
+    return !network.isOfflineLike
 }
