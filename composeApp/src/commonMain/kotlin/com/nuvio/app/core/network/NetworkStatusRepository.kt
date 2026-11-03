@@ -17,6 +17,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
+/**
+ * Debug screenshot override. While active, path-monitor callbacks are ignored and
+ * [NetworkStatusRepository.probeCondition] returns this answer instead of opening a socket.
+ * Path changes still go through the debounce and probe watcher.
+ */
+private object ConnectivityFixtureOverride {
+    @Volatile var active: Boolean = false
+    @Volatile var online: Boolean = true
+}
+
 enum class NetworkCondition {
     Unknown,
     Checking,
@@ -69,6 +79,39 @@ object NetworkStatusRepository {
         ensureWatcher()
     }
 
+    /**
+     * Settles the watcher on a fixture answer before the first frame, using the same
+     * condition values a finished probe would publish.
+     */
+    internal fun adoptFixture(online: Boolean) {
+        ConnectivityFixtureOverride.active = true
+        ConnectivityFixtureOverride.online = online
+        started = true
+        ensureWatcher()
+        synchronized(watchLock) {
+            watchState = ConnectionWatchState(
+                status = if (online) ConnectionWatchStatus.Online else ConnectionWatchStatus.Offline,
+                foreground = true,
+            )
+        }
+        cancelDebounce()
+        _uiState.value = NetworkStatusUiState(
+            if (online) NetworkCondition.Online else NetworkCondition.NoInternet,
+        )
+    }
+
+    /** A path change from the debug connectivity file. The watcher debounces and probes. */
+    internal fun submitFixturePath(online: Boolean) {
+        if (!ConnectivityFixtureOverride.active) return
+        ConnectivityFixtureOverride.online = online
+        ensureStarted()
+        messages.trySend(
+            WatchMessage.Input(
+                if (online) ConnectionWatchInput.PathSatisfied else ConnectionWatchInput.PathUnsatisfied,
+            ),
+        )
+    }
+
     fun requestForegroundRefresh() {
         ensureStarted()
         val delayMs = foregroundRefreshDelayMs(_uiState.value.condition)
@@ -109,14 +152,7 @@ object NetworkStatusRepository {
                 }
             }
         }
-        ConnectionPathMonitor.start { satisfied ->
-            val input = if (satisfied) {
-                ConnectionWatchInput.PathSatisfied
-            } else {
-                ConnectionWatchInput.PathUnsatisfied
-            }
-            messages.trySend(WatchMessage.Input(input))
-        }
+        ConnectionPathMonitor.start(::dispatchPath)
         scope.launch(Dispatchers.Main) {
             AppForegroundMonitor.events().collect { visibility ->
                 val input = if (visibility == AppVisibility.Foreground) {
@@ -140,14 +176,7 @@ object NetworkStatusRepository {
         if (decision.cancelDebounce) cancelDebounce()
         if (decision.stopWatching) ConnectionPathMonitor.stop()
         if (decision.startWatching) {
-            ConnectionPathMonitor.start { satisfied ->
-                val next = if (satisfied) {
-                    ConnectionWatchInput.PathSatisfied
-                } else {
-                    ConnectionWatchInput.PathUnsatisfied
-                }
-                messages.trySend(WatchMessage.Input(next))
-            }
+            ConnectionPathMonitor.start(::dispatchPath)
         }
         if (decision.armDebounce) armDebounce()
         if (decision.probeRequested) {
@@ -304,7 +333,24 @@ object NetworkStatusRepository {
         return nextCondition
     }
 
+    private fun dispatchPath(satisfied: Boolean) {
+        if (ConnectivityFixtureOverride.active) return
+        val input = if (satisfied) {
+            ConnectionWatchInput.PathSatisfied
+        } else {
+            ConnectionWatchInput.PathUnsatisfied
+        }
+        messages.trySend(WatchMessage.Input(input))
+    }
+
     private suspend fun probeCondition(timeoutMs: Long): NetworkCondition {
+        if (ConnectivityFixtureOverride.active) {
+            return if (ConnectivityFixtureOverride.online) {
+                NetworkCondition.Online
+            } else {
+                NetworkCondition.NoInternet
+            }
+        }
         val internetReachable = probePublicInternet(timeoutMs)
         if (!internetReachable) {
             return NetworkCondition.NoInternet

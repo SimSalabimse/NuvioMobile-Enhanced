@@ -215,7 +215,7 @@ internal fun WhatsNewLaunchHost(enabled: Boolean) {
     var pending by remember { mutableStateOf<Pair<List<BundledRelease>, Boolean>?>(null) }
     var checked by remember { mutableStateOf(false) }
     LaunchedEffect(enabled) {
-        if (!enabled || checked) return@LaunchedEffect
+        if (!enabled || checked || com.nuvio.app.core.uifixture.uiFixturesActive()) return@LaunchedEffect
         checked = true
         kotlinx.coroutines.delay(900)
         pending = ReleaseNotes.pendingForLaunch()

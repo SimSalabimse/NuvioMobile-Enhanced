@@ -78,7 +78,21 @@ object MetaDetailsRepository {
     private val refreshing = mutableSetOf<String>()
     private var boundProfileKey: String? = null
 
+    private val fixtureMetas = HashMap<String, MetaDetails>()
+
+    internal fun installFixture(meta: MetaDetails) {
+        val key = "${meta.type}:${meta.id}"
+        fixtureMetas[key] = meta
+        _uiState.value = MetaDetailsUiState(isLoading = false, meta = meta, episodesComplete = true)
+        activeRequestKey = key
+    }
+
     fun load(type: String, id: String, offlineTitle: String? = null) {
+        fixtureMetas["$type:$id"]?.let { meta ->
+            activeRequestKey = "$type:$id"
+            _uiState.value = MetaDetailsUiState(isLoading = false, meta = meta, episodesComplete = true)
+            return
+        }
         bindProfile()
         log.d { "load() called — type=$type id=$id" }
         InAppLogger.info("Metadata/MetaDetailsRepository", "Loading meta type=$type id=$id")
