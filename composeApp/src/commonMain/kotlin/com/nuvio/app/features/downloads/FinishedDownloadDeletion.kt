@@ -88,9 +88,12 @@ internal object FinishedDownloadDeletion {
         release(current, untilOtherPlays = false)
     }
 
-    /** Delete after watching, or smart downloads (which replace a watched episode with the next ones). */
+    /**
+     * Only Settings > Downloads > "delete when finished". Smart downloads used to count as on
+     * here, so a finished episode was removed while that switch was off.
+     */
     private fun deletionEnabled(): Boolean =
-        DownloadsSettingsRepository.isDeleteWhenFinishedEnabled() || SmartDownloads.isEnabled()
+        DownloadsSettingsRepository.isDeleteWhenFinishedEnabled()
 
     /**
      * Watched-history completion (90 % locally, 80 % from Trakt/MDBList, or a remote pull). It no
@@ -212,7 +215,7 @@ internal object FinishedDownloadDeletion {
         if (deletion.requireCompleted && item.status != DownloadStatus.Completed) return
         // Never the episode on screen, whatever path got here.
         if (session?.videoId == deletion.videoId || isOpen(item)) return
-        DownloadsRepository.cancelDownload(deletion.downloadId)
+        DownloadsRepository.cancelDownload(deletion.downloadId, reason = "finished-toggle")
     }
 
     /** The same video (or the same file) is open again: keep its file. */
