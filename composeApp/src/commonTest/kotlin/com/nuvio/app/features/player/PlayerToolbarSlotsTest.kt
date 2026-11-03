@@ -59,6 +59,28 @@ class PlayerToolbarSlotsTest {
     }
 
     @Test
+    fun `submit intro switch shows and hides the flag and the default stays hidden`() {
+        val hidden = PlayerToolbarLayout.Default
+        val shown = hidden.withVisibility(PlayerToolbarButton.SUBMIT_INTRO, true)
+        val offAgain = shown.withVisibility(PlayerToolbarButton.SUBMIT_INTRO, false)
+        val cases = listOf(
+            false to hidden to false,
+            false to shown to true,
+            false to offAgain to false,
+            true to hidden to true,
+        )
+        cases.forEach { (legacyAndLayout, flagShown) ->
+            val (legacy, layout) = legacyAndLayout
+            assertEquals(
+                flagShown,
+                submitIntroFlagShown(legacyLayout = legacy, layout = layout),
+                "legacy=$legacy visible=${layout.visibleButtons}",
+            )
+        }
+        assertFalse(PlayerToolbarButton.SUBMIT_INTRO in PlayerToolbarLayout.Default.visibleButtons)
+    }
+
+    @Test
     fun `each layout has exactly one flag home`() {
         assertEquals(PlayerFlagHome.LegacyHeader, playerFlagHome(useLegacyLayout = true, submitAvailable = true))
         assertEquals(PlayerFlagHome.TopPill, playerFlagHome(useLegacyLayout = false, submitAvailable = true))

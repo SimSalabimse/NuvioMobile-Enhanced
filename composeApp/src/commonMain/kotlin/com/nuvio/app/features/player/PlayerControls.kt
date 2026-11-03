@@ -61,6 +61,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -204,6 +205,13 @@ internal fun PlayerControlsShell(
     gestureController: PlayerGestureController? = null,
     onWake: () -> Unit = {},
 ) {
+    val playerSettings by PlayerSettingsRepository.uiState.collectAsState()
+    val submitIntroClick = onSubmitIntroClick?.takeIf {
+        submitIntroFlagShown(
+            legacyLayout = useLegacyLayout && !foldLayout,
+            layout = playerSettings.toolbarLayout,
+        )
+    }
     if (foldLayout) {
         FoldControls(
             title = title,
@@ -238,7 +246,7 @@ internal fun PlayerControlsShell(
             onVideoSettingsClick = onVideoSettingsClick,
             onOpenInExternalPlayer = onOpenInExternalPlayer,
             onStreamInfoClick = onStreamInfoClick,
-            onSubmitIntroClick = onSubmitIntroClick,
+            onSubmitIntroClick = submitIntroClick,
             onSwitchEngineClick = onSwitchEngineClick,
             gestureController = gestureController,
             dimmed = !showPlaybackControls,
@@ -296,7 +304,7 @@ internal fun PlayerControlsShell(
         ) {
             val flagHome = playerFlagHome(
                 useLegacyLayout = useLegacyLayout,
-                submitAvailable = onSubmitIntroClick != null,
+                submitAvailable = submitIntroClick != null,
             )
             if (useLegacyLayout) {
                 PlayerHeader(
@@ -324,7 +332,7 @@ internal fun PlayerControlsShell(
                     onRateClick = onRateClick,
                     userRating = userRating,
                     onOpenInExternalPlayer = onOpenInExternalPlayer,
-                    onSubmitIntroClick = onSubmitIntroClick.takeIf { flagHome == PlayerFlagHome.LegacyHeader },
+                    onSubmitIntroClick = submitIntroClick.takeIf { flagHome == PlayerFlagHome.LegacyHeader },
                     onPartyClick = onPartyClick,
                     partyActive = partyActive,
                     onSwitchEngineClick = onSwitchEngineClick,
@@ -341,7 +349,7 @@ internal fun PlayerControlsShell(
                         isLocked = isLocked,
                         onLockToggle = onLockToggle,
                         onBack = onBack,
-                        onSubmitIntroClick = onSubmitIntroClick.takeIf { flagHome == PlayerFlagHome.TopPill },
+                        onSubmitIntroClick = submitIntroClick.takeIf { flagHome == PlayerFlagHome.TopPill },
                         onCastClick = onCastClick,
                         isCasting = isCasting,
                         downloadAction = downloadAction,
@@ -536,7 +544,7 @@ internal fun PlayerControlsShell(
                         onRateClick = onRateClick,
                         userRating = userRating,
                         onInteraction = onInteraction,
-                        onSubmitIntroClick = onSubmitIntroClick,
+                        onSubmitIntroClick = submitIntroClick,
                         onMarkSegmentClick = onMarkSegmentClick,
                         onLiveChannelsClick = onLiveChannelsClick,
                     )

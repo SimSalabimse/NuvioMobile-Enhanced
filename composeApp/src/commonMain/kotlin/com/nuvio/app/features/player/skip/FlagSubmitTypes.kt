@@ -41,15 +41,52 @@ internal fun submittedFlagTypesForTitle(
     isMovie: Boolean,
     season: Int,
     episode: Int,
+): Set<String> = flagTypesForTitle(records, tmdbId, isMovie, season, episode, rejected = false)
+
+/** Rejected rows for this title. They must not draw a check. */
+internal fun rejectedFlagTypesForTitle(
+    records: List<FlagSubmissionRecord>,
+    tmdbId: Int,
+    isMovie: Boolean,
+    season: Int,
+    episode: Int,
+): Set<String> = flagTypesForTitle(records, tmdbId, isMovie, season, episode, rejected = true)
+
+private fun flagTypesForTitle(
+    records: List<FlagSubmissionRecord>,
+    tmdbId: Int,
+    isMovie: Boolean,
+    season: Int,
+    episode: Int,
+    rejected: Boolean,
 ): Set<String> {
     if (tmdbId <= 0) return emptySet()
     return records.mapNotNullTo(linkedSetOf()) { record ->
         if (record.tmdbId != tmdbId) return@mapNotNullTo null
-        if (record.status.trim().lowercase() == "rejected") return@mapNotNullTo null
+        val isRejected = record.status.trim().lowercase() == "rejected"
+        if (isRejected != rejected) return@mapNotNullTo null
         val movie = record.type.equals("movie", ignoreCase = true)
         if (movie != isMovie) return@mapNotNullTo null
         if (!isMovie && (record.season != season || record.episode != episode)) return@mapNotNullTo null
         canonicalFlagSegmentType(record.segment)
+    }
+}
+
+/**
+ * Checks on the segment tabs. A loaded submission list wins over the ledger.
+ * A type submitted in this session still counts until that list says it was rejected.
+ */
+internal fun flagChecksForTitle(
+    ledgerTypes: Set<String>,
+    sessionTypes: Set<String>,
+    remoteTypes: Set<String>?,
+    rejectedTypes: Set<String> = emptySet(),
+): Set<String> {
+    val rejected = rejectedTypes.mapNotNullTo(hashSetOf()) { canonicalFlagSegmentType(it) }
+    val base = (remoteTypes ?: ledgerTypes) + sessionTypes
+    return base.mapNotNullTo(linkedSetOf()) { raw ->
+        val type = canonicalFlagSegmentType(raw) ?: return@mapNotNullTo null
+        type.takeUnless { it in rejected }
     }
 }
 

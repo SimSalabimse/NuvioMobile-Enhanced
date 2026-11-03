@@ -95,6 +95,27 @@ internal fun absentAfterNoneChip(): Boolean = true
 
 internal fun absentAfterClockEdit(): Boolean = false
 
+/** Intro and recap can start at the first frame. Credits and preview do not offer that chip. */
+internal fun markSegmentOffersStartAtZero(segmentType: String): Boolean =
+    markSegmentId(segmentType) == "intro" || markSegmentId(segmentType) == "recap"
+
+/** Credits and preview can end on the last frame. Intro and recap do not offer that chip. */
+internal fun markSegmentOffersRunsToEnd(segmentType: String): Boolean =
+    markSegmentId(segmentType) == "outro" || markSegmentId(segmentType) == "preview"
+
+/** The End chip is selected when the end clock is the stream length. */
+internal fun markRunsToEndSelected(endSec: Double?, durationSec: Double): Boolean {
+    if (endSec == null || durationSec <= 0.0) return false
+    return abs(endSec - durationSec) < 0.2
+}
+
+/** Play range needs a valid marked range and is off while a submit is in flight. */
+internal fun markPlayRangeEnabled(absent: Boolean, timeOk: Boolean, submitting: Boolean): Boolean =
+    !submitting && !absent && timeOk
+
+/** Copy link uses the same range. An empty or absent mark has nothing to copy. */
+internal fun markCopyLinkEnabled(absent: Boolean, timeOk: Boolean): Boolean = !absent && timeOk
+
 internal const val NudgeHoldDelayMs = 400L
 
 internal const val NudgeHoldRepeatMs = 110L

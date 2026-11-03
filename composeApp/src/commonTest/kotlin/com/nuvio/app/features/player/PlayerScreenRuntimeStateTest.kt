@@ -2,6 +2,8 @@ package com.nuvio.app.features.player
 
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.Modifier
+import com.nuvio.app.features.player.skip.FlagSubmitLedger
+import com.nuvio.app.features.player.skip.loadTypes
 import com.nuvio.app.features.streams.StreamsUiState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.test.runTest
@@ -32,6 +34,24 @@ class PlayerScreenRuntimeStateTest {
         val credits = com.nuvio.app.features.player.skip.SkipInterval(3_000.0, 3_090.0, "outro", "introdb")
         val text = playerDebugReadoutText(120_000L, 3_100_000L, listOf(credits), credits)
         assertEquals("pos 120.0 s · dur 3100.0 s\n▶ outro 3000.0–3090.0 s (IntroDB)", text)
+    }
+
+    @Test
+    fun noteMarkingSubmittedRemembersTheSegmentType() {
+        val key = "tt1234567:movie"
+        val previous = FlagSubmitLedger.loadAll()
+        FlagSubmitLedger.saveAll(previous - key)
+        val runtime = PlayerScreenRuntime(testPlayerScreenArgs())
+        runtime.noteMarkingSubmitted(
+            IntroSubmitResult(
+                segmentType = "credits",
+                startSec = 0.0,
+                endSec = 0.0,
+                absentSegment = true,
+            ),
+        )
+        assertEquals(setOf("outro"), FlagSubmitLedger.loadTypes(key))
+        FlagSubmitLedger.saveAll(previous)
     }
 
     @Test
