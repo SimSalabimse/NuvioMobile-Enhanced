@@ -262,7 +262,8 @@ private data class SmartDownloadRequest(
 
 /**
  * Smart downloads: when an episode of a show you have downloads of is finished, the next
- * [SmartDownloadSettings.State.count] episodes are downloaded with the player's auto-play source rules
+ * [effectiveSmartDownloadCount] episodes (a per-series override, otherwise
+ * [SmartDownloadSettings.State.count]) are downloaded with the player's auto-play source rules
  * (preferring the same source and quality as the episode just watched). Deleting the watched file is
  * left to [FinishedDownloadDeletion], which smart downloads switch on, so the same safety applies
  * (never the episode on screen, never a running transfer).
@@ -351,6 +352,13 @@ internal object SmartDownloads {
         mediaBitrateBps: Long?,
     ) {
         if (!isEnabled()) return
+        if (effectiveSmartDownloadCount(
+                SeriesSmartDownloadCounts.storedCount(parentMetaId),
+                SmartDownloadSettings.snapshot().count,
+            ) == 0
+        ) {
+            return
+        }
         val season = seasonNumber ?: return
         val episode = episodeNumber ?: return
         if (videoId.isBlank() || videoId in downloadArmed) return
@@ -544,7 +552,15 @@ internal object SmartDownloads {
             val anchor = SmartDownloadSettings.goalAnchor(request.parentMetaType, request.parentMetaId)
                 .takeIf { request.count != null }
             val (season, episode) = laterEpisode(anchor, request.season to request.episode)
-            nextEpisodes(meta.videos, season, episode, request.count ?: settings.count)
+            nextEpisodes(
+                meta.videos,
+                season,
+                episode,
+                effectiveSmartDownloadCount(
+                    overrideCount = SeriesSmartDownloadCounts.storedCount(meta.id).takeIf { request.count == null },
+                    globalCount = request.count ?: settings.count,
+                ),
+            )
         }
         val (next, upcoming) = wanted.partition { it.hasAiredForDownload() }
         // Not aired yet: wait for its air date (a day when it has none), then try again.

@@ -1379,6 +1379,8 @@ fun MetaDetailsScreen(
                                                             onPlayExternallyClick = onPlayExternallyClick,
                                                             userRating = titleUserRating,
                                                             onRateClick = openTitleRating,
+                                                            metaType = meta.type,
+                                                            seriesId = meta.id,
                                                         )
                                                     }
                                                 } else {
@@ -2610,6 +2612,8 @@ private fun ConfiguredMetaSections(
                     iconActionRow = settings.iconActionRow,
                     userRating = userRating,
                     onRateClick = onRateClick,
+                    metaType = meta.type,
+                    seriesId = meta.id,
                 )
             }
             MetaScreenSectionKey.OVERVIEW -> {
