@@ -113,9 +113,6 @@ internal fun markRunsToEndSelected(endSec: Double?, durationSec: Double): Boolea
 internal fun markPlayRangeEnabled(absent: Boolean, timeOk: Boolean, submitting: Boolean): Boolean =
     !submitting && !absent && timeOk
 
-/** Copy link uses the same range. An empty or absent mark has nothing to copy. */
-internal fun markCopyLinkEnabled(absent: Boolean, timeOk: Boolean): Boolean = !absent && timeOk
-
 internal const val NudgeHoldDelayMs = 400L
 
 internal const val NudgeHoldRepeatMs = 110L
