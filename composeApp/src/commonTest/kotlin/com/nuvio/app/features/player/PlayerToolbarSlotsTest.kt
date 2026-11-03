@@ -59,15 +59,23 @@ class PlayerToolbarSlotsTest {
     }
 
     @Test
-    fun `submit intro switch shows and hides the flag and the default stays hidden`() {
-        val hidden = PlayerToolbarLayout.Default
-        val shown = hidden.withVisibility(PlayerToolbarButton.SUBMIT_INTRO, true)
-        val offAgain = shown.withVisibility(PlayerToolbarButton.SUBMIT_INTRO, false)
+    fun `submit intro stays visible until a saved layout hides it`() {
+        val fresh = PlayerToolbarLayout.decode(null)
+        val savedWithoutSubmitIntro = fresh.encode()
+            .split(',')
+            .filterNot { it.substringBefore(':') == PlayerToolbarButton.SUBMIT_INTRO.storageId }
+            .joinToString(",")
+        val untouched = PlayerToolbarLayout.decode(savedWithoutSubmitIntro)
+        val off = untouched.withVisibility(PlayerToolbarButton.SUBMIT_INTRO, false)
+        val onAgain = off.withVisibility(PlayerToolbarButton.SUBMIT_INTRO, true)
+        val explicitOff = PlayerToolbarLayout.decode("$savedWithoutSubmitIntro,submit_intro:h")
         val cases = listOf(
-            false to hidden to false,
-            false to shown to true,
-            false to offAgain to false,
-            true to hidden to true,
+            false to fresh to true,
+            false to untouched to true,
+            false to off to false,
+            false to onAgain to true,
+            false to explicitOff to false,
+            true to off to true,
         )
         cases.forEach { (legacyAndLayout, flagShown) ->
             val (legacy, layout) = legacyAndLayout
@@ -77,7 +85,19 @@ class PlayerToolbarSlotsTest {
                 "legacy=$legacy visible=${layout.visibleButtons}",
             )
         }
-        assertFalse(PlayerToolbarButton.SUBMIT_INTRO in PlayerToolbarLayout.Default.visibleButtons)
+        assertTrue(PlayerToolbarButton.SUBMIT_INTRO in PlayerToolbarLayout.Default.visibleButtons)
+        val otherDefaults = PlayerToolbarButton.entries.filter { it != PlayerToolbarButton.SUBMIT_INTRO }
+        otherDefaults.forEach { button ->
+            assertEquals(
+                button == PlayerToolbarButton.NEXT_EPISODE ||
+                    button == PlayerToolbarButton.SPEED ||
+                    button == PlayerToolbarButton.RESIZE ||
+                    button == PlayerToolbarButton.SUBTITLES ||
+                    button == PlayerToolbarButton.CHAPTERS,
+                button in PlayerToolbarLayout.Default.visibleButtons,
+                button.storageId,
+            )
+        }
     }
 
     @Test

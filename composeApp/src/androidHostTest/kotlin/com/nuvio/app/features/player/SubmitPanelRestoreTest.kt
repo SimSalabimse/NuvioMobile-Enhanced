@@ -45,7 +45,8 @@ class SubmitPanelRestoreTest {
         val submitted = mutableStateOf(setOf<String>())
         val previews = mutableStateOf(0)
         val copies = mutableStateOf(0)
-        val showFlag = mutableStateOf(false)
+        val flagLayout = mutableStateOf(PlayerToolbarLayout.decode(null))
+        val flagLegacy = mutableStateOf(false)
         val flagPhase = mutableStateOf(false)
         compose.setContent {
             NuvioTheme {
@@ -97,7 +98,12 @@ class SubmitPanelRestoreTest {
                             isLocked = false,
                             onLockToggle = {},
                             onBack = {},
-                            onSubmitIntroClick = {}.takeIf { showFlag.value },
+                            onSubmitIntroClick = {}.takeIf {
+                                submitIntroFlagShown(
+                                    legacyLayout = flagLegacy.value,
+                                    layout = flagLayout.value,
+                                )
+                            },
                         )
                     }
                 }
@@ -152,12 +158,27 @@ class SubmitPanelRestoreTest {
         compose.onNodeWithContentDescription("Preview Sent").assertIsDisplayed()
         compose.onAllNodesWithContentDescription("Credits Sent").assertCountEquals(0)
 
-        val flagCases = listOf(false, true, false)
+        val savedWithoutSubmitIntro = PlayerToolbarLayout.Default.encode()
+            .split(',')
+            .filterNot { it.substringBefore(':') == PlayerToolbarButton.SUBMIT_INTRO.storageId }
+            .joinToString(",")
+        val untouched = PlayerToolbarLayout.decode(savedWithoutSubmitIntro)
+        val off = untouched.withVisibility(PlayerToolbarButton.SUBMIT_INTRO, false)
+        val onAgain = off.withVisibility(PlayerToolbarButton.SUBMIT_INTRO, true)
+        val flagCases = listOf(
+            PlayerToolbarLayout.decode(null) to false to true,
+            untouched to false to true,
+            off to false to false,
+            onAgain to false to true,
+            off to true to true,
+        )
         flagPhase.value = true
-        flagCases.forEach { on ->
-            showFlag.value = on
+        flagCases.forEach { (layoutAndLegacy, shown) ->
+            val (layout, legacy) = layoutAndLegacy
+            flagLayout.value = layout
+            flagLegacy.value = legacy
             compose.waitForIdle()
-            if (on) {
+            if (shown) {
                 compose.onNodeWithContentDescription("Submit Intro").assertIsDisplayed()
             } else {
                 compose.onAllNodesWithContentDescription("Submit Intro").assertCountEquals(0)

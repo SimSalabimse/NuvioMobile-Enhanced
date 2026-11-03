@@ -21,7 +21,7 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - Player controls fade out instead of disappearing at once. Upstream 0.6.4.
 - External player app (sends subtitles and intro/outro times): Settings › Playback › Player. Upstream.
 - Seek bar thumbnails: Settings › Playback; downloads use on-device scrub previews. 0.5.10.2. The fork's faster thumbnail path is in 0.6.5.1.
-- Player buttons: Settings › Playback › Player buttons. Choose which buttons stay on the bar, which sit behind the arrow, and their order. 0.6.5.1 from the fork. Mark segment and Live TV stay on the bar as extra icons. The arrow grows that row. Submit intro in that list shows or hides the Flag (top pill, or the fold row). It stays in the hidden group by default, so that Flag stays off until Submit intro is shown. The legacy layout has no Player buttons screen and keeps its Flag.
+- Player buttons: Settings › Playback › Player buttons. Choose which buttons stay on the bar, which sit behind the arrow, and their order. 0.6.5.1 from the fork. Mark segment and Live TV stay on the bar as extra icons. The arrow grows that row. Submit intro in that list shows or hides the Flag (top pill, or the fold row). It is in the shown group by default, and a saved layout that never listed Submit intro keeps the Flag. Turning the row off hides the Flag, and turning it on shows it again. The legacy layout has no Player buttons screen and keeps its Flag.
 - While Sleep or Speed is open, the title, version and episode fade out and the seek bar stays put.
 - Show Chapters applies to every engine, with marks on the seek bar and a chapters list. 0.6.5.1 from the fork.
 - Pinch to zoom shows a zoom icon while the picture scales. 0.6.5.1 from the fork.
