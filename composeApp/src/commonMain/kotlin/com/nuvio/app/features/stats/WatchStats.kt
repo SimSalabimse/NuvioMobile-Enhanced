@@ -124,14 +124,28 @@ internal object WatchStats {
         if (completedNow || now - lastSavedAt >= SAVE_EVERY_MS) save(now)
     }
 
-    /** A skip jumped [savedMs] ahead; anything over [MAX_SKIP_MS] is a seek, not a skip. */
+    /**
+     * A skip jumped [savedMs] ahead. A negative value with the same limit subtracts a skip that
+     * was undone. Outside 1..[MAX_SKIP_MS] (either sign) is a seek, not a skip.
+     */
     fun recordSkip(savedMs: Long) {
-        if (savedMs !in 1L..MAX_SKIP_MS) return
+        if (adjustSkippedMs(0L, savedMs) == null) return
         ensureLoaded()
         val day = CurrentDateProvider.todayIsoDate()
         val current = _data.value
-        _data.value = current.copy(daySkippedMs = current.daySkippedMs + (day to (current.daySkippedMs[day] ?: 0L) + savedMs))
+        val next = adjustSkippedMs(current.daySkippedMs[day] ?: 0L, savedMs) ?: return
+        _data.value = current.copy(daySkippedMs = current.daySkippedMs + (day to next))
         save(epochMs())
+    }
+
+    /** Adds a counted skip, or subtracts one that was undone. Null when [savedMs] is not a skip. */
+    internal fun adjustSkippedMs(currentMs: Long, savedMs: Long): Long? {
+        val delta = when {
+            savedMs in 1L..MAX_SKIP_MS -> savedMs
+            savedMs < 0L && -savedMs in 1L..MAX_SKIP_MS -> savedMs
+            else -> return null
+        }
+        return (currentMs + delta).coerceAtLeast(0L)
     }
 
     /** [isSeriesFinished] tells whether a show id (with its type) is now fully watched. */

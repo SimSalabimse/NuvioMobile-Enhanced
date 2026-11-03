@@ -57,6 +57,9 @@ internal fun BoxScope.PlayerPlaybackOverlays(
     controlsVisible: Boolean,
     onSkipInterval: (SkipInterval) -> Unit,
     onDismissSkipInterval: () -> Unit,
+    showSkipUndo: Boolean = false,
+    onUndoSkip: () -> Unit = {},
+    reduceMotion: Boolean = false,
     sliderEdgePadding: Dp,
     overlayBottomPadding: Dp,
     isSeries: Boolean,
@@ -161,6 +164,9 @@ internal fun BoxScope.PlayerPlaybackOverlays(
                 activeSkipInterval?.let(onSkipInterval)
             },
             onDismiss = onDismissSkipInterval,
+            showUndo = showSkipUndo,
+            onUndo = onUndoSkip,
+            reduceMotion = reduceMotion,
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(start = sliderEdgePadding, bottom = overlayBottomPadding),

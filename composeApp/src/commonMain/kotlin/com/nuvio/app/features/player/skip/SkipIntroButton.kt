@@ -1,6 +1,8 @@
 package com.nuvio.app.features.player.skip
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
@@ -21,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -35,9 +38,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.action_back
 import nuvio.composeapp.generated.resources.player_skip
 import nuvio.composeapp.generated.resources.player_skip_intro
 import nuvio.composeapp.generated.resources.player_skip_outro
@@ -56,6 +63,9 @@ fun SkipIntroButton(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     skipsToPostCredits: Boolean = false,
+    showUndo: Boolean = false,
+    onUndo: () -> Unit = {},
+    reduceMotion: Boolean = false,
 ) {
     var lastType by remember { mutableStateOf(interval?.type) }
     var lastSkipsToPostCredits by remember { mutableStateOf(skipsToPostCredits) }
@@ -102,13 +112,54 @@ fun SkipIntroButton(
         }
     }
 
-    val isVisible = shouldShow && (!autoHidden || controlsVisible)
+    val isVisible = shouldShow && (!autoHidden || controlsVisible) && !showUndo
+    val snapUndo = skipUndoMotionSnaps(reduceMotion)
+    val undoEnter = if (snapUndo) EnterTransition.None else fadeIn(tween(300)) + scaleIn(tween(300), initialScale = 0.8f)
+    val undoExit = if (snapUndo) ExitTransition.None else fadeOut(tween(200)) + scaleOut(tween(200), targetScale = 0.8f)
+
+    Box(modifier) {
+    AnimatedVisibility(
+        visible = showUndo,
+        enter = undoEnter,
+        exit = undoExit,
+    ) {
+        val label = stringResource(Res.string.action_back)
+        val shape = RoundedCornerShape(16.dp)
+        Row(
+            modifier = Modifier
+                .clip(shape)
+                .ambientLiquidGlass(
+                    shape = shape,
+                    tint = Color(0xFF1E1E1E).copy(alpha = 0.6f),
+                    fallback = Color(0xFF1E1E1E).copy(alpha = 0.85f),
+                    blurRadius = 18.dp,
+                    refractionHeight = 10.dp,
+                    refractionAmount = 14.dp,
+                )
+                .clickable(role = Role.Button, onClick = onUndo)
+                .semantics { contentDescription = label }
+                .padding(horizontal = 18.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Default.ArrowBack,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(20.dp),
+            )
+            Text(
+                text = label,
+                color = Color.White,
+                fontSize = 14.sp,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+    }
 
     AnimatedVisibility(
         visible = isVisible,
         enter = fadeIn(tween(300)) + scaleIn(tween(300), initialScale = 0.8f),
         exit = fadeOut(tween(200)) + scaleOut(tween(200), targetScale = 0.8f),
-        modifier = modifier,
     ) {
         val shape = RoundedCornerShape(16.dp)
         Column(
@@ -183,6 +234,7 @@ fun SkipIntroButton(
                 )
             }
         }
+    }
     }
 }
 
