@@ -18,6 +18,9 @@ IOS_DISTRIBUTION="${NUVIO_IOS_DISTRIBUTION:-full}"
 BUNDLE_ID="com.nuvio.app"
 FIXTURE_ARG="-NuvioUiFixture"
 CONNECTIVITY_FILE="nuvio-ui-connectivity.txt"
+# Extra launch arguments. "-Key value" lands in the UserDefaults argument domain for this
+# launch only, so the first-run diagnostics sheet does not cover the screenshot.
+EXTRA_LAUNCH_ARGS=(-NuvioDiagnosticsIntroSeen YES)
 # Keep ALL_STATES in the same order as UiFixture.wireName.
 ALL_STATES="home-online,home-offline,details-online,details-offline,details-movie-offline,downloads,long-titles,smart-downloads"
 DEFAULT_DEVICES="iPhone 18 Pro,iPhone 17e"
@@ -359,7 +362,7 @@ launch_fixture() {
   else
     log "dry-run: xcrun simctl terminate ${udid} ${BUNDLE_ID} || true"
   fi
-  run_cmd xcrun simctl launch "$udid" "$BUNDLE_ID" "$FIXTURE_ARG" "$state"
+  run_cmd xcrun simctl launch "$udid" "$BUNDLE_ID" "$FIXTURE_ARG" "$state" "${EXTRA_LAUNCH_ARGS[@]}"
 }
 
 screenshot_state() {
