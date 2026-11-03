@@ -32,6 +32,10 @@ internal data class RawMediaAnalysis(
     val decodeMs: Long = 0L,
     val sampleLoopMs: Long = 0L,
     val fingerprintMs: Long = 0L,
+    /** Chapter markers read from the container. Not stored on [MediaAnalysisResult]. */
+    val chapters: List<RawChapter> = emptyList(),
+    /** Milliseconds spent reading those markers, from the same monotonic clock as the other stages. */
+    val chaptersMs: Long = 0L,
 )
 
 internal fun RawMediaAnalysis.toStoredResult(
@@ -355,7 +359,9 @@ internal object MediaAnalysisScheduler {
             val siblings = MediaAnalysisStore.seasonSiblings(item.parentMetaId, season, result.key)
             stage(AnalysisStage.Recap)
             val recap = withContext(Dispatchers.Default) { RecapDetector.detect(result, siblings) }
-            result = result.copy(recapStartMs = recap?.first, recapEndMs = recap?.second)
+            // A chapter recap stays. Otherwise this is the same assignment as before, including
+            // clearing a recap the search did not find again.
+            result = result.withDetectedRecap(recap)
         }
         var thumbsOk = true
         if (MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.ScrubPreviews) && result.thumbnails == null &&
@@ -410,7 +416,13 @@ internal object MediaAnalysisScheduler {
         }
         InAppLogger.info("Analysis", "analyse start id=${item.id} file=${item.fileName}")
         stage(AnalysisStage.Audio)
-        val text = withProgress { MediaAnalyzerPlatform.analyze(uri) } ?: run {
+        val keyForChapters = MediaAnalysisStore.keyFor(item)
+        ChapterSkipClassifier.prepare(keyForChapters, item.parentMetaId, item.seasonNumber ?: -1)
+        val text = try {
+            withProgress { MediaAnalyzerPlatform.analyze(uri) }
+        } finally {
+            ChapterSkipClassifier.clear()
+        } ?: run {
             InAppLogger.warn("Analysis", "analyse failed id=${item.id}")
             if (scopeActive()) MediaAnalysisStatus.recordFailure(item, MediaAnalyzerPlatform.lastError() ?: "Could not analyse the audio")
             return null
@@ -470,6 +482,17 @@ internal object MediaAnalysisScheduler {
                 result = duringMatch { SiblingClipReference.apply(item, result) }
             }
         }
+        val chapterMark = TimeSource.Monotonic.markNow()
+        val protected = result.userSegments.keys + result.learnedTypes + result.foundUsing.keys
+        result = result.applyingChapterSegments(
+            chapters = raw.chapters.map { FileChapter(it.title, it.startMs, it.endMs) },
+            durationMs = result.durationMs,
+            protectedKinds = protected,
+            introDetection = MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.IntroDetection),
+            recapDetection = MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.RecapDetection),
+        )
+        val chaptersMs = raw.chaptersMs.coerceAtLeast(0L) + chapterMark.elapsedNow().inWholeMilliseconds
+        val chapterSource = if (result.chapterTypes.isEmpty()) "-" else com.nuvio.app.features.player.CHAPTER_SKIP_PROVIDER
         MediaAnalysisStore.save(result)
         // A mark made before this file was analysed now has fingerprints: teach the season.
         if (season != null && item.episodeNumber != null &&
@@ -490,6 +513,8 @@ internal object MediaAnalysisScheduler {
                 fingerprintMs = raw.fingerprintMs.coerceAtLeast(0L),
                 matchMs = matchMs.coerceAtLeast(0L),
                 totalMs = started.elapsedNow().inWholeMilliseconds.coerceAtLeast(0L),
+                chaptersMs = chaptersMs.coerceAtLeast(0L),
+                chapterSource = chapterSource,
             ),
         )
         return result

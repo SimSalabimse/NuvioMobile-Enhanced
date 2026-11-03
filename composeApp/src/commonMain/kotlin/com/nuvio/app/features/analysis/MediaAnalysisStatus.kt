@@ -96,7 +96,13 @@ object MediaAnalysisStatus {
     private val _revision = MutableStateFlow(0)
     val revision: StateFlow<Int> = _revision.asStateFlow()
 
-    val supported: Boolean get() = MediaAnalyzerPlatform.supported
+    /**
+     * Host tests set this to read chip status where the analyzer binary is absent.
+     * Null follows [MediaAnalyzerPlatform.supported].
+     */
+    internal var supportedForTests: Boolean? = null
+
+    val supported: Boolean get() = supportedForTests ?: MediaAnalyzerPlatform.supported
 
     internal fun setJob(state: AnalysisJobState) {
         _job.value = state

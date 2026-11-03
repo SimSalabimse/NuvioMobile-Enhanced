@@ -57,6 +57,15 @@ internal data class MediaAnalysisResult(
     val learnedTypes: Set<String> = emptySet(),
     /** Segment types found from a clip of another episode ([SiblingClipReference]): type to episode. */
     val foundUsing: Map<String, Int> = emptyMap(),
+    /** Next-episode preview read from a chapter marker. Fingerprint matching does not set this. */
+    val previewStartMs: Long? = null,
+    val previewEndMs: Long? = null,
+    /**
+     * Kinds whose stored times came from chapter markers ("intro", "recap", "outro", "preview").
+     * Rank 2 in [SkipSourcePriority]: above fingerprint matches, below user marks and the
+     * external databases the player applies at playback.
+     */
+    val chapterTypes: Set<String> = emptySet(),
 )
 
 @Serializable

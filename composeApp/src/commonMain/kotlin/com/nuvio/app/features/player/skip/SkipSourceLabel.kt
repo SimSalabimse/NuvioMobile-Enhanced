@@ -1,6 +1,7 @@
 package com.nuvio.app.features.player.skip
 
 import com.nuvio.app.features.analysis.SkipLearning
+import com.nuvio.app.features.player.CHAPTER_SKIP_PROVIDER
 import com.nuvio.app.features.player.ON_DEVICE_SKIP_PROVIDER
 
 /**
@@ -13,6 +14,7 @@ internal fun skipSourceLabel(provider: String?): String? = when (provider) {
     SkipLearning.PROVIDER_IMPORTED -> "TheIntroDB (yours)"
     TheIntroDb.PROVIDER -> "TheIntroDB"
     ON_DEVICE_SKIP_PROVIDER -> "On-device"
+    CHAPTER_SKIP_PROVIDER -> "Chapters"
     "introdb" -> "IntroDB"
     "aniskip" -> "AniSkip"
     "animeskip" -> "Anime-Skip"
