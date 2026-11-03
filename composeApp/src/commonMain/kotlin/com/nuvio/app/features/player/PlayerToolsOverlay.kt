@@ -287,6 +287,7 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                     setMarkClock(start, next, showTenth = nudgeKeepsTenth(delta, showing))
                 },
                 submittedTypes = submittedTypes,
+                autoSyncedTypes = autoSyncedSubmitTypes(),
                 onStartAtZero = { if (!submitting) setMarkClock(true, 0.0) },
                 onRunsToEnd = { if (!submitting) setMarkClock(false, runsToEndSec(durationSec)) },
                 onPreview = {
