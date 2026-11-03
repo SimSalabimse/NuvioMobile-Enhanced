@@ -404,8 +404,8 @@ record_transition() {
     log "dry-run: xcrun simctl io ${udid} recordVideo --codec h264 ${mp4} &"
     log "dry-run: sleep 0.5 (confirm recordVideo); sleep 1.5; write online at ${TRANSITION_ONLINE_SECONDS}s; sleep $((TRANSITION_OFFLINE_SECONDS - TRANSITION_ONLINE_SECONDS)); write offline at ${TRANSITION_OFFLINE_SECONDS}s; sleep ${TRANSITION_TAIL_SECONDS}"
     log "dry-run: kill -INT <record-pid>"
-    run_cmd "$FFMPEG_BIN" -y -hide_banner -loglevel error -ss 1.5 -t 2.5 -i "$mp4" -vf "fps=15,scale=240:-1,tile=8x4" "$online_sheet"
-    run_cmd "$FFMPEG_BIN" -y -hide_banner -loglevel error -ss 4.5 -t 2.5 -i "$mp4" -vf "fps=15,scale=240:-1,tile=8x4" "$offline_sheet"
+    run_cmd "$FFMPEG_BIN" -y -hide_banner -loglevel error -ss 1.5 -t 2.5 -i "$mp4" -vf "fps=15,scale=240:-1,tile=8x4" -frames:v 1 "$online_sheet"
+    run_cmd "$FFMPEG_BIN" -y -hide_banner -loglevel error -ss 4.5 -t 2.5 -i "$mp4" -vf "fps=15,scale=240:-1,tile=8x4" -frames:v 1 "$offline_sheet"
     return 0
   fi
   sleep "$SETTLE_SECONDS"
@@ -436,8 +436,8 @@ record_transition() {
   fi
   wait "$rec_pid" || true
   [[ -s "$mp4" ]] || die "recording is missing or empty: ${mp4}"
-  run_cmd "$FFMPEG_BIN" -y -hide_banner -loglevel error -ss 1.5 -t 2.5 -i "$mp4" -vf "fps=15,scale=240:-1,tile=8x4" "$online_sheet"
-  run_cmd "$FFMPEG_BIN" -y -hide_banner -loglevel error -ss 4.5 -t 2.5 -i "$mp4" -vf "fps=15,scale=240:-1,tile=8x4" "$offline_sheet"
+  run_cmd "$FFMPEG_BIN" -y -hide_banner -loglevel error -ss 1.5 -t 2.5 -i "$mp4" -vf "fps=15,scale=240:-1,tile=8x4" -frames:v 1 "$online_sheet"
+  run_cmd "$FFMPEG_BIN" -y -hide_banner -loglevel error -ss 4.5 -t 2.5 -i "$mp4" -vf "fps=15,scale=240:-1,tile=8x4" -frames:v 1 "$offline_sheet"
   xcrun simctl terminate "$udid" "$BUNDLE_ID" >/dev/null 2>&1 || true
 }
 
