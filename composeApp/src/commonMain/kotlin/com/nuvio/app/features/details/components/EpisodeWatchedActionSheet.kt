@@ -96,7 +96,7 @@ fun EpisodeWatchedActionSheet(
             if (onMarkUpToHereWatched != null) {
                 NuvioBottomSheetActionRow(
                     icon = Icons.Default.DoneAll,
-                    title = "Mark watched up to here",
+                    title = stringResource(Res.string.a11y_mark_watched_up_to_here),
                     onClick = {
                         onMarkUpToHereWatched()
                         coroutineScope.launch {

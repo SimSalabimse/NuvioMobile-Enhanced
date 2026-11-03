@@ -1579,6 +1579,8 @@ fun MetaDetailsScreen(
                                                         selectedEpisodeZoomAnchor = null
                                                         selectedEpisodeForActions = video
                                                     },
+                                                    manualPlayAvailable = showManualPlayOption,
+                                                    downloadEnabled = onEpisodeDownloadClick != null,
                                                 )
                                             }
                                         }
@@ -2448,6 +2450,8 @@ private fun LazyListScope.configuredMetaSectionItems(
             onEpisodeClick = onEpisodeClick,
             onEpisodeLongPress = onEpisodeLongPress,
             onSeasonLongPress = onSeasonLongPress,
+            manualPlayAvailable = showManualPlayOption,
+            downloadEnabled = onDownloadEpisode != null,
         )
         emittedItemCount += emitted
         return emitted > 0
@@ -2722,6 +2726,7 @@ private fun ConfiguredMetaSections(
                         onEpisodeLongPress = onEpisodeLongPress,
                         onSeasonLongPress = onSeasonLongPress,
                         onDownloadEpisode = onDownloadEpisode,
+                        manualPlayAvailable = showManualPlayOption,
                     )
                 }
             }

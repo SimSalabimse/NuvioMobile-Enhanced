@@ -44,6 +44,8 @@ import com.nuvio.app.core.ui.nuvio
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.a11y_subtitle_decrease
+import nuvio.composeapp.generated.resources.a11y_subtitle_increase
 import nuvio.composeapp.generated.resources.compose_action_off
 import nuvio.composeapp.generated.resources.compose_action_on
 import nuvio.composeapp.generated.resources.compose_player_auto_sync
@@ -287,6 +289,12 @@ private fun SubtitleStyleStepper(
     ) {
         SubtitleStepperButton(
             icon = Icons.Rounded.Remove,
+            contentDescription = playerIconControlDescription(
+                PlayerIconControl.SubtitleDecrease,
+                decrease = stringResource(Res.string.a11y_subtitle_decrease),
+                increase = stringResource(Res.string.a11y_subtitle_increase),
+                clearSearch = "",
+            ),
             onClick = onDecrease,
         )
         Box(
@@ -305,6 +313,12 @@ private fun SubtitleStyleStepper(
         }
         SubtitleStepperButton(
             icon = Icons.Rounded.Add,
+            contentDescription = playerIconControlDescription(
+                PlayerIconControl.SubtitleIncrease,
+                decrease = stringResource(Res.string.a11y_subtitle_decrease),
+                increase = stringResource(Res.string.a11y_subtitle_increase),
+                clearSearch = "",
+            ),
             onClick = onIncrease,
         )
     }
@@ -313,6 +327,7 @@ private fun SubtitleStyleStepper(
 @Composable
 private fun SubtitleStepperButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
     onClick: () -> Unit,
 ) {
     Box(
@@ -325,7 +340,7 @@ private fun SubtitleStepperButton(
     ) {
         Icon(
             imageVector = icon,
-            contentDescription = null,
+            contentDescription = contentDescription,
             tint = Color.White,
             modifier = Modifier.size(20.dp),
         )
