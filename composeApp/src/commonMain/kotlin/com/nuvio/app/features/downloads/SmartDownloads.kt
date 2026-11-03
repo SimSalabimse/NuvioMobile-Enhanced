@@ -263,9 +263,10 @@ private data class SmartDownloadRequest(
 /**
  * Smart downloads: when an episode of a show you have downloads of is finished, the next
  * [SmartDownloadSettings.State.count] episodes are downloaded with the player's auto-play source rules
- * (preferring the same source and quality as the episode just watched). Deleting the watched file is
- * left to [FinishedDownloadDeletion], which smart downloads switch on, so the same safety applies
- * (never the episode on screen, never a running transfer).
+ * (preferring the same source and quality as the episode just watched). Deleting the watched file
+ * stays on Settings > Downloads > "delete when finished" ([FinishedDownloadDeletion]); smart
+ * downloads do not switch that on. When it is on, the same safety applies (never the episode on
+ * screen, never a running transfer).
  *
  * Downloads start only on Wi-Fi (and optionally only while charging). A request that cannot run yet
  * is kept and retried every few minutes and at the next launch.

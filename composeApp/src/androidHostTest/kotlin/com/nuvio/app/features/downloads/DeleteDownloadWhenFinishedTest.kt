@@ -51,6 +51,7 @@ class DeleteDownloadWhenFinishedTest {
         WatchProgressRepository.clearLocalState()
         FinishedDownloadDeletion.reset()
         FinishedDownloadDeletion.closeGraceMs = 0L
+        SmartDownloadSettings.setEnabled(false)
         directory = File(context.filesDir, "downloads").apply { mkdirs() }
     }
 
@@ -59,6 +60,7 @@ class DeleteDownloadWhenFinishedTest {
         FinishedDownloadDeletion.reset()
         DownloadsRepository.clearLocalState()
         DownloadsSettingsRepository.clearLocalState()
+        SmartDownloadSettings.setEnabled(false)
         WatchedRepository.clearLocalState()
         WatchProgressRepository.clearLocalState()
     }
@@ -231,6 +233,46 @@ class DeleteDownloadWhenFinishedTest {
 
         FinishedDownloadDeletion.playbackEnded(videoId)
         assertTrue(DownloadsRepository.uiState.value.items.isEmpty())
+    }
+
+    @Test
+    fun smartDownloadsLeaveTheFileWhenDeleteWhenFinishedIsOff(): Unit = runBlocking {
+        val stored = seedCompletedDownload()
+        val sourceUrl = checkNotNull(stored.localFileUri)
+        DownloadsSettingsRepository.setDeleteWhenFinished(false)
+        SmartDownloadSettings.setEnabled(true)
+        FinishedDownloadDeletion.playbackOpened(videoId, sourceUrl)
+        val entry = completedEntry()
+        FinishedDownloadDeletion.onLocalProgress(entry, entry.lastPositionMs, entry.durationMs)
+        FinishedDownloadDeletion.playbackEnded(videoId)
+
+        assertEquals(stored.id, DownloadsRepository.uiState.value.items.single().id)
+        assertTrue(videoFile().isFile)
+
+        // Credits / last five minutes, then the next episode starts: still not a delete.
+        FinishedDownloadDeletion.playbackOpened(videoId, sourceUrl)
+        FinishedDownloadDeletion.onLocalProgress(entry, entry.durationMs - 180_000L, entry.durationMs)
+        FinishedDownloadDeletion.playbackOpened("tt123:1:2", "https://example.com/next.mkv")
+        FinishedDownloadDeletion.playbackPlaying("tt123:1:2")
+
+        assertEquals(stored.id, DownloadsRepository.uiState.value.items.single().id)
+        assertTrue(videoFile().isFile)
+    }
+
+    @Test
+    fun deleteWhenFinishedStillRemovesTheFileFromRealPlaybackProgress(): Unit = runBlocking {
+        val stored = seedCompletedDownload()
+        val sourceUrl = checkNotNull(stored.localFileUri)
+        DownloadsSettingsRepository.setDeleteWhenFinished(true)
+        SmartDownloadSettings.setEnabled(false)
+        FinishedDownloadDeletion.playbackOpened(videoId, sourceUrl)
+        val entry = completedEntry()
+        FinishedDownloadDeletion.onLocalProgress(entry, entry.lastPositionMs, entry.durationMs)
+        FinishedDownloadDeletion.playbackEnded(videoId)
+        awaitRemoval(stored)
+
+        assertTrue(DownloadsRepository.uiState.value.items.isEmpty())
+        assertFalse(videoFile().exists())
     }
 
     @Test
