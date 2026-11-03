@@ -82,7 +82,7 @@ class SubmitPanelTest {
         compose.onAllNodesWithText("Set to now").assertCountEquals(0)
         compose.onAllNodesWithText("\u22125").assertCountEquals(0)
         compose.onNodeWithContentDescription("Play range").assertIsEnabled()
-        compose.onNodeWithContentDescription("Copy link").assertIsEnabled()
+        compose.onAllNodesWithContentDescription("Copy link").assertCountEquals(0)
         compose.onNodeWithContentDescription("Starts at 0:00").assertIsDisplayed()
         compose.onAllNodesWithContentDescription("More").assertCountEquals(0)
 

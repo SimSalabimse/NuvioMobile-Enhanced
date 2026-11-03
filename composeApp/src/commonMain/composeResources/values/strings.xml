@@ -3299,8 +3299,6 @@
     <string name="player_tools_none">None</string>
     <string name="player_tools_add_key">Add a TheIntroDB key</string>
     <string name="player_tools_key_missing">A TheIntroDB key is needed to send this.</string>
-    <string name="player_tools_copy_link">Copy link</string>
-    <string name="player_tools_link_copied">Link copied</string>
     <string name="player_tools_cached">Cached</string>
     <string name="player_tools_playing">Playing</string>
     <string name="player_tools_up_next">Up next</string>

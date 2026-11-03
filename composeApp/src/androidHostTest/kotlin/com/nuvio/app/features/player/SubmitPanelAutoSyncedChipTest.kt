@@ -94,7 +94,6 @@ class SubmitPanelAutoSyncedChipTest {
                             onStartAtZero = { start.value = 0.0 },
                             onRunsToEnd = { end.value = runsToEndSec(duration.value) },
                             onPreview = { previews.value += 1 },
-                            onCopyLink = { copies.value += 1 },
                             autoSyncedTypes = synced.value,
                         )
                     } else {
@@ -132,7 +131,7 @@ class SubmitPanelAutoSyncedChipTest {
                 compose.onNodeWithContentDescription("Runs to end").assertIsDisplayed()
             }
             compose.onNodeWithContentDescription("Play range").assertIsEnabled()
-            compose.onNodeWithContentDescription("Copy link").assertIsEnabled()
+            compose.onAllNodesWithContentDescription("Copy link").assertCountEquals(0)
         }
 
         type.value = "intro"
@@ -144,14 +143,11 @@ class SubmitPanelAutoSyncedChipTest {
         compose.onNodeWithText("0:00:00", substring = true).assertIsDisplayed()
 
         compose.onNodeWithContentDescription("Play range").performClick()
-        compose.onNodeWithContentDescription("Copy link").performClick()
         assertEquals(1, previews.value)
-        assertEquals(1, copies.value)
 
         end.value = 0.0
         compose.waitForIdle()
         compose.onNodeWithContentDescription("Play range").assertIsNotEnabled()
-        compose.onNodeWithContentDescription("Copy link").assertIsNotEnabled()
         assertChip(shown = true)
 
         start.value = 10.0

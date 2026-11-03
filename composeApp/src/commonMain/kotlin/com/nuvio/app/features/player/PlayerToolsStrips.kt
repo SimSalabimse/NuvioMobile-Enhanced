@@ -86,7 +86,6 @@ import nuvio.composeapp.generated.resources.player_tools_nudge_minus_5
 import nuvio.composeapp.generated.resources.player_tools_nudge_plus_1
 import nuvio.composeapp.generated.resources.player_tools_nudge_plus_5
 import nuvio.composeapp.generated.resources.player_tools_past_video
-import nuvio.composeapp.generated.resources.player_tools_copy_link
 import nuvio.composeapp.generated.resources.player_tools_play_range
 import nuvio.composeapp.generated.resources.player_tools_preview
 import nuvio.composeapp.generated.resources.player_tools_recap
@@ -221,7 +220,6 @@ internal fun SegmentMarkingLayer(
     onStartAtZero: () -> Unit = {},
     onRunsToEnd: () -> Unit = {},
     onPreview: () -> Unit = {},
-    onCopyLink: () -> Unit = {},
     autoSyncedTypes: Set<String> = emptySet(),
     modifier: Modifier = Modifier,
 ) {
@@ -429,17 +427,6 @@ internal fun SegmentMarkingLayer(
                     labelSize = labelSize,
                     hPad = hPad,
                     onClick = onPreview,
-                )
-                val copyLink = stringResource(Res.string.player_tools_copy_link)
-                BarChip(
-                    label = copyLink,
-                    description = copyLink,
-                    enabled = markCopyLinkEnabled(absent, timeOk),
-                    selected = false,
-                    chipHeight = chipHeight.dp,
-                    labelSize = labelSize,
-                    hPad = hPad,
-                    onClick = onCopyLink,
                 )
                 SubmitPill(
                     text = pillText,
