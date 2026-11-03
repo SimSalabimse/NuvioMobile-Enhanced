@@ -31,9 +31,11 @@ internal fun autopilotPicks(candidates: List<AutopilotCandidate>, freeBytes: Lon
 }
 
 /**
- * Storage autopilot ("Keep X GB free"): when free space drops below the setting, watched downloads
- * go, oldest first. Unwatched and partly watched ones are never touched. Runs at launch, after a
- * download finishes, when the setting changes and when Smart Downloads run out of room.
+ * Storage autopilot ("Keep X GB free"): when free space drops below the setting, older watched
+ * downloads go, oldest first, and a notice says how many and why. It never removes the episode
+ * played in this process, the one open in the player, a transfer, or anything unwatched or still
+ * in progress. The episode just played is removed only by "delete when finished". Runs at launch,
+ * after a download finishes, when the setting changes and when Smart Downloads run out of room.
  */
 internal object StorageAutopilot {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -48,9 +50,11 @@ internal object StorageAutopilot {
             mutex.withLock {
                 val plan = plan(SmartDownloadSettings.snapshot().keepFreeGb)
                 if (plan.ids.isEmpty()) return@withLock
+                val removing = DownloadsRepository.uiState.value.items.filter { it.id in plan.ids }
+                val label = removing.singleOrNull()?.let(::autopilotRemovalLabel)
                 withContext(Dispatchers.Main) {
                     DownloadsRepository.cancelDownloads(plan.ids, reason = "autopilot")
-                    NuvioToastController.show("Storage autopilot freed ${formatDownloadBytes(plan.bytes)} of watched downloads")
+                    NuvioToastController.show(autopilotRemovedMessage(plan.ids.size, plan.bytes, label))
                 }
             }
         }
@@ -62,8 +66,9 @@ internal object StorageAutopilot {
         val free = DownloadDiskInfo.volumeSpace()?.availableBytes ?: return AutopilotPlan.NONE
         if (free >= keepFreeBytes) return AutopilotPlan.NONE
         val candidates = DownloadsRepository.uiState.value.items
-            .filter { it.status == DownloadStatus.Completed && isWatched(it) && !isInProgress(it) }
-            .filterNot { FinishedDownloadDeletion.isOpen(it) }
+            .filter { it.status == DownloadStatus.Completed }
+            .filterNot { FinishedDownloadDeletion.blocksStorageAutopilot(it) }
+            .filter { isWatched(it) && !isInProgress(it) }
             .map { AutopilotCandidate(it.id, it.totalBytes ?: it.downloadedBytes, it.updatedAtEpochMs) }
         val picks = autopilotPicks(candidates, free, keepFreeBytes)
         return AutopilotPlan(picks, candidates.filter { it.id in picks }.sumOf { it.bytes })
@@ -83,3 +88,21 @@ internal object StorageAutopilot {
             ?.let { !it.isCompleted && it.lastPositionMs > 0L } == true
     }.getOrDefault(true)
 }
+
+/** Notice shown after Keep free space removes downloads. [label] is the title when there is one. */
+internal fun autopilotRemovedMessage(count: Int, bytes: Long, label: String?): String {
+    val size = formatDownloadBytes(bytes)
+    val subject = when {
+        count == 1 && !label.isNullOrBlank() -> "1 watched download ($label, $size)"
+        count == 1 -> "1 watched download ($size)"
+        else -> "$count watched downloads ($size)"
+    }
+    return "Removed $subject to keep free space"
+}
+
+private fun autopilotRemovalLabel(item: DownloadItem): String =
+    if (item.seasonNumber != null && item.episodeNumber != null) {
+        "${item.title} S${item.seasonNumber}E${item.episodeNumber}"
+    } else {
+        item.title
+    }

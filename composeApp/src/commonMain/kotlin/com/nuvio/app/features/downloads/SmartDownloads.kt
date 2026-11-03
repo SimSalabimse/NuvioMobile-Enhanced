@@ -69,7 +69,7 @@ object SmartDownloadSettings {
         val pauseDuringPlayback: Boolean = false,
         /** Unaired episodes can be queued and download once they air. */
         val queueUnaired: Boolean = true,
-        /** Storage autopilot: free watched downloads when free space drops below this (0 = off). */
+        /** Storage autopilot: free older watched downloads when free space drops below this (0 = off). */
         val keepFreeGb: Int = 0,
         /** Shows pinned as a Finish a series goal ("type|id"): their next episodes stay downloaded. */
         val goals: Set<String> = emptySet(),
@@ -265,8 +265,10 @@ private data class SmartDownloadRequest(
  * [SmartDownloadSettings.State.count] episodes are downloaded with the player's auto-play source rules
  * (preferring the same source and quality as the episode just watched). Deleting the watched file
  * stays on Settings > Downloads > "delete when finished" ([FinishedDownloadDeletion]); smart
- * downloads do not switch that on. When it is on, the same safety applies (never the episode on
- * screen, never a running transfer).
+ * downloads never delete a watched episode on their own. When the next episode does not fit,
+ * [StorageAutopilot] may remove older watched downloads to stay within Keep free space. It never
+ * removes the episode just played, the one on screen, or a file that is still transferring, and
+ * it says what it removed.
  *
  * Downloads start only on Wi-Fi (and optionally only while charging). A request that cannot run yet
  * is kept and retried every few minutes and at the next launch.
@@ -569,7 +571,8 @@ internal object SmartDownloads {
 
     /**
      * Nothing fits: kept pending (a delete or freed space runs it again). The watched file that is
-     * about to go is waited for; otherwise the autopilot may free room and the user hears it once.
+     * about to go under "delete when finished" is waited for. Otherwise Keep free space may remove
+     * older watched downloads (never the one just played) and the user hears it once.
      */
     private fun noSpace(request: SmartDownloadRequest): SmartDownloadRequest {
         request.report("Not enough free space for the next episode")
