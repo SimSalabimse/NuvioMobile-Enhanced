@@ -18,6 +18,7 @@ import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.features.player.skip.EMPTY_SKIP_TIMESTAMP
 import com.nuvio.app.features.player.skip.NextEpisodeInfo
 import com.nuvio.app.features.player.skip.SkipInterval
+import com.nuvio.app.features.player.skip.SkipUndoState
 import com.nuvio.app.features.streams.StreamsUiState
 import com.nuvio.app.features.tracking.TrackingMediaReference
 import com.nuvio.app.features.watched.WatchedUiState
@@ -223,6 +224,7 @@ internal class PlayerScreenRuntime(
     var lastManualSkipSeekPositions by mutableStateOf<Pair<Long, Long>?>(null)
     var activeSkipInterval by mutableStateOf<SkipInterval?>(null)
     var skipIntervalDismissed by mutableStateOf(false)
+    var skipUndo by mutableStateOf<SkipUndoState>(SkipUndoState.Hidden)
     /** Segment just skipped, asked about in the Good / Wrong prompt. */
     var skipFeedbackInterval by mutableStateOf<SkipInterval?>(null)
     var skipFeedbackNudging by mutableStateOf(false)

@@ -45,6 +45,8 @@ import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.features.party.PartyRepository
 import com.nuvio.app.features.p2p.formatP2pMegabytes
 import com.nuvio.app.features.p2p.formatP2pSpeed
+import com.nuvio.app.core.ui.systemReduceMotionEnabled
+import com.nuvio.app.features.player.skip.SkipUndo
 import com.nuvio.app.features.player.skip.internalSkipAction
 import com.nuvio.app.features.servers.ServerStreams
 import com.nuvio.app.features.streams.streamAddonInstanceId
@@ -843,7 +845,9 @@ private fun BoxScope.RenderPlaybackOverlays(
                         "startSec=${interval.startTime} endSec=${interval.endTime}",
                 )
                 if (seekMs != null) {
-                    com.nuvio.app.features.stats.WatchStats.recordSkip(seekMs - playbackClock.positionMs)
+                    val fromMs = playbackClock.positionMs
+                    com.nuvio.app.features.stats.WatchStats.recordSkip(seekMs - fromMs)
+                    offerSkipUndo(fromMs, seekMs - fromMs, interval)
                     noteSeek()
                     playerController?.seekTo(seekMs)
                     scheduleProgressSyncAfterSeek()
@@ -862,7 +866,11 @@ private fun BoxScope.RenderPlaybackOverlays(
                 )
             }
             skipIntervalDismissed = true
+            skipUndo = SkipUndo.dismiss(skipUndo)
         },
+        showSkipUndo = SkipUndo.showsBack(skipUndo, com.nuvio.app.features.streams.epochMs(), isPartyControlLocked),
+        onUndoSkip = { undoSkip() },
+        reduceMotion = systemReduceMotionEnabled(),
         sliderEdgePadding = sliderEdgePadding,
         overlayBottomPadding = overlayBottomPadding,
         isSeries = isSeries,
