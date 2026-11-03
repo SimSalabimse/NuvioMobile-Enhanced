@@ -25,7 +25,10 @@ class OfflineActionCallerTest {
 
         assertTrue(app.contains("onRecheck = { NetworkStatusRepository.requestRefresh(force = true) }"))
         assertTrue(bannerHost.contains("onOfflineBannerTap(onRecheck)"))
-        assertTrue(bannerHost.contains("offlineBannerFrame("))
+        assertTrue(bannerHost.contains("offlineBannerChrome("))
+        assertTrue(bannerHost.contains("backgroundHeightDp"))
+        assertTrue(bannerHost.contains("contentTopOffsetDp"))
+        assertTrue(!bannerHost.contains("padding(top = frame.topInsetDp"))
         assertTrue(bannerHost.contains("Animatable"))
         assertTrue(bannerHost.contains("OfflineBannerHideFadeMs"))
         assertTrue(home.contains("homeReconnectMotion("))
