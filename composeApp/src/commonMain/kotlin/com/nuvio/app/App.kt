@@ -61,6 +61,10 @@ fun App(
             PlayerSubmitBarFixtureScreen()
             return@AppEnvironment
         }
+        if (fixture == UiFixture.Walk && com.nuvio.app.core.uifixture.UiWalkScreens.showsOverlay()) {
+            com.nuvio.app.core.uifixture.UiWalkOverlay()
+            return@AppEnvironment
+        }
         AppGate(
             initialTab = initialTab,
             initialRoute = initialRoute,

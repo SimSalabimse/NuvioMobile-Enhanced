@@ -65,6 +65,12 @@ object LibraryRepository {
 
     private val _uiState = MutableStateFlow(LibraryUiState())
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()
+    private var fixtureHold: LibraryUiState? = null
+
+    internal fun installFixture(state: LibraryUiState) {
+        fixtureHold = state
+        _uiState.value = state
+    }
 
     private val localState = LibraryLocalState()
     private val loadLock = SynchronizedObject()
@@ -652,6 +658,10 @@ object LibraryRepository {
     }
 
     private fun publish() {
+        fixtureHold?.let { held ->
+            _uiState.value = held
+            return
+        }
         val localSnapshot = localState.snapshot()
         val sourceMode = effectiveLibrarySourceMode()
         activeLibraryProvider(sourceMode)?.let { provider ->
