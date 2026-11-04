@@ -258,7 +258,10 @@ class SubmitBarOverflowTest {
             assertTrue(compose.onAllNodesWithText("0:00:00", substring = true).fetchSemanticsNodes().isNotEmpty())
         } else {
             assertTrue(compose.onAllNodesWithText("0:00:00", substring = true).fetchSemanticsNodes().size >= 2)
-            assertText("End must be after the start")
+            assertTrue(
+                compose.onAllNodesWithText("End must be after the start").fetchSemanticsNodes().isEmpty(),
+                "untouched 0:00:00 should not show the end-after-start line",
+            )
         }
     }
 

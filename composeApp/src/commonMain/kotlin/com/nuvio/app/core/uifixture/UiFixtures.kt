@@ -26,6 +26,8 @@ enum class UiFixture(
     SmartDownloads("smart-downloads", startsOnline = true),
     PlayerSubmitBar("player-submit-bar", startsOnline = true),
     PlayerSubmitBarLong("player-submit-bar-long", startsOnline = true),
+    PlayerSubmitBarFresh("player-submit-bar-fresh", startsOnline = true),
+    PlayerSubmitBarTouchedInvalid("player-submit-bar-touched-invalid", startsOnline = true),
     SeasonOverview("season-overview", startsOnline = true),
     /**
      * Carrier for the UI walk. The screen id lives on [UiFixtureRequest.walkId]
@@ -36,7 +38,9 @@ enum class UiFixture(
     ;
 
     fun launchRoute(): AppRoute? = when (this) {
-        HomeOnline, HomeOffline, LongTitles, PlayerSubmitBar, PlayerSubmitBarLong -> null
+        HomeOnline, HomeOffline, LongTitles, PlayerSubmitBar, PlayerSubmitBarLong,
+        PlayerSubmitBarFresh, PlayerSubmitBarTouchedInvalid,
+        -> null
         DetailsOnline, DetailsOffline, SmartDownloads, SeasonOverview -> DetailRoute(
             type = UiFixtureCatalog.SERIES_TYPE,
             id = UiFixtureCatalog.SERIES_ID,

@@ -57,7 +57,11 @@ fun App(
 ) {
     AppEnvironment {
         val fixture = currentUiFixture()
-        if (fixture == UiFixture.PlayerSubmitBar || fixture == UiFixture.PlayerSubmitBarLong) {
+        if (fixture == UiFixture.PlayerSubmitBar ||
+            fixture == UiFixture.PlayerSubmitBarLong ||
+            fixture == UiFixture.PlayerSubmitBarFresh ||
+            fixture == UiFixture.PlayerSubmitBarTouchedInvalid
+        ) {
             PlayerSubmitBarFixtureScreen()
             return@AppEnvironment
         }
