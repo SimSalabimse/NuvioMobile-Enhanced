@@ -47,11 +47,14 @@ class PlayerToolsLogicTest {
     }
 
     @Test
-    fun `end must be after start and a missing clock cannot be sent`() {
+    fun `end must be after start when both clocks are set`() {
         assertEquals(listOf(MarkProblem.EndNotAfterStart), markProblems("intro", 10.0, 10.0, 100.0))
         assertEquals(listOf(MarkProblem.EndNotAfterStart), markProblems("intro", 20.0, 5.0, 100.0))
-        assertEquals(listOf(MarkProblem.EndNotAfterStart), markProblems("intro", null, 5.0, 100.0))
+        assertTrue(markProblems("intro", null, 5.0, 100.0).isEmpty())
         assertEquals(listOf(MarkProblem.EndNotAfterStart), markProblems("intro", 5.0, null, null))
+        assertTrue(markProblems("credits", 10.0, null, 100.0).isEmpty())
+        assertTrue(markProblems("intro", null, null, 100.0).isEmpty())
+        assertEquals(listOf(MarkProblem.EndNotAfterStart), markProblems("credits", null, 20.0, 100.0))
     }
 
     @Test
@@ -785,7 +788,7 @@ class PlayerToolsLogicTest {
     }
 
     @Test
-    fun `none sends zero times plus the stream length`() {
+    fun `none omits both time keys and keeps the stream length`() {
         val durationMs = 2_649_000L
         val times = checkNotNull(
             resolveIntroSubmitTimes(
@@ -808,8 +811,8 @@ class PlayerToolsLogicTest {
                 videoDurationMs = durationMs,
             ),
         )
-        assertTrue(body.contains("\"start_ms\":0"))
-        assertTrue(body.contains("\"end_ms\":0"))
+        assertFalse(body.contains("start_ms"))
+        assertFalse(body.contains("end_ms"))
         assertTrue(body.contains("\"video_duration_ms\":$durationMs"))
         assertNull(
             resolveIntroSubmitTimes(

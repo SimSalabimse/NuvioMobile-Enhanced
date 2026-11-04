@@ -1,7 +1,9 @@
 package com.nuvio.app.features.player.skip
 
+import com.nuvio.app.features.addons.RawHttpResponse
 import com.nuvio.app.features.addons.httpGetText
 import com.nuvio.app.features.addons.httpRequestRaw
+import com.nuvio.app.features.mdblist.retryAfterEpochMs
 import com.nuvio.app.features.player.MarkDurationSlopSec
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.SerialName
@@ -123,9 +125,17 @@ internal object TheIntroDb {
     var lastListError: String? = null
         private set
 
-    /** Why the last [submitTimestamp] failed, or null when it went through. */
+    /** Why the last [submitTimestamp] failed, or null when it went through or was already submitted. */
     var lastSubmitError: String? = null
         private set
+
+    /** Epoch millis until which further submits are refused after HTTP 429. In memory only. */
+    private var submitBlockedUntilEpochMs: Long = 0L
+
+    internal fun resetSubmitGateForTest() {
+        submitBlockedUntilEpochMs = 0L
+        lastSubmitError = null
+    }
 
     /**
      * This account's submissions: for one title when [tmdbId] is given (callers keep the rows of the
@@ -195,14 +205,14 @@ internal object TheIntroDb {
     }
 
     /** A plain message for a failed call: TheIntroDB's own `error` text when it sends one. */
-    private fun errorMessage(response: com.nuvio.app.features.addons.RawHttpResponse?): String {
+    private fun errorMessage(response: RawHttpResponse?): String {
         if (response == null) return "Couldn't reach TheIntroDB"
         val reason = runCatching { json.decodeFromString<TheIntroDbError>(response.body).error }.getOrNull()
             ?.takeIf { it.isNotBlank() }
         return when (response.status) {
             401, 403 -> "TheIntroDB refused the API key" + (reason?.let { ": $it" } ?: "")
             404 -> "TheIntroDB doesn't offer this (404)"
-            429 -> "TheIntroDB limit reached, try again later"
+            429 -> TheIntroDbRateLimitMessage
             else -> "TheIntroDB error ${response.status}" + (reason?.let { ": $it" } ?: "")
         }
     }
@@ -218,8 +228,13 @@ internal object TheIntroDb {
         startSec: Double?,
         endSec: Double?,
         videoDurationMs: Long? = null,
-    ): Boolean {
-        if (apiKey.isBlank()) return false
+        tvdbEpisodeId: Long? = null,
+        mapping: String? = null,
+        nowEpochMs: Long = kotlin.time.Clock.System.now().toEpochMilliseconds(),
+        transport: (suspend (method: String, url: String, apiKey: String, body: String) -> RawHttpResponse?)? = null,
+    ): TheIntroDbSubmitResult {
+        if (apiKey.isBlank()) return failSubmit("")
+        if (submitBlockedUntilEpochMs > nowEpochMs) return failSubmit(TheIntroDbRateLimitMessage)
         val body = theIntroDbSubmitPayload(
             tmdbId = tmdbId,
             imdbId = imdbId,
@@ -230,19 +245,79 @@ internal object TheIntroDb {
             startSec = startSec,
             endSec = endSec,
             videoDurationMs = videoDurationMs,
-        ) ?: return false
-        lastSubmitError = null
-        val response = authorizedRequest("POST", SUBMIT_URL, apiKey, body)
-        if (response != null && response.status in 200..299) return true
-        lastSubmitError = errorMessage(response)
-        return false
+            tvdbEpisodeId = tvdbEpisodeId,
+            mapping = mapping,
+        ) ?: return failSubmit("")
+        val response = try {
+            if (transport != null) {
+                transport("POST", SUBMIT_URL, apiKey, body)
+            } else {
+                authorizedRequest("POST", SUBMIT_URL, apiKey, body)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+        return when {
+            response != null && response.status in 200..299 -> {
+                lastSubmitError = null
+                TheIntroDbSubmitResult.Accepted
+            }
+            response?.status == 409 -> {
+                lastSubmitError = null
+                TheIntroDbSubmitResult.AlreadySubmitted
+            }
+            response?.status == 429 -> {
+                submitBlockedUntilEpochMs = theIntroDbRateLimitUntilEpochMs(response.headers, nowEpochMs)
+                failSubmit(TheIntroDbRateLimitMessage)
+            }
+            else -> failSubmit(errorMessage(response))
+        }
     }
+
+    private fun failSubmit(message: String): TheIntroDbSubmitResult.Failed {
+        lastSubmitError = message.takeIf { it.isNotBlank() }
+        return TheIntroDbSubmitResult.Failed(message)
+    }
+}
+
+internal sealed interface TheIntroDbSubmitResult {
+    data object Accepted : TheIntroDbSubmitResult
+    data object AlreadySubmitted : TheIntroDbSubmitResult
+    data class Failed(val message: String) : TheIntroDbSubmitResult
+}
+
+internal const val TheIntroDbAlreadySubmittedMessage = "Already submitted"
+internal const val TheIntroDbRateLimitMessage = "TheIntroDB limit reached, try again later"
+internal const val TheIntroDbMinVideoDurationMs = 300_000L
+internal const val TheIntroDbMaxVideoDurationMs = 21_600_000L
+
+/**
+ * Retry-After is seconds (or an HTTP date). X-UsageLimit-Reset is an epoch second,
+ * or a small delay in seconds. The later of the two wins, matching the MdbList client.
+ */
+internal fun theIntroDbRateLimitUntilEpochMs(headers: Map<String, String>, nowEpochMs: Long): Long {
+    fun header(name: String): String? =
+        headers.entries.firstOrNull { it.key.equals(name, ignoreCase = true) }?.value?.trim()?.takeIf { it.isNotEmpty() }
+    val retryAt = header("Retry-After")?.let { retryAfterEpochMs(it, nowEpochMs) }
+    val resetAt = header("X-UsageLimit-Reset")?.let { raw ->
+        val number = raw.toLongOrNull()
+        when {
+            number == null -> retryAfterEpochMs(raw, nowEpochMs)
+            number >= 1_000_000_000L -> number * 1_000L
+            number >= 0L -> nowEpochMs + number * 1_000L
+            else -> null
+        }
+    }
+    return maxOf(nowEpochMs + 1_000L, retryAt ?: resetAt ?: (nowEpochMs + 60_000L))
 }
 
 /**
  * Body for `POST /v4/submit` (tmdb_id addresses the media; the server resolves the TVDB id).
- * A segment that is not in the media is `start_ms` 0 and `end_ms` 0.
- * `video_duration_ms` stays the real stream length when it is known.
+ * An empty start on intro/recap means from 0. An empty end on credits/preview means through
+ * the end of the file. Both empty (or 0 and 0) is the none vote and omits both time keys.
+ * `video_duration_ms` is sent only inside 5 min..6 h.
  */
 internal fun theIntroDbSubmitPayload(
     tmdbId: Int,
@@ -254,6 +329,8 @@ internal fun theIntroDbSubmitPayload(
     startSec: Double? = null,
     endSec: Double? = null,
     videoDurationMs: Long? = null,
+    tvdbEpisodeId: Long? = null,
+    mapping: String? = null,
 ): String? {
     if (tmdbId <= 0) return null
     val normalizedType = if (type.equals("movie", ignoreCase = true)) "movie" else "tv"
@@ -264,6 +341,8 @@ internal fun theIntroDbSubmitPayload(
         "preview" -> "preview"
         else -> return null
     }
+    val noneVote = theIntroDbTimesAreNoneVote(startSec, endSec)
+    val reportDuration = theIntroDbReportableDurationMs(videoDurationMs)
     return buildJsonObject {
         put("tmdb_id", tmdbId)
         if (!imdbId.isNullOrBlank()) put("imdb_id", imdbId)
@@ -273,12 +352,84 @@ internal fun theIntroDbSubmitPayload(
             if (season != null) put("season", season)
             if (episode != null) put("episode", episode)
         }
-        if (videoDurationMs != null && videoDurationMs > 0) {
-            put("video_duration_ms", videoDurationMs)
+        if (reportDuration != null) put("video_duration_ms", reportDuration)
+        if (!noneVote) {
+            if (!theIntroDbOmitStartMs(normalizedSegment, startSec) && startSec != null) {
+                put("start_ms", (startSec * 1000.0).toLong())
+            }
+            if (!theIntroDbOmitEndMs(normalizedSegment, endSec, videoDurationMs) && endSec != null) {
+                put("end_ms", theIntroDbEndMs(endSec, videoDurationMs))
+            }
         }
-        if (startSec != null) put("start_ms", (startSec * 1000.0).toLong())
-        if (endSec != null) put("end_ms", theIntroDbEndMs(endSec, videoDurationMs))
+        if (tvdbEpisodeId != null && tvdbEpisodeId > 0L) put("tvdb_episode_id", tvdbEpisodeId)
+        if (mapping == "absolute") put("mapping", mapping)
     }.toString()
+}
+
+internal fun theIntroDbReportableDurationMs(videoDurationMs: Long?): Long? =
+    videoDurationMs?.takeIf { it in TheIntroDbMinVideoDurationMs..TheIntroDbMaxVideoDurationMs }
+
+/** Both clocks empty, including the 0/0 none chip, is "this media has none of this type". */
+internal fun theIntroDbTimesAreNoneVote(startSec: Double?, endSec: Double?): Boolean =
+    (startSec == null && endSec == null) || (startSec == 0.0 && endSec == 0.0)
+
+private fun theIntroDbOmitStartMs(segment: String, startSec: Double?): Boolean {
+    if (startSec == null) return true
+    if (segment != "intro" && segment != "recap") return false
+    return startSec <= 0.0
+}
+
+private fun theIntroDbOmitEndMs(segment: String, endSec: Double?, videoDurationMs: Long?): Boolean {
+    if (endSec == null) return true
+    if (segment != "credits" && segment != "preview") return false
+    val durationMs = videoDurationMs?.takeIf { it > 0L } ?: return false
+    val deltaSec = endSec - (durationMs / 1000.0)
+    return deltaSec >= -0.2 && deltaSec <= MarkDurationSlopSec
+}
+
+internal data class TheIntroDbEpisodeFields(
+    val tvdbEpisodeId: Long? = null,
+    val mapping: String? = null,
+)
+
+/** Kitsu, MAL, and AniList ids number episodes absolutely. Anything else stays on TVDB default. */
+internal fun theIntroDbNumberingIsAbsolute(videoId: String?): Boolean {
+    val id = videoId.orEmpty()
+    return id.startsWith("kitsu:") || id.startsWith("mal:") || id.startsWith("anilist:")
+}
+
+internal fun theIntroDbSimklSource(videoId: String?, imdbId: String?): Pair<String, String>? {
+    val video = videoId.orEmpty()
+    val prefixed = listOf("kitsu", "mal", "anilist").firstOrNull { video.startsWith("$it:") }
+    if (prefixed != null) {
+        val id = video.removePrefix("$prefixed:").substringBefore(':').trim()
+        if (id.isNotEmpty()) return prefixed to id
+    }
+    val imdb = imdbId?.trim().orEmpty()
+    if (imdb.startsWith("tt", ignoreCase = true)) return "imdb" to imdb
+    return null
+}
+
+internal fun theIntroDbEpisodeFields(
+    videoId: String?,
+    isMovie: Boolean,
+    season: Int?,
+    episode: Int?,
+    mappings: List<SimklIdResolver.EpisodeMapping>,
+): TheIntroDbEpisodeFields {
+    if (isMovie) return TheIntroDbEpisodeFields()
+    val absolute = theIntroDbNumberingIsAbsolute(videoId)
+    val matched = mappings.firstOrNull { row ->
+        season != null && episode != null && row.tvdbSeason == season && row.tvdbEpisode == episode
+    } ?: if (absolute && episode != null && episode > 0) {
+        mappings.firstOrNull { row -> row.animeEpisode == episode }
+    } else {
+        null
+    }
+    return TheIntroDbEpisodeFields(
+        tvdbEpisodeId = matched?.tvdbEpisodeId?.takeIf { it > 0L },
+        mapping = if (absolute) "absolute" else null,
+    )
 }
 
 /**
