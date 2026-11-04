@@ -3,8 +3,10 @@ package com.nuvio.app.core.ui
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -93,44 +95,48 @@ private fun OfflineBannerStrip(
     val textColor = MaterialTheme.nuvio.colors.textPrimary
     Box(
         modifier = Modifier
-            .fillMaxWidth()
+            .width(scene.bannerWidthDp.dp)
             .height(scene.bannerHeightDp.dp)
             .graphicsLayer {
                 alpha = scene.bannerAlpha
                 translationY = scene.bannerSlideDp.dp.toPx()
-            },
+            }
+            .background(color),
     ) {
-        if (scene.statusInsetDp > 0f) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(scene.statusInsetDp.dp)
-                    .background(color),
-            )
-        }
-        if (scene.label.width > 0f) {
-            Box(
-                modifier = Modifier
-                    .padding(start = scene.label.left.dp, top = scene.label.top.dp)
-                    .width(scene.label.width.dp)
-                    .height(scene.label.height.dp)
-                    .background(color)
-                    .clickable(enabled = scene.bannerAlpha > 0.2f) { onOfflineBannerTap(onRecheck) }
-                    .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = label,
+        val textStart = scene.label.left.dp
+        val textEnd = (scene.bannerWidthDp - scene.label.right).coerceAtLeast(0f).dp
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = scene.label.top.dp)
+                .height(scene.slimRowDp.dp)
+                .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+            contentAlignment = Alignment.Center,
+        ) {
+            if (scene.label.width > 0f) {
+                Box(
                     modifier = Modifier
+                        .padding(start = textStart, end = textEnd)
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = textColor,
-                    textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                        .fillMaxHeight()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            enabled = scene.bannerAlpha > 0.2f,
+                        ) { onOfflineBannerTap(onRecheck) },
                 )
             }
+            Text(
+                text = label,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = textStart, end = textEnd),
+                style = MaterialTheme.typography.labelLarge,
+                color = textColor,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

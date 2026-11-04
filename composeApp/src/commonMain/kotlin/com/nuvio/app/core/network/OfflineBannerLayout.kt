@@ -36,6 +36,8 @@ enum class OfflineBannerPhase {
 
 data class OfflineBannerChrome(
     val drawn: Boolean,
+    /** Opaque strip, from the left edge to the right edge. */
+    val backgroundWidthDp: Float,
     /** Overlay height: status inset plus one slim row. Not added to the page. */
     val backgroundHeightDp: Float,
     /** Extra page offset. Stays 0 online and offline so the poster does not jump. */
@@ -78,11 +80,13 @@ fun offlineBannerChrome(
     phase: OfflineBannerPhase,
     statusInsetDp: Float,
     fontScale: Float = 1f,
+    viewportWidthDp: Float = 390f,
 ): OfflineBannerChrome = offlineBannerScreenChrome(
     screen = OfflineBannerScreen.Home,
     phase = phase,
     statusInsetDp = statusInsetDp,
     fontScale = fontScale,
+    viewportWidthDp = viewportWidthDp,
 )
 
 /** Home and details read one scene. The page is not pushed down in either. */
@@ -91,6 +95,7 @@ fun offlineBannerScreenChrome(
     phase: OfflineBannerPhase,
     statusInsetDp: Float,
     fontScale: Float = 1f,
+    viewportWidthDp: Float = 390f,
 ): OfflineBannerChrome {
     val sample = offlinePhaseSample(phase)
     val scene = offlineScene(
@@ -100,9 +105,11 @@ fun offlineBannerScreenChrome(
         statusInsetDp = statusInsetDp,
         reduceMotion = false,
         fontScale = fontScale,
+        viewportWidthDp = viewportWidthDp,
     )
     return OfflineBannerChrome(
         drawn = scene.bannerDrawn,
+        backgroundWidthDp = scene.bannerWidthDp,
         backgroundHeightDp = scene.bannerHeightDp,
         contentTopOffsetDp = scene.contentTopOffsetDp,
         contentHeightDp = scene.slimRowDp,

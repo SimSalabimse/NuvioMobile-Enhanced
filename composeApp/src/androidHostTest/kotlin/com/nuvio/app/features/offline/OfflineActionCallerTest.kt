@@ -30,6 +30,7 @@ class OfflineActionCallerTest {
         assertTrue(bannerHost.contains("platformPhysicalTopInset("))
         assertTrue(bannerHost.contains("contentTopOffsetDp"))
         assertTrue(bannerHost.contains("bannerHeightDp"))
+        assertTrue(bannerHost.contains("bannerWidthDp"))
         assertTrue(!bannerHost.contains("padding(top = frame.topInsetDp"))
         assertTrue(bannerHost.contains("Animatable"))
         assertTrue(bannerHost.contains("finiteSpec()"))
