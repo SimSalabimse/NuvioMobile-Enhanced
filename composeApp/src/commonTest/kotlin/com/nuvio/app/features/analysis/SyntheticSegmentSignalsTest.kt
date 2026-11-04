@@ -252,6 +252,170 @@ class SyntheticSegmentSignalsTest {
     }
 
     @Test
+    fun plainIntroAndCreditsStayPrefilled() {
+        val plain = plainIntroAndCredits()
+        val none = SeasonSegmentDetector.detect(plain.episode, plain.others)
+        val quiet = encodeEnergyLevels(IntArray(24_000) { 40 })
+        val partial = IntArray(24_000) { 40 }
+        // Half of the intro window is loud. That is under the dialog fraction, so the times stay.
+        for (index in 900 until 1_100) partial[index] = 255
+        val withQuiet = SeasonSegmentDetector.detect(plain.episode.copy(energy = quiet), plain.others)
+        val withPartial = SeasonSegmentDetector.detect(
+            plain.episode.copy(energy = encodeEnergyLevels(partial)),
+            plain.others,
+        )
+        assertEquals(90_000L, none.introStartMs)
+        assertEquals(130_000L, none.introEndMs)
+        assertEquals(plain.episode.tailStartMs + 430_000L, none.creditsStartMs)
+        assertEquals(DURATION_MS, none.creditsEndMs)
+        assertEquals(none, withQuiet)
+        assertEquals(none, withPartial)
+        val stored = plain.episode.copy(
+            introStartMs = none.introStartMs,
+            introEndMs = none.introEndMs,
+            creditsStartMs = none.creditsStartMs,
+            creditsEndMs = none.creditsEndMs,
+        )
+        assertEquals(setOf("intro", "outro"), segmentTypesSyncedByAnalysis(stored))
+    }
+
+    @Test
+    fun sharedOpeningClipStaysIntroWhenTheChapterSaysCredits() {
+        val opening = sharedOpeningCredits()
+        val trace = SegmentTrace()
+        val found = SeasonSegmentDetector.detect(opening.episode, listOf(opening.other), trace = trace)
+        assertEquals(20_000L, found.introStartMs)
+        assertEquals(60_000L, found.introEndMs)
+        assertNull(found.creditsStartMs)
+        assertEquals("rejected-opening-credits", trace.decisions.single { it.type == "credits" }.why)
+        val chaptered = opening.episode.copy(
+            introStartMs = found.introStartMs,
+            introEndMs = found.introEndMs,
+        ).applyingChapterSegments(
+            chapters = listOf(FileChapter("Credits", 20_000L, 60_000L)),
+            durationMs = DURATION_MS,
+            protectedKinds = emptySet(),
+            introDetection = true,
+            recapDetection = true,
+        )
+        assertNull(chaptered.creditsStartMs)
+        assertEquals(20_000L, chaptered.introStartMs)
+        assertEquals(60_000L, chaptered.introEndMs)
+        assertTrue("intro" in chaptered.chapterTypes)
+        assertFalse("outro" in chaptered.chapterTypes)
+    }
+
+    @Test
+    fun highSpeechAcrossTheCandidateIsNotPrefilled() {
+        val plain = plainIntroAndCredits()
+        val introLevels = IntArray(24_000) { 40 }
+        for (index in 900 until 1_300) introLevels[index] = DIALOG_OVERLAY_LEVEL
+        val introTrace = SegmentTrace()
+        val introFound = SeasonSegmentDetector.detect(
+            plain.episode.copy(energy = encodeEnergyLevels(introLevels)),
+            plain.others,
+            trace = introTrace,
+        )
+        assertNull(introFound.introStartMs)
+        assertEquals(plain.episode.tailStartMs + 430_000L, introFound.creditsStartMs)
+        val introDecision = introTrace.decisions.single { it.type == "intro" }
+        assertFalse(introDecision.accepted)
+        assertEquals("rejected-dialog-overlay", introDecision.why)
+        assertEquals("low", introDecision.confidence)
+        assertNull(introDecision.startMs)
+        val introStored = plain.episode.copy(
+            creditsStartMs = introFound.creditsStartMs,
+            creditsEndMs = introFound.creditsEndMs,
+        )
+        assertFalse("intro" in segmentTypesSyncedByAnalysis(introStored))
+        assertTrue("outro" in segmentTypesSyncedByAnalysis(introStored))
+
+        val creditsStart = plain.episode.tailStartMs + 430_000L
+        val creditsLevels = IntArray(24_000) { 40 }
+        val from = (creditsStart / 100L).toInt()
+        for (index in from until 24_000) creditsLevels[index] = DIALOG_OVERLAY_LEVEL
+        val creditsTrace = SegmentTrace()
+        val creditsFound = SeasonSegmentDetector.detect(
+            plain.episode.copy(energy = encodeEnergyLevels(creditsLevels)),
+            plain.others,
+            trace = creditsTrace,
+        )
+        assertEquals(90_000L, creditsFound.introStartMs)
+        assertNull(creditsFound.creditsStartMs)
+        val creditsDecision = creditsTrace.decisions.single { it.type == "credits" }
+        assertFalse(creditsDecision.accepted)
+        assertEquals("rejected-dialog-overlay", creditsDecision.why)
+        assertEquals("low", creditsDecision.confidence)
+
+        val chapter = MediaAnalysisResult(
+            key = "chapter-loud",
+            analyzedAtMs = 0L,
+            durationMs = DURATION_MS,
+            energyStepMs = 100,
+            energy = encodeEnergyLevels(IntArray(1_300) { DIALOG_OVERLAY_LEVEL }),
+        )
+        val loudChapter = chapter.applyingChapterSegments(
+            chapters = listOf(FileChapter("Intro", 90_000L, 130_000L)),
+            durationMs = DURATION_MS,
+            protectedKinds = emptySet(),
+            introDetection = true,
+            recapDetection = true,
+        )
+        assertNull(loudChapter.introStartMs)
+        assertTrue(loudChapter.chapterTypes.isEmpty())
+        val quietChapter = chapter.copy(energy = encodeEnergyLevels(IntArray(1_300) { 40 })).applyingChapterSegments(
+            chapters = listOf(FileChapter("Intro", 90_000L, 130_000L)),
+            durationMs = DURATION_MS,
+            protectedKinds = emptySet(),
+            introDetection = true,
+            recapDetection = true,
+        )
+        assertEquals(90_000L, quietChapter.introStartMs)
+        assertEquals(130_000L, quietChapter.introEndMs)
+    }
+
+    @Test
+    fun introAtZeroWhileSiblingsStartLaterIsNotPrefilled() {
+        val onlyCold = coldOpenAtZero(siblingIntroMs = 90_000L)
+        val trace = SegmentTrace()
+        val found = SeasonSegmentDetector.detect(onlyCold.episode, onlyCold.others, trace = trace)
+        assertNull(found.introStartMs)
+        assertNull(found.introEndMs)
+        val decision = trace.decisions.single { it.type == "intro" }
+        assertFalse(decision.accepted)
+        assertEquals("rejected-cold-open", decision.why)
+        assertEquals("low", decision.confidence)
+        assertFalse("intro" in segmentTypesSyncedByAnalysis(onlyCold.episode))
+
+        val withTheme = coldOpenThenTheme()
+        val themed = SeasonSegmentDetector.detect(withTheme.episode, withTheme.others)
+        assertEquals(250_000L, themed.introStartMs)
+        assertEquals(290_000L, themed.introEndMs)
+
+        val atStart = coldOpenAtZero(siblingIntroMs = 0L)
+        val kept = SeasonSegmentDetector.detect(atStart.episode, atStart.others)
+        assertEquals(0L, kept.introStartMs)
+        assertEquals(80_000L, kept.introEndMs)
+    }
+
+    @Test
+    fun speechEnergyFiresOnlyWhenMostOfTheRangeIsLoud() {
+        val span = 100
+        val levels = IntArray(span)
+        val justUnder = span * DIALOG_OVERLAY_MIN_PERCENT / 100 - 1
+        for (index in 0 until justUnder) levels[index] = DIALOG_OVERLAY_LEVEL
+        assertFalse(speechEnergyHigh(encodeEnergyLevels(levels), 100, 0L, span * 100L))
+        levels[justUnder] = DIALOG_OVERLAY_LEVEL
+        assertTrue(speechEnergyHigh(encodeEnergyLevels(levels), 100, 0L, span * 100L))
+        assertFalse(speechEnergyHigh(null, 100, 0L, 20_000L))
+        assertFalse(coldOpenLikely(0L, emptyList()))
+        assertTrue(isOpeningCreditsRange(0L, 60_000L, DURATION_MS))
+        assertFalse(isOpeningCreditsRange(2_310_000L, DURATION_MS, DURATION_MS))
+        val short = 15 * 60_000L
+        assertFalse(isOpeningCreditsRange(6 * 60_000L, short, short))
+    }
+
+    @Test
     fun cachedPriorsReadAPlaybackHitAndDoNotAskTheNetwork() {
         val durationMs = DURATION_MS
         val key = "tt0000001:1:2:$durationMs"
@@ -392,6 +556,78 @@ class SyntheticSegmentSignalsTest {
         val nextHead = noise(131, HEAD_FRAMES).also { pattern(111, 60).copyInto(it, 0) }
         val next = built.others.single().copy(headFingerprint = encodeFingerprint(nextHead), introStartMs = 6_000L, introEndMs = 46_000L)
         return Group(moved, listOf(next))
+    }
+
+    private fun plainIntroAndCredits(): Group {
+        val theme = pattern(71, 400)
+        val credits = pattern(72, 500)
+        fun head(seed: Int): IntArray {
+            val frames = noise(seed, HEAD_FRAMES)
+            theme.copyInto(frames, 900)
+            return frames
+        }
+        fun tail(seed: Int): IntArray {
+            val frames = noise(seed, TAIL_FRAMES)
+            credits.copyInto(frames, 4_300)
+            return frames
+        }
+        return Group(
+            episode = fingerprinted("plain__s1e1", head(1), tail(2)),
+            others = listOf(fingerprinted("plain__s1e2", head(3), tail(4))),
+        )
+    }
+
+    /** Shared opening clip, with the tail window covering the start the way a short file does. */
+    private fun sharedOpeningCredits(): PairEpisodes {
+        val clip = pattern(81, 400)
+        fun head(seed: Int): IntArray {
+            val frames = noise(seed, HEAD_FRAMES)
+            clip.copyInto(frames, 200)
+            return frames
+        }
+        fun tail(seed: Int): IntArray {
+            val frames = noise(seed + 50, TAIL_FRAMES)
+            clip.copyInto(frames, 200)
+            return frames
+        }
+        return PairEpisodes(
+            episode = fingerprinted("open__s1e1", head(1), tail(2)).copy(tailStartMs = 0L),
+            other = fingerprinted("open__s1e2", head(3), tail(4)).copy(tailStartMs = 0L),
+        )
+    }
+
+    private fun coldOpenAtZero(siblingIntroMs: Long): Group {
+        val flash = pattern(91, 800)
+        fun head(seed: Int): IntArray {
+            val frames = noise(seed, HEAD_FRAMES)
+            flash.copyInto(frames, 0)
+            return frames
+        }
+        return Group(
+            episode = fingerprinted("zero__s1e1", head(1), noise(2, TAIL_FRAMES)),
+            others = (2..4).map { index ->
+                fingerprinted("zero__s1e$index", head(10 + index), noise(20 + index, TAIL_FRAMES))
+                    .copy(introStartMs = siblingIntroMs, introEndMs = siblingIntroMs + 40_000L)
+            },
+        )
+    }
+
+    private fun coldOpenThenTheme(): Group {
+        val flash = pattern(93, 800)
+        val theme = pattern(94, 400)
+        fun head(seed: Int): IntArray {
+            val frames = noise(seed, HEAD_FRAMES)
+            flash.copyInto(frames, 0)
+            theme.copyInto(frames, 2_500)
+            return frames
+        }
+        return Group(
+            episode = fingerprinted("both__s1e1", head(1), noise(2, TAIL_FRAMES)),
+            others = (2..4).map { index ->
+                fingerprinted("both__s1e$index", head(10 + index), noise(20 + index, TAIL_FRAMES))
+                    .copy(introStartMs = 250_000L, introEndMs = 290_000L)
+            },
+        )
     }
 
     private fun sharedCredits(): PairEpisodes {
