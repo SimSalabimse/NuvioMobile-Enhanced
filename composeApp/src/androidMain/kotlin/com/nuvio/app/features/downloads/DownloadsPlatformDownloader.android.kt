@@ -220,6 +220,9 @@ internal actual object DownloadsPlatformDownloader {
     actual fun retryCount(downloadId: String): Int =
         managedTransfers().firstOrNull { it.item.id == downloadId }?.retryCount ?: 0
 
+    /** The transfer sets [AndroidDownloadTransfer.retryCount] back to 0 when bytes increase. */
+    actual fun bytesAtLastFailure(downloadId: String): Long? = null
+
     actual fun finishPartialPlayback(downloadId: String): String? {
         val finished = finishAndroidPartialFile(downloadId) ?: return null
         val tree = finished.exportTreeUri?.takeIf { it.isNotBlank() }

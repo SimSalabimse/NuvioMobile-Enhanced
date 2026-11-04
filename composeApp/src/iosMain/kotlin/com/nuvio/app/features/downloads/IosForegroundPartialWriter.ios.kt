@@ -304,6 +304,13 @@ internal object IosDownloadRetries {
         return value
     }
 
+    fun bytesAtLastFailure(downloadId: String): Long? {
+        lock.lock()
+        val value = tracker.bytesAtLastFailure(downloadId)
+        lock.unlock()
+        return value
+    }
+
     /** Only a row that is still meant to be downloading comes back. */
     fun stillWanted(downloadId: String): Boolean =
         !IosTransferControl.isSuppressed(downloadId) &&

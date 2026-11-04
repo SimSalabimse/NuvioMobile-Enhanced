@@ -89,13 +89,52 @@ class DownloadSlowReasonTest {
     fun retrying() {
         assertEquals(
             DownloadSlowReason.Retrying,
-            downloadSlowReason(signals(status = DownloadStatus.Downloading, retryCount = 1)),
+            downloadSlowReason(
+                signals(
+                    status = DownloadStatus.Downloading,
+                    retryCount = 1,
+                    downloadedBytes = 100,
+                    bytesAtLastFailure = 100,
+                ),
+            ),
+        )
+        assertNull(
+            downloadSlowReason(
+                signals(
+                    status = DownloadStatus.Downloading,
+                    retryCount = 1,
+                    downloadedBytes = 101,
+                    bytesAtLastFailure = 100,
+                ),
+            ),
         )
         assertEquals(
             DownloadSlowReason.Retrying,
-            downloadSlowReason(signals(status = DownloadStatus.Queued, retryCount = 2)),
+            downloadSlowReason(
+                signals(
+                    status = DownloadStatus.Queued,
+                    retryCount = 2,
+                    downloadedBytes = 500,
+                    bytesAtLastFailure = 100,
+                ),
+            ),
         )
-        assertNull(downloadSlowReason(signals(status = DownloadStatus.Downloading, retryCount = 0)))
+        assertNull(
+            downloadSlowReason(
+                signals(
+                    status = DownloadStatus.Downloading,
+                    retryCount = 0,
+                    downloadedBytes = 100,
+                    bytesAtLastFailure = 100,
+                ),
+            ),
+        )
+        assertEquals(
+            DownloadSlowReason.Retrying,
+            downloadSlowReason(
+                signals(status = DownloadStatus.Downloading, retryCount = 1, downloadedBytes = 4_200L),
+            ),
+        )
     }
 
     @Test
@@ -184,6 +223,8 @@ class DownloadSlowReasonTest {
         onWifi: Boolean = true,
         thermalBlocks: Boolean = false,
         retryCount: Int = 0,
+        downloadedBytes: Long = 0L,
+        bytesAtLastFailure: Long? = null,
     ) = DownloadSlowSignals(
         status = status,
         pauseWhileWatching = pauseWhileWatching,
@@ -195,5 +236,7 @@ class DownloadSlowReasonTest {
         onWifi = onWifi,
         thermalBlocks = thermalBlocks,
         retryCount = retryCount,
+        downloadedBytes = downloadedBytes,
+        bytesAtLastFailure = bytesAtLastFailure,
     )
 }

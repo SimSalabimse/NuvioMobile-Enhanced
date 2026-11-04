@@ -51,4 +51,17 @@ internal class DownloadRetryTracker(
 
     /** Retries already counted for [downloadId], or 0 when it has not failed. */
     fun attempts(downloadId: String): Int = states[downloadId]?.attempts ?: 0
+
+    /** Bytes kept when the last retry of [downloadId] was counted, or null when it has not failed. */
+    fun bytesAtLastFailure(downloadId: String): Long? = states[downloadId]?.bytesAtLastFailure
+
+    /**
+     * True once [currentBytes] is past the bytes kept at the last counted failure.
+     * No failure on record counts as moved. The attempt count stays until the next failure
+     * makes real progress, or the download is finished or cancelled.
+     */
+    fun movedPastLastFailure(downloadId: String, currentBytes: Long): Boolean {
+        val atFailure = states[downloadId]?.bytesAtLastFailure ?: return true
+        return currentBytes > atFailure
+    }
 }
