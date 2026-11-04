@@ -90,7 +90,7 @@ class ChapterSkipClassifierTest {
         assertEquals(ChapterSkipKind.Intro, segment("Intro", 0L, 6 * 60_000L)?.kind)
         val short = 10 * 60_000L
         assertNull(segment("Intro", 5 * 60_000L, 5 * 60_000L + 30_000L, short), "intro past 40% of a short runtime")
-        assertNull(segment("Credits", 0L, 60_000L), "credits at the start")
+        assertEquals(ChapterSkipKind.Intro, segment("Credits", 0L, 60_000L)?.kind, "opening credits are the intro")
         assertNull(segment("Credits", runtimeMs * 3 / 10, runtimeMs * 3 / 10 + 60_000L), "credits in the first 40%")
         assertEquals(
             ChapterSkipKind.Credits,
@@ -106,6 +106,20 @@ class ChapterSkipClassifierTest {
         assertNull(segment("Preview", 60_000L, 90_000L), "preview near the start")
         assertNull(segment("Credits", 2_310_000L, runtimeMs, durationMs = 0L), "credits with no runtime")
         assertEquals(ChapterSkipKind.Intro, segment("Intro", 0L, 30_000L, durationMs = 0L)?.kind)
+    }
+
+    @Test
+    fun openingCreditsAreIntroAndEndCreditsOnAShortEpisodeStayCredits() {
+        assertEquals(ChapterSkipKind.Intro, segment("Credits", 0L, 60_000L)?.kind)
+        assertEquals(0L, segment("Credits", 0L, 60_000L)?.startMs)
+        assertEquals(60_000L, segment("Credits", 0L, 60_000L)?.endMs)
+        val short = 15 * 60_000L
+        assertEquals(
+            ChapterSkipKind.Credits,
+            segment("Credits", 6 * 60_000L, short, short)?.kind,
+            "end credits that start inside 10 minutes on a short episode",
+        )
+        assertNull(segment("Credits", 0L, 7 * 60_000L), "opening credits longer than an intro are not credits either")
     }
 
     @Test

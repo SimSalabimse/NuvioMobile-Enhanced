@@ -69,18 +69,25 @@ internal data class ChapterSegment(
  * Ranges that cannot be a real segment are dropped: empty or negative, an intro longer than
  * 6 minutes or starting late, credits that begin in the first 40% of the runtime or that do not
  * finish near the end, a recap that is not at the start, a preview that is not near the end.
+ *
+ * Dual credits: a credits title on an opening clip (first 10 minutes, and not the ending) is
+ * the intro. Opening credits never become a credits segment. End credits that finish the file
+ * stay credits, including when a short episode's ending begins inside those 10 minutes.
  */
 internal fun classifyChapters(chapters: List<FileChapter>, durationMs: Long): List<ChapterSegment> {
     val resolved = chapters.resolveEnds(durationMs)
     val found = linkedMapOf<ChapterSkipKind, ChapterSegment>()
     for (chapter in resolved) {
-        val kind = chapterKind(chapter.title) ?: continue
-        if (kind in found) continue
+        var kind = chapterKind(chapter.title) ?: continue
         val end = if (durationMs > 0L && chapter.endMs > durationMs && chapter.endMs - durationMs <= END_SLACK_MS) {
             durationMs
         } else {
             chapter.endMs
         }
+        if (kind == ChapterSkipKind.Credits && isOpeningCreditsRange(chapter.startMs, end, durationMs)) {
+            kind = ChapterSkipKind.Intro
+        }
+        if (kind in found) continue
         val segment = ChapterSegment(kind, chapter.startMs, end)
         if (!segment.plausible(durationMs, found[ChapterSkipKind.Intro], found[ChapterSkipKind.Credits])) continue
         found[kind] = segment
@@ -122,6 +129,12 @@ internal fun MediaAnalysisResult.applyingChapterSegments(
         val key = segment.kind.storageKey
         val enabled = if (segment.kind == ChapterSkipKind.Recap) recapDetection else introDetection
         if (!enabled || key in protectedKinds) continue
+        // Loud across most of the range: keep the chapter from prefilling. No energy track, no change.
+        if ((segment.kind == ChapterSkipKind.Intro || segment.kind == ChapterSkipKind.Credits) &&
+            speechEnergyHigh(energy, energyStepMs, segment.startMs, segment.endMs)
+        ) {
+            continue
+        }
         out = when (segment.kind) {
             ChapterSkipKind.Intro -> out.copy(introStartMs = segment.startMs, introEndMs = segment.endMs)
             ChapterSkipKind.Recap -> out.copy(recapStartMs = segment.startMs, recapEndMs = segment.endMs)
