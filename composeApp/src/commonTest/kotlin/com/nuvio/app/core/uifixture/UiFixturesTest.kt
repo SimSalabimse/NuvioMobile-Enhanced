@@ -59,6 +59,28 @@ class UiFixturesTest {
     }
 
     @Test
+    fun submitBarFixtureAcceptsAWidthSuffixAndTheLongVariant() {
+        assertEquals(UiFixture.PlayerSubmitBar, parseUiFixtureLaunch("player-submit-bar"))
+        assertEquals(UiFixture.PlayerSubmitBar, parseUiFixtureLaunch("player-submit-bar@667"))
+        assertEquals(UiFixture.PlayerSubmitBar, parseUiFixtureLaunch("$UI_FIXTURE_ARGUMENT player-submit-bar@844"))
+        assertEquals(844, parseUiFixtureRequest("player-submit-bar@844")?.widthDp)
+        assertEquals(667, parseUiFixtureRequest("$UI_FIXTURE_ARGUMENT=player-submit-bar@667")?.widthDp)
+        assertNull(parseUiFixtureRequest("player-submit-bar")?.widthDp)
+        assertEquals(UiFixture.PlayerSubmitBarLong, parseUiFixtureLaunch("player-submit-bar-long"))
+        assertEquals(932, parseUiFixtureRequest("player-submit-bar-long@932")?.widthDp)
+        assertEquals(844, UiFixture.PlayerSubmitBar.resolvedSubmitBarWidthDp(null))
+        assertEquals(667, UiFixture.PlayerSubmitBar.resolvedSubmitBarWidthDp(667))
+        assertEquals(667, UiFixture.PlayerSubmitBarLong.resolvedSubmitBarWidthDp(null))
+        assertNull(parseUiFixtureLaunch("player-submit-bar@wide"))
+        assertNull(parseUiFixtureLaunch("home-online@844"))
+        assertNull(parseUiFixtureLaunch("player-submit-bar@0"))
+        val decision = decideUiFixture(isDebugBinary = true) { "player-submit-bar@932" }
+        assertEquals(UiFixture.PlayerSubmitBar, decision.fixture)
+        assertEquals(932, decision.widthDp)
+        assertEquals("player-submit-bar", decision.status)
+    }
+
+    @Test
     fun connectivityWordsMatchTheScript() {
         assertEquals(true, parseConnectivityWord("online"))
         assertEquals(true, parseConnectivityWord(" ONLINE\n"))

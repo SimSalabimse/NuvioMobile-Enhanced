@@ -22,7 +22,9 @@ CONNECTIVITY_FILE="nuvio-ui-connectivity.txt"
 # launch only, so the first-run diagnostics sheet does not cover the screenshot.
 EXTRA_LAUNCH_ARGS=(-NuvioDiagnosticsIntroSeen YES)
 # Keep ALL_STATES in the same order as UiFixture.wireName.
-ALL_STATES="home-online,home-offline,details-online,details-offline,details-movie-offline,downloads,long-titles,smart-downloads"
+# @dp suffixes are the same fixture at a fixed width. They are listed because
+# known_state matches the launch string exactly.
+ALL_STATES="home-online,home-offline,details-online,details-offline,details-movie-offline,downloads,long-titles,smart-downloads,player-submit-bar,player-submit-bar@667,player-submit-bar@844,player-submit-bar@932,player-submit-bar-long"
 DEFAULT_DEVICES="iPhone 18 Pro,iPhone 17e"
 TRANSITION_FIXTURE="home-offline"
 TRANSITION_ONLINE_SECONDS=2

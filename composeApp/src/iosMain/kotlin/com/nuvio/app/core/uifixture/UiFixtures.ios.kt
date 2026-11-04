@@ -29,7 +29,11 @@ actual fun activeUiFixture(): UiFixture? {
         }
         raw
     }
-    decision.fixture?.let { fixture -> println("[ui-fixture] ${fixture.wireName}") }
+    UiFixtureSession.submitBarWidthDp = decision.widthDp
+    decision.fixture?.let { fixture ->
+        val width = decision.widthDp?.let { "@$it" }.orEmpty()
+        println("[ui-fixture] ${fixture.wireName}$width")
+    }
     return decision.fixture
 }
 

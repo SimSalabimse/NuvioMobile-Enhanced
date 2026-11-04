@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -34,7 +35,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -48,8 +51,10 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -121,6 +126,33 @@ private val BarShape = RoundedCornerShape(22.dp)
 private const val PopoverHeightDp = 40f
 private const val PopoverGapDp = 6f
 private const val PopoverWidthDp = 292f
+
+internal const val SubmitBarScrollTag = "submitBarScroll"
+internal const val SubmitBarScrollContentTag = "submitBarScrollContent"
+internal const val SubmitBarSubmitTag = "submitBarSubmit"
+internal const val SubmitBarCloseTag = "submitBarClose"
+
+/**
+ * Optional copy for the debug fixture. Null keeps the string resources.
+ * Production never sets this.
+ */
+internal data class SubmitBarLabels(
+    val intro: String,
+    val recap: String,
+    val credits: String,
+    val preview: String,
+    val start: String,
+    val end: String,
+    val noneIntro: String,
+    val noneRecap: String,
+    val noneCredits: String,
+    val nonePreview: String,
+    val playRange: String,
+    val submit: String,
+    val runsToEnd: String,
+)
+
+private val LocalSubmitBarLabels = staticCompositionLocalOf<SubmitBarLabels?> { null }
 
 @Composable
 internal fun SubtitleSyncStrip(
@@ -221,8 +253,10 @@ internal fun SegmentMarkingLayer(
     onRunsToEnd: () -> Unit = {},
     onPreview: () -> Unit = {},
     autoSyncedTypes: Set<String> = emptySet(),
+    labels: SubmitBarLabels? = null,
     modifier: Modifier = Modifier,
 ) {
+  CompositionLocalProvider(LocalSubmitBarLabels provides labels) {
     val range = markRangeStatus(segmentType, startSec, endSec, durationSec.takeIf { it > 0.0 })
     val timeOk = range.bothSet && range.problem == null
     val canSend = markSubmitEnabled(
@@ -241,7 +275,7 @@ internal fun SegmentMarkingLayer(
         sent -> stringResource(Res.string.player_tools_sent)
         absent && isMovie -> listOfNotNull(noneLabel, movieLabel, year).joinToString(" · ")
         absent -> listOfNotNull(noneLabel, episodeCode).joinToString(" · ")
-        else -> stringResource(Res.string.player_tools_submit)
+        else -> LocalSubmitBarLabels.current?.submit ?: stringResource(Res.string.player_tools_submit)
     }
     var popover by remember { mutableStateOf<MarkHandle?>(null) }
     LaunchedEffect(absent, markSegmentId(segmentType)) { popover = null }
@@ -304,7 +338,10 @@ internal fun SegmentMarkingLayer(
                         .height(PopoverHeightDp.dp),
                 )
             }
-            Row(
+            val labelOverrides = LocalSubmitBarLabels.current
+            val playRange = labelOverrides?.playRange ?: stringResource(Res.string.player_tools_play_range)
+            val runsToEndLabel = labelOverrides?.runsToEnd ?: stringResource(Res.string.submit_intro_end_short)
+            PinnedEndRow(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
@@ -314,120 +351,140 @@ internal fun SegmentMarkingLayer(
                     .border(1.dp, PlayerToolEdge, BarShape)
                     .consumeToolTaps()
                     .padding(horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                SegmentTabs(
-                    segmentType = segmentType,
-                    isMovie = isMovie,
-                    enabled = editable,
-                    submittedTypes = submittedTypes,
-                    chipHeight = chipHeight.dp,
-                    labelSize = labelSize,
-                    hPad = hPad,
-                    onSegment = onSegment,
-                )
-                if (markSegmentId(segmentType) in autoSyncedTypes) {
-                    AutoSyncedMarkChip(
-                        chipHeight = chipHeight.dp,
-                        labelSize = labelSize,
-                        hPad = hPad,
-                    )
-                }
-                if (!absent) {
-                    ClockChip(
-                        title = stringResource(Res.string.submit_intro_start_short),
-                        clock = startSec?.let { formatMarkClock(it, showTenth = startShowsTenth) }
-                            ?: stringResource(Res.string.player_tools_clock_empty),
-                        selected = activePopover == MarkHandle.Start,
-                        enabled = editable,
-                        chipHeight = chipHeight.dp,
-                        labelSize = labelSize,
-                        hPad = hPad,
-                        onClick = {
-                            popover = if (popover == MarkHandle.Start) null else MarkHandle.Start
-                        },
-                        modifier = Modifier.onGloballyPositioned { startWindowX = it.positionInWindow().x },
-                    )
-                    if (markSegmentOffersStartAtZero(segmentType)) {
-                        BarChip(
-                            label = "0:00",
-                            description = stringResource(Res.string.player_tools_starts_at_zero),
-                            enabled = editable,
-                            selected = false,
-                            chipHeight = chipHeight.dp,
-                            labelSize = labelSize,
-                            hPad = hPad,
-                            onClick = onStartAtZero,
-                        )
-                    }
-                    ClockChip(
-                        title = stringResource(Res.string.submit_intro_end_short),
-                        clock = endSec?.let { formatMarkClock(it, showTenth = endShowsTenth) }
-                            ?: stringResource(Res.string.player_tools_clock_empty),
-                        selected = activePopover == MarkHandle.End,
-                        enabled = editable,
-                        chipHeight = chipHeight.dp,
-                        labelSize = labelSize,
-                        hPad = hPad,
-                        onClick = {
-                            popover = if (popover == MarkHandle.End) null else MarkHandle.End
-                        },
-                        modifier = Modifier.onGloballyPositioned { endWindowX = it.positionInWindow().x },
-                    )
-                    if (markSegmentOffersRunsToEnd(segmentType)) {
-                        BarChip(
-                            label = stringResource(Res.string.submit_intro_end_short),
-                            description = stringResource(Res.string.player_tools_runs_to_end),
-                            enabled = editable && durationSec > 0.0,
-                            selected = markRunsToEndSelected(endSec, durationSec),
-                            chipHeight = chipHeight.dp,
-                            labelSize = labelSize,
-                            hPad = hPad,
-                            onClick = onRunsToEnd,
-                        )
-                    }
-                }
-                MarkStatus(
-                    range = range,
-                    segmentType = segmentType,
-                    segmentLabel = markSegmentLabel(segmentType),
-                    absent = absent,
-                    absentAllowed = absentAllowed,
-                    keyProblem = keyProblem,
-                    absentLine = absentLine,
-                    addKeyLabel = addKeyLabel,
-                    blockLine = blockLine,
-                    errorLine = errorLine,
-                    onAddKey = onAddKey,
-                    labelSize = labelSize,
-                    modifier = Modifier.weight(1f),
-                )
-                if (!absent) {
-                    Text(
-                        text = noneLabel,
-                        color = if (editable) NoneGold else Color.White.copy(alpha = 0.35f),
-                        fontSize = labelSize,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        softWrap = false,
+                // Chips, clocks, status, the none label, and Play range scroll.
+                // Submit and close are measured first and pinned to the end.
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag(SubmitBarScrollTag),
+                ) {
+                    Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable(enabled = editable, onClick = onAbsent)
-                            .padding(horizontal = hPad, vertical = 4.dp),
-                    )
+                            .fillMaxWidth()
+                            .fillMaxHeight()
+                            .horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(
+                            modifier = Modifier.testTag(SubmitBarScrollContentTag),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            SegmentTabs(
+                                segmentType = segmentType,
+                                isMovie = isMovie,
+                                enabled = editable,
+                                submittedTypes = submittedTypes,
+                                chipHeight = chipHeight.dp,
+                                labelSize = labelSize,
+                                hPad = hPad,
+                                onSegment = onSegment,
+                            )
+                            if (markSegmentId(segmentType) in autoSyncedTypes) {
+                                AutoSyncedMarkChip(
+                                    chipHeight = chipHeight.dp,
+                                    labelSize = labelSize,
+                                    hPad = hPad,
+                                )
+                            }
+                            if (!absent) {
+                                ClockChip(
+                                    title = labelOverrides?.start
+                                        ?: stringResource(Res.string.submit_intro_start_short),
+                                    clock = startSec?.let { formatMarkClock(it, showTenth = startShowsTenth) }
+                                        ?: stringResource(Res.string.player_tools_clock_empty),
+                                    selected = activePopover == MarkHandle.Start,
+                                    enabled = editable,
+                                    chipHeight = chipHeight.dp,
+                                    labelSize = labelSize,
+                                    hPad = hPad,
+                                    onClick = {
+                                        popover = if (popover == MarkHandle.Start) null else MarkHandle.Start
+                                    },
+                                    modifier = Modifier.onGloballyPositioned { startWindowX = it.positionInWindow().x },
+                                )
+                                if (markSegmentOffersStartAtZero(segmentType)) {
+                                    BarChip(
+                                        label = "0:00",
+                                        description = stringResource(Res.string.player_tools_starts_at_zero),
+                                        enabled = editable,
+                                        selected = false,
+                                        chipHeight = chipHeight.dp,
+                                        labelSize = labelSize,
+                                        hPad = hPad,
+                                        onClick = onStartAtZero,
+                                    )
+                                }
+                                ClockChip(
+                                    title = labelOverrides?.end
+                                        ?: stringResource(Res.string.submit_intro_end_short),
+                                    clock = endSec?.let { formatMarkClock(it, showTenth = endShowsTenth) }
+                                        ?: stringResource(Res.string.player_tools_clock_empty),
+                                    selected = activePopover == MarkHandle.End,
+                                    enabled = editable,
+                                    chipHeight = chipHeight.dp,
+                                    labelSize = labelSize,
+                                    hPad = hPad,
+                                    onClick = {
+                                        popover = if (popover == MarkHandle.End) null else MarkHandle.End
+                                    },
+                                    modifier = Modifier.onGloballyPositioned { endWindowX = it.positionInWindow().x },
+                                )
+                                if (markSegmentOffersRunsToEnd(segmentType)) {
+                                    BarChip(
+                                        label = runsToEndLabel,
+                                        description = stringResource(Res.string.player_tools_runs_to_end),
+                                        enabled = editable && durationSec > 0.0,
+                                        selected = markRunsToEndSelected(endSec, durationSec),
+                                        chipHeight = chipHeight.dp,
+                                        labelSize = labelSize,
+                                        hPad = hPad,
+                                        onClick = onRunsToEnd,
+                                    )
+                                }
+                            }
+                            MarkStatus(
+                                range = range,
+                                segmentType = segmentType,
+                                segmentLabel = markSegmentLabel(segmentType),
+                                absent = absent,
+                                absentAllowed = absentAllowed,
+                                keyProblem = keyProblem,
+                                absentLine = absentLine,
+                                addKeyLabel = addKeyLabel,
+                                blockLine = blockLine,
+                                errorLine = errorLine,
+                                onAddKey = onAddKey,
+                                labelSize = labelSize,
+                            )
+                            if (!absent) {
+                                Text(
+                                    text = noneLabel,
+                                    color = if (editable) NoneGold else Color.White.copy(alpha = 0.35f),
+                                    fontSize = labelSize,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable(enabled = editable, onClick = onAbsent)
+                                        .padding(horizontal = hPad, vertical = 4.dp),
+                                )
+                            }
+                            BarChip(
+                                label = playRange,
+                                description = playRange,
+                                enabled = markPlayRangeEnabled(absent, timeOk, submitting),
+                                selected = false,
+                                chipHeight = chipHeight.dp,
+                                labelSize = labelSize,
+                                hPad = hPad,
+                                onClick = onPreview,
+                            )
+                        }
+                    }
                 }
-                val playRange = stringResource(Res.string.player_tools_play_range)
-                BarChip(
-                    label = playRange,
-                    description = playRange,
-                    enabled = markPlayRangeEnabled(absent, timeOk, submitting),
-                    selected = false,
-                    chipHeight = chipHeight.dp,
-                    labelSize = labelSize,
-                    hPad = hPad,
-                    onClick = onPreview,
-                )
                 SubmitPill(
                     text = pillText,
                     enabled = canSend,
@@ -435,9 +492,11 @@ internal fun SegmentMarkingLayer(
                     labelSize = labelSize,
                     chipHeight = chipHeight.dp,
                     onClick = onSubmit,
+                    modifier = Modifier.testTag(SubmitBarSubmitTag),
                 )
                 Box(
                     modifier = Modifier
+                        .testTag(SubmitBarCloseTag)
                         .size(chipHeight.dp)
                         .clip(CircleShape)
                         .clickable(enabled = editable, onClick = onBack),
@@ -451,6 +510,50 @@ internal fun SegmentMarkingLayer(
                     )
                 }
             }
+        }
+    }
+  }
+}
+
+/**
+ * One row. The first child scrolls and may be wider than the space it is given.
+ * The second and third children (Submit, close) are pinned to the end and stay
+ * inside the row even when the scrolling child does not fit.
+ */
+@Composable
+private fun PinnedEndRow(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Layout(content = content, modifier = modifier) { measurables, constraints ->
+        val gap = 4.dp.roundToPx()
+        val maxWidth = constraints.maxWidth.coerceAtLeast(0)
+        val maxHeight = constraints.maxHeight.coerceAtLeast(0)
+        val closePlaceable = measurables[2].measure(
+            constraints.copy(minWidth = 0, minHeight = 0, maxWidth = maxWidth),
+        )
+        val submitMax = (maxWidth - closePlaceable.width - gap).coerceAtLeast(0)
+        val submitPlaceable = measurables[1].measure(
+            constraints.copy(minWidth = 0, minHeight = 0, maxWidth = submitMax),
+        )
+        val scrollWidth = (maxWidth - submitPlaceable.width - closePlaceable.width - gap * 2).coerceAtLeast(0)
+        val scrollPlaceable = measurables[0].measure(
+            Constraints(
+                minWidth = scrollWidth,
+                maxWidth = scrollWidth,
+                minHeight = 0,
+                maxHeight = maxHeight,
+            ),
+        )
+        layout(maxWidth, maxHeight) {
+            fun yOf(height: Int) = ((maxHeight - height) / 2).coerceAtLeast(0)
+            scrollPlaceable.placeRelative(0, yOf(scrollPlaceable.height))
+            val submitX = scrollWidth + gap
+            submitPlaceable.placeRelative(submitX, yOf(submitPlaceable.height))
+            closePlaceable.placeRelative(
+                submitX + submitPlaceable.width + gap,
+                yOf(closePlaceable.height),
+            )
         }
     }
 }
@@ -767,6 +870,7 @@ private fun SubmitPill(
     labelSize: androidx.compose.ui.unit.TextUnit,
     chipHeight: Dp,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val tokens = MaterialTheme.nuvio
     val shape = RoundedCornerShape(14.dp)
@@ -781,7 +885,7 @@ private fun SubmitPill(
         else -> Color.White.copy(alpha = 0.45f)
     }
     Box(
-        modifier = Modifier
+        modifier = modifier
             .height(chipHeight)
             .clip(shape)
             .background(background)
@@ -796,24 +900,31 @@ private fun SubmitPill(
             fontWeight = FontWeight.Bold,
             maxLines = 1,
             softWrap = false,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
 
 @Composable
-private fun markSegmentLabel(type: String): String = when (markSegmentId(type)) {
-    "intro" -> stringResource(Res.string.player_tools_intro)
-    "recap" -> stringResource(Res.string.player_tools_recap)
-    "preview" -> stringResource(Res.string.player_tools_preview)
-    else -> stringResource(Res.string.player_tools_credits)
+private fun markSegmentLabel(type: String): String {
+    val labels = LocalSubmitBarLabels.current
+    return when (markSegmentId(type)) {
+        "intro" -> labels?.intro ?: stringResource(Res.string.player_tools_intro)
+        "recap" -> labels?.recap ?: stringResource(Res.string.player_tools_recap)
+        "preview" -> labels?.preview ?: stringResource(Res.string.player_tools_preview)
+        else -> labels?.credits ?: stringResource(Res.string.player_tools_credits)
+    }
 }
 
 @Composable
-private fun noSegmentLabel(segmentType: String): String = when (noneChip(segmentType)) {
-    NoneChip.Intro -> stringResource(Res.string.submit_intro_none_intro)
-    NoneChip.Recap -> stringResource(Res.string.submit_intro_none_recap)
-    NoneChip.Credits -> stringResource(Res.string.submit_intro_none_credits)
-    NoneChip.Preview -> stringResource(Res.string.submit_intro_none_preview)
+private fun noSegmentLabel(segmentType: String): String {
+    val labels = LocalSubmitBarLabels.current
+    return when (noneChip(segmentType)) {
+        NoneChip.Intro -> labels?.noneIntro ?: stringResource(Res.string.submit_intro_none_intro)
+        NoneChip.Recap -> labels?.noneRecap ?: stringResource(Res.string.submit_intro_none_recap)
+        NoneChip.Credits -> labels?.noneCredits ?: stringResource(Res.string.submit_intro_none_credits)
+        NoneChip.Preview -> labels?.nonePreview ?: stringResource(Res.string.submit_intro_none_preview)
+    }
 }
 
 @Composable
