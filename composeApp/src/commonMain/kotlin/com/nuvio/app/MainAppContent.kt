@@ -641,6 +641,14 @@ internal fun MainAppContent(
                         if (onNavigate != null) onNavigate(fixtureRoute, false) else navController.navigate(fixtureRoute)
                     }
                 }
+                val fixtureTab = com.nuvio.app.core.uifixture.UiWalkSession.pendingTabName
+                if (fixtureTab != null) {
+                    com.nuvio.app.core.uifixture.UiWalkSession.pendingTabName = null
+                    launch {
+                        kotlinx.coroutines.delay(800)
+                        activateTab(AppScreenTab.fromName(fixtureTab))
+                    }
+                }
                 if (com.nuvio.app.core.uifixture.uiFixturesActive()) return@LaunchedEffect
                 startIosStartupPreloadAfterLaunchReady(
                     isIosPlatform = isIos,

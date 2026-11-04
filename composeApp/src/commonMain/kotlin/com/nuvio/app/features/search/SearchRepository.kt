@@ -77,12 +77,23 @@ object SearchRepository {
     private var discoverSources: List<DiscoverCatalogOption> = emptyList()
     private var lastDiscoverRequestKey: DiscoverRequestKey? = null
 
+    private var fixtureHold: SearchUiState? = null
+
+    internal fun installFixture(results: SearchUiState, discover: DiscoverUiState) {
+        fixtureHold = results
+        activeJob?.cancel()
+        activeDiscoverJob?.cancel()
+        _uiState.value = results
+        _discoverUiState.value = discover
+    }
+
     fun search(
         query: String,
         addons: List<ManagedAddon>,
         forceRefresh: Boolean = false,
         keepVisibleItems: Boolean = false,
     ) {
+        if (fixtureHold != null) return
         val normalizedQuery = query.trim()
         if (normalizedQuery.isBlank()) {
             clear()
@@ -235,12 +246,14 @@ object SearchRepository {
     }
 
     fun clear() {
+        if (fixtureHold != null) return
         activeJob?.cancel()
         lastRequestKey = null
         _uiState.value = SearchUiState()
     }
 
     fun reset() {
+        if (fixtureHold != null) return
         activeJob?.cancel()
         activeDiscoverJob?.cancel()
         lastRequestKey = null
@@ -255,6 +268,7 @@ object SearchRepository {
         forceRefresh: Boolean = false,
         keepVisibleItems: Boolean = false,
     ) {
+        if (fixtureHold != null) return
         val enabledAddons = addons.enabledAddons()
         val hasPendingAddonManifests = enabledAddons.hasPendingEnabledManifests()
         val addonManifestErrorMessage = enabledAddons.firstEnabledManifestError()
@@ -438,6 +452,7 @@ object SearchRepository {
     }
 
     fun loadMoreDiscover() {
+        if (fixtureHold != null) return
         val current = _discoverUiState.value
         if (current.isLoading || current.nextSkip == null) return
         loadDiscoverFeed(
