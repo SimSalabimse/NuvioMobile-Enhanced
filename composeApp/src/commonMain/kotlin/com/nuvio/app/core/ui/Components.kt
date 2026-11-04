@@ -56,6 +56,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -321,10 +322,19 @@ fun NuvioPrimaryButton(
     val tokens = MaterialTheme.nuvio
     val palette = MaterialTheme.themePalette
     val dismissKeyboard = rememberDismissSoftwareKeyboard()
-    val containerBrush = if (enabled) {
+    val disabledColors = if (enabled) {
+        null
+    } else {
+        disabledFilledButtonColors(
+            fill = palette.secondary,
+            onFill = tokens.colors.onAccent,
+            backdrop = tokens.colors.surfaceCard,
+        )
+    }
+    val containerBrush = if (disabledColors == null) {
         palette.accentBrush()
     } else {
-        palette.accentBrush(alpha = tokens.opacity.disabled)
+        SolidColor(disabledColors.container)
     }
     Button(
         onClick = {
@@ -348,7 +358,7 @@ fun NuvioPrimaryButton(
             containerColor = Color.Transparent,
             contentColor = tokens.colors.onAccent,
             disabledContainerColor = Color.Transparent,
-            disabledContentColor = tokens.colors.onAccent.copy(alpha = tokens.opacity.disabled),
+            disabledContentColor = disabledColors?.content ?: tokens.colors.onAccent,
         ),
     ) {
         AnimatedContent(
