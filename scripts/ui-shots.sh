@@ -592,7 +592,10 @@ device_token_orientation() {
 set_orientation() {
   local udid="$1"
   local orientation="$2"
-  run_cmd xcrun simctl ui "$udid" orientation "$orientation"
+  # simctl ui has no orientation option on current Xcode; landscape fixtures rotate in-app.
+  if ! run_cmd xcrun simctl ui "$udid" orientation "$orientation" >/dev/null 2>&1; then
+    log "orientation $orientation not supported by simctl; continuing"
+  fi
 }
 
 check_budget() {
