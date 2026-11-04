@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -241,20 +240,18 @@ private fun DebugLogTextPanel(
     isTablet: Boolean,
 ) {
     val verticalScrollState = rememberScrollState()
-    val horizontalScrollState = rememberScrollState()
 
     SelectionContainer {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = if (isTablet) 320.dp else 260.dp, max = if (isTablet) 560.dp else 420.dp)
-                .horizontalScroll(horizontalScrollState)
                 .verticalScroll(verticalScrollState)
                 .padding(horizontal = if (isTablet) 20.dp else 16.dp, vertical = 16.dp),
         ) {
             Text(
                 text = text,
-                modifier = Modifier.widthIn(min = if (isTablet) 920.dp else 760.dp),
+                modifier = Modifier.fillMaxWidth(),
                 style = MaterialTheme.typography.bodySmall,
                 color = if (isEmpty) {
                     MaterialTheme.colorScheme.onSurfaceVariant
@@ -262,7 +259,6 @@ private fun DebugLogTextPanel(
                     MaterialTheme.colorScheme.onSurface
                 },
                 fontFamily = FontFamily.Monospace,
-                softWrap = false,
             )
         }
     }

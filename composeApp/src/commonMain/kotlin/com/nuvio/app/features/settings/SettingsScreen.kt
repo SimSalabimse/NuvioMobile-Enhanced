@@ -4,7 +4,6 @@ import com.nuvio.app.features.stats.watchStatsContent
 import com.nuvio.app.navigation.LocalUseNativeNavigation
 import com.nuvio.app.core.build.AppFeaturePolicy
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -56,7 +55,6 @@ import com.nuvio.app.core.ui.LocalNuvioBottomNavigationOverlayPadding
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.PlatformBackHandler
-import com.nuvio.app.core.ui.RunningVersionLine
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.isLiquidGlassNativeTabBarSupported
 import com.nuvio.app.features.addons.AddonRepository
@@ -765,24 +763,13 @@ private fun MobileSettingsScreen(
             } else if (showInternalHeader) {
                 stickyHeader {
                     val previousPage = page.previousPage()
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(MaterialTheme.nuvio.colors.background),
-                    ) {
-                        NuvioScreenHeader(
-                            title = stringResource(page.titleRes),
-                            onBack = previousPage?.let { { onNavigateBack() } },
-                        )
-                        RunningVersionLine(
-                            includeVersionWord = false,
-                            modifier = Modifier.padding(bottom = 8.dp),
-                        )
-                    }
+                    NuvioScreenHeader(
+                        title = stringResource(page.titleRes),
+                        onBack = previousPage?.let { { onNavigateBack() } },
+                    )
                 }
             } else {
                 item { Spacer(modifier = Modifier.height(44.dp)) }
-                item { RunningVersionLine(includeVersionWord = false) }
             }
 
             when (page) {
@@ -1186,17 +1173,10 @@ private fun TabletSettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 24.dp)
-                        .padding(bottom = 2.dp),
+                        .padding(bottom = 16.dp),
                     style = MaterialTheme.typography.displayLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Bold,
-                )
-                RunningVersionLine(
-                    includeVersionWord = false,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp)
-                        .padding(top = 4.dp, bottom = 16.dp),
                 )
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
