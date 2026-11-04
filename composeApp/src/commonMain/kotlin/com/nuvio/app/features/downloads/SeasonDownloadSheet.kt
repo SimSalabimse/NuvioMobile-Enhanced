@@ -2,22 +2,28 @@ package com.nuvio.app.features.downloads
 
 import org.jetbrains.compose.resources.getPluralString
 import org.jetbrains.compose.resources.pluralStringResource
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -30,8 +36,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -534,12 +545,19 @@ internal fun SeasonDownloadSheet(
             if (!selectionConfirmed) {
                 val open = rows.filter { it.canPick }
                 item(key = "select-title") {
+                    val allChecked = open.isNotEmpty() && open.all { it.userChecked }
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 44.dp)
+                            .clickable(enabled = open.isNotEmpty(), role = Role.Checkbox) {
+                                rows = rows.map { if (it.canPick) it.copy(userChecked = !allChecked) else it }
+                            }
+                            .padding(start = 8.dp, end = 16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Checkbox(
-                            checked = open.isNotEmpty() && open.all { it.userChecked },
+                            checked = allChecked,
                             enabled = open.isNotEmpty(),
                             onCheckedChange = { all ->
                                 rows = rows.map { if (it.canPick) it.copy(userChecked = all) else it }
@@ -559,8 +577,8 @@ internal fun SeasonDownloadSheet(
                         detail = when {
                             row.existing == SeasonExistingDownload.Downloaded -> downloadedText
                             row.existing == SeasonExistingDownload.InProgress -> inDownloadsText
-                            row.queued -> "Queued ✓ · ${unairedLabel(row.video.released)} · tap to unqueue"
-                            row.queueable -> "${unairedLabel(row.video.released)} · tick to queue"
+                            row.queued -> "Queued ✓ · ${unairedLabel(row.video.released)}"
+                            row.queueable -> unairedLabel(row.video.released)
                             row.unaired -> unairedLabel(row.video.released)
                             row.watched -> watchedText
                             else -> null
@@ -576,7 +594,12 @@ internal fun SeasonDownloadSheet(
                 }
                 item(key = "fill-by-size") {
                     val estimate = remember(downloads.items) { typicalEpisodeBytes(meta.id, downloads.items) ?: GUESSED_EPISODE_BYTES }
-                    SeasonFillBySizeRow(estimateBytes = estimate) { budgetBytes ->
+                    val eligibleKeys = rows.filter { it.canPick && !it.watched && !it.unaired }.map { it.key }
+                    val checkedKeys = rows.filter { it.canPick && !it.watched && !it.unaired && it.userChecked }.map { it.key }
+                    SeasonFillBySizeRow(
+                        estimateBytes = estimate,
+                        selectedGb = matchingSeasonFillGb(eligibleKeys, checkedKeys, estimate),
+                    ) { budgetBytes ->
                         val picked = fillSelection(rows.filter { it.canPick && !it.watched && !it.unaired }.map { it.key }, estimate, budgetBytes).toSet()
                         rows = rows.map { if (it.canPick) it.copy(userChecked = it.key in picked) else it }
                     }
@@ -841,8 +864,9 @@ private fun EpisodeSelectRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(enabled = tappable) { toggle(!row.userChecked) }
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .heightIn(min = 44.dp)
+            .clickable(enabled = tappable, role = Role.Checkbox) { toggle(!row.userChecked) }
+            .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Checkbox(
@@ -994,7 +1018,15 @@ private fun EpisodeDownloadRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .heightIn(min = 44.dp)
+            .then(
+                if (row.selectable) {
+                    Modifier.clickable(role = Role.Checkbox) { onCheckedChange(!row.userChecked) }
+                } else {
+                    Modifier
+                },
+            )
+            .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Checkbox(
@@ -1128,20 +1160,88 @@ private val SEASON_FILL_CHOICES_GB = listOf(5, 10, 20, 50)
 internal fun fillSelection(keys: List<String>, episodeBytes: Long, budgetBytes: Long): List<String> =
     keys.take((budgetBytes / episodeBytes.coerceAtLeast(1L)).toInt().coerceAtLeast(0))
 
+/**
+ * The smallest fill choice whose prefix is exactly [checkedKeys], or null when the ticks
+ * are not one of those prefixes. Several budgets can select the same short list; the
+ * smallest one is the match.
+ */
+internal fun matchingSeasonFillGb(
+    eligibleKeys: List<String>,
+    checkedKeys: List<String>,
+    episodeBytes: Long,
+    choicesGb: List<Int> = SEASON_FILL_CHOICES_GB,
+): Int? {
+    if (checkedKeys.isEmpty()) return null
+    val bytes = episodeBytes.coerceAtLeast(1L)
+    return choicesGb.firstOrNull { gb ->
+        fillSelection(eligibleKeys, bytes, gb * 1_000_000_000L) == checkedKeys
+    }
+}
+
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun SeasonFillBySizeRow(estimateBytes: Long, onFill: (Long) -> Unit) {
+private fun SeasonFillBySizeRow(
+    estimateBytes: Long,
+    selectedGb: Int?,
+    onFill: (Long) -> Unit,
+) {
     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
         Text(
             text = "Fill with the next episodes (≈ ${formatDownloadBytes(estimateBytes)} each)",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = MaterialTheme.colorScheme.onSurface,
         )
-        // Four buttons don't fit one line on a 320pt screen; wrap instead of squeezing the last one.
-        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Four chips don't fit one line on a 320pt screen; wrap instead of squeezing the last one.
+        androidx.compose.foundation.layout.FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             SEASON_FILL_CHOICES_GB.forEach { gb ->
-                TextButton(onClick = { onFill(gb * 1_000_000_000L) }) { Text("$gb GB") }
+                SeasonFillChip(
+                    label = "$gb GB",
+                    selected = gb == selectedGb,
+                    onClick = { onFill(gb * 1_000_000_000L) },
+                )
             }
+        }
+    }
+}
+
+@Composable
+private fun SeasonFillChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val outline = MaterialTheme.colorScheme.onSurface
+    Surface(
+        shape = RoundedCornerShape(percent = 50),
+        color = if (selected) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent,
+        contentColor = outline,
+        border = BorderStroke(width = if (selected) 2.dp else 1.dp, color = outline),
+        modifier = Modifier
+            .heightIn(min = 44.dp)
+            .clickable(role = Role.Checkbox, onClick = onClick)
+            .semantics { this.selected = selected },
+    ) {
+        Row(
+            modifier = Modifier.heightIn(min = 44.dp).padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (selected) {
+                Icon(
+                    imageVector = Icons.Rounded.Check,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = outline,
+                maxLines = 1,
+            )
         }
     }
 }
