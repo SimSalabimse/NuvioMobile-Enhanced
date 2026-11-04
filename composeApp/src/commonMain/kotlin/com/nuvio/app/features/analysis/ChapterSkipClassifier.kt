@@ -146,8 +146,21 @@ internal fun MediaAnalysisResult.withDetectedRecap(detected: Pair<Long, Long>?):
     }
 
 /**
+ * Preview fingerprint search. A preview that already came from chapters is kept. A mark of this
+ * cut is kept. With neither, this is the detected range, including clearing one the search did
+ * not repeat.
+ */
+internal fun MediaAnalysisResult.withDetectedPreview(detected: Pair<Long, Long>?): MediaAnalysisResult {
+    if ("preview" in chapterTypes) return this
+    val mark = userSegments["preview"]
+    if (mark != null && com.nuvio.app.features.player.sameCut(mark.durationMs, durationMs)) return this
+    return copy(previewStartMs = detected?.first, previewEndMs = detected?.second)
+}
+
+/**
  * Which fingerprint prints the chapters already replace, so the analyzer can skip that work.
- * "head" is the opening print (intro match and recap match). "tail" is the credits print.
+ * "head" is the opening print (intro match and recap match). The tail print is always built:
+ * credits matching, preview matching, and the next episode's recap all read it.
  * A print is kept when a higher-trust fingerprint match still needs it (a user mark on this
  * episode, so it can teach the season, or a sibling mark that has not been matched yet) or when
  * the chapters do not cover that part.
@@ -164,14 +177,15 @@ internal fun fingerprintPartsToSkip(
     // still has the fingerprint the matcher already stored.
     val willUseIntro = introDetection && ChapterSkipKind.Intro in kinds && "intro" !in keepFingerprint
     val willUseRecap = recapDetection && ChapterSkipKind.Recap in kinds && "recap" !in keepFingerprint
-    val willUseCredits = introDetection && ChapterSkipKind.Credits in kinds && "outro" !in keepFingerprint
     val skip = mutableSetOf<String>()
     val headStillNeeded = !introDetection ||
         !willUseIntro ||
         (recapDetection && !willUseRecap) ||
         "intro" in keepFingerprint
     if (!headStillNeeded && (willUseIntro || willUseRecap)) skip += "head"
-    if (willUseCredits && "outro" !in keepFingerprint) skip += "tail"
+    // The tail print is this episode's credits match, its preview match, and the previous
+    // ending the next episode's recap search reads. A credits chapter does not stand in for
+    // those, so the tail print is never skipped.
     return skip
 }
 

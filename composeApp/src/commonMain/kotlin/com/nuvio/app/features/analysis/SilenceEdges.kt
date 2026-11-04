@@ -37,12 +37,15 @@ internal fun MediaAnalysisResult.rememberingSilentRanges(): MediaAnalysisResult 
 }
 
 /**
- * Moves intro and credits edges onto a quiet-run boundary within [SEGMENT_AGREE_MS].
- * A start moves to the end of the quiet run. An end moves to the start of it.
+ * Moves intro and credits edges onto a boundary within [SEGMENT_AGREE_MS].
+ * A black frame wins, then a quiet run, then an audio scene change.
+ * A start moves to the end of a black or quiet run. An end moves to the start of it.
+ * A scene change is a single cut, used for either edge.
  */
 internal fun MediaAnalysisResult.snappingEdges(detected: DetectedSegments): DetectedSegments {
-    val intro = snapPair(detected.introStartMs, detected.introEndMs, "intro")
-    val credits = snapPair(detected.creditsStartMs, detected.creditsEndMs, "outro")
+    val scenes = sceneChangeTimes()
+    val intro = snapPair(detected.introStartMs, detected.introEndMs, "intro", scenes)
+    val credits = snapPair(detected.creditsStartMs, detected.creditsEndMs, "outro", scenes)
     return detected.copy(
         introStartMs = intro?.first ?: detected.introStartMs,
         introEndMs = intro?.second ?: detected.introEndMs,
@@ -51,29 +54,104 @@ internal fun MediaAnalysisResult.snappingEdges(detected: DetectedSegments): Dete
     )
 }
 
-internal fun MediaAnalysisResult.applyingSeasonDetection(others: List<MediaAnalysisResult>): MediaAnalysisResult {
-    val prepared = rememberingSilentRanges()
-    val detected = SeasonSegmentDetector.detect(prepared, others)
-    return prepared.applyingDetection(prepared.snappingEdges(detected))
+/** Snaps one detected range. Does not apply the rejection list; the caller does. */
+internal fun MediaAnalysisResult.snapSegmentEdges(startMs: Long, endMs: Long): Pair<Long, Long>? {
+    val scenes = sceneChangeTimes()
+    val start = snapEdge(startMs, atStart = true, scenes)
+    val end = snapEdge(endMs, atStart = false, scenes)
+    if (end <= start) return null
+    return start to end
 }
 
-private fun MediaAnalysisResult.snapPair(startMs: Long?, endMs: Long?, type: String): Pair<Long, Long>? {
+internal fun MediaAnalysisResult.applyingSeasonDetection(
+    others: List<MediaAnalysisResult>,
+    theIntroDbIntro: Pair<Long, Long>? = null,
+    theIntroDbCredits: Pair<Long, Long>? = null,
+    trace: SegmentTrace? = null,
+): MediaAnalysisResult {
+    val prepared = rememberingSilentRanges()
+    val detected = SeasonSegmentDetector.detect(
+        prepared,
+        others,
+        theIntroDbIntro = theIntroDbIntro,
+        theIntroDbCredits = theIntroDbCredits,
+        trace = trace,
+    )
+    return prepared.applyingDetection(detected)
+}
+
+/**
+ * Cuts in the audio fingerprint: a run of similar frames, then a jump.
+ * Random frames stay near 16 differing bits and do not count, so this stays quiet
+ * on noise and does not move an edge the silence snap already owns.
+ */
+internal fun sceneChanges(frames: IntArray, stepMs: Long, offsetMs: Long): List<Long> {
+    if (frames.size < 8 || stepMs <= 0L) return emptyList()
+    val diffs = IntArray(frames.size - 1) { index -> (frames[index] xor frames[index + 1]).countOneBits() }
+    val out = ArrayList<Long>()
+    var last = -10_000L
+    for (index in 5 until diffs.size) {
+        var stable = 0
+        for (earlier in index - 5 until index) if (diffs[earlier] <= 8) stable++
+        if (stable >= 4 && diffs[index] >= 20) {
+            val at = offsetMs + (index + 1) * stepMs
+            if (at - last >= 1_000L) {
+                out += at
+                last = at
+            }
+        }
+    }
+    return out
+}
+
+private fun MediaAnalysisResult.snapPair(
+    startMs: Long?,
+    endMs: Long?,
+    type: String,
+    scenes: List<Long>,
+): Pair<Long, Long>? {
     if (startMs == null || endMs == null) return null
-    val start = snapEdge(startMs, atStart = true)
-    val end = snapEdge(endMs, atStart = false)
+    val start = snapEdge(startMs, atStart = true, scenes)
+    val end = snapEdge(endMs, atStart = false, scenes)
     if (end <= start) return null
     if (rejectedSegments.covers(type, start, end)) return null
     return start to end
 }
 
-private fun MediaAnalysisResult.snapEdge(timeMs: Long, atStart: Boolean): Long {
-    var best = timeMs
+private fun MediaAnalysisResult.sceneChangeTimes(): List<Long> {
+    val step = fingerprintStepMs.coerceAtLeast(1).toLong()
+    return sceneChanges(decodeFingerprint(headFingerprint), step, 0L) +
+        sceneChanges(decodeFingerprint(tailFingerprint), step, tailStartMs)
+}
+
+private fun MediaAnalysisResult.snapEdge(timeMs: Long, atStart: Boolean, scenes: List<Long>): Long {
+    nearestRunBoundary(blackRanges, timeMs, atStart)?.let { return it }
+    nearestRunBoundary(silentRanges, timeMs, atStart)?.let { return it }
+    nearestInstant(scenes, timeMs)?.let { return it }
+    return timeMs
+}
+
+private fun nearestRunBoundary(ranges: List<SilentRange>, timeMs: Long, atStart: Boolean): Long? {
+    var best: Long? = null
     var bestDistance = SEGMENT_AGREE_MS + 1
-    for (range in silentRanges) {
+    for (range in ranges) {
         val boundary = if (atStart) range.endMs else range.startMs
         val distance = abs(boundary - timeMs)
         if (distance <= SEGMENT_AGREE_MS && distance < bestDistance) {
             best = boundary
+            bestDistance = distance
+        }
+    }
+    return best
+}
+
+private fun nearestInstant(times: List<Long>, timeMs: Long): Long? {
+    var best: Long? = null
+    var bestDistance = SEGMENT_AGREE_MS + 1
+    for (time in times) {
+        val distance = abs(time - timeMs)
+        if (distance <= SEGMENT_AGREE_MS && distance < bestDistance) {
+            best = time
             bestDistance = distance
         }
     }

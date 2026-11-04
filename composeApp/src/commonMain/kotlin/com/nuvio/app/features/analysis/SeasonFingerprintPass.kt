@@ -6,9 +6,9 @@ import com.nuvio.app.features.downloads.hasStoredFingerprint
 internal const val SEASON_PASS_REFERENCE_CAP = 16
 
 /**
- * After a fingerprint is saved, fill intro, credits, and recap on every stored episode of that
- * season that still needs them. Uses stored fingerprints only: nothing is opened or downloaded,
- * so an episode whose file is already deleted is included.
+ * After a fingerprint is saved, fill intro, credits, recap, and preview on every stored episode
+ * of that season that still needs them. Uses stored fingerprints only: nothing is opened or
+ * downloaded, so an episode whose file is already deleted is included.
  * A stored intro or credits time is replaced only when the new score is strictly higher and the
  * user has not marked that segment. User marks are applied by [MediaAnalysisStore.save].
  */
@@ -47,6 +47,15 @@ internal fun seasonFingerprintPass(
             )
         }
     }
+    for (episode in ordered) {
+        val current = working[episode.key] ?: episode
+        if (!current.needsPreviewFromStoredFingerprints()) continue
+        val preview = PreviewDetector.detect(current, referencesFor(current, working.values, referenceCap)) ?: continue
+        working[current.key] = current.copy(
+            previewStartMs = preview.first,
+            previewEndMs = preview.second,
+        )
+    }
     return working.values.mapNotNull { updated ->
         val before = episodes.firstOrNull { it.key == updated.key } ?: return@mapNotNull null
         updated.takeIf { it.segmentsDiffer(before) }
@@ -61,7 +70,15 @@ private fun MediaAnalysisResult.needsSegmentPass(): Boolean {
 }
 
 private fun MediaAnalysisResult.needsRecapFromStoredFingerprints(): Boolean =
-    hasStoredFingerprint() && introStartMs != null && (recapStartMs == null || recapEndMs == null)
+    hasStoredFingerprint() &&
+        "recap" !in chapterTypes &&
+        (recapStartMs == null || recapEndMs == null)
+
+private fun MediaAnalysisResult.needsPreviewFromStoredFingerprints(): Boolean {
+    if (!hasStoredFingerprint() || previewStartMs != null || "preview" in chapterTypes) return false
+    val mark = userSegments["preview"] ?: return true
+    return !com.nuvio.app.features.player.sameCut(mark.durationMs, durationMs)
+}
 
 private fun referencesFor(
     episode: MediaAnalysisResult,
@@ -70,7 +87,18 @@ private fun referencesFor(
 ): List<MediaAnalysisResult> {
     val others = pool.filter { it.key != episode.key && it.hasStoredFingerprint() }
     if (others.size <= cap) return others
-    return others.sortedByDescending { it.analyzedAtMs }.take(cap)
+    val picked = others.sortedByDescending { it.analyzedAtMs }.take(cap).toMutableList()
+    val keys = picked.map { it.key }.toMutableSet()
+    // The previous episode's ending and the next episode's cold open are the recap and
+    // preview signals. They stay in the set even when they are older than the cap.
+    for (delta in intArrayOf(-1, 1)) {
+        val adjacent = siblingByDelta(episode, others, delta) ?: continue
+        if (adjacent.key !in keys) {
+            picked += adjacent
+            keys += adjacent.key
+        }
+    }
+    return picked
 }
 
 private fun MediaAnalysisResult.segmentsDiffer(before: MediaAnalysisResult): Boolean =
@@ -80,6 +108,8 @@ private fun MediaAnalysisResult.segmentsDiffer(before: MediaAnalysisResult): Boo
         creditsEndMs != before.creditsEndMs ||
         recapStartMs != before.recapStartMs ||
         recapEndMs != before.recapEndMs ||
+        previewStartMs != before.previewStartMs ||
+        previewEndMs != before.previewEndMs ||
         introConfidence != before.introConfidence ||
         creditsConfidence != before.creditsConfidence ||
         rejectedSegments != before.rejectedSegments ||
