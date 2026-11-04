@@ -127,6 +127,7 @@ fun NuvioModalBottomSheet(
     showDragHandle: Boolean = true,
     fullHeight: Boolean = false,
     liquidGlass: Boolean = false,
+    fitSheet: FitSheetHeightHost? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     if (usesNativeNuvioBottomSheet) {
@@ -138,6 +139,7 @@ fun NuvioModalBottomSheet(
             showDragHandle = showDragHandle,
             fullHeight = fullHeight,
             liquidGlass = liquidGlass,
+            fitSheet = fitSheet,
             content = content,
         )
     } else {
@@ -201,6 +203,7 @@ fun NuvioBottomSheetActionRow(
     icon: ImageVector? = null,
     selected: Boolean = false,
     enabled: Boolean = true,
+    titleMaxLines: Int = 2,
     trailingContent: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val tokens = MaterialTheme.nuvio
@@ -239,7 +242,7 @@ fun NuvioBottomSheetActionRow(
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = if (selected) FontWeight.SemiBold else null,
             color = tokens.colors.textPrimary,
-            maxLines = 2,
+            maxLines = titleMaxLines,
             overflow = TextOverflow.Ellipsis,
         )
         trailingContent?.invoke(this)

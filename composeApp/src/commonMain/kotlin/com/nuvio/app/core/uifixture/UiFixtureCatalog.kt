@@ -32,6 +32,7 @@ internal object UiFixtureCatalog {
     const val MOVIE_ID = "fixture-movie-paper"
     const val MOVIE_TITLE = "Paper Kite"
     const val SEASON_OVERVIEW_IMDB = "tt0000101"
+    const val SEASON_OVERVIEW_LONG_EPISODE_COUNT = 25
     const val LONG_TITLE =
         "The Extraordinary and Completely Unabridged Account of a Very Long Evening on the Northern Coastal Railway"
 
@@ -45,7 +46,37 @@ internal object UiFixtureCatalog {
         NetworkStatusRepository.adoptFixture(online = fixture.startsOnline)
         HomeCatalogSettingsRepository.installFixture(settingsItems(longTitles))
         HomeRepository.installFixture(homeState(longTitles))
-        WatchProgressRepository.installFixtureEntries(continueWatching(now, longTitles))
+        val watchedForOverview = if (fixture == UiFixture.SeasonOverviewLong) {
+            listOf(
+                progress(
+                    now = now,
+                    id = SERIES_ID,
+                    type = SERIES_TYPE,
+                    title = SERIES_TITLE,
+                    videoId = "$SERIES_ID:2:1",
+                    season = 2,
+                    episode = 1,
+                    episodeTitle = "Episode 1",
+                    percent = 100f,
+                    slot = 80,
+                ).copy(isCompleted = true),
+                progress(
+                    now = now,
+                    id = SERIES_ID,
+                    type = SERIES_TYPE,
+                    title = SERIES_TITLE,
+                    videoId = "$SERIES_ID:2:25",
+                    season = 2,
+                    episode = 25,
+                    episodeTitle = "Episode 25",
+                    percent = 100f,
+                    slot = 81,
+                ).copy(isCompleted = true),
+            )
+        } else {
+            emptyList()
+        }
+        WatchProgressRepository.installFixtureEntries(continueWatching(now, longTitles) + watchedForOverview)
         DownloadsRepository.installFixtureItems(
             when (fixture) {
                 UiFixture.HomeOffline -> offlineCoverDownloads(now)
@@ -61,6 +92,14 @@ internal object UiFixtureCatalog {
                 val show = series(seasonPosters = true).copy(imdbId = SEASON_OVERVIEW_IMDB)
                 MetaDetailsRepository.installFixture(show)
                 installSeasonOverviewSegments()
+            }
+            UiFixture.SeasonOverviewLong -> {
+                val show = series(
+                    seasonPosters = true,
+                    episodesInSeason = mapOf(2 to SEASON_OVERVIEW_LONG_EPISODE_COUNT),
+                ).copy(imdbId = SEASON_OVERVIEW_IMDB)
+                MetaDetailsRepository.installFixture(show)
+                installSeasonOverviewLongSegments()
             }
             UiFixture.SmartDownloads -> {
                 val meta = series(seasonPosters = false)
@@ -142,12 +181,17 @@ internal object UiFixtureCatalog {
         ),
     )
 
-    private fun series(seasonPosters: Boolean): MetaDetails {
+    private fun series(
+        seasonPosters: Boolean,
+        episodesInSeason: Map<Int, Int> = emptyMap(),
+    ): MetaDetails {
         val videos = (1..3).flatMap { season ->
-            (1..3).map { episode ->
+            val count = episodesInSeason[season] ?: 3
+            (1..count).map { episode ->
+                val title = if (count > 3 && episode == 12) LONG_TITLE else "Episode $episode"
                 MetaVideo(
                     id = "fixture-s$season-e$episode",
-                    title = "Episode $episode",
+                    title = title,
                     season = season,
                     episode = episode,
                     available = true,
@@ -385,6 +429,35 @@ internal object UiFixtureCatalog {
             season = 1,
             episode = 3,
             intervals = listOf(SkipInterval(20.0, 90.0, "recap", TheIntroDb.PROVIDER)),
+        )
+    }
+
+    private fun installSeasonOverviewLongSegments() {
+        val imdb = SEASON_OVERVIEW_IMDB
+        OwnTheIntroDbLedger.saveAll(
+            mapOf(
+                "$imdb:2:1" to setOf("recap"),
+                "$imdb:2:2" to setOf("intro", "recap", "outro", "preview"),
+                "$imdb:2:7" to setOf("intro"),
+            ),
+        )
+        SkipSourceLedger.record(
+            SERIES_ID,
+            season = 2,
+            episode = 1,
+            intervals = listOf(SkipInterval(4.0, 50.0, "intro", TheIntroDb.PROVIDER)),
+        )
+        SkipSourceLedger.record(
+            SERIES_ID,
+            season = 2,
+            episode = 4,
+            intervals = listOf(SkipInterval(0.0, 36.0, "intro", TheIntroDb.PROVIDER)),
+        )
+        SkipSourceLedger.record(
+            SERIES_ID,
+            season = 2,
+            episode = 5,
+            intervals = listOf(SkipInterval(0.0, 28.0, "recap", TheIntroDb.PROVIDER)),
         )
     }
     /** Home shell the UI walk reuses. Does not set [UiFixtureSession.pendingRoute]. */

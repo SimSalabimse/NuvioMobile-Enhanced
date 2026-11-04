@@ -16,6 +16,7 @@ internal expect fun NuvioNativeModalBottomSheet(
     showDragHandle: Boolean,
     fullHeight: Boolean,
     liquidGlass: Boolean,
+    fitSheet: FitSheetHeightHost?,
     content: @Composable ColumnScope.() -> Unit,
 )
 
