@@ -1,5 +1,6 @@
 package com.nuvio.app.core.sync
 
+import com.nuvio.app.core.automation.isolateStorageKey
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.Foundation.NSThread
 import platform.Foundation.NSUserDefaults
@@ -11,20 +12,20 @@ internal actual object PlatformOfflineOutboxDisk : OfflineOutboxDisk {
     private const val badDocumentKey = "offline_account_outbox.bad"
 
     actual override fun read(): String? =
-        NSUserDefaults.standardUserDefaults.stringForKey(documentKey)
+        NSUserDefaults.standardUserDefaults.stringForKey(isolateStorageKey(documentKey))
 
     actual override fun write(payload: String) {
         val defaults = NSUserDefaults.standardUserDefaults
-        defaults.setObject(payload, forKey = documentKey)
+        defaults.setObject(payload, forKey = isolateStorageKey(documentKey))
         defaults.synchronize()
     }
 
     override fun readBad(): String? =
-        NSUserDefaults.standardUserDefaults.stringForKey(badDocumentKey)
+        NSUserDefaults.standardUserDefaults.stringForKey(isolateStorageKey(badDocumentKey))
 
     override fun writeBad(payload: String) {
         val defaults = NSUserDefaults.standardUserDefaults
-        defaults.setObject(payload, forKey = badDocumentKey)
+        defaults.setObject(payload, forKey = isolateStorageKey(badDocumentKey))
         defaults.synchronize()
     }
 }

@@ -1,6 +1,7 @@
 package com.nuvio.app.features.tracking
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.watchprogress.ProgressWriteTrace
 import com.nuvio.app.features.watchprogress.allowsProgressWrite
@@ -23,6 +24,7 @@ object TrackingScrobbleCoordinator {
         event: TrackingScrobbleEvent,
         persistsProgress: Boolean = true,
     ): List<TrackingScrobbleFailure> {
+        if (AutomationTestMode.isActive) return emptyList()
         if (!allowsProgressWrite(persistsProgress)) return emptyList()
         ProgressWriteTrace.note("TrackingScrobbleCoordinator.scrobble")
         if (profileId != ProfileRepository.activeProfileId) return emptyList()
@@ -47,6 +49,7 @@ object TrackingScrobbleCoordinator {
         event: TrackingScrobbleEvent,
         persistsProgress: Boolean = true,
     ): List<TrackingScrobbleFailure> {
+        if (AutomationTestMode.isActive) return emptyList()
         if (!allowsProgressWrite(persistsProgress)) return emptyList()
         ProgressWriteTrace.note("TrackingScrobbleCoordinator.scrobbleSeek")
         if (profileId != ProfileRepository.activeProfileId) return emptyList()

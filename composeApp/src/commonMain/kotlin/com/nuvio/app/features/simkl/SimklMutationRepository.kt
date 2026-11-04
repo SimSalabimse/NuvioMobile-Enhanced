@@ -1,5 +1,6 @@
 package com.nuvio.app.features.simkl
 
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.tracking.TrackingEpisode
 import com.nuvio.app.features.tracking.TrackingExternalIds
@@ -39,6 +40,7 @@ internal class SimklMutationService(
         items: Collection<TrackingMediaReference>,
         destination: TrackingListStatus,
     ): TrackingMutationResult {
+        if (AutomationTestMode.isActive) return TrackingMutationResult(attemptedCount = 0)
         val candidates = items.validated()
         if (candidates.isEmpty()) return TrackingMutationResult(attemptedCount = 0)
         val response = client.execute(
@@ -58,6 +60,7 @@ internal class SimklMutationService(
         removeFromHistory(items)
 
     suspend fun addToHistory(items: Collection<TrackingHistoryItem>): TrackingMutationResult {
+        if (AutomationTestMode.isActive) return TrackingMutationResult(attemptedCount = 0)
         val candidates = items.toList().also { historyItems ->
             require(historyItems.all { item -> item.media.hasResolvableIdentity }) {
                 "Simkl mutation requires a media ID or title for every item"
@@ -79,6 +82,7 @@ internal class SimklMutationService(
     }
 
     suspend fun removeFromHistory(items: Collection<TrackingMediaReference>): TrackingMutationResult {
+        if (AutomationTestMode.isActive) return TrackingMutationResult(attemptedCount = 0)
         val candidates = items.validated()
         if (candidates.isEmpty()) return TrackingMutationResult(attemptedCount = 0)
         val response = client.execute(
@@ -98,6 +102,20 @@ internal class SimklMutationService(
         action: TrackingScrobbleAction,
         event: TrackingScrobbleEvent,
     ): SimklScrobbleResult {
+        if (AutomationTestMode.isActive) {
+            return SimklScrobbleResult(
+                outcome = when (action) {
+                    TrackingScrobbleAction.START -> SimklScrobbleOutcome.START
+                    TrackingScrobbleAction.PAUSE -> SimklScrobbleOutcome.PAUSE
+                    TrackingScrobbleAction.STOP -> SimklScrobbleOutcome.SCROBBLE
+                },
+                playbackId = null,
+                progress = event.progressPercent,
+                mediaType = event.media.kind.toSimklMediaType(),
+                media = event.media.toSimklMedia(),
+                episode = null,
+            )
+        }
         require(event.media.hasResolvableIdentity) { "Simkl scrobble requires a media ID or title" }
         require(event.media.kind == TrackingMediaKind.MOVIE || event.media.episode != null) {
             "Simkl series scrobble requires an episode"
@@ -153,6 +171,7 @@ object SimklMutationRepository : TrackingListWriter, TrackingHistoryWriter, Trac
         items: Collection<TrackingMediaReference>,
         destination: TrackingListStatus,
     ): TrackingMutationResult {
+        if (AutomationTestMode.isActive) return TrackingMutationResult(attemptedCount = 0)
         if (!isActiveProfile(profileId)) return TrackingMutationResult(attemptedCount = 0)
         return service.moveToList(items, destination)
     }
@@ -161,6 +180,7 @@ object SimklMutationRepository : TrackingListWriter, TrackingHistoryWriter, Trac
         profileId: Int,
         items: Collection<TrackingMediaReference>,
     ): TrackingMutationResult {
+        if (AutomationTestMode.isActive) return TrackingMutationResult(attemptedCount = 0)
         if (!isActiveProfile(profileId)) return TrackingMutationResult(attemptedCount = 0)
         return service.removeFromList(items)
     }
@@ -169,6 +189,7 @@ object SimklMutationRepository : TrackingListWriter, TrackingHistoryWriter, Trac
         profileId: Int,
         items: Collection<TrackingHistoryItem>,
     ): TrackingMutationResult {
+        if (AutomationTestMode.isActive) return TrackingMutationResult(attemptedCount = 0)
         if (!isActiveProfile(profileId)) return TrackingMutationResult(attemptedCount = 0)
         SimklSyncRepository.ensureLoaded()
         val snapshot = SimklSyncRepository.state.value.snapshot
@@ -183,6 +204,7 @@ object SimklMutationRepository : TrackingListWriter, TrackingHistoryWriter, Trac
         profileId: Int,
         items: Collection<TrackingMediaReference>,
     ): TrackingMutationResult {
+        if (AutomationTestMode.isActive) return TrackingMutationResult(attemptedCount = 0)
         if (!isActiveProfile(profileId)) return TrackingMutationResult(attemptedCount = 0)
         return service.removeFromHistory(items)
     }
@@ -192,6 +214,7 @@ object SimklMutationRepository : TrackingListWriter, TrackingHistoryWriter, Trac
         action: TrackingScrobbleAction,
         event: TrackingScrobbleEvent,
     ) {
+        if (AutomationTestMode.isActive) return
         if (!isActiveProfile(profileId)) return
         SimklSyncRepository.ensureLoaded()
         val enriched = SimklSyncRepository.state.value.snapshot.enrichMediaReference(event.media)

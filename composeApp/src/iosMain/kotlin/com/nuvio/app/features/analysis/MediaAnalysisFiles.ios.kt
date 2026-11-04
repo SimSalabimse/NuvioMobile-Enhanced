@@ -1,5 +1,6 @@
 package com.nuvio.app.features.analysis
 
+import com.nuvio.app.core.automation.analysisDirectoryName
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
@@ -19,7 +20,7 @@ internal actual object MediaAnalysisFiles {
     private val directory: String? by lazy {
         val base = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, true)
             .firstOrNull() as? String ?: return@lazy null
-        val dir = "$base/NuvioAnalysis"
+        val dir = "$base/${analysisDirectoryName()}"
         NSFileManager.defaultManager.createDirectoryAtPath(dir, withIntermediateDirectories = true, attributes = null, error = null)
         dir
     }

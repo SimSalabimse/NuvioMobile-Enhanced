@@ -1,5 +1,7 @@
 package com.nuvio.app.features.player.skip
 
+import com.nuvio.app.core.automation.AutomationTestMode
+
 internal enum class IntroSubmitService {
     INTRODB,
     THE_INTRODB,
@@ -23,6 +25,9 @@ internal enum class IntroSubmitBlockReason {
 internal fun defaultIntroSubmitService(introDbApiKey: String, theIntroDbApiKey: String): IntroSubmitService {
     val introDbKey = introDbApiKey.trim()
     val theIntroDbKey = theIntroDbApiKey.trim()
+    if (AutomationTestMode.isActive && theIntroDbKey.isBlank() && !introDbKey.startsWith(INTRODB_KEY_PREFIX, ignoreCase = true)) {
+        return IntroSubmitService.THE_INTRODB
+    }
     return when {
         introDbKey.startsWith(INTRODB_KEY_PREFIX, ignoreCase = true) -> IntroSubmitService.INTRODB
         theIntroDbKey.isNotBlank() || legacyTheIntroDbKey(introDbKey).isNotBlank() -> IntroSubmitService.THE_INTRODB
@@ -72,6 +77,13 @@ internal fun introSubmitBlockReason(
     season: Int,
     episode: Int,
 ): IntroSubmitBlockReason? {
+    if (
+        AutomationTestMode.isActive &&
+        service == IntroSubmitService.THE_INTRODB &&
+        introSubmitKeyProblem(service, apiKey) == IntroSubmitKeyProblem.MISSING
+    ) {
+        return null
+    }
     when (introSubmitKeyProblem(service, apiKey)) {
         IntroSubmitKeyProblem.MISSING -> return IntroSubmitBlockReason.MISSING_KEY
         IntroSubmitKeyProblem.INTRODB_PREFIX -> return IntroSubmitBlockReason.INTRODB_KEY_SHAPE

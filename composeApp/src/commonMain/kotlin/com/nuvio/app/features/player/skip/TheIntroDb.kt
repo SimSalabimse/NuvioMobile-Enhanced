@@ -1,5 +1,8 @@
 package com.nuvio.app.features.player.skip
 
+import com.nuvio.app.core.automation.AutomationTestMode
+import com.nuvio.app.core.automation.TheIntroDbSubmitProbe
+import com.nuvio.app.core.automation.isTheIntroDbMutation
 import com.nuvio.app.features.addons.RawHttpResponse
 import com.nuvio.app.features.addons.httpGetText
 import com.nuvio.app.features.addons.httpRequestRaw
@@ -35,6 +38,7 @@ internal object TheIntroDb {
     const val API_BASE = "https://api.theintrodb.org/v4"
     const val MEDIA_URL = "$API_BASE/media"
     const val SUBMIT_URL = "$API_BASE/submit"
+    const val MAP_URL = "$API_BASE/map"
     const val SUBMISSIONS_URL = "$API_BASE/submissions"
     private const val MAX_TVDB_PROBES = 4
     const val USER_STATS_URL = "$API_BASE/user/stats"
@@ -82,14 +86,15 @@ internal object TheIntroDb {
     ): TheIntroDbMediaResponse? {
         if (tmdbId == null && imdbId.isNullOrBlank()) return null
         val url = "$MEDIA_URL?${theIntroDbMediaQuery(tmdbId, imdbId, season, episode, durationMs)}"
+        val key = if (AutomationTestMode.isActive) null else apiKey
         return try {
-            val text = if (apiKey.isNullOrBlank()) {
+            val text = if (key.isNullOrBlank()) {
                 httpGetText(url)
             } else {
                 httpRequestRaw(
                     method = "GET",
                     url = url,
-                    headers = mapOf("Authorization" to "Bearer $apiKey"),
+                    headers = mapOf("Authorization" to "Bearer $key"),
                     body = "",
                 ).body
             }
@@ -102,6 +107,7 @@ internal object TheIntroDb {
     }
 
     suspend fun verifyApiKey(apiKey: String): Boolean {
+        if (AutomationTestMode.isActive) return true
         if (apiKey.isBlank()) return false
         return try {
             val response = httpRequestRaw(
@@ -162,6 +168,7 @@ internal object TheIntroDb {
 
     private suspend fun listPages(apiKey: String, tmdbId: Int?, mediaType: String): List<TheIntroDbUserSubmission> {
         lastListError = null
+        if (AutomationTestMode.isActive) return emptyList()
         if (apiKey.isBlank() || (tmdbId != null && tmdbId <= 0)) return emptyList()
         val filter = tmdbId?.let { "tmdb_id=$it&type=${if (mediaType.equals("movie", ignoreCase = true)) "movie" else "tv"}&" }.orEmpty()
         val collected = mutableListOf<TheIntroDbUserSubmission>()
@@ -187,21 +194,35 @@ internal object TheIntroDb {
         return collected
     }
 
-    private suspend fun authorizedRequest(method: String, url: String, apiKey: String, body: String = "") = try {
-        httpRequestRaw(
-            method = method,
-            url = url,
-            headers = buildMap {
-                put("Authorization", "Bearer $apiKey")
-                put("Accept", "application/json")
-                if (body.isNotEmpty()) put("Content-Type", "application/json")
-            },
-            body = body,
-        )
-    } catch (cancelled: CancellationException) {
-        throw cancelled
-    } catch (_: Exception) {
-        null
+    private suspend fun authorizedRequest(method: String, url: String, apiKey: String, body: String = ""): RawHttpResponse? {
+        if (method == "POST" && isTheIntroDbMutation(url) && AutomationTestMode.isActive) {
+            return RawHttpResponse(
+                status = AutomationTestMode.submitStatus,
+                statusText = "",
+                url = url,
+                body = "",
+                headers = emptyMap(),
+            )
+        }
+        return try {
+            if (method == "POST" && isTheIntroDbMutation(url)) {
+                TheIntroDbSubmitProbe.networkPosts += 1
+            }
+            httpRequestRaw(
+                method = method,
+                url = url,
+                headers = buildMap {
+                    put("Authorization", "Bearer $apiKey")
+                    put("Accept", "application/json")
+                    if (body.isNotEmpty()) put("Content-Type", "application/json")
+                },
+                body = body,
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
     }
 
     /** A plain message for a failed call: TheIntroDB's own `error` text when it sends one. */
@@ -233,6 +254,15 @@ internal object TheIntroDb {
         nowEpochMs: Long = kotlin.time.Clock.System.now().toEpochMilliseconds(),
         transport: (suspend (method: String, url: String, apiKey: String, body: String) -> RawHttpResponse?)? = null,
     ): TheIntroDbSubmitResult {
+        if (AutomationTestMode.isActive && transport == null) {
+            // Automation: the stub in authorizedRequest answers; the key and body are never sent.
+            val response = authorizedRequest("POST", SUBMIT_URL, apiKey, "")
+            if (response != null && response.status in 200..299) {
+                lastSubmitError = null
+                return TheIntroDbSubmitResult.Accepted
+            }
+            return failSubmit(errorMessage(response))
+        }
         if (apiKey.isBlank()) return failSubmit("")
         if (submitBlockedUntilEpochMs > nowEpochMs) return failSubmit(TheIntroDbRateLimitMessage)
         val body = theIntroDbSubmitPayload(

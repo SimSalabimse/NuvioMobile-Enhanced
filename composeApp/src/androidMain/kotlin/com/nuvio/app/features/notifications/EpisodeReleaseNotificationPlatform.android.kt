@@ -21,6 +21,7 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.core.storage.ProfileScopedKey
 import com.nuvio.app.features.settings.AppIconPlatform
 import io.ktor.client.HttpClient
@@ -125,6 +126,7 @@ internal actual object EpisodeReleaseNotificationPlatform {
     }
 
     actual suspend fun requestAuthorization(): Boolean {
+        if (AutomationTestMode.isActive) return false
         val granted = requestNotificationPermission()
         if (granted) {
             promptExactAlarmAccessIfNeeded()
@@ -186,6 +188,7 @@ internal actual object EpisodeReleaseNotificationPlatform {
     }
 
     actual suspend fun scheduleEpisodeReleaseNotifications(requests: List<EpisodeReleaseNotificationRequest>) {
+        if (AutomationTestMode.isActive) return
         val context = appContext ?: return
         ensureNotificationChannel()
 
@@ -221,6 +224,7 @@ internal actual object EpisodeReleaseNotificationPlatform {
     }
 
     actual suspend fun clearScheduledEpisodeReleaseNotifications() {
+        if (AutomationTestMode.isActive) return
         val context = appContext ?: return
         stateMutex.withLock {
             withContext(Dispatchers.IO) {
@@ -318,6 +322,7 @@ internal actual object EpisodeReleaseNotificationPlatform {
     }
 
     actual suspend fun showTestNotification(request: EpisodeReleaseNotificationRequest) {
+        if (AutomationTestMode.isActive) return
         val context = appContext ?: return
         ensureNotificationChannel()
 

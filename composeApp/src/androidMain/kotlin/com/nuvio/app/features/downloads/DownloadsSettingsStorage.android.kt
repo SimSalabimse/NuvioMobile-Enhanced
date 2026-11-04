@@ -2,6 +2,7 @@ package com.nuvio.app.features.downloads
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.nuvio.app.core.automation.isolateStorageKey
 
 actual object DownloadsSettingsStorage {
     private const val preferencesName = "nuvio_downloads_settings"
@@ -12,14 +13,16 @@ actual object DownloadsSettingsStorage {
 
     private var preferences: SharedPreferences? = null
 
+    private fun scoped(key: String) = isolateStorageKey(key)
+
     fun initialize(context: Context) {
         preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
     }
 
     actual fun loadAllowMobileDataDownloads(): Boolean? =
         preferences?.let { prefs ->
-            if (prefs.contains(allowMobileDataDownloadsKey)) {
-                prefs.getBoolean(allowMobileDataDownloadsKey, false)
+            if (prefs.contains(scoped(allowMobileDataDownloadsKey))) {
+                prefs.getBoolean(scoped(allowMobileDataDownloadsKey), false)
             } else {
                 null
             }
@@ -28,14 +31,14 @@ actual object DownloadsSettingsStorage {
     actual fun saveAllowMobileDataDownloads(enabled: Boolean) {
         preferences
             ?.edit()
-            ?.putBoolean(allowMobileDataDownloadsKey, enabled)
+            ?.putBoolean(scoped(allowMobileDataDownloadsKey), enabled)
             ?.apply()
     }
 
     actual fun loadShowDownloadButton(): Boolean? =
         preferences?.let { prefs ->
-            if (prefs.contains(showDownloadButtonKey)) {
-                prefs.getBoolean(showDownloadButtonKey, false)
+            if (prefs.contains(scoped(showDownloadButtonKey))) {
+                prefs.getBoolean(scoped(showDownloadButtonKey), false)
             } else {
                 null
             }
@@ -44,14 +47,14 @@ actual object DownloadsSettingsStorage {
     actual fun saveShowDownloadButton(enabled: Boolean) {
         preferences
             ?.edit()
-            ?.putBoolean(showDownloadButtonKey, enabled)
+            ?.putBoolean(scoped(showDownloadButtonKey), enabled)
             ?.apply()
     }
 
     actual fun loadDeleteWhenFinished(): Boolean? =
         preferences?.let { prefs ->
-            if (prefs.contains(deleteWhenFinishedKey)) {
-                prefs.getBoolean(deleteWhenFinishedKey, false)
+            if (prefs.contains(scoped(deleteWhenFinishedKey))) {
+                prefs.getBoolean(scoped(deleteWhenFinishedKey), false)
             } else {
                 null
             }
@@ -60,44 +63,50 @@ actual object DownloadsSettingsStorage {
     actual fun saveDeleteWhenFinished(enabled: Boolean) {
         preferences
             ?.edit()
-            ?.putBoolean(deleteWhenFinishedKey, enabled)
+            ?.putBoolean(scoped(deleteWhenFinishedKey), enabled)
             ?.apply()
     }
 
     actual fun loadSwitchToDownloadWhileWatching(): Boolean? =
         preferences?.let { prefs ->
-            if (prefs.contains(switchToDownloadKey)) prefs.getBoolean(switchToDownloadKey, true) else null
+            if (prefs.contains(scoped(switchToDownloadKey))) prefs.getBoolean(scoped(switchToDownloadKey), true) else null
         }
 
     actual fun saveSwitchToDownloadWhileWatching(enabled: Boolean) {
-        preferences?.edit()?.putBoolean(switchToDownloadKey, enabled)?.apply()
+        preferences?.edit()?.putBoolean(scoped(switchToDownloadKey), enabled)?.apply()
     }
 
-    actual fun loadFlag(key: String): Boolean? =
-        preferences?.let { prefs -> if (prefs.contains(key)) prefs.getBoolean(key, false) else null }
+    actual fun loadFlag(key: String): Boolean? {
+        val stored = scoped(key)
+        return preferences?.let { prefs -> if (prefs.contains(stored)) prefs.getBoolean(stored, false) else null }
+    }
 
     actual fun saveFlag(key: String, enabled: Boolean) {
-        preferences?.edit()?.putBoolean(key, enabled)?.apply()
+        preferences?.edit()?.putBoolean(scoped(key), enabled)?.apply()
     }
 
-    actual fun loadString(key: String): String? = preferences?.getString(key, null)
+    actual fun loadString(key: String): String? = preferences?.getString(scoped(key), null)
 
     actual fun saveString(key: String, value: String?) {
-        preferences?.edit()?.apply { if (value == null) remove(key) else putString(key, value) }?.apply()
+        val stored = scoped(key)
+        preferences?.edit()?.apply { if (value == null) remove(stored) else putString(stored, value) }?.apply()
     }
 
-    actual fun loadDouble(key: String): Double? =
-        preferences?.let { prefs ->
-            if (!prefs.contains(key)) {
+    actual fun loadDouble(key: String): Double? {
+        val stored = scoped(key)
+        return preferences?.let { prefs ->
+            if (!prefs.contains(stored)) {
                 null
             } else {
-                runCatching { Double.fromBits(prefs.getLong(key, 0L)) }.getOrNull()
+                runCatching { Double.fromBits(prefs.getLong(stored, 0L)) }.getOrNull()
             }
         }
+    }
 
     actual fun saveDouble(key: String, value: Double?) {
+        val stored = scoped(key)
         preferences?.edit()?.apply {
-            if (value == null) remove(key) else putLong(key, value.toRawBits())
+            if (value == null) remove(stored) else putLong(stored, value.toRawBits())
         }?.apply()
     }
 }

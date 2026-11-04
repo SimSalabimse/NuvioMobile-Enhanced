@@ -2,6 +2,7 @@ package com.nuvio.app.features.addons
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.nuvio.app.core.automation.isolateStorageKey
 import com.nuvio.app.core.diagnostics.SentryNetworkBreadcrumbInterceptor
 import com.nuvio.app.core.network.IPv4FirstDns
 import com.nuvio.app.core.network.SharedOkHttpClient
@@ -44,9 +45,12 @@ actual object AddonStorage {
         preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
     }
 
+    private fun urlsKey(profileId: Int) = isolateStorageKey("${addonUrlsKey}_$profileId")
+    private fun enabledKey(profileId: Int) = isolateStorageKey("${addonEnabledStatesKey}_$profileId")
+
     actual fun loadInstalledAddonUrls(profileId: Int): List<String> =
         preferences
-            ?.getString("${addonUrlsKey}_$profileId", null)
+            ?.getString(urlsKey(profileId), null)
             .orEmpty()
             .lineSequence()
             .map { it.trim() }
@@ -56,13 +60,13 @@ actual object AddonStorage {
     actual fun saveInstalledAddonUrls(profileId: Int, urls: List<String>) {
         preferences
             ?.edit()
-            ?.putString("${addonUrlsKey}_$profileId", urls.joinToString(separator = "\n"))
+            ?.putString(urlsKey(profileId), urls.joinToString(separator = "\n"))
             ?.apply()
     }
 
     actual fun loadAddonEnabledStates(profileId: Int): Map<String, Boolean> =
         preferences
-            ?.getString("${addonEnabledStatesKey}_$profileId", null)
+            ?.getString(enabledKey(profileId), null)
             .orEmpty()
             .lineSequence()
             .mapNotNull(::parseEnabledStateLine)
@@ -74,7 +78,7 @@ actual object AddonStorage {
         }
         preferences
             ?.edit()
-            ?.putString("${addonEnabledStatesKey}_$profileId", payload)
+            ?.putString(enabledKey(profileId), payload)
             ?.apply()
     }
 }

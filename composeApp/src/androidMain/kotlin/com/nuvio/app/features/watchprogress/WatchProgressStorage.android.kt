@@ -2,6 +2,7 @@ package com.nuvio.app.features.watchprogress
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.nuvio.app.core.automation.isolateStorageKey
 
 actual object WatchProgressStorage {
     private const val preferencesName = "nuvio_watch_progress"
@@ -13,13 +14,15 @@ actual object WatchProgressStorage {
         preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
     }
 
+    private fun key(profileId: Int) = isolateStorageKey("${payloadKey}_$profileId")
+
     actual fun loadPayload(profileId: Int): String? =
-        preferences?.getString("${payloadKey}_$profileId", null)
+        preferences?.getString(key(profileId), null)
 
     actual fun savePayload(profileId: Int, payload: String) {
         preferences
             ?.edit()
-            ?.putString("${payloadKey}_$profileId", payload)
+            ?.putString(key(profileId), payload)
             ?.apply()
     }
 }

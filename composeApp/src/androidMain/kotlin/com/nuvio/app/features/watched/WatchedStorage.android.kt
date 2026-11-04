@@ -2,10 +2,11 @@ package com.nuvio.app.features.watched
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.nuvio.app.core.automation.isolateStorageKey
 
 actual object WatchedStorage {
     private const val preferencesName = "nuvio_watched"
-    private fun payloadKey(profileId: Int) = "watched_payload_$profileId"
+    private fun payloadKey(profileId: Int) = isolateStorageKey("watched_payload_$profileId")
 
     private var preferences: SharedPreferences? = null
 

@@ -113,6 +113,7 @@ internal object TraktScrobbleRepository : TrackingScrobbler {
         action: TrackingScrobbleAction,
         event: TrackingScrobbleEvent,
     ) {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         val item = buildItem(TrackingAnimeIdMapper.toImdbReference(event.media)) ?: return
         sendScrobble(
             profileId = profileId,

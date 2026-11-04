@@ -1502,6 +1502,7 @@ object WatchProgressRepository {
     }
 
     private fun pushScrobbleToServer(entry: WatchProgressEntry, profileId: Int) {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         ProgressWriteTrace.note("WatchProgressRepository.pushScrobble")
         if (ServerItemRef.isServerId(entry.parentMetaId)) return
         val noted = progressOutboxEntry(profileId, entry)
@@ -1548,6 +1549,7 @@ object WatchProgressRepository {
     }
 
     internal suspend fun deliverOutbox(entry: OfflineOutboxEntry): Boolean {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return true
         val progress = entry.progressEntry ?: return false
         if (ServerItemRef.isServerId(progress.parentMetaId)) return true
         return try {
@@ -1567,6 +1569,7 @@ object WatchProgressRepository {
     }
 
     private fun pushDeleteToServer(entries: Collection<WatchProgressEntry>) {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         if (activeSource.providerId != null) return
         val entries = entries.filterNot { ServerItemRef.isServerId(it.parentMetaId) }
         val profileId = currentProfileId

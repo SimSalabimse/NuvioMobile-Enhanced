@@ -512,6 +512,7 @@ object AddonRepository {
     }
 
     private fun pushToServer() {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         if (isUsingPrimaryAddonsFromSecondaryProfile()) return
         val profileId = currentProfileId
         val addons = _uiState.value.addons

@@ -198,6 +198,8 @@ When a cap is passed, the least recently opened entries are removed. A file whos
 
 Disk reads run off the main thread, and only after a title or Continue Watching row is requested. Nothing is read during launch. Writes are batched, debounced by one second, and held while the player is open or a home, Continue Watching, upcoming, or details list is scrolling.
 
+- iOS automation test mode (`-NuvioAutomation`) keeps a harness on hidden profile 8001 so it cannot read or write the owner's progress, library, or TheIntroDB account.
+
 ## Quiet moments
 - iOS Settings About: seven quick taps on the app wordmark play a short tilt and sparkle with a light haptic; Reduce Motion shows nothing.
 - iOS empty folder: one tap on the folder icon plays a short wiggle; Reduce Motion shows nothing.
