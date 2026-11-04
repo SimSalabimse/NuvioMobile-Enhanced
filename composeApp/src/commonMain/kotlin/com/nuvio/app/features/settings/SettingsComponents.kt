@@ -33,6 +33,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchColors
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -58,6 +59,7 @@ import com.nuvio.app.core.ui.gradientMask
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.themePalette
 import com.nuvio.app.core.ui.nuvioConsumePointerEvents
+import com.nuvio.app.core.ui.uncheckedSwitchTrackColor
 import com.nuvio.app.features.home.HomeCatalogSettingsItem
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.settings_homescreen_collection_with_addon
@@ -376,8 +378,7 @@ internal fun SettingsSwitchRow(
             modifier = Modifier
                 .weight(1f)
                 .padding(end = 12.dp)
-                .widthIn(max = if (isTablet) 560.dp else Dp.Unspecified)
-                .alpha(if (enabled) NuvioTokens.Opacity.visible else tokens.opacity.medium),
+                .widthIn(max = if (isTablet) 560.dp else Dp.Unspecified),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
@@ -399,14 +400,22 @@ internal fun SettingsSwitchRow(
             onCheckedChange = onCheckedChange,
             enabled = enabled,
             modifier = Modifier.padding(start = 4.dp),
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = tokens.colors.onAccent,
-                checkedTrackColor = tokens.colors.accent,
-                uncheckedThumbColor = tokens.colors.textMuted,
-                uncheckedTrackColor = tokens.colors.borderDefault,
-            ),
+            colors = settingsSwitchColors(),
         )
     }
+}
+
+@Composable
+internal fun settingsSwitchColors(): SwitchColors {
+    val tokens = MaterialTheme.nuvio
+    val offTrack = uncheckedSwitchTrackColor(tokens.colors.textSecondary, tokens.colors.borderDefault)
+    return SwitchDefaults.colors(
+        checkedThumbColor = tokens.colors.onAccent,
+        checkedTrackColor = tokens.colors.accent,
+        uncheckedThumbColor = tokens.colors.textPrimary,
+        uncheckedTrackColor = offTrack,
+        uncheckedBorderColor = offTrack,
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -544,12 +553,7 @@ internal fun HomescreenCatalogRow(
                 Switch(
                     checked = item.enabled,
                     onCheckedChange = onEnabledChange,
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = tokens.colors.onAccent,
-                        checkedTrackColor = tokens.colors.accent,
-                        uncheckedThumbColor = tokens.colors.textMuted,
-                        uncheckedTrackColor = tokens.colors.borderDefault,
-                    ),
+                    colors = settingsSwitchColors(),
                 )
                 if (item.isPinnedToTop) {
                     IconButton(
