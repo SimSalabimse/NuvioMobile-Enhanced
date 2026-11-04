@@ -16,6 +16,8 @@ internal data class SeasonEnqueueRow(
 internal data class SeasonEnqueueResult(
     val queued: Int,
     val failureMessage: String?,
+    /** Episodes left untouched because a finished or in-progress download already covers them. */
+    val alreadyInDownloads: Int = 0,
 )
 
 internal suspend fun enqueueSeasonDownloads(
@@ -25,6 +27,7 @@ internal suspend fun enqueueSeasonDownloads(
 ): SeasonEnqueueResult {
     var queued = 0
     var failureMessage: String? = null
+    var alreadyInDownloads = 0
     var offered = false
     DownloadsRepository.ensureLoaded()
     // Lowest episode first, whatever order the sheet listed them in.
@@ -37,7 +40,10 @@ internal suspend fun enqueueSeasonDownloads(
         val existingStatus = DownloadsRepository.uiState.value.items
             .firstOrNull { it.logicalContentKey == existingKey }
             ?.status
-        if (seasonExistingDownload(existingStatus) != null) continue
+        if (seasonExistingDownload(existingStatus) != null) {
+            alreadyInDownloads += 1
+            continue
+        }
         val videoId = seasonStreamVideoId(meta.id, row.video)
         val target = DownloadTarget(
             contentType = meta.type,
@@ -68,7 +74,11 @@ internal suspend fun enqueueSeasonDownloads(
             else -> failureMessage = failureMessage ?: enqueueResult.toastMessage()
         }
     }
-    return SeasonEnqueueResult(queued = queued, failureMessage = failureMessage)
+    return SeasonEnqueueResult(
+        queued = queued,
+        failureMessage = failureMessage,
+        alreadyInDownloads = alreadyInDownloads,
+    )
 }
 
 internal fun seasonStreamVideoId(parentMetaId: String, video: MetaVideo): String {

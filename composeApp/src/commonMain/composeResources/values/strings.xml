@@ -1831,6 +1831,7 @@
     <string name="season_download_matching">Finding this source…</string>
     <string name="season_download_change_source">Change</string>
     <string name="season_download_auto_picked">Picked by your auto-play settings</string>
+    <string name="season_download_manual_picked">Picked manually</string>
     <plurals name="season_download_sources_pending">
         <item quantity="one">Still loading %1$d source…</item>
         <item quantity="other">Still loading %1$d sources…</item>

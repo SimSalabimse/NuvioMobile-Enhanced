@@ -18,11 +18,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.interop.UIKitView
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.coroutines.suspendCancellableCoroutine
 import androidx.compose.ui.platform.LocalDensity
+import kotlin.coroutines.resume
 import androidx.compose.ui.uikit.LocalUIViewController
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.window.ComposeUIViewController
 import kotlinx.cinterop.useContents
+import platform.CoreGraphics.CGAffineTransformMakeTranslation
 import platform.CoreGraphics.CGSizeMake
 import platform.UIKit.UIAdaptivePresentationControllerDelegateProtocol
 import platform.UIKit.UIBlurEffect
@@ -34,6 +37,7 @@ import platform.UIKit.UIPresentationController
 import platform.UIKit.UISheetPresentationController
 import platform.UIKit.UISheetPresentationControllerDetent
 import platform.UIKit.UISheetPresentationControllerDetentIdentifierMedium
+import platform.UIKit.UIView
 import platform.UIKit.UIViewController
 import platform.UIKit.UIVisualEffectView
 import platform.UIKit.presentationController
@@ -210,9 +214,11 @@ internal actual fun NuvioNativeModalBottomSheet(
                 activeNativeBottomSheet = null
                 activeNativeBottomSheetDelegate = null
             }
+            val animate = !sheetDismissSkipsSystemAnimation
+            sheetDismissSkipsSystemAnimation = false
             if (sheetController.presentingViewController != null) {
                 sheetController.dismissViewControllerAnimated(
-                    flag = true,
+                    flag = animate,
                     completion = null,
                 )
             }
@@ -225,6 +231,35 @@ internal actual fun dismissNativeNuvioBottomSheet() {
         flag = true,
         completion = null,
     )
+}
+
+private var sheetDismissSkipsSystemAnimation = false
+
+@OptIn(ExperimentalForeignApi::class)
+internal actual suspend fun dismissPresentedNuvioBottomSheet(durationMs: Int) {
+    val controller = activeNativeBottomSheet ?: return
+    sheetDismissSkipsSystemAnimation = true
+    if (durationMs <= 0) {
+        controller.dismissViewControllerAnimated(flag = false, completion = null)
+        return
+    }
+    val view = controller.view
+    val travel = view.bounds.useContents { size.height }.takeIf { it > 1.0 } ?: 800.0
+    suspendCancellableCoroutine { continuation ->
+        continuation.invokeOnCancellation {
+            controller.dismissViewControllerAnimated(flag = false, completion = null)
+        }
+        UIView.animateWithDuration(
+            duration = durationMs / 1000.0,
+            animations = {
+                view.transform = CGAffineTransformMakeTranslation(0.0, travel)
+            },
+            completion = { _ ->
+                controller.dismissViewControllerAnimated(flag = false, completion = null)
+                if (continuation.isActive) continuation.resume(Unit)
+            },
+        )
+    }
 }
 
 private class NuvioNativeBottomSheetDelegate(
