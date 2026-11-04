@@ -101,6 +101,7 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - Detail page layout (background mode, poster transition, tab layout, blur unwatched): Settings › Layout › Detail Page. Upstream.
 - Search with recent searches: Search tab, Settings › Content & Discovery. Upstream.
 - Addons, plugins, media servers: Settings › Content & Discovery. Upstream.
+- Addon and home catalog loads retry one transient failure (network, timeout, or HTTP 5xx) before showing an error. A 4xx response or an invalid manifest is not retried, and an addon whose first fetch failed is fetched again on the next sync instead of sitting on "refreshing".
 - TMDB enrichment modules, MDBList and OMDb ratings: Settings › Integrations. Upstream.
 - Rating map (colour-coded episode ratings) on show and anime pages: Settings › Layout. Upstream 0.6.4. OMDb season ratings are cached so a cancelled load can run again.
 - OMDb season ratings cache is locked against parallel season fetches, and a ratings failure keeps the details page with the data it has instead of crashing iOS: automatic.
