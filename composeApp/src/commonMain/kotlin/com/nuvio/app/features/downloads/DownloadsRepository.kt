@@ -252,6 +252,7 @@ object DownloadsRepository {
         val existing = currentItems.firstOrNull { it.logicalContentKey == logicalKey }
         if (existing != null) {
             replacedExisting = true
+            AnalysisTempDownloads.noteReplaced(existing.id)
             com.nuvio.app.features.analysis.MediaAnalysisScheduler.releaseFile(existing.id)
             DownloadsPlatformDownloader.discardTransfer(existing.id)
             activeHandles.remove(existing.id)?.cancel()
@@ -870,6 +871,7 @@ object DownloadsRepository {
             _uiState.value = DownloadsUiState()
             notifyLiveStatusPlatform()
             FinishedDownloadDeletion.resumeAfterLaunch()
+            AnalysisTempDownloads.sweep()
             return
         }
 
@@ -896,6 +898,7 @@ object DownloadsRepository {
         runCatching { retryFailedDeletes() }
         StorageAutopilot.run()
         FinishedDownloadDeletion.resumeAfterLaunch()
+        AnalysisTempDownloads.sweep()
     }
 
     private fun startDownload(item: DownloadItem) {
@@ -990,6 +993,7 @@ object DownloadsRepository {
                     )
                 }
                 com.nuvio.app.features.analysis.MediaAnalysisScheduler.kick()
+                AnalysisTempDownloads.onDownloadFinished(item.id)
                 com.nuvio.app.features.offline.OfflineArtwork.cache(item)
                 StorageAutopilot.run()
             },
@@ -1017,6 +1021,7 @@ object DownloadsRepository {
                     totalBytes = item.totalBytes,
                     downloadRunning = false,
                 )
+                AnalysisTempDownloads.onDownloadFailed(item.id)
             },
             onPaused = onPaused@{
                 if (staleAttempt()) return@onPaused

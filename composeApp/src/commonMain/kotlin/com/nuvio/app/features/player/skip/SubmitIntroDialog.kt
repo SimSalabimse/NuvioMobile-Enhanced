@@ -258,10 +258,18 @@ fun SubmitIntroDialog(
             season = season,
             episode = episode,
         )
+        val rejected = rejectedFlagTypesForTitle(
+            records = records,
+            tmdbId = tmdbId,
+            isMovie = isMovie,
+            season = season,
+            episode = episode,
+        )
         if (contentKey.isNotEmpty()) {
             remoteFlagTypesByContentKey[contentKey] = types
             FlagSubmitLedger.replaceTypes(contentKey, types)
             latestSubmittedTypes.forEach { FlagSubmitLedger.rememberType(contentKey, it) }
+            OwnTheIntroDbLedger.applyListing(contentKey, types, rejected)
             localTypes = flagTypesShownForContent(contentKey, latestSubmittedTypes)
         }
         remoteTypes = types
@@ -349,6 +357,9 @@ fun SubmitIntroDialog(
                 if (result) {
                     val submittedKey = flagSubmitContentKey(imdbId, season, episode, isMovie)
                     FlagSubmitLedger.rememberType(submittedKey, segmentType)
+                    if (shouldRecordOwnTheIntroDb(service, succeeded = true)) {
+                        OwnTheIntroDbLedger.remember(submittedKey, segmentType)
+                    }
                     canonicalFlagSegmentType(segmentType)?.let { type ->
                         if (submittedKey.isNotEmpty()) {
                             remoteFlagTypesByContentKey[submittedKey] =

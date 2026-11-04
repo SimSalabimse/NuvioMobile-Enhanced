@@ -52,6 +52,7 @@ internal data class LongPressMenuFacts(
     val includeDownload: Boolean = false,
     val downloadLabel: String = "",
     val includePreviousSeasons: Boolean = false,
+    val includeSeasonOverview: Boolean = false,
     val includeSubmitSegment: Boolean = false,
     val canPinSource: Boolean = false,
     val sourcePinned: Boolean = false,
@@ -78,6 +79,7 @@ internal data class LongPressMenuLabels(
     val openExternalPlayer: String,
     val downloadFile: String,
     val markPreviousSeasons: String,
+    val seasonOverview: String,
     val libraryLists: String,
     val submitSegment: String,
 )
@@ -182,6 +184,7 @@ internal fun longPressAccessibilityActions(
             if (facts.includeSeasonToggle && seasonLabel.isNotBlank()) add(action("season.watched", seasonLabel))
             if (facts.includeRate && facts.rateLabel.isNotBlank()) add(action("season.rate", facts.rateLabel))
             if (facts.includePreviousSeasons) add(action("season.previous", labels.markPreviousSeasons))
+            if (facts.includeSeasonOverview) add(action("season.overview", labels.seasonOverview))
         }
         LongPressSite.StreamCard -> buildList {
             if (facts.canPinSource) add(action("stream.pin", pinLabel))
@@ -245,6 +248,7 @@ internal fun seasonLongPressFacts(
     includeRate = canRate,
     rateLabel = rateLabel,
     includePreviousSeasons = canMarkPreviousSeasons,
+    includeSeasonOverview = true,
 )
 
 internal fun posterLongPressFacts(watched: Boolean, savedInLibrary: Boolean): LongPressMenuFacts =

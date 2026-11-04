@@ -67,6 +67,7 @@ internal object StorageAutopilot {
         if (free >= keepFreeBytes) return AutopilotPlan.NONE
         val candidates = DownloadsRepository.uiState.value.items
             .filter { it.status == DownloadStatus.Completed }
+            .filterNot { AnalysisTempDownloads.isTagged(it.id) }
             .filterNot { FinishedDownloadDeletion.blocksStorageAutopilot(it) }
             .filter { isWatched(it) && !isInProgress(it) }
             .map { AutopilotCandidate(it.id, it.totalBytes ?: it.downloadedBytes, it.updatedAtEpochMs) }
