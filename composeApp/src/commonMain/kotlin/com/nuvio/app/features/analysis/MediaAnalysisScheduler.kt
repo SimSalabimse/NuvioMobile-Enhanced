@@ -485,34 +485,102 @@ internal object MediaAnalysisScheduler {
         }
         val stored = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item))
             ?.takeIf { it.fileName == item.fileName && it.hasStoredFingerprint() }
-        val base = if (stored != null && !stored.needsSiblingClipRetry()) {
-            stored
+        val base: MediaAnalysisResult
+        val trace: SegmentTrace
+        if (stored != null && !stored.needsSiblingClipRetry()) {
+            base = stored
+            trace = SegmentTrace()
         } else {
             val audio = audioAnalysis(item, uri, stored) ?: return if (scopeActive()) PassResult.Retry else PassResult.Cancelled
             if (!scopeActive()) return PassResult.Cancelled
             if (audio.clipUnavailable) return PassResult.ClipRetry
-            audio.result
+            base = audio.result
+            trace = audio.trace
         }
         if (!scopeActive()) return PassResult.Cancelled
-        return if (derivedAnalysis(item, uri, base)) PassResult.Done else {
+        return if (derivedAnalysis(item, uri, base, trace)) PassResult.Done else {
             if (scopeActive()) PassResult.Retry else PassResult.Cancelled
         }
     }
 
-    /** Recap and scrub-preview thumbnails, computed from a stored analysis and the file. */
-    private suspend fun derivedAnalysis(item: DownloadItem, uri: String, base: MediaAnalysisResult): Boolean {
+    /** Recap, preview, and scrub-preview thumbnails, from a stored analysis and the file. */
+    private suspend fun derivedAnalysis(
+        item: DownloadItem,
+        uri: String,
+        base: MediaAnalysisResult,
+        trace: SegmentTrace,
+    ): Boolean {
         var result = base
         val season = item.seasonNumber
-        if (season != null && item.episodeNumber != null &&
-            MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.RecapDetection)
-        ) {
+        val episodeNumber = item.episodeNumber
+        val introOn = MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.IntroDetection)
+        val recapOn = MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.RecapDetection)
+        if (season != null && episodeNumber != null) {
             val siblings = MediaAnalysisStore.seasonSiblings(item.parentMetaId, season, result.key)
-            stage(AnalysisStage.Recap)
-            val recap = withContext(Dispatchers.Default) { RecapDetector.detect(result, siblings) }
-            // A chapter recap stays. Otherwise this is the same assignment as before, including
-            // clearing a recap the search did not find again.
-            result = result.withDetectedRecap(recap)
+            val priors = cachedSegmentPriors(item.parentMetaId, season, episodeNumber, result.durationMs)
+            // A file that already had a fingerprint skipped the audio match. Re-vote the intro
+            // only when that pass did not already record one and none is stored.
+            if (introOn && !trace.has("intro") && result.introEndMs == null && siblings.isNotEmpty()) {
+                stage(AnalysisStage.Matching)
+                val capped = siblings.sortedByDescending { it.analyzedAtMs }.take(MAX_SIBLINGS)
+                result = withContext(Dispatchers.Default) {
+                    result.applyingSeasonDetection(capped, priors.intro, priors.credits, trace)
+                }
+            }
+            val recapMark = result.userSegments["recap"]
+                ?.takeIf { com.nuvio.app.features.player.sameCut(it.durationMs, result.durationMs) }
+            when {
+                !recapOn -> trace.replace("recap", detectionOffDecision("recap"))
+                "recap" in result.chapterTypes ->
+                    trace.replace("recap", chapterDecision("recap", result.recapStartMs, result.recapEndMs))
+                recapMark != null -> trace.replace("recap", userMarkDecision("recap", recapMark.startMs, recapMark.endMs))
+                else -> {
+                    stage(AnalysisStage.Recap)
+                    val recap = withContext(Dispatchers.Default) {
+                        RecapDetector.detect(result, siblings, trace, priors.recap)
+                    }
+                    // A chapter recap stays. Otherwise this is the same assignment as before,
+                    // including clearing a recap the search did not find again.
+                    result = result.withDetectedRecap(recap)
+                }
+            }
+            val previewMark = result.userSegments["preview"]
+                ?.takeIf { com.nuvio.app.features.player.sameCut(it.durationMs, result.durationMs) }
+            when {
+                "preview" in result.chapterTypes ->
+                    trace.replace("preview", chapterDecision("preview", result.previewStartMs, result.previewEndMs))
+                previewMark != null ->
+                    trace.replace("preview", userMarkDecision("preview", previewMark.startMs, previewMark.endMs))
+                else -> {
+                    val preview = withContext(Dispatchers.Default) {
+                        PreviewDetector.detect(result, siblings, trace, priors.preview)
+                    }
+                    result = result.withDetectedPreview(preview)
+                }
+            }
         }
+        val isEpisode = season != null && episodeNumber != null
+        if (!trace.has("intro")) {
+            trace.add(
+                if (isEpisode && !introOn) detectionOffDecision("intro")
+                else missingDecision("intro", result.introStartMs, result.introEndMs),
+            )
+        }
+        if (!trace.has("credits")) {
+            trace.add(
+                if (isEpisode && !introOn) detectionOffDecision("credits")
+                else missingDecision("credits", result.creditsStartMs, result.creditsEndMs),
+            )
+        }
+        if (!trace.has("recap")) {
+            trace.add(
+                if (isEpisode && !recapOn) detectionOffDecision("recap")
+                else missingDecision("recap", result.recapStartMs, result.recapEndMs),
+            )
+        }
+        if (!trace.has("preview")) trace.add(missingDecision("preview", result.previewStartMs, result.previewEndMs))
+        // Logged before thumbnails so a thumbnail failure still leaves the four segment lines.
+        logSegmentDecisions(item.id, trace.decisions)
         var thumbsOk = true
         if (MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.ScrubPreviews) && result.thumbnails == null &&
             result.durationMs > 0L
@@ -553,7 +621,11 @@ internal object MediaAnalysisScheduler {
         return thumbsOk
     }
 
-    private data class AudioPass(val result: MediaAnalysisResult, val clipUnavailable: Boolean)
+    private data class AudioPass(
+        val result: MediaAnalysisResult,
+        val clipUnavailable: Boolean,
+        val trace: SegmentTrace,
+    )
 
     /**
      * [already] is a stored fingerprint for this same file (a sibling-clip retry). The file is not
@@ -580,6 +652,7 @@ internal object MediaAnalysisScheduler {
         var throttleYields = 0
         var qos = ""
         val key = MediaAnalysisStore.keyFor(item)
+        val trace = SegmentTrace()
         val previous = already ?: MediaAnalysisStore.load(key)
         var result = if (already != null && already.fileName == item.fileName && already.hasStoredFingerprint()) {
             already
@@ -630,17 +703,31 @@ internal object MediaAnalysisScheduler {
         }
         var clipUnavailable = false
         val season = item.seasonNumber
-        if (season != null && item.episodeNumber != null &&
+        val episodeNumber = item.episodeNumber
+        if (season != null && episodeNumber != null &&
             MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.IntroDetection)
         ) {
+            val priors = cachedSegmentPriors(item.parentMetaId, season, episodeNumber, result.durationMs)
             val siblings = MediaAnalysisStore.seasonSiblings(item.parentMetaId, season, key)
                 .sortedByDescending { it.analyzedAtMs }
                 .take(MAX_SIBLINGS)
             result = if (siblings.isNotEmpty()) {
                 stage(AnalysisStage.Matching)
-                duringMatch { withContext(Dispatchers.Default) { result.applyingSeasonDetection(siblings) } }
+                duringMatch {
+                    withContext(Dispatchers.Default) {
+                        result.applyingSeasonDetection(siblings, priors.intro, priors.credits, trace)
+                    }
+                }
             } else {
-                result.rememberingSilentRanges()
+                val remembered = result.rememberingSilentRanges()
+                SeasonSegmentDetector.detect(
+                    remembered,
+                    emptyList(),
+                    theIntroDbIntro = priors.intro,
+                    theIntroDbCredits = priors.credits,
+                    trace = trace,
+                )
+                remembered
             }
             // Episodes the user marked are trusted references: they beat the pairwise guess.
             val references = MediaAnalysisStore.seasonSiblings(item.parentMetaId, season, key)
@@ -656,6 +743,9 @@ internal object MediaAnalysisScheduler {
                 result = clip.result
                 clipUnavailable = clip.attempt == SiblingClipAttempt.Unavailable
             }
+        } else if (season != null && episodeNumber != null) {
+            trace.add(detectionOffDecision("intro"))
+            trace.add(detectionOffDecision("credits"))
         }
         val chapterMark = TimeSource.Monotonic.markNow()
         val protected = result.userSegments.keys + result.learnedTypes + result.foundUsing.keys
@@ -669,6 +759,18 @@ internal object MediaAnalysisScheduler {
             introDetection = introDetectionOn,
             recapDetection = recapDetectionOn,
         )
+        if ("intro" in result.chapterTypes) {
+            trace.replace("intro", chapterDecision("intro", result.introStartMs, result.introEndMs))
+        }
+        if ("outro" in result.chapterTypes) {
+            trace.replace("credits", chapterDecision("credits", result.creditsStartMs, result.creditsEndMs))
+        }
+        if ("recap" in result.chapterTypes) {
+            trace.replace("recap", chapterDecision("recap", result.recapStartMs, result.recapEndMs))
+        }
+        if ("preview" in result.chapterTypes) {
+            trace.replace("preview", chapterDecision("preview", result.previewStartMs, result.previewEndMs))
+        }
         val chaptersMs = rawChaptersMs.coerceAtLeast(0L) + chapterMark.elapsedNow().inWholeMilliseconds
         val chapterSource = if (result.chapterTypes.isEmpty()) "-" else com.nuvio.app.features.player.CHAPTER_SKIP_PROVIDER
         result = duringMatch { saveFingerprint(item, result) }
@@ -713,10 +815,10 @@ internal object MediaAnalysisScheduler {
                 qos = qos,
             ),
         )
-        return AudioPass(result, clipUnavailable = clipUnavailable)
+        return AudioPass(result, clipUnavailable = clipUnavailable, trace = trace)
     }
 
-    /** Saves [result], then fills intro, credits, and recap on the rest of the season from stored fingerprints. */
+    /** Saves [result], then fills intro, credits, recap, and preview on the rest of the season from stored fingerprints. */
     private suspend fun saveFingerprint(item: DownloadItem, result: MediaAnalysisResult): MediaAnalysisResult {
         MediaAnalysisStore.save(result)
         val season = item.seasonNumber ?: return result

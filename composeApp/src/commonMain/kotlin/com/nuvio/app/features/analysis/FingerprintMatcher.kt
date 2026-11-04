@@ -74,6 +74,77 @@ internal object FingerprintMatcher {
         }
         return best
     }
+
+    /**
+     * Every shared run at least [minFrames] long, keeping the [limit] longest.
+     * One pair can share a short theme and a longer one-off clip; the caller votes on all of them.
+     * Same scan as [longestSharedSegment], so it does not add a second pass over the fingerprints.
+     */
+    fun topSharedSegments(
+        a: IntArray,
+        b: IntArray,
+        minFrames: Int,
+        maxFrames: Int = Int.MAX_VALUE,
+        maxBitErrors: Int = 6,
+        maxGapFrames: Int = 5,
+        limit: Int = 4,
+    ): List<SharedSegment> {
+        if (a.isEmpty() || b.isEmpty() || minFrames <= 0 || limit <= 0) return emptyList()
+        val found = mutableListOf<SharedSegment>()
+        fun consider(segment: SharedSegment) {
+            if (segment.length < minFrames || segment.length > maxFrames) return
+            val near = found.indexOfFirst {
+                kotlin.math.abs(it.startA - segment.startA) <= 20 && kotlin.math.abs(it.startB - segment.startB) <= 20
+            }
+            if (near >= 0) {
+                if (segment.length > found[near].length) found[near] = segment
+                return
+            }
+            if (found.size < limit) {
+                found += segment
+                return
+            }
+            val worst = found.indices.minBy { found[it].length }
+            if (segment.length > found[worst].length) found[worst] = segment
+        }
+        for (shift in -(a.size - 1) until b.size) {
+            val startI = maxOf(0, -shift)
+            val endI = minOf(a.size, b.size - shift)
+            if (endI - startI < minFrames) continue
+            var runStart = -1
+            var lastMatch = -1
+            var bitErrorSum = 0
+            var matchCount = 0
+            var pending: SharedSegment? = null
+            fun flush() {
+                pending?.let { consider(it) }
+                pending = null
+            }
+            var i = startI
+            while (i < endI) {
+                val diff = (a[i] xor b[i + shift]).countOneBits()
+                if (diff <= maxBitErrors) {
+                    if (runStart < 0 || i - lastMatch > maxGapFrames + 1) {
+                        flush()
+                        runStart = i
+                        bitErrorSum = 0
+                        matchCount = 0
+                    }
+                    bitErrorSum += diff
+                    matchCount++
+                    lastMatch = i
+                    val length = lastMatch + 1 - runStart
+                    if (matchCount > 0 && length >= minFrames && length <= maxFrames) {
+                        val average = bitErrorSum.toDouble() / matchCount
+                        pending = SharedSegment(runStart, lastMatch + 1, runStart + shift, lastMatch + 1 + shift, average)
+                    }
+                }
+                i++
+            }
+            flush()
+        }
+        return found.sortedByDescending { it.length }
+    }
 }
 
 /** Start times within this window count as the same intro, credits, or recap hit. */
@@ -211,6 +282,7 @@ internal object SeasonSegmentDetector {
         others: List<MediaAnalysisResult>,
         theIntroDbIntro: Pair<Long, Long>? = null,
         theIntroDbCredits: Pair<Long, Long>? = null,
+        trace: SegmentTrace? = null,
     ): DetectedSegments {
         val head = decodeFingerprint(episode.headFingerprint)
         val tail = decodeFingerprint(episode.tailFingerprint)
@@ -218,43 +290,79 @@ internal object SeasonSegmentDetector {
         val intros = mutableListOf<TimedMatch>()
         val credits = mutableListOf<TimedMatch>()
         var comparable = 0
-        for (other in others) {
+        for ((index, other) in others.withIndex()) {
             if (other.fingerprintStepMs != episode.fingerprintStepMs) continue
             comparable++
-            introMatch(head, decodeFingerprint(other.headFingerprint), step)?.let { intros += it }
-            creditsMatch(episode, tail, decodeFingerprint(other.tailFingerprint), step)?.let { credits += it }
+            intros += introMatches(head, decodeFingerprint(other.headFingerprint), step, index)
+            creditsMatch(episode, tail, decodeFingerprint(other.tailFingerprint), step)?.let {
+                credits += it.copy(sibling = index)
+            }
         }
-        val intro = vote(
-            intros.filterNot { episode.rejectedSegments.covers("intro", it.startMs, it.endMs) },
-            comparable,
-        )
-        val credit = vote(
-            credits.filterNot { episode.rejectedSegments.covers("outro", it.startMs, it.endMs) },
-            comparable,
-        )
-        return DetectedSegments(
-            introStartMs = intro?.first?.startMs,
-            introEndMs = intro?.first?.endMs,
-            creditsStartMs = credit?.first?.startMs,
-            creditsEndMs = credit?.first?.endMs,
-            introConfidence = intro?.second,
-            creditsConfidence = credit?.second,
+        val introPool = intros.filterNot { episode.rejectedSegments.covers("intro", it.startMs, it.endMs) }
+        val creditPool = credits.filterNot { episode.rejectedSegments.covers("outro", it.startMs, it.endMs) }
+        val introVote = vote(introPool, comparable)
+        val intro = introVote ?: priorRescue(introPool, theIntroDbIntro)
+        val credit = vote(creditPool, comparable)
+        val detected = episode.snappingEdges(
+            DetectedSegments(
+                introStartMs = intro?.first?.startMs,
+                introEndMs = intro?.first?.endMs,
+                creditsStartMs = credit?.first?.startMs,
+                creditsEndMs = credit?.first?.endMs,
+                introConfidence = intro?.second,
+                creditsConfidence = credit?.second,
+            ),
         ).withTheIntroDbAgreement(theIntroDbIntro, theIntroDbCredits)
+        trace?.add(
+            segmentDecision(
+                type = "intro",
+                candidates = introPool.size,
+                picked = detected.introStartMs != null,
+                startMs = detected.introStartMs,
+                endMs = detected.introEndMs,
+                confidence = detected.introConfidence,
+                why = introWhy(others.isEmpty(), comparable, introVote != null, intro != null),
+                signal = introSignal(comparable, introVote != null, intro != null),
+                thresholds = "minMs=$MIN_INTRO_MS,maxMs=$MAX_INTRO_MS,agreeMs=$SEGMENT_AGREE_MS,maxBits=6,minCluster=2",
+            ),
+        )
+        trace?.add(
+            segmentDecision(
+                type = "credits",
+                candidates = creditPool.size,
+                picked = detected.creditsStartMs != null,
+                startMs = detected.creditsStartMs,
+                endMs = detected.creditsEndMs,
+                confidence = detected.creditsConfidence,
+                why = if (others.isEmpty()) "rejected-no-siblings" else if (detected.creditsStartMs != null) {
+                    if (comparable < 3) "accepted-longest" else "accepted-cluster"
+                } else {
+                    "rejected-no-cluster"
+                },
+                signal = if (detected.creditsStartMs != null && comparable < 3) "fingerprint-longest" else "fingerprint-cluster",
+                thresholds = "minMs=$MIN_CREDITS_MS,maxMs=$MAX_CREDITS_MS,agreeMs=$SEGMENT_AGREE_MS,maxBits=6,endSnapMs=$CREDITS_END_SNAP_MS",
+            ),
+        )
+        return detected
     }
 
-    private fun introMatch(head: IntArray, otherHead: IntArray, step: Int): TimedMatch? {
-        val segment = FingerprintMatcher.longestSharedSegment(
+    private fun introMatches(head: IntArray, otherHead: IntArray, step: Int, sibling: Int): List<TimedMatch> {
+        val minFrames = (MIN_INTRO_MS / step).toInt()
+        val maxFrames = (MAX_INTRO_MS / step).toInt()
+        return FingerprintMatcher.topSharedSegments(
             head,
             otherHead,
-            minFrames = (MIN_INTRO_MS / step).toInt(),
-            maxFrames = (MAX_INTRO_MS / step).toInt(),
-        ) ?: return null
-        return TimedMatch(
-            startMs = segment.startA * step.toLong(),
-            endMs = segment.endA * step.toLong(),
-            length = segment.length,
-            avgBitErrors = segment.avgBitErrors,
-        )
+            minFrames = minFrames,
+            maxFrames = maxFrames,
+        ).map { segment ->
+            TimedMatch(
+                startMs = segment.startA * step.toLong(),
+                endMs = segment.endA * step.toLong(),
+                length = segment.length,
+                avgBitErrors = segment.avgBitErrors,
+                sibling = sibling,
+            )
+        }
     }
 
     private fun creditsMatch(
@@ -288,7 +396,58 @@ private data class TimedMatch(
     val endMs: Long,
     val length: Int,
     val avgBitErrors: Double,
+    val sibling: Int = 0,
 )
+
+private fun segmentDecision(
+    type: String,
+    candidates: Int,
+    picked: Boolean,
+    startMs: Long?,
+    endMs: Long?,
+    confidence: SegmentConfidence?,
+    why: String,
+    signal: String,
+    thresholds: String,
+): SegmentDecision = SegmentDecision(
+    type = type,
+    candidates = candidates,
+    signal = signal,
+    accepted = picked,
+    startMs = startMs,
+    endMs = endMs,
+    confidence = confidence?.let {
+        "siblings=${it.agreeingSiblings},bits=${bitsText(it.avgBitErrors)},prior=${if (it.theIntroDbAgrees) 1 else 0}"
+    } ?: "none",
+    why = why,
+    thresholds = thresholds,
+)
+
+private fun introWhy(noSiblings: Boolean, comparable: Int, voted: Boolean, picked: Boolean): String = when {
+    noSiblings -> "rejected-no-siblings"
+    picked && !voted -> "accepted-prior"
+    picked && comparable < 3 -> "accepted-longest"
+    picked -> "accepted-cluster"
+    else -> "rejected-no-cluster"
+}
+
+private fun introSignal(comparable: Int, voted: Boolean, picked: Boolean): String = when {
+    picked && !voted -> "theintrodb-prior"
+    picked && comparable < 3 -> "fingerprint-longest"
+    else -> "fingerprint-cluster"
+}
+
+/** A fingerprint run that lands on the TheIntroDB window, when the season vote found nothing. */
+private fun priorRescue(matches: List<TimedMatch>, prior: Pair<Long, Long>?): Pair<TimedMatch, SegmentConfidence>? {
+    if (prior == null || matches.isEmpty()) return null
+    val near = matches.filter {
+        abs(it.startMs - prior.first) <= SEGMENT_AGREE_MS && abs(it.endMs - prior.second) <= SEGMENT_AGREE_MS
+    }
+    if (near.isEmpty()) return null
+    val distinct = near.groupBy { it.sibling }.map { (_, rows) -> rows.maxBy { it.length } }
+    val best = distinct.minWith(compareBy<TimedMatch> { it.avgBitErrors }.thenByDescending { it.length })
+    return best to distinct.confidence().copy(theIntroDbAgrees = true)
+}
 
 /**
  * [siblingCount] under 3: the longest run, scored by how many starts sit within [SEGMENT_AGREE_MS].
@@ -309,8 +468,9 @@ private fun vote(matches: List<TimedMatch>, siblingCount: Int): Pair<TimedMatch,
             if (sorted[j].startMs - sorted[i].startMs > SEGMENT_AGREE_MS) break
             group += sorted[j]
         }
-        if (group.size < 2) continue
-        if (bestGroup == null || group.outranks(bestGroup)) bestGroup = group
+        val distinct = group.groupBy { it.sibling }.map { (_, rows) -> rows.maxBy { it.length } }
+        if (distinct.size < 2) continue
+        if (bestGroup == null || distinct.outranks(bestGroup)) bestGroup = distinct
     }
     val chosen = bestGroup ?: return null
     val representative = chosen.minWith(compareBy<TimedMatch> { it.avgBitErrors }.thenByDescending { it.length })
@@ -331,13 +491,16 @@ private fun List<TimedMatch>.outranks(other: List<TimedMatch>): Boolean {
 }
 
 /**
- * "Previously on" recaps: the stretch before the intro that replays material from earlier
- * episodes. The part of this episode before its intro is matched, at any alignment, against what
- * is stored of the other episodes (their first 10 and last 8 minutes, their own intros masked
- * out). Recaps are a montage of short clips, so a few seconds of shared audio are enough; the
- * recap is then taken to run from the start (when the first match is near it) to the intro.
+ * "Previously on" recaps.
  *
- * Needs a detected intro to bound the recap. Clips from the middle of earlier episodes are not
+ * First choice: the opening of this episode matches the end of the previous episode (the last
+ * scenes stored in its tail, with that episode's credits masked out). One previous episode is
+ * enough. A recap is not the same clip repeated in every sibling, so a vote that demands two
+ * siblings share a start time never fires on a real "previously on".
+ *
+ * Otherwise the older montage search still runs: the part before the intro is matched against
+ * what is stored of the other episodes, and with three or more siblings the hits must agree.
+ * That path still needs a detected intro. Clips from the middle of earlier episodes are not
  * stored, so a recap made only of those is not found.
  */
 internal object RecapDetector {
@@ -347,14 +510,109 @@ internal object RecapDetector {
     private const val SNAP_TO_START_MS = 20_000L
     private const val SNAP_TO_INTRO_MS = 60_000L
 
-    fun detect(episode: MediaAnalysisResult, others: List<MediaAnalysisResult>): Pair<Long, Long>? {
+    fun detect(
+        episode: MediaAnalysisResult,
+        others: List<MediaAnalysisResult>,
+        trace: SegmentTrace? = null,
+        prior: Pair<Long, Long>? = null,
+    ): Pair<Long, Long>? {
+        val fromPrevious = matchPreviousEnding(episode, others)
+        if (fromPrevious.range != null) {
+            trace?.add(recapLine(fromPrevious.range, candidates = 1, signal = "previous-ending", why = "accepted-previous-ending", prior = prior))
+            return fromPrevious.range
+        }
+        val montage = matchMontage(episode, others)
+        val why = when {
+            montage.range != null -> "accepted-montage"
+            fromPrevious.tooShort && montage.hits == 0 -> "rejected-short"
+            episode.introStartMs == null -> "rejected-no-intro"
+            episode.introStartMs < MIN_RECAP_MS -> "rejected-intro-too-early"
+            montage.hits > 0 && montage.kept == 0 -> "rejected-agreement"
+            prior != null -> "rejected-audio-miss-prior-unused"
+            siblingByDelta(episode, others, -1) == null -> "rejected-no-previous"
+            else -> "rejected-no-match"
+        }
+        trace?.add(
+            recapLine(
+                range = montage.range,
+                candidates = if (fromPrevious.tooShort && montage.hits == 0) 1 else montage.hits,
+                signal = if (montage.range != null) "head-agreement" else "previous-ending",
+                why = why,
+                prior = prior,
+            ),
+        )
+        return montage.range
+    }
+
+    private fun recapLine(
+        range: Pair<Long, Long>?,
+        candidates: Int,
+        signal: String,
+        why: String,
+        prior: Pair<Long, Long>?,
+    ): SegmentDecision {
+        val agrees = range != null && prior != null &&
+            abs(range.first - prior.first) <= SEGMENT_AGREE_MS &&
+            abs(range.second - prior.second) <= SEGMENT_AGREE_MS
+        return SegmentDecision(
+            type = "recap",
+            candidates = candidates,
+            signal = signal,
+            accepted = range != null,
+            startMs = range?.first,
+            endMs = range?.second,
+            confidence = "prior=${if (agrees) 1 else 0}",
+            why = why,
+            thresholds = "minClipMs=$MIN_CLIP_MS,minMs=$MIN_RECAP_MS,maxMs=$MAX_RECAP_MS,snapStartMs=$SNAP_TO_START_MS,snapIntroMs=$SNAP_TO_INTRO_MS",
+        )
+    }
+
+    private data class PreviousAttempt(val range: Pair<Long, Long>? = null, val tooShort: Boolean = false)
+
+    /** Opening audio shared with the previous episode's tail, before that episode's credits. */
+    private fun matchPreviousEnding(episode: MediaAnalysisResult, others: List<MediaAnalysisResult>): PreviousAttempt {
+        val previous = siblingByDelta(episode, others, -1) ?: return PreviousAttempt()
         val step = episode.fingerprintStepMs.coerceAtLeast(1).toLong()
-        val introStart = episode.introStartMs ?: return null
-        if (introStart < MIN_RECAP_MS) return null
+        if (previous.fingerprintStepMs.toLong() != step) return PreviousAttempt()
+        val head = decodeFingerprint(episode.headFingerprint)
+        if (head.isEmpty()) return PreviousAttempt()
+        val introStart = episode.introStartMs
+        val windowMs = when {
+            introStart == null -> MAX_RECAP_MS
+            introStart < MIN_RECAP_MS -> return PreviousAttempt()
+            else -> minOf(introStart, MAX_RECAP_MS + SNAP_TO_START_MS)
+        }
+        val windowFrames = minOf(head.size, (windowMs / step).toInt())
+        val minFrames = (MIN_CLIP_MS / step).toInt()
+        if (windowFrames < minFrames) return PreviousAttempt()
+        val window = head.copyOfRange(0, windowFrames)
+        val tail = maskRange(
+            decodeFingerprint(previous.tailFingerprint),
+            previous.creditsStartMs,
+            previous.creditsEndMs,
+            step,
+            previous.tailStartMs,
+        )
+        val segment = FingerprintMatcher.longestSharedSegment(window, tail, minFrames = minFrames) ?: return PreviousAttempt()
+        if (segment.startA * step > SNAP_TO_START_MS) return PreviousAttempt()
+        val lastMs = segment.endA * step
+        val endMs = if (introStart != null && introStart >= lastMs && introStart - lastMs <= SNAP_TO_INTRO_MS) introStart else lastMs
+        val snapped = episode.snapSegmentEdges(0L, endMs) ?: return PreviousAttempt(tooShort = true)
+        if (snapped.second - snapped.first !in MIN_RECAP_MS..MAX_RECAP_MS) return PreviousAttempt(tooShort = true)
+        if (episode.rejectedSegments.covers("recap", snapped.first, snapped.second)) return PreviousAttempt()
+        return PreviousAttempt(range = snapped)
+    }
+
+    private data class Montage(val range: Pair<Long, Long>?, val hits: Int, val kept: Int)
+
+    private fun matchMontage(episode: MediaAnalysisResult, others: List<MediaAnalysisResult>): Montage {
+        val step = episode.fingerprintStepMs.coerceAtLeast(1).toLong()
+        val introStart = episode.introStartMs ?: return Montage(null, 0, 0)
+        if (introStart < MIN_RECAP_MS) return Montage(null, 0, 0)
         val head = decodeFingerprint(episode.headFingerprint)
         val windowFrames = minOf(head.size, (minOf(introStart, MAX_RECAP_MS + SNAP_TO_START_MS) / step).toInt())
         val minFrames = (MIN_CLIP_MS / step).toInt()
-        if (windowFrames < minFrames) return null
+        if (windowFrames < minFrames) return Montage(null, 0, 0)
         val window = head.copyOfRange(0, windowFrames)
         val hits = mutableListOf<RecapHit>()
         var comparable = 0
@@ -374,14 +632,17 @@ internal object RecapDetector {
             }
         }
         val kept = if (comparable >= 3) hits.agreed(step) else hits
-        if (kept.isEmpty()) return null
+        if (kept.isEmpty()) return Montage(null, hits.size, 0)
         val firstStart = kept.minOf { it.startFrame }
         val lastEnd = kept.maxOf { it.endFrame }
         val startMs = (firstStart * step).let { if (it <= SNAP_TO_START_MS) 0L else it }
         val lastMs = lastEnd * step
         val endMs = if (introStart >= lastMs && introStart - lastMs <= SNAP_TO_INTRO_MS) introStart else lastMs
-        if (endMs - startMs !in MIN_RECAP_MS..MAX_RECAP_MS) return null
-        return startMs to endMs
+        if (endMs - startMs !in MIN_RECAP_MS..MAX_RECAP_MS) return Montage(null, hits.size, kept.size)
+        val snapped = episode.snapSegmentEdges(startMs, endMs) ?: return Montage(null, hits.size, kept.size)
+        if (snapped.second - snapped.first !in MIN_RECAP_MS..MAX_RECAP_MS) return Montage(null, hits.size, kept.size)
+        if (episode.rejectedSegments.covers("recap", snapped.first, snapped.second)) return Montage(null, hits.size, kept.size)
+        return Montage(snapped, hits.size, kept.size)
     }
 
     private data class RecapHit(val sibling: Int, val startFrame: Int, val endFrame: Int)

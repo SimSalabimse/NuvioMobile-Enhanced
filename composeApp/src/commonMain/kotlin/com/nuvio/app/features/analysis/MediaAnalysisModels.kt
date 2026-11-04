@@ -8,8 +8,8 @@ import kotlinx.serialization.Serializable
 /** Bumped when the analyzer output changes meaning; older results are analysed again. */
 internal const val MEDIA_ANALYSIS_VERSION = 1
 
-/** Version of the derived data (recaps, thumbnails) computed from a stored analysis. */
-internal const val MEDIA_ANALYSIS_DERIVED_VERSION = 2
+/** Version of the derived data (recaps, previews, thumbnails) computed from a stored analysis. */
+internal const val MEDIA_ANALYSIS_DERIVED_VERSION = 3
 
 /**
  * What the on-device analyzer measured in one downloaded episode or movie, stored per episode
@@ -73,7 +73,16 @@ internal data class MediaAnalysisResult(
     val rejectedSegments: List<RejectedSegment> = emptyList(),
     /** Quiet runs kept after the energy track is dropped, so edges can still snap. */
     val silentRanges: List<SilentRange> = emptyList(),
-    /** Next-episode preview read from a chapter marker. Fingerprint matching does not set this. */
+    /**
+     * Black-frame runs, same shape as [silentRanges]. The audio pass does not measure these
+     * (video stays discarded). A caller that has them, including the synthetic harness, can set
+     * them and the edge snap will prefer them.
+     */
+    val blackRanges: List<SilentRange> = emptyList(),
+    /**
+     * Next-episode preview. Chapter markers set this, and so does a fingerprint match of this
+     * episode's ending against the next episode's cold open.
+     */
     val previewStartMs: Long? = null,
     val previewEndMs: Long? = null,
     /**
@@ -137,6 +146,7 @@ internal fun MediaAnalysisResult.withUserSegmentsApplied(): MediaAnalysisResult 
     marks["intro"]?.let { r = r.copy(introStartMs = it.startMs, introEndMs = it.endMs) }
     marks["outro"]?.let { r = r.copy(creditsStartMs = it.startMs, creditsEndMs = it.endMs) }
     marks["recap"]?.let { r = r.copy(recapStartMs = it.startMs, recapEndMs = it.endMs) }
+    marks["preview"]?.let { r = r.copy(previewStartMs = it.startMs, previewEndMs = it.endMs) }
     return r
 }
 

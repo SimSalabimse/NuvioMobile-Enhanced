@@ -116,10 +116,9 @@ internal fun MediaAnalysisResult.skipProviderFor(kind: String): String =
     if (kind in chapterTypes) CHAPTER_SKIP_PROVIDER else ON_DEVICE_SKIP_PROVIDER
 
 /**
- * Segment ids whose times come from this app's own analysis: intro, recap, or credits
+ * Segment ids whose times come from this app's own analysis: intro, recap, credits, or preview
  * (including a time learned from another episode). A type the person marked is left out,
- * because that mark is theirs to submit. Preview is never produced by the analysis.
- * Empty when there is no stored analysis.
+ * because that mark is theirs to submit. Empty when there is no stored analysis.
  */
 internal fun segmentTypesSyncedByAnalysis(result: MediaAnalysisResult?): Set<String> {
     if (result == null) return emptySet()
@@ -128,6 +127,7 @@ internal fun segmentTypesSyncedByAnalysis(result: MediaAnalysisResult?): Set<Str
         if ("intro" !in marked && result.hasAnalysedRange(result.introStartMs, result.introEndMs)) add("intro")
         if ("recap" !in marked && result.hasAnalysedRange(result.recapStartMs, result.recapEndMs)) add("recap")
         if ("outro" !in marked && result.hasAnalysedRange(result.creditsStartMs, result.creditsEndMs)) add("outro")
+        if ("preview" !in marked && result.hasAnalysedRange(result.previewStartMs, result.previewEndMs)) add("preview")
     }
 }
 
