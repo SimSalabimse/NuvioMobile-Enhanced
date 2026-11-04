@@ -118,6 +118,7 @@ import com.nuvio.app.core.a11y.episodeLongPressActions
 import com.nuvio.app.core.a11y.installLongPressAccessibility
 import com.nuvio.app.core.a11y.seasonLongPressActions
 import com.nuvio.app.core.ui.glass.ambientLiquidGlass
+import com.nuvio.app.core.i18n.localizedEpisodeTitle
 
 private val log = Logger.withTag("SeriesContent")
 
@@ -1255,6 +1256,13 @@ private fun EpisodeHorizontalCard(
             NuvioAnimatedWatchedBadge(isVisible = isWatched)
         }
 
+        EpisodeAvailabilityBadge(
+            video = video,
+            modifier = Modifier
+                .align(if (isWatched) Alignment.TopStart else Alignment.TopEnd)
+                .padding(metrics.contentPadding),
+        )
+
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -1277,7 +1285,7 @@ private fun EpisodeHorizontalCard(
             )
 
             Text(
-                text = video.title,
+                text = localizedEpisodeTitle(video.title, video.episode) ?: video.title,
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontSize = metrics.titleTextSize,
                     fontWeight = FontWeight.ExtraBold,
@@ -1668,8 +1676,10 @@ private fun EpisodeListCard(
     )
     val resolvedClick = if (playEnabled) onClick else null
     val matchStyle = episodeMatchStyle()
-    val titleText = remember(video.title, highlightQuery, matchStyle) {
-        highlightEpisodeMatches(video.title, highlightQuery, matchStyle)
+    // Localized title from upstream, with the fork's search-match highlighting on top.
+    val displayTitle = localizedEpisodeTitle(video.title, video.episode) ?: video.title
+    val titleText = remember(displayTitle, highlightQuery, matchStyle) {
+        highlightEpisodeMatches(displayTitle, highlightQuery, matchStyle)
     }
     val overviewText = remember(video.overview, highlightQuery, matchStyle) {
         video.overview?.let { highlightEpisodeMatches(it, highlightQuery, matchStyle) }
@@ -1778,6 +1788,21 @@ private fun EpisodeListCard(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(8.dp),
+                )
+
+                EpisodeAvailabilityBadge(
+                    video = video,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(
+                            start = 8.dp,
+                            end = 8.dp,
+                            bottom = if (progressEntry != null && progressEntry.durationMs > 0L && !progressEntry.isCompleted) {
+                                24.dp
+                            } else {
+                                8.dp
+                            },
+                        ),
                 )
             }
 

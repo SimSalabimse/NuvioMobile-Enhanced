@@ -1,5 +1,6 @@
 package com.nuvio.app.features.settings
 
+import com.nuvio.app.core.ui.background.appGlassBackdrop
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -82,9 +83,9 @@ private fun SettingsCard(
 ) {
     val tokens = MaterialTheme.nuvio
     Surface(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().appGlassBackdrop(tokens.shapes.card),
         color = tokens.colors.surface,
-        shape = if (isTablet) RoundedCornerShape(NuvioTokens.Radius.xl) else tokens.shapes.compactCard,
+        shape = tokens.shapes.card,
         border = BorderStroke(
             tokens.borders.hairline,
             tokens.colors.borderSubtle,
@@ -224,7 +225,9 @@ internal fun SettingsSection(
     val tokens = MaterialTheme.nuvio
     Column {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = NuvioTokens.Radius.card),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {

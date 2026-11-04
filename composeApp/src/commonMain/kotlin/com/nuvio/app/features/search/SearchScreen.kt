@@ -1,5 +1,7 @@
 package com.nuvio.app.features.search
 
+import androidx.compose.ui.graphics.Color
+import com.nuvio.app.core.ui.background.appBackgroundCover
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -44,6 +46,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.ui.NuvioInputField
+import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.nuvioConsumePointerEvents
@@ -243,12 +246,15 @@ fun SearchScreen(
         }
         val headerTitle = when {
             query.isNotBlank() -> stringResource(Res.string.compose_nav_search)
-            discoverInFocus -> stringResource(Res.string.compose_search_discover_title)
             else -> stringResource(Res.string.compose_nav_search)
         }
 
         androidx.compose.foundation.layout.Column(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .appBackgroundCover(MaterialTheme.colorScheme.background),
+            ) {
                 androidx.compose.foundation.layout.Column(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
@@ -263,6 +269,7 @@ fun SearchScreen(
                             onValueChange = { query = it },
                             enabled = !networkStatusUiState.isOfflineLike,
                             placeholder = stringResource(Res.string.compose_search_placeholder),
+                            shape = RoundedCornerShape(NuvioTokens.Radius.xl),
                             modifier = Modifier
                                 .focusRequester(focusRequester)
                                 .onFocusChanged { isSearchFocused = it.isFocused },
@@ -282,6 +289,18 @@ fun SearchScreen(
                         )
                     }
                     androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(14.dp))
+                    if (query.isBlank()) {
+                        DiscoverSectionHeader(modifier = Modifier.padding(horizontal = 16.dp))
+                        DiscoverFilterRow(
+                            state = discoverUiState,
+                            modifier = Modifier
+                                .padding(horizontal = 16.dp)
+                                .padding(top = 8.dp, bottom = 14.dp),
+                            onTypeSelected = SearchRepository::selectDiscoverType,
+                            onCatalogSelected = SearchRepository::selectDiscoverCatalog,
+                            onGenreSelected = SearchRepository::selectDiscoverGenre,
+                        )
+                    }
                 }
             }
 
@@ -292,30 +311,6 @@ fun SearchScreen(
                 autoHidesNativeTabBar = true,
                 modifier = Modifier.weight(1f),
             ) {
-                if (query.isBlank()) {
-                    item {
-                        DiscoverSectionHeader(modifier = Modifier.padding(horizontal = 16.dp))
-                    }
-                    stickyHeader {
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            Box(
-                                modifier = Modifier
-                                    .matchParentSize()
-                                    .background(MaterialTheme.colorScheme.background)
-                                    .nuvioConsumePointerEvents(),
-                            )
-                            DiscoverFilterRow(
-                                state = discoverUiState,
-                                modifier = Modifier
-                                    .padding(horizontal = 16.dp)
-                                    .padding(top = 8.dp, bottom = 14.dp),
-                                onTypeSelected = SearchRepository::selectDiscoverType,
-                                onCatalogSelected = SearchRepository::selectDiscoverCatalog,
-                                onGenreSelected = SearchRepository::selectDiscoverGenre,
-                            )
-                        }
-                    }
-                }
                 if (query.isBlank()) {
                     if (isSearchFocused && recentSearches.isNotEmpty()) {
                         item(key = "recent_searches") {

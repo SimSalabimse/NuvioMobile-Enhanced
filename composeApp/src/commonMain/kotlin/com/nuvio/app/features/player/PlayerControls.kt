@@ -41,6 +41,7 @@ import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.Cast
 import androidx.compose.material.icons.rounded.CastConnected
 import androidx.compose.material.icons.rounded.PictureInPictureAlt
+import androidx.compose.material.icons.rounded.NightsStay
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Replay
@@ -60,6 +61,8 @@ import androidx.compose.material3.SliderState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -168,6 +171,8 @@ internal fun PlayerControlsShell(
     speedPickerVisible: Boolean = false,
     onSpeedSelected: (Float) -> Unit = {},
     onSpeedPickerDismiss: () -> Unit = {},
+    nightModeEnabled: Boolean = false,
+    onNightModeClick: (() -> Unit)? = null,
     onSubtitleClick: (() -> Unit)? = null,
     onAudioClick: (() -> Unit)? = null,
     onVideoSettingsClick: (() -> Unit)? = null,
@@ -435,6 +440,8 @@ internal fun PlayerControlsShell(
                     speedPickerVisible = speedPickerVisible,
                     onSpeedSelected = onSpeedSelected,
                     onSpeedPickerDismiss = onSpeedPickerDismiss,
+                    nightModeEnabled = nightModeEnabled,
+                    onNightModeClick = onNightModeClick,
                     onSubtitleClick = onSubtitleClick,
                     onAudioClick = onAudioClick,
                     onSourcesClick = onSourcesClick,
@@ -537,6 +544,8 @@ internal fun PlayerControlsShell(
                         speedPickerVisible = speedPickerVisible,
                         onSpeedSelected = onSpeedSelected,
                         onSpeedPickerDismiss = onSpeedPickerDismiss,
+                        nightModeEnabled = nightModeEnabled,
+                        onNightModeClick = onNightModeClick,
                         onResizeModeClick = onResizeModeClick,
                         onVideoSettingsClick = onVideoSettingsClick,
                         onOpenInExternalPlayer = onOpenInExternalPlayer,
@@ -686,110 +695,139 @@ private fun PlayerHeader(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (onOpenInExternalPlayer != null) {
-                        PlayerHeaderIconButton(
-                            icon = Icons.AutoMirrored.Rounded.OpenInNew,
-                            contentDescription = stringResource(Res.string.streams_open_external_player),
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
-                            onClick = onOpenInExternalPlayer,
-                        )
-                    }
-                    if (onSubmitIntroClick != null) {
-                        PlayerHeaderIconButton(
-                            icon = Icons.Rounded.Flag,
-                            contentDescription = stringResource(Res.string.submit_intro_action),
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
-                            onClick = onSubmitIntroClick,
-                        )
-                    }
-                    if (onSwitchEngineClick != null) {
-                        PlayerHeaderIconButton(
-                            icon = Icons.Rounded.SwapHoriz,
-                            contentDescription = stringResource(Res.string.cd_switch_player_engine),
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
-                            onClick = onSwitchEngineClick,
-                        )
-                    }
-                    if (onPartyClick != null) {
-                        PlayerHeaderIconButton(
-                            icon = Icons.Rounded.Groups,
-                            contentDescription = stringResource(Res.string.party_title),
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
-                            onClick = onPartyClick,
-                            tint = if (partyActive) MaterialTheme.colorScheme.primary else Color.White,
-                        )
-                    }
-                    PlayerHeaderIconButton(
-                        icon = if (isLocked) Icons.Rounded.LockOpen else Icons.Rounded.Lock,
-                        contentDescription = if (isLocked) {
-                            stringResource(Res.string.compose_player_unlock_controls)
-                        } else {
-                            stringResource(Res.string.compose_player_lock_controls)
-                        },
-                        buttonSize = metrics.headerIconSize + 16.dp,
-                        iconSize = metrics.headerIconSize,
-                        onClick = onLockToggle,
-                    )
-                    if (onVideoSettingsClick != null) {
-                        PlayerHeaderIconButton(
-                            icon = Icons.Rounded.Build,
-                            contentDescription = stringResource(Res.string.player_action_video_settings),
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
-                            onClick = onVideoSettingsClick,
-                        )
-                    }
+                    val topButtons = PlayerSettingsRepository.uiState.collectAsState().value.legacyTopButtons
+                    topButtons.visibleButtons.forEach { button ->
+                        key(button) {
+                            when (button) {
+                                LegacyTopButton.SUBMIT_INTRO -> {
+                                    if (onSubmitIntroClick != null) {
+                                        PlayerHeaderIconButton(
+                                            icon = Icons.Rounded.Flag,
+                                            contentDescription = stringResource(Res.string.submit_intro_action),
+                                            buttonSize = metrics.headerIconSize + 16.dp,
+                                            iconSize = metrics.headerIconSize,
+                                            onClick = onSubmitIntroClick,
+                                        )
+                                    }
+                                }
+                                LegacyTopButton.EXTERNAL_PLAYER -> {
+                                    if (onOpenInExternalPlayer != null) {
+                                        PlayerHeaderIconButton(
+                                            icon = Icons.AutoMirrored.Rounded.OpenInNew,
+                                            contentDescription = stringResource(Res.string.streams_open_external_player),
+                                            buttonSize = metrics.headerIconSize + 16.dp,
+                                            iconSize = metrics.headerIconSize,
+                                            onClick = onOpenInExternalPlayer,
+                                        )
+                                    }
+                                }
+                                LegacyTopButton.SWITCH_ENGINE -> {
+                                    if (onSwitchEngineClick != null) {
+                                        PlayerHeaderIconButton(
+                                            icon = Icons.Rounded.SwapHoriz,
+                                            contentDescription = stringResource(Res.string.cd_switch_player_engine),
+                                            buttonSize = metrics.headerIconSize + 16.dp,
+                                            iconSize = metrics.headerIconSize,
+                                            onClick = onSwitchEngineClick,
+                                        )
+                                    }
+                                }
+                                LegacyTopButton.PARTY -> {
+                                    if (onPartyClick != null) {
+                                        PlayerHeaderIconButton(
+                                            icon = Icons.Rounded.Groups,
+                                            contentDescription = stringResource(Res.string.party_title),
+                                            buttonSize = metrics.headerIconSize + 16.dp,
+                                            iconSize = metrics.headerIconSize,
+                                            onClick = onPartyClick,
+                                            tint = if (partyActive) MaterialTheme.colorScheme.primary else Color.White,
+                                        )
+                                    }
+                                }
+                                LegacyTopButton.CAST -> {
+                                    if (onCastClick != null) {
+                                        PlayerHeaderIconButton(
+                                            icon = if (isCasting) Icons.Rounded.CastConnected else Icons.Rounded.Cast,
+                                            contentDescription = stringResource(Res.string.player_cast),
+                                            buttonSize = metrics.headerIconSize + 16.dp,
+                                            iconSize = metrics.headerIconSize,
+                                            onClick = onCastClick,
+                                        )
+                                    }
+                                }
+                                LegacyTopButton.PICTURE_IN_PICTURE -> {
+                                    if (onPictureInPictureClick != null) {
+                                        PlayerHeaderIconButton(
+                                            icon = Icons.Rounded.PictureInPictureAlt,
+                                            contentDescription = stringResource(Res.string.compose_player_picture_in_picture),
+                                            buttonSize = metrics.headerIconSize + 16.dp,
+                                            iconSize = metrics.headerIconSize,
+                                            onClick = onPictureInPictureClick,
+                                        )
+                                    }
+                                }
+                                LegacyTopButton.ORIENTATION -> {
+                                    if (onOrientationToggleClick != null) {
+                                        PlayerHeaderIconButton(
+                                            icon = playerOrientationToggleIcon(isPortraitPlayback),
+                                            contentDescription = stringResource(playerOrientationToggleLabel(isPortraitPlayback)),
+                                            buttonSize = metrics.headerIconSize + 16.dp,
+                                            iconSize = metrics.headerIconSize,
+                                            onClick = onOrientationToggleClick,
+                                        )
+                                    }
+                                }
+                                LegacyTopButton.RATE -> {
+                                    if (onRateClick != null) {
+                                        PlayerHeaderIconButton(
+                                            icon = if (userRating != null) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                                            contentDescription = userRating?.let {
+                                                stringResource(Res.string.user_rating_action_rated, it)
+                                            } ?: stringResource(Res.string.user_rating_action_rate),
+                                            buttonSize = metrics.headerIconSize + 16.dp,
+                                            iconSize = metrics.headerIconSize,
+                                            onClick = onRateClick,
+                                        )
+                                    }
+                                }
+                                LegacyTopButton.PLAYBACK_INFO -> {
+                                    if (onInfoClick != null) {
+                                        PlayerHeaderIconButton(
+                                            icon = Icons.Rounded.Info,
+                                            contentDescription = stringResource(Res.string.compose_player_playback_info),
+                                            buttonSize = metrics.headerIconSize + 16.dp,
+                                            iconSize = metrics.headerIconSize,
+                                            onClick = onInfoClick,
+                                        )
+                                    }
+                                }
+                                LegacyTopButton.VIDEO_SETTINGS -> {
+                                    if (onVideoSettingsClick != null) {
+                                        PlayerHeaderIconButton(
+                                            icon = Icons.Rounded.Build,
+                                            contentDescription = stringResource(Res.string.player_action_video_settings),
+                                            buttonSize = metrics.headerIconSize + 16.dp,
+                                            iconSize = metrics.headerIconSize,
+                                            onClick = onVideoSettingsClick,
+                                        )
+                                    }
+                                }
+                                LegacyTopButton.LOCK -> {
+                                    PlayerHeaderIconButton(
+                                        icon = if (isLocked) Icons.Rounded.LockOpen else Icons.Rounded.Lock,
+                                        contentDescription = if (isLocked) {
+                                            stringResource(Res.string.compose_player_unlock_controls)
+                                        } else {
+                                            stringResource(Res.string.compose_player_lock_controls)
+                                        },
+                                        buttonSize = metrics.headerIconSize + 16.dp,
+                                        iconSize = metrics.headerIconSize,
+                                        onClick = onLockToggle,
+                                    )
+                                }
+                            }
+                        }
                     downloadAction?.invoke(metrics.headerIconSize + 16.dp, metrics.headerIconSize)
-                    if (onCastClick != null) {
-                        PlayerHeaderIconButton(
-                            icon = if (isCasting) Icons.Rounded.CastConnected else Icons.Rounded.Cast,
-                            contentDescription = stringResource(Res.string.player_cast),
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
-                            onClick = onCastClick,
-                        )
-                    }
-                    if (onPictureInPictureClick != null) {
-                        PlayerHeaderIconButton(
-                            icon = Icons.Rounded.PictureInPictureAlt,
-                            contentDescription = stringResource(Res.string.compose_player_picture_in_picture),
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
-                            onClick = onPictureInPictureClick,
-                        )
-                    }
-                    if (onOrientationToggleClick != null) {
-                        PlayerHeaderIconButton(
-                            icon = playerOrientationToggleIcon(isPortraitPlayback),
-                            contentDescription = stringResource(playerOrientationToggleLabel(isPortraitPlayback)),
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
-                            onClick = onOrientationToggleClick,
-                        )
-                    }
-                    if (onRateClick != null) {
-                        PlayerHeaderIconButton(
-                            icon = if (userRating != null) Icons.Rounded.Star else Icons.Rounded.StarBorder,
-                            contentDescription = userRating?.let {
-                                stringResource(Res.string.user_rating_action_rated, it)
-                            } ?: stringResource(Res.string.user_rating_action_rate),
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
-                            onClick = onRateClick,
-                        )
-                    }
-                    if (onInfoClick != null) {
-                        PlayerHeaderIconButton(
-                            icon = Icons.Rounded.Info,
-                            contentDescription = stringResource(Res.string.compose_player_playback_info),
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
-                            onClick = onInfoClick,
-                        )
                     }
                     NuvioBackButton(
                         onClick = onBack,
@@ -992,6 +1030,8 @@ private fun ProgressControls(
     speedPickerVisible: Boolean = false,
     onSpeedSelected: (Float) -> Unit = {},
     onSpeedPickerDismiss: () -> Unit = {},
+    nightModeEnabled: Boolean = false,
+    onNightModeClick: (() -> Unit)? = null,
     onSubtitleClick: (() -> Unit)? = null,
     onAudioClick: (() -> Unit)? = null,
     onSourcesClick: (() -> Unit)? = null,
@@ -1076,92 +1116,125 @@ private fun ProgressControls(
                         onClick = onRuntimeClick,
                     ),
             )
-            Surface(
-                color = Color.Transparent,
-                shape = RoundedCornerShape(24.dp),
-                modifier = Modifier.align(Alignment.TopCenter).playerLiquidGlass(
+            val bottomButtons = PlayerSettingsRepository.uiState.collectAsState().value.legacyBottomButtons
+            if (bottomButtons.visibleButtons.isNotEmpty()) {
+                Surface(
+                    color = Color.Transparent,
                     shape = RoundedCornerShape(24.dp),
-                    refractionHeight = 10.dp,
-                    refractionAmount = 14.dp,
-                ),
-            ) {
-                PlayerChromeBackdrop(
-                    modifier = Modifier.matchParentSize(),
-                    shape = RoundedCornerShape(24.dp),
-                    fallbackColor = Color.Black.copy(alpha = 0.5f),
-                )
-                Row(
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.align(Alignment.TopCenter).playerLiquidGlass(
+                        shape = RoundedCornerShape(24.dp),
+                        refractionHeight = 10.dp,
+                        refractionAmount = 14.dp,
+                    ),
                 ) {
-                    PlayerActionPillButton(
-                        label = stringResource(resizeMode.labelRes),
-                        painter = aspectRatioPainter,
-                        onClick = onResizeModeClick,
-                    )
-                    if (onSpeedClick != null) {
-                        Box {
-                            PlayerActionPillButton(
-                                label = formatPlaybackSpeedLabel(playbackSnapshot.playbackSpeed),
-                                icon = Icons.Rounded.Speed,
-                                onClick = onSpeedClick,
-                            )
-                            PlayerSpeedPopup(
-                                visible = speedPickerVisible,
-                                currentSpeed = playbackSnapshot.playbackSpeed,
-                                onSpeedSelected = onSpeedSelected,
-                                onDismiss = onSpeedPickerDismiss,
-                            )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        bottomButtons.visibleButtons.forEach { button ->
+                            key(button) {
+                                when (button) {
+                                    LegacyBottomButton.RESIZE -> {
+                                        PlayerActionPillButton(
+                                            label = stringResource(resizeMode.labelRes),
+                                            painter = aspectRatioPainter,
+                                            onClick = onResizeModeClick,
+                                        )
+                                    }
+                                    LegacyBottomButton.SPEED -> {
+                                        if (onSpeedClick != null) {
+                                            Box {
+                                                PlayerActionPillButton(
+                                                    label = formatPlaybackSpeedLabel(playbackSnapshot.playbackSpeed),
+                                                    icon = Icons.Rounded.Speed,
+                                                    onClick = onSpeedClick,
+                                                )
+                                                PlayerSpeedPopup(
+                                                    visible = speedPickerVisible,
+                                                    currentSpeed = playbackSnapshot.playbackSpeed,
+                                                    onSpeedSelected = onSpeedSelected,
+                                                    onDismiss = onSpeedPickerDismiss,
+                                                )
+                                            }
+                                        }
+                                    }
+                                    LegacyBottomButton.SUBTITLES -> {
+                                        if (onSubtitleClick != null) {
+                                            PlayerActionPillButton(
+                                                label = stringResource(Res.string.compose_player_subs),
+                                                painter = subtitlesPainter,
+                                                onClick = onSubtitleClick,
+                                            )
+                                        }
+                                    }
+                                    LegacyBottomButton.AUDIO -> {
+                                        if (onAudioClick != null) {
+                                            PlayerActionPillButton(
+                                                label = stringResource(Res.string.compose_player_audio),
+                                                painter = audioPainter,
+                                                onClick = onAudioClick,
+                                            )
+                                        }
+                                    }
+                                    LegacyBottomButton.NIGHT_MODE -> {
+                                        if (onNightModeClick != null) {
+                                            PlayerActionPillButton(
+                                                label = stringResource(
+                                                    if (nightModeEnabled) Res.string.player_night_mode_on else Res.string.player_night_mode_off,
+                                                ),
+                                                icon = Icons.Rounded.NightsStay,
+                                                onClick = onNightModeClick,
+                                            )
+                                        }
+                                    }
+                                    LegacyBottomButton.SOURCES -> {
+                                        if (onSourcesClick != null) {
+                                            PlayerActionPillButton(
+                                                label = stringResource(Res.string.compose_player_sources),
+                                                painter = sourcesPainter,
+                                                onClick = onSourcesClick,
+                                            )
+                                        }
+                                    }
+                                    LegacyBottomButton.CHAPTERS -> {
+                                        if (onChaptersClick != null) {
+                                            PlayerActionPillButton(
+                                                label = stringResource(Res.string.player_chapters),
+                                                icon = Icons.AutoMirrored.Rounded.ListAlt,
+                                                onClick = onChaptersClick,
+                                            )
+                                        }
+                                    }
+                                    LegacyBottomButton.EPISODES -> {
+                                        if (onEpisodesClick != null) {
+                                            PlayerActionPillButton(
+                                                label = stringResource(Res.string.compose_player_episodes),
+                                                icon = Icons.Rounded.VideoLibrary,
+                                                onClick = onEpisodesClick,
+                                            )
+                                        }
+                                    }
+                                    LegacyBottomButton.LIVE_CHANNELS -> {
+                                        if (onLiveChannelsClick != null) {
+                                            PlayerActionPillButton(
+                                                label = stringResource(Res.string.compose_player_channels),
+                                                icon = Icons.Rounded.Tv,
+                                                onClick = onLiveChannelsClick,
+                                            )
+                                        }
+                                    }
+                                    LegacyBottomButton.QUALITY -> {
+                                        if (onQualityClick != null) {
+                                            PlayerActionPillButton(
+                                                label = qualityLabel?.takeIf { it.isNotBlank() } ?: stringResource(Res.string.player_toolbar_button_quality),
+                                                onClick = onQualityClick,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
-                    }
-                    if (onSubtitleClick != null) {
-                        PlayerActionPillButton(
-                            label = stringResource(Res.string.compose_player_subs),
-                            painter = subtitlesPainter,
-                            onClick = onSubtitleClick,
-                        )
-                    }
-                    if (onAudioClick != null) {
-                        PlayerActionPillButton(
-                            label = stringResource(Res.string.compose_player_audio),
-                            painter = audioPainter,
-                            onClick = onAudioClick,
-                        )
-                    }
-                    if (onSourcesClick != null) {
-                        PlayerActionPillButton(
-                            label = stringResource(Res.string.compose_player_sources),
-                            painter = sourcesPainter,
-                            onClick = onSourcesClick,
-                        )
-                    }
-                    if (onChaptersClick != null) {
-                        PlayerActionPillButton(
-                            label = stringResource(Res.string.player_chapters),
-                            icon = Icons.AutoMirrored.Rounded.ListAlt,
-                            onClick = onChaptersClick,
-                        )
-                    }
-                    if (onEpisodesClick != null) {
-                        PlayerActionPillButton(
-                            label = stringResource(Res.string.compose_player_episodes),
-                            icon = Icons.Rounded.VideoLibrary,
-                            onClick = onEpisodesClick,
-                        )
-                    }
-                    if (onLiveChannelsClick != null) {
-                        PlayerActionPillButton(
-                            label = stringResource(Res.string.compose_player_channels),
-                            icon = Icons.Rounded.Tv,
-                            onClick = onLiveChannelsClick,
-                        )
-                    }
-                    if (onQualityClick != null) {
-                        PlayerActionPillButton(
-                            label = qualityLabel?.takeIf { it.isNotBlank() } ?: "Quality",
-                            onClick = onQualityClick,
-                        )
                     }
                 }
             }

@@ -284,6 +284,9 @@ val appVersionConfigFile = rootProject.file("iosApp/Configuration/Version.xcconf
 val releaseAppVersionName = providers.gradleProperty("nuvio.app.versionName").orNull
     ?: readXcconfigValue(appVersionConfigFile, "MARKETING_VERSION")
     ?: error("MARKETING_VERSION is missing from ${appVersionConfigFile.path}")
+val iosReleaseDisabledPhases = providers.gradleProperty("nuvio.ios.releaseDisablePhases").orNull
+    ?.trim()
+    ?.takeIf { it.isNotEmpty() }
 val releaseAppVersionCode = readXcconfigValue(appVersionConfigFile, "CURRENT_PROJECT_VERSION")
     ?.toIntOrNull()
     ?: error("CURRENT_PROJECT_VERSION is missing or invalid in ${appVersionConfigFile.path}")
@@ -502,6 +505,11 @@ kotlin {
                 "-Xbinary=bundleId=$iosFrameworkBundleId",
                 "-Xbinary=objcExportEntryPointsPath=${swiftExportEntryPoints.get().asFile.absolutePath}",
             )
+            iosReleaseDisabledPhases?.let { phases ->
+                if (buildType == org.jetbrains.kotlin.gradle.plugin.mpp.NativeBuildType.RELEASE) {
+                    freeCompilerArgs += listOf("-Xdisable-phases=$phases")
+                }
+            }
             linkTaskProvider.configure {
                 dependsOn("generateSwiftExportEntryPoints")
             }

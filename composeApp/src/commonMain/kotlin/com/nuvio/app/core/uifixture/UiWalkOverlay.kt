@@ -23,6 +23,7 @@ import com.nuvio.app.features.player.AudioTrack
 import com.nuvio.app.features.player.EpisodeStreamsPanelState
 import com.nuvio.app.features.player.PlayerChaptersPanel
 import com.nuvio.app.features.player.PlayerChapter
+import com.nuvio.app.features.player.PlayerCurrentStream
 import com.nuvio.app.features.player.PlayerEpisodesPanel
 import com.nuvio.app.features.player.PlayerQualityPanel
 import com.nuvio.app.features.player.PlayerQualitySelectionState
@@ -186,8 +187,10 @@ private fun PlayerSources() {
         currentSeason = 1,
         currentEpisode = 2,
         currentEpisodeTitle = "Low Tide",
-        currentStreamUrl = streams.allStreams.firstOrNull()?.url,
-        currentStreamName = streams.allStreams.firstOrNull()?.name,
+        currentStream = PlayerCurrentStream(
+            url = streams.allStreams.firstOrNull()?.url,
+            name = streams.allStreams.firstOrNull()?.name,
+        ),
         onFilterSelected = { _ -> },
         onStreamSelected = { _ -> },
         onReload = {},

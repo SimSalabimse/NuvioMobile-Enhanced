@@ -38,8 +38,12 @@ import com.nuvio.app.features.player.skip.formatSecondsToHms
 import com.nuvio.app.features.player.seekpreview.rememberSeekPreviewController
 import com.nuvio.app.features.player.skip.PlayerNextEpisodeRules
 import com.nuvio.app.core.logging.InAppLogger
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.NuvioStatusModal
+import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.core.ui.LocalFold
 import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.features.party.PartyRepository
@@ -65,7 +69,11 @@ import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
-internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
+internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi(
+    partyPanelWidth: Dp,
+    partyPanelInset: Dp,
+    dockPartyPanel: Boolean,
+) {
     val runtime = this
     val isEpisode = activeSeasonNumber != null && activeEpisodeNumber != null
     val currentGestureFeedback = liveGestureFeedback ?: gestureFeedback
@@ -242,6 +250,8 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .padding(end = partyPanelInset)
+            .clipToBounds()
             .onSizeChanged { layoutSize = it }
             .playerKeyboardShortcuts(
                 focusRequester = keyboardFocusRequester,
@@ -288,7 +298,32 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     ) {
         val playerSurfaceSourceUrl = if (isP2pPlaybackActive) p2pResolvedSourceUrl else activePlaybackSourceUrl
         val playbackKey = activePlaybackKey
+        val sourcePlaybackKey = playbackKey.copy(playbackEngine = null)
         val initialPositionRequestKey = currentInitialPositionRequestKey()
+
+        LaunchedEffect(sourcePlaybackKey) {
+            engineFailoverTriggered = false
+            engineFailoverDisarmed = false
+            playbackEngineOverride = null
+        }
+
+        val resolvedAutoEngineState = remember(sourcePlaybackKey) {
+            mutableStateOf<AndroidPlaybackEngine?>(null)
+        }
+        if (!initialLoadCompleted || resolvedAutoEngineState.value == null) {
+            resolvedAutoEngineState.value = resolveAutoPlaybackEngine(
+                playbackEngineSetting = playerSettingsUiState.androidPlaybackEngine,
+                videoId = activeVideoId,
+                streamFilename = activeTorrentFilename ?: activeStreamFilename,
+                streamName = activeStreamTitle,
+                streamDescription = activeStreamSubtitle,
+                contentTitle = title,
+                genres = playerMeta?.genres.orEmpty(),
+                country = playerMeta?.country,
+            )
+        }
+        val resolvedAutoEngine = resolvedAutoEngineState.value
+
         if (playerSurfaceSourceUrl != null) {
             key(playbackKey) {
                 val active = remember { mutableStateOf(true) }
@@ -306,8 +341,8 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                     playWhenReady = shouldPlay,
                     initialPositionMs = activeInitialPositionMs.takeIf { it > 0L },
                     initialPositionRequestKey = initialPositionRequestKey,
-                    resizeMode = resizeMode,
-                    playbackEngine = playbackEngineOverride,
+                    resizeMode = if (partyPanelInset > 0.dp) PlayerResizeMode.Fit else resizeMode,
+                    playbackEngine = playbackEngineOverride ?: resolvedAutoEngine,
                     onInitialPositionHandled = { key, handled ->
                         if (active.value && playbackKey == activePlaybackKey && key == currentInitialPositionRequestKey()) {
                             initialSeekApplied = handled
@@ -338,6 +373,11 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                         if (!active.value || playbackKey != activePlaybackKey) return@PlatformPlayerSurface
                         if (message != null && handleDownloadSwapError(message)) return@PlatformPlayerSurface
                         if (message != null && tryRefreshCredentialedSourceAfterError(message)) {
+                            return@PlatformPlayerSurface
+                        }
+                        // Engine failover is decided here, driven by its own player setting;
+                        // the engine's own decoder/MIME retries have already been tried.
+                        if (message != null && maybeFailoverPlaybackEngine(resolvedAutoEngine)) {
                             return@PlatformPlayerSurface
                         }
                         errorMessage = message
@@ -400,13 +440,21 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 folded = fold != null,
             )
         }
-        Box(modifier = panelModifier) {
-            RenderPlayerModals()
-            RenderParty(runtime = runtime)
         }
         PlayerDebugReadoutOverlay(
             Modifier.align(Alignment.CenterStart).padding(start = horizontalSafePadding),
         )
+    }
+    // Panels sit outside the clipped video box so the docked party panel can take the freed space.
+    if (!isMiniPresentation) {
+        Box(modifier = panelModifier) {
+            RenderParty(
+                runtime = runtime,
+                panelWidth = partyPanelWidth,
+                modal = !dockPartyPanel,
+                panelVisible = showPartyPanel && !isInPip,
+            )
+            RenderPlayerModals()
         }
     }
 }
@@ -573,6 +621,15 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
                 showSpeedPanel = false
                 controlsActivityTick += 1
             },
+            nightModeEnabled = playerSettingsUiState.nightModeEnabled,
+            onNightModeClick = if (
+                playerSettingsUiState.nightModeButtonEnabled && playerController?.supportsNightMode == true
+            ) {
+                {
+                    PlayerSettingsRepository.setNightModeEnabled(!PlayerSettingsRepository.uiState.value.nightModeEnabled)
+                    controlsActivityTick += 1
+                }
+            } else null,
             onSubtitleClick = if (!isLiveTvPlayback) {
                 {
                     refreshTracks()
