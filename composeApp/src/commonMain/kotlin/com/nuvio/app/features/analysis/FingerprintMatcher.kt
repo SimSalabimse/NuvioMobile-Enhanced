@@ -300,9 +300,32 @@ internal object SeasonSegmentDetector {
         }
         val introPool = intros.filterNot { episode.rejectedSegments.covers("intro", it.startMs, it.endMs) }
         val creditPool = credits.filterNot { episode.rejectedSegments.covers("outro", it.startMs, it.endMs) }
-        val introVote = vote(introPool, comparable)
-        val intro = introVote ?: priorRescue(introPool, theIntroDbIntro)
-        val credit = vote(creditPool, comparable)
+        // Opening credits are the intro. A shared clip in the first 10 minutes never stays credits.
+        val openingCredits = creditPool.filter { isOpeningCreditsRange(it.startMs, it.endMs, episode.durationMs) }
+        val endingCredits = creditPool.filterNot { isOpeningCreditsRange(it.startMs, it.endMs, episode.durationMs) }
+        val introFromOpening = openingCredits.filter { match ->
+            val length = match.endMs - match.startMs
+            length in MIN_INTRO_MS..MAX_INTRO_MS
+        }
+        var introCandidates = introPool + introFromOpening
+        var introReject: String? = null
+        if (introCandidates.any { it.startMs == COLD_OPEN_START_MS } && coldOpenLikely(COLD_OPEN_START_MS, others)) {
+            introCandidates = introCandidates.filterNot { it.startMs == COLD_OPEN_START_MS }
+            if (introCandidates.isEmpty()) introReject = "rejected-cold-open"
+        }
+        if (introCandidates.any { episode.speechHigh(it) }) {
+            introCandidates = introCandidates.filterNot { episode.speechHigh(it) }
+            if (introCandidates.isEmpty()) introReject = "rejected-dialog-overlay"
+        }
+        val endingQuiet = endingCredits.filterNot { episode.speechHigh(it) }
+        val creditsReject = when {
+            endingQuiet.isEmpty() && endingCredits.isNotEmpty() -> "rejected-dialog-overlay"
+            endingQuiet.isEmpty() && openingCredits.isNotEmpty() -> "rejected-opening-credits"
+            else -> null
+        }
+        val introVote = vote(introCandidates, comparable)
+        val intro = introVote ?: priorRescue(introCandidates, theIntroDbIntro)
+        val credit = vote(endingQuiet, comparable)
         val detected = episode.snappingEdges(
             DetectedSegments(
                 introStartMs = intro?.first?.startMs,
@@ -316,14 +339,18 @@ internal object SeasonSegmentDetector {
         trace?.add(
             segmentDecision(
                 type = "intro",
-                candidates = introPool.size,
+                candidates = introPool.size + introFromOpening.size,
                 picked = detected.introStartMs != null,
                 startMs = detected.introStartMs,
                 endMs = detected.introEndMs,
                 confidence = detected.introConfidence,
-                why = introWhy(others.isEmpty(), comparable, introVote != null, intro != null),
+                confidenceLabel = if (introReject != null && detected.introStartMs == null) "low" else null,
+                why = introReject?.takeIf { detected.introStartMs == null }
+                    ?: introWhy(others.isEmpty(), comparable, introVote != null, intro != null),
                 signal = introSignal(comparable, introVote != null, intro != null),
-                thresholds = "minMs=$MIN_INTRO_MS,maxMs=$MAX_INTRO_MS,agreeMs=$SEGMENT_AGREE_MS,maxBits=6,minCluster=2",
+                thresholds = "minMs=$MIN_INTRO_MS,maxMs=$MAX_INTRO_MS,agreeMs=$SEGMENT_AGREE_MS,maxBits=6,minCluster=2," +
+                    "openingMs=$OPENING_CREDITS_WINDOW_MS,dialogLevel=$DIALOG_OVERLAY_LEVEL," +
+                    "dialogPercent=$DIALOG_OVERLAY_MIN_PERCENT,coldOpenLaterMs=$COLD_OPEN_LATER_THAN_MS",
             ),
         )
         trace?.add(
@@ -334,17 +361,25 @@ internal object SeasonSegmentDetector {
                 startMs = detected.creditsStartMs,
                 endMs = detected.creditsEndMs,
                 confidence = detected.creditsConfidence,
-                why = if (others.isEmpty()) "rejected-no-siblings" else if (detected.creditsStartMs != null) {
+                confidenceLabel = if (creditsReject == "rejected-dialog-overlay" && detected.creditsStartMs == null) "low" else null,
+                why = if (others.isEmpty()) {
+                    "rejected-no-siblings"
+                } else if (detected.creditsStartMs != null) {
                     if (comparable < 3) "accepted-longest" else "accepted-cluster"
                 } else {
-                    "rejected-no-cluster"
+                    creditsReject ?: "rejected-no-cluster"
                 },
                 signal = if (detected.creditsStartMs != null && comparable < 3) "fingerprint-longest" else "fingerprint-cluster",
-                thresholds = "minMs=$MIN_CREDITS_MS,maxMs=$MAX_CREDITS_MS,agreeMs=$SEGMENT_AGREE_MS,maxBits=6,endSnapMs=$CREDITS_END_SNAP_MS",
+                thresholds = "minMs=$MIN_CREDITS_MS,maxMs=$MAX_CREDITS_MS,agreeMs=$SEGMENT_AGREE_MS,maxBits=6," +
+                    "endSnapMs=$CREDITS_END_SNAP_MS,openingMs=$OPENING_CREDITS_WINDOW_MS," +
+                    "dialogLevel=$DIALOG_OVERLAY_LEVEL,dialogPercent=$DIALOG_OVERLAY_MIN_PERCENT",
             ),
         )
         return detected
     }
+
+    private fun MediaAnalysisResult.speechHigh(match: TimedMatch): Boolean =
+        speechEnergyHigh(energy, energyStepMs, match.startMs, match.endMs)
 
     private fun introMatches(head: IntArray, otherHead: IntArray, step: Int, sibling: Int): List<TimedMatch> {
         val minFrames = (MIN_INTRO_MS / step).toInt()
@@ -409,6 +444,7 @@ private fun segmentDecision(
     why: String,
     signal: String,
     thresholds: String,
+    confidenceLabel: String? = null,
 ): SegmentDecision = SegmentDecision(
     type = type,
     candidates = candidates,
@@ -416,7 +452,7 @@ private fun segmentDecision(
     accepted = picked,
     startMs = startMs,
     endMs = endMs,
-    confidence = confidence?.let {
+    confidence = confidenceLabel ?: confidence?.let {
         "siblings=${it.agreeingSiblings},bits=${bitsText(it.avgBitErrors)},prior=${if (it.theIntroDbAgrees) 1 else 0}"
     } ?: "none",
     why = why,
