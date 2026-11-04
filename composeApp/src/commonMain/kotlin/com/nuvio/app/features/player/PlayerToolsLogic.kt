@@ -155,6 +155,15 @@ internal fun markRangeStatus(
     )
 }
 
+/**
+ * The red "End must be after the start" line.
+ * A fresh tab keeps its clocks (including 0:00:00) and still fails Submit,
+ * but the line stays hidden until this tab's clocks have been edited.
+ * Other problems, and a valid range, are unchanged.
+ */
+internal fun showEndAfterStartMessage(clocksTouched: Boolean, problem: MarkProblem?): Boolean =
+    clocksTouched && problem == MarkProblem.EndNotAfterStart
+
 internal fun markStatusLengthLabel(lengthSec: Double): String {
     val tenths = (lengthSec * 10.0).roundToInt()
     val whole = tenths / 10

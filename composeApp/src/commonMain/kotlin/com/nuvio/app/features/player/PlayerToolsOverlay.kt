@@ -283,6 +283,7 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 },
                 submittedTypes = submittedTypes,
                 autoSyncedTypes = autoSyncedSubmitTypes(),
+                clocksTouched = markSegmentId(submitIntroSegmentType) in submitIntroUserEdited,
                 onStartAtZero = { if (!submitting) setMarkClock(true, 0.0) },
                 onRunsToEnd = { if (!submitting) setMarkClock(false, runsToEndSec(durationSec)) },
                 onPreview = {

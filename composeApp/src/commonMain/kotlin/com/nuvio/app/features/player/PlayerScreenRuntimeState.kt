@@ -209,7 +209,11 @@ internal class PlayerScreenRuntime(
     val submitIntroDrafts = mutableMapOf<String, Pair<String, String>>()
     /** Whether each draft's clocks are showing a tenth after a 0.1 s nudge. */
     val submitIntroTenthDrafts = mutableMapOf<String, Pair<Boolean, Boolean>>()
-    /** Segment ids the viewer changed on the episode in [submitIntroDraftEpisodeKey]. */
+    /**
+     * Segment ids whose Start or End the viewer edited on the episode in
+     * [submitIntroDraftEpisodeKey]. A tab stays untouched until then, which
+     * hides "End must be after the start" without enabling Submit.
+     */
     val submitIntroUserEdited = mutableSetOf<String>()
     /** videoId:season:episode. Drafts belong to this episode until it changes. */
     var submitIntroDraftEpisodeKey: String = ""
