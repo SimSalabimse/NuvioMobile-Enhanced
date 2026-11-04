@@ -22,3 +22,5 @@ internal actual fun NuvioNativeModalBottomSheet(
 ) = Unit
 
 internal actual fun dismissNativeNuvioBottomSheet() = Unit
+
+internal actual suspend fun dismissPresentedNuvioBottomSheet(durationMs: Int) = Unit
