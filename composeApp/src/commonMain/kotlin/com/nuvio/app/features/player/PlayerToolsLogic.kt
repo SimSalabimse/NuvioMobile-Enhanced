@@ -1,5 +1,6 @@
 package com.nuvio.app.features.player
 
+import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.features.player.skip.parseTimeToSeconds
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -18,11 +19,15 @@ internal const val PlayerToolBrightLuminance = 0.72f
 internal const val MarkingZoomPaddingSec = 120.0
 
 internal const val IntroMinSec = 5.0
+/** Above this, an intro is warned and still accepted. [IntroMaxSec] blocks. */
+internal const val IntroWarnSec = 200.0
 internal const val IntroMaxSec = 300.0
 internal const val RecapMinSec = 5.0
 internal const val RecapMaxSec = 1_200.0
 internal const val CreditsMinSec = 5.0
 internal const val CreditsMaxSec = 1_800.0
+internal const val PreviewMinSec = 5.0
+internal const val PreviewMaxSec = 1_800.0
 
 internal enum class MarkProblem {
     EndNotAfterStart,
@@ -58,7 +63,18 @@ internal fun markSegmentId(raw: String): String = when (raw.trim().lowercase()) 
 internal fun markSegmentLimits(segmentType: String): MarkLimits = when (markSegmentId(segmentType)) {
     "intro" -> MarkLimits(IntroMinSec, IntroMaxSec)
     "recap" -> MarkLimits(RecapMinSec, RecapMaxSec)
+    "preview" -> MarkLimits(PreviewMinSec, PreviewMaxSec)
     else -> MarkLimits(CreditsMinSec, CreditsMaxSec)
+}
+
+internal enum class IntroLengthAdvisory { Ok, Warn, Block }
+
+/** Intro only. Above 200 s warns; above 300 s blocks. Other segments are [IntroLengthAdvisory.Ok]. */
+internal fun introLengthAdvisory(segmentType: String, lengthSec: Double): IntroLengthAdvisory {
+    if (markSegmentId(segmentType) != "intro") return IntroLengthAdvisory.Ok
+    if (lengthSec - 1e-9 > IntroMaxSec) return IntroLengthAdvisory.Block
+    if (lengthSec - 1e-9 > IntroWarnSec) return IntroLengthAdvisory.Warn
+    return IntroLengthAdvisory.Ok
 }
 
 internal fun markSegmentTypes(isMovie: Boolean): List<String> =
@@ -180,7 +196,9 @@ internal fun clampMarkTimeToDuration(timeSec: Double, durationSec: Double?): Dou
  * Hard checks. 5.0 s and 300.0 s are valid; 4.9 s and 300.1 s are not.
  * An unknown duration (null or 0) does not count as past the end.
  * An end equal to the stream length is valid, including Runs to end.
- * A missing clock is [MarkProblem.EndNotAfterStart], so Submit stays disabled.
+ * Intro and recap may leave the start empty (from 0). Credits and preview may
+ * leave the end empty (through the end of the file). Both clocks empty is the
+ * none vote. When both clocks are present, the end has to be after the start.
  */
 internal fun markProblems(
     segmentType: String,
@@ -192,16 +210,26 @@ internal fun markProblems(
     val duration = durationSec?.takeIf { it > 0.0 }
     val start = startSec?.let { clampMarkTimeToDuration(it, duration) }
     val end = endSec?.let { clampMarkTimeToDuration(it, duration) }
-    if (start == null || end == null || end <= start) {
-        problems += MarkProblem.EndNotAfterStart
+    if (start == null && end == null) return problems
+    val openStart = start == null && markSegmentOffersStartAtZero(segmentType)
+    val openEnd = end == null && markSegmentOffersRunsToEnd(segmentType)
+    val effectiveStart = start ?: if (openStart) 0.0 else null
+    val effectiveEnd = end ?: if (openEnd) duration else null
+    val outOfOrder = when {
+        start != null && end != null -> end <= start
+        effectiveStart == null -> true
+        end == null && !openEnd -> true
+        effectiveEnd != null && effectiveEnd <= effectiveStart -> true
+        else -> false
     }
+    if (outOfOrder) problems += MarkProblem.EndNotAfterStart
     if (duration != null &&
         ((start != null && start > duration) || (end != null && end > duration))
     ) {
         problems += MarkProblem.PastDuration
     }
-    if (start != null && end != null && end > start) {
-        val length = end - start
+    if (effectiveStart != null && effectiveEnd != null && effectiveEnd > effectiveStart) {
+        val length = effectiveEnd - effectiveStart
         val limits = markSegmentLimits(segmentType)
         if (length + 1e-9 < limits.minSec) problems += MarkProblem.TooShort
         if (length - 1e-9 > limits.maxSec) problems += MarkProblem.TooLong
@@ -212,6 +240,20 @@ internal fun markProblems(
 internal fun markLengthSec(startSec: Double?, endSec: Double?): Double? {
     if (startSec == null || endSec == null || endSec <= startSec) return null
     return endSec - startSec
+}
+
+/** Log-only. A long intro still submits; the strip keeps its existing validation line. */
+internal fun logIntroLengthWarning(
+    segmentType: String,
+    startSec: Double?,
+    endSec: Double?,
+    durationSec: Double?,
+) {
+    val start = startSec ?: if (markSegmentOffersStartAtZero(segmentType)) 0.0 else return
+    val end = endSec ?: durationSec?.takeIf { markSegmentOffersRunsToEnd(segmentType) } ?: return
+    val length = markLengthSec(start, end) ?: return
+    if (introLengthAdvisory(segmentType, length) != IntroLengthAdvisory.Warn) return
+    InAppLogger.info("Player/TheIntroDB", "intro length ${length.toInt()}s is above 200s")
 }
 
 /** "88.6 s" — one decimal, matching the marking strip. */

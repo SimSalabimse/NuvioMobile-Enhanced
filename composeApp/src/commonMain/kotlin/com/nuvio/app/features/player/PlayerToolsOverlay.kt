@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
+import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.features.party.PartyRepository
 import com.nuvio.app.features.player.skip.FlagSubmitLedger
@@ -40,7 +41,9 @@ import com.nuvio.app.features.player.skip.IntroSubmitBlockReason
 import com.nuvio.app.features.player.skip.IntroSubmitKeyPrepareResult
 import com.nuvio.app.features.player.skip.IntroSubmitKeyProblem
 import com.nuvio.app.features.player.skip.IntroSubmitService
+import com.nuvio.app.features.player.skip.ManualSkipSubmitOutcome
 import com.nuvio.app.features.player.skip.TheIntroDb
+import com.nuvio.app.features.player.skip.TheIntroDbAlreadySubmittedMessage
 import com.nuvio.app.features.player.skip.defaultIntroSubmitService
 import com.nuvio.app.features.player.skip.flagChecksForTitle
 import com.nuvio.app.features.player.skip.flagSubmitContentKey
@@ -337,6 +340,14 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                     ) {
                         return@SegmentMarkingLayer
                     }
+                    if (!snapshot.absent) {
+                        logIntroLengthWarning(
+                            snapshot.segmentType,
+                            times.first,
+                            times.second,
+                            durationSec.takeIf { it > 0.0 },
+                        )
+                    }
                     submitting = true
                     markSubmitError = null
                     scope.launch {
@@ -365,7 +376,7 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                         }
                         submitting = false
                         when (posted) {
-                            MarkPost.Sent -> {
+                            MarkPost.Sent, MarkPost.AlreadySubmitted -> {
                                 noteMarkingSubmitted(
                                     IntroSubmitResult(
                                         segmentType = snapshot.segmentType,
@@ -376,6 +387,9 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                                 )
                                 if (shouldRecordOwnTheIntroDb(service, succeeded = true)) {
                                     OwnTheIntroDbLedger.remember(contentKey, snapshot.segmentType)
+                                }
+                                if (posted == MarkPost.AlreadySubmitted) {
+                                    NuvioToastController.show(TheIntroDbAlreadySubmittedMessage)
                                 }
                             }
                             is MarkPost.Blocked -> markSubmitError = introSubmitBlockMessage(
@@ -602,6 +616,7 @@ private fun introSubmitBlockMessage(
 
 private sealed interface MarkPost {
     data object Sent : MarkPost
+    data object AlreadySubmitted : MarkPost
     data class Blocked(val reason: IntroSubmitBlockReason) : MarkPost
     data object InvalidKey : MarkPost
     data object Failed : MarkPost
@@ -647,7 +662,11 @@ private suspend fun PlayerScreenRuntime.postMark(
         parentMetaType = parentMetaType,
         service = service,
     )
-    return if (sent) MarkPost.Sent else MarkPost.Failed
+    return when (sent) {
+        ManualSkipSubmitOutcome.SENT -> MarkPost.Sent
+        ManualSkipSubmitOutcome.ALREADY_SUBMITTED -> MarkPost.AlreadySubmitted
+        ManualSkipSubmitOutcome.FAILED -> MarkPost.Failed
+    }
 }
 
 private fun PlayerScreenRuntime.selectBuiltInSubtitle(index: Int) {

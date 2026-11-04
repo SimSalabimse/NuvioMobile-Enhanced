@@ -11,9 +11,17 @@ import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.analysis.MediaAnalysisSettings
 import com.nuvio.app.features.analysis.SkipLearning
 import com.nuvio.app.features.player.skip.IntroSubmitService
+import com.nuvio.app.features.player.skip.ManualSkipSubmitOutcome
+import com.nuvio.app.features.player.skip.OwnTheIntroDbLedger
 import com.nuvio.app.features.player.skip.SkipFeedbackPrompt
 import com.nuvio.app.features.player.skip.SkipInterval
+import com.nuvio.app.features.player.skip.TheIntroDb
+import com.nuvio.app.features.player.skip.TheIntroDbAlreadySubmittedMessage
+import com.nuvio.app.features.player.skip.TheIntroDbRateLimitMessage
 import com.nuvio.app.features.player.skip.defaultIntroSubmitService
+import com.nuvio.app.features.player.skip.flagSubmitContentKey
+import com.nuvio.app.features.player.skip.rememberOwnTheIntroDbType
+import com.nuvio.app.features.player.skip.shouldRecordOwnTheIntroDb
 import com.nuvio.app.features.player.skip.submitManualSkipSegment
 import kotlinx.coroutines.launch
 
@@ -73,15 +81,18 @@ internal fun PlayerScreenRuntime.saveUserSkipMark(type: String, startSec: Double
             skipIntervals = (skipIntervals.filter { SkipLearning.canonicalType(it.type) != category } + mine)
                 .sortedBy { it.startTime }
         }
-        var sent = false
+        var outcome: ManualSkipSubmitOutcome? = null
         val settings = PlayerSettingsRepository.uiState.value
-        if (submit && settings.introSubmitEnabled && !alreadySubmitted) {
-            val service = if (MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.TheIntroDbOnly)) {
-                IntroSubmitService.THE_INTRODB
-            } else {
-                defaultIntroSubmitService(settings.introDbApiKey, settings.theIntroDbApiKey)
-            }
-            sent = runCatching {
+        val durationSec = durationMs.takeIf { it > 0L }?.div(1000.0)
+        val maySend = skipFeedbackMaySubmit(category, startSec, endSec, durationSec)
+        val service = if (MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.TheIntroDbOnly)) {
+            IntroSubmitService.THE_INTRODB
+        } else {
+            defaultIntroSubmitService(settings.introDbApiKey, settings.theIntroDbApiKey)
+        }
+        if (submit && maySend && settings.introSubmitEnabled && !alreadySubmitted) {
+            logIntroLengthWarning(category, startSec, endSec, durationSec)
+            val posted = runCatching {
                 submitManualSkipSegment(
                     imdbId = imdbId.orEmpty(),
                     season = season ?: 0,
@@ -97,16 +108,45 @@ internal fun PlayerScreenRuntime.saveUserSkipMark(type: String, startSec: Double
                 )
             }.getOrElse { error ->
                 if (error is kotlinx.coroutines.CancellationException) throw error
-                false
+                ManualSkipSubmitOutcome.FAILED
             }
-            if (sent && videoKey.isNotBlank()) {
+            outcome = posted
+            if (posted.recorded && videoKey.isNotBlank()) {
                 submittedSegmentTypesByVideoId.getOrPut(videoKey) { mutableSetOf() }.add(category)
             }
-            InAppLogger.info("Player/SkipFeedback", "submit type=$category service=$service sent=$sent")
+            if (posted.recorded && shouldRecordOwnTheIntroDb(service, succeeded = true)) {
+                val contentKey = flagSubmitContentKey(imdbId.orEmpty(), season ?: 0, episode ?: 0, isMovie)
+                val remembered = skipFeedbackOwnLedger(
+                    OwnTheIntroDbLedger.loadAll(),
+                    contentKey,
+                    category,
+                    service,
+                    sent = true,
+                )
+                if (remembered != OwnTheIntroDbLedger.loadAll()) {
+                    OwnTheIntroDbLedger.remember(contentKey, category)
+                }
+            }
+            InAppLogger.info(
+                "Player/SkipFeedback",
+                "submit type=$category service=$service sent=${posted.recorded}",
+            )
         }
         val message = buildString {
-            append(if (sent) "Saved and sent. Thanks!" else "Saved on this phone")
-            if (taught > 0) append(" · updated $taught more episode${if (taught == 1) "" else "s"}")
+            append(
+                when (outcome) {
+                    ManualSkipSubmitOutcome.ALREADY_SUBMITTED -> TheIntroDbAlreadySubmittedMessage
+                    ManualSkipSubmitOutcome.SENT -> "Saved and sent. Thanks!"
+                    ManualSkipSubmitOutcome.FAILED ->
+                        TheIntroDb.lastSubmitError
+                            ?.takeIf { service == IntroSubmitService.THE_INTRODB && it == TheIntroDbRateLimitMessage }
+                            ?: "Saved on this phone"
+                    null -> "Saved on this phone"
+                },
+            )
+            if (taught > 0 && outcome != ManualSkipSubmitOutcome.ALREADY_SUBMITTED) {
+                append(" · updated $taught more episode${if (taught == 1) "" else "s"}")
+            }
         }
         NuvioToastController.show(message)
     }
@@ -140,4 +180,24 @@ internal fun BoxScope.RenderSkipFeedbackPrompt(runtime: PlayerScreenRuntime) {
                 .padding(start = sliderEdgePadding, bottom = overlayBottomPadding + 8.dp),
         )
     }
+}
+
+/** Good / Save uses the same length checks as the submit bar. A failing check is not sent. */
+internal fun skipFeedbackMaySubmit(
+    segmentType: String,
+    startSec: Double,
+    endSec: Double,
+    durationSec: Double?,
+): Boolean = markProblems(segmentType, startSec, endSec, durationSec).isEmpty()
+
+/** Ledger after a Good / Save send. A failed send leaves the map unchanged. */
+internal fun skipFeedbackOwnLedger(
+    entries: Map<String, Set<String>>,
+    contentKey: String,
+    segmentType: String,
+    service: IntroSubmitService,
+    sent: Boolean,
+): Map<String, Set<String>> {
+    if (!shouldRecordOwnTheIntroDb(service, sent)) return entries
+    return rememberOwnTheIntroDbType(entries, contentKey, segmentType)
 }

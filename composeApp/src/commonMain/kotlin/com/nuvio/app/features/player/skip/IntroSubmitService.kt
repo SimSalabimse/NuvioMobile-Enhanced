@@ -88,7 +88,7 @@ internal fun introSubmitBlockReason(
 }
 
 /**
- * TheIntroDB "no intro / recap / credits / preview" submissions use 0 for both times.
+ * TheIntroDB "none of this type" votes are 0 and 0 here. The submit body omits both time keys.
  * A normal range still has to end after it starts. IntroDB has no absent-segment submit.
  */
 internal fun resolveIntroSubmitTimes(
