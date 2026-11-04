@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeContent
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -28,6 +29,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ClosedCaption
@@ -361,7 +363,7 @@ private fun PlayerToolTabs(
 ) {
     val tokens = MaterialTheme.nuvio
     Row(
-        modifier = Modifier.fillMaxWidth().height(44.dp),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         tabs.forEach { item ->
@@ -369,7 +371,8 @@ private fun PlayerToolTabs(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .height(44.dp)
+                    .widthIn(min = 44.dp)
+                    .heightIn(min = 44.dp)
                     .clickable { onTab(item) }
                     .background(if (selected) tokens.colors.accent else Color.Transparent),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -461,6 +464,7 @@ private fun SubsPage(
                         val badge = subtitleBadge(option)?.label()
                         PlayerToolRow(
                             title = subtitleOptionTitle(label, option),
+                            subtitle = subtitleSelectionSource(option),
                             selected = selectedOption,
                             onClick = {
                                 when (option) {
@@ -523,6 +527,7 @@ private fun StylePage(
             selected = false,
             onClick = onBack,
             showCheck = false,
+            leading = Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
         )
         Column(
             modifier = Modifier
@@ -863,6 +868,7 @@ private fun EpisodeStreamsPage(
             selected = false,
             onClick = onBack,
             showCheck = false,
+            leading = Icons.AutoMirrored.Rounded.KeyboardArrowLeft,
         )
         PlayerProviderFilterRow(
             streamsUiState = state.streamsUiState,

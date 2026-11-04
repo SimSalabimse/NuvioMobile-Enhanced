@@ -25,11 +25,21 @@ class MetaDetailsReleaseLineTest {
     }
 
     @Test
-    fun ongoingSeriesShowsOpenRange() {
+    fun ongoingSeriesDropsDanglingDash() {
         assertEquals(
-            "2025 -",
+            "2025",
             formatMetaReleaseLineForDetails(
                 meta("series", "2025-01-10", status = "Returning Series", lastAirDate = "2025-03-01"),
+            ),
+        )
+    }
+
+    @Test
+    fun ongoingSeriesIgnoresLaterLastAirDate() {
+        assertEquals(
+            "2024",
+            formatMetaReleaseLineForDetails(
+                meta("series", "2024", status = "Returning Series", lastAirDate = "2026-02-01"),
             ),
         )
     }
@@ -65,5 +75,25 @@ class MetaDetailsReleaseLineTest {
             "2020",
             formatMetaReleaseLineForDetails(meta("series", "2020-04-01", status = "Ended", lastAirDate = null)),
         )
+    }
+
+    @Test
+    fun unparsedOpenRangeDropsTheTrailingSeparator() {
+        assertEquals(
+            "2024",
+            formatMetaReleaseLineForDetails(meta("series", "2024 -", status = "Returning Series")),
+        )
+    }
+
+    @Test
+    fun joinDropsMissingPartsAndKeepsAClosedRange() {
+        assertEquals("2024", joinMetadataParts(listOf("2024", null)))
+        assertEquals("2024", joinMetadataParts(listOf("2024", "  ")))
+        assertEquals("2024", joinMetadataParts(listOf("2024 -", null)))
+        assertEquals("2028", joinMetadataParts(listOf(null, " - 2028")))
+        assertEquals("2021 - 2028", joinMetadataParts(listOf("2021", "2028")))
+        assertEquals("2021 - 2028", joinMetadataParts(listOf("2021 - 2028")))
+        assertEquals("2024 · Drama", joinMetadataParts(listOf("2024", null, "Drama"), separator = " · "))
+        assertEquals(null, joinMetadataParts(listOf(null, " - ", "")))
     }
 }
