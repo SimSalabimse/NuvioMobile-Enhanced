@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -36,7 +37,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -56,6 +56,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import com.nuvio.app.core.ui.CardDepthStyleRepository
@@ -71,6 +72,7 @@ import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.PosterCardStyleRepository
 import com.nuvio.app.core.ui.PosterCardStyleUiState
 import com.nuvio.app.core.ui.cardDepthVisual
+import com.nuvio.app.core.ui.nuvio
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_reset
 import nuvio.composeapp.generated.resources.settings_card_depth_apply_to
@@ -766,6 +768,7 @@ private fun PosterCardStyleControls(
         PosterCardLivePreview(
             widthDp = widthDp,
             cornerRadiusDp = cornerRadiusDp,
+            showLabel = !hideLabelsEnabled,
         )
         PosterStyleOptionRow(
             title = stringResource(Res.string.settings_poster_card_width),
@@ -829,12 +832,7 @@ private fun PosterToggleRow(
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                checkedTrackColor = MaterialTheme.colorScheme.primary,
-                uncheckedThumbColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                uncheckedTrackColor = MaterialTheme.colorScheme.outlineVariant,
-            ),
+            colors = settingsSwitchColors(),
         )
     }
 }
@@ -843,6 +841,7 @@ private fun PosterToggleRow(
 private fun PosterCardLivePreview(
     widthDp: Int,
     cornerRadiusDp: Int,
+    showLabel: Boolean,
 ) {
     val targetHeightDp = (widthDp * 3) / 2
     val previewFrameWidthDp = 140
@@ -862,6 +861,8 @@ private fun PosterCardLivePreview(
         animationSpec = tween(durationMillis = 220),
         label = "posterPreviewCornerRadius",
     )
+    val tokens = MaterialTheme.nuvio
+    val posterShape = RoundedCornerShape(animatedCornerRadius.value)
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -888,14 +889,42 @@ private fun PosterCardLivePreview(
                     modifier = Modifier
                         .width(animatedWidth.value)
                         .height(animatedHeight.value)
-                        .clip(RoundedCornerShape(animatedCornerRadius.value))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                        .clip(posterShape)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    tokens.colors.surfaceElevated,
+                                    tokens.colors.background,
+                                ),
+                            ),
+                        )
                         .border(
                             width = 1.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant,
-                            shape = RoundedCornerShape(animatedCornerRadius.value),
+                            color = tokens.colors.borderStrong,
+                            shape = posterShape,
                         ),
-                )
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Movie,
+                        contentDescription = null,
+                        tint = tokens.colors.textMuted,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .size(minOf(animatedWidth.value, animatedHeight.value) * 0.32f),
+                    )
+                    if (showLabel) {
+                        Text(
+                            text = stringResource(Res.string.settings_card_depth_preview_title),
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(8.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = tokens.colors.textPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
             }
 
             Column(

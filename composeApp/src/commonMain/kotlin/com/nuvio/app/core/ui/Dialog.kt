@@ -139,6 +139,19 @@ fun DialogButton(
         DialogButtonStyle.Destructive -> tokens.colors.danger
     }
     val contentColor = if (style == DialogButtonStyle.Secondary) tokens.colors.textPrimary else tokens.colors.onAccent
+    val disabledColors = if (style == DialogButtonStyle.Secondary) {
+        disabledGhostButtonColors(
+            fill = containerColor,
+            content = contentColor,
+            backdrop = tokens.colors.surfaceDialog,
+        )
+    } else {
+        disabledFilledButtonColors(
+            fill = containerColor,
+            onFill = contentColor,
+            backdrop = tokens.colors.surfaceDialog,
+        )
+    }
     Button(
         onClick = {
             dismissKeyboard()
@@ -150,8 +163,8 @@ fun DialogButton(
         colors = ButtonDefaults.buttonColors(
             containerColor = containerColor,
             contentColor = contentColor,
-            disabledContainerColor = containerColor.copy(alpha = containerColor.alpha * tokens.opacity.disabled),
-            disabledContentColor = contentColor.copy(alpha = tokens.opacity.disabled),
+            disabledContainerColor = disabledColors.container,
+            disabledContentColor = disabledColors.content,
         ),
         contentPadding = PaddingValues(horizontal = NuvioTokens.Space.s16),
     ) {

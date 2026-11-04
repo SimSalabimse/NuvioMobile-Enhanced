@@ -14,6 +14,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.nuvio.app.core.ui.disabledFilledButtonColors
+import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsRepository
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsUiState
 import nuvio.composeapp.generated.resources.Res
@@ -113,6 +115,19 @@ private fun NotificationTestCard(
 
             Spacer(modifier = Modifier.height(4.dp))
 
+            if (!uiState.permissionGranted) {
+                Text(
+                    text = stringResource(Res.string.settings_notifications_permission_disabled),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+
+            val disabledButton = disabledFilledButtonColors(
+                fill = MaterialTheme.colorScheme.primary,
+                onFill = MaterialTheme.colorScheme.onPrimary,
+                backdrop = MaterialTheme.nuvio.colors.surfaceCard,
+            )
             Button(
                 onClick = EpisodeReleaseNotificationsRepository::sendTestNotification,
                 enabled = !uiState.isSendingTest && !uiState.isLoading && uiState.testTargetTitle != null,
@@ -120,6 +135,8 @@ private fun NotificationTestCard(
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
+                    disabledContainerColor = disabledButton.container,
+                    disabledContentColor = disabledButton.content,
                 ),
             ) {
                 Text(
@@ -142,14 +159,6 @@ private fun NotificationTestCard(
             uiState.errorMessage?.let { message ->
                 Text(
                     text = message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-
-            if (!uiState.permissionGranted) {
-                Text(
-                    text = stringResource(Res.string.settings_notifications_permission_disabled),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
