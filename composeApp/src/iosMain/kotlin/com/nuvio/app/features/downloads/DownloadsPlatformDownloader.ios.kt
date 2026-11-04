@@ -309,6 +309,8 @@ internal actual object DownloadsPlatformDownloader {
     actual fun finishPartialPlayback(downloadId: String): String? = finishIosPartialPlayback(downloadId)
 
     actual fun retryCount(downloadId: String): Int = IosDownloadRetries.attempts(downloadId)
+
+    actual fun bytesAtLastFailure(downloadId: String): Long? = IosDownloadRetries.bytesAtLastFailure(downloadId)
 }
 
 /**

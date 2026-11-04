@@ -33,4 +33,17 @@ class DownloadRetryPolicyTest {
         assertEquals(5L, tracker.nextDelaySeconds("a", 50L))
         assertEquals(2L, tracker.nextDelaySeconds("a", 500L))
     }
+
+    @Test
+    fun `a download has moved once its bytes pass the last failure`() {
+        val tracker = DownloadRetryTracker(backoffSeconds = listOf(2L, 5L), resetAfterBytes = 100L)
+        assertTrue(tracker.movedPastLastFailure("a", 0L))
+        assertEquals(2L, tracker.nextDelaySeconds("a", 40L))
+        assertEquals(40L, tracker.bytesAtLastFailure("a"))
+        assertEquals(1, tracker.attempts("a"))
+        assertFalse(tracker.movedPastLastFailure("a", 40L))
+        assertFalse(tracker.movedPastLastFailure("a", 39L))
+        assertTrue(tracker.movedPastLastFailure("a", 41L))
+        assertEquals(1, tracker.attempts("a"))
+    }
 }
