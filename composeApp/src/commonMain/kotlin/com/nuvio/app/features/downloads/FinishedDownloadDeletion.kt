@@ -7,7 +7,13 @@ import com.nuvio.app.features.analysis.MediaAnalysisSettings
 import com.nuvio.app.features.analysis.MediaAnalysisStore
 import com.nuvio.app.features.analysis.MediaAnalyzerPlatform
 import com.nuvio.app.features.streams.epochMs
+import com.nuvio.app.features.tracking.WatchProgressSource
+import com.nuvio.app.features.tracking.providerId
+import com.nuvio.app.features.watched.WatchedItem
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
+import com.nuvio.app.features.watchprogress.WatchProgressSourceTraktHistory
+import com.nuvio.app.features.watchprogress.WatchProgressRepository
+import com.nuvio.app.features.watchprogress.WatchProgressSourceLocal
 import com.nuvio.app.features.watchprogress.allowsProgressWrite
 import com.nuvio.app.features.watchprogress.ProgressWriteTrace
 import kotlinx.atomicfu.locks.SynchronizedObject
@@ -42,6 +48,17 @@ import kotlinx.serialization.encodeToString
  * Anything played in this process is remembered for storage autopilot. Keep free space may
  * remove older watched downloads, but not one played here, not the one on screen, and not a
  * file that is still transferring. Only "delete when finished" removes the episode just played.
+ *
+ * The same switch also removes a finished download when another device has fully watched it.
+ * [shouldDeleteFinishedDownloadForSyncedCompletion] is that decision. It accepts only a
+ * completion applied from a successful sync pull in this process, or a history import that
+ * carries a timestamp later than the download. Anything unclear keeps the file: the switch
+ * off, a transfer still running, an analysis-temp download, a hold already waiting on the
+ * intro fingerprint, a completion that is not fully watched, a missing source or timestamp,
+ * a completion from before the download finished, local progress newer than the sync, or the
+ * video on screen, in this player session, or played here inside the grace period. Local
+ * playback does not enter this path. A removal that does start uses the same grace and the
+ * intro-analysis hold, then [DownloadsRepository.cancelDownload].
  */
 internal object FinishedDownloadDeletion {
     private var session: OpenPlayback? = null
@@ -50,6 +67,7 @@ internal object FinishedDownloadDeletion {
     private val playedLock = SynchronizedObject()
     private val playedVideoIds = mutableSetOf<String>()
     private val playedDownloadIds = mutableSetOf<String>()
+    private val playedAtEpochMs = mutableMapOf<String, Long>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     /**
@@ -72,6 +90,12 @@ internal object FinishedDownloadDeletion {
 
     /** Null uses the analysis "only while charging" setting. */
     internal var deletionOnlyWhileCharging: (() -> Boolean)? = null
+
+    /**
+     * This branch has no automation-test switch. A harness sets this so a synced
+     * completion cannot delete. Submit mode is refused by [allowsProgressWrite].
+     */
+    internal var blockSyncedDeletion: () -> Boolean = { false }
 
     private var generationClock = 0
     private var holdCapJob: Job? = null
@@ -161,12 +185,37 @@ internal object FinishedDownloadDeletion {
         DownloadsSettingsRepository.isDeleteWhenFinishedEnabled()
 
     /**
-     * Watched-history completion (90 % locally, 80 % from Trakt/MDBList, or a remote pull). It no
-     * longer queues anything: that marked episodes watched ~10 minutes before the end, and closing
-     * the player then deleted the file. See [onLocalProgress].
+     * Local playback and a direct watched-history callback. Not a sync pull, so it queues
+     * nothing. [onLocalProgress] owns this device. Another device is [onSyncedCompletions],
+     * and only after a pull in this process has applied the completion. Calling that path
+     * from here deleted the file twice, including while it was still on screen.
      */
     @Suppress("UNUSED_PARAMETER")
     fun onPlaybackCompleted(entry: WatchProgressEntry) = Unit
+
+    /**
+     * Completions just applied from a successful sync pull or a history import.
+     * One file at a time, through the same grace and analysis hold as local playback.
+     * A failure keeps every file and does not fail the sync that called this.
+     */
+    fun onSyncedCompletions(completions: List<SyncedWatchCompletion>, persistsProgress: Boolean = true) {
+        if (!allowsProgressWrite(persistsProgress)) return
+        if (completions.isEmpty()) return
+        runCatching { queueSyncedCompletions(completions, persistsProgress) }
+    }
+
+    /** Watched rows just written from a successful watched-state pull. */
+    fun onSyncedWatchedItems(
+        items: Collection<WatchedItem>,
+        origin: SyncedWatchOrigin,
+        source: String,
+        persistsProgress: Boolean = true,
+    ) {
+        onSyncedCompletions(
+            completions = items.mapNotNull { it.toSyncedWatchCompletion(origin, source) },
+            persistsProgress = persistsProgress,
+        )
+    }
 
     /**
      * Every progress report of the in-app player, with the real position (not snapped to the
@@ -206,6 +255,98 @@ internal object FinishedDownloadDeletion {
         }
         if (tracked.queuedDownloadId != null) return
         queueFor(tracked)?.let { session = it }
+    }
+
+    private fun queueSyncedCompletions(completions: List<SyncedWatchCompletion>, persistsProgress: Boolean) {
+        if (blockSyncedDeletion()) return
+        if (!deletionEnabled()) return
+        ProgressWriteTrace.note("FinishedDownloadDeletion.onSyncedCompletions")
+        if (pending != null) return
+        val items = DownloadsRepository.uiState.value.items
+        for (completion in completions) {
+            for (item in items) {
+                if (!syncedCompletionMatchesDownload(
+                        downloadVideoId = item.videoId,
+                        downloadParentMetaId = item.parentMetaId,
+                        downloadSeasonNumber = item.seasonNumber,
+                        downloadEpisodeNumber = item.episodeNumber,
+                        completion = completion,
+                    )
+                ) {
+                    continue
+                }
+                val holdActive = pending?.downloadId == item.id && pending?.heldSinceEpochMs != null
+                val analysisTemp = runCatching { AnalysisTempDownloads.isTagged(item.id) }.getOrDefault(true)
+                val open = session
+                val delete = shouldDeleteFinishedDownloadForSyncedCompletion(
+                    download = FinishedDownloadDeletionCandidate(
+                        status = item.status,
+                        videoId = item.videoId,
+                        parentMetaId = item.parentMetaId,
+                        seasonNumber = item.seasonNumber,
+                        episodeNumber = item.episodeNumber,
+                        finishedAtEpochMs = item.updatedAtEpochMs.takeIf { it > 0L },
+                        analysisTemp = analysisTemp,
+                        introAnalysisHoldActive = holdActive,
+                    ),
+                    completion = completion,
+                    context = SyncedDeletionContext(
+                        deleteWhenFinishedEnabled = true,
+                        persistsProgress = persistsProgress,
+                        automationTestMode = blockSyncedDeletion(),
+                        videoOnScreen = isOpen(item),
+                        inPlayerSession = open != null && (
+                            open.videoId == item.videoId ||
+                                open.linkedDownloadId == item.id ||
+                                open.queuedDownloadId == item.id ||
+                                open.incompleteDownloadId == item.id
+                            ),
+                        playedWithinGrace = playedWithinGrace(item),
+                        localWatch = completion.localWatchBeforeApply ?: localWatchLookup(item),
+                    ),
+                )
+                if (!delete) continue
+                schedule(
+                    PendingDeletion(
+                        downloadId = item.id,
+                        videoId = item.videoId,
+                        requireCompleted = true,
+                        untilOtherPlays = false,
+                        generation = nextGeneration(),
+                        fromSyncedWatch = true,
+                    ),
+                    closeGraceMs,
+                )
+                return
+            }
+        }
+    }
+
+    private fun localWatchLookup(item: DownloadItem): LocalWatchSnapshot? {
+        val lookedUp = runCatching {
+            WatchProgressRepository.progressForVideo(
+                videoId = item.videoId,
+                parentMetaId = item.parentMetaId,
+                seasonNumber = item.seasonNumber,
+                episodeNumber = item.episodeNumber,
+            )
+        }
+        if (lookedUp.isFailure) {
+            return LocalWatchSnapshot(lastPositionMs = 1L, isCompleted = false, lastUpdatedEpochMs = null)
+        }
+        val entry = lookedUp.getOrNull() ?: return null
+        if (entry.isCompleted || entry.lastPositionMs <= 0L) return null
+        return entry.localWatchSnapshot()
+    }
+
+    private fun playedWithinGrace(item: DownloadItem): Boolean {
+        val grace = closeGraceMs
+        if (grace <= 0L) return false
+        val marked = synchronized(playedLock) {
+            maxOf(playedAtEpochMs[item.videoId] ?: 0L, playedAtEpochMs[item.id] ?: 0L)
+        }
+        if (marked <= 0L) return false
+        return deletionNowMs() - marked < grace
     }
 
     /** The session with its download queued for removal, or null when there is nothing to queue. */
@@ -270,10 +411,12 @@ internal object FinishedDownloadDeletion {
         deletionNowMs = { epochMs() }
         deletionDeviceCharging = null
         deletionOnlyWhileCharging = null
+        blockSyncedDeletion = { false }
         clearPersistedHold()
         synchronized(playedLock) {
             playedVideoIds.clear()
             playedDownloadIds.clear()
+            playedAtEpochMs.clear()
         }
     }
 
@@ -320,6 +463,7 @@ internal object FinishedDownloadDeletion {
             holdEligibleMs = stored.holdEligibleMs,
             holdAccountedUntilEpochMs = stored.holdAccountedUntilEpochMs,
             holdClockFrozen = stored.holdClockFrozen,
+            fromSyncedWatch = stored.fromSyncedWatch,
         )
         execute(pending!!)
     }
@@ -328,9 +472,16 @@ internal object FinishedDownloadDeletion {
         val video = videoId?.trim().orEmpty()
         val download = downloadId?.trim().orEmpty()
         if (video.isEmpty() && download.isEmpty()) return
+        val now = deletionNowMs()
         synchronized(playedLock) {
-            if (video.isNotEmpty()) playedVideoIds += video
-            if (download.isNotEmpty()) playedDownloadIds += download
+            if (video.isNotEmpty()) {
+                playedVideoIds += video
+                playedAtEpochMs[video] = now
+            }
+            if (download.isNotEmpty()) {
+                playedDownloadIds += download
+                playedAtEpochMs[download] = now
+            }
         }
     }
 
@@ -503,6 +654,8 @@ internal object FinishedDownloadDeletion {
         pending = null
         val stored = loadPersistedHold()
         if (stored == null || stored.downloadId == waiting.downloadId) clearPersistedHold()
+        // A file queued because another device finished it is a rewatch once it is opened.
+        if (waiting.fromSyncedWatch) return
         // Back on the same episode: it is still watched, so closing again queues it again.
         val current = session
         if (current == null || current.videoId != videoId) {
@@ -527,6 +680,7 @@ private data class PendingDeletion(
     val holdEligibleMs: Long = 0L,
     val holdAccountedUntilEpochMs: Long? = null,
     val holdClockFrozen: Boolean = false,
+    val fromSyncedWatch: Boolean = false,
 )
 
 private const val ANALYSIS_HOLD_KEY = "finished_download_analysis_hold"
@@ -541,6 +695,7 @@ private data class PersistedAnalysisHold(
     val holdEligibleMs: Long = 0L,
     val holdAccountedUntilEpochMs: Long? = null,
     val holdClockFrozen: Boolean = false,
+    val fromSyncedWatch: Boolean = false,
 )
 
 private fun persistHold(deletion: PendingDeletion) {
@@ -554,6 +709,7 @@ private fun persistHold(deletion: PendingDeletion) {
         holdEligibleMs = deletion.holdEligibleMs,
         holdAccountedUntilEpochMs = deletion.holdAccountedUntilEpochMs,
         holdClockFrozen = deletion.holdClockFrozen,
+        fromSyncedWatch = deletion.fromSyncedWatch,
     )
     DownloadsSettingsStorage.saveString(
         ANALYSIS_HOLD_KEY,
@@ -604,4 +760,180 @@ internal fun fileIdentity(value: String): String {
         else -> return trimmed
     }
     return path.trimEnd('/')
+}
+
+/** Account-sync rows are stored without a remote source label. Callers pass this instead. */
+internal const val SyncedWatchSourceAccount = "nuvio_sync"
+
+/** Where a fully-watched signal came from. [SyncedWatchOrigin.Unclear] always keeps the file. */
+internal enum class SyncedWatchOrigin {
+    /** A sync pull that succeeded in this process. */
+    AccountSyncPull,
+    /** Trakt, MDBList, or the same kind of history. Trusted only with a real later timestamp. */
+    HistoryImport,
+    /** Launch cache, local playback, or any writer that did not just pull. */
+    Unclear,
+}
+
+/** One watched signal from a pull. [fullyCompleted] is the remote completed flag, not a percent. */
+internal data class SyncedWatchCompletion(
+    val fullyCompleted: Boolean,
+    val videoId: String,
+    val parentMetaId: String,
+    val seasonNumber: Int?,
+    val episodeNumber: Int?,
+    val completedAtEpochMs: Long?,
+    val source: String?,
+    val origin: SyncedWatchOrigin,
+    /**
+     * Account progress has no separate completed flag: the row counts only when the playhead
+     * is at the end of a known runtime. History and watched marks leave this false.
+     */
+    val requiresPlayheadAtEnd: Boolean = false,
+    val positionMs: Long? = null,
+    val durationMs: Long? = null,
+    /** The progress row this device had before the pull replaced it. Null when there was none. */
+    val localWatchBeforeApply: LocalWatchSnapshot? = null,
+)
+
+/** Local continue-watching row. In progress is [lastPositionMs] > 0 and not completed. */
+internal data class LocalWatchSnapshot(
+    val lastPositionMs: Long,
+    val isCompleted: Boolean,
+    val lastUpdatedEpochMs: Long?,
+)
+
+internal data class FinishedDownloadDeletionCandidate(
+    val status: DownloadStatus,
+    val videoId: String,
+    val parentMetaId: String,
+    val seasonNumber: Int?,
+    val episodeNumber: Int?,
+    val finishedAtEpochMs: Long?,
+    val analysisTemp: Boolean,
+    val introAnalysisHoldActive: Boolean,
+)
+
+internal data class SyncedDeletionContext(
+    val deleteWhenFinishedEnabled: Boolean,
+    val persistsProgress: Boolean,
+    val automationTestMode: Boolean,
+    val videoOnScreen: Boolean,
+    val inPlayerSession: Boolean,
+    val playedWithinGrace: Boolean,
+    val localWatch: LocalWatchSnapshot?,
+)
+
+/**
+ * True only when a synced full watch should remove this finished download.
+ * Every uncertain input keeps the file.
+ */
+internal fun shouldDeleteFinishedDownloadForSyncedCompletion(
+    download: FinishedDownloadDeletionCandidate,
+    completion: SyncedWatchCompletion,
+    context: SyncedDeletionContext,
+): Boolean {
+    if (!context.deleteWhenFinishedEnabled) return false
+    if (!allowsProgressWrite(context.persistsProgress)) return false
+    if (context.automationTestMode) return false
+    if (download.analysisTemp || download.introAnalysisHoldActive) return false
+    if (download.status != DownloadStatus.Completed) return false
+    if (context.videoOnScreen || context.inPlayerSession || context.playedWithinGrace) return false
+    if (!completion.fullyCompleted) return false
+    if (completion.requiresPlayheadAtEnd) {
+        val duration = completion.durationMs
+        val position = completion.positionMs
+        if (duration == null || duration <= 0L || position == null || position < duration) return false
+    }
+    if (!completion.hasTrustedRemoteSource()) return false
+    if (!syncedCompletionMatchesDownload(
+            downloadVideoId = download.videoId,
+            downloadParentMetaId = download.parentMetaId,
+            downloadSeasonNumber = download.seasonNumber,
+            downloadEpisodeNumber = download.episodeNumber,
+            completion = completion,
+        )
+    ) {
+        return false
+    }
+    val completedAt = completion.completedAtEpochMs ?: return false
+    if (completedAt <= 0L) return false
+    val finishedAt = download.finishedAtEpochMs ?: return false
+    if (finishedAt <= 0L || completedAt <= finishedAt) return false
+    val local = context.localWatch
+    if (local != null && local.lastPositionMs > 0L && !local.isCompleted) {
+        val localUpdated = local.lastUpdatedEpochMs ?: return false
+        if (completedAt <= localUpdated) return false
+    }
+    return true
+}
+
+internal fun syncedCompletionMatchesDownload(
+    downloadVideoId: String,
+    downloadParentMetaId: String,
+    downloadSeasonNumber: Int?,
+    downloadEpisodeNumber: Int?,
+    completion: SyncedWatchCompletion,
+): Boolean {
+    val completionVideo = completion.videoId.trim()
+    val downloadVideo = downloadVideoId.trim()
+    if (completionVideo.isNotEmpty() && completionVideo == downloadVideo) return true
+    val completionIsEpisode = completion.seasonNumber != null && completion.episodeNumber != null
+    val downloadIsEpisode = downloadSeasonNumber != null && downloadEpisodeNumber != null
+    if (completionIsEpisode && downloadIsEpisode) {
+        val parent = completion.parentMetaId.trim()
+        return parent.isNotEmpty() &&
+            parent == downloadParentMetaId.trim() &&
+            completion.seasonNumber == downloadSeasonNumber &&
+            completion.episodeNumber == downloadEpisodeNumber
+    }
+    if (!completionIsEpisode && !downloadIsEpisode) {
+        val parent = completion.parentMetaId.trim()
+        return parent.isNotEmpty() && parent == downloadParentMetaId.trim()
+    }
+    return false
+}
+
+internal fun WatchProgressEntry.localWatchSnapshot(): LocalWatchSnapshot = LocalWatchSnapshot(
+    lastPositionMs = lastPositionMs,
+    isCompleted = isCompleted,
+    lastUpdatedEpochMs = lastUpdatedEpochMs.takeIf { it > 0L },
+)
+
+internal fun WatchedItem.toSyncedWatchCompletion(
+    origin: SyncedWatchOrigin,
+    source: String,
+): SyncedWatchCompletion? {
+    val isEpisodeRow = season != null && episode != null
+    val movie = type.equals("movie", ignoreCase = true)
+    if (!isEpisodeRow && !movie) return null
+    val video = videoId?.trim().orEmpty().ifEmpty { if (movie) id.trim() else "" }
+    return SyncedWatchCompletion(
+        fullyCompleted = true,
+        videoId = video,
+        parentMetaId = id,
+        seasonNumber = if (isEpisodeRow) season else null,
+        episodeNumber = if (isEpisodeRow) episode else null,
+        completedAtEpochMs = markedAtEpochMs.takeIf { it > 0L },
+        source = source,
+        origin = origin,
+    )
+}
+
+internal fun WatchProgressSource.syncedDeletionOrigin(): SyncedWatchOrigin =
+    if (providerId == null) SyncedWatchOrigin.AccountSyncPull else SyncedWatchOrigin.HistoryImport
+
+internal fun WatchProgressSource.syncedDeletionSourceLabel(): String = when (this) {
+    WatchProgressSource.NUVIO_SYNC -> SyncedWatchSourceAccount
+    WatchProgressSource.TRAKT -> WatchProgressSourceTraktHistory
+    WatchProgressSource.SIMKL -> "simkl_history"
+    WatchProgressSource.MDBLIST -> "mdblist_history"
+    WatchProgressSource.ANILIST -> "anilist_history"
+    WatchProgressSource.WETRAKR -> "wetrakr_history"
+}
+
+private fun SyncedWatchCompletion.hasTrustedRemoteSource(): Boolean {
+    val value = source?.trim().orEmpty()
+    if (value.isEmpty() || value.equals(WatchProgressSourceLocal, ignoreCase = true)) return false
+    return origin == SyncedWatchOrigin.AccountSyncPull || origin == SyncedWatchOrigin.HistoryImport
 }
