@@ -1,5 +1,6 @@
 package com.nuvio.app.core.uifixture
 
+import com.nuvio.app.features.settings.SettingsPage
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -78,6 +79,43 @@ class UiFixturesTest {
         assertEquals(UiFixture.PlayerSubmitBar, decision.fixture)
         assertEquals(932, decision.widthDp)
         assertEquals("player-submit-bar", decision.status)
+    }
+
+    @Test
+    fun walkScreensParseForDebugAndTheReleaseGateStillDoesNotRead() {
+        assertEquals("settings-appearance", settingsWireName(SettingsPage.Appearance))
+        assertEquals("settings-tmdb-enrichment", settingsWireName(SettingsPage.TmdbEnrichment))
+        assertEquals("settings-mdb-list-ratings", settingsWireName(SettingsPage.MdbListRatings))
+        assertEquals("settings-whats-new", settingsWireName(SettingsPage.WhatsNew))
+        assertEquals("settings-debug-logs", settingsWireName(SettingsPage.DebugLogs))
+        val appearance = settingsWireName(SettingsPage.Appearance)
+        val request = parseUiFixtureRequest(appearance)
+        assertEquals(UiFixture.Walk, request?.fixture)
+        assertEquals(appearance, request?.walkId)
+        assertEquals(UiFixture.Walk, parseUiFixtureLaunch("download-season-sheet"))
+        assertEquals("download-season-sheet", parseUiFixtureRequest("download-season-sheet")?.walkId)
+        assertEquals(UiFixture.Walk, parseUiFixtureLaunch("player-episodes"))
+        assertNull(parseUiFixtureRequest("settings-appearance@844"))
+        assertNull(parseUiFixtureLaunch("not-a-walk-screen"))
+        val names = SettingsPage.entries.map { settingsWireName(it) }
+        assertEquals(names.size, names.toSet().size)
+        var reads = 0
+        val blocked = decideUiFixture(isDebugBinary = false) {
+            reads += 1
+            appearance
+        }
+        assertNull(blocked.fixture)
+        assertNull(blocked.walkId)
+        assertEquals(0, reads)
+    }
+
+    @Test
+    fun dismissActionWordMatchesTheScript() {
+        assertEquals("dismiss", parseFixtureAction("dismiss"))
+        assertEquals("dismiss", parseFixtureAction(" DISMISS\n"))
+        assertNull(parseFixtureAction("online"))
+        assertNull(parseFixtureAction(""))
+        assertNull(parseFixtureAction(null))
     }
 
     @Test

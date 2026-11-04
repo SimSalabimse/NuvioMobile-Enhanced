@@ -26,6 +26,12 @@ enum class UiFixture(
     SmartDownloads("smart-downloads", startsOnline = true),
     PlayerSubmitBar("player-submit-bar", startsOnline = true),
     PlayerSubmitBarLong("player-submit-bar-long", startsOnline = true),
+    /**
+     * Carrier for the UI walk. The screen id lives on [UiFixtureRequest.walkId]
+     * and is registered in `UiWalkScreens`, so another fixture can be appended
+     * above this entry without editing that list.
+     */
+    Walk("walk", startsOnline = true),
     ;
 
     fun launchRoute(): AppRoute? = when (this) {
@@ -41,6 +47,7 @@ enum class UiFixture(
             title = UiFixtureCatalog.MOVIE_TITLE,
         )
         Downloads -> DownloadsRoute()
+        Walk -> UiWalkScreens.route()
     }
 
     companion object {
@@ -54,11 +61,13 @@ enum class UiFixture(
 const val UI_FIXTURE_ARGUMENT = "-NuvioUiFixture"
 const val UI_FIXTURE_ENVIRONMENT = "NUVIO_UI_FIXTURE"
 const val UI_FIXTURE_CONNECTIVITY_FILE = "nuvio-ui-connectivity.txt"
+const val UI_FIXTURE_ACTION_FILE = "nuvio-ui-action.txt"
 const val UI_FIXTURE_CONNECTIVITY_POLL_MS = 300L
 
 data class UiFixtureDecision(
     val fixture: UiFixture?,
     val widthDp: Int? = null,
+    val walkId: String? = null,
 ) {
     val status: String
         get() = fixture?.wireName ?: "disabled"
@@ -84,12 +93,13 @@ internal fun UiFixture.resolvedSubmitBarWidthDp(suffix: Int?): Int? = when (this
 fun decideUiFixture(isDebugBinary: Boolean, readRaw: () -> String?): UiFixtureDecision {
     if (!isDebugBinary) return UiFixtureDecision(null)
     val request = parseUiFixtureRequest(readRaw()) ?: return UiFixtureDecision(null)
-    return UiFixtureDecision(request.fixture, request.widthDp)
+    return UiFixtureDecision(request.fixture, request.widthDp, request.walkId)
 }
 
 data class UiFixtureRequest(
     val fixture: UiFixture,
     val widthDp: Int?,
+    val walkId: String? = null,
 )
 
 /**
@@ -107,7 +117,12 @@ fun parseUiFixtureRequest(raw: String?): UiFixtureRequest? {
         else -> text
     }.substringBefore('\n').trim()
     val (name, width) = splitUiFixtureWidth(value)
-    val fixture = UiFixture.fromWireName(name) ?: return null
+    val fixture = UiFixture.fromWireName(name)
+    if (fixture == null) {
+        if (width != null) return null
+        val walkId = UiWalkScreens.idForWireName(name) ?: return null
+        return UiFixtureRequest(UiFixture.Walk, null, walkId)
+    }
     if (width != null && !fixture.acceptsWidthSuffix()) return null
     return UiFixtureRequest(fixture, width)
 }
@@ -134,6 +149,12 @@ fun parseUiFixtureArguments(arguments: List<String>, environmentValue: String?):
     return parseUiFixtureLaunch(inline)
 }
 
+/** `dismiss` in [UI_FIXTURE_ACTION_FILE]. Anything else is ignored. */
+fun parseFixtureAction(raw: String?): String? {
+    val word = raw?.trim()?.lowercase()?.substringBefore('\n')?.trim().orEmpty()
+    return word.takeIf { it == "dismiss" }
+}
+
 /** Words the connectivity file and the script agree on. Null means "leave it". */
 fun parseConnectivityWord(raw: String?): Boolean? {
     val word = raw?.trim()?.lowercase()?.substringBefore('\n')?.trim().orEmpty()
@@ -147,6 +168,7 @@ fun parseConnectivityWord(raw: String?): Boolean? {
 object UiFixtureSession {
     var pendingRoute: AppRoute? = null
     var submitBarWidthDp: Int? = null
+    var walkId: String? = null
 }
 
 expect fun activeUiFixture(): UiFixture?

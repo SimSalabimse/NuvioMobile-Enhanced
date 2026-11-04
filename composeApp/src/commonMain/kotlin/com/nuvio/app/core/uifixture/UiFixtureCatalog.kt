@@ -31,6 +31,10 @@ internal object UiFixtureCatalog {
         "The Extraordinary and Completely Unabridged Account of a Very Long Evening on the Northern Coastal Railway"
 
     fun install(fixture: UiFixture) {
+        if (fixture == UiFixture.Walk) {
+            UiWalkScreens.install()
+            return
+        }
         val now = Clock.System.now().toEpochMilliseconds()
         val longTitles = fixture == UiFixture.LongTitles
         NetworkStatusRepository.adoptFixture(online = fixture.startsOnline)
@@ -351,6 +355,20 @@ internal object UiFixtureCatalog {
     )
 
     private val shortNames = listOf("Northwind", "Harbor", "Kite", "Orchard", "Lantern", "Ferry")
+
+    /** Home shell the UI walk reuses. Does not set [UiFixtureSession.pendingRoute]. */
+    internal fun seedWalkShell(online: Boolean) {
+        val now = Clock.System.now().toEpochMilliseconds()
+        NetworkStatusRepository.adoptFixture(online = online)
+        HomeCatalogSettingsRepository.installFixture(settingsItems(longTitles = false))
+        HomeRepository.installFixture(homeState(longTitles = false))
+        WatchProgressRepository.installFixtureEntries(continueWatching(now, longTitles = false))
+        startConnectivityFixturePoller()
+    }
+
+    internal fun fixtureSeries(): MetaDetails = series(seasonPosters = true)
+
+    internal fun fixtureMovie(): MetaDetails = movie()
 }
 
 internal object UiFixtureInstaller {
