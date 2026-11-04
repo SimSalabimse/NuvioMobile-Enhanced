@@ -31,6 +31,8 @@ import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.features.party.PartyRepository
 import com.nuvio.app.features.player.skip.FlagSubmitLedger
+import com.nuvio.app.features.player.skip.OwnTheIntroDbLedger
+import com.nuvio.app.features.player.skip.shouldRecordOwnTheIntroDb
 import com.nuvio.app.features.player.skip.loadTypes
 import com.nuvio.app.features.player.skip.rememberType
 import com.nuvio.app.features.player.skip.replaceTypes
@@ -231,6 +233,7 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 submittedSegmentTypesByVideoId[activeVideoId.orEmpty()].orEmpty().forEach { type ->
                     if (markSegmentId(type) !in rejected) FlagSubmitLedger.rememberType(contentKey, type)
                 }
+                OwnTheIntroDbLedger.applyListing(contentKey, accepted, rejected)
                 remoteTypes = accepted
                 rejectedTypes = rejected
             }
@@ -362,14 +365,19 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                         }
                         submitting = false
                         when (posted) {
-                            MarkPost.Sent -> noteMarkingSubmitted(
-                                IntroSubmitResult(
-                                    segmentType = snapshot.segmentType,
-                                    startSec = times.first,
-                                    endSec = times.second,
-                                    absentSegment = snapshot.absent,
-                                ),
-                            )
+                            MarkPost.Sent -> {
+                                noteMarkingSubmitted(
+                                    IntroSubmitResult(
+                                        segmentType = snapshot.segmentType,
+                                        startSec = times.first,
+                                        endSec = times.second,
+                                        absentSegment = snapshot.absent,
+                                    ),
+                                )
+                                if (shouldRecordOwnTheIntroDb(service, succeeded = true)) {
+                                    OwnTheIntroDbLedger.remember(contentKey, snapshot.segmentType)
+                                }
+                            }
                             is MarkPost.Blocked -> markSubmitError = introSubmitBlockMessage(
                                 posted.reason,
                                 requiredKeyMessage,

@@ -193,7 +193,7 @@ class LongPressAccessibilityTest {
             Triple(
                 LongPressSite.Season,
                 season,
-                listOf("season.watched", "season.rate", "season.previous"),
+                listOf("season.watched", "season.rate", "season.previous", "season.overview"),
             ),
             Triple(
                 LongPressSite.StreamCard,
@@ -243,6 +243,7 @@ class LongPressAccessibilityTest {
         openExternalPlayer = "Open in external player",
         downloadFile = "Download file",
         markPreviousSeasons = "Mark previous seasons watched",
+        seasonOverview = "Season overview",
         libraryLists = "Library lists",
         submitSegment = "Submit segment only",
     )

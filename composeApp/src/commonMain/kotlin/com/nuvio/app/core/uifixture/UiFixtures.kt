@@ -26,11 +26,12 @@ enum class UiFixture(
     SmartDownloads("smart-downloads", startsOnline = true),
     PlayerSubmitBar("player-submit-bar", startsOnline = true),
     PlayerSubmitBarLong("player-submit-bar-long", startsOnline = true),
+    SeasonOverview("season-overview", startsOnline = true),
     ;
 
     fun launchRoute(): AppRoute? = when (this) {
         HomeOnline, HomeOffline, LongTitles, PlayerSubmitBar, PlayerSubmitBarLong -> null
-        DetailsOnline, DetailsOffline, SmartDownloads -> DetailRoute(
+        DetailsOnline, DetailsOffline, SmartDownloads, SeasonOverview -> DetailRoute(
             type = UiFixtureCatalog.SERIES_TYPE,
             id = UiFixtureCatalog.SERIES_ID,
             title = UiFixtureCatalog.SERIES_TITLE,
