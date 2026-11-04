@@ -254,6 +254,7 @@ internal fun SegmentMarkingLayer(
     onPreview: () -> Unit = {},
     autoSyncedTypes: Set<String> = emptySet(),
     labels: SubmitBarLabels? = null,
+    clocksTouched: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
   CompositionLocalProvider(LocalSubmitBarLabels provides labels) {
@@ -455,6 +456,7 @@ internal fun SegmentMarkingLayer(
                                 addKeyLabel = addKeyLabel,
                                 blockLine = blockLine,
                                 errorLine = errorLine,
+                                clocksTouched = clocksTouched,
                                 onAddKey = onAddKey,
                                 labelSize = labelSize,
                             )
@@ -939,6 +941,7 @@ private fun MarkStatus(
     addKeyLabel: String,
     blockLine: String?,
     errorLine: String?,
+    clocksTouched: Boolean,
     onAddKey: () -> Unit,
     labelSize: androidx.compose.ui.unit.TextUnit,
     modifier: Modifier = Modifier,
@@ -963,6 +966,8 @@ private fun MarkStatus(
             labelSize,
             modifier,
         )
+        problem == MarkProblem.EndNotAfterStart &&
+            !showEndAfterStartMessage(clocksTouched, problem) -> Spacer(modifier)
         problem != null -> {
             val detail = markProblemText(problem, segmentType, segmentLabel)
             val text = range.lengthLabel?.let { length ->

@@ -44,7 +44,11 @@ internal fun PlayerSubmitBarFixtureScreen() {
     val long = fixture == UiFixture.PlayerSubmitBarLong
     val width = fixture?.resolvedSubmitBarWidthDp(UiFixtureSession.submitBarWidthDp)
         ?: PlayerSubmitBarDefaultWidthDp
-    PlayerSubmitBarFixture(widthDp = width, longLabels = long)
+    PlayerSubmitBarFixture(
+        widthDp = width,
+        longLabels = long,
+        clocksTouched = fixture == UiFixture.PlayerSubmitBarTouchedInvalid,
+    )
 }
 
 /**
@@ -56,6 +60,7 @@ internal fun PlayerSubmitBarFixtureScreen() {
 internal fun PlayerSubmitBarFixture(
     widthDp: Int,
     longLabels: Boolean,
+    clocksTouched: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val stageWidth = widthDp.coerceIn(1, 4_000).dp
@@ -68,14 +73,17 @@ internal fun PlayerSubmitBarFixture(
     ) {
         LandscapeStage(stageWidth, stageHeight, Modifier.fillMaxSize()) {
             Box(Modifier.fillMaxSize().background(Color(0xFF10141C))) {
-                PlayerSubmitBarFixtureContent(longLabels)
+                PlayerSubmitBarFixtureContent(longLabels, clocksTouched = clocksTouched)
             }
         }
     }
 }
 
 @Composable
-internal fun PlayerSubmitBarFixtureContent(longLabels: Boolean) {
+internal fun PlayerSubmitBarFixtureContent(
+    longLabels: Boolean,
+    clocksTouched: Boolean = false,
+) {
     SegmentMarkingLayer(
         segmentType = "preview",
         isMovie = false,
@@ -104,6 +112,7 @@ internal fun PlayerSubmitBarFixtureContent(longLabels: Boolean) {
         onSubmit = {},
         submittedTypes = setOf("intro", "recap"),
         labels = if (longLabels) longSubmitBarLabels() else null,
+        clocksTouched = clocksTouched,
     )
 }
 
