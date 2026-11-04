@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.AppLoadingProfileAvatar
+import com.nuvio.app.isIos
 import com.nuvio.app.core.ui.accentBrush
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.themePalette
@@ -50,6 +51,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Alignment
+import com.nuvio.app.core.ui.IosAboutMarkDelight
 import com.nuvio.app.core.ui.RunningVersionLine
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_about_made_with
@@ -303,10 +305,19 @@ internal fun LazyListScope.settingsRootContent(
                 .padding(horizontal = 20.dp, vertical = if (isTablet) 20.dp else 16.dp),
         ) {
             if (showAboutSection) {
-                MemberBrandWordmark(
-                    height = if (isTablet) 30.dp else 26.dp,
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                )
+                val markHeight = if (isTablet) 30.dp else 26.dp
+                if (isIos) {
+                    IosAboutMarkDelight(
+                        modifier = Modifier.align(Alignment.CenterHorizontally),
+                    ) {
+                        MemberBrandWordmark(height = markHeight)
+                    }
+                } else {
+                    MemberBrandWordmark(
+                        height = markHeight,
+                        modifier = Modifier.align(Alignment.CenterHorizontally),
+                    )
+                }
                 androidx.compose.foundation.layout.Spacer(
                     modifier = Modifier.height(if (isTablet) 10.dp else 8.dp),
                 )
