@@ -24,10 +24,12 @@ enum class UiFixture(
     Downloads("downloads", startsOnline = true),
     LongTitles("long-titles", startsOnline = true),
     SmartDownloads("smart-downloads", startsOnline = true),
+    PlayerSubmitBar("player-submit-bar", startsOnline = true),
+    PlayerSubmitBarLong("player-submit-bar-long", startsOnline = true),
     ;
 
     fun launchRoute(): AppRoute? = when (this) {
-        HomeOnline, HomeOffline, LongTitles -> null
+        HomeOnline, HomeOffline, LongTitles, PlayerSubmitBar, PlayerSubmitBarLong -> null
         DetailsOnline, DetailsOffline, SmartDownloads -> DetailRoute(
             type = UiFixtureCatalog.SERIES_TYPE,
             id = UiFixtureCatalog.SERIES_ID,
@@ -56,9 +58,23 @@ const val UI_FIXTURE_CONNECTIVITY_POLL_MS = 300L
 
 data class UiFixtureDecision(
     val fixture: UiFixture?,
+    val widthDp: Int? = null,
 ) {
     val status: String
         get() = fixture?.wireName ?: "disabled"
+}
+
+/** Landscape widths the submit-bar fixture can pin with a `@dp` suffix. */
+internal const val PlayerSubmitBarDefaultWidthDp = 844
+internal const val PlayerSubmitBarLongDefaultWidthDp = 667
+
+internal fun UiFixture.acceptsWidthSuffix(): Boolean =
+    this == UiFixture.PlayerSubmitBar || this == UiFixture.PlayerSubmitBarLong
+
+internal fun UiFixture.resolvedSubmitBarWidthDp(suffix: Int?): Int? = when (this) {
+    UiFixture.PlayerSubmitBar -> suffix ?: PlayerSubmitBarDefaultWidthDp
+    UiFixture.PlayerSubmitBarLong -> suffix ?: PlayerSubmitBarLongDefaultWidthDp
+    else -> null
 }
 
 /**
@@ -67,11 +83,22 @@ data class UiFixtureDecision(
  */
 fun decideUiFixture(isDebugBinary: Boolean, readRaw: () -> String?): UiFixtureDecision {
     if (!isDebugBinary) return UiFixtureDecision(null)
-    return UiFixtureDecision(parseUiFixtureLaunch(readRaw()))
+    val request = parseUiFixtureRequest(readRaw()) ?: return UiFixtureDecision(null)
+    return UiFixtureDecision(request.fixture, request.widthDp)
 }
 
-/** A bare name, `-NuvioUiFixture <name>`, or `NUVIO_UI_FIXTURE=<name>`. */
-fun parseUiFixtureLaunch(raw: String?): UiFixture? {
+data class UiFixtureRequest(
+    val fixture: UiFixture,
+    val widthDp: Int?,
+)
+
+/**
+ * A bare name, `-NuvioUiFixture <name>`, or `NUVIO_UI_FIXTURE=<name>`.
+ * `player-submit-bar@667` is [UiFixture.PlayerSubmitBar] at 667 dp.
+ */
+fun parseUiFixtureLaunch(raw: String?): UiFixture? = parseUiFixtureRequest(raw)?.fixture
+
+fun parseUiFixtureRequest(raw: String?): UiFixtureRequest? {
     val text = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
     val value = when {
         text.startsWith("$UI_FIXTURE_ARGUMENT ") -> text.substringAfter(' ').trim()
@@ -79,7 +106,18 @@ fun parseUiFixtureLaunch(raw: String?): UiFixture? {
         text.startsWith("$UI_FIXTURE_ENVIRONMENT=") -> text.substringAfter('=').trim()
         else -> text
     }.substringBefore('\n').trim()
-    return UiFixture.fromWireName(value)
+    val (name, width) = splitUiFixtureWidth(value)
+    val fixture = UiFixture.fromWireName(name) ?: return null
+    if (width != null && !fixture.acceptsWidthSuffix()) return null
+    return UiFixtureRequest(fixture, width)
+}
+
+private fun splitUiFixtureWidth(value: String): Pair<String, Int?> {
+    val at = value.lastIndexOf('@')
+    if (at <= 0) return value to null
+    val width = value.substring(at + 1).toIntOrNull()
+    if (width == null || width !in 1..4_000) return value to null
+    return value.substring(0, at) to width
 }
 
 /**
@@ -108,6 +146,7 @@ fun parseConnectivityWord(raw: String?): Boolean? {
 
 object UiFixtureSession {
     var pendingRoute: AppRoute? = null
+    var submitBarWidthDp: Int? = null
 }
 
 expect fun activeUiFixture(): UiFixture?

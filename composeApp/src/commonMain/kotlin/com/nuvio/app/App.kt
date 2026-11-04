@@ -22,6 +22,9 @@ import com.nuvio.app.core.perf.applyPosterMemoryCachePolicy
 import com.nuvio.app.core.poster.CustomPosterFallbackInterceptor
 import com.nuvio.app.core.ui.NativeProfileSwitcherController
 import com.nuvio.app.core.ui.NuvioTheme
+import com.nuvio.app.core.uifixture.PlayerSubmitBarFixtureScreen
+import com.nuvio.app.core.uifixture.UiFixture
+import com.nuvio.app.core.uifixture.currentUiFixture
 import com.nuvio.app.core.ui.configurePlatformImageLoader
 import com.nuvio.app.core.ui.platformProvidesImageLoader
 import com.nuvio.app.features.settings.ThemeSettingsRepository
@@ -53,6 +56,11 @@ fun App(
     appGateController: AppGateController? = null,
 ) {
     AppEnvironment {
+        val fixture = currentUiFixture()
+        if (fixture == UiFixture.PlayerSubmitBar || fixture == UiFixture.PlayerSubmitBarLong) {
+            PlayerSubmitBarFixtureScreen()
+            return@AppEnvironment
+        }
         AppGate(
             initialTab = initialTab,
             initialRoute = initialRoute,
