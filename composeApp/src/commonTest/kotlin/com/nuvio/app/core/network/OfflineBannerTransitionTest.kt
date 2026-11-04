@@ -61,6 +61,8 @@ class OfflineBannerTransitionTest {
                         viewportWidthDp = 390f,
                     )
                     val slim = offlineBannerStripHeightDp(fontScale = 1f)
+                    val screenWidth = 390f
+                    assertEquals(screenWidth, scene.bannerWidthDp, "$screen $phase inset=$inset width")
                     assertTrue(scene.bannerHeightDp <= inset + slim, "$screen $phase inset=$inset height")
                     assertEquals(inset + slim, scene.bannerHeightDp, "$screen $phase inset=$inset")
                     assertEquals(0f, scene.contentTopOffsetDp, "$screen $phase inset=$inset")

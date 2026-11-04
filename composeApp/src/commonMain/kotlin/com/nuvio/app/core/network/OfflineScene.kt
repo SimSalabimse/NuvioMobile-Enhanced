@@ -58,6 +58,8 @@ data class OfflineScene(
     val screen: OfflineBannerScreen,
     val statusInsetDp: Float,
     val slimRowDp: Float,
+    /** Opaque strip, edge to edge. The back button overlays this; it does not cut a hole. */
+    val bannerWidthDp: Float,
     val bannerHeightDp: Float,
     val bannerDrawn: Boolean,
     val bannerAlpha: Float,
@@ -131,6 +133,7 @@ fun offlineScene(
         screen = screen,
         statusInsetDp = inset,
         slimRowDp = slim,
+        bannerWidthDp = width,
         bannerHeightDp = inset + slim,
         bannerDrawn = offline || visual > 0f,
         bannerAlpha = visual,
