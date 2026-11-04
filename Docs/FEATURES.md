@@ -191,3 +191,7 @@ Titles are capped at 150 entries and about 8 MB, the same entry count as the in-
 When a cap is passed, the least recently opened entries are removed. A file whose schema version is not the current one is discarded. A file that cannot be read is ignored.
 
 Disk reads run off the main thread, and only after a title or Continue Watching row is requested. Nothing is read during launch. Writes are batched, debounced by one second, and held while the player is open or a home, Continue Watching, upcoming, or details list is scrolling.
+
+## Quiet moments
+- iOS Settings About: seven quick taps on the app wordmark play a short tilt and sparkle with a light haptic; Reduce Motion shows nothing.
+- iOS empty folder: one tap on the folder icon plays a short wiggle; Reduce Motion shows nothing.
