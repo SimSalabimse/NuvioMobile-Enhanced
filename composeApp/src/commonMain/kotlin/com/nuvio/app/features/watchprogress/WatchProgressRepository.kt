@@ -27,6 +27,11 @@ import com.nuvio.app.features.tracking.TrackingSettingsRepository
 import com.nuvio.app.features.tracking.WatchProgressSource
 import com.nuvio.app.features.tracking.effectiveWatchProgressSource
 import com.nuvio.app.features.tracking.providerId
+import com.nuvio.app.features.downloads.FinishedDownloadDeletion
+import com.nuvio.app.features.downloads.SyncedWatchCompletion
+import com.nuvio.app.features.downloads.SyncedWatchOrigin
+import com.nuvio.app.features.downloads.SyncedWatchSourceAccount
+import com.nuvio.app.features.downloads.localWatchSnapshot
 import com.nuvio.app.features.watching.application.WatchingActions
 import com.nuvio.app.features.watching.sync.ProgressDeltaEvent
 import com.nuvio.app.features.watching.sync.ProgressSyncRecord
@@ -799,6 +804,11 @@ object WatchProgressRepository {
             newestRemoteByKey
         }
         replaceLocalEntries(updatedEntries)
+        notifySyncedAccountProgress(
+            serverEntries = serverEntries,
+            localEntries = reconciliation.entries,
+            applied = updatedEntries,
+        )
         acknowledgeDirtyProgressFromSnapshot(
             serverEntries = serverEntries,
             localEntriesBeforeApply = reconciliation.entries,
@@ -826,6 +836,7 @@ object WatchProgressRepository {
         var appliedUpserts = 0
         var appliedDeletes = 0
         var preservedLocalItems = false
+        val syncedCompletions = mutableListOf<SyncedWatchCompletion>()
         val latestEventByProgressKey = linkedMapOf<String, ProgressDeltaEvent>()
         events.sortedBy(ProgressDeltaEvent::eventId).forEach { event ->
             val progressKey = event.resolvedProgressKey()
@@ -854,7 +865,9 @@ object WatchProgressRepository {
             )
             when (decision.type) {
                 WatchProgressDeltaDecisionType.UPSERT -> {
-                    upsertLocalEntry(requireNotNull(decision.updatedEntry))
+                    val updated = requireNotNull(decision.updatedEntry)
+                    accountSyncCompletion(updated, localBefore = current)?.let(syncedCompletions::add)
+                    upsertLocalEntry(updated)
                     changed = true
                     appliedUpserts += 1
                 }
@@ -885,12 +898,64 @@ object WatchProgressRepository {
                 )
             }
         }
+        FinishedDownloadDeletion.onSyncedCompletions(syncedCompletions)
         return WatchProgressDeltaApplyResult(
             appliedUpserts = appliedUpserts,
             appliedDeletes = appliedDeletes,
             preservedLocalItems = preservedLocalItems,
             changed = changed,
         )
+    }
+
+    /**
+     * A pulled row is fully watched only when its completed flag is set and the playhead is at
+     * the end of a known runtime. A percent short of that, or a missing watch time, is not passed on.
+     */
+    private fun accountSyncCompletion(
+        remote: WatchProgressEntry,
+        localBefore: WatchProgressEntry?,
+    ): SyncedWatchCompletion? {
+        if (!remote.isCompleted) return null
+        if (remote.durationMs <= 0L || remote.lastPositionMs < remote.durationMs) return null
+        return SyncedWatchCompletion(
+            fullyCompleted = true,
+            videoId = remote.videoId,
+            parentMetaId = remote.parentMetaId,
+            seasonNumber = remote.seasonNumber,
+            episodeNumber = remote.episodeNumber,
+            completedAtEpochMs = remote.lastUpdatedEpochMs.takeIf { it > 0L },
+            source = SyncedWatchSourceAccount,
+            origin = SyncedWatchOrigin.AccountSyncPull,
+            requiresPlayheadAtEnd = true,
+            positionMs = remote.lastPositionMs,
+            durationMs = remote.durationMs,
+            localWatchBeforeApply = localBefore?.localWatchSnapshot(),
+        )
+    }
+
+    private fun notifySyncedAccountProgress(
+        serverEntries: Collection<ProgressSyncRecord>,
+        localEntries: Collection<WatchProgressEntry>,
+        applied: Map<String, WatchProgressEntry>,
+    ) {
+        val localByKey = localEntries.newestByProgressKey()
+        val remoteByKey = linkedMapOf<String, WatchProgressEntry>()
+        serverEntries.forEach { record ->
+            val key = record.resolvedProgressKey()
+            val candidate = record.toWatchProgressEntry(cached = localByKey[key])
+            val existing = remoteByKey[key]
+            if (existing == null || candidate.isFresherThan(existing)) {
+                remoteByKey[key] = candidate
+            }
+        }
+        val completions = remoteByKey.mapNotNull { (key, remote) ->
+            val kept = applied[key] ?: return@mapNotNull null
+            if (kept.lastUpdatedEpochMs != remote.lastUpdatedEpochMs || kept.videoId != remote.videoId) {
+                return@mapNotNull null
+            }
+            accountSyncCompletion(remote, localBefore = localByKey[key])
+        }
+        FinishedDownloadDeletion.onSyncedCompletions(completions)
     }
 
     internal fun decideWatchProgressDeltaEvent(

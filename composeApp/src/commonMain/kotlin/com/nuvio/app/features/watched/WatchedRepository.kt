@@ -12,6 +12,9 @@ import com.nuvio.app.core.sync.resolveOfflineOutboxConflict
 import com.nuvio.app.core.sync.OfflineConflictWinner
 import com.nuvio.app.core.sync.watchedOutboxEntry
 import com.nuvio.app.core.tracking.ensureTrackingProvidersRegistered
+import com.nuvio.app.features.downloads.FinishedDownloadDeletion
+import com.nuvio.app.features.downloads.syncedDeletionOrigin
+import com.nuvio.app.features.downloads.syncedDeletionSourceLabel
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.profiles.ProfileRepository
@@ -499,7 +502,7 @@ object WatchedRepository {
             }
             return false
         }
-        itemsStore.update { nuvioItems, providerItems, dirtyNuvioKeys, dirtyProviderKeys ->
+        val appliedRemote = itemsStore.update { nuvioItems, providerItems, dirtyNuvioKeys, dirtyProviderKeys ->
             val items = source.providerId
                 ?.let { providerId -> providerItems[providerId]?.values.orEmpty() }
                 ?: nuvioItems.values
@@ -521,7 +524,19 @@ object WatchedRepository {
             )
             dirtyKeys.clear()
             dirtyKeys += merged.dirtyKeys
+            val serverKeys = serverItems.mapTo(hashSetOf()) { item ->
+                watchedItemKey(item.type, item.id, item.season, item.episode)
+            }
+            merged.items
+                .filter { (key, _) -> key in serverKeys && key !in merged.dirtyKeys }
+                .values
+                .toList()
         }
+        FinishedDownloadDeletion.onSyncedWatchedItems(
+            items = appliedRemote,
+            origin = source.syncedDeletionOrigin(),
+            source = source.syncedDeletionSourceLabel(),
+        )
         fullyWatchedSeriesKeys?.let { keys ->
             setFullyWatchedSeriesKeysForSource(source, keys)
         }
@@ -589,13 +604,18 @@ object WatchedRepository {
             if (!isActiveOperation(operation)) return false
             if (events.isEmpty()) break
 
-            itemsStore.update { nuvioItems, _, dirtyNuvioKeys, _ ->
+            val appliedRemote = itemsStore.update { nuvioItems, _, dirtyNuvioKeys, _ ->
                 applyWatchedDeltaEvents(
                     targetItems = nuvioItems,
                     dirtyKeys = dirtyNuvioKeys,
                     events = events,
                 )
             }
+            FinishedDownloadDeletion.onSyncedWatchedItems(
+                items = appliedRemote,
+                origin = WatchProgressSource.NUVIO_SYNC.syncedDeletionOrigin(),
+                source = WatchProgressSource.NUVIO_SYNC.syncedDeletionSourceLabel(),
+            )
             cursor = maxOf(cursor, events.maxOf { it.eventId })
             deltaCursorEventId = cursor
             deltaInitialized = true
@@ -621,7 +641,8 @@ object WatchedRepository {
         targetItems: MutableMap<String, WatchedItem>,
         dirtyKeys: MutableSet<String>,
         events: Collection<WatchedDeltaEvent>,
-    ) {
+    ): List<WatchedItem> {
+        val appliedRemote = mutableListOf<WatchedItem>()
         var upsertCount = 0
         var deleteCount = 0
         var removedCount = 0
@@ -670,6 +691,7 @@ object WatchedRepository {
                         preservedDirtyCount += 1
                     } else {
                         targetItems[key] = remoteItem
+                        appliedRemote += remoteItem
                         if (dirtyKeys.remove(key)) {
                             acknowledgedDirtyCount += 1
                         }
@@ -722,6 +744,7 @@ object WatchedRepository {
                 "preservedDirty=$preservedDirtyCount acknowledgedDirty=$acknowledgedDirtyCount " +
                 "ignored=$ignoredCount"
         }
+        return appliedRemote
     }
 
     private fun findWatchedItemStableDeleteKey(

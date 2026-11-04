@@ -199,6 +199,7 @@ object WatchingActions {
             markedAtEpochMs = entry.lastUpdatedEpochMs,
         )
         WatchedRepository.markWatchedFromPlaybackCompletion(watchedItem, syncRemote = syncRemote)
+        // This device's own completion. The synced-watch delete is not run from here.
         FinishedDownloadDeletion.onPlaybackCompleted(entry)
 
         if (!syncRemote || !entry.isEpisode) return
