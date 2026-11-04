@@ -115,6 +115,25 @@ class ChapterSkipPriorityTest {
     }
 
     @Test
+    fun detectedPreviewDoesNotClearAChapterPreview() {
+        val chaptered = base().copy(previewStartMs = 2_370_000L, previewEndMs = runtimeMs, chapterTypes = setOf("preview"))
+        val kept = chaptered.withDetectedPreview(null)
+        assertEquals(2_370_000L, kept.previewStartMs)
+        assertEquals(runtimeMs, kept.previewEndMs)
+        val replaced = base().copy(previewStartMs = 1L, previewEndMs = 2L).withDetectedPreview(3L to 4L)
+        assertEquals(3L, replaced.previewStartMs)
+        assertEquals(4L, replaced.previewEndMs)
+        val marked = base().copy(
+            previewStartMs = 9L,
+            previewEndMs = 10L,
+            userSegments = mapOf("preview" to UserSegment(startMs = 5L, endMs = 6L, durationMs = runtimeMs)),
+        )
+        val keptMark = marked.withDetectedPreview(null)
+        assertEquals(9L, keptMark.previewStartMs)
+        assertEquals(10L, keptMark.previewEndMs)
+    }
+
+    @Test
     fun aMarkOnThisDeviceDropsTheChapterTag() = runBlocking {
         val key = "chapter-mark__s1e1"
         MediaAnalysisStore.save(
@@ -203,7 +222,7 @@ class ChapterSkipPriorityTest {
     }
 
     @Test
-    fun aUserMarkKeepsTheHeadPrintAndChaptersStillSkipTheTail() {
+    fun aUserMarkKeepsTheHeadPrintAndTheTailStaysForTheNeighbours() {
         val key = "chapter-keep-print__s1e1"
         MediaAnalysisStore.save(base(key).copy(userSegments = mapOf("intro" to UserSegment(0L, 30_000L))))
         ChapterSkipClassifier.prepare(key, "chapter-keep-print", 1)
@@ -215,7 +234,7 @@ class ChapterSkipPriorityTest {
                   {"title":"Credits","startMs":2310000,"endMs":2400000}
                 ]
             """.trimIndent()
-            assertEquals("tail", ChapterSkipClassifier.fingerprintSkip(json, runtimeMs))
+            assertEquals("", ChapterSkipClassifier.fingerprintSkip(json, runtimeMs))
             assertEquals(SkipSourcePriority.USER, SkipSourcePriority.rank(SkipLearning.PROVIDER))
             assertEquals(SkipSourcePriority.EXTERNAL_DATABASE, SkipSourcePriority.rank(TheIntroDb.PROVIDER))
             assertTrue(SkipSourcePriority.rank(CHAPTER_SKIP_PROVIDER) < SkipSourcePriority.rank(ON_DEVICE_SKIP_PROVIDER))

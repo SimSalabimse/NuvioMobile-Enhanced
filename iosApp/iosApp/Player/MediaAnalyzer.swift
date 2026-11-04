@@ -14,6 +14,12 @@ import Libavutil
 ///    and -10 LU relative gates), for loudness normalisation;
 ///  - Philips/Haitsma-style 32-bit audio sub-fingerprints every 100 ms of the first 10 and last
 ///    8 minutes, for intro/credits matching across the episodes of a season.
+/// Video stays discarded (`AVDISCARD_ALL` on every non-audio stream below). Black-frame ranges
+/// are an optional Kotlin cue (`blackRanges`); measuring them here would decode video and blow
+/// the ~18 s pass. On device the decision trace reports black=0. Silence and audio scene
+/// changes still refine edges. Verify on a Mac: after one episode, Diagnostics shows a timings
+/// line and four `segment` lines (intro, recap, credits, preview), and this file still sets
+/// `AVDISCARD_ALL` on the non-audio streams.
 /// Video and subtitle packets are discarded by the demuxer. Cancellable at any packet.
 final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
     private let queue = DispatchQueue(label: "nuvio.media-analyzer", qos: .utility)

@@ -34,6 +34,12 @@ class PlayerMediaAnalysisTest {
         assertEquals(setOf("intro", "recap", "outro"), segmentTypesSyncedByAnalysis(detected))
         assertFalse("preview" in segmentTypesSyncedByAnalysis(detected))
 
+        val withPreview = detected.copy(previewStartMs = 2_250_000L, previewEndMs = 2_300_000L)
+        assertEquals(setOf("intro", "recap", "outro", "preview"), segmentTypesSyncedByAnalysis(withPreview))
+        val offered = onDeviceSkipIntervalsFrom(withPreview, recapDetection = true, introDetection = true)
+        assertEquals(2_250.0, offered.first { it.type == "preview" }.startTime)
+        assertEquals(2_300.0, offered.first { it.type == "preview" }.endTime)
+
         val markedIntro = detected.copy(
             userSegments = mapOf("intro" to UserSegment(startMs = 0L, endMs = 80_000L)),
         )

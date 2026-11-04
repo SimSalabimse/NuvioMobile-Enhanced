@@ -25,6 +25,25 @@ class FingerprintMatcherTest {
     }
 
     @Test
+    fun topSharedSegmentsKeepsAShortRunAndALongerOne() {
+        val random = Random(7)
+        val theme = noise(random, 200)
+        val flashback = noise(random, 800)
+        val a = noise(random, 3_000)
+        theme.copyInto(a, destinationOffset = 100)
+        flashback.copyInto(a, destinationOffset = 1_500)
+        val b = noise(random, 3_000)
+        theme.copyInto(b, destinationOffset = 40)
+        flashback.copyInto(b, destinationOffset = 900)
+        val runs = FingerprintMatcher.topSharedSegments(a, b, minFrames = 150, limit = 4)
+        assertEquals(2, runs.size)
+        assertEquals(800, runs[0].length)
+        assertEquals(200, runs[1].length)
+        assertEquals(100, runs.first { it.length == 200 }.startA)
+        assertEquals(1_500, runs.first { it.length == 800 }.startA)
+    }
+
+    @Test
     fun unrelatedAudioHasNoMatch() {
         val random = Random(11)
         assertNull(FingerprintMatcher.longestSharedSegment(noise(random, 1200), noise(random, 1200), minFrames = 150))

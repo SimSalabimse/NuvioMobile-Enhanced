@@ -136,7 +136,7 @@ class ChapterSkipClassifierTest {
     }
 
     @Test
-    fun aFullMarkerListSkipsBothPrints() {
+    fun aFullMarkerListSkipsTheHeadAndKeepsTheTail() {
         ChapterSkipClassifier.clear()
         try {
             val json = """
@@ -147,7 +147,9 @@ class ChapterSkipClassifierTest {
                   {"title":"Credits","startMs":2310000,"endMs":2400000}
                 ]
             """.trimIndent()
-            assertEquals("head,tail", ChapterSkipClassifier.fingerprintSkip(json, runtimeMs))
+            // Credits chapters used to skip the tail print. The tail is the preview signal and
+            // the previous ending the next episode's recap reads, so it stays.
+            assertEquals("head", ChapterSkipClassifier.fingerprintSkip(json, runtimeMs))
             assertEquals("", ChapterSkipClassifier.fingerprintSkip("[]", runtimeMs))
             assertEquals("", ChapterSkipClassifier.fingerprintSkip("not-json", runtimeMs))
         } finally {
