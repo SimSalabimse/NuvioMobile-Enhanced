@@ -3,6 +3,7 @@ package com.nuvio.app.features.debrid
 import com.nuvio.app.features.addons.RawHttpResponse
 import com.nuvio.app.features.addons.DefaultRawHttpResponseMaxBytes
 import com.nuvio.app.features.addons.httpRequestRaw
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
@@ -30,6 +31,26 @@ internal object TorboxApiClient {
     private const val BASE_URL = "https://api.torbox.app"
     // Keep each page bounded; season packs can contain large file arrays.
     private const val cloudListResponseMaxBytes = 16 * 1024 * 1024
+
+    /**
+     * Test seam. Production calls [httpRequestRaw]. The API key travels in the `token` query
+     * parameter, so callers must not log the URL, headers, or raw body.
+     */
+    internal var rawHttp: suspend (
+        method: String,
+        url: String,
+        headers: Map<String, String>,
+        body: String,
+        maxResponseBodyBytes: Int,
+    ) -> RawHttpResponse = { method, url, headers, body, maxResponseBodyBytes ->
+        httpRequestRaw(
+            method = method,
+            url = url,
+            headers = headers,
+            body = body,
+            maxResponseBodyBytes = maxResponseBodyBytes,
+        )
+    }
 
     suspend fun startDeviceAuthorization(
         appName: String,
@@ -181,6 +202,50 @@ internal object TorboxApiClient {
             apiKey = apiKey,
         )
 
+    /**
+     * One `requestdl/batch` call for many files of one torrent.
+     * Returns null when the call fails, is HTTP 404/422 (or any other non-success), or the body
+     * is not a recognized link map. A partial map means those ids were present; missing ids are
+     * left out for the caller to fetch per file.
+     */
+    suspend fun requestDownloadLinksBatch(
+        apiKey: String,
+        torrentId: Int,
+        fileIds: List<Int>,
+    ): Map<Int, String>? {
+        val ids = fileIds.distinct()
+        if (ids.isEmpty()) return emptyMap()
+        val url = "$BASE_URL/v1/api/torrents/requestdl/batch?${
+            queryString(
+                "token" to apiKey,
+                "torrent_id" to torrentId.toString(),
+                "append_name" to "false",
+            )
+        }"
+        val body = DebridApiJson.json.encodeToString(TorboxRequestDownloadBatchDto(fileIds = ids))
+        val headers = authHeaders(apiKey) + mapOf(
+            "Accept" to "application/json",
+            "Content-Type" to "application/json",
+        )
+        val response = try {
+            rawHttp("POST", url, headers, body, DefaultRawHttpResponseMaxBytes)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            logTorboxBatchFailure(apiKey, error = error)
+            return null
+        }
+        if (response.status !in 200..299) {
+            logTorboxBatchFailure(apiKey, status = response.status)
+            return null
+        }
+        val parsed = parseTorboxBatchDownloadLinks(response.body, ids)
+        if (parsed == null) {
+            logTorboxBatchFailure(apiKey, status = response.status, malformed = true)
+        }
+        return parsed
+    }
+
     suspend fun requestCloudUsenetDownloadLink(
         apiKey: String,
         usenetId: String,
@@ -233,13 +298,7 @@ internal object TorboxApiClient {
             contentType?.let { "Content-Type" to it },
             "Accept" to "application/json",
         )
-        val response = httpRequestRaw(
-            method = method,
-            url = url,
-            headers = headers,
-            body = body,
-            maxResponseBodyBytes = maxResponseBodyBytes,
-        )
+        val response = rawHttp(method, url, headers, body, maxResponseBodyBytes)
         return DebridApiResponse(
             status = response.status,
             body = response.decodeBody<T>(),
@@ -257,12 +316,7 @@ internal object TorboxApiClient {
             contentType?.let { "Content-Type" to it },
             "Accept" to "application/json",
         ).toMap()
-        val response = httpRequestRaw(
-            method = method,
-            url = url,
-            headers = headers,
-            body = body,
-        )
+        val response = rawHttp(method, url, headers, body, DefaultRawHttpResponseMaxBytes)
         return DebridApiResponse(
             status = response.status,
             body = response.decodeBody<T>(),

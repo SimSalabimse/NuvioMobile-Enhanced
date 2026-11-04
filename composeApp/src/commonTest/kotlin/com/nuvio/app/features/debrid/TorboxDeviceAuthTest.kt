@@ -47,4 +47,22 @@ class TorboxDeviceAuthTest {
             ),
         )
     }
+
+    @Test
+    fun `torbox device check stays at or under ten per minute`() {
+        assertEquals(6_000L, deviceAuthorizationPollDelayMillis(DebridProviders.TORBOX_ID, 1))
+        assertEquals(6_000L, deviceAuthorizationPollDelayMillis(DebridProviders.TORBOX_ID, 5))
+        assertEquals(10_000L, deviceAuthorizationPollDelayMillis(DebridProviders.TORBOX_ID, 10))
+        assertEquals(1_000L, deviceAuthorizationPollDelayMillis(DebridProviders.PREMIUMIZE_ID, 1))
+        assertEquals(5_000L, deviceAuthorizationPollDelayMillis(DebridProviders.PREMIUMIZE_ID, 5))
+    }
+
+    @Test
+    fun `torbox device start waits out the thirty per minute limit`() {
+        assertEquals(0L, deviceAuthorizationStartDelayMillis(DebridProviders.TORBOX_ID, null))
+        assertEquals(2_000L, deviceAuthorizationStartDelayMillis(DebridProviders.TORBOX_ID, 0L))
+        assertEquals(500L, deviceAuthorizationStartDelayMillis(DebridProviders.TORBOX_ID, 1_500L))
+        assertEquals(0L, deviceAuthorizationStartDelayMillis(DebridProviders.TORBOX_ID, 2_000L))
+        assertEquals(0L, deviceAuthorizationStartDelayMillis(DebridProviders.PREMIUMIZE_ID, 0L))
+    }
 }
