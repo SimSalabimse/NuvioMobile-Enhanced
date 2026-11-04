@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Hearing
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material3.Icon
@@ -36,6 +37,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -446,18 +449,30 @@ private fun SubtitleColorPicker(
     ) {
         colors.forEach { color ->
             val selected = sameRgb(color, selectedColor)
+            val marker = subtitleSwatchMarkerColor(color)
             Box(
                 modifier = Modifier
                     .size(32.dp)
+                    .semantics { this.selected = selected }
                     .clip(CircleShape)
                     .background(color)
                     .border(
                         width = 2.dp,
-                        color = if (selected) Color.White else Color.White.copy(alpha = 0.22f),
+                        color = if (selected) marker else Color.White.copy(alpha = 0.22f),
                         shape = CircleShape,
                     )
                     .clickable(onClick = { onColorSelected(color) }),
-            )
+                contentAlignment = Alignment.Center,
+            ) {
+                if (selected) {
+                    Icon(
+                        imageVector = Icons.Rounded.Check,
+                        contentDescription = null,
+                        tint = marker,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
         }
     }
 }
@@ -652,6 +667,12 @@ private fun SubtitleHelperText(text: String) {
         color = Color.White.copy(alpha = 0.7f),
         style = MaterialTheme.typography.bodySmall,
     )
+}
+
+/** Dark on a light swatch, white on a dark one, so the selected check is not the swatch colour alone. */
+internal fun subtitleSwatchMarkerColor(color: Color): Color {
+    val luminance = 0.2126f * color.red + 0.7152f * color.green + 0.0722f * color.blue
+    return if (luminance >= 0.62f) Color(0xFF14161B) else Color.White
 }
 
 private fun sameRgb(first: Color, second: Color): Boolean =

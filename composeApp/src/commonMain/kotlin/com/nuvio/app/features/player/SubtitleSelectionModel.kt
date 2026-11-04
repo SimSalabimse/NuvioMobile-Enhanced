@@ -33,6 +33,12 @@ internal sealed interface SubtitleSelectionOption {
 internal val AddonSubtitle.selectionKey: String
     get() = url.takeIf { it.isNotBlank() } ?: listOfNotNull(addonName, id).joinToString(":")
 
+/** Addon or provider name already stored on the row. Built-in tracks have none. */
+internal fun subtitleSelectionSource(option: SubtitleSelectionOption): String? = when (option) {
+    is SubtitleSelectionOption.BuiltIn -> null
+    is SubtitleSelectionOption.Addon -> option.subtitle.addonName?.trim()?.takeIf { it.isNotEmpty() }
+}
+
 internal fun AddonSubtitle.matchesSelection(selectedId: String?): Boolean {
     if (selectedId.isNullOrBlank()) return false
     return url == selectedId || id == selectedId || selectionKey == selectedId
