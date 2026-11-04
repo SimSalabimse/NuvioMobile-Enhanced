@@ -1,5 +1,6 @@
 package com.nuvio.app.features.player.skip
 
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.features.addons.httpGetText
 import com.nuvio.app.features.addons.httpPostJsonWithHeaders
 import kotlinx.coroutines.CancellationException
@@ -50,6 +51,7 @@ internal object SkipIntroApi {
         apiKey: String,
         request: SubmitIntroRequest,
     ): Boolean {
+        if (AutomationTestMode.isActive) return AutomationTestMode.submitStatus in 200..299
         val baseUrl = IntroDbConfig.URL.trimEnd('/')
         if (baseUrl.isBlank() || apiKey.isBlank()) return false
         val url = "$baseUrl/submit"
@@ -74,6 +76,7 @@ internal object SkipIntroApi {
     }
 
     suspend fun verifyIntroDbApiKey(apiKey: String): Boolean {
+        if (AutomationTestMode.isActive) return true
         val baseUrl = IntroDbConfig.URL.trimEnd('/')
         if (baseUrl.isBlank() || apiKey.isBlank()) return false
         val url = "$baseUrl/submit"

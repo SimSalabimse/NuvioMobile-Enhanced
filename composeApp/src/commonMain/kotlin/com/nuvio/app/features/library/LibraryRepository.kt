@@ -580,6 +580,7 @@ object LibraryRepository {
         snapshot: LibraryLocalSnapshot,
         delayMs: Long = pushDebounceMs,
     ) {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         if (!snapshot.hasPendingPush) return
         if (accountSyncIsOffline()) return
         val authState = AuthRepository.state.value
@@ -872,6 +873,7 @@ object LibraryRepository {
     }
 
     internal suspend fun deliverOutbox(entry: OfflineOutboxEntry): Boolean {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return true
         val item = entry.libraryItem ?: return false
         if (ServerItemRef.isServerId(item.id)) return true
         val ok = try {

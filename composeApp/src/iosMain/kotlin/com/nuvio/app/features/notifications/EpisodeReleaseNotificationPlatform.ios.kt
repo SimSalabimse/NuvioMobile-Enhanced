@@ -1,5 +1,6 @@
 package com.nuvio.app.features.notifications
 
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.core.storage.ProfileScopedKey
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
@@ -62,15 +63,19 @@ internal actual object EpisodeReleaseNotificationPlatform {
         }
     }
 
-    actual suspend fun requestAuthorization(): Boolean = suspendCancellableCoroutine { continuation ->
+    actual suspend fun requestAuthorization(): Boolean {
+        if (AutomationTestMode.isActive) return false
+        return suspendCancellableCoroutine { continuation ->
         UNUserNotificationCenter.currentNotificationCenter().requestAuthorizationWithOptions(
             options = UNAuthorizationOptionAlert or UNAuthorizationOptionSound or UNAuthorizationOptionBadge,
         ) { granted, _ ->
             continuation.resume(granted)
         }
+        }
     }
 
     actual suspend fun scheduleEpisodeReleaseNotifications(requests: List<EpisodeReleaseNotificationRequest>) {
+        if (AutomationTestMode.isActive) return
         val backgroundTask = beginBackgroundTask()
         try {
             val center = UNUserNotificationCenter.currentNotificationCenter()
@@ -132,6 +137,7 @@ internal actual object EpisodeReleaseNotificationPlatform {
     }
 
     actual suspend fun clearScheduledEpisodeReleaseNotifications() {
+        if (AutomationTestMode.isActive) return
         val identifiers = trackedScheduledIds()
         if (identifiers.isNotEmpty()) {
             UNUserNotificationCenter.currentNotificationCenter()
@@ -177,6 +183,7 @@ internal actual object EpisodeReleaseNotificationPlatform {
     }
 
     actual suspend fun showTestNotification(request: EpisodeReleaseNotificationRequest) {
+        if (AutomationTestMode.isActive) return
         val content = buildNotificationContent(request)
         val trigger = UNTimeIntervalNotificationTrigger.triggerWithTimeInterval(
             timeInterval = 1.0,

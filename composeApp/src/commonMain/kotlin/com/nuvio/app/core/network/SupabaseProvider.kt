@@ -1,9 +1,12 @@
 package com.nuvio.app.core.network
 
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.core.build.AppVersionConfig
 import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.annotations.SupabaseExperimental
 import io.github.jan.supabase.annotations.SupabaseInternal
 import io.github.jan.supabase.auth.Auth
+import io.github.jan.supabase.auth.SessionManager
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.functions.Functions
 import io.github.jan.supabase.postgrest.Postgrest
@@ -33,7 +36,7 @@ object SupabaseProvider {
             cachedClient ?: createClient().also { cachedClient = it }
         }
 
-    @OptIn(SupabaseInternal::class)
+    @OptIn(SupabaseInternal::class, SupabaseExperimental::class)
     private fun createClient(): SupabaseClient {
         val configuration = ServerConfigurationRepository.active.value
         val userAgent = "NuvioMobile/${AppVersionConfig.VERSION_NAME.ifBlank { "dev" }}"
@@ -116,7 +119,16 @@ object SupabaseProvider {
                     contentConverter = KotlinxWebsocketSerializationConverter(supabaseJson)
                 }
             }
-            install(Auth)
+            install(Auth) {
+                // A refresh rotates the owner's refresh token. Load the session, never write it back.
+                if (AutomationTestMode.isActive) {
+                    alwaysAutoRefresh = false
+                    autoSaveToStorage = false
+                    checkSessionOnRequest = false
+                    enableLifecycleCallbacks = false
+                    sessionManager = automationReadOnlySessionManager()
+                }
+            }
             install(Postgrest)
             install(Functions)
             install(Storage)
@@ -141,3 +153,6 @@ object SupabaseProvider {
         previous?.close()
     }
 }
+
+/** Loads the saved Supabase session and drops every save or delete. */
+internal expect fun automationReadOnlySessionManager(): SessionManager

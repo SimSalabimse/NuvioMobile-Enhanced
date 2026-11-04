@@ -1131,6 +1131,7 @@ object WatchedRepository {
         trackerHistorySync: WatchedTrackerHistorySync,
         source: WatchProgressSource,
     ) {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         val profileId = currentProfileId
         val operationGeneration = profileGeneration
         if (trackerHistorySync == WatchedTrackerHistorySync.Mirror) ServerWatched.mirror(items, played = true)
@@ -1178,6 +1179,7 @@ object WatchedRepository {
         items: Collection<WatchedItem>,
         source: WatchProgressSource,
     ) {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         val profileId = currentProfileId
         ServerWatched.mirror(items, played = false)
         val accountItems = items.filterNot(ServerWatched::isServerItem)
@@ -1250,6 +1252,7 @@ object WatchedRepository {
     }
 
     internal suspend fun deliverOutbox(entry: OfflineOutboxEntry): Boolean {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return true
         val item = entry.watchedItem ?: return false
         val source = WatchProgressSource.fromStorage(entry.sourceName)
         val tracker = if (entry.mirrorTrackers) {

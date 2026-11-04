@@ -2,6 +2,7 @@ package com.nuvio.app.core.auth
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.nuvio.app.core.automation.allowStorageWrite
 
 actual object AuthStorage {
     private const val PREFS_NAME = "nuvio_auth"
@@ -17,10 +18,12 @@ actual object AuthStorage {
         preferences?.getString(KEY_ANONYMOUS_USER_ID, null)
 
     actual fun saveAnonymousUserId(userId: String) {
+        if (!allowStorageWrite(KEY_ANONYMOUS_USER_ID)) return
         preferences?.edit()?.putString(KEY_ANONYMOUS_USER_ID, userId)?.apply()
     }
 
     actual fun clearAnonymousUserId() {
+        if (!allowStorageWrite(KEY_ANONYMOUS_USER_ID)) return
         preferences?.edit()?.remove(KEY_ANONYMOUS_USER_ID)?.apply()
     }
 }

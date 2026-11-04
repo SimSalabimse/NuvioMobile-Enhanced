@@ -1,6 +1,7 @@
 package com.nuvio.app.core.startup
 
 import com.nuvio.app.core.auth.AuthStorage
+import com.nuvio.app.core.automation.installAutomationFromPlatform
 import com.nuvio.app.features.home.HomeRepository
 import com.nuvio.app.features.profiles.AvatarRepository
 import com.nuvio.app.features.profiles.FirstFrameDecision
@@ -25,6 +26,7 @@ internal object SynchronousLaunch {
 
     fun prepare(): FirstFrameDecision = synchronized(lock) {
         if (prepared) return@synchronized decision
+        installAutomationFromPlatform()
         if (uiFixturesActive()) {
             UiFixtureInstaller.install()
             decision = FirstFrameDecision(

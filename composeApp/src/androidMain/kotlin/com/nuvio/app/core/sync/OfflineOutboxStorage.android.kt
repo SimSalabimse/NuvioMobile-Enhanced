@@ -2,6 +2,7 @@ package com.nuvio.app.core.sync
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.nuvio.app.core.automation.isolateStorageKey
 import android.os.Looper
 import java.util.concurrent.CountDownLatch
 import kotlin.concurrent.thread
@@ -18,20 +19,20 @@ internal actual object PlatformOfflineOutboxDisk : OfflineOutboxDisk {
     }
 
     actual override fun read(): String? =
-        preferences?.getString(documentKey, null)
+        preferences?.getString(isolateStorageKey(documentKey), null)
 
     actual override fun write(payload: String) {
         val editor = preferences?.edit() ?: return
-        editor.putString(documentKey, payload)
+        editor.putString(isolateStorageKey(documentKey), payload)
         editor.commit()
     }
 
     override fun readBad(): String? =
-        preferences?.getString(badDocumentKey, null)
+        preferences?.getString(isolateStorageKey(badDocumentKey), null)
 
     override fun writeBad(payload: String) {
         val editor = preferences?.edit() ?: return
-        editor.putString(badDocumentKey, payload)
+        editor.putString(isolateStorageKey(badDocumentKey), payload)
         editor.commit()
     }
 }

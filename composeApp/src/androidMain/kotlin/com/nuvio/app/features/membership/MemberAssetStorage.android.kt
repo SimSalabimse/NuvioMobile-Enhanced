@@ -2,6 +2,7 @@ package com.nuvio.app.features.membership
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.nuvio.app.core.automation.allowStorageWrite
 import java.io.File
 
 internal actual object MemberAssetStorage {
@@ -23,6 +24,7 @@ internal actual object MemberAssetStorage {
     actual fun loadAccessPayload(): String? = preferences?.getString(accessPayloadKey, null)
 
     actual fun saveAccessPayload(payload: String) {
+        if (!allowStorageWrite(accessPayloadKey)) return
         preferences?.edit()?.putString(accessPayloadKey, payload)?.apply()
         legacyBrandingFile?.delete()
     }
@@ -31,6 +33,7 @@ internal actual object MemberAssetStorage {
         preferences?.getString(backgroundCatalogPayloadKey, null)
 
     actual fun saveProfileBackgroundCatalogPayload(payload: String) {
+        if (!allowStorageWrite(backgroundCatalogPayloadKey)) return
         preferences?.edit()?.putString(backgroundCatalogPayloadKey, payload)?.apply()
     }
 
@@ -38,6 +41,7 @@ internal actual object MemberAssetStorage {
         backgroundFile(cacheKey)?.takeIf { it.isFile && it.length() > 0L }?.readBytes()
 
     actual fun saveProfileBackground(cacheKey: String, bytes: ByteArray) {
+        if (!allowStorageWrite(accessPayloadKey)) return
         val file = backgroundFile(cacheKey) ?: return
         saveFile(file, bytes)
     }
@@ -46,12 +50,14 @@ internal actual object MemberAssetStorage {
         avatarFile(cacheKey)?.takeIf { it.isFile && it.length() > 0L }?.toURI()?.toString()
 
     actual fun saveProfileAvatar(cacheKey: String, bytes: ByteArray): String? {
+        if (!allowStorageWrite(accessPayloadKey)) return null
         val file = avatarFile(cacheKey) ?: return null
         saveFile(file, bytes)
         return file.takeIf { it.isFile && it.length() > 0L }?.toURI()?.toString()
     }
 
     actual fun clearAccess() {
+        if (!allowStorageWrite(accessPayloadKey)) return
         preferences?.edit()?.remove(accessPayloadKey)?.apply()
         legacyBrandingFile?.delete()
     }
