@@ -541,10 +541,10 @@
     <string name="compose_settings_page_debrid">Connected Services</string>
     <string name="compose_settings_page_homescreen">Home Layout</string>
     <string name="compose_settings_page_integrations">Integrations</string>
-    <string name="compose_settings_page_licenses_attributions">Licenses &amp; Attribution</string>
+    <string name="compose_settings_page_licenses_attributions">Licenses &amp; Attributions</string>
     <string name="compose_settings_page_live_tv">Live TV</string>
     <string name="compose_settings_page_mdblist_ratings">MDBList Ratings</string>
-    <string name="compose_settings_page_omdb">OMDb Ratings</string>
+    <string name="compose_settings_page_omdb">OMDb</string>
     <string name="compose_settings_page_meta_screen">Detail Page</string>
     <string name="settings_appearance_section_detail_page">DETAIL PAGE</string>
     <string name="compose_settings_page_notifications">Notifications</string>

@@ -3,6 +3,7 @@ package com.nuvio.app.core.uifixture
 import com.nuvio.app.features.settings.SettingsPage
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -101,6 +102,23 @@ class UiFixturesTest {
         assertNull(parseUiFixtureLaunch("not-a-walk-screen"))
         val names = SettingsPage.entries.map { settingsWireName(it) }
         assertEquals(names.size, names.toSet().size)
+        val titles = mapOf(
+            SettingsPage.Root to "Settings",
+            SettingsPage.MdbListRatings to "MDBList Ratings",
+            SettingsPage.TmdbEnrichment to "TMDB Enrichment",
+            SettingsPage.Omdb to "OMDb",
+            SettingsPage.DiscordRpc to "Discord Rich Presence",
+            SettingsPage.LiveTv to "Live TV",
+            SettingsPage.WhatsNew to "What's New",
+            SettingsPage.LicensesAttributions to "Licenses & Attributions",
+            SettingsPage.SupportersContributors to "Supporters & Contributors",
+            SettingsPage.MediaServer to "Server",
+        )
+        titles.forEach { (page, title) ->
+            assertEquals(title, settingsWalkNavigationTitle(page, titles))
+        }
+        assertNotEquals("Root", settingsWalkNavigationTitle(SettingsPage.Root, titles))
+        assertNotEquals("Mdb List Ratings", settingsWalkNavigationTitle(SettingsPage.MdbListRatings, titles))
         var reads = 0
         val blocked = decideUiFixture(isDebugBinary = false) {
             reads += 1

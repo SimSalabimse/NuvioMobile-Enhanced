@@ -74,6 +74,11 @@ internal fun SupporterMembershipCard(
             .background(CardColor),
     ) {
         when {
+            state.overview == null && state.errorMessage != null -> MembershipLoadErrorContent(
+                isTablet = isTablet,
+                isRefreshing = state.isRefreshing,
+                onRefresh = onRefresh,
+            )
             state.isLoading -> LoadingMembershipContent(isTablet = isTablet)
             state.overview == null -> MembershipLoadErrorContent(
                 isTablet = isTablet,

@@ -1,5 +1,5 @@
 <resources>
-    <string name="compose_settings_page_discord_rpc">Discord</string>
+    <string name="compose_settings_page_discord_rpc">Discord Rich Presence</string>
     <string name="settings_integrations_discord_description">Show what you're watching on your Discord profile.</string>
     <string name="discord_rpc_section_account">Discord account</string>
     <string name="discord_rpc_login_description">Log in to your Discord account to show what you're watching in Nuvio as Rich Presence.</string>

@@ -46,6 +46,10 @@ object ServerRepository {
     @Volatile
     private var loadedProfileId: Int? = null
 
+    /** Screenshot fixture. Skips disk load and does not write connections. */
+    @Volatile
+    private var fixtureHold = false
+
     @Volatile
     private var generation = 0L
     private val tokens = mutableMapOf<String, String>()
@@ -55,10 +59,26 @@ object ServerRepository {
     val localChanges: SharedFlow<Int> = _localChanges.asSharedFlow()
 
     fun ensureLoaded() {
+        if (fixtureHold) return
         val profileId = ProfileRepository.activeProfileId
         synchronized(ensureLock) {
             if (loadedProfileId != profileId) load(profileId)
         }
+    }
+
+    internal fun installWalkFixture(connections: List<ServerConnection>) {
+        fixtureHold = true
+        _uiState.value = ServersUiState(
+            connections = connections,
+            revision = _uiState.value.revision + 1,
+        )
+    }
+
+    internal fun clearWalkFixture() {
+        if (!fixtureHold) return
+        fixtureHold = false
+        loadedProfileId = null
+        _uiState.value = ServersUiState(revision = _uiState.value.revision + 1)
     }
 
     fun onProfileChanged() {
@@ -273,6 +293,7 @@ object ServerRepository {
     }
 
     private fun load(profileId: Int) {
+        if (fixtureHold) return
         generation++
         synchronized(lock) { tokens.clear() }
         loadedProfileId = profileId
@@ -291,6 +312,10 @@ object ServerRepository {
     }
 
     private fun saveConnections(connections: List<ServerConnection>, invalidate: Boolean, local: Boolean = true) {
+        if (fixtureHold) {
+            _uiState.update { it.copy(connections = connections, revision = it.revision + 1) }
+            return
+        }
         val profileId = loadedProfileId ?: return
         if (local) {
             syncState = syncState.copy(pendingPush = true)
