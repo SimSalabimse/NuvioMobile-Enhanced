@@ -3090,7 +3090,7 @@ private fun ProfileInsightsRefreshStatusRow(
     }
     val statusText = when {
         isRefreshing -> stringResource(Res.string.profile_insights_refreshing)
-        refreshedAtEpochMs == null -> stringResource(Res.string.profile_insights_pull_to_refresh)
+        refreshedAtEpochMs == null -> null
         else -> {
             val elapsedMinutes = ((now - refreshedAtEpochMs).coerceAtLeast(0L) / ProfileInsightsMinuteMs).toInt()
             when {
@@ -3110,13 +3110,15 @@ private fun ProfileInsightsRefreshStatusRow(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Text(
-                text = statusText,
-                style = MaterialTheme.typography.labelSmall,
-                color = tokens.colors.textMuted,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            if (statusText != null) {
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = tokens.colors.textMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             if (factsProgress != null && factsProgress.detailsPending) {
                 Text(
                     text = stringResource(

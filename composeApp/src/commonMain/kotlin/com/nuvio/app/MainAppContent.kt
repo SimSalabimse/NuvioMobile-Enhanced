@@ -51,6 +51,7 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
+import com.nuvio.app.core.uifixture.withLocalizedSettingsWalkTitle
 import com.nuvio.app.core.ui.LocalPosterClickAnchor
 import com.nuvio.app.core.ui.LocalVerticalBarPadding
 import com.nuvio.app.navigation.PosterNavigationState
@@ -638,7 +639,8 @@ internal fun MainAppContent(
                     com.nuvio.app.core.uifixture.UiFixtureSession.pendingRoute = null
                     launch {
                         kotlinx.coroutines.delay(800)
-                        if (onNavigate != null) onNavigate(fixtureRoute, false) else navController.navigate(fixtureRoute)
+                        val route = fixtureRoute.withLocalizedSettingsWalkTitle()
+                        if (onNavigate != null) onNavigate(route, false) else navController.navigate(route)
                     }
                 }
                 val fixtureTab = com.nuvio.app.core.uifixture.UiWalkSession.pendingTabName

@@ -11,10 +11,16 @@ import com.nuvio.app.features.library.LibraryUiState
 import com.nuvio.app.features.search.DiscoverUiState
 import com.nuvio.app.features.search.SearchRepository
 import com.nuvio.app.features.search.SearchUiState
+import com.nuvio.app.features.servers.ServerConnection
+import com.nuvio.app.features.servers.ServerLibrary
+import com.nuvio.app.features.servers.ServerMediaKind
+import com.nuvio.app.features.servers.ServerRepository
+import com.nuvio.app.features.settings.MediaServerSelection
 import com.nuvio.app.features.settings.SettingsPage
 import com.nuvio.app.navigation.AppRoute
 import com.nuvio.app.navigation.DetailRoute
 import com.nuvio.app.navigation.SettingsPageRoute
+import org.jetbrains.compose.resources.getString
 import kotlin.time.Clock
 import kotlinx.coroutines.flow.MutableStateFlow
 
@@ -39,7 +45,8 @@ internal object UiWalkScreens {
         return when (screen.kind) {
             WalkKind.Settings -> {
                 val page = screen.settingsPage ?: return null
-                SettingsPageRoute(pageName = page.name, title = settingsFixtureTitle(page))
+                // Replaced with the localized page title before the route is shown.
+                SettingsPageRoute(pageName = page.name, title = page.name)
             }
             WalkKind.MovieOnline -> DetailRoute(
                 type = UiFixtureCatalog.MOVIE_TYPE,
@@ -65,6 +72,11 @@ internal object UiWalkScreens {
             WalkKind.EpisodeDownload,
             -> MetaDetailsRepository.installFixture(UiFixtureCatalog.fixtureSeries())
             else -> Unit
+        }
+        if (screen.settingsPage == SettingsPage.MediaServer) {
+            seedMediaServerWalk()
+        } else {
+            ServerRepository.clearWalkFixture()
         }
         UiFixtureSession.pendingRoute = route()
     }
@@ -157,11 +169,40 @@ internal fun settingsWireName(page: SettingsPage): String {
     return "settings-$kebab"
 }
 
-internal fun settingsFixtureTitle(page: SettingsPage): String = buildString {
-    page.name.forEachIndexed { index, char ->
-        if (index > 0 && char.isUpperCase()) append(' ')
-        append(char)
-    }
+/**
+ * Navigation title for a settings walk route.
+ * Callers pass the localized page title. The enum name is not a title.
+ */
+internal fun settingsWalkNavigationTitle(page: SettingsPage, localizedTitles: Map<SettingsPage, String>): String {
+    val title = localizedTitles[page]?.trim().orEmpty()
+    require(title.isNotEmpty()) { "Missing settings title for ${page.name}" }
+    return title
+}
+
+internal suspend fun AppRoute.withLocalizedSettingsWalkTitle(): AppRoute {
+    val settings = this as? SettingsPageRoute ?: return this
+    val page = runCatching { SettingsPage.valueOf(settings.pageName) }.getOrNull() ?: return this
+    val titles = SettingsPage.entries.associateWith { getString(it.titleRes) }
+    return settings.copy(title = settingsWalkNavigationTitle(page, titles))
+}
+
+private fun seedMediaServerWalk() {
+    val connection = ServerConnection(
+        id = "walk-media-server",
+        providerId = "jellyfin",
+        name = "Harbor",
+        address = "http://harbor.local:8096",
+        remoteServerId = "walk-server",
+        remoteUserId = "walk-user",
+        userName = "Harbor",
+        credentialRef = "walk-key",
+        libraries = listOf(
+            ServerLibrary(id = "movies", name = "Movies", kind = ServerMediaKind.MOVIE),
+            ServerLibrary(id = "shows", name = "Shows", kind = ServerMediaKind.SERIES, selected = false),
+        ),
+    )
+    MediaServerSelection.connectionId = connection.id
+    ServerRepository.installWalkFixture(listOf(connection))
 }
 
 private fun searchResults(): SearchUiState {
