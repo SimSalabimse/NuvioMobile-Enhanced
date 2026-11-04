@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -24,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -36,7 +38,9 @@ import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.NuvioToastController
-import com.nuvio.app.core.ui.dismissNuvioBottomSheet
+import com.nuvio.app.core.ui.dismissPresentedNuvioBottomSheet
+import com.nuvio.app.core.ui.systemReduceMotionEnabled
+import com.nuvio.app.core.ui.usesNativeNuvioBottomSheet
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.core.ui.spoilerBlur
 import com.nuvio.app.features.addons.AddonRepository
@@ -47,9 +51,14 @@ import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.streams.BingeGroupCacheRepository
 import com.nuvio.app.features.streams.StreamItem
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import nuvio.composeapp.generated.resources.*
@@ -136,6 +145,7 @@ internal fun SeasonDownloadSheet(
     var autoPickGaveUp by remember(episodes) { mutableStateOf(false) }
     var queuing by remember(episodes) { mutableStateOf(false) }
     var matchJob by remember(episodes) { mutableStateOf<Job?>(null) }
+    var matchGeneration by remember(episodes) { mutableIntStateOf(0) }
     val probedIds = remember(episodes) { mutableSetOf<String>() }
     // Row whose own source list is open, with that episode's streams.
     var episodePickerKey by remember(episodes) { mutableStateOf<String?>(null) }
@@ -151,7 +161,10 @@ internal fun SeasonDownloadSheet(
     val watchedText = stringResource(Res.string.season_download_watched)
 
     // A download that finishes or starts while the sheet is open is not queued again.
-    LaunchedEffect(downloads.items) {
+    // Once Download is pressed, leave the rows as they are so "Already in Downloads" cannot
+    // replace the sizes while the sheet is leaving.
+    LaunchedEffect(downloads.items, queuing) {
+        if (queuing) return@LaunchedEffect
         rows = rows.map { row ->
             val existing = seasonExistingDownload(row.video.existingStatus(meta.id, downloads.items))
             if (existing == row.existing) {
@@ -162,37 +175,96 @@ internal fun SeasonDownloadSheet(
         }
     }
 
-    fun matchRows(stream: StreamItem): Job {
-        val picked = SeasonSourceChoice(stream)
-        val targetQuality = seasonQuality
-        val toMatch = rows.filter { it.matching }
-        return scope.launch {
-            val gate = Semaphore(SEASON_MATCH_CONCURRENCY)
-            toMatch.map { row ->
-                launch {
-                    val streams = gate.withPermit {
-                        SeasonStreamCatalog.loadFrom(
-                            addonId = stream.addonId,
-                            type = meta.type,
-                            videoId = seasonStreamVideoId(meta.id, row.video),
-                            season = row.video.season,
-                            episode = row.video.episode,
-                        )
-                    }
-                    val match = if (targetQuality != null) {
-                        matchSeasonStreamAtQuality(picked, streams, targetQuality)
-                    } else {
-                        matchSeasonStream(picked, streams)
-                    }
-                    rows = rows.map { current ->
-                        if (current.key == row.key && !current.overridden) {
-                            current.copy(match = match, matching = false)
-                        } else {
-                            current
-                        }
-                    }
+    fun sheetRow(row: SeasonEpisodeRowState) = SeasonSheetRow(
+        key = row.key,
+        confirmed = row.key in confirmedKeys,
+        anchor = row.key == anchorKey,
+        existingDownload = row.existing != null,
+        overridden = row.overridden,
+        userChecked = row.userChecked,
+        matching = row.matching,
+        sourceId = if (row.match is SeasonStreamMatch.Matched) row.key else null,
+        unresolved = row.match is SeasonStreamMatch.Unmatched,
+    )
+
+    fun List<SeasonEpisodeRowState>.withFailedResolution(): List<SeasonEpisodeRowState> {
+        val failedByKey = failSeasonResolution(map { sheetRow(it) }).associateBy { it.key }
+        return map { row ->
+            val state = failedByKey[row.key]
+            if (!row.matching || state == null) {
+                row
+            } else if (state.unresolved) {
+                row.copy(
+                    matching = false,
+                    match = SeasonStreamMatch.Unmatched(SeasonMatchFailure.NoStreams),
+                )
+            } else {
+                row.copy(matching = false)
+            }
+        }
+    }
+
+    suspend fun resolveEpisodeMatch(
+        row: SeasonEpisodeRowState,
+        stream: StreamItem,
+        picked: SeasonSourceChoice,
+        targetQuality: Int?,
+        gate: Semaphore,
+    ): SeasonStreamMatch {
+        val streams = try {
+            withTimeoutOrNull(SEASON_AUTO_PICK_GIVE_UP_MS) {
+                gate.withPermit {
+                    SeasonStreamCatalog.loadFrom(
+                        addonId = stream.addonId,
+                        type = meta.type,
+                        videoId = seasonStreamVideoId(meta.id, row.video),
+                        season = row.video.season,
+                        episode = row.video.episode,
+                    )
                 }
-            }.forEach { it.join() }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            return SeasonStreamMatch.Unmatched(SeasonMatchFailure.NoStreams)
+        }
+        if (streams == null) return SeasonStreamMatch.Unmatched(SeasonMatchFailure.NoStreams)
+        return if (targetQuality != null) {
+            matchSeasonStreamAtQuality(picked, streams, targetQuality)
+        } else {
+            matchSeasonStream(picked, streams)
+        }
+    }
+
+    suspend fun resolveMatchingEpisodes(stream: StreamItem, targetQuality: Int?, generation: Int) {
+        val toMatch = rows.filter { it.matching && !it.overridden }
+        if (toMatch.isEmpty() || generation != matchGeneration) return
+        val picked = SeasonSourceChoice(stream)
+        val gate = Semaphore(SEASON_MATCH_CONCURRENCY)
+        val results = coroutineScope {
+            toMatch.map { row ->
+                async { row.key to resolveEpisodeMatch(row, stream, picked, targetQuality, gate) }
+            }.awaitAll()
+        }.toMap()
+        if (generation != matchGeneration) return
+        val finished = finishSeasonResolution(
+            rows = rows.map { sheetRow(it) },
+            resolvedSourceIds = results.mapValues { (_, match) ->
+                if (match is SeasonStreamMatch.Matched) "resolved" else null
+            },
+        )
+        val finishedByKey = finished.associateBy { it.key }
+        rows = rows.map { current ->
+            val state = finishedByKey[current.key]
+            if (state == null || !current.matching || current.overridden) {
+                current.copy(matching = false)
+            } else {
+                current.copy(
+                    match = results[current.key]
+                        ?: SeasonStreamMatch.Unmatched(SeasonMatchFailure.NoStreams),
+                    matching = state.matching,
+                )
+            }
         }
     }
 
@@ -201,24 +273,42 @@ internal fun SeasonDownloadSheet(
         autoPicked = byAutoPick
         pickingSource = false
         probedIds.clear()
-        val picked = SeasonSourceChoice(stream)
+        matchGeneration += 1
+        val generation = matchGeneration
+        val targetQuality = seasonQuality
         rows = rows.map { row ->
-            when {
-                row.existing != null -> row.copy(match = null, matching = false)
-                row.overridden -> row
-                // Only the episodes picked in step 1 are searched.
-                row.key !in confirmedKeys -> row.copy(match = null, matching = false)
-                row.key == anchorKey -> row.copy(
+            when (seasonWideSourcePlan(sheetRow(row))) {
+                SeasonRowSourcePlan.Keep -> row.copy(matching = false)
+                SeasonRowSourcePlan.AdoptPicked -> row.copy(
                     match = SeasonStreamMatch.Matched(stream),
                     matching = false,
                     probedBytes = null,
                     probeDone = false,
                 )
-                else -> row.copy(match = null, matching = true, probedBytes = null, probeDone = false)
+                SeasonRowSourcePlan.Resolve -> row.copy(
+                    match = null,
+                    matching = true,
+                    probedBytes = null,
+                    probeDone = false,
+                )
+                SeasonRowSourcePlan.Clear -> row.copy(match = null, matching = false)
             }
         }
         matchJob?.cancel()
-        matchJob = matchRows(stream)
+        matchJob = scope.launch {
+            try {
+                resolveMatchingEpisodes(stream, targetQuality, generation)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Throwable) {
+                if (generation == matchGeneration) rows = rows.withFailedResolution()
+            } finally {
+                // A hung, failed, or dropped lookup must not leave Download disabled.
+                if (generation == matchGeneration && rows.any { it.matching }) {
+                    rows = rows.withFailedResolution()
+                }
+            }
+        }
     }
 
     LaunchedEffect(anchorKey) {
@@ -320,8 +410,8 @@ internal fun SeasonDownloadSheet(
     fun applyEpisodeChoice(key: String, stream: StreamItem) {
         probedIds.remove(key)
         rows = rows.map { row ->
-            if (row.key == key) {
-                row.copy(
+            when (episodeSourcePlan(sheetRow(row), key)) {
+                SeasonRowSourcePlan.AdoptPicked -> row.copy(
                     match = SeasonStreamMatch.Matched(stream),
                     matching = false,
                     overridden = true,
@@ -329,8 +419,7 @@ internal fun SeasonDownloadSheet(
                     probedBytes = null,
                     probeDone = false,
                 )
-            } else {
-                row
+                else -> row
             }
         }
         episodePickerKey = null
@@ -362,15 +451,29 @@ internal fun SeasonDownloadSheet(
     val totalText = seasonSelectionTotalText(summary, ::formatSeasonBytes)
     val volume = remember { DownloadDiskInfo.volumeSpace() }
     val lowSpace = summary.knownBytes > 0L && spaceAdmission(summary.knownBytes, summary.knownBytes, 0L, DownloadsRepository.owedBytes(), volume) != null
-    val stillMatching = rows.any { it.matching && it.userChecked }
     val selectedBeforeSearch = rows.count { it.canPick && it.userChecked }
-    val canQueue = selectionConfirmed && !queuing && !stillMatching &&
-        rows.any { it.selectedForTotal() && it.match is SeasonStreamMatch.Matched }
+    val buttonState = seasonDownloadButtonState(
+        selectionConfirmed = selectionConfirmed,
+        queuing = queuing,
+        rows = rows.map { sheetRow(it) },
+    )
     val showPicker = anchorKey != null && (choice == null || pickingSource)
     val candidates = anchorStreams.filter { it.isSeasonDownloadCandidate() }
 
+    val reduceMotion = systemReduceMotionEnabled()
+
+    suspend fun dismissSheet() {
+        val ms = seasonSheetDismissDurationMs(reduceMotion)
+        if (usesNativeNuvioBottomSheet) {
+            dismissPresentedNuvioBottomSheet(ms)
+        } else if (ms > 0 && sheetState.isVisible) {
+            sheetState.hide()
+        }
+        onDismiss()
+    }
+
     fun dismiss() {
-        scope.launch { dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss) }
+        scope.launch { dismissSheet() }
     }
 
     NuvioModalBottomSheet(
@@ -512,12 +615,22 @@ internal fun SeasonDownloadSheet(
                 }
             } else if (showPicker) {
                 item(key = "picker-title") {
-                    Text(
-                        text = stringResource(Res.string.season_download_pick_source),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(Res.string.season_download_pick_source),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (choice != null) {
+                            TextButton(onClick = { pickingSource = false }) {
+                                Text(stringResource(Res.string.season_download_back))
+                            }
+                        }
+                    }
                 }
                 itemsIndexed(candidates, key = { index, _ -> "source:$index" }) { _, stream ->
                     SourceRow(stream = stream, onPick = {
@@ -540,7 +653,13 @@ internal fun SeasonDownloadSheet(
                     item(key = "picked") {
                         PickedSourceRow(
                             stream = picked,
-                            autoPicked = autoPicked,
+                            pickLabel = stringResource(
+                                if (seasonSourcePickIsAutomatic(autoPicked)) {
+                                    Res.string.season_download_auto_picked
+                                } else {
+                                    Res.string.season_download_manual_picked
+                                },
+                            ),
                             onChange = { pickingSource = true },
                         )
                     }
@@ -558,10 +677,9 @@ internal fun SeasonDownloadSheet(
                                     selectedBucket = seasonQuality ?: downloadQualityBucket(picked),
                                     showSize = false,
                                     onSelect = { option ->
-                                        // Re-pick every selected episode at this quality (nearest lower if missing).
+                                        // Season-wide quality. Episodes the user picked one by one stay on that source.
                                         seasonQuality = option.bucket
-                                        rows = rows.map { if (it.key in confirmedKeys) it.copy(overridden = false) else it }
-                                        applyChoice(option.stream, byAutoPick = autoPicked)
+                                        applyChoice(option.stream, byAutoPick = false)
                                     },
                                 )
                             }
@@ -648,7 +766,7 @@ internal fun SeasonDownloadSheet(
             }
             Button(
                 onClick = {
-                    if (!canQueue) return@Button
+                    if (!buttonState.enabled) return@Button
                     queuing = true
                     scope.launch {
                         try {
@@ -658,21 +776,52 @@ internal fun SeasonDownloadSheet(
                                 SeasonEnqueueRow(video = row.video, stream = matched.stream)
                             }
                             val result = enqueueSeasonDownloads(meta, ready)
-                            val message = when {
-                                result.queued > 0 -> getPluralString(Res.plurals.season_download_queued, result.queued, result.queued)
-                                result.failureMessage != null -> result.failureMessage
-                                else -> getString(Res.string.season_download_none_queued)
+                            val notice = seasonDownloadNotice(
+                                queued = result.queued,
+                                failureMessage = result.failureMessage,
+                                alreadyInDownloads = result.alreadyInDownloads,
+                            )
+                            val message = when (notice) {
+                                SeasonDownloadNotice.Queued -> getPluralString(
+                                    Res.plurals.season_download_queued,
+                                    result.queued,
+                                    result.queued,
+                                )
+                                SeasonDownloadNotice.AlreadyInDownloads -> getString(Res.string.season_download_in_downloads)
+                                SeasonDownloadNotice.Failed -> result.failureMessage
+                                    ?: getString(Res.string.season_download_none_queued)
+                                SeasonDownloadNotice.None -> getString(Res.string.season_download_none_queued)
                             }
                             NuvioToastController.show(message)
-                            dismiss()
+                            dismissSheet()
                         } finally {
                             queuing = false
                         }
                     }
                 },
-                enabled = canQueue,
+                enabled = buttonState.enabled,
+                colors = ButtonDefaults.buttonColors(
+                    disabledContainerColor = if (buttonState.loading) {
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                    },
+                    disabledContentColor = if (buttonState.loading) {
+                        MaterialTheme.colorScheme.onPrimary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    },
+                ),
             ) {
-                Text(stringResource(Res.string.details_download_action))
+                if (buttonState.loading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                } else {
+                    Text(stringResource(Res.string.details_download_action))
+                }
             }
         }
     }
@@ -779,7 +928,7 @@ private fun SourceRow(
 @Composable
 private fun PickedSourceRow(
     stream: StreamItem,
-    autoPicked: Boolean,
+    pickLabel: String,
     onChange: () -> Unit,
 ) {
     Row(
@@ -806,13 +955,11 @@ private fun PickedSourceRow(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (autoPicked) {
-                Text(
-                    text = stringResource(Res.string.season_download_auto_picked),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
+            Text(
+                text = pickLabel,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
         }
         TextButton(onClick = onChange) {
             Text(stringResource(Res.string.season_download_change_source))
