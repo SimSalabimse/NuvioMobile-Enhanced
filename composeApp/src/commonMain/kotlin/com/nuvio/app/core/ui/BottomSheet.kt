@@ -118,7 +118,7 @@ fun NuvioSheetBackdropHost(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NuvioModalBottomSheet(
+internal fun NuvioModalBottomSheet(
     onDismissRequest: () -> Unit,
     sheetState: SheetState,
     modifier: Modifier = Modifier,

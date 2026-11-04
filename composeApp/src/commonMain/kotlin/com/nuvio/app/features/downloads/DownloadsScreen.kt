@@ -156,6 +156,8 @@ fun DownloadsScreen(
     val underNativeNavigationBar = useNativeNavigation && !nativeBarHidden
     val statusBarTop = androidx.compose.foundation.layout.WindowInsets.statusBars
         .asPaddingValues().calculateTopPadding()
+    val downloadsRootTitle = stringResource(Res.string.compose_settings_root_downloads_title)
+    val downloadsShowFallbackTitle = stringResource(Res.string.downloads_show_downloads)
     androidx.compose.runtime.CompositionLocalProvider(
         LocalDownloadProblems provides problems,
         LocalDownloadSlowTick provides slowReasonTick,
@@ -177,9 +179,9 @@ fun DownloadsScreen(
         },
     ) {
         val headerTitle = if (selectedShowId == null) {
-            stringResource(Res.string.compose_settings_root_downloads_title)
+            downloadsRootTitle
         } else {
-            selectedShowTitle ?: stringResource(Res.string.downloads_show_downloads)
+            selectedShowTitle ?: downloadsShowFallbackTitle
         }
         val headerBack: () -> Unit = {
             if (selectedShowId != null) {

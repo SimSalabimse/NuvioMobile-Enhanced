@@ -461,7 +461,7 @@ class PlayerToolsLogicTest {
         ).jsonObject
         assertEquals("movie", intro.getValue("type").jsonPrimitive.content)
         assertEquals("intro", intro.getValue("segment").jsonPrimitive.content)
-        assertEquals(0L, intro.getValue("start_ms").jsonPrimitive.long)
+        assertFalse(intro.containsKey("start_ms"))
         assertEquals(95_000L, intro.getValue("end_ms").jsonPrimitive.long)
         assertEquals(durationMs, intro.getValue("video_duration_ms").jsonPrimitive.long)
         assertMoviePayloadOmitsEpisodeFields(intro)
