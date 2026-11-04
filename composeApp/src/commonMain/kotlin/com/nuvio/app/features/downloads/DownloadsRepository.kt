@@ -2,6 +2,8 @@ package com.nuvio.app.features.downloads
 
 import com.nuvio.app.features.player.addonSubtitleRequests
 import com.nuvio.app.features.streams.StreamItem
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -30,7 +32,13 @@ object DownloadsRepository {
     private val activeHandles = mutableMapOf<String, DownloadsTaskHandle>()
     private val partialPrefixCache = mutableMapOf<String, ByteArray>()
     private val startQueue = DownloadStartQueue(orderKeyOf = ::orderKeyOf)
+    private val enqueueLock = SynchronizedObject()
     private val persistGate = DownloadPersistGate()
+
+    private data class CommittedEnqueue(
+        val result: DownloadEnqueueResult,
+        val toStart: List<String>,
+    )
     private var thermalObserverStarted = false
     private var hasLoaded = false
     private var nextDownloadOrdinal = 0L
@@ -228,6 +236,7 @@ object DownloadsRepository {
         episodeThumbnail: String?,
         stream: StreamItem,
         startedByUser: Boolean = true,
+        analysisTemp: Boolean = false,
     ): DownloadEnqueueResult {
         ensureLoaded()
 
@@ -247,83 +256,98 @@ object DownloadsRepository {
             episodeNumber = episodeNumber,
         )
 
-        var replacedExisting = false
-        val currentItems = _uiState.value.items.toMutableList()
-        val existing = currentItems.firstOrNull { it.logicalContentKey == logicalKey }
-        if (existing != null) {
-            replacedExisting = true
-            AnalysisTempDownloads.noteReplaced(existing.id)
-            com.nuvio.app.features.analysis.MediaAnalysisScheduler.releaseFile(existing.id)
-            DownloadsPlatformDownloader.discardTransfer(existing.id)
-            activeHandles.remove(existing.id)?.cancel()
-            partialPrefixCache.remove(existing.id)
-            startQueue.discard(existing.id)
-            deleteFilesOf(existing, reason = "replaced")
-            currentItems.removeAll { it.id == existing.id }
+        // Keep-or-replace, the new row, and an analysis tag happen together. The stream resolve
+        // that leads here suspends, so a user download of the same episode can land in that gap.
+        val committed = synchronized(enqueueLock) {
+            var replacedExisting = false
+            val currentItems = _uiState.value.items.toMutableList()
+            val existing = currentItems.firstOrNull { it.logicalContentKey == logicalKey }
+            if (existing != null) {
+                val tagged = AnalysisTempDownloads.isTagged(existing.id)
+                val keep = when {
+                    startedByUser -> false
+                    analysisTemp -> !tagged
+                    else -> leaveExistingDownloadInPlace(existing.status, tagged)
+                }
+                if (keep) {
+                    return@synchronized CommittedEnqueue(DownloadEnqueueResult.LeftExisting, emptyList())
+                }
+                replacedExisting = true
+                AnalysisTempDownloads.noteReplaced(existing.id)
+                com.nuvio.app.features.analysis.MediaAnalysisScheduler.releaseFile(existing.id)
+                DownloadsPlatformDownloader.discardTransfer(existing.id)
+                activeHandles.remove(existing.id)?.cancel()
+                partialPrefixCache.remove(existing.id)
+                startQueue.discard(existing.id)
+                deleteFilesOf(existing, reason = "replaced")
+                currentItems.removeAll { it.id == existing.id }
+            }
+
+            val downloadId = nextDownloadId(now)
+            val fileName = buildFileName(
+                title = title,
+                seasonNumber = seasonNumber,
+                episodeNumber = episodeNumber,
+                episodeTitle = episodeTitle,
+                fallbackTitle = stream.streamLabel,
+                sourceUrl = sourceUrl,
+                downloadId = downloadId,
+            )
+
+            val item = DownloadItem(
+                id = downloadId,
+                contentType = contentType,
+                parentMetaId = parentMetaId,
+                parentMetaType = parentMetaType,
+                videoId = videoId,
+                title = title,
+                logo = logo,
+                poster = poster,
+                background = background,
+                seasonNumber = seasonNumber,
+                episodeNumber = episodeNumber,
+                episodeTitle = episodeTitle,
+                episodeThumbnail = episodeThumbnail,
+                streamTitle = stream.streamLabel,
+                streamSubtitle = stream.streamSubtitle,
+                providerName = stream.addonName,
+                providerAddonId = stream.addonId,
+                sourceUrl = sourceUrl,
+                sourceHeaders = sanitizeRequestHeaders(stream.behaviorHints.proxyHeaders?.request),
+                sourceResponseHeaders = sanitizeResponseHeaders(stream.behaviorHints.proxyHeaders?.response),
+                sourceFilename = stream.behaviorHints.filename?.trim()?.takeIf { it.isNotBlank() },
+                sourceBingeGroup = stream.behaviorHints.bingeGroup?.trim()?.takeIf { it.isNotBlank() },
+                sourceQualityLabel = streamQualityLabel(stream),
+                subtitleRequests = addonSubtitleRequests(contentType, videoId),
+                sourceSubtitles = stream.externalSubtitles,
+                localFileUri = null,
+                fileName = fileName,
+                // Queued until the line says it may start: the line orders episodes by number, which
+                // needs this row to be in the list first.
+                status = DownloadStatus.Queued,
+                downloadedBytes = 0L,
+                totalBytes = null,
+                errorMessage = null,
+                createdAtEpochMs = now,
+                updatedAtEpochMs = now,
+                startedByUser = startedByUser,
+            )
+
+            currentItems.add(0, item)
+            publish(currentItems)
+            val toStart = startQueue.request(downloadId, DownloadThermalGate.blocksNextFile())
+            persistStatus()
+            if (analysisTemp && !startedByUser) AnalysisTempDownloads.tagCreated(downloadId)
+            CommittedEnqueue(
+                result = if (replacedExisting) DownloadEnqueueResult.Replaced else DownloadEnqueueResult.Started,
+                toStart = toStart,
+            )
         }
-
-        val downloadId = nextDownloadId(now)
-        val fileName = buildFileName(
-            title = title,
-            seasonNumber = seasonNumber,
-            episodeNumber = episodeNumber,
-            episodeTitle = episodeTitle,
-            fallbackTitle = stream.streamLabel,
-            sourceUrl = sourceUrl,
-            downloadId = downloadId,
-        )
-
-        val item = DownloadItem(
-            id = downloadId,
-            contentType = contentType,
-            parentMetaId = parentMetaId,
-            parentMetaType = parentMetaType,
-            videoId = videoId,
-            title = title,
-            logo = logo,
-            poster = poster,
-            background = background,
-            seasonNumber = seasonNumber,
-            episodeNumber = episodeNumber,
-            episodeTitle = episodeTitle,
-            episodeThumbnail = episodeThumbnail,
-            streamTitle = stream.streamLabel,
-            streamSubtitle = stream.streamSubtitle,
-            providerName = stream.addonName,
-            providerAddonId = stream.addonId,
-            sourceUrl = sourceUrl,
-            sourceHeaders = sanitizeRequestHeaders(stream.behaviorHints.proxyHeaders?.request),
-            sourceResponseHeaders = sanitizeResponseHeaders(stream.behaviorHints.proxyHeaders?.response),
-            sourceFilename = stream.behaviorHints.filename?.trim()?.takeIf { it.isNotBlank() },
-            sourceBingeGroup = stream.behaviorHints.bingeGroup?.trim()?.takeIf { it.isNotBlank() },
-            sourceQualityLabel = streamQualityLabel(stream),
-            subtitleRequests = addonSubtitleRequests(contentType, videoId),
-            sourceSubtitles = stream.externalSubtitles,
-            localFileUri = null,
-            fileName = fileName,
-            // Queued until the line says it may start: the line orders episodes by number, which
-            // needs this row to be in the list first.
-            status = DownloadStatus.Queued,
-            downloadedBytes = 0L,
-            totalBytes = null,
-            errorMessage = null,
-            createdAtEpochMs = now,
-            updatedAtEpochMs = now,
-            startedByUser = startedByUser,
-        )
-
-        currentItems.add(0, item)
-        publish(currentItems)
-        val toStart = startQueue.request(downloadId, DownloadThermalGate.blocksNextFile())
-        persistStatus()
-        applyStarts(toStart)
-        refreshHeldForPlayback()
-
-        return if (replacedExisting) {
-            DownloadEnqueueResult.Replaced
-        } else {
-            DownloadEnqueueResult.Started
+        if (committed.result != DownloadEnqueueResult.LeftExisting) {
+            applyStarts(committed.toStart)
+            refreshHeldForPlayback()
         }
+        return committed.result
     }
 
     fun pauseDownload(downloadId: String) {

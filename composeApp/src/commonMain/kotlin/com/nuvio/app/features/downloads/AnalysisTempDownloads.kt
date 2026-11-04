@@ -136,20 +136,13 @@ internal suspend fun downloadEpisodesForAnalysis(
         val stream = pickWithoutReference(streams.orderedForQuality(quality), settings, names) ?: return@mapNotNull null
         SeasonEnqueueRow(video, stream)
     }
-    val before = DownloadsRepository.uiState.value.items.associateBy { it.logicalContentKey }
+    // The enqueue tags the id it just created. Tagging whatever row later sits on the episode
+    // would mark a user download that landed while the stream was still resolving.
+    val taggedBefore = AnalysisTempDownloads.taggedIds()
     if (rows.isNotEmpty()) {
-        enqueueSeasonDownloads(meta, rows, startedByUser = false)
+        enqueueSeasonDownloads(meta, rows, startedByUser = false, analysisTemp = true)
     }
-    val created = mutableSetOf<String>()
-    val after = DownloadsRepository.uiState.value.items
-    needVideos.forEach { video ->
-        val key = downloadLogicalContentKey(meta.id, video.season, video.episode)
-        val now = after.firstOrNull { it.logicalContentKey == key } ?: return@forEach
-        if (before[key] == null) {
-            AnalysisTempDownloads.tagCreated(now.id)
-            created += now.id
-        }
-    }
+    val created = AnalysisTempDownloads.taggedIds() - taggedBefore
     val ready = (plan.reuseUntagged + plan.alreadyTagged).filter { id ->
         items.any { it.id == id && it.status == DownloadStatus.Completed }
     }
