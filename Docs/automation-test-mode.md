@@ -39,7 +39,7 @@ Hidden id: `8001` (outside 1..6, not listed in the profile picker).
 - Downloads index `downloads_payload_*` and download settings
 - Home catalog settings, collections, search history, theme, player settings, stream badges, track prefs
 - Flag ledger, OwnTheIntroDb ledger, SkipSource ledger, analysis-temp id ledger
-- Analysis files: `Application Support/NuvioAnalysisAutomation` instead of `NuvioAnalysis`
+- Analysis files: `Application Support/NuvioAnalysisAutomation` instead of `NuvioAnalysis`. The Swift analyser writes `NuvioAnalysisThrottleLevel` and `NuvioAnalysisPlayerSessionOpen` under `nuvio_auto_`
 - Plugin state `plugins_state_*`, scraper settings, scraper files under directory `8001`
 - TheIntroDB key `the_intro_db_api_key_*` and legacy IntroDB key `introdb_api_key_*` (the real values are never read)
 - Trakt/Simkl/MDBList local auth and library payloads (real tokens are not loaded)
@@ -57,7 +57,7 @@ These stay on the owner's key so the process can still boot and browse. Saves, d
 - `member_access_payload` and member catalog bytes (no delete of branding files)
 - `server_*` backend configuration
 - Supabase session storage: load only, no save/delete, no token refresh (a refresh would rotate the owner's refresh token)
-- Profile biometric enable/disable
+- Profile biometric enable, disable, authenticate, and the launch cleanup of the legacy keychain item
 - `LocalAccountDataCleaner.wipe` and sign-out
 
 ### Addons

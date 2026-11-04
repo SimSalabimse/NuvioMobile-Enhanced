@@ -653,6 +653,7 @@ object TraktLibraryRepository {
     }
 
     private suspend fun addToWatchlist(headers: Map<String, String>, item: LibraryItem) {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         val body = buildMutationBody(item)
         val response = postJson(
             url = "$BASE_URL/sync/watchlist",
@@ -665,6 +666,7 @@ object TraktLibraryRepository {
     }
 
     private suspend fun removeFromWatchlist(headers: Map<String, String>, item: LibraryItem) {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         val body = buildMutationBody(item)
         postJson(
             url = "$BASE_URL/sync/watchlist/remove",

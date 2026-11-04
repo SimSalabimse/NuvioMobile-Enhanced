@@ -21,15 +21,19 @@ import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.network_empty_response_body
 import nuvio.composeapp.generated.resources.network_request_failed_http
 import org.jetbrains.compose.resources.getString
+import com.nuvio.app.core.automation.isolateStorageKey
 import platform.Foundation.NSUserDefaults
 
 actual object AddonStorage {
     private const val addonUrlsKey = "installed_manifest_urls"
     private const val addonEnabledStatesKey = "installed_manifest_enabled_states"
 
+    private fun urlsKey(profileId: Int) = isolateStorageKey("${addonUrlsKey}_$profileId")
+    private fun enabledKey(profileId: Int) = isolateStorageKey("${addonEnabledStatesKey}_$profileId")
+
     actual fun loadInstalledAddonUrls(profileId: Int): List<String> =
         NSUserDefaults.standardUserDefaults
-            .stringForKey("${addonUrlsKey}_$profileId")
+            .stringForKey(urlsKey(profileId))
             .orEmpty()
             .lineSequence()
             .map { it.trim() }
@@ -39,13 +43,13 @@ actual object AddonStorage {
     actual fun saveInstalledAddonUrls(profileId: Int, urls: List<String>) {
         NSUserDefaults.standardUserDefaults.setObject(
             urls.joinToString(separator = "\n"),
-            forKey = "${addonUrlsKey}_$profileId",
+            forKey = urlsKey(profileId),
         )
     }
 
     actual fun loadAddonEnabledStates(profileId: Int): Map<String, Boolean> =
         NSUserDefaults.standardUserDefaults
-            .stringForKey("${addonEnabledStatesKey}_$profileId")
+            .stringForKey(enabledKey(profileId))
             .orEmpty()
             .lineSequence()
             .mapNotNull(::parseEnabledStateLine)
@@ -57,7 +61,7 @@ actual object AddonStorage {
         }
         NSUserDefaults.standardUserDefaults.setObject(
             payload,
-            forKey = "${addonEnabledStatesKey}_$profileId",
+            forKey = enabledKey(profileId),
         )
     }
 }

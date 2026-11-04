@@ -1,5 +1,6 @@
 package com.nuvio.app.features.mdblist
 
+import com.nuvio.app.core.automation.AutomationTestMode
 import kotlinx.serialization.json.Json
 
 class MdbListApiClient(
@@ -55,6 +56,9 @@ class MdbListApiClient(
         scope: MdbListAuthScope,
         acceptedStatuses: Set<Int> = emptySet()
     ): MdbListHttpResponse {
+        if (AutomationTestMode.isActive && method != MdbListHttpMethod.GET) {
+            return MdbListHttpResponse(status = 200, body = "{}")
+        }
         var authorization = auth.authorization(scope)
         repeat(2) { attempt ->
             val response = http.execute(

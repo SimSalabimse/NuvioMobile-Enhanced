@@ -2,6 +2,7 @@ package com.nuvio.app.features.profiles
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.nuvio.app.core.automation.allowStorageWrite
 
 actual object ProfileStorage {
     private const val preferencesName = "nuvio_profile_cache"
@@ -17,6 +18,7 @@ actual object ProfileStorage {
         preferences?.getString(payloadKey, null)
 
     actual fun savePayload(payload: String) {
+        if (!allowStorageWrite(payloadKey)) return
         preferences
             ?.edit()
             ?.putString(payloadKey, payload)

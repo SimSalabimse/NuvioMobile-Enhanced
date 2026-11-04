@@ -191,3 +191,5 @@ Titles are capped at 150 entries and about 8 MB, the same entry count as the in-
 When a cap is passed, the least recently opened entries are removed. A file whose schema version is not the current one is discarded. A file that cannot be read is ignored.
 
 Disk reads run off the main thread, and only after a title or Continue Watching row is requested. Nothing is read during launch. Writes are batched, debounced by one second, and held while the player is open or a home, Continue Watching, upcoming, or details list is scrolling.
+
+- iOS automation test mode (`-NuvioAutomation`) keeps a harness on hidden profile 8001 so it cannot read or write the owner's progress, library, or TheIntroDB account.

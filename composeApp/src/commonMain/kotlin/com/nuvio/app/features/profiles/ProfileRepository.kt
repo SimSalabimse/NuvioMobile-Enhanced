@@ -2,6 +2,7 @@ package com.nuvio.app.features.profiles
 
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.auth.AuthRepository
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.auth.isAnonymous
 import com.nuvio.app.core.network.SupabaseProvider
@@ -259,6 +260,7 @@ object ProfileRepository {
     }
 
     suspend fun pullProfiles() {
+        if (AutomationTestMode.isActive) return
         if (AuthRepository.state.value.isAnonymous) {
             if (_state.value.cachePhase == ProfileCachePhase.Reading) return
             if (!_state.value.isLoaded) {
@@ -348,6 +350,7 @@ object ProfileRepository {
     }
 
     suspend fun pushProfiles(profiles: List<ProfilePushPayload>) {
+        if (AutomationTestMode.isActive) return
         if (AuthRepository.state.value.isAnonymous) {
             applyPayloadsLocally(profiles)
             return
@@ -788,6 +791,7 @@ object ProfileRepository {
     }
 
     private fun syncPinCache(profiles: List<NuvioProfile>) {
+        if (AutomationTestMode.isActive) return
         val profilesByIndex = profiles.associateBy { it.profileIndex }
         val accountUserId =
             (AuthRepository.state.value as? AuthState.Authenticated)?.userId.orEmpty()
@@ -833,6 +837,7 @@ object ProfileRepository {
     }
 
     private fun persist() {
+        if (AutomationTestMode.isActive) return
         val authState = AuthRepository.state.value as? AuthState.Authenticated ?: return
         val state = _state.value
         ProfileStorage.savePayload(

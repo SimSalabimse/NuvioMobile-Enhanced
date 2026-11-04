@@ -665,6 +665,16 @@ enum NuvioMediaAnalyzerRegistration {
 }
 
 
+/// Launch-argument gate shared with Kotlin `isolateStorageKey`. A normal icon tap never sets it.
+private enum NuvioAutomationDefaults {
+    static func storeKey(_ raw: String) -> String {
+        let arguments = ProcessInfo.processInfo.arguments
+        let env = ProcessInfo.processInfo.environment["NUVIO_AUTOMATION"]?.lowercased()
+        let active = arguments.contains("-NuvioAutomation") || env == "1" || env == "true"
+        return active ? "nuvio_auto_\(raw)" : raw
+    }
+}
+
 /// Set from Kotlin (setAnalysisThrottleLevel): 0 full speed, 1 a video is playing, 2 the player is buffering.
 ///
 /// While a video is actually playing, one check sleeps at least [playingSleepFloorUs] (the previous
@@ -673,7 +683,7 @@ enum NuvioMediaAnalyzerRegistration {
 /// analyser is never hotter during playback than it was before. A shorter slice keeps the floor.
 /// Level 0 (no player, or playback paused or ended) does not sleep. Level 2 is unchanged.
 private enum MediaAnalyzerThrottle {
-    private static let key = "NuvioAnalysisThrottleLevel"
+    private static let key = NuvioAutomationDefaults.storeKey("NuvioAnalysisThrottleLevel")
 
     /// Packets between throttle checks. Same slice as the previous loop.
     static let packetsPerCheck = 64
@@ -740,7 +750,7 @@ private enum MediaAnalyzerThrottle {
 /// Analyser-thread QoS. The queue is created at utility. The thread is raised to userInitiated
 /// only while no player session is open (`NuvioAnalysisPlayerSessionOpen`), and put back when one is.
 private enum MediaAnalyzerQosName {
-    private static let sessionKey = "NuvioAnalysisPlayerSessionOpen"
+    private static let sessionKey = NuvioAutomationDefaults.storeKey("NuvioAnalysisPlayerSessionOpen")
     private static var lastApplied: qos_class_t = QOS_CLASS_UNSPECIFIED
 
     static func applyForCurrentSession() {
