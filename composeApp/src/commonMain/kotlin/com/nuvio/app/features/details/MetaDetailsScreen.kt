@@ -129,6 +129,8 @@ import com.nuvio.app.features.details.components.detailEpisodeListItems
 import com.nuvio.app.features.details.components.rememberEpisodeNavigatorState
 import com.nuvio.app.features.details.components.DetailTrailersSection
 import com.nuvio.app.features.details.components.EpisodeWatchedActionSheet
+import com.nuvio.app.navigation.EpisodeSubmitRequest
+import com.nuvio.app.navigation.openEpisodeInSubmitMode
 import com.nuvio.app.features.details.components.SeasonWatchedActionSheet
 import com.nuvio.app.features.details.components.TabletDetailBackdrop
 import com.nuvio.app.features.details.components.TabletDetailHero
@@ -1729,6 +1731,35 @@ fun MetaDetailsScreen(
                                     selectedEpisode.episode,
                                 ),
                                 userRating = episodeUserRating,
+                                onSubmitSegment = {
+                                    val season = selectedEpisode.season
+                                    val episodeNumber = selectedEpisode.episode
+                                    val playbackVideoId = buildPlaybackVideoId(
+                                        parentMetaId = meta.id,
+                                        seasonNumber = season,
+                                        episodeNumber = episodeNumber,
+                                        fallbackVideoId = selectedEpisode.id,
+                                    )
+                                    val streamVideoId = selectedEpisode.id.takeIf { it.isNotBlank() } ?: playbackVideoId
+                                    stopHeroTrailerForNavigation()
+                                    openEpisodeInSubmitMode(
+                                        EpisodeSubmitRequest(
+                                            type = meta.type,
+                                            videoId = streamVideoId,
+                                            parentMetaId = meta.id,
+                                            parentMetaType = meta.type,
+                                            title = meta.name,
+                                            logo = meta.logo,
+                                            poster = meta.poster,
+                                            background = meta.background,
+                                            seasonNumber = season,
+                                            episodeNumber = episodeNumber,
+                                            episodeTitle = selectedEpisode.title,
+                                            episodeThumbnail = selectedEpisode.thumbnail,
+                                            pauseDescription = selectedEpisode.overview,
+                                        ),
+                                    )
+                                },
                                 onRate = if (canRateEpisode && episodeRatingTarget != null) {
                                     {
                                         val request = UserRatingSheetRequest(

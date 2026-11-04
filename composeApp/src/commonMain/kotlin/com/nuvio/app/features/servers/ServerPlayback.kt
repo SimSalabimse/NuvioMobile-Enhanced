@@ -3,6 +3,8 @@ package com.nuvio.app.features.servers
 import co.touchlab.kermit.Logger
 import com.nuvio.app.features.player.AndroidPlaybackEngine
 import com.nuvio.app.features.player.PlayerSettingsRepository
+import com.nuvio.app.features.watchprogress.ProgressWriteTrace
+import com.nuvio.app.features.watchprogress.allowsProgressWrite
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamProxyHeaders
 import com.nuvio.app.isIos
@@ -104,17 +106,22 @@ internal object ServerPlayback {
         isPlaying: Boolean,
         isLoading: Boolean,
         isEnded: Boolean,
+        persistsProgress: Boolean = true,
     ) {
+        if (!allowsProgressWrite(persistsProgress)) return
+        ProgressWriteTrace.note("ServerPlayback.onPlaybackSnapshot")
         val playback = url?.let { synchronized(lock) { active[it] } } ?: return
         if (isEnded) {
             playback.lastPositionMs = positionMs
-            stop(url)
+            stop(url, persistsProgress = persistsProgress)
             return
         }
         playback.onSnapshot(positionMs, isPlaying, isLoading)
     }
 
-    fun stop(url: String?) {
+    fun stop(url: String?, persistsProgress: Boolean = true) {
+        if (!allowsProgressWrite(persistsProgress)) return
+        ProgressWriteTrace.note("ServerPlayback.stop")
         val playback = url?.let { synchronized(lock) { active.remove(it) } } ?: return
         playback.stop()
     }

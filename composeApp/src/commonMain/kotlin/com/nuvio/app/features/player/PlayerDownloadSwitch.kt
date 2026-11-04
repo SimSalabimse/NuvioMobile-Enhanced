@@ -408,7 +408,7 @@ private fun PlayerScreenRuntime.startDownloadSwap(target: SwitchTarget, position
         startedAtMs = now,
         restore = restore,
     )
-    FinishedDownloadDeletion.linkDownload(videoId, downloadId)
+    FinishedDownloadDeletion.linkDownload(videoId, downloadId, persistsProgress)
     InAppLogger.info(
         "Player/DownloadSwap",
         "switch to download partial=${target.partial} videoId=$videoId positionMs=$positionMs paused=${!playbackSnapshot.isPlaying} " +

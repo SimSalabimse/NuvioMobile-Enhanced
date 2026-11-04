@@ -1324,6 +1324,8 @@ object WatchProgressRepository {
         persist: Boolean,
         syncRemote: Boolean,
     ) {
+        if (!allowsProgressWrite(session.persistsProgress)) return
+        ProgressWriteTrace.note("WatchProgressRepository.upsert")
         if (session.isLiveTvSession()) return
 
         val targetProfileId = session.profileId
@@ -1345,6 +1347,7 @@ object WatchProgressRepository {
                 durationMs = durationMs,
                 playbackSpeed = snapshot.playbackSpeed.toDouble(),
                 mediaBitrateBps = snapshot.mediaBitrateBps,
+                persistsProgress = session.persistsProgress,
             )
         }
         if (!isCompleted && !shouldStoreWatchProgress(positionMs = positionMs, durationMs = durationMs)) {
@@ -1383,8 +1386,13 @@ object WatchProgressRepository {
         ).normalizedCompletion()
         // Delete-after-watch keys off the playback itself, before any profile, dedupe or
         // Trakt/MDBList history branch below can return early.
-        com.nuvio.app.features.downloads.FinishedDownloadDeletion.onLocalProgress(candidateEntry, positionMs, durationMs)
-        com.nuvio.app.features.stats.WatchStats.record(candidateEntry)
+        com.nuvio.app.features.downloads.FinishedDownloadDeletion.onLocalProgress(
+            candidateEntry,
+            positionMs,
+            durationMs,
+            persistsProgress = session.persistsProgress,
+        )
+        com.nuvio.app.features.stats.WatchStats.record(candidateEntry, persistsProgress = session.persistsProgress)
 
         if (targetProfileId != currentProfileId || ProfileRepository.activeProfileId != targetProfileId) {
             val resolvedEntry = resolveStoredProfileProgressIdentity(
@@ -1425,6 +1433,7 @@ object WatchProgressRepository {
         }
 
         if (entry.parentMetaType.equals("series", ignoreCase = true)) {
+            ProgressWriteTrace.note("ContinueWatchingPreferencesRepository.removeDismissedNextUpKeysForContent")
             ContinueWatchingPreferencesRepository.removeDismissedNextUpKeysForContent(entry.parentMetaId)
         }
 
@@ -1445,6 +1454,7 @@ object WatchProgressRepository {
                 providerOwnsCompletedHistory = progressProvider?.ownsCompletedHistoryProjection == true,
             )
         ) {
+            ProgressWriteTrace.note("WatchingActions.onProgressEntryUpdated")
             WatchingActions.onProgressEntryUpdated(entry, syncRemote = syncRemote)
         }
     }
@@ -1492,6 +1502,7 @@ object WatchProgressRepository {
     }
 
     private fun pushScrobbleToServer(entry: WatchProgressEntry, profileId: Int) {
+        ProgressWriteTrace.note("WatchProgressRepository.pushScrobble")
         if (ServerItemRef.isServerId(entry.parentMetaId)) return
         val noted = progressOutboxEntry(profileId, entry)
         OfflineAccountFlush.note(noted)
