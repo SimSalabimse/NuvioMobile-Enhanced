@@ -4,6 +4,10 @@ import com.nuvio.app.core.a11y.LongPressMenuLabels
 import com.nuvio.app.core.a11y.LongPressSite
 import com.nuvio.app.core.a11y.longPressAccessibilityActions
 import com.nuvio.app.core.a11y.seasonLongPressFacts
+import com.nuvio.app.core.ui.FitSheetAction
+import com.nuvio.app.core.ui.fitSheetDetentPoints
+import com.nuvio.app.core.ui.fitSheetMeasurement
+import com.nuvio.app.core.uifixture.UiFixtureCatalog
 import com.nuvio.app.features.player.skip.IntroSubmitService
 import com.nuvio.app.features.player.skip.TheIntroDb
 import com.nuvio.app.features.player.skip.applyOwnTheIntroDbListing
@@ -126,6 +130,105 @@ class SeasonOverviewTest {
         assertFalse(seasonOverviewDownloadEnabled(SeasonOverviewUiState.EmptySeason, offline = false))
         assertEquals(setOf("intro", "recap", "outro", "preview"), all.submitted)
         assertEquals(emptySet(), all.onTheIntroDb)
+    }
+
+    @Test
+    fun chipVisualIsFilledCheckOutlinedOrDimAndOwnSubmissionStaysFilled() {
+        assertEquals(SegmentChipVisual.FilledCheck, segmentChipVisual(SegmentMark.Submitted))
+        assertEquals(SegmentChipVisual.Outlined, segmentChipVisual(SegmentMark.OnTheIntroDb))
+        assertEquals(SegmentChipVisual.Dim, segmentChipVisual(SegmentMark.Missing))
+        assertEquals(
+            3,
+            setOf(SegmentChipVisual.FilledCheck, SegmentChipVisual.Outlined, SegmentChipVisual.Dim).size,
+        )
+        val row = episodeSegmentOverview(
+            episode = episode(1),
+            ownTypes = setOf("recap"),
+            publicProviders = mapOf(
+                "intro" to TheIntroDb.PROVIDER,
+                "recap" to TheIntroDb.PROVIDER,
+            ),
+        )
+        assertEquals(SegmentChipVisual.FilledCheck, segmentChipVisual(row.marks.getValue("recap")))
+        assertFalse("recap" in row.onTheIntroDb)
+        assertEquals(SegmentChipVisual.Outlined, segmentChipVisual(row.marks.getValue("intro")))
+        assertEquals(SegmentChipVisual.Dim, segmentChipVisual(row.marks.getValue("outro")))
+        assertEquals(SegmentChipVisual.Dim, segmentChipVisual(row.marks.getValue("preview")))
+    }
+
+    @Test
+    fun twentyFiveEpisodeSeasonListsEveryEpisodeIncludingWatched() {
+        val count = 25
+        assertEquals(count, UiFixtureCatalog.SEASON_OVERVIEW_LONG_EPISODE_COUNT)
+        val episodes = (1..count).map { number ->
+            episode(number, watched = number == 1 || number == count)
+        }
+        val rows = seasonSegmentOverview(
+            episodes = episodes,
+            ownByKey = mapOf(
+                key(1) to setOf("recap"),
+                key(2) to setOf("intro", "recap", "outro", "preview"),
+            ),
+            publicByKey = mapOf(
+                key(1) to mapOf("intro" to TheIntroDb.PROVIDER, "recap" to TheIntroDb.PROVIDER),
+                key(4) to mapOf("intro" to TheIntroDb.PROVIDER),
+            ),
+        )
+        assertEquals(episodes.size, rows.size)
+        assertEquals(count, rows.size)
+        assertEquals(episodes.map { it.episode }, rows.map { it.episode })
+        assertTrue(rows.first().watched)
+        assertTrue(rows.last().watched)
+        assertEquals(setOf("recap"), rows[0].submitted)
+        assertEquals(setOf("intro"), rows[0].onTheIntroDb)
+        assertEquals(setOf("intro", "recap", "outro", "preview"), rows[1].submitted)
+        assertTrue(rows[2].submitted.isEmpty())
+        assertTrue(rows[2].onTheIntroDb.isEmpty())
+        assertEquals(setOf("intro", "recap", "outro", "preview"), rows[2].missing)
+    }
+
+    @Test
+    fun sheetStaysAtTheLargeDetentForALongListAndShrinksForAShortOne() {
+        val maximum = 800.0
+        assertEquals(maximum, fitSheetDetentPoints(Double.POSITIVE_INFINITY, maximum))
+        assertEquals(360.0, fitSheetDetentPoints(360.0, maximum))
+        val longList = fitSheetMeasurement(
+            sheetPoints = maximum,
+            contentPoints = maximum,
+            lockedToContent = false,
+        )
+        assertEquals(FitSheetAction.KeepMaximum, longList.action)
+        val shortList = fitSheetMeasurement(
+            sheetPoints = maximum,
+            contentPoints = 360.0,
+            lockedToContent = false,
+        )
+        assertEquals(FitSheetAction.Shrink, shortList.action)
+        assertEquals(360.0, shortList.points)
+        val settled = fitSheetMeasurement(
+            sheetPoints = 360.0,
+            contentPoints = 360.0,
+            lockedToContent = true,
+        )
+        assertEquals(FitSheetAction.Unchanged, settled.action)
+        val doesNotGrowAgain = fitSheetMeasurement(
+            sheetPoints = 360.0,
+            contentPoints = 700.0,
+            lockedToContent = true,
+        )
+        assertEquals(FitSheetAction.Unchanged, doesNotGrowAgain.action)
+    }
+
+    @Test
+    fun largestContentSizeCategoryScalesPastThree() {
+        assertEquals(1f, fontScaleForIosContentCategory("UICTContentSizeCategoryL"))
+        assertEquals(1f, fontScaleForIosContentCategory("UIContentSizeCategoryLarge"))
+        assertEquals(3.12f, fontScaleForIosContentCategory("UICTContentSizeCategoryAccessibilityXXXL"))
+        assertEquals(
+            3.12f,
+            fontScaleForIosContentCategory("UIContentSizeCategoryAccessibilityExtraExtraExtraLarge"),
+        )
+        assertTrue(fontScaleForIosContentCategory("UICTContentSizeCategoryAccessibilityXXXL") >= 3f)
     }
 
     @Test

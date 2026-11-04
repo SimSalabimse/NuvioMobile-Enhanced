@@ -10,6 +10,7 @@ internal actual val usesNativeNuvioBottomSheet: Boolean = false
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+@Suppress("UNUSED_PARAMETER")
 internal actual fun NuvioNativeModalBottomSheet(
     onDismissRequest: () -> Unit,
     modifier: Modifier,
@@ -18,6 +19,7 @@ internal actual fun NuvioNativeModalBottomSheet(
     showDragHandle: Boolean,
     fullHeight: Boolean,
     liquidGlass: Boolean,
+    fitSheet: FitSheetHeightHost?,
     content: @Composable ColumnScope.() -> Unit,
 ) = Unit
 

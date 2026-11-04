@@ -4,11 +4,14 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -21,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,21 +33,32 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.toDp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
 import com.nuvio.app.core.ui.DialogButton
 import com.nuvio.app.core.ui.DialogButtonStyle
 import com.nuvio.app.core.ui.DialogButtons
 import com.nuvio.app.core.ui.DialogSurface
+import com.nuvio.app.core.ui.FitSheetHeightHost
 import com.nuvio.app.core.ui.NuvioBottomSheetActionRow
 import com.nuvio.app.core.ui.NuvioBottomSheetDivider
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
+import com.nuvio.app.core.ui.atLeastIosHitTarget
 import com.nuvio.app.core.ui.dismissNuvioBottomSheet
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
@@ -54,10 +69,13 @@ import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.details.SEASON_SEGMENT_TYPES
 import com.nuvio.app.features.details.SeasonEpisodeRef
 import com.nuvio.app.features.details.SeasonOverviewUiState
+import com.nuvio.app.features.details.SegmentChipVisual
 import com.nuvio.app.features.details.SegmentMark
 import com.nuvio.app.features.details.seasonEpisodeContentKey
+import com.nuvio.app.features.details.seasonOverviewFontScale
 import com.nuvio.app.features.details.seasonOverviewModel
 import com.nuvio.app.features.details.seasonSegmentOverview
+import com.nuvio.app.features.details.segmentChipVisual
 import com.nuvio.app.features.downloads.AnalysisTempDownloads
 import com.nuvio.app.features.downloads.downloadEpisodesForAnalysis
 import com.nuvio.app.features.player.skip.OwnTheIntroDbLedger
@@ -95,6 +113,7 @@ internal fun SeasonOverviewSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
+    val fitSheet = remember { FitSheetHeightHost() }
     val skipRevision by SkipSourceLedger.revision.collectAsStateWithLifecycle()
     val ownRevision by OwnTheIntroDbLedger.revision.collectAsStateWithLifecycle()
     val tempRevision by AnalysisTempDownloads.revision.collectAsStateWithLifecycle()
@@ -154,88 +173,127 @@ internal fun SeasonOverviewSheet(
             dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
         }
     }
+    val windowPx = LocalWindowInfo.current.containerSize.height
+    val sheetCap = with(LocalDensity.current) {
+        if (windowPx > 0) windowPx.toDp() else 852.dp
+    }
+    val fontScale = seasonOverviewFontScale()
+    val density = LocalDensity.current
 
     NuvioModalBottomSheet(
         onDismissRequest = { dismiss() },
         sheetState = sheetState,
+        showDragHandle = true,
+        fitSheet = fitSheet,
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 560.dp)
-                .padding(bottom = nuvioSafeBottomPadding(16.dp)),
+        CompositionLocalProvider(
+            LocalDensity provides Density(density = density.density, fontScale = fontScale),
         ) {
-            Text(
-                text = seasonLabel,
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-            )
-            NuvioBottomSheetDivider()
-            when (model.state) {
-                SeasonOverviewUiState.Loading,
-                SeasonOverviewUiState.Offline,
-                -> {
-                    if (model.state == SeasonOverviewUiState.Loading) {
-                        NuvioLoadingIndicator(
-                            modifier = Modifier.padding(24.dp).align(Alignment.CenterHorizontally),
-                        )
-                    }
-                }
-                SeasonOverviewUiState.EmptySeason -> Unit
-                SeasonOverviewUiState.AllSubmitted,
-                SeasonOverviewUiState.NoneSubmitted,
-                SeasonOverviewUiState.Partial,
-                -> {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f, fill = false)
-                            .verticalScroll(rememberScrollState()),
-                    ) {
-                        model.rows.forEach { row ->
-                            val video = episodes.firstOrNull { video ->
-                                (video.season ?: 0) == row.season && video.episode == row.episode
-                            }
-                            SeasonOverviewEpisodeRow(
-                                code = localizedSeasonEpisodeCode(row.season, row.episode).orEmpty(),
-                                title = row.title,
-                                watched = row.watched,
-                                marks = row.marks,
-                                selected = row.contentKey in selected,
-                                onSelectedChange = { checked ->
-                                    selected = if (checked) selected + row.contentKey else selected - row.contentKey
-                                },
-                                onOpen = { if (video != null) onOpenEpisode(video) },
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = sheetCap)
+                    .padding(bottom = nuvioSafeBottomPadding(16.dp)),
+            ) {
+                Text(
+                    text = seasonLabel,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                )
+                NuvioBottomSheetDivider()
+                when (model.state) {
+                    SeasonOverviewUiState.Loading,
+                    SeasonOverviewUiState.Offline,
+                    -> {
+                        if (model.state == SeasonOverviewUiState.Loading) {
+                            NuvioLoadingIndicator(
+                                modifier = Modifier.padding(24.dp).align(Alignment.CenterHorizontally),
                             )
                         }
                     }
-                }
-            }
-            if (model.state != SeasonOverviewUiState.Loading && model.state != SeasonOverviewUiState.EmptySeason) {
-                val count = chosen.size
-                val title = if (running) {
-                    stringResource(Res.string.action_cancel)
-                } else if (selected.isEmpty()) {
-                    stringResource(Res.string.season_overview_download)
-                } else {
-                    stringResource(Res.string.season_overview_download_count, count)
-                }
-                NuvioBottomSheetActionRow(
-                    icon = if (running) null else Icons.Rounded.Download,
-                    title = title,
-                    enabled = running || (model.downloadEnabled && count > 0),
-                    onClick = {
-                        if (running) {
-                            AnalysisTempDownloads.cancelSession(sessionTagged)
-                            sessionTagged = emptySet()
-                        } else {
-                            confirm = true
+                    SeasonOverviewUiState.EmptySeason -> Unit
+                    SeasonOverviewUiState.AllSubmitted,
+                    SeasonOverviewUiState.NoneSubmitted,
+                    SeasonOverviewUiState.Partial,
+                    -> {
+                        val scroll = rememberScrollState()
+                        val scrollValue = scroll.value
+                        val scrollMax = scroll.maxValue
+                        val indicator = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                        Box(
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .fillMaxWidth()
+                                .drawWithContent {
+                                    drawContent()
+                                    if (scrollMax <= 0 || size.height <= 1f) return@drawWithContent
+                                    val widthPx = 3.dp.toPx()
+                                    val insetPx = 3.dp.toPx()
+                                    val minThumb = 24.dp.toPx()
+                                    val total = size.height + scrollMax
+                                    val thumb = (size.height * size.height / total)
+                                        .coerceIn(minOf(minThumb, size.height), size.height)
+                                    val travel = (size.height - thumb).coerceAtLeast(0f)
+                                    val top = travel * (scrollValue.toFloat() / scrollMax.toFloat())
+                                    drawRoundRect(
+                                        color = indicator,
+                                        topLeft = Offset(size.width - widthPx - insetPx, top),
+                                        size = Size(widthPx, thumb),
+                                        cornerRadius = CornerRadius(widthPx / 2f),
+                                    )
+                                },
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .verticalScroll(scroll),
+                            ) {
+                                model.rows.forEach { row ->
+                                    val video = episodes.firstOrNull { video ->
+                                        (video.season ?: 0) == row.season && video.episode == row.episode
+                                    }
+                                    SeasonOverviewEpisodeRow(
+                                        code = localizedSeasonEpisodeCode(row.season, row.episode).orEmpty(),
+                                        title = row.title,
+                                        watched = row.watched,
+                                        marks = row.marks,
+                                        selected = row.contentKey in selected,
+                                        onSelectedChange = { checked ->
+                                            selected = if (checked) selected + row.contentKey else selected - row.contentKey
+                                        },
+                                        onOpen = { if (video != null) onOpenEpisode(video) },
+                                    )
+                                }
+                            }
                         }
-                    },
-                )
+                    }
+                }
+                if (model.state != SeasonOverviewUiState.Loading && model.state != SeasonOverviewUiState.EmptySeason) {
+                    val count = chosen.size
+                    val title = if (running) {
+                        stringResource(Res.string.action_cancel)
+                    } else if (selected.isEmpty()) {
+                        stringResource(Res.string.season_overview_download)
+                    } else {
+                        stringResource(Res.string.season_overview_download_count, count)
+                    }
+                    NuvioBottomSheetActionRow(
+                        icon = if (running) null else Icons.Rounded.Download,
+                        title = title,
+                        titleMaxLines = 8,
+                        enabled = running || (model.downloadEnabled && count > 0),
+                        onClick = {
+                            if (running) {
+                                AnalysisTempDownloads.cancelSession(sessionTagged)
+                                sessionTagged = emptySet()
+                            } else {
+                                confirm = true
+                            }
+                        },
+                    )
+                }
             }
         }
     }
@@ -280,11 +338,13 @@ private fun SeasonOverviewEpisodeRow(
 ) {
     val selectLabel = stringResource(Res.string.season_overview_select)
     val watchedLabel = stringResource(Res.string.season_overview_watched)
+    val rowMin = 44.dp.atLeastIosHitTarget()
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(min = rowMin)
             .padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
     ) {
         Checkbox(
             checked = selected,
@@ -294,6 +354,7 @@ private fun SeasonOverviewEpisodeRow(
         Column(
             modifier = Modifier
                 .weight(1f)
+                .heightIn(min = rowMin)
                 .clip(MaterialTheme.nuvio.shapes.compactCard)
                 .clickable(onClick = onOpen)
                 .padding(horizontal = 8.dp, vertical = 8.dp),
@@ -304,10 +365,11 @@ private fun SeasonOverviewEpisodeRow(
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.Medium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 SEASON_SEGMENT_TYPES.forEach { type ->
                     val mark = marks[type] ?: SegmentMark.Missing
                     SegmentMarkChip(type = type, mark = mark)
@@ -318,7 +380,8 @@ private fun SeasonOverviewEpisodeRow(
             Icon(
                 imageVector = Icons.Filled.Check,
                 contentDescription = watchedLabel,
-                tint = MaterialTheme.nuvio.colors.accent,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(top = 12.dp),
             )
         }
     }
@@ -337,27 +400,52 @@ private fun SegmentMarkChip(type: String, mark: SegmentMark) {
         SegmentMark.OnTheIntroDb -> stringResource(Res.string.season_overview_segment_on_theintrodb, label)
         SegmentMark.Missing -> stringResource(Res.string.season_overview_segment_missing, label)
     }
-    val tokens = MaterialTheme.nuvio
-    val background = if (mark == SegmentMark.Submitted) tokens.colors.accent else androidx.compose.ui.graphics.Color.Transparent
-    val foreground = when (mark) {
-        SegmentMark.Submitted -> tokens.colors.onAccent
-        SegmentMark.OnTheIntroDb -> tokens.colors.textSecondary
-        SegmentMark.Missing -> tokens.colors.textSecondary.copy(alpha = 0.45f)
+    val visual = segmentChipVisual(mark)
+    val scheme = MaterialTheme.colorScheme
+    val shape = MaterialTheme.nuvio.shapes.chip
+    val foreground = when (visual) {
+        SegmentChipVisual.FilledCheck -> scheme.onPrimary
+        SegmentChipVisual.Outlined -> scheme.onSurface
+        SegmentChipVisual.Dim -> scheme.onSurfaceVariant
     }
-    val border = when (mark) {
-        SegmentMark.Submitted -> tokens.colors.accent
-        SegmentMark.OnTheIntroDb -> tokens.colors.borderDefault
-        SegmentMark.Missing -> tokens.colors.borderDefault.copy(alpha = 0.45f)
-    }
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelSmall,
-        color = foreground,
+    val weight = if (visual == SegmentChipVisual.Dim) FontWeight.Normal else FontWeight.SemiBold
+    val checkSize = with(LocalDensity.current) { MaterialTheme.typography.labelLarge.fontSize.toDp() }
+    Row(
         modifier = Modifier
-            .semantics { contentDescription = description }
-            .clip(tokens.shapes.compactCard)
-            .border(tokens.borders.hairline, border, tokens.shapes.compactCard)
-            .background(background)
-            .padding(horizontal = 8.dp, vertical = 3.dp),
-    )
+            .clearAndSetSemantics { contentDescription = description }
+            .then(
+                if (visual == SegmentChipVisual.Dim) {
+                    Modifier
+                } else {
+                    Modifier
+                        .clip(shape)
+                        .then(
+                            if (visual == SegmentChipVisual.Outlined) {
+                                Modifier.border(1.5.dp, scheme.onSurface, shape)
+                            } else {
+                                Modifier
+                            },
+                        )
+                        .background(if (visual == SegmentChipVisual.FilledCheck) scheme.primary else Color.Transparent)
+                },
+            )
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        if (visual == SegmentChipVisual.FilledCheck) {
+            Icon(
+                imageVector = Icons.Filled.Check,
+                contentDescription = null,
+                tint = foreground,
+                modifier = Modifier.size(checkSize),
+            )
+        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = weight,
+            color = foreground,
+        )
+    }
 }

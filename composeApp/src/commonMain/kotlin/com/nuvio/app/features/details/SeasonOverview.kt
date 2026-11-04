@@ -15,6 +15,22 @@ internal enum class SegmentMark {
     Missing,
 }
 
+/**
+ * How a [SegmentMark] is drawn. The three shapes differ without relying on colour:
+ * a filled chip with a check, an outline, or dim text with no fill and no outline.
+ */
+internal enum class SegmentChipVisual {
+    FilledCheck,
+    Outlined,
+    Dim,
+}
+
+internal fun segmentChipVisual(mark: SegmentMark): SegmentChipVisual = when (mark) {
+    SegmentMark.Submitted -> SegmentChipVisual.FilledCheck
+    SegmentMark.OnTheIntroDb -> SegmentChipVisual.Outlined
+    SegmentMark.Missing -> SegmentChipVisual.Dim
+}
+
 internal data class SeasonEpisodeRef(
     val season: Int,
     val episode: Int,

@@ -1840,10 +1840,16 @@ fun MetaDetailsScreen(
                             )
                         }
 
-                        val openSeasonOverviewFixture = currentUiFixture() == UiFixture.SeasonOverview &&
-                            meta.id == UiFixtureCatalog.SERIES_ID
-                        androidx.compose.runtime.LaunchedEffect(openSeasonOverviewFixture) {
-                            if (openSeasonOverviewFixture) seasonOverviewSeason = 1
+                        val seasonOverviewFixtureSeason = when {
+                            meta.id != UiFixtureCatalog.SERIES_ID -> null
+                            currentUiFixture() == UiFixture.SeasonOverview -> 1
+                            currentUiFixture() == UiFixture.SeasonOverviewLong -> 2
+                            else -> null
+                        }
+                        androidx.compose.runtime.LaunchedEffect(seasonOverviewFixtureSeason) {
+                            if (seasonOverviewFixtureSeason != null) {
+                                seasonOverviewSeason = seasonOverviewFixtureSeason
+                            }
                         }
                         seasonOverviewSeason?.let { overviewSeason ->
                             val overviewEpisodes = remember(meta, overviewSeason) {
