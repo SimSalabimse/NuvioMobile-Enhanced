@@ -8,21 +8,25 @@ import com.nuvio.app.core.a11y.LongPressSite
 import com.nuvio.app.core.a11y.downloadsLongPressActions
 import com.nuvio.app.core.a11y.installLongPressAccessibility
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ExpandLess
@@ -145,11 +149,11 @@ fun DownloadsScreen(
     val slowReasonTick = rememberDownloadSlowTick(uiState.activeItems.isNotEmpty())
     val tokens = MaterialTheme.nuvio
 
-    // Under the native iOS navigation bar the header collapses to its actions. The list starts
-    // below the bar (status bar + 44 pt), so nothing scrolls up behind the see-through bar and
-    // the status bar, and the actions scroll with the list instead of sticking over the rows.
-    val underNativeNavigationBar = com.nuvio.app.navigation.LocalUseNativeNavigation.current &&
-        !com.nuvio.app.navigation.LocalNativeNavigationBarHidden.current
+    // Downloads hides the native bar so back, the title, and the folder/settings actions
+    // share one row. If a host still shows the bar, the actions stay in their own row under it.
+    val useNativeNavigation = com.nuvio.app.navigation.LocalUseNativeNavigation.current
+    val nativeBarHidden = com.nuvio.app.navigation.LocalNativeNavigationBarHidden.current
+    val underNativeNavigationBar = useNativeNavigation && !nativeBarHidden
     val statusBarTop = androidx.compose.foundation.layout.WindowInsets.statusBars
         .asPaddingValues().calculateTopPadding()
     androidx.compose.runtime.CompositionLocalProvider(
@@ -165,49 +169,57 @@ fun DownloadsScreen(
             },
         ),
         listState = listState,
-        topPadding = if (underNativeNavigationBar) tokens.spacing.screenTop else null,
+        topPadding = when {
+            underNativeNavigationBar -> tokens.spacing.screenTop
+            // The compact header carries the status-bar inset itself, so the list does not add a second one.
+            useNativeNavigation && nativeBarHidden -> 0.dp
+            else -> null
+        },
     ) {
+        val headerTitle = if (selectedShowId == null) {
+            stringResource(Res.string.compose_settings_root_downloads_title)
+        } else {
+            selectedShowTitle ?: stringResource(Res.string.downloads_show_downloads)
+        }
+        val headerBack: () -> Unit = {
+            if (selectedShowId != null) {
+                onBackFromShow?.invoke() ?: run { selectedShowId = null }
+            } else {
+                onBack()
+            }
+        }
         val header: @Composable () -> Unit = {
-            NuvioScreenHeader(
-                title = if (selectedShowId == null) {
-                    stringResource(Res.string.compose_settings_root_downloads_title)
-                } else {
-                    selectedShowTitle ?: stringResource(Res.string.downloads_show_downloads)
-                },
-                onBack = {
-                    if (selectedShowId != null) {
-                        onBackFromShow?.invoke() ?: run { selectedShowId = null }
-                    } else {
-                        onBack()
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = {
-                            if (!DownloadsPlatformDownloader.openDownloadsDirectory()) {
-                                NuvioToastController.show(openDownloadsDirectoryFailedText)
-                            }
-                        },
-                    ) {
+            val actions: @Composable RowScope.() -> Unit = {
+                IconButton(
+                    onClick = {
+                        if (!DownloadsPlatformDownloader.openDownloadsDirectory()) {
+                            NuvioToastController.show(openDownloadsDirectoryFailedText)
+                        }
+                    },
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Folder,
+                        contentDescription = stringResource(Res.string.downloads_open_directory),
+                        tint = tokens.colors.textPrimary,
+                    )
+                }
+                if (selectedShowId == null) {
+                    IconButton(onClick = {
+                        onOpenSettings?.invoke() ?: run { showSettings = true }
+                    }) {
                         Icon(
-                            imageVector = Icons.Rounded.Folder,
-                            contentDescription = stringResource(Res.string.downloads_open_directory),
+                            imageVector = Icons.Rounded.Settings,
+                            contentDescription = stringResource(Res.string.compose_settings_page_root),
                             tint = tokens.colors.textPrimary,
                         )
                     }
-                    if (selectedShowId == null) {
-                        IconButton(onClick = {
-                            onOpenSettings?.invoke() ?: run { showSettings = true }
-                        }) {
-                            Icon(
-                                imageVector = Icons.Rounded.Settings,
-                                contentDescription = stringResource(Res.string.compose_settings_page_root),
-                                tint = tokens.colors.textPrimary,
-                            )
-                        }
-                    }
-                },
-            )
+                }
+            }
+            if (useNativeNavigation && nativeBarHidden) {
+                DownloadsCompactHeader(title = headerTitle, onBack = headerBack, actions = actions)
+            } else {
+                NuvioScreenHeader(title = headerTitle, onBack = headerBack, actions = actions)
+            }
         }
         if (underNativeNavigationBar) item(key = "header") { header() } else stickyHeader { header() }
 
@@ -1081,6 +1093,43 @@ private fun statusText(item: DownloadItem, heldForPlayback: Boolean): String {
             compactDownloadBytes(item.totalBytes ?: item.downloadedBytes),
         )
         DownloadStatus.Failed -> item.errorMessage ?: stringResource(Res.string.downloads_status_failed)
+    }
+}
+
+@Composable
+private fun DownloadsCompactHeader(
+    title: String,
+    onBack: () -> Unit,
+    actions: @Composable RowScope.() -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    val statusBarTop = androidx.compose.foundation.layout.WindowInsets.statusBars
+        .asPaddingValues()
+        .calculateTopPadding()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(tokens.colors.background)
+            .padding(top = statusBarTop + com.nuvio.app.core.ui.nuvioPlatformExtraTopPadding)
+            .heightIn(min = 44.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onBack) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                contentDescription = stringResource(Res.string.action_back),
+                tint = tokens.colors.textPrimary,
+            )
+        }
+        Text(
+            text = title,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.titleLarge,
+            color = tokens.colors.textPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        actions()
     }
 }
 

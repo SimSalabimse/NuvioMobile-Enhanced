@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -230,18 +231,23 @@ internal fun DownloadStorageCard(
             }
             // Rows that stopped part way keep their partial bytes; listed apart from leftovers.
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp).heightIn(min = 44.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Failed / incomplete downloads: ${formatDownloadBytes(summary.incompleteBytes)}",
+                    text = stringResource(
+                        Res.string.downloads_storage_incomplete,
+                        // Keep "0 KB" on one line when the label wraps on a narrow phone.
+                        formatDownloadBytes(summary.incompleteBytes).replace(' ', '\u00A0'),
+                    ),
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 androidx.compose.material3.TextButton(
                     onClick = { confirmIncomplete = true },
                     enabled = summary.incompleteIds.isNotEmpty(),
+                    modifier = Modifier.heightIn(min = 44.dp),
                 ) {
                     Text("Delete", color = if (summary.incompleteIds.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
