@@ -132,8 +132,8 @@ internal actual fun NuvioNativeModalBottomSheet(
                             val active = host ?: return@SideEffect
                             if (sheetPx > 0 && contentPx > 0) {
                                 active.onMeasured(
-                                    sheetPoints = sheetPx / scale,
-                                    contentPoints = (contentPx + topPx) / scale,
+                                    sheetPoints = (sheetPx / scale).toDouble(),
+                                    contentPoints = ((contentPx + topPx) / scale).toDouble(),
                                 )
                             }
                         }
