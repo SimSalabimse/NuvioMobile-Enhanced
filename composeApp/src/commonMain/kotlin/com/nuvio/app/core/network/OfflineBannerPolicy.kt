@@ -1,12 +1,131 @@
 package com.nuvio.app.core.network
 
 /**
- * No extra wait before the hide fade. A dead network stays offline until the probe
- * succeeds, so the fade can start on the online frame. [OfflineBannerHideFadeMs] is that fade.
+ * Shared clock for the banner and the page. Both directions use it.
+ * FastOutSlowIn is cubic-bezier(0.4, 0, 0.2, 1). Under 300ms.
  */
+const val OfflineTransitionDurationMs = 250
+
+/** No extra wait before the transition. A dead network stays offline until the probe succeeds. */
 const val OfflineBannerHoldMs = 0L
-const val OfflineBannerShowMs = 220
-const val OfflineBannerHideFadeMs = 250
+const val OfflineBannerShowMs = OfflineTransitionDurationMs
+const val OfflineBannerHideFadeMs = OfflineTransitionDurationMs
+
+const val OfflineTransitionBezierX1 = 0.4f
+const val OfflineTransitionBezierY1 = 0f
+const val OfflineTransitionBezierX2 = 0.2f
+const val OfflineTransitionBezierY2 = 1f
+
+/** How far the page travels at the middle of the transition. Resting offset is 0. */
+const val OfflineContentSlideDp = 16f
+
+/** How much the page fades at the middle of the transition. Resting alpha is 1. */
+const val OfflineContentFade = 0.28f
+
+enum class OfflineTransitionEasing {
+    FastOutSlowIn,
+}
+
+enum class OfflineTransitionDirection {
+    GoingOffline,
+    ComingOnline,
+}
+
+enum class OfflineMotionElement {
+    BannerFade,
+    BannerSlide,
+    ContentFade,
+    ContentSlide,
+}
+
+data class OfflineTransitionMotion(
+    val durationMs: Int,
+    val easing: OfflineTransitionEasing,
+    val elements: Set<OfflineMotionElement>,
+    val directions: Set<OfflineTransitionDirection>,
+    val snap: Boolean,
+    val contentSlideDp: Float,
+    val contentFade: Float,
+)
+
+/**
+ * One spec for the banner and the content, going offline and coming back online.
+ * Reduce Motion snaps. [ConnectionWatchDebounceMs] is not part of this clock.
+ */
+fun offlineTransitionMotion(reduceMotion: Boolean): OfflineTransitionMotion {
+    val elements = setOf(
+        OfflineMotionElement.BannerFade,
+        OfflineMotionElement.BannerSlide,
+        OfflineMotionElement.ContentFade,
+        OfflineMotionElement.ContentSlide,
+    )
+    val directions = setOf(
+        OfflineTransitionDirection.GoingOffline,
+        OfflineTransitionDirection.ComingOnline,
+    )
+    return if (reduceMotion) {
+        OfflineTransitionMotion(
+            durationMs = 0,
+            easing = OfflineTransitionEasing.FastOutSlowIn,
+            elements = elements,
+            directions = directions,
+            snap = true,
+            contentSlideDp = OfflineContentSlideDp,
+            contentFade = OfflineContentFade,
+        )
+    } else {
+        OfflineTransitionMotion(
+            durationMs = OfflineTransitionDurationMs,
+            easing = OfflineTransitionEasing.FastOutSlowIn,
+            elements = elements,
+            directions = directions,
+            snap = false,
+            contentSlideDp = OfflineContentSlideDp,
+            contentFade = OfflineContentFade,
+        )
+    }
+}
+
+/** Eased clock in 0..1. Endpoints stay 0 and 1. */
+fun offlineTransitionEased(linear: Float, easing: OfflineTransitionEasing = OfflineTransitionEasing.FastOutSlowIn): Float {
+    val t = linear.coerceIn(0f, 1f)
+    return when (easing) {
+        OfflineTransitionEasing.FastOutSlowIn -> cubicBezier(
+            t,
+            OfflineTransitionBezierX1,
+            OfflineTransitionBezierY1,
+            OfflineTransitionBezierX2,
+            OfflineTransitionBezierY2,
+        )
+    }
+}
+
+private fun cubicBezier(x: Float, x1: Float, y1: Float, x2: Float, y2: Float): Float {
+    if (x <= 0f) return 0f
+    if (x >= 1f) return 1f
+    var u = x
+    repeat(8) {
+        val slope = bezierSlope(u, x1, x2)
+        if (kotlin.math.abs(slope) < 1e-4f) return@repeat
+        val current = bezierComponent(u, x1, x2) - x
+        u = (u - current / slope).coerceIn(0f, 1f)
+    }
+    return bezierComponent(u, y1, y2)
+}
+
+private fun bezierComponent(t: Float, p1: Float, p2: Float): Float {
+    val c = 3f * p1
+    val b = 3f * (p2 - p1) - c
+    val a = 1f - c - b
+    return ((a * t + b) * t + c) * t
+}
+
+private fun bezierSlope(t: Float, p1: Float, p2: Float): Float {
+    val c = 3f * p1
+    val b = 3f * (p2 - p1) - c
+    val a = 1f - c - b
+    return (3f * a * t + 2f * b) * t + c
+}
 
 /** Appear has no hold. [OfflineBannerHoldMs] stays 0 so the hide fade is not postponed. */
 const val OfflineBannerAppearDelayMs = 0L
@@ -60,10 +179,11 @@ fun offlineBannerView(
     } else {
         showingBefore && onlineHeldMs < OfflineBannerHoldMs
     }
+    val appearing = visible && !showingBefore
     val hiding = !visible && showingBefore && onlineHeldMs >= OfflineBannerHoldMs
     return OfflineBannerView(
         visible = visible,
-        animated = hiding && offlineBannerMotionEnabled(surface, reduceMotion),
+        animated = (appearing || hiding) && offlineBannerMotionEnabled(surface, reduceMotion),
     )
 }
 

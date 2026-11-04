@@ -17,7 +17,7 @@ class OfflineBannerPolicyTest {
             reduceMotion = false,
         )
         assertTrue(dropped.visible)
-        assertFalse(dropped.animated)
+        assertTrue(dropped.animated)
         val servers = offlineBannerView(
             condition = NetworkCondition.ServersUnreachable,
             onlineHeldMs = 0L,
@@ -123,6 +123,9 @@ class OfflineBannerPolicyTest {
     @Test
     fun hideFadesOnTheMainScreenUnlessReduceMotionIsOn() {
         assertEquals(250, OfflineBannerHideFadeMs)
+        assertEquals(OfflineTransitionDurationMs, OfflineBannerHideFadeMs)
+        assertEquals(OfflineBannerHideFadeMs, OfflineBannerShowMs)
+        assertTrue(OfflineTransitionDurationMs < 300)
         assertEquals(0L, OfflineBannerHoldMs)
         assertTrue(OfflineBannerShowMs > 0)
         assertEquals(0L, OfflineBannerAppearDelayMs)

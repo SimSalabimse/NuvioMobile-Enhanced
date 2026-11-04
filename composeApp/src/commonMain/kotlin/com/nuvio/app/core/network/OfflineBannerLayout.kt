@@ -1,8 +1,14 @@
 package com.nuvio.app.core.network
 
-/** One text line plus the padding around it. The status inset is not part of this strip. */
+/** One text line. The control row below is at least this tall. */
 const val OfflineBannerLineDp = 20f
 const val OfflineBannerStripPaddingDp = 12f
+
+/**
+ * One row, the same band as the back button. Not a second row under it.
+ * Large type may grow the row; it stays a single line.
+ */
+const val OfflineBannerSlimRowDp = 44f
 
 data class OfflineBannerFrame(
     /** Where the label starts, inside the background. Not a gap above the color. */
@@ -19,23 +25,31 @@ enum class OfflineBannerScreen {
     Details,
 }
 
-/** Online draws nothing. Offline and the reconnect fade use the same frame. */
+/** Online draws nothing. Offline and both transitions use the same one-row frame. */
 enum class OfflineBannerPhase {
     Online,
     Offline,
+    GoingOffline,
+    ComingOnline,
     Reconnecting,
 }
 
 data class OfflineBannerChrome(
     val drawn: Boolean,
+    /** Opaque strip, from the left edge to the right edge. */
+    val backgroundWidthDp: Float,
+    /** Overlay height: status inset plus one slim row. Not added to the page. */
     val backgroundHeightDp: Float,
+    /** Extra page offset. Stays 0 online and offline so the poster does not jump. */
     val contentTopOffsetDp: Float,
+    /** The one slim row under the status bar. */
     val contentHeightDp: Float,
 )
 
 fun offlineBannerStripHeightDp(fontScale: Float): Float {
     val scale = fontScale.coerceAtLeast(1f)
-    return OfflineBannerLineDp * scale + OfflineBannerStripPaddingDp
+    val textBlock = OfflineBannerLineDp * scale + OfflineBannerStripPaddingDp
+    return maxOf(OfflineBannerSlimRowDp, textBlock)
 }
 
 /**
@@ -60,43 +74,46 @@ fun offlineBannerFrame(
 
 /**
  * Frame shared by Home and the details screen. The phase does not change the
- * size: the reconnect fade only changes alpha. Online is not drawn.
+ * size: both transitions only change alpha and slide. The page offset stays 0.
  */
 fun offlineBannerChrome(
     phase: OfflineBannerPhase,
     statusInsetDp: Float,
     fontScale: Float = 1f,
-): OfflineBannerChrome {
-    val frame = offlineBannerFrame(
-        statusInsetDp = statusInsetDp,
-        statusInsetAlreadyApplied = false,
-        fontScale = fontScale,
-    )
-    return OfflineBannerChrome(
-        drawn = phase != OfflineBannerPhase.Online,
-        backgroundHeightDp = frame.totalHeightDp,
-        contentTopOffsetDp = frame.topInsetDp,
-        contentHeightDp = frame.stripHeightDp,
-    )
-}
+    viewportWidthDp: Float = 390f,
+): OfflineBannerChrome = offlineBannerScreenChrome(
+    screen = OfflineBannerScreen.Home,
+    phase = phase,
+    statusInsetDp = statusInsetDp,
+    fontScale = fontScale,
+    viewportWidthDp = viewportWidthDp,
+)
 
-/** Home and details have no separate inset math. */
+/** Home and details read one scene. The page is not pushed down in either. */
 fun offlineBannerScreenChrome(
     screen: OfflineBannerScreen,
     phase: OfflineBannerPhase,
     statusInsetDp: Float,
     fontScale: Float = 1f,
+    viewportWidthDp: Float = 390f,
 ): OfflineBannerChrome {
-    val shared = offlineBannerChrome(
-        phase = phase,
+    val sample = offlinePhaseSample(phase)
+    val scene = offlineScene(
+        offline = sample.offline,
+        progress = sample.progress,
+        screen = screen,
         statusInsetDp = statusInsetDp,
+        reduceMotion = false,
         fontScale = fontScale,
+        viewportWidthDp = viewportWidthDp,
     )
-    return when (screen) {
-        OfflineBannerScreen.Home,
-        OfflineBannerScreen.Details,
-        -> shared
-    }
+    return OfflineBannerChrome(
+        drawn = scene.bannerDrawn,
+        backgroundWidthDp = scene.bannerWidthDp,
+        backgroundHeightDp = scene.bannerHeightDp,
+        contentTopOffsetDp = scene.contentTopOffsetDp,
+        contentHeightDp = scene.slimRowDp,
+    )
 }
 
 /** Content starts below the banner, with a small gap so the actions are not flush against it. */
