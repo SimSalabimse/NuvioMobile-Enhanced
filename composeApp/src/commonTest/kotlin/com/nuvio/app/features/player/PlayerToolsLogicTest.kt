@@ -1,9 +1,16 @@
 package com.nuvio.app.features.player
 
 import com.nuvio.app.features.player.skip.AutoSkipSegmentType
+import com.nuvio.app.features.player.skip.FlagSubmissionRecord
 import com.nuvio.app.features.player.skip.IntroSubmitService
+import com.nuvio.app.features.player.skip.flagChecksForTitle
 import com.nuvio.app.features.player.skip.resolveIntroSubmitTimes
+import com.nuvio.app.features.player.skip.submittedFlagTypesForTitle
 import com.nuvio.app.features.player.skip.theIntroDbSubmitPayload
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -410,7 +417,7 @@ class PlayerToolsLogicTest {
     }
 
     @Test
-    fun `the no-segment button follows the selected chip and movies stay intro and credits`() {
+    fun `the no-segment button follows the selected chip`() {
         assertEquals(NoneChip.Intro, noneChip("intro"))
         assertEquals(NoneChip.Intro, noneChip("opening"))
         assertEquals(NoneChip.Recap, noneChip("recap"))
@@ -418,8 +425,106 @@ class PlayerToolsLogicTest {
         assertEquals(NoneChip.Credits, noneChip("credits"))
         assertEquals(NoneChip.Credits, noneChip("movie-credits"))
         assertEquals(NoneChip.Preview, noneChip("preview"))
-        assertEquals(listOf("intro", "outro"), markSegmentTypes(isMovie = true))
-        assertEquals(listOf("intro", "recap", "outro", "preview"), markSegmentTypes(isMovie = false))
+    }
+
+    @Test
+    fun `a movie and an episode both offer intro recap credits and preview`() {
+        val four = listOf("intro", "recap", "outro", "preview")
+        assertEquals(four, markSegmentTypes(isMovie = true))
+        assertEquals(four, markSegmentTypes(isMovie = false))
+        for (movie in listOf(true, false)) {
+            var sheet = openSubmitSheet(isMovie = movie)
+            for (tab in SubmitPanelTab.entries) {
+                sheet = reduceSubmitSheet(sheet, SubmitSheetEvent.SelectTab(tab))
+                assertEquals(tab, sheet.tab)
+            }
+        }
+
+        val durationMs = 8_100_000L
+        val intro = Json.parseToJsonElement(
+            checkNotNull(
+                theIntroDbSubmitPayload(
+                    tmdbId = 42,
+                    imdbId = "tt0000042",
+                    type = "movie",
+                    segment = "intro",
+                    season = 1,
+                    episode = 2,
+                    startSec = 0.0,
+                    endSec = 95.0,
+                    videoDurationMs = durationMs,
+                ),
+            ),
+        ).jsonObject
+        assertEquals("movie", intro.getValue("type").jsonPrimitive.content)
+        assertEquals("intro", intro.getValue("segment").jsonPrimitive.content)
+        assertEquals(0L, intro.getValue("start_ms").jsonPrimitive.long)
+        assertEquals(95_000L, intro.getValue("end_ms").jsonPrimitive.long)
+        assertEquals(durationMs, intro.getValue("video_duration_ms").jsonPrimitive.long)
+        assertMoviePayloadOmitsEpisodeFields(intro)
+
+        val introFromStart = Json.parseToJsonElement(
+            checkNotNull(
+                theIntroDbSubmitPayload(
+                    tmdbId = 42,
+                    type = "movie",
+                    segment = "intro",
+                    season = 1,
+                    episode = 2,
+                    startSec = null,
+                    endSec = 95.0,
+                    videoDurationMs = durationMs,
+                ),
+            ),
+        ).jsonObject
+        assertFalse(introFromStart.containsKey("start_ms"))
+        assertEquals(95_000L, introFromStart.getValue("end_ms").jsonPrimitive.long)
+        assertEquals(durationMs, introFromStart.getValue("video_duration_ms").jsonPrimitive.long)
+        assertMoviePayloadOmitsEpisodeFields(introFromStart)
+
+        val preview = Json.parseToJsonElement(
+            checkNotNull(
+                theIntroDbSubmitPayload(
+                    tmdbId = 42,
+                    imdbId = "tt0000042",
+                    type = "Movie",
+                    segment = "preview",
+                    season = 3,
+                    episode = 4,
+                    startSec = 7_800.0,
+                    endSec = null,
+                    videoDurationMs = durationMs,
+                ),
+            ),
+        ).jsonObject
+        assertEquals("movie", preview.getValue("type").jsonPrimitive.content)
+        assertEquals("preview", preview.getValue("segment").jsonPrimitive.content)
+        assertEquals(7_800_000L, preview.getValue("start_ms").jsonPrimitive.long)
+        assertFalse(preview.containsKey("end_ms"))
+        assertEquals(durationMs, preview.getValue("video_duration_ms").jsonPrimitive.long)
+        assertMoviePayloadOmitsEpisodeFields(preview)
+
+        val records = listOf(
+            movieFlag("intro", "accepted"),
+            movieFlag("recap", "pending"),
+            movieFlag("credits", "accepted"),
+            movieFlag("preview", "accepted"),
+            FlagSubmissionRecord(tmdbId = 42, type = "tv", season = 1, episode = 1, segment = "intro", status = "accepted"),
+        )
+        val movieChecks = submittedFlagTypesForTitle(records, tmdbId = 42, isMovie = true, season = 0, episode = 0)
+        assertEquals(setOf("intro", "recap", "outro", "preview"), movieChecks)
+        assertEquals(
+            movieChecks,
+            flagChecksForTitle(
+                ledgerTypes = emptySet(),
+                sessionTypes = emptySet(),
+                remoteTypes = movieChecks,
+            ),
+        )
+        assertEquals(
+            setOf("intro"),
+            submittedFlagTypesForTitle(records, tmdbId = 42, isMovie = false, season = 1, episode = 1),
+        )
     }
 
     @Test
@@ -722,7 +827,7 @@ class PlayerToolsLogicTest {
         val movies = sheetCases(isMovie = true, absentAllowed = true)
         val introDb = sheetCases(isMovie = false, absentAllowed = false)
         assertEquals(4 * 2 * 2 * 2 * 2 * 2 - 4 * 2 * 2 * 2 - 4 * 2 * 2 - 4 * 2, series.size)
-        assertEquals(2 * 2 * 2 * 2 * 2 * 2 - 2 * 2 * 2 * 2 - 2 * 2 * 2 - 2 * 2, movies.size)
+        assertEquals(4 * 2 * 2 * 2 * 2 * 2 - 4 * 2 * 2 * 2 - 4 * 2 * 2 - 4 * 2, movies.size)
         assertEquals(4 * 2 * 2 * 2 * 2 * 2 - 4 * 2 * 2 * 2 - 4 * 2 * 2 - 4 * 2 - 4 * 2 * 2, introDb.size)
         for (state in series + movies + introDb) {
             assertSheetInvariants(state)
@@ -845,11 +950,7 @@ class PlayerToolsLogicTest {
 }
 
 private fun sheetCases(isMovie: Boolean, absentAllowed: Boolean): List<SubmitSheet> {
-    val tabs = if (isMovie) {
-        listOf(SubmitPanelTab.Intro, SubmitPanelTab.Credits)
-    } else {
-        SubmitPanelTab.entries
-    }
+    val tabs = SubmitPanelTab.entries
     val reached = mutableListOf<SubmitSheet>()
     for (tab in tabs) {
         for (absent in listOf(false, true)) {
@@ -925,6 +1026,23 @@ private fun assertSheetInvariants(state: SubmitSheet) {
         assertFalse(editing.absent)
         assertFalse(editing.popoverOpen)
     }
+}
+
+private fun movieFlag(segment: String, status: String) = FlagSubmissionRecord(
+    tmdbId = 42,
+    type = "movie",
+    season = null,
+    episode = null,
+    segment = segment,
+    status = status,
+)
+
+private fun assertMoviePayloadOmitsEpisodeFields(json: kotlinx.serialization.json.JsonObject) {
+    assertFalse(json.containsKey("season"))
+    assertFalse(json.containsKey("episode"))
+    assertFalse(json.containsKey("mapping"))
+    assertFalse(json.containsKey("tvdbEpisodeId"))
+    assertFalse(json.containsKey("tvdb_episode_id"))
 }
 
 private fun sheetEvents(): List<SubmitSheetEvent> = buildList {

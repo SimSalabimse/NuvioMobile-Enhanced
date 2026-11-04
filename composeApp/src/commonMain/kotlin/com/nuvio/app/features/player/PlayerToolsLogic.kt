@@ -61,8 +61,14 @@ internal fun markSegmentLimits(segmentType: String): MarkLimits = when (markSegm
     else -> MarkLimits(CreditsMinSec, CreditsMaxSec)
 }
 
+/**
+ * Tabs on the submit bar, in chip order: Intro, Recap, Credits, Preview.
+ * A movie offers the same four as an episode. The download analysis chip still
+ * shows Credits only for a movie; that rule stays on the chip and does not apply here.
+ */
+@Suppress("UNUSED_PARAMETER")
 internal fun markSegmentTypes(isMovie: Boolean): List<String> =
-    if (isMovie) listOf("intro", "outro") else listOf("intro", "recap", "outro", "preview")
+    listOf("intro", "recap", "outro", "preview")
 
 internal enum class NoneChip {
     Intro,

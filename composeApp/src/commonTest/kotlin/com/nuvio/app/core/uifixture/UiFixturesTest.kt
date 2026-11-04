@@ -95,6 +95,8 @@ class UiFixturesTest {
         assertEquals(UiFixture.Walk, parseUiFixtureLaunch("download-season-sheet"))
         assertEquals("download-season-sheet", parseUiFixtureRequest("download-season-sheet")?.walkId)
         assertEquals(UiFixture.Walk, parseUiFixtureLaunch("player-episodes"))
+        assertEquals(UiFixture.Walk, parseUiFixtureLaunch("player-submit-bar-movie"))
+        assertEquals("player-submit-bar-movie", parseUiFixtureRequest("player-submit-bar-movie")?.walkId)
         assertNull(parseUiFixtureRequest("settings-appearance@844"))
         assertNull(parseUiFixtureLaunch("not-a-walk-screen"))
         val names = SettingsPage.entries.map { settingsWireName(it) }
