@@ -22,6 +22,7 @@ internal suspend fun enqueueSeasonDownloads(
     meta: MetaDetails,
     rows: List<SeasonEnqueueRow>,
     startedByUser: Boolean = true,
+    analysisTemp: Boolean = false,
 ): SeasonEnqueueResult {
     var queued = 0
     var failureMessage: String? = null
@@ -33,10 +34,16 @@ internal suspend fun enqueueSeasonDownloads(
         val season = row.video.season
         val episode = row.video.episode
         // Queuing replaces an existing row for the episode and deletes its file. Leave one the user has.
+        // Analysis only fills an empty slot here; the insert itself repeats that check.
         val existingKey = downloadLogicalContentKey(meta.id, season, episode)
         val existing = DownloadsRepository.uiState.value.items
             .firstOrNull { it.logicalContentKey == existingKey }
-        if (leaveExistingDownloadInPlace(existing?.status, existing?.let { AnalysisTempDownloads.isTagged(it.id) } == true)) continue
+        val tagged = existing?.let { AnalysisTempDownloads.isTagged(it.id) } == true
+        if (analysisTemp) {
+            if (existing != null && !tagged) continue
+        } else if (leaveExistingDownloadInPlace(existing?.status, tagged)) {
+            continue
+        }
         val videoId = seasonStreamVideoId(meta.id, row.video)
         val target = DownloadTarget(
             contentType = meta.type,
@@ -52,7 +59,13 @@ internal suspend fun enqueueSeasonDownloads(
             episodeTitle = row.video.title,
             episodeThumbnail = row.video.thumbnail,
         )
-        val outcome = DownloadEnqueueService.resolveAndEnqueue(target, row.stream, notify = false, startedByUser = startedByUser)
+        val outcome = DownloadEnqueueService.resolveAndEnqueue(
+            target,
+            row.stream,
+            notify = false,
+            startedByUser = startedByUser,
+            analysisTemp = analysisTemp,
+        )
         val enqueueResult = outcome.result ?: run {
             val failure = outcome.failure ?: DirectDebridPlayableResult.Error
             // One add offer for the batch (the first uncached episode), not one per row.
@@ -64,6 +77,7 @@ internal suspend fun enqueueSeasonDownloads(
             DownloadEnqueueResult.Started,
             DownloadEnqueueResult.Replaced,
             -> queued += 1
+            DownloadEnqueueResult.LeftExisting -> Unit
             else -> failureMessage = failureMessage ?: enqueueResult.toastMessage()
         }
     }
