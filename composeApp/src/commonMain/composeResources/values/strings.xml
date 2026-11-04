@@ -1951,9 +1951,9 @@
     <string name="season_overview_confirm_download">Download</string>
     <string name="season_overview_select">Select episode</string>
     <string name="season_overview_watched">Watched</string>
-    <string name="season_overview_segment_submitted">%1$s submitted</string>
-    <string name="season_overview_segment_on_theintrodb">%1$s on TheIntroDB</string>
-    <string name="season_overview_segment_missing">%1$s missing</string>
+    <string name="season_overview_segment_submitted">%1$s, submitted from this account</string>
+    <string name="season_overview_segment_on_theintrodb">%1$s, already on TheIntroDB</string>
+    <string name="season_overview_segment_missing">%1$s, missing</string>
     <string name="home_continue_watching_up_next">Next Up</string>
     <string name="home_continue_watching_watched">%1$s watched</string>
     <string name="home_continue_watching_hours_minutes_left">%1$dh %2$dm left</string>

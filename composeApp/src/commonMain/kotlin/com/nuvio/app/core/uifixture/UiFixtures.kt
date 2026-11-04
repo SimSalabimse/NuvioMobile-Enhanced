@@ -27,6 +27,7 @@ enum class UiFixture(
     PlayerSubmitBar("player-submit-bar", startsOnline = true),
     PlayerSubmitBarLong("player-submit-bar-long", startsOnline = true),
     SeasonOverview("season-overview", startsOnline = true),
+    SeasonOverviewLong("season-overview-long", startsOnline = true),
     /**
      * Carrier for the UI walk. The screen id lives on [UiFixtureRequest.walkId]
      * and is registered in `UiWalkScreens`, so another fixture can be appended
@@ -37,7 +38,7 @@ enum class UiFixture(
 
     fun launchRoute(): AppRoute? = when (this) {
         HomeOnline, HomeOffline, LongTitles, PlayerSubmitBar, PlayerSubmitBarLong -> null
-        DetailsOnline, DetailsOffline, SmartDownloads, SeasonOverview -> DetailRoute(
+        DetailsOnline, DetailsOffline, SmartDownloads, SeasonOverview, SeasonOverviewLong -> DetailRoute(
             type = UiFixtureCatalog.SERIES_TYPE,
             id = UiFixtureCatalog.SERIES_ID,
             title = UiFixtureCatalog.SERIES_TITLE,

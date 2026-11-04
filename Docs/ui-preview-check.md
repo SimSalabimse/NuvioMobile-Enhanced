@@ -50,6 +50,8 @@ The status bar is fixed at 9:41, charged, 100%, four cellular bars, three Wi-Fi 
 | `downloads` | A few downloads, including a very long title. |
 | `long-titles` | Home rows mixing that long title with short ones. |
 | `smart-downloads` | Harbor Lane details. The Finish this series chip is on, the goal status is "Keeping 2 ready", and the keep-ready count is 2. Seasons have no posters, so the season row is the text chips (Season 1, Season 2, Season 3). |
+| `season-overview` | Harbor Lane details with the season overview sheet on Season 1 (three episodes). The sheet is only as tall as those rows. |
+| `season-overview-long` | The same Harbor Lane details page. Season 2 has 25 episodes. The sheet opens at the tall detent, the last visible episode row is cut off, and Download for analysis stays on screen. Chips mix a filled Recap, an episode with all four filled, an episode with none, and outlined TheIntroDB chips. One episode title is very long. |
 | `player-submit-bar` | The real submit bar on a dark video frame, laid out at 844 dp wide (a standard landscape phone) and scaled to fit a portrait simulator. Preview is open. Intro and Recap are checked. Start and End are 0:00:00, so Submit is disabled. No preview, Play range, and close are on the bar. |
 | `player-submit-bar@667` | Same bar, frame width 667 dp (small iPhone landscape). |
 | `player-submit-bar@844` | Same bar, frame width 844 dp. |
@@ -77,7 +79,7 @@ While a fixture is active the app installs that state into the home, details, do
 
 1. Add a `UiFixture` entry and its `wireName` in `composeApp/src/commonMain/kotlin/com/nuvio/app/core/uifixture/UiFixtures.kt`.
 2. Teach `UiFixtureCatalog.install` to fill the same repositories the screen already reads. A screen that draws itself, such as the submit bar, can skip the repositories and return a null launch route.
-3. Append the wire name to `ALL_STATES` at the top of `scripts/ui-shots.sh`. Width suffixes such as `player-submit-bar@667` are listed there too, because the script matches the launch string exactly.
+3. Append the wire name to `ALL_STATES` at the top of `scripts/ui-shots.sh`. Width suffixes such as `player-submit-bar@667` are listed there too, because the script matches the launch string exactly. `season-overview` and `season-overview-long` are in that list and in the walk manifest.
 4. Extend `UiFixturesTest` so the new name parses.
 
 `player-submit-bar@<dp>` and `player-submit-bar-long@<dp>` set the frame width in dp. Any other fixture rejects an `@` suffix. The bar composable is `SegmentMarkingLayer`. Submit and close stay pinned; the chips scroll. The frame is scaled down so a portrait simulator shows the whole landscape width.

@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LocalContentColor
@@ -12,7 +13,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -58,6 +65,7 @@ internal actual fun NuvioNativeModalBottomSheet(
     showDragHandle: Boolean,
     fullHeight: Boolean,
     liquidGlass: Boolean,
+    fitSheet: FitSheetHeightHost?,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
     val parentViewController = LocalUIViewController.current
@@ -86,8 +94,9 @@ internal actual fun NuvioNativeModalBottomSheet(
     val latestDensity = rememberUpdatedState(density)
     val latestRippleConfiguration = rememberUpdatedState(rippleConfiguration)
     val latestLiquidGlass = rememberUpdatedState(liquidGlass)
+    val latestFitSheet = rememberUpdatedState(fitSheet)
 
-    DisposableEffect(parentViewController, liquidGlass, fullHeight) {
+    DisposableEffect(parentViewController, liquidGlass, fullHeight, fitSheet != null) {
         val contentController = ComposeUIViewController(
             configure = {
                 if (liquidGlass) opaque = false
@@ -113,7 +122,32 @@ internal actual fun NuvioNativeModalBottomSheet(
                         LocalContentColor provides latestContentColor.value,
                     ) {
                         val glass = latestLiquidGlass.value
-                        Box(modifier = Modifier.fillMaxSize()) {
+                        val host = latestFitSheet.value
+                        var sheetPx by remember { mutableIntStateOf(0) }
+                        var contentPx by remember { mutableIntStateOf(0) }
+                        val topPad = if (latestLiquidGlass.value) NuvioTokens.Space.s6 else NuvioTokens.Space.s20
+                        val scale = LocalDensity.current.density.coerceAtLeast(1f)
+                        val topPx = with(LocalDensity.current) { topPad.toPx() }
+                        SideEffect {
+                            val active = host ?: return@SideEffect
+                            if (sheetPx > 0 && contentPx > 0) {
+                                active.onMeasured(
+                                    sheetPoints = sheetPx / scale,
+                                    contentPoints = (contentPx + topPx) / scale,
+                                )
+                            }
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .then(
+                                    if (host != null) {
+                                        Modifier.onSizeChanged { sheetPx = it.height }
+                                    } else {
+                                        Modifier
+                                    },
+                                ),
+                        ) {
                             if (glass && !iosAtLeast(26, 1)) {
                                 LegacySheetBlur(Modifier.fillMaxSize())
                             }
@@ -121,9 +155,19 @@ internal actual fun NuvioNativeModalBottomSheet(
                                 modifier = latestModifier.value
                                     .fillMaxSize()
                                     .background(if (glass) FlagSheetFrostTint else latestContainerColor.value)
-                                    .padding(top = if (glass) NuvioTokens.Space.s6 else NuvioTokens.Space.s20),
+                                    .padding(top = topPad),
                             ) {
-                                latestContent.value(this)
+                                if (host != null) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .onSizeChanged { contentPx = it.height },
+                                    ) {
+                                        latestContent.value(this)
+                                    }
+                                } else {
+                                    latestContent.value(this)
+                                }
                             }
                         }
                     }
@@ -170,6 +214,21 @@ internal actual fun NuvioNativeModalBottomSheet(
                 preferredCornerRadius = 28.0
             } else if (fullHeight) {
                 detents = listOf(UISheetPresentationControllerDetent.largeDetent())
+            } else if (fitSheet != null) {
+                val sheet = this
+                val host = fitSheet
+                val detent = UISheetPresentationControllerDetent.customDetentWithIdentifier(
+                    identifier = FIT_SHEET_DETENT_ID,
+                    resolver = { context ->
+                        fitSheetDetentPoints(
+                            requestedPoints = host.requestedPoints,
+                            maximumPoints = context?.maximumDetentValue ?: 0.0,
+                        )
+                    },
+                )
+                detents = listOf(detent)
+                selectedDetentIdentifier = FIT_SHEET_DETENT_ID
+                host.invalidate = { sheet.invalidateDetents() }
             } else {
                 detents = listOf(
                     UISheetPresentationControllerDetent.mediumDetent(),
@@ -210,6 +269,7 @@ internal actual fun NuvioNativeModalBottomSheet(
         )
 
         onDispose {
+            fitSheet?.invalidate = null
             if (activeNativeBottomSheet === sheetController) {
                 activeNativeBottomSheet = null
                 activeNativeBottomSheetDelegate = null
