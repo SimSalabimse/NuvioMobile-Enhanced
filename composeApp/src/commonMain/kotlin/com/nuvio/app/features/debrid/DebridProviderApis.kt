@@ -314,6 +314,31 @@ internal fun premiumizeDeviceAuthorizationFromResponse(
     )
 }
 
+/** TorBox device-token checks are limited to 10 per minute per user. */
+internal const val TorboxDeviceCheckMinIntervalMillis = 6_000L
+
+/** TorBox device-code starts are limited to 30 per minute. */
+internal const val TorboxDeviceStartMinIntervalMillis = 2_000L
+
+internal fun deviceAuthorizationPollDelayMillis(providerId: String, intervalSeconds: Int): Long {
+    val requested = intervalSeconds.coerceAtLeast(1) * 1_000L
+    return if (providerId == DebridProviders.TORBOX_ID) {
+        requested.coerceAtLeast(TorboxDeviceCheckMinIntervalMillis)
+    } else {
+        requested
+    }
+}
+
+/** Milliseconds to wait before another TorBox `/device/start`. Other providers wait nothing. */
+internal fun deviceAuthorizationStartDelayMillis(
+    providerId: String,
+    millisSincePreviousStart: Long?,
+): Long {
+    if (providerId != DebridProviders.TORBOX_ID) return 0L
+    val since = millisSincePreviousStart ?: return 0L
+    return (TorboxDeviceStartMinIntervalMillis - since).coerceAtLeast(0L)
+}
+
 internal fun torboxDeviceAuthorizationTokenResult(
     response: DebridApiResponse<TorboxEnvelopeDto<TorboxDeviceTokenDto>>,
 ): DebridDeviceAuthorizationTokenResult {

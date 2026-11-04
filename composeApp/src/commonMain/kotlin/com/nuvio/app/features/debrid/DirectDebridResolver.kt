@@ -387,7 +387,7 @@ private fun String.stableFingerprint(): String {
     return hash.toULong().toString(16)
 }
 
-private fun StreamItem.withResolvedDebridUrl(result: DirectDebridResolveResult.Success): StreamItem =
+internal fun StreamItem.withResolvedDebridUrl(result: DirectDebridResolveResult.Success): StreamItem =
     copy(
         url = result.url,
         externalUrl = null,

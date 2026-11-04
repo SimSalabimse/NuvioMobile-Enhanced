@@ -2,6 +2,8 @@ package com.nuvio.app.features.downloads
 
 import com.nuvio.app.features.debrid.DebridAddOffer
 import com.nuvio.app.features.debrid.DirectDebridPlayableResult
+import com.nuvio.app.features.debrid.TorboxSeasonPackEpisode
+import com.nuvio.app.features.debrid.attachTorboxSeasonPackLinks
 import com.nuvio.app.features.debrid.toastMessage
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaVideo
@@ -33,7 +35,17 @@ internal suspend fun enqueueSeasonDownloads(
     DownloadsRepository.ensureLoaded()
     // Lowest episode first, whatever order the sheet listed them in.
     val ordered = rows.sortedWith(compareBy({ it.video.season ?: Int.MAX_VALUE }, { it.video.episode ?: Int.MAX_VALUE }))
-    for (row in ordered) {
+    val packStreams = attachTorboxSeasonPackLinks(
+        ordered.map { row ->
+            TorboxSeasonPackEpisode(
+                stream = row.stream,
+                season = row.video.season,
+                episode = row.video.episode,
+            )
+        },
+    )
+    for ((index, row) in ordered.withIndex()) {
+        val rowStream = packStreams[index]
         val season = row.video.season
         val episode = row.video.episode
         // Queuing replaces an existing row for the episode and deletes its file. Leave one the user has.
@@ -66,7 +78,7 @@ internal suspend fun enqueueSeasonDownloads(
         )
         val outcome = DownloadEnqueueService.resolveAndEnqueue(
             target,
-            row.stream,
+            rowStream,
             notify = false,
             startedByUser = startedByUser,
             analysisTemp = analysisTemp,
