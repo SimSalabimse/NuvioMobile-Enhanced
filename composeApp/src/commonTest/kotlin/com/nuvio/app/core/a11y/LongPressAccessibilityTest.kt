@@ -77,6 +77,7 @@ class LongPressAccessibilityTest {
                 "episode.season",
                 "episode.rate",
                 "episode.play_manually",
+                "episode.submit_segment",
             ),
             zoomIds,
         )
@@ -100,7 +101,10 @@ class LongPressAccessibilityTest {
             alreadyWatchedThroughHere,
             labels,
         ).map { it.id }
-        assertEquals(listOf("episode.watched", "episode.previous", "episode.season"), watchedIds)
+        assertEquals(
+            listOf("episode.watched", "episode.previous", "episode.season", "episode.submit_segment"),
+            watchedIds,
+        )
     }
 
     @Test
@@ -183,6 +187,7 @@ class LongPressAccessibilityTest {
                     "episode.rate",
                     "episode.download",
                     "episode.play_manually",
+                    "episode.submit_segment",
                 ),
             ),
             Triple(
@@ -239,5 +244,6 @@ class LongPressAccessibilityTest {
         downloadFile = "Download file",
         markPreviousSeasons = "Mark previous seasons watched",
         libraryLists = "Library lists",
+        submitSegment = "Submit segment only",
     )
 }

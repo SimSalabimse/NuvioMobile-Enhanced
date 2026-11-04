@@ -370,7 +370,10 @@ internal object SmartDownloads {
         durationMs: Long,
         playbackSpeed: Double,
         mediaBitrateBps: Long?,
+        persistsProgress: Boolean = true,
     ) {
+        if (!com.nuvio.app.features.watchprogress.allowsProgressWrite(persistsProgress)) return
+        com.nuvio.app.features.watchprogress.ProgressWriteTrace.note("SmartDownloads.onPlaybackSample")
         if (!isEnabled()) return
         if (effectiveSmartDownloadCount(
                 SeriesSmartDownloadCounts.storedCount(parentMetaId),
@@ -411,7 +414,9 @@ internal object SmartDownloads {
     }
 
     /** The episode on screen is near its end: the Finish a series goal moves on. The download itself starts from [onPlaybackSample]. */
-    fun onNearEnd(entry: WatchProgressEntry) {
+    fun onNearEnd(entry: WatchProgressEntry, persistsProgress: Boolean = true) {
+        if (!com.nuvio.app.features.watchprogress.allowsProgressWrite(persistsProgress)) return
+        com.nuvio.app.features.watchprogress.ProgressWriteTrace.note("SmartDownloads.onNearEnd")
         val season = entry.seasonNumber ?: return
         val episode = entry.episodeNumber ?: return
         if (!handledVideoIds.add(entry.videoId)) return

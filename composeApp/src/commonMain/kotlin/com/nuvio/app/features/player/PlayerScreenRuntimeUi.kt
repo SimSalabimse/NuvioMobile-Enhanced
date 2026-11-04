@@ -325,7 +325,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                         refreshAudioTracksIfChanged()
                         if (!snapshot.isLoading) initialLoadCompleted = true
                         if (snapshot.isPlaying && !snapshot.isLoading && snapshot.positionMs > 0L) {
-                            FinishedDownloadDeletion.playbackPlaying(playbackSession.videoId)
+                            FinishedDownloadDeletion.playbackPlaying(playbackSession.videoId, persistsProgress)
                         }
                         if (snapshot.isEnded && handleDownloadSwapPartialEnd()) return@PlatformPlayerSurface
                         // The held state: the end of an in-progress download's bytes is not an end.
@@ -843,7 +843,7 @@ private fun BoxScope.RenderPlaybackOverlays(
                 )
                 if (seekMs != null) {
                     val fromMs = playbackClock.positionMs
-                    com.nuvio.app.features.stats.WatchStats.recordSkip(seekMs - fromMs)
+                    com.nuvio.app.features.stats.WatchStats.recordSkip(seekMs - fromMs, persistsProgress)
                     offerSkipUndo(fromMs, seekMs - fromMs, interval)
                     noteSeek()
                     playerController?.seekTo(seekMs)

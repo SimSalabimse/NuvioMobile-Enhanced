@@ -26,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -168,6 +169,7 @@ import com.nuvio.app.features.player.recordExternalPlaybackProgress
 import com.nuvio.app.features.player.ExternalPlayerPlatform
 import com.nuvio.app.features.player.PlayerLaunch
 import com.nuvio.app.features.player.PlayerLaunchStore
+import com.nuvio.app.features.player.applyingSubmitMode
 import com.nuvio.app.navigation.launchPlayer
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.SubtitleLanguageOption
@@ -1164,9 +1166,10 @@ internal fun MainAppContent(
             startFromBeginning: Boolean,
             downloadMode: Boolean = false,
             forceExternalPlayer: Boolean = false,
+            submitMode: Boolean = false,
         ) {
-            val targetResumePositionMs = if (startFromBeginning) 0L else (resumePositionMs ?: 0L)
-            val targetResumeProgressFraction = if (startFromBeginning) null else resumeProgressFraction
+            val targetResumePositionMs = if (startFromBeginning || submitMode) 0L else (resumePositionMs ?: 0L)
+            val targetResumeProgressFraction = if (startFromBeginning || submitMode) null else resumeProgressFraction
 
             if (!manualSelection) {
                 val downloadedItem = DownloadsRepository.findPlayableDownload(
@@ -1211,8 +1214,9 @@ internal fun MainAppContent(
                         parentMetaType = parentMetaType,
                         initialPositionMs = targetResumePositionMs,
                         initialProgressFraction = targetResumeProgressFraction,
-                    )
+                    ).applyingSubmitMode(submitMode)
                     if (
+                        !submitMode &&
                         (forceExternalPlayer || playerSettingsUiState.externalPlayerEnabled) &&
                         !isLoopbackPartialPlaybackUrl(localSourceUrl)
                     ) {
@@ -1247,17 +1251,46 @@ internal fun MainAppContent(
                     episodeTitle = episodeTitle,
                     episodeThumbnail = episodeThumbnail,
                     pauseDescription = pauseDescription,
-                    resumePositionMs = if (startFromBeginning) 0L else resumePositionMs,
+                    resumePositionMs = if (startFromBeginning || submitMode) 0L else resumePositionMs,
                     resumeProgressFraction = targetResumeProgressFraction,
                     manualSelection = manualSelection,
-                    startFromBeginning = startFromBeginning,
+                    startFromBeginning = startFromBeginning || submitMode,
                     downloadMode = downloadMode,
-                    forceExternalPlayer = forceExternalPlayer,
+                    forceExternalPlayer = forceExternalPlayer && !submitMode,
+                    submitMode = submitMode,
                 ),
             )
             navController.navigate(
                 StreamRoute(launchId = streamLaunchId, title = title),
             )
+        }
+
+        SideEffect {
+            installEpisodeSubmitLauncher { request ->
+                launchPlaybackWithDownloadPreference(
+                    type = request.type,
+                    videoId = request.videoId,
+                    parentMetaId = request.parentMetaId,
+                    parentMetaType = request.parentMetaType,
+                    title = request.title,
+                    logo = request.logo,
+                    poster = request.poster,
+                    background = request.background,
+                    seasonNumber = request.seasonNumber,
+                    episodeNumber = request.episodeNumber,
+                    episodeTitle = request.episodeTitle,
+                    episodeThumbnail = request.episodeThumbnail,
+                    pauseDescription = request.pauseDescription,
+                    resumePositionMs = null,
+                    resumeProgressFraction = null,
+                    manualSelection = false,
+                    startFromBeginning = true,
+                    submitMode = true,
+                )
+            }
+        }
+        DisposableEffect(Unit) {
+            onDispose { installEpisodeSubmitLauncher(null) }
         }
 
         fun openPartyMedia(media: PartyMedia) {

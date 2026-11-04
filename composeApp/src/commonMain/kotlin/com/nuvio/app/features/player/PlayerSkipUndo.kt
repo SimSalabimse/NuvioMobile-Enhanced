@@ -28,7 +28,7 @@ internal fun PlayerScreenRuntime.undoSkip() {
     val tap = SkipUndo.undo(skipUndo, epochMs())
     skipUndo = tap.state
     val target = tap.seekToMs ?: return
-    if (tap.subtractMs > 0L) WatchStats.recordSkip(-tap.subtractMs)
+    if (tap.subtractMs > 0L) WatchStats.recordSkip(-tap.subtractMs, persistsProgress)
     noteSeek()
     playerController?.seekTo(target)
     scheduleProgressSyncAfterSeek()

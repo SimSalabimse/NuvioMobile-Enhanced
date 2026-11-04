@@ -26,6 +26,7 @@ import nuvio.composeapp.generated.resources.cw_action_go_to_details
 import nuvio.composeapp.generated.resources.cw_action_remove
 import nuvio.composeapp.generated.resources.downloads_season_cancel
 import nuvio.composeapp.generated.resources.episode_mark_previous_seasons_watched
+import nuvio.composeapp.generated.resources.episode_submit_segment_only
 import nuvio.composeapp.generated.resources.episode_mark_previous_unwatched
 import nuvio.composeapp.generated.resources.episode_mark_previous_watched
 import nuvio.composeapp.generated.resources.episode_mark_season_unwatched
@@ -71,6 +72,7 @@ internal fun longPressMenuLabels(): LongPressMenuLabels = LongPressMenuLabels(
     downloadFile = stringResource(Res.string.streams_download_file),
     markPreviousSeasons = stringResource(Res.string.episode_mark_previous_seasons_watched),
     libraryLists = stringResource(Res.string.a11y_library_lists),
+    submitSegment = stringResource(Res.string.episode_submit_segment_only),
 )
 
 @Composable

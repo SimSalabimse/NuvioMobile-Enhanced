@@ -51,7 +51,25 @@ data class PlayerLaunch(
     val contentLanguage: String? = null,
     val sourceFilename: String? = null,
     val stream: com.nuvio.app.features.streams.StreamItem? = null,
-)
+    /**
+     * Opened only to submit or fix a segment. [persistsProgress] is then false, and
+     * every progress writer returns before it changes resume, watched state, or
+     * Continue Watching. See [com.nuvio.app.navigation.openEpisodeInSubmitMode].
+     */
+    val submitMode: Boolean = false,
+) {
+    /** False exactly when [submitMode] is set. The one flag progress writers read. */
+    val persistsProgress: Boolean
+        get() = !submitMode
+}
+
+/** Submit mode plays from the start and does not adopt a saved resume as the launch position. */
+internal fun PlayerLaunch.applyingSubmitMode(submitMode: Boolean): PlayerLaunch =
+    if (!submitMode) this else copy(
+        submitMode = true,
+        initialPositionMs = 0L,
+        initialProgressFraction = null,
+    )
 
 object PlayerLaunchStore {
     private var nextLaunchId = 1L
