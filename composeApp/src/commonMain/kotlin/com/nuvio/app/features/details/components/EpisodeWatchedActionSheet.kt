@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAddCheckCircle
 import androidx.compose.material.icons.rounded.Download
@@ -56,6 +57,7 @@ fun EpisodeWatchedActionSheet(
     onRate: (() -> Unit)? = null,
     /** Marks every earlier episode and this one watched; null hides it (all already watched). */
     onMarkUpToHereWatched: (() -> Unit)? = null,
+    onSubmitSegment: (() -> Unit)? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
@@ -171,6 +173,18 @@ fun EpisodeWatchedActionSheet(
                     enabled = networkActionsEnabled,
                     onClick = {
                         onPlayManually()
+                        coroutineScope.launch {
+                            dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
+                        }
+                    },
+                )
+            }
+            if (onSubmitSegment != null) {
+                NuvioBottomSheetActionRow(
+                    icon = Icons.Default.Flag,
+                    title = stringResource(Res.string.episode_submit_segment_only),
+                    onClick = {
+                        onSubmitSegment()
                         coroutineScope.launch {
                             dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
                         }

@@ -45,6 +45,7 @@ import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.hasLikelyExpiringPlaybackCredentials
 import com.nuvio.app.features.tracking.TrackingScrobbleAction
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
+import com.nuvio.app.features.watchprogress.allowsProgressWrite
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
 import com.nuvio.app.features.watching.application.WatchingState
 import kotlinx.coroutines.CancellationException
@@ -327,6 +328,10 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
                 controllerSourceUrl == activePlaybackSourceUrl ||
                 controllerSourceUrl == p2pResolvedSourceUrl
         if (!controllerMatchesActivePlayback) return@LaunchedEffect
+        if (!allowsProgressWrite(persistsProgress)) {
+            controller.clearNowPlayingInfo()
+            return@LaunchedEffect
+        }
         controller.updateNowPlayingMetadata(buildNowPlayingInfo())
     }
 
@@ -454,7 +459,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         val partialDownloadId = partialPlaybackDownloadId(effectSourceUrl)
         if (partialDownloadId != null) PartialPlaybackLease.acquire(partialDownloadId)
         onDispose {
-            ServerPlayback.stop(effectSourceUrl)
+            releaseServerPlayback(effectSourceUrl)
             if (partialDownloadId != null) {
                 PartialPlaybackLease.release(partialDownloadId)
                 DownloadsRepository.onPartialPlaybackClosed(partialDownloadId)
@@ -466,19 +471,9 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         val effectVideoId = playbackSession.videoId
         val effectSourceUrl = activeSourceUrl
         val effectSourceAudioUrl = activeSourceAudioUrl
-        FinishedDownloadDeletion.playbackOpened(effectVideoId, effectSourceUrl)
+        FinishedDownloadDeletion.playbackOpened(effectVideoId, effectSourceUrl, persistsProgress)
         onDispose {
-            val sameVideo = playbackSession.videoId == effectVideoId
-            val sameSource = activeSourceUrl == effectSourceUrl &&
-                activeSourceAudioUrl == effectSourceAudioUrl
-            if (sameVideo && sameSource) {
-                flushWatchProgress()
-                FinishedDownloadDeletion.playbackEnded(effectVideoId)
-            } else if (!sameVideo) {
-                FinishedDownloadDeletion.playbackEnded(effectVideoId)
-            } else {
-                FinishedDownloadDeletion.playbackSourceChanged(effectVideoId, activeSourceUrl)
-            }
+            onPlaybackSourceDisposed(effectVideoId, effectSourceUrl, effectSourceAudioUrl)
         }
     }
 
@@ -491,7 +486,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         PlaybackQuietMode.playerOpened()
         onDispose {
             PlaybackQuietMode.playerClosed()
-            args.launchId?.let { launchId -> PlayerLaunchStore.update(launchId) { currentLaunch(it) } }
+            onPlayerRouteDisposed()
             playerController?.clearNowPlayingInfo()
             P2pStreamingEngine.shutdown()
             cancelNextEpisodePreload()
@@ -560,55 +555,93 @@ private fun PlayerScreenRuntime.BindPlayerUiVisibilityEffects() {
         playbackSnapshot.durationMs,
     ) {
         snapshotFlow { playbackClock.positionMs }.collect {
-            ServerPlayback.onPlaybackSnapshot(
-                url = activeSourceUrl,
-                positionMs = playbackClock.positionMs,
-                isPlaying = playbackSnapshot.isPlaying,
-                isLoading = playbackSnapshot.isLoading,
-                isEnded = playbackSnapshot.isEnded,
-            )
-            if (playbackSnapshot.isEnded) {
-                flushWatchProgress(TrackingScrobbleAction.STOP)
-                previousIsPlaying = false
-                pendingSeekScrobbleRestart = false
-                return@collect
-            }
-
-            if (previousIsPlaying && !playbackSnapshot.isPlaying && !playbackSnapshot.isLoading) {
-                pendingSeekScrobbleRestart = false
-                flushWatchProgress(TrackingScrobbleAction.PAUSE)
-            }
-
-            if (playbackSnapshot.isPlaying && pendingSeekScrobbleRestart) {
-                pendingSeekScrobbleRestart = false
-                if (hasRequestedScrobbleStartForCurrentItem) {
-                    emitTrackingSeekScrobbleStart()
-                } else {
-                    emitTrackingScrobbleStart()
-                }
-            } else if (!previousIsPlaying && playbackSnapshot.isPlaying) {
-                emitTrackingScrobbleStart()
-            }
-
-            if (!playbackSnapshot.isLoading) {
-                previousIsPlaying = playbackSnapshot.isPlaying
-            }
-            if (playbackSnapshot.isPlaying) {
-                persistPlaybackProgressTick()
-                val playing = playbackSession
-                SmartDownloads.onPlaybackSample(
-                    parentMetaId = playing.parentMetaId,
-                    parentMetaType = playing.parentMetaType,
-                    videoId = playing.videoId,
-                    seasonNumber = playing.seasonNumber,
-                    episodeNumber = playing.episodeNumber,
-                    positionMs = playbackClock.positionMs,
-                    durationMs = playbackSnapshot.durationMs,
-                    playbackSpeed = playbackSnapshot.playbackSpeed.toDouble(),
-                    mediaBitrateBps = playbackSnapshot.mediaBitrateBps,
-                )
-            }
+            onPlaybackProgressSample()
         }
+    }
+}
+
+internal fun PlayerScreenRuntime.releaseServerPlayback(url: String) {
+    ServerPlayback.stop(url, persistsProgress = persistsProgress)
+}
+
+/** Leaving the player. Submit mode does not write the live playhead back onto the launch. */
+internal fun PlayerScreenRuntime.onPlayerRouteDisposed() {
+    args.launchId?.let { launchId ->
+        if (allowsProgressWrite(persistsProgress)) {
+            PlayerLaunchStore.update(launchId) { currentLaunch(it) }
+        }
+    }
+}
+
+internal fun PlayerScreenRuntime.onPlaybackSourceDisposed(
+    effectVideoId: String,
+    effectSourceUrl: String,
+    effectSourceAudioUrl: String?,
+) {
+    val sameVideo = playbackSession.videoId == effectVideoId
+    val sameSource = activeSourceUrl == effectSourceUrl &&
+        activeSourceAudioUrl == effectSourceAudioUrl
+    if (sameVideo && sameSource) {
+        flushWatchProgress()
+        FinishedDownloadDeletion.playbackEnded(effectVideoId, persistsProgress)
+    } else if (!sameVideo) {
+        FinishedDownloadDeletion.playbackEnded(effectVideoId, persistsProgress)
+    } else {
+        FinishedDownloadDeletion.playbackSourceChanged(effectVideoId, activeSourceUrl, persistsProgress)
+    }
+}
+
+/** Clock tick the player uses for pause, background, finish, periodic save, and scrobble. */
+internal fun PlayerScreenRuntime.onPlaybackProgressSample() {
+    ServerPlayback.onPlaybackSnapshot(
+        url = activeSourceUrl,
+        positionMs = playbackClock.positionMs,
+        isPlaying = playbackSnapshot.isPlaying,
+        isLoading = playbackSnapshot.isLoading,
+        isEnded = playbackSnapshot.isEnded,
+        persistsProgress = persistsProgress,
+    )
+    if (playbackSnapshot.isEnded) {
+        flushWatchProgress(TrackingScrobbleAction.STOP)
+        previousIsPlaying = false
+        pendingSeekScrobbleRestart = false
+        return
+    }
+
+    if (previousIsPlaying && !playbackSnapshot.isPlaying && !playbackSnapshot.isLoading) {
+        pendingSeekScrobbleRestart = false
+        flushWatchProgress(TrackingScrobbleAction.PAUSE)
+    }
+
+    if (playbackSnapshot.isPlaying && pendingSeekScrobbleRestart) {
+        pendingSeekScrobbleRestart = false
+        if (hasRequestedScrobbleStartForCurrentItem) {
+            emitTrackingSeekScrobbleStart()
+        } else {
+            emitTrackingScrobbleStart()
+        }
+    } else if (!previousIsPlaying && playbackSnapshot.isPlaying) {
+        emitTrackingScrobbleStart()
+    }
+
+    if (!playbackSnapshot.isLoading) {
+        previousIsPlaying = playbackSnapshot.isPlaying
+    }
+    if (playbackSnapshot.isPlaying) {
+        persistPlaybackProgressTick()
+        val playing = playbackSession
+        SmartDownloads.onPlaybackSample(
+            parentMetaId = playing.parentMetaId,
+            parentMetaType = playing.parentMetaType,
+            videoId = playing.videoId,
+            seasonNumber = playing.seasonNumber,
+            episodeNumber = playing.episodeNumber,
+            positionMs = playbackClock.positionMs,
+            durationMs = playbackSnapshot.durationMs,
+            playbackSpeed = playbackSnapshot.playbackSpeed.toDouble(),
+            mediaBitrateBps = playbackSnapshot.mediaBitrateBps,
+            persistsProgress = persistsProgress,
+        )
     }
 }
 
@@ -755,7 +788,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                 val notification = current.autoSkipNotificationMessage(seekPositionMs)
                 autoSkippedIntervals.add(current)
                 val fromMs = (positionSec * 1000).toLong()
-                com.nuvio.app.features.stats.WatchStats.recordSkip(seekPositionMs - fromMs)
+                com.nuvio.app.features.stats.WatchStats.recordSkip(seekPositionMs - fromMs, persistsProgress)
                 offerSkipUndo(fromMs, seekPositionMs - fromMs, current)
                 noteSeek()
                 controller.seekTo(seekPositionMs)

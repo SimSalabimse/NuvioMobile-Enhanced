@@ -3,7 +3,9 @@ package com.nuvio.app.features.stats
 import com.nuvio.app.features.downloads.DownloadsSettingsStorage
 import com.nuvio.app.features.streams.epochMs
 import com.nuvio.app.features.watchprogress.CurrentDateProvider
+import com.nuvio.app.features.watchprogress.ProgressWriteTrace
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
+import com.nuvio.app.features.watchprogress.allowsProgressWrite
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -83,7 +85,9 @@ internal object WatchStats {
             ?: WatchStatsData()
     }
 
-    fun record(entry: WatchProgressEntry) {
+    fun record(entry: WatchProgressEntry, persistsProgress: Boolean = true) {
+        if (!allowsProgressWrite(persistsProgress)) return
+        ProgressWriteTrace.note("WatchStats.record")
         ensureLoaded()
         val now = epochMs()
         val position = entry.lastPositionMs
@@ -128,7 +132,9 @@ internal object WatchStats {
      * A skip jumped [savedMs] ahead. A negative value with the same limit subtracts a skip that
      * was undone. Outside 1..[MAX_SKIP_MS] (either sign) is a seek, not a skip.
      */
-    fun recordSkip(savedMs: Long) {
+    fun recordSkip(savedMs: Long, persistsProgress: Boolean = true) {
+        if (!allowsProgressWrite(persistsProgress)) return
+        ProgressWriteTrace.note("WatchStats.recordSkip")
         if (adjustSkippedMs(0L, savedMs) == null) return
         ensureLoaded()
         val day = CurrentDateProvider.todayIsoDate()

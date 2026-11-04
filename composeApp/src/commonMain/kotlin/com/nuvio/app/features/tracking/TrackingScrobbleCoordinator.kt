@@ -2,6 +2,8 @@ package com.nuvio.app.features.tracking
 
 import co.touchlab.kermit.Logger
 import com.nuvio.app.features.profiles.ProfileRepository
+import com.nuvio.app.features.watchprogress.ProgressWriteTrace
+import com.nuvio.app.features.watchprogress.allowsProgressWrite
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -19,7 +21,10 @@ object TrackingScrobbleCoordinator {
         profileId: Int,
         action: TrackingScrobbleAction,
         event: TrackingScrobbleEvent,
+        persistsProgress: Boolean = true,
     ): List<TrackingScrobbleFailure> {
+        if (!allowsProgressWrite(persistsProgress)) return emptyList()
+        ProgressWriteTrace.note("TrackingScrobbleCoordinator.scrobble")
         if (profileId != ProfileRepository.activeProfileId) return emptyList()
         TrackingProviderRegistry.ensureLoaded()
         val failures = dispatchTrackingScrobble(
@@ -40,7 +45,10 @@ object TrackingScrobbleCoordinator {
         profileId: Int,
         action: TrackingScrobbleAction,
         event: TrackingScrobbleEvent,
+        persistsProgress: Boolean = true,
     ): List<TrackingScrobbleFailure> {
+        if (!allowsProgressWrite(persistsProgress)) return emptyList()
+        ProgressWriteTrace.note("TrackingScrobbleCoordinator.scrobbleSeek")
         if (profileId != ProfileRepository.activeProfileId) return emptyList()
         TrackingProviderRegistry.ensureLoaded()
         val failures = dispatchTrackingSeekScrobble(

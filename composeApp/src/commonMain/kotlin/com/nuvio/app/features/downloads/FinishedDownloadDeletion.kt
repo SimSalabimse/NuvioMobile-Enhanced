@@ -8,6 +8,8 @@ import com.nuvio.app.features.analysis.MediaAnalysisStore
 import com.nuvio.app.features.analysis.MediaAnalyzerPlatform
 import com.nuvio.app.features.streams.epochMs
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
+import com.nuvio.app.features.watchprogress.allowsProgressWrite
+import com.nuvio.app.features.watchprogress.ProgressWriteTrace
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CoroutineScope
@@ -74,7 +76,9 @@ internal object FinishedDownloadDeletion {
     private var generationClock = 0
     private var holdCapJob: Job? = null
 
-    fun playbackOpened(videoId: String, sourceUrl: String) {
+    fun playbackOpened(videoId: String, sourceUrl: String, persistsProgress: Boolean = true) {
+        if (!allowsProgressWrite(persistsProgress)) return
+        ProgressWriteTrace.note("FinishedDownloadDeletion.playbackOpened")
         notePlayed(videoId, downloadIdForSource(sourceUrl))
         val previous = session
         if (previous != null && previous.videoId != videoId) {
@@ -102,7 +106,9 @@ internal object FinishedDownloadDeletion {
         session = OpenPlayback(videoId = videoId, sourceUrl = sourceUrl)
     }
 
-    fun playbackSourceChanged(videoId: String, sourceUrl: String) {
+    fun playbackSourceChanged(videoId: String, sourceUrl: String, persistsProgress: Boolean = true) {
+        if (!allowsProgressWrite(persistsProgress)) return
+        ProgressWriteTrace.note("FinishedDownloadDeletion.playbackSourceChanged")
         notePlayed(videoId, downloadIdForSource(sourceUrl))
         cancelPendingFor(videoId, sourceUrl)
         val current = session ?: return
@@ -115,7 +121,9 @@ internal object FinishedDownloadDeletion {
      * session keeps that download, so finishing the video counts for the file whichever of the
      * two is on screen when completion fires.
      */
-    fun linkDownload(videoId: String, downloadId: String) {
+    fun linkDownload(videoId: String, downloadId: String, persistsProgress: Boolean = true) {
+        if (!allowsProgressWrite(persistsProgress)) return
+        ProgressWriteTrace.note("FinishedDownloadDeletion.linkDownload")
         notePlayed(videoId, downloadId)
         val current = session ?: return
         if (current.videoId != videoId) return
@@ -123,14 +131,18 @@ internal object FinishedDownloadDeletion {
     }
 
     /** The player is showing frames of [videoId]: a previous episode waiting for that may go. */
-    fun playbackPlaying(videoId: String) {
+    fun playbackPlaying(videoId: String, persistsProgress: Boolean = true) {
+        if (!allowsProgressWrite(persistsProgress)) return
+        ProgressWriteTrace.note("FinishedDownloadDeletion.playbackPlaying")
         val waiting = pending ?: return
         if (!waiting.untilOtherPlays || waiting.videoId == videoId) return
         if (session?.videoId != videoId) return
         schedule(waiting.copy(untilOtherPlays = false), delayMs = 0L)
     }
 
-    fun playbackEnded(videoId: String) {
+    fun playbackEnded(videoId: String, persistsProgress: Boolean = true) {
+        if (!allowsProgressWrite(persistsProgress)) return
+        ProgressWriteTrace.note("FinishedDownloadDeletion.playbackEnded")
         val current = session ?: return
         if (current.videoId != videoId) return
         notePlayed(current.videoId, current.queuedDownloadId)
@@ -162,7 +174,14 @@ internal object FinishedDownloadDeletion {
      * ([PlaybackEndRules.reachedEnd]), unqueues it when the viewer goes back before that, and moves
      * a Finish a series goal on near the end. The next-episode download is scheduled from playback.
      */
-    fun onLocalProgress(entry: WatchProgressEntry, positionMs: Long, durationMs: Long) {
+    fun onLocalProgress(
+        entry: WatchProgressEntry,
+        positionMs: Long,
+        durationMs: Long,
+        persistsProgress: Boolean = true,
+    ) {
+        if (!allowsProgressWrite(persistsProgress)) return
+        ProgressWriteTrace.note("FinishedDownloadDeletion.onLocalProgress")
         notePlayed(entry.videoId, null)
         val current = session ?: return
         if (entry.videoId != current.videoId) return
@@ -174,7 +193,7 @@ internal object FinishedDownloadDeletion {
         item?.let { notePlayed(entry.videoId, it.id) }
         val creditsStartMs = item?.let { creditsStartFor(it) }
         val near = PlaybackEndRules.nearEnd(positionMs, durationMs, creditsStartMs)
-        if (near) SmartDownloads.onNearEnd(entry)
+        if (near) SmartDownloads.onNearEnd(entry, persistsProgress = persistsProgress)
         val tracked = current.copy(nearEnd = near)
         session = tracked
         val ended = PlaybackEndRules.reachedEnd(positionMs, durationMs, creditsStartMs)
