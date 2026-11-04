@@ -89,4 +89,10 @@ internal expect object DownloadsPlatformDownloader {
 
     /** Retries the manager has already counted for [downloadId], or 0. Does not start or change one. */
     fun retryCount(downloadId: String): Int
+
+    /**
+     * Bytes recorded when the last retry for [downloadId] was counted, or null when this
+     * platform clears [retryCount] itself once new bytes arrive.
+     */
+    fun bytesAtLastFailure(downloadId: String): Long?
 }
