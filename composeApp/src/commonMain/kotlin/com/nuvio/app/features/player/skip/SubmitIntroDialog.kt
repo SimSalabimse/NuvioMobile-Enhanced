@@ -35,6 +35,7 @@ import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
+import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.rememberDismissSoftwareKeyboard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -354,7 +355,7 @@ fun SubmitIntroDialog(
                     parentMetaType = parentMetaType,
                     service = service,
                 )
-                if (result) {
+                if (result.recorded) {
                     val submittedKey = flagSubmitContentKey(imdbId, season, episode, isMovie)
                     FlagSubmitLedger.rememberType(submittedKey, segmentType)
                     if (shouldRecordOwnTheIntroDb(service, succeeded = true)) {
@@ -367,6 +368,9 @@ fun SubmitIntroDialog(
                         }
                     }
                     SkipIntroRepository.clearCache()
+                    if (result == ManualSkipSubmitOutcome.ALREADY_SUBMITTED) {
+                        NuvioToastController.show(TheIntroDbAlreadySubmittedMessage)
+                    }
                     onSuccess()
                 } else {
                     errorMessage = if (keyWasNew) {
@@ -881,6 +885,16 @@ internal suspend fun prepareIntroSubmitKey(
     return IntroSubmitKeyPrepareResult.Ready
 }
 
+internal enum class ManualSkipSubmitOutcome {
+    SENT,
+    ALREADY_SUBMITTED,
+    FAILED,
+    ;
+
+    val recorded: Boolean
+        get() = this == SENT || this == ALREADY_SUBMITTED
+}
+
 internal suspend fun submitManualSkipSegment(
     imdbId: String,
     season: Int,
@@ -893,20 +907,28 @@ internal suspend fun submitManualSkipSegment(
     videoId: String?,
     parentMetaType: String,
     service: IntroSubmitService,
-): Boolean {
+): ManualSkipSubmitOutcome {
     val settings = PlayerSettingsRepository.uiState.value
-    if (!settings.introSubmitEnabled) return false
+    if (!settings.introSubmitEnabled) return ManualSkipSubmitOutcome.FAILED
     val key = savedKeyForService(service, settings.introDbApiKey, settings.theIntroDbApiKey)
-    if (introSubmitBlockReason(service, key, isMovie, imdbId, season, episode) != null) return false
+    if (introSubmitBlockReason(service, key, isMovie, imdbId, season, episode) != null) {
+        return ManualSkipSubmitOutcome.FAILED
+    }
     return when (service) {
-        IntroSubmitService.INTRODB -> SkipIntroRepository.submitIntro(
-            imdbId = imdbId,
-            season = season,
-            episode = episode,
-            startSec = startSec,
-            endSec = endSec,
-            segmentType = segmentType,
-        )
+        IntroSubmitService.INTRODB -> if (
+            SkipIntroRepository.submitIntro(
+                imdbId = imdbId,
+                season = season,
+                episode = episode,
+                startSec = startSec,
+                endSec = endSec,
+                segmentType = segmentType,
+            )
+        ) {
+            ManualSkipSubmitOutcome.SENT
+        } else {
+            ManualSkipSubmitOutcome.FAILED
+        }
         IntroSubmitService.THE_INTRODB -> submitTheIntroDbSegment(
             apiKey = key,
             imdbId = imdbId,
@@ -935,7 +957,7 @@ private suspend fun submitTheIntroDbSegment(
     isMovie: Boolean,
     videoId: String?,
     parentMetaType: String,
-): Boolean {
+): ManualSkipSubmitOutcome {
     val mediaType = when {
         isMovie -> "movie"
         parentMetaType.equals("movie", ignoreCase = true) -> "movie"
@@ -946,19 +968,58 @@ private suspend fun submitTheIntroDbSegment(
         mediaType = mediaType,
         fallbackImdbId = imdbId.takeIf { it.startsWith("tt", ignoreCase = true) },
     )?.toIntOrNull()
-    if (resolvedTmdb == null || resolvedTmdb <= 0) return false
-    return TheIntroDb.submitTimestamp(
-        apiKey = apiKey,
-        tmdbId = resolvedTmdb,
-        imdbId = imdbId.takeIf { it.startsWith("tt", ignoreCase = true) },
-        type = mediaType,
-        segment = segmentType,
-        season = season.takeIf { mediaType == "tv" && season > 0 },
-        episode = episode.takeIf { mediaType == "tv" && episode > 0 },
-        startSec = startSec,
-        endSec = endSec,
-        videoDurationMs = durationMs.takeIf { it > 0L },
+    if (resolvedTmdb == null || resolvedTmdb <= 0) return ManualSkipSubmitOutcome.FAILED
+    val seasonSent = season.takeIf { mediaType == "tv" && season > 0 }
+    val episodeSent = episode.takeIf { mediaType == "tv" && episode > 0 }
+    val fields = lookupTheIntroDbEpisodeFields(
+        videoId = videoId,
+        imdbId = imdbId,
+        isMovie = mediaType == "movie",
+        season = seasonSent,
+        episode = episodeSent,
     )
+    return when (
+        TheIntroDb.submitTimestamp(
+            apiKey = apiKey,
+            tmdbId = resolvedTmdb,
+            imdbId = imdbId.takeIf { it.startsWith("tt", ignoreCase = true) },
+            type = mediaType,
+            segment = segmentType,
+            season = seasonSent,
+            episode = episodeSent,
+            startSec = startSec,
+            endSec = endSec,
+            videoDurationMs = durationMs.takeIf { it > 0L },
+            tvdbEpisodeId = fields.tvdbEpisodeId,
+            mapping = fields.mapping,
+        )
+    ) {
+        TheIntroDbSubmitResult.Accepted -> ManualSkipSubmitOutcome.SENT
+        TheIntroDbSubmitResult.AlreadySubmitted -> ManualSkipSubmitOutcome.ALREADY_SUBMITTED
+        is TheIntroDbSubmitResult.Failed -> ManualSkipSubmitOutcome.FAILED
+    }
+}
+
+private suspend fun lookupTheIntroDbEpisodeFields(
+    videoId: String?,
+    imdbId: String?,
+    isMovie: Boolean,
+    season: Int?,
+    episode: Int?,
+): TheIntroDbEpisodeFields {
+    if (isMovie) return TheIntroDbEpisodeFields()
+    val mappings = try {
+        val (source, id) = theIntroDbSimklSource(videoId, imdbId)
+            ?: return theIntroDbEpisodeFields(videoId, isMovie = false, season, episode, emptyList())
+        val resolved = SimklIdResolver.resolveIds(source, id)
+            ?: return theIntroDbEpisodeFields(videoId, isMovie = false, season, episode, emptyList())
+        SimklIdResolver.getEpisodeMapping(resolved.simklId, resolved.type)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        emptyList()
+    }
+    return theIntroDbEpisodeFields(videoId, isMovie = false, season, episode, mappings)
 }
 
 @Composable

@@ -13,7 +13,7 @@ import kotlin.test.assertTrue
 
 class TheIntroDbSubmitPayloadTest {
     @Test
-    fun `an absent segment keeps the media length and sends zero times`() {
+    fun `an absent segment keeps the media length and omits both time keys`() {
         val body = theIntroDbSubmitPayload(
             tmdbId = 1396,
             imdbId = "tt0903747",
@@ -26,8 +26,8 @@ class TheIntroDbSubmitPayloadTest {
             videoDurationMs = 2_700_000,
         )
         val json = Json.parseToJsonElement(checkNotNull(body)).jsonObject
-        assertEquals(0L, json.getValue("start_ms").jsonPrimitive.long)
-        assertEquals(0L, json.getValue("end_ms").jsonPrimitive.long)
+        assertFalse(json.containsKey("start_ms"))
+        assertFalse(json.containsKey("end_ms"))
         assertEquals(2_700_000L, json.getValue("video_duration_ms").jsonPrimitive.long)
         assertEquals("credits", json.getValue("segment").jsonPrimitive.content)
         assertEquals(1, json.getValue("season").jsonPrimitive.int)
@@ -45,8 +45,8 @@ class TheIntroDbSubmitPayloadTest {
             videoDurationMs = 0L,
         )
         val json = Json.parseToJsonElement(checkNotNull(body)).jsonObject
-        assertEquals(0L, json.getValue("start_ms").jsonPrimitive.long)
-        assertEquals(0L, json.getValue("end_ms").jsonPrimitive.long)
+        assertFalse(json.containsKey("start_ms"))
+        assertFalse(json.containsKey("end_ms"))
         assertFalse(json.containsKey("video_duration_ms"))
         assertFalse(json.containsKey("season"))
     }
@@ -70,7 +70,7 @@ class TheIntroDbSubmitPayloadTest {
     }
 
     @Test
-    fun `each segment type submits an absent mark as zero times plus the video length`() {
+    fun `each segment type submits an absent mark with no time keys plus the video length`() {
         val cases = listOf(
             "intro" to "intro",
             "recap" to "recap",
@@ -98,8 +98,8 @@ class TheIntroDbSubmitPayloadTest {
                 videoDurationMs = 2_700_000,
             )
             val json = Json.parseToJsonElement(checkNotNull(body)).jsonObject
-            assertEquals(0L, json.getValue("start_ms").jsonPrimitive.long, segment)
-            assertEquals(0L, json.getValue("end_ms").jsonPrimitive.long, segment)
+            assertFalse(json.containsKey("start_ms"), segment)
+            assertFalse(json.containsKey("end_ms"), segment)
             assertEquals(2_700_000L, json.getValue("video_duration_ms").jsonPrimitive.long, segment)
             assertEquals(expected, json.getValue("segment").jsonPrimitive.content, segment)
             assertNull(
@@ -140,8 +140,8 @@ class TheIntroDbSubmitPayloadTest {
             videoDurationMs = durationMs,
         )
         val json = Json.parseToJsonElement(checkNotNull(body)).jsonObject
-        val endMs = json.getValue("end_ms").jsonPrimitive.long
-        assertTrue(endMs <= durationMs && durationMs - endMs <= 1L)
+        assertFalse(json.containsKey("end_ms"))
+        assertTrue(json.containsKey("start_ms"))
         assertEquals(durationMs, json.getValue("video_duration_ms").jsonPrimitive.long)
     }
 
