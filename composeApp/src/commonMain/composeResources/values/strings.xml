@@ -1816,6 +1816,7 @@
     <string name="season_download_title">Download %1$s</string>
     <string name="season_download_pick_source">Choose a source</string>
     <string name="season_download_no_sources">No downloadable sources for the first episode.</string>
+    <string name="episode_download_no_sources">No downloadable sources found.</string>
     <string name="season_download_size_unknown">Size unknown</string>
     <string name="season_download_no_streams">No streams found</string>
     <string name="season_download_no_match">No matching source</string>
@@ -1863,6 +1864,7 @@
     <string name="downloads_storage_used_by_downloads">Downloads use %1$s</string>
     <string name="downloads_storage_unknown_space">Free space unknown</string>
     <string name="downloads_storage_low">Low on space. Downloads stop with less than %1$s free.</string>
+    <string name="downloads_storage_incomplete">Failed / incomplete downloads: %1$s</string>
     <plurals name="downloads_storage_count">
         <item quantity="one">%1$d download</item>
         <item quantity="other">%1$d downloads</item>
