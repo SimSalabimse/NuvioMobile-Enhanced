@@ -62,6 +62,7 @@ internal fun PlayerSubmitBarFixture(
     longLabels: Boolean,
     clocksTouched: Boolean = false,
     modifier: Modifier = Modifier,
+    isMovie: Boolean = false,
 ) {
     val stageWidth = widthDp.coerceIn(1, 4_000).dp
     val stageHeight = 390.dp
@@ -73,7 +74,7 @@ internal fun PlayerSubmitBarFixture(
     ) {
         LandscapeStage(stageWidth, stageHeight, Modifier.fillMaxSize()) {
             Box(Modifier.fillMaxSize().background(Color(0xFF10141C))) {
-                PlayerSubmitBarFixtureContent(longLabels, clocksTouched = clocksTouched)
+                PlayerSubmitBarFixtureContent(longLabels, clocksTouched = clocksTouched, isMovie = isMovie)
             }
         }
     }
@@ -83,11 +84,12 @@ internal fun PlayerSubmitBarFixture(
 internal fun PlayerSubmitBarFixtureContent(
     longLabels: Boolean,
     clocksTouched: Boolean = false,
+    isMovie: Boolean = false,
 ) {
     SegmentMarkingLayer(
         segmentType = "preview",
-        isMovie = false,
-        episodeCode = "S2 E4",
+        isMovie = isMovie,
+        episodeCode = if (isMovie) null else "S2 E4",
         year = "2024",
         startSec = 0.0,
         endSec = if (longLabels) PlayerSubmitBarLongClockSec else 0.0,
@@ -110,7 +112,11 @@ internal fun PlayerSubmitBarFixtureContent(
         onNudge = { _, _ -> },
         onAddKey = {},
         onSubmit = {},
-        submittedTypes = setOf("intro", "recap"),
+        submittedTypes = if (isMovie) {
+            setOf("intro", "recap", "outro", "preview")
+        } else {
+            setOf("intro", "recap")
+        },
         labels = if (longLabels) longSubmitBarLabels() else null,
         clocksTouched = clocksTouched,
     )

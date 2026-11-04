@@ -62,9 +62,19 @@ internal fun UiWalkOverlay() {
             WalkKind.PlayerQuality -> PlayerQuality()
             WalkKind.PlayerTools -> PlayerTools(styleOpen = false)
             WalkKind.PlayerSubtitles -> PlayerTools(styleOpen = true)
+            WalkKind.PlayerSubmitBarMovie -> MovieSubmitBar()
             else -> Unit
         }
     }
+}
+
+@Composable
+private fun MovieSubmitBar() {
+    PlayerSubmitBarFixture(
+        widthDp = PlayerSubmitBarDefaultWidthDp,
+        longLabels = false,
+        isMovie = true,
+    )
 }
 
 @Composable
