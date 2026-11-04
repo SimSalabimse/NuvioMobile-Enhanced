@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.rounded.ViewList
 import androidx.compose.material.icons.filled.PlaylistAddCheckCircle
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Star
@@ -207,6 +208,7 @@ fun SeasonWatchedActionSheet(
     userRating: Int? = null,
     onRate: (() -> Unit)? = null,
     networkActionsEnabled: Boolean = true,
+    onOpenOverview: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
@@ -273,6 +275,16 @@ fun SeasonWatchedActionSheet(
                     },
                 )
             }
+            NuvioBottomSheetActionRow(
+                icon = Icons.Rounded.ViewList,
+                title = stringResource(Res.string.season_overview),
+                onClick = {
+                    onOpenOverview()
+                    coroutineScope.launch {
+                        dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
+                    }
+                },
+            )
         }
     }
 }

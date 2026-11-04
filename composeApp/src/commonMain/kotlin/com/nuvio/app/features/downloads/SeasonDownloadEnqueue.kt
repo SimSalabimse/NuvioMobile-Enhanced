@@ -34,10 +34,9 @@ internal suspend fun enqueueSeasonDownloads(
         val episode = row.video.episode
         // Queuing replaces an existing row for the episode and deletes its file. Leave one the user has.
         val existingKey = downloadLogicalContentKey(meta.id, season, episode)
-        val existingStatus = DownloadsRepository.uiState.value.items
+        val existing = DownloadsRepository.uiState.value.items
             .firstOrNull { it.logicalContentKey == existingKey }
-            ?.status
-        if (seasonExistingDownload(existingStatus) != null) continue
+        if (leaveExistingDownloadInPlace(existing?.status, existing?.let { AnalysisTempDownloads.isTagged(it.id) } == true)) continue
         val videoId = seasonStreamVideoId(meta.id, row.video)
         val target = DownloadTarget(
             contentType = meta.type,

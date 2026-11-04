@@ -131,7 +131,11 @@ import com.nuvio.app.features.details.components.DetailTrailersSection
 import com.nuvio.app.features.details.components.EpisodeWatchedActionSheet
 import com.nuvio.app.navigation.EpisodeSubmitRequest
 import com.nuvio.app.navigation.openEpisodeInSubmitMode
+import com.nuvio.app.features.details.components.SeasonOverviewSheet
 import com.nuvio.app.features.details.components.SeasonWatchedActionSheet
+import com.nuvio.app.core.uifixture.UiFixture
+import com.nuvio.app.core.uifixture.UiFixtureCatalog
+import com.nuvio.app.core.uifixture.currentUiFixture
 import com.nuvio.app.features.details.components.TabletDetailBackdrop
 import com.nuvio.app.features.details.components.TabletDetailHero
 import com.nuvio.app.features.details.components.TabletDetailHeroActions
@@ -278,6 +282,7 @@ fun MetaDetailsScreen(
     val cinematicArtworkBackdrop = rememberNuvioBackdrop()
     val cinematicContentBackdrop = rememberNuvioBackdrop()
     var selectedSeasonForActions by remember(type, id) { mutableStateOf<Int?>(null) }
+    var seasonOverviewSeason by remember(type, id) { mutableStateOf<Int?>(null) }
     var userRatingSheetRequest by remember(type, id) { mutableStateOf<UserRatingSheetRequest?>(null) }
     val commentsEnabled by remember {
         TraktCommentsSettings.ensureLoaded()
@@ -1732,33 +1737,8 @@ fun MetaDetailsScreen(
                                 ),
                                 userRating = episodeUserRating,
                                 onSubmitSegment = {
-                                    val season = selectedEpisode.season
-                                    val episodeNumber = selectedEpisode.episode
-                                    val playbackVideoId = buildPlaybackVideoId(
-                                        parentMetaId = meta.id,
-                                        seasonNumber = season,
-                                        episodeNumber = episodeNumber,
-                                        fallbackVideoId = selectedEpisode.id,
-                                    )
-                                    val streamVideoId = selectedEpisode.id.takeIf { it.isNotBlank() } ?: playbackVideoId
                                     stopHeroTrailerForNavigation()
-                                    openEpisodeInSubmitMode(
-                                        EpisodeSubmitRequest(
-                                            type = meta.type,
-                                            videoId = streamVideoId,
-                                            parentMetaId = meta.id,
-                                            parentMetaType = meta.type,
-                                            title = meta.name,
-                                            logo = meta.logo,
-                                            poster = meta.poster,
-                                            background = meta.background,
-                                            seasonNumber = season,
-                                            episodeNumber = episodeNumber,
-                                            episodeTitle = selectedEpisode.title,
-                                            episodeThumbnail = selectedEpisode.thumbnail,
-                                            pauseDescription = selectedEpisode.overview,
-                                        ),
-                                    )
+                                    openEpisodeInSubmitMode(meta.toEpisodeSubmitRequest(selectedEpisode))
                                 },
                                 onRate = if (canRateEpisode && episodeRatingTarget != null) {
                                     {
@@ -1841,6 +1821,7 @@ fun MetaDetailsScreen(
                                     )
                                 },
                                 userRating = seasonUserRating,
+                                onOpenOverview = { seasonOverviewSeason = selectedSeason },
                                 onRate = if (canRateSeason) {
                                     {
                                         val request = UserRatingSheetRequest(
@@ -1855,6 +1836,40 @@ fun MetaDetailsScreen(
                                     }
                                 } else {
                                     null
+                                },
+                            )
+                        }
+
+                        val openSeasonOverviewFixture = currentUiFixture() == UiFixture.SeasonOverview &&
+                            meta.id == UiFixtureCatalog.SERIES_ID
+                        androidx.compose.runtime.LaunchedEffect(openSeasonOverviewFixture) {
+                            if (openSeasonOverviewFixture) seasonOverviewSeason = 1
+                        }
+                        seasonOverviewSeason?.let { overviewSeason ->
+                            val overviewEpisodes = remember(meta, overviewSeason) {
+                                meta.videos
+                                    .filter { video -> (video.season ?: 0) == overviewSeason && video.episode != null }
+                                    .sortedBy { it.episode }
+                            }
+                            SeasonOverviewSheet(
+                                meta = meta,
+                                season = overviewSeason,
+                                seasonLabel = selectedSeasonLabel(overviewSeason),
+                                episodes = overviewEpisodes,
+                                isWatched = { episode ->
+                                    isEpisodeWatchedForActions(
+                                        meta = meta,
+                                        episode = episode,
+                                        watchedKeys = watchedUiState.watchedKeys,
+                                        progressByVideoId = progressByVideoId,
+                                    )
+                                },
+                                loading = false,
+                                offline = !networkActionsEnabled,
+                                onDismiss = { seasonOverviewSeason = null },
+                                onOpenEpisode = { episode ->
+                                    stopHeroTrailerForNavigation()
+                                    openEpisodeInSubmitMode(meta.toEpisodeSubmitRequest(episode))
                                 },
                             )
                         }
@@ -2256,6 +2271,33 @@ private fun selectedSeasonLabel(season: Int): String =
     } else {
         stringResource(Res.string.episodes_season, season)
     }
+
+private fun MetaDetails.toEpisodeSubmitRequest(episode: MetaVideo): EpisodeSubmitRequest {
+    val season = episode.season
+    val episodeNumber = episode.episode
+    val playbackVideoId = buildPlaybackVideoId(
+        parentMetaId = id,
+        seasonNumber = season,
+        episodeNumber = episodeNumber,
+        fallbackVideoId = episode.id,
+    )
+    val streamVideoId = episode.id.takeIf { it.isNotBlank() } ?: playbackVideoId
+    return EpisodeSubmitRequest(
+        type = type,
+        videoId = streamVideoId,
+        parentMetaId = id,
+        parentMetaType = type,
+        title = name,
+        logo = logo,
+        poster = poster,
+        background = background,
+        seasonNumber = season,
+        episodeNumber = episodeNumber,
+        episodeTitle = episode.title,
+        episodeThumbnail = episode.thumbnail,
+        pauseDescription = episode.overview,
+    )
+}
 
 private fun isEpisodeWatchedForActions(
     meta: MetaDetails,

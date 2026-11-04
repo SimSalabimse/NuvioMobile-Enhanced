@@ -8,8 +8,12 @@ import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadStatus
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.analysis.SkipSourceLedger
 import com.nuvio.app.features.downloads.SmartDownloadSettings
 import com.nuvio.app.features.downloads.SmartDownloads
+import com.nuvio.app.features.player.skip.OwnTheIntroDbLedger
+import com.nuvio.app.features.player.skip.SkipInterval
+import com.nuvio.app.features.player.skip.TheIntroDb
 import com.nuvio.app.features.home.HomeCatalogSection
 import com.nuvio.app.features.home.HomeCatalogSettingsItem
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
@@ -27,6 +31,7 @@ internal object UiFixtureCatalog {
     const val MOVIE_TYPE = "movie"
     const val MOVIE_ID = "fixture-movie-paper"
     const val MOVIE_TITLE = "Paper Kite"
+    const val SEASON_OVERVIEW_IMDB = "tt0000101"
     const val LONG_TITLE =
         "The Extraordinary and Completely Unabridged Account of a Very Long Evening on the Northern Coastal Railway"
 
@@ -48,6 +53,11 @@ internal object UiFixtureCatalog {
             UiFixture.DetailsOnline,
             UiFixture.DetailsOffline,
             -> MetaDetailsRepository.installFixture(series(seasonPosters = true))
+            UiFixture.SeasonOverview -> {
+                val show = series(seasonPosters = true).copy(imdbId = SEASON_OVERVIEW_IMDB)
+                MetaDetailsRepository.installFixture(show)
+                installSeasonOverviewSegments()
+            }
             UiFixture.SmartDownloads -> {
                 val meta = series(seasonPosters = false)
                 MetaDetailsRepository.installFixture(meta)
@@ -351,6 +361,28 @@ internal object UiFixtureCatalog {
     )
 
     private val shortNames = listOf("Northwind", "Harbor", "Kite", "Orchard", "Lantern", "Ferry")
+
+    private fun installSeasonOverviewSegments() {
+        val imdb = SEASON_OVERVIEW_IMDB
+        OwnTheIntroDbLedger.saveAll(
+            mapOf(
+                "$imdb:1:1" to setOf("intro"),
+                "$imdb:1:3" to setOf("intro"),
+            ),
+        )
+        SkipSourceLedger.record(
+            SERIES_ID,
+            season = 1,
+            episode = 2,
+            intervals = listOf(SkipInterval(12.0, 70.0, "intro", TheIntroDb.PROVIDER)),
+        )
+        SkipSourceLedger.record(
+            SERIES_ID,
+            season = 1,
+            episode = 3,
+            intervals = listOf(SkipInterval(20.0, 90.0, "recap", TheIntroDb.PROVIDER)),
+        )
+    }
 }
 
 internal object UiFixtureInstaller {

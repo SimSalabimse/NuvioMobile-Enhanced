@@ -389,7 +389,8 @@ internal object SmartDownloads {
         if (videoId == lastSampleVideoId && now - lastSampleAtMs < NEXT_EPISODE_DOWNLOAD_SAMPLE_INTERVAL_MS) return
         lastSampleAtMs = now
         lastSampleVideoId = videoId
-        val items = DownloadsRepository.uiState.value.items
+        val tagged = AnalysisTempDownloads.taggedIds()
+        val items = DownloadsRepository.uiState.value.items.filter { it.id !in tagged }
         if (items.none { it.parentMetaId == parentMetaId }) return
         val meta = metaOrLoad(parentMetaType, parentMetaId) ?: return
         val next = nextEpisodes(meta.videos, season, episode, 1).firstOrNull()
@@ -600,7 +601,8 @@ internal object SmartDownloads {
             request.report(upcoming.firstOrNull()?.let { "Up to date · ${unairedLabel(it.released)}" } ?: "Up to date")
             return later
         }
-        val items = DownloadsRepository.uiState.value.items
+        val tagged = AnalysisTempDownloads.taggedIds()
+        val items = DownloadsRepository.uiState.value.items.filter { it.id !in tagged }
         val missing = next.filter { video ->
             val key = downloadLogicalContentKey(meta.id, video.season, video.episode)
             seasonExistingDownload(items.firstOrNull { it.logicalContentKey == key }?.status) == null

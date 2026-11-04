@@ -140,6 +140,9 @@ internal object MediaAnalysisScheduler {
 
     private fun analyserSupported(): Boolean = supportedOverride ?: MediaAnalyzerPlatform.supported
 
+    /** True when a pass can be started. The season overview uses this before it keeps a temp file. */
+    fun acceptsWork(): Boolean = analyserSupported() && anyFeatureEnabled
+
     internal fun resetForTest() {
         job?.cancel()
         job = null

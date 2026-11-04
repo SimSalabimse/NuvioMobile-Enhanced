@@ -216,6 +216,7 @@ internal object FinishedDownloadDeletion {
             ?: downloadOpenedBySource(current.sourceUrl, items)
             ?: current.linkedDownloadId?.let { id -> items.firstOrNull { it.id == id } }
             ?: return null
+        if (AnalysisTempDownloads.isTagged(item.id)) return null
         return if (item.status == DownloadStatus.Completed) {
             current.copy(queuedDownloadId = item.id, incompleteDownloadId = null)
         } else {
@@ -286,6 +287,7 @@ internal object FinishedDownloadDeletion {
     }
 
     fun analysisSettled(downloadId: String) {
+        AnalysisTempDownloads.onAnalysisSettled(downloadId)
         val current = pending ?: return
         if (current.downloadId != downloadId || current.heldSinceEpochMs == null) return
         execute(current.copy(releaseHold = true))
