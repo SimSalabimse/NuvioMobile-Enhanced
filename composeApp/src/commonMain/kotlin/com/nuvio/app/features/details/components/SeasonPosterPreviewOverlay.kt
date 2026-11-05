@@ -22,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
@@ -46,6 +47,8 @@ import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import coil3.size.Precision
+import coil3.size.Size
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.PosterZoomAnchor
@@ -53,7 +56,10 @@ import com.nuvio.app.core.ui.systemReduceMotionEnabled
 import com.nuvio.app.features.details.SeasonPosterDismissDragDp
 import com.nuvio.app.features.details.SeasonPosterOverlayAccessibilityId
 import com.nuvio.app.features.details.fitSeasonPoster
+import com.nuvio.app.features.details.seasonPosterCrossfadeMillis
 import com.nuvio.app.features.details.seasonPosterDismisses
+import com.nuvio.app.features.details.seasonPosterFallbackUrl
+import com.nuvio.app.features.details.seasonPosterFullImageCacheKey
 import com.nuvio.app.features.details.seasonPosterPreviewMotion
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
@@ -67,6 +73,7 @@ internal data class SeasonPosterPreviewRequest(
     val imageUrl: String,
     val anchor: PosterZoomAnchor?,
     val settled: Boolean = false,
+    val listImageUrl: String? = null,
 )
 
 internal val LocalSeasonPosterPreview =
@@ -86,7 +93,9 @@ internal fun SeasonPosterPreviewOverlay(
     onDismissed: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val motion = seasonPosterPreviewMotion(systemReduceMotionEnabled())
+    val reduceMotion = systemReduceMotionEnabled()
+    val motion = seasonPosterPreviewMotion(reduceMotion)
+    val crossfadeMillis = seasonPosterCrossfadeMillis(reduceMotion)
     val posterDescription = seasonPosterContentDescription(request.season)
     val closeLabel = stringResource(Res.string.action_close)
     val haptic = LocalHapticFeedback.current
@@ -95,11 +104,35 @@ internal fun SeasonPosterPreviewOverlay(
     val scope = rememberCoroutineScope()
     val currentOnDismissed by rememberUpdatedState(onDismissed)
     val platformContext = LocalPlatformContext.current
-    val imageRequest = remember(platformContext, request.imageUrl) {
+    val listImageUrl = request.listImageUrl
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() && it != request.imageUrl }
+    var requestedUrl by remember(request.imageUrl) { mutableStateOf(request.imageUrl) }
+    val hasListUnderlay = listImageUrl != null
+    val fullAlpha = remember(requestedUrl, hasListUnderlay) { Animatable(if (hasListUnderlay) 0f else 1f) }
+    var fullReady by remember(requestedUrl) { mutableStateOf(false) }
+    // Size.ORIGINAL makes PosterDownsampleInterceptor skip this request (it bails when the
+    // slot width is unknown). An explicit cache key keeps the list thumbnail's bitmap out.
+    val imageRequest = remember(platformContext, requestedUrl) {
+        val cacheKey = seasonPosterFullImageCacheKey(requestedUrl)
         ImageRequest.Builder(platformContext)
-            .data(request.imageUrl)
+            .data(requestedUrl)
+            .size(Size.ORIGINAL)
+            .memoryCacheKey(cacheKey)
+            .diskCacheKey(cacheKey)
+            .precision(Precision.EXACT)
             .crossfade(false)
             .build()
+    }
+    val listRequest = remember(platformContext, listImageUrl) {
+        listImageUrl?.let { url ->
+            ImageRequest.Builder(platformContext)
+                .data(url)
+                .memoryCacheKey(url)
+                .precision(Precision.INEXACT)
+                .crossfade(false)
+                .build()
+        }
     }
     val open = remember(request.settled) { Animatable(if (request.settled) 1f else 0f) }
     val closing = remember { mutableStateOf(false) }
@@ -107,8 +140,20 @@ internal fun SeasonPosterPreviewOverlay(
     var swipeDismiss by remember { mutableStateOf(false) }
     var rootOrigin by remember { mutableStateOf(Offset.Zero) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
-    var imageWidth by remember(request.imageUrl) { mutableFloatStateOf(0f) }
-    var imageHeight by remember(request.imageUrl) { mutableFloatStateOf(0f) }
+    var imageWidth by remember(requestedUrl) { mutableFloatStateOf(0f) }
+    var imageHeight by remember(requestedUrl) { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(fullReady, requestedUrl, crossfadeMillis, hasListUnderlay) {
+        if (!fullReady || !hasListUnderlay) return@LaunchedEffect
+        if (crossfadeMillis <= 0) {
+            fullAlpha.snapTo(1f)
+        } else if (fullAlpha.value < 1f) {
+            fullAlpha.animateTo(
+                1f,
+                tween(durationMillis = crossfadeMillis, easing = NuvioTokens.Motion.standard),
+            )
+        }
+    }
 
     LaunchedEffect(request.settled) {
         if (request.settled) return@LaunchedEffect
@@ -248,15 +293,30 @@ internal fun SeasonPosterPreviewOverlay(
                         }
                     },
             ) {
+                if (listRequest != null) {
+                    AsyncImage(
+                        model = listRequest,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Fit,
+                    )
+                }
                 AsyncImage(
                     model = imageRequest,
                     contentDescription = posterDescription,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .alpha(fullAlpha.value),
                     contentScale = ContentScale.Fit,
                     onSuccess = { state ->
                         val size = state.painter.intrinsicSize
                         if (size.width.isFinite() && size.width > 1f) imageWidth = size.width
                         if (size.height.isFinite() && size.height > 1f) imageHeight = size.height
+                        fullReady = true
+                    },
+                    onError = {
+                        val next = seasonPosterFallbackUrl(requestedUrl)
+                        if (next != null && next != requestedUrl) requestedUrl = next
                     },
                 )
             }

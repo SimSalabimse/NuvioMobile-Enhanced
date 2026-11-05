@@ -1917,6 +1917,7 @@
     <string name="details_seasons">Seasons</string>
     <string name="details_season_poster">Season %1$d poster</string>
     <string name="details_specials_poster">Specials poster</string>
+    <string name="details_enlarge_poster">Enlarge poster</string>
     <string name="details_series_missing_numbers">This addon returned videos for the series, but none included season or episode numbers.</string>
     <string name="details_series_no_metadata">This addon did not provide episode metadata for this series.</string>
     <string name="details_series_unpublished">Episodes have not been published by this addon yet.</string>
