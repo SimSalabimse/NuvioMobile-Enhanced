@@ -233,6 +233,7 @@ internal actual object EpisodeReleaseNotificationPlatform {
         requestId: String,
         imageUrl: String,
     ): NSURL? {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return null
         val bytes: ByteArray = runCatching {
             httpClient.get(imageUrl).body<ByteArray>()
         }.getOrNull() ?: return null

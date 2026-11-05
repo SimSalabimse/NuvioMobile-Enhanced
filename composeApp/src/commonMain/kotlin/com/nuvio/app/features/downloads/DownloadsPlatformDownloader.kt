@@ -35,9 +35,28 @@ internal object PlatformDownloadTransfers : DownloadTransfers {
         onSuccess: (localFileUri: String, totalBytes: Long?) -> Unit,
         onFailure: (message: String) -> Unit,
         onPaused: () -> Unit,
-    ): DownloadsTaskHandle = DownloadsPlatformDownloader.start(request, onProgress, onSuccess, onFailure, onPaused)
+    ): DownloadsTaskHandle {
+        if (com.nuvio.app.core.automation.AutomationStubs.isLocalClip(request.sourceUrl)) {
+            return writeAutomationDownload(request, onProgress, onSuccess)
+        }
+        return DownloadsPlatformDownloader.start(request, onProgress, onSuccess, onFailure, onPaused)
+    }
 
     override fun pauseRunningTransfer(item: DownloadItem) = DownloadsPlatformDownloader.pauseRunningTransfer(item)
+}
+
+private fun writeAutomationDownload(
+    request: DownloadPlatformRequest,
+    onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit,
+    onSuccess: (localFileUri: String, totalBytes: Long?) -> Unit,
+): DownloadsTaskHandle {
+    val bytes = com.nuvio.app.core.automation.AutomationStubs.clipByteCount()
+    val uri = com.nuvio.app.core.automation.AutomationStubs.placedDownloadFileUrl(request.destinationFileName)
+    onProgress(bytes, bytes)
+    onSuccess(uri, bytes)
+    return object : DownloadsTaskHandle {
+        override fun cancel() = Unit
+    }
 }
 
 internal expect object DownloadsPlatformDownloader {

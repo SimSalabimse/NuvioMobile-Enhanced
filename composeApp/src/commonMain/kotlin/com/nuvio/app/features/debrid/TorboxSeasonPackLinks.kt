@@ -1,5 +1,6 @@
 package com.nuvio.app.features.debrid
 
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.features.streams.StreamClientResolve
 import com.nuvio.app.features.streams.StreamDebridCacheState
@@ -22,6 +23,7 @@ internal suspend fun attachTorboxSeasonPackLinks(
     episodes: List<TorboxSeasonPackEpisode>,
 ): List<StreamItem> {
     val original = episodes.map { it.stream }
+    if (AutomationTestMode.isActive) return original
     if (episodes.size < 2) return original
     val apiKey = try {
         val settings = DebridSettingsRepository.snapshot()

@@ -84,6 +84,7 @@ internal object TheIntroDb {
         durationMs: Long? = null,
         apiKey: String? = null,
     ): TheIntroDbMediaResponse? {
+        if (AutomationTestMode.isActive) return null
         if (tmdbId == null && imdbId.isNullOrBlank()) return null
         val url = "$MEDIA_URL?${theIntroDbMediaQuery(tmdbId, imdbId, season, episode, durationMs)}"
         val key = if (AutomationTestMode.isActive) null else apiKey

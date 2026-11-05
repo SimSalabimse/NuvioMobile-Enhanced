@@ -1,5 +1,7 @@
 package com.nuvio.app.features.debrid
 
+import com.nuvio.app.core.automation.AutomationStubs
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.features.streams.StreamBehaviorHints
 import com.nuvio.app.features.streams.StreamClientResolve
 import com.nuvio.app.features.streams.StreamDebridCacheState
@@ -110,6 +112,11 @@ object DirectDebridPlaybackResolver {
     }
 
     fun shouldResolveToPlayableStream(stream: StreamItem): Boolean {
+        if (AutomationTestMode.isActive) {
+            if (!AutomationStubs.isStubSource(stream)) return false
+            val url = stream.playableDirectUrl
+            return url == null || !AutomationStubs.isLocalClip(url)
+        }
         val settings = DebridSettingsRepository.snapshot()
         if (!settings.canResolvePlayableLinks) return false
         if (stream.needsLocalDebridResolve) {
@@ -125,6 +132,7 @@ object DirectDebridPlaybackResolver {
     }
 
     private suspend fun resolveUncached(stream: StreamItem, season: Int?, episode: Int?): DirectDebridResolveResult {
+        AutomationStubs.noteRealResolve()
         if (stream.needsLocalDebridResolve) {
             return localAddonStreamResolver.resolve(stream, season, episode)
         }
@@ -174,6 +182,10 @@ object DirectDebridPlaybackResolver {
         season: Int?,
         episode: Int?,
     ): DirectDebridPlayableResult {
+        if (AutomationTestMode.isActive && AutomationStubs.isStubSource(stream)) {
+            AutomationStubs.noteStubResolve()
+            return DirectDebridPlayableResult.Success(AutomationStubs.playable(stream))
+        }
         if (!shouldResolveToPlayableStream(stream)) {
             return DirectDebridPlayableResult.Success(stream)
         }

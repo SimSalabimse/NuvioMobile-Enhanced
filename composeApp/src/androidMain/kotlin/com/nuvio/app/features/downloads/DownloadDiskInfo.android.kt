@@ -14,6 +14,8 @@ internal actual object DownloadDiskInfo {
 
     private fun directory(): File? = appContext?.let { File(it.filesDir, "downloads") }
 
+    fun downloadsDirectoryOrNull(): File? = directory()?.also { it.mkdirs() }
+
     actual fun volumeSpace(): VolumeSpace? {
         val dir = directory() ?: return null
         val target = if (dir.exists()) dir else dir.parentFile ?: return null

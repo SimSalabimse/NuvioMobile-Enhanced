@@ -59,6 +59,18 @@ internal fun introSubmitShowsServiceSection(service: IntroSubmitService, savedKe
 internal fun introSubmitShowsApiKeyField(service: IntroSubmitService, savedKey: String): Boolean =
     introSubmitShowsServiceSection(service, savedKey)
 
+/**
+ * A saved key of the right shape, or a missing TheIntroDB key while automation mode is on.
+ * The flag-on case does not read or send a key.
+ */
+internal fun introSubmitKeySatisfied(service: IntroSubmitService, apiKey: String): Boolean {
+    val problem = introSubmitKeyProblem(service, apiKey)
+    if (problem == IntroSubmitKeyProblem.NONE) return true
+    return AutomationTestMode.isActive &&
+        service == IntroSubmitService.THE_INTRODB &&
+        problem == IntroSubmitKeyProblem.MISSING
+}
+
 internal fun introSubmitKeyProblem(service: IntroSubmitService, apiKey: String): IntroSubmitKeyProblem {
     val key = apiKey.trim()
     if (key.isEmpty()) return IntroSubmitKeyProblem.MISSING

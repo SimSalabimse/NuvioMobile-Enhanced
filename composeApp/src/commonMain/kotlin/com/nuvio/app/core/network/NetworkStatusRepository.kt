@@ -345,6 +345,9 @@ object NetworkStatusRepository {
     }
 
     private suspend fun probeCondition(timeoutMs: Long): NetworkCondition {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) {
+            return NetworkCondition.Online
+        }
         if (ConnectivityFixtureOverride.active) {
             return if (ConnectivityFixtureOverride.online) {
                 NetworkCondition.Online

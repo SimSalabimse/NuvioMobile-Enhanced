@@ -1,5 +1,7 @@
 package com.nuvio.app.features.downloads
 
+import com.nuvio.app.core.automation.AutomationStubs
+import com.nuvio.app.core.automation.AutomationTestMode
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.convert
@@ -119,6 +121,13 @@ internal actual object DownloadsPlatformDownloader {
         onFailure: (message: String) -> Unit,
         onPaused: () -> Unit,
     ): DownloadsTaskHandle {
+        if (AutomationTestMode.isActive && !AutomationStubs.isLocalClip(request.sourceUrl)) {
+            AutomationStubs.noteBlockedNetwork()
+            onFailure("Download blocked during automation")
+            return object : DownloadsTaskHandle {
+                override fun cancel() = Unit
+            }
+        }
         prepareDownloadSubtitles(request.item.id, request)
         IosForegroundDownloads.ensureObserver()
         IosTransferControl.allow(request.item.id)

@@ -1,5 +1,7 @@
 package com.nuvio.app.features.streams
 
+import com.nuvio.app.core.automation.AutomationStubs
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.features.servers.ServerPlaybackTarget
 import kotlinx.serialization.Serializable
@@ -201,7 +203,8 @@ fun StreamItem.isSelectableForPlayback(debridEnabled: Boolean): Boolean =
         shouldOpenExternally ||
         youTubeIdToResolve != null ||
         (AppFeaturePolicy.p2pEnabled && needsLocalDebridResolve && p2pInfoHash != null) ||
-        (debridEnabled && isAddonDebridCandidate)
+        (debridEnabled && isAddonDebridCandidate) ||
+        (AutomationTestMode.isActive && AutomationStubs.isStubSource(this))
 
 data class StreamBehaviorHints(
     val bingeGroup: String? = null,

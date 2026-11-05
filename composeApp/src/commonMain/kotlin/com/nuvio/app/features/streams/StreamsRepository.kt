@@ -1,6 +1,10 @@
 package com.nuvio.app.features.streams
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.automation.AUTOMATION_ADDON_ID
+import com.nuvio.app.core.automation.AUTOMATION_ADDON_NAME
+import com.nuvio.app.core.automation.AutomationStubs
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.network.NetworkStatusRepository
@@ -103,6 +107,27 @@ object StreamsRepository {
             episode = episode,
             manualSelection = manualSelection,
         )
+        if (AutomationTestMode.isActive) {
+            activeJob?.cancel()
+            addonRetryJob?.cancel()
+            addonRetryJob = null
+            val streams = AutomationStubs.sources()
+            val group = AddonStreamGroup(
+                addonName = AUTOMATION_ADDON_NAME,
+                addonId = AUTOMATION_ADDON_ID,
+                streams = streams,
+                isLoading = false,
+                fetchStatus = AddonStreamFetchStatus.Loaded(streams.size),
+            )
+            _uiState.value = StreamsUiState(
+                requestToken = requestToken,
+                groups = listOf(group),
+                autoPlayDecided = true,
+                activeAddonIds = setOf(AUTOMATION_ADDON_ID),
+                isAnyLoading = false,
+            )
+            return
+        }
         val requestKey = "$requestToken::pluginsGrouped=${pluginUiState.groupStreamsByRepository}"
         val currentState = _uiState.value
         if (

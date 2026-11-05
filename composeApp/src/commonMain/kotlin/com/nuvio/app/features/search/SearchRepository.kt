@@ -1,5 +1,7 @@
 package com.nuvio.app.features.search
 
+import com.nuvio.app.core.automation.AutomationStubs
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.core.network.keepExistingItemsDuringRefresh
 
 import co.touchlab.kermit.Logger
@@ -94,6 +96,12 @@ object SearchRepository {
         keepVisibleItems: Boolean = false,
     ) {
         if (fixtureHold != null) return
+        if (AutomationTestMode.isActive) {
+            activeJob?.cancel()
+            lastRequestKey = null
+            _uiState.value = SearchUiState(sections = AutomationStubs.homeState().sections)
+            return
+        }
         val normalizedQuery = query.trim()
         if (normalizedQuery.isBlank()) {
             clear()
@@ -269,6 +277,13 @@ object SearchRepository {
         keepVisibleItems: Boolean = false,
     ) {
         if (fixtureHold != null) return
+        if (AutomationTestMode.isActive) {
+            activeDiscoverJob?.cancel()
+            discoverSources = emptyList()
+            lastDiscoverRequestKey = null
+            _discoverUiState.value = DiscoverUiState(items = AutomationStubs.homeState().heroItems)
+            return
+        }
         val enabledAddons = addons.enabledAddons()
         val hasPendingAddonManifests = enabledAddons.hasPendingEnabledManifests()
         val addonManifestErrorMessage = enabledAddons.firstEnabledManifestError()
