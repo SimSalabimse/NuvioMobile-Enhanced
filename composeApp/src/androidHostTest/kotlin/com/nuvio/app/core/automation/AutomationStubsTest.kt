@@ -145,6 +145,18 @@ class AutomationStubsTest {
         assertEquals(0, AutomationStubs.blockedNetworkCalls)
         assertEquals(3, series.videos.count { it.season == 1 })
         assertEquals(9, series.videos.size)
+        assertEquals("fixture://art/season/1/Season_1", series.seasonPosters[1])
+        assertEquals("fixture://art/season/2/Season_2", series.seasonPosters[2])
+        assertEquals(AUTOMATION_SEASON_POSTER_URL, series.seasonPosters[3])
+        assertEquals(AUTOMATION_SEASON_POSTER_URL, series.videos.first { it.season == 3 }.seasonPoster)
+        assertTrue(com.nuvio.app.core.ui.automationImageRequestAllowed(AUTOMATION_SEASON_POSTER_URL))
+        assertTrue(
+            com.nuvio.app.core.ui.automationImageRequestAllowed(
+                "https://image.tmdb.org/t/p/original/1E5baAaEse26fej7uHcjOgEE2t2.jpg",
+            ),
+        )
+        assertFalse(com.nuvio.app.core.ui.automationImageRequestAllowed("https://cdn.example/other.jpg"))
+        assertEquals("season_poster_3", com.nuvio.app.features.details.seasonPosterAccessibilityId(3))
         assertEquals(AUTOMATION_PROFILE_NAME, "Test")
         assertEquals(AUTOMATION_MOVIE_NAME, AutomationStubs.movie().name)
     }

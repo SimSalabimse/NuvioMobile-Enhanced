@@ -46,6 +46,7 @@ import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.changedToDownIgnoreConsumed
@@ -53,6 +54,7 @@ import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
@@ -103,10 +105,10 @@ import com.nuvio.app.core.ui.PosterZoomAnchor
 import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
 import com.nuvio.app.core.ui.posterCardClickable
 import com.nuvio.app.features.details.SeasonPosterDoubleTapSlopDp
-import com.nuvio.app.features.details.SeasonPosterPointerState
-import com.nuvio.app.features.details.SeasonPosterTapTracker
+import com.nuvio.app.features.details.SeasonPosterGesture
 import com.nuvio.app.features.details.largestSeasonPosterUrl
 import com.nuvio.app.features.details.seasonPosterAccessibilityId
+import com.nuvio.app.features.details.seasonPosterScrollDelayMillis
 import com.nuvio.app.features.downloads.SeasonDownloadSheet
 import com.nuvio.app.features.downloads.downloadLogicalContentKey
 import com.nuvio.app.features.details.MetaDetails
@@ -886,17 +888,28 @@ private fun SeasonPosterScrollRow(
 ) {
     val seasonListState = rememberLazyListState()
     var hasPositionedSeasonRow by remember(seasons) { mutableStateOf(false) }
+    var deferRailScroll by remember { mutableStateOf(false) }
+    val posterGesture = remember { SeasonPosterGesture() }
+
+    LaunchedEffect(currentSeason) {
+        posterGesture.noteSelectionChanged()
+    }
 
     LaunchedEffect(seasons, currentSeason) {
         val currentIndex = seasons.indexOf(currentSeason)
-        if (currentIndex >= 0) {
-            if (hasPositionedSeasonRow) {
-                seasonListState.animateScrollToItem(currentIndex)
-            } else {
-                seasonListState.scrollToItem(currentIndex)
-                hasPositionedSeasonRow = true
-            }
+        if (currentIndex < 0) return@LaunchedEffect
+        val delayMs = seasonPosterScrollDelayMillis(
+            defer = deferRailScroll,
+            alreadyPositioned = hasPositionedSeasonRow,
+        )
+        deferRailScroll = false
+        if (!hasPositionedSeasonRow) {
+            seasonListState.scrollToItem(currentIndex)
+            hasPositionedSeasonRow = true
+            return@LaunchedEffect
         }
+        if (delayMs > 0L) kotlinx.coroutines.delay(delayMs)
+        seasonListState.animateScrollToItem(currentIndex)
     }
 
     LazyRow(
@@ -921,6 +934,8 @@ private fun SeasonPosterScrollRow(
                 previewUrl = seasonPosterUrl,
                 isSelected = season == currentSeason,
                 sizing = sizing,
+                gesture = posterGesture,
+                onPosterTap = { deferRailScroll = true },
                 onClick = { onSelect(season) },
                 onLongClick = seasonLongPress,
                 longPressActions = seasonLongPressActions(
@@ -954,6 +969,8 @@ private fun SeasonPosterButton(
     previewUrl: String?,
     isSelected: Boolean,
     sizing: SeriesContentSizing,
+    gesture: SeasonPosterGesture,
+    onPosterTap: () -> Unit,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)?,
     longPressActions: List<com.nuvio.app.core.a11y.LongPressAccessibilityAction> = emptyList(),
@@ -964,8 +981,7 @@ private fun SeasonPosterButton(
     val enlargeLabel = stringResource(Res.string.details_enlarge_poster)
     val doubleTapSlopPx = with(LocalDensity.current) { SeasonPosterDoubleTapSlopDp.dp.toPx() }
     var posterBounds by remember { mutableStateOf<Rect?>(null) }
-    val pointer = remember { SeasonPosterPointerState() }
-    val taps = remember { SeasonPosterTapTracker() }
+    val posterOrigin = remember { mutableStateOf(Offset.Zero) }
     val previewPoster: (() -> Unit)? = if (enlargedUrl != null && openPreview != null) {
         {
             val bounds = posterBounds
@@ -1003,22 +1019,14 @@ private fun SeasonPosterButton(
             .width(sizing.seasonPosterWidth)
             .combinedClickable(
                 onClick = {
-                    val point = pointer.consumeTap()
+                    val decision = gesture.consumeDecision()
+                    if (decision != null) onPosterTap()
                     onClick()
-                    if (point != null && previewPoster != null) {
-                        val decision = taps.onTap(
-                            timeMillis = kotlin.time.Clock.System.now().toEpochMilliseconds(),
-                            x = point.first,
-                            y = point.second,
-                            slopPx = doubleTapSlopPx,
-                        )
-                        if (decision.enlargePoster) previewPoster()
-                    }
+                    if (decision?.enlargePoster == true) previewPoster?.invoke()
                 },
                 onLongClick = onLongClick?.let { menu ->
                     {
-                        pointer.cancel()
-                        taps.onLongPress()
+                        gesture.onLongPress()
                         menu()
                     }
                 },
@@ -1041,8 +1049,8 @@ private fun SeasonPosterButton(
                 .fillMaxWidth()
                 .height(sizing.seasonPosterHeight)
                 .onGloballyPositioned { coordinates ->
-                    val position = coordinates.boundsInRoot()
-                    posterBounds = position
+                    posterBounds = coordinates.boundsInRoot()
+                    posterOrigin.value = coordinates.positionInRoot()
                 }
                 .testTag(seasonPosterAccessibilityId(season))
                 .clip(RoundedCornerShape(sizing.seasonPosterRadius))
@@ -1056,7 +1064,12 @@ private fun SeasonPosterButton(
                     },
                     shape = RoundedCornerShape(sizing.seasonPosterRadius),
                 )
-                .observeSeasonPosterTaps(pointer)
+                .observeSeasonPosterTaps(
+                    season = season,
+                    gesture = gesture,
+                    doubleTapSlopPx = doubleTapSlopPx,
+                    rootOrigin = { posterOrigin.value },
+                )
                 .semantics { contentDescription = imageDescription },
         ) {
             if (imageUrl != null) {
@@ -1104,23 +1117,45 @@ private fun SeasonPosterButton(
     }
 }
 
-private fun Modifier.observeSeasonPosterTaps(state: SeasonPosterPointerState): Modifier =
-    pointerInput(state) {
-        val slop = viewConfiguration.touchSlop
-        awaitPointerEventScope {
-            while (true) {
-                val event = awaitPointerEvent(PointerEventPass.Initial)
-                for (change in event.changes) {
-                    when {
-                        change.changedToDownIgnoreConsumed() ->
-                            state.down(change.position.x, change.position.y)
-                        change.changedToUpIgnoreConsumed() -> state.up()
-                        change.pressed -> state.move(change.position.x, change.position.y, slop)
+private fun Modifier.observeSeasonPosterTaps(
+    season: Int,
+    gesture: SeasonPosterGesture,
+    doubleTapSlopPx: Float,
+    rootOrigin: () -> Offset,
+): Modifier = pointerInput(season, gesture, doubleTapSlopPx) {
+    val dragSlop = viewConfiguration.touchSlop
+    awaitPointerEventScope {
+        var downLocal: Offset? = null
+        var dragged = false
+        while (true) {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            for (change in event.changes) {
+                val root = rootOrigin() + change.position
+                when {
+                    change.changedToDownIgnoreConsumed() -> {
+                        downLocal = change.position
+                        dragged = false
+                        gesture.onDown(season, change.uptimeMillis, root.x, root.y, doubleTapSlopPx)
+                    }
+                    change.changedToUpIgnoreConsumed() -> {
+                        if (!dragged) {
+                            gesture.onUp(season, change.uptimeMillis, root.x, root.y)
+                        }
+                        downLocal = null
+                        dragged = false
+                    }
+                    change.pressed && downLocal != null && !dragged -> {
+                        val delta = change.position - downLocal
+                        if (delta.x * delta.x + delta.y * delta.y > dragSlop * dragSlop) {
+                            dragged = true
+                            gesture.onDrag()
+                        }
                     }
                 }
             }
         }
     }
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
