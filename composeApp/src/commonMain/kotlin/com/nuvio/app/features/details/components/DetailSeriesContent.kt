@@ -46,7 +46,13 @@ import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -89,8 +95,11 @@ import com.nuvio.app.core.ui.nuvioCardDepth
 import com.nuvio.app.features.ratings.episodeUserRatingTarget
 import com.nuvio.app.features.ratings.rememberUserRating
 import com.nuvio.app.features.tracking.TrackingRatingTarget
+import com.nuvio.app.core.ui.PosterZoomAnchor
 import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
 import com.nuvio.app.core.ui.posterCardClickable
+import com.nuvio.app.features.details.largestSeasonPosterUrl
+import com.nuvio.app.features.details.seasonPosterAccessibilityId
 import com.nuvio.app.features.downloads.SeasonDownloadSheet
 import com.nuvio.app.features.downloads.downloadLogicalContentKey
 import com.nuvio.app.features.details.MetaDetails
@@ -893,15 +902,16 @@ private fun SeasonPosterScrollRow(
     ) {
         items(seasons, key = { season -> season }) { season ->
             val seasonLongPress = onLongPress?.let { handler -> { handler(season) } }
+            val seasonPosterUrl = resolveSeasonPoster(
+                season = season,
+                groupedEpisodes = groupedEpisodes,
+                meta = meta,
+            )
             SeasonPosterButton(
+                season = season,
                 label = season.label(),
-                imageUrl = resolveSeasonPoster(
-                    season = season,
-                    groupedEpisodes = groupedEpisodes,
-                    meta = meta,
-                )
-                    ?: meta.poster
-                    ?: meta.background,
+                imageUrl = seasonPosterUrl ?: meta.poster ?: meta.background,
+                previewUrl = seasonPosterUrl,
                 isSelected = season == currentSeason,
                 sizing = sizing,
                 onClick = { onSelect(season) },
@@ -931,34 +941,54 @@ private fun resolveSeasonPoster(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SeasonPosterButton(
+    season: Int,
     label: String,
     imageUrl: String?,
+    previewUrl: String?,
     isSelected: Boolean,
     sizing: SeriesContentSizing,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)?,
     longPressActions: List<com.nuvio.app.core.a11y.LongPressAccessibilityAction> = emptyList(),
 ) {
+    val openPreview = LocalSeasonPosterPreview.current
+    val enlargedUrl = largestSeasonPosterUrl(previewUrl)
+    val posterDescription = seasonPosterContentDescription(season)
+    var posterBounds by remember { mutableStateOf<Rect?>(null) }
+    val previewPoster: (() -> Unit)? = if (enlargedUrl != null && openPreview != null) {
+        {
+            val bounds = posterBounds
+            if (bounds != null) {
+                openPreview(
+                    SeasonPosterPreviewRequest(
+                        season = season,
+                        imageUrl = enlargedUrl,
+                        anchor = PosterZoomAnchor(
+                            boundsInRoot = bounds,
+                            imageUrl = enlargedUrl,
+                            cornerRadius = sizing.seasonPosterRadius,
+                        ),
+                    ),
+                )
+            }
+        }
+    } else {
+        null
+    }
+    val imageDescription = if (enlargedUrl != null) posterDescription else label
     Column(
-        modifier = Modifier
-            .width(sizing.seasonPosterWidth)
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick,
-            )
-            .then(
-                if (onLongClick != null) {
-                    Modifier.installLongPressAccessibility(longPressActions, onLongClick)
-                } else {
-                    Modifier
-                },
-            ),
+        modifier = Modifier.width(sizing.seasonPosterWidth),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(sizing.seasonPosterHeight)
+                .onGloballyPositioned { coordinates ->
+                    val position = coordinates.boundsInRoot()
+                    posterBounds = position
+                }
+                .testTag(seasonPosterAccessibilityId(season))
                 .clip(RoundedCornerShape(sizing.seasonPosterRadius))
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                 .border(
@@ -969,12 +999,38 @@ private fun SeasonPosterButton(
                         Color.White.copy(alpha = 0.1f)
                     },
                     shape = RoundedCornerShape(sizing.seasonPosterRadius),
+                )
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = previewPoster ?: onLongClick,
+                )
+                .semantics { contentDescription = imageDescription }
+                .then(
+                    if (previewPoster != null) {
+                        Modifier.semantics {
+                            customActions = listOf(
+                                CustomAccessibilityAction(posterDescription) {
+                                    previewPoster()
+                                    true
+                                },
+                            )
+                        }
+                    } else {
+                        Modifier
+                    },
+                )
+                .then(
+                    if (onLongClick != null) {
+                        Modifier.installLongPressAccessibility(longPressActions, onLongClick)
+                    } else {
+                        Modifier
+                    },
                 ),
         ) {
             if (imageUrl != null) {
                 AsyncImage(
                     model = imageUrl,
-                    contentDescription = label,
+                    contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
                 )
@@ -1011,7 +1067,19 @@ private fun SeasonPosterButton(
             textAlign = TextAlign.Center,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                )
+                .then(
+                    if (onLongClick != null) {
+                        Modifier.installLongPressAccessibility(longPressActions, onLongClick)
+                    } else {
+                        Modifier
+                    },
+                ),
         )
     }
 }

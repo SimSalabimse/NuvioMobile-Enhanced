@@ -159,5 +159,11 @@ class UiFixturesTest {
             "fixture://art/wide/2/Harbor_Lane",
             fixtureArtUrl(slot = 2, wide = true, label = "Harbor Lane"),
         )
+        val season = fixturePosterSvg(slot = 1, wide = false, label = "Season 1", large = true)
+        assertTrue(season.contains("width=\"1600\""))
+        assertTrue(season.contains("height=\"2400\""))
+        val seasonWithoutNamespace = season.replace("http://www.w3.org/2000/svg", "")
+        assertTrue(!seasonWithoutNamespace.contains("http://") && !seasonWithoutNamespace.contains("https://"))
+        assertEquals("fixture://art/season/1/Season_1", fixtureSeasonPosterUrl(1))
     }
 }

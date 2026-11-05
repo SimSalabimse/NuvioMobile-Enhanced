@@ -128,6 +128,7 @@ Built from the code at build 198 (0.6.5.1). This comparison build merges the luq
 - Episode Shuffle (random episode): details page, Settings › Layout › Detail Page › Shuffle. 188.
 - Cast search: Search. 180.
 - Detail page layout (background mode, poster transition, tab layout, blur unwatched): Settings › Layout › Detail Page. Upstream.
+- Long-press a season poster on the series page to open it full size on a dimmed backdrop. Tap or swipe down closes it. A season with no poster does nothing. Reduce Motion fades it instead of zooming.
 - Search with recent searches: Search tab, Settings › Content & Discovery. Upstream.
 - Addons, plugins, media servers: Settings › Content & Discovery. Upstream.
 - TMDB enrichment modules, MDBList and OMDb ratings: Settings › Integrations. Upstream.

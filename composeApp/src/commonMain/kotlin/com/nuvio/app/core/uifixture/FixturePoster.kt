@@ -32,12 +32,16 @@ fun fixtureArtUrl(slot: Int, wide: Boolean, label: String): String {
     return "fixture://art/$kind/$slot/$safe"
 }
 
+/** Large local season art so a full-size preview can fill a phone without a network fetch. */
+fun fixtureSeasonPosterUrl(season: Int): String = "fixture://art/season/$season/Season_$season"
+
 /** Solid gradient SVG with the title painted on it. No external assets. */
-fun fixturePosterSvg(slot: Int, wide: Boolean, label: String): String {
+fun fixturePosterSvg(slot: Int, wide: Boolean, label: String, large: Boolean = false): String {
     val (start, end) = fixturePalette[slot.mod(fixturePalette.size).let { if (it < 0) it + fixturePalette.size else it }]
-    val width = if (wide) 800 else 400
-    val height = if (wide) 450 else 600
-    val size = if (wide) 42 else 36
+    val scale = if (large) 4 else 1
+    val width = (if (wide) 800 else 400) * scale
+    val height = (if (wide) 450 else 600) * scale
+    val size = (if (wide) 42 else 36) * scale
     val text = xmlText(label.ifBlank { "Title" }.take(48))
     return """
         <svg xmlns="http://www.w3.org/2000/svg" width="$width" height="$height" viewBox="0 0 $width $height">
@@ -48,7 +52,7 @@ fun fixturePosterSvg(slot: Int, wide: Boolean, label: String): String {
             </linearGradient>
           </defs>
           <rect width="100%" height="100%" fill="url(#g)"/>
-          <text x="28" y="${height - 48}" fill="#ffffff" font-size="$size" font-family="sans-serif">$text</text>
+          <text x="${28 * scale}" y="${height - 48 * scale}" fill="#ffffff" font-size="$size" font-family="sans-serif">$text</text>
         </svg>
     """.trimIndent()
 }
@@ -68,9 +72,10 @@ internal class FixturePosterFetcher(
     private val slot: Int,
     private val wide: Boolean,
     private val label: String,
+    private val large: Boolean = false,
 ) : Fetcher {
     override suspend fun fetch(): SourceFetchResult {
-        val svg = fixturePosterSvg(slot, wide, label.replace('_', ' '))
+        val svg = fixturePosterSvg(slot, wide, label.replace('_', ' '), large = large)
         return SourceFetchResult(
             source = ImageSource(
                 source = Buffer().write(svg.encodeToByteArray()),
@@ -87,9 +92,10 @@ internal class FixturePosterFetcher(
             val parts = data.toString().substringAfter("://").split('/')
             if (parts.size < 4 || parts[0] != "art") return null
             val wide = parts[1] == "wide"
+            val large = parts[1] == "season"
             val slot = parts[2].toIntOrNull() ?: 0
             val label = parts.drop(3).joinToString(" ")
-            return FixturePosterFetcher(slot = slot, wide = wide, label = label)
+            return FixturePosterFetcher(slot = slot, wide = wide, label = label, large = large)
         }
     }
 }

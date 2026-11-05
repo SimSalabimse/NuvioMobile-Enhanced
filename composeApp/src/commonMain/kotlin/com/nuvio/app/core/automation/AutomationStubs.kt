@@ -1,5 +1,6 @@
 package com.nuvio.app.core.automation
 
+import com.nuvio.app.core.uifixture.fixtureSeasonPosterUrl
 import com.nuvio.app.features.catalog.CatalogTarget
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaVideo
@@ -176,7 +177,7 @@ internal object AutomationStubs {
         id = AUTOMATION_SERIES_ID,
         type = "series",
         name = AUTOMATION_SERIES_NAME,
-        description = "Local automation series. No artwork.",
+        description = "Local automation series.",
         releaseInfo = "2020",
         videos = (1..3).flatMap { season ->
             (1..3).map { episode ->
@@ -188,9 +189,11 @@ internal object AutomationStubs {
                     season = season,
                     episode = episode,
                     overview = "Season $season, episode $episode.",
+                    seasonPoster = fixtureSeasonPosterUrl(season),
                 )
             }
         },
+        seasonPosters = (1..3).associateWith(::fixtureSeasonPosterUrl),
     )
 
     fun movie(): MetaDetails = MetaDetails(
