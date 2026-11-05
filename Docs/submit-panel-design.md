@@ -6,7 +6,7 @@ One slim bar on the playing video for Flag / Submit timestamps. It replaces the 
 
 - One row, about 64 pt tall, sitting at the bottom of the player. Safe-area insets apply on the left, top, right, and bottom, in portrait and landscape, so the bar never draws under the Dynamic Island, the notch, or the home indicator.
 - The bar height is the smaller of 64 pt, one eighth of the video height, and the height left between the top and bottom insets. A short window shrinks the bar. It does not overlap the cutout.
-- Left to right: Intro, Recap, Credits, Preview. The selected tab uses the accent colour. Movies keep Intro and Credits only.
+- Left to right: Intro, Recap, Credits, Preview. The selected tab uses the accent colour. A movie offers the same four tabs as an episode.
 - A Start chip and an End chip, each showing its time in H:MM:SS. Whole seconds until a 0.1 s step. Neither chip is outlined until its popover is open.
 - A short status. Valid is green, for example `22 s ✓`. Invalid is red and uses the existing reason, short enough to fit and never cut off mid-word: `End must be after the start`, `Past the end of the video`, or `4.9 s · Intro must be 5–300 s`.
 - An amber text button named for the tab: `No intro`, `No recap`, `No credits`, or `No preview`.
@@ -39,19 +39,19 @@ A cell is the tab, the mode, the selected end, whether the popover is open, whet
 
 | Axis | Values |
 | --- | --- |
-| Tab | Intro, Recap, Credits, Preview. Movies: Intro, Credits. |
+| Tab | Intro, Recap, Credits, Preview, on a series and on a movie. |
 | Mode | Editing, or none after the "No …" button. |
 | Selected end | Start, End. |
 | Popover | Open, closed. |
 | Range | Valid, invalid. |
 | Submitting | In flight, or idle. |
 
-Series has 128 cells and movies have 64. These are unreachable, so a series bar has 72 reachable cells and a movie bar has 36:
+A series bar and a movie bar each have 128 cells. These are unreachable, so each bar has 72 reachable cells:
 
 - Popover open while none. None closes the popover, so that combination is not a cell you can sit in.
 - Popover open while a submit is in flight. Submit closes the popover.
 - Submitting while editing an invalid range. Submit stays disabled.
-- Submitting while none, when the service refuses an empty segment (IntroDB). That drops 16 more series cells (every tab, both ends, both range values, popover already closed).
+- Submitting while none, when the service refuses an empty segment (IntroDB). That drops 16 more cells on a series and on a movie (every tab, both ends, both range values, popover already closed).
 
 Close is not a cell. It leaves the bar. A key problem, a block line, or a successful send also keeps Submit off. Success sets sent on the same idle cell until a clock edit, a tab change, or leaving none.
 
@@ -68,7 +68,7 @@ In each case the height is at most one eighth of the video height and at most 64
 
 | Event | Effect |
 | --- | --- |
-| Select another tab | Switch. Clears none, sent, and the popover. The selected end returns to Start. An edit of that segment on this episode comes back. With nothing detected and no edit, both clocks are 0:00:00. A detected range wins over that zero. Recap and Preview do nothing on a movie. |
+| Select another tab | Switch. Clears none, sent, and the popover. The selected end returns to Start. An edit of that segment on this episode comes back. With nothing detected and no edit, both clocks are 0:00:00. A detected range wins over that zero. Recap and Preview switch the same way on a movie. |
 | Tap the open tab | While editing, nothing. While none, return to editing, clear sent, and leave the popover closed. |
 | Tap "No …" | Arms none and closes the popover. A second tap does nothing. Chips hide. Sent clears. |
 | Tap Start / Tap End | While editing, selects that end and opens its popover. The same chip again closes it. Ignored while none or while submitting. |

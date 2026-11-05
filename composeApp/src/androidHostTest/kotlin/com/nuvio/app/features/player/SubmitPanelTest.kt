@@ -172,7 +172,7 @@ class SubmitPanelTest {
     }
 
     @Test
-    fun moviesKeepIntroAndCreditsAndIntroDbRefusesNone() {
+    fun moviesOfferFourTabsAndIntroDbRefusesNone() {
         compose.setContent {
             NuvioTheme {
                 Box(Modifier.size(844.dp, 390.dp)) {
@@ -194,9 +194,9 @@ class SubmitPanelTest {
             }
         }
         compose.onNodeWithText("Intro").assertIsDisplayed()
+        compose.onNodeWithText("Recap").assertIsDisplayed()
         compose.onNodeWithText("Credits").assertIsDisplayed()
-        compose.onAllNodesWithText("Recap").assertCountEquals(0)
-        compose.onAllNodesWithText("Preview").assertCountEquals(0)
+        compose.onNodeWithText("Preview").assertIsDisplayed()
         compose.onNodeWithText("IntroDB has no empty-segment submit.").assertIsDisplayed()
         compose.onNodeWithText("No intro · Movie · 2010").assertIsNotEnabled()
         compose.onAllNodesWithText("Submit").assertCountEquals(0)

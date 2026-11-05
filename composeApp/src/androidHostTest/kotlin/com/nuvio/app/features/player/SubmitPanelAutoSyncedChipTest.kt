@@ -198,8 +198,8 @@ class SubmitPanelAutoSyncedChipTest {
         type.value = "intro"
         compose.waitForIdle()
         assertChip(shown = true)
-        compose.onAllNodesWithText("Recap").assertCountEquals(0)
-        compose.onAllNodesWithText("Preview").assertCountEquals(0)
+        compose.onNodeWithText("Recap").assertIsDisplayed()
+        compose.onNodeWithText("Preview").assertIsDisplayed()
         compose.onNodeWithText("Credits").performClick()
         compose.waitForIdle()
         assertEquals("outro", type.value)
