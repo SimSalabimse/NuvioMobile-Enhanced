@@ -2,6 +2,15 @@ import Foundation
 import UIKit
 import MediaPlayer
 
+/// Same launch argument as Kotlin `AutomationTestMode`. A normal icon tap never sets it.
+private enum NuvioNowPlayingAutomation {
+    static var launchIsOn: Bool {
+        let arguments = ProcessInfo.processInfo.arguments
+        let env = ProcessInfo.processInfo.environment["NUVIO_AUTOMATION"]?.lowercased()
+        return arguments.contains("-NuvioAutomation") || env == "1" || env == "true"
+    }
+}
+
 final class PlayerNowPlayingController {
     private struct Metadata {
         var title: String?
@@ -80,6 +89,10 @@ final class PlayerNowPlayingController {
             }
 
             guard let url = URL(string: urlString) else {
+                applyNowPlayingInfo()
+                return
+            }
+            if NuvioNowPlayingAutomation.launchIsOn {
                 applyNowPlayingInfo()
                 return
             }

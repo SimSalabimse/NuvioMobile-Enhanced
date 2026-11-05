@@ -363,6 +363,7 @@ internal actual object EpisodeReleaseNotificationPlatform {
     }
 
     internal suspend fun loadBackdropBitmap(backdropUrl: String?): Bitmap? {
+        if (AutomationTestMode.isActive) return null
         val imageUrl = backdropUrl?.trim().takeUnless { it.isNullOrEmpty() } ?: return null
         return runCatching {
             withTimeoutOrNull(backdropLoadTimeoutMs) {

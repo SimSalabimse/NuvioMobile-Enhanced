@@ -112,7 +112,11 @@ object DirectDebridPlaybackResolver {
     }
 
     fun shouldResolveToPlayableStream(stream: StreamItem): Boolean {
-        if (AutomationTestMode.isActive) return AutomationStubs.isStubSource(stream)
+        if (AutomationTestMode.isActive) {
+            if (!AutomationStubs.isStubSource(stream)) return false
+            val url = stream.playableDirectUrl
+            return url == null || !AutomationStubs.isLocalClip(url)
+        }
         val settings = DebridSettingsRepository.snapshot()
         if (!settings.canResolvePlayableLinks) return false
         if (stream.needsLocalDebridResolve) {

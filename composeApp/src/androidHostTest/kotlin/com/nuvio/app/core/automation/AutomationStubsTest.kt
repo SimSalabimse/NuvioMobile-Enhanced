@@ -2,6 +2,7 @@ package com.nuvio.app.core.automation
 
 import android.app.Application
 import android.content.Context
+import com.nuvio.app.core.auth.DeviceSessionRegistration
 import com.nuvio.app.features.debrid.DirectDebridPlayableResult
 import com.nuvio.app.features.debrid.DirectDebridPlaybackResolver
 import com.nuvio.app.features.downloads.DownloadDiskInfo
@@ -14,6 +15,7 @@ import com.nuvio.app.features.downloads.DownloadsStorage
 import com.nuvio.app.features.downloads.SeasonEnqueueRow
 import com.nuvio.app.features.downloads.SeasonStreamCatalog
 import com.nuvio.app.features.downloads.enqueueSeasonDownloads
+import com.nuvio.app.features.home.HomeRepository
 import com.nuvio.app.features.home.homeHasActiveSources
 import com.nuvio.app.features.home.homeSectionsMissingFromSettings
 import com.nuvio.app.features.player.PlayerSettingsRepository
@@ -27,6 +29,8 @@ import com.nuvio.app.features.player.skip.submitManualSkipSegment
 import com.nuvio.app.features.search.SearchRepository
 import com.nuvio.app.features.streams.PlaybackAvailability
 import com.nuvio.app.features.streams.StreamItem
+import com.nuvio.app.features.streams.StreamsRepository
+import com.nuvio.app.features.streams.isSelectableForPlayback
 import java.io.File
 import java.net.URI
 import kotlinx.coroutines.Dispatchers
@@ -44,6 +48,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -263,6 +268,80 @@ class AutomationStubsTest {
         AutomationTestMode.installForTests(active = false)
         assertEquals(ManualSkipSubmitOutcome.FAILED, runBlocking { submitAutomationMovie() })
         assertEquals(0, TheIntroDbSubmitProbe.networkPosts)
+    }
+
+    @Test
+    fun clearRestoresStubHomeOnlyWhileTheFlagIsOn() {
+        AutomationTestMode.installForTests(active = false)
+        HomeRepository.clear()
+        assertTrue(HomeRepository.uiState.value.sections.none { section ->
+            section.items.any { it.id == AUTOMATION_SERIES_ID }
+        })
+        assertTrue(HomeRepository.uiState.value.heroItems.none { it.id == AUTOMATION_MOVIE_ID })
+
+        AutomationTestMode.installForTests(active = true)
+        HomeRepository.clear()
+        val cleared = HomeRepository.uiState.value
+        assertEquals(
+            listOf(AUTOMATION_SERIES_NAME, AUTOMATION_MOVIE_NAME),
+            cleared.sections.single().items.map { it.name },
+        )
+        assertEquals(
+            listOf(AUTOMATION_SERIES_NAME, AUTOMATION_MOVIE_NAME),
+            cleared.heroItems.map { it.name },
+        )
+        HomeRepository.applyCurrentSettings()
+        assertEquals(
+            listOf(AUTOMATION_SERIES_NAME, AUTOMATION_MOVIE_NAME),
+            HomeRepository.uiState.value.sections.single().items.map { it.name },
+        )
+
+        AutomationTestMode.installForTests(active = false)
+        HomeRepository.clear()
+        assertTrue(HomeRepository.uiState.value.sections.none { section ->
+            section.items.any { it.id == AUTOMATION_SERIES_ID }
+        })
+    }
+
+    @Test
+    fun flagOnResolvesTheMovieSourceToTheLocalClip() {
+        AutomationTestMode.installForTests(active = false)
+        val plain = AutomationStubs.sources().first()
+        assertFalse(plain.isSelectableForPlayback(debridEnabled = false))
+        assertFalse(DirectDebridPlaybackResolver.shouldResolveToPlayableStream(plain))
+
+        AutomationTestMode.installForTests(active = true)
+        AutomationStubs.resetCounts()
+        StreamsRepository.load(
+            type = "movie",
+            videoId = AUTOMATION_MOVIE_ID,
+            parentMetaId = AUTOMATION_MOVIE_ID,
+            manualSelection = true,
+        )
+        val source = StreamsRepository.uiState.value.groups.single().streams.first { it.name == "Automation 1080p" }
+        assertTrue(source.isSelectableForPlayback(debridEnabled = false))
+        assertTrue(DirectDebridPlaybackResolver.shouldResolveToPlayableStream(source))
+        val resolved = runBlocking {
+            DirectDebridPlaybackResolver.resolveToPlayableStream(source, season = null, episode = null)
+        }
+        val playable = (resolved as DirectDebridPlayableResult.Success).stream
+        val url = assertNotNull(playable.playableDirectUrl)
+        assertTrue(AutomationStubs.isLocalClip(url))
+        assertTrue(File(URI(url)).isFile)
+        assertTrue(File(URI(url)).readBytes().contentEquals(AUTOMATION_CLIP_BYTES))
+        assertFalse(DirectDebridPlaybackResolver.shouldResolveToPlayableStream(playable))
+        assertEquals(0, AutomationStubs.realResolveCalls)
+        assertEquals(0, AutomationStubs.realClientCalls)
+        assertEquals(0, AutomationStubs.blockedNetworkCalls)
+    }
+
+    @Test
+    fun flagOnDoesNotRegisterTheDeviceSession() = runBlocking {
+        AutomationTestMode.installForTests(active = true)
+        AutomationStubs.resetCounts()
+        assertFalse(DeviceSessionRegistration.registerIfAuthenticated(force = true))
+        assertEquals(0, AutomationStubs.blockedNetworkCalls)
+        assertEquals(0, AutomationStubs.realClientCalls)
     }
 
     private suspend fun submitAutomationMovie(): ManualSkipSubmitOutcome = submitManualSkipSegment(

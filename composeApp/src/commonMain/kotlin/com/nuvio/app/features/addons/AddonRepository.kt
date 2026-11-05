@@ -167,6 +167,7 @@ object AddonRepository {
     }
 
     suspend fun pullFromServer(profileId: Int) {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         currentProfileId = resolveEffectiveProfileId(profileId)
         log.i { "pullFromServer() — profileId=$profileId, initialized=$initialized, pulledFromServer=$pulledFromServer" }
         InAppLogger.info("Addons/Repository", "pullFromServer profile=$currentProfileId initialized=$initialized pulled=$pulledFromServer")

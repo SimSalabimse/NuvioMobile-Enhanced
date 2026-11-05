@@ -19,11 +19,13 @@ The mode is not drawn. The root view exposes accessibility identifier `nuvio_aut
 
 A fresh launch with the flag on and no saved profiles skips sign-in and the profile picker. The process keeps one in-memory profile named Test, id `8001`, selects it, and opens Home on Automation Series and Automation Movie. `profile_payload` is not written. With the flag off, an empty profile list still opens sign-in.
 
-Home and Search treat sources as present while the mode is on, even when no addon manifest is installed, and they show Automation Series and Automation Movie. The "No content sources" helper line is unchanged and still used when the flag is off. Play is enabled. Choosing either stub source opens the local clip. A missing TheIntroDB key counts as satisfied: nothing reads or sends a key, Submit stays enabled, and the fake status is what the bar shows. Season downloads release their slot when the clip finishes inside the start call, so a three-episode queue all reaches completed. The clip is written under the download's file name in the normal downloads folder (`Documents/nuvio_downloads` on iOS, the app `files/downloads` directory on Android), which is the folder the Storage card counts.
+Home and Search treat sources as present while the mode is on, even when no addon manifest is installed, and they show Automation Series and Automation Movie. Profile selection calls `HomeRepository.clear()`, which puts those stub rows back instead of restoring an empty snapshot. The "No content sources" helper line is unchanged and still used when the flag is off. Play is enabled. A stub source is selectable without a debrid account. Tapping it resolves once to the local clip and opens the player. A missing TheIntroDB key counts as satisfied: nothing reads or sends a key, Submit stays enabled, and the fake status is what the bar shows. Season downloads release their slot when the clip finishes inside the start call, so a three-episode queue all reaches completed. The clip is written under the download's file name in the normal downloads folder (`Documents/nuvio_downloads` on iOS, the app `files/downloads` directory on Android), which is the folder the Storage card counts.
+
+Startup does not open a socket while the mode is on. The account backend (avatar catalog, device registration, session validation, supporter access), the reachability probe (including `https://cloudflare.com/cdn-cgi/trace`), Coil remote images, animated-image downloads, trailer extraction, notification artwork, the native tab-bar avatar, and Now Playing artwork all stay local.
 
 ## Stub catalog, sources, and playback
 
-While the mode is on, Home, Library, source lookup, debrid resolution, downloads, and the player stay inside the app. Nothing is sent to addons, TorBox, Real-Debrid, Trakt, Simkl, MDBList, TheIntroDB, AniList, WeTrakr, Discord, Jellyfin, or Emby. The owner's addon list may still be copied into the automation keys, and it is not contacted. AniList id lookup, Discord account lookup, Discord image upload, and the Discord gateway return an empty or failed result and do not open a socket. Jellyfin and Emby requests fail the same way, and the real client is created only on a request that is allowed to leave the device. On iOS, a download whose URL is not the local automation clip fails immediately and does not open a session.
+While the mode is on, Home, Library, source lookup, debrid resolution, downloads, and the player stay inside the app. Nothing is sent to addons, TorBox, Real-Debrid, Trakt, Simkl, MDBList, TheIntroDB, AniList, WeTrakr, Discord, Jellyfin, or Emby. The owner's addon list may still be copied into the automation keys, and it is not contacted. AniList id lookup, Discord account lookup, Discord image upload, and the Discord gateway return an empty or failed result and do not open a socket. Jellyfin and Emby requests fail the same way, and the real client is created only on a request that is allowed to leave the device. On iOS, a download whose URL is not the local automation clip fails immediately and does not open a session. Coil does not fetch `http` or `https` images. The native tab avatar and Now Playing artwork do not use `URLSession`. Trailer extraction and notification artwork do not open a client. Avatar catalog, device registration, Supabase session validation, and supporter-access reads do not run.
 
 `AutomationStubs` is the only seam. With the flag off, the same call sites use the real clients.
 
@@ -48,7 +50,7 @@ Resolving either source returns a local file, not a debrid link. Season and epis
 ### Phone check: Home and Search
 
 1. Launch with `-NuvioAutomation -NuvioAutomationReset`.
-2. Home shows **Automation Series** and **Automation Movie**. It does not show the "No content sources" card.
+2. Home shows **Automation Series** and **Automation Movie** after the profile is selected. It does not show the "No content sources" card.
 3. Open Search. With the field empty, Discover shows the same two titles. Type a query: the results are those two titles, not the empty card.
 
 ### Phone check: play the movie
@@ -56,7 +58,7 @@ Resolving either source returns a local file, not a debrid link. Season and epis
 1. From Home, open **Automation Movie**.
 2. Play is enabled (not "Playback unavailable").
 3. Tap Play. The source list is **Automation 1080p** (1.2 GB) and **Automation 2160p** (3.4 GB).
-4. Pick either. The player opens the local 8-second colour-bar clip.
+4. Tap either source. The player opens the local 8-second colour-bar clip. No debrid account is required.
 
 ### Phone check: season download
 

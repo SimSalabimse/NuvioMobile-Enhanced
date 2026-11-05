@@ -256,6 +256,10 @@ object HomeRepository {
 
     fun applyCurrentSettings(heroSourcesChanged: Boolean = false) {
         if (fixtureHold != null) return
+        if (AutomationTestMode.isActive) {
+            _uiState.value = AutomationStubs.homeState()
+            return
+        }
         publishCurrentState(
             isLoading = _uiState.value.isLoading,
             requestKey = currentRequestKey,
@@ -296,6 +300,13 @@ object HomeRepository {
         lastRefreshAddonSignature = null
         collectionHeroResolving = false
         showingSnapshot = false
+        if (AutomationTestMode.isActive) {
+            // Profile selection calls clear() after the launch snapshot. A saved snapshot has
+            // no stub rows, and waiting on addon manifests skips the later refresh.
+            restoreGeneration += 1
+            _uiState.value = AutomationStubs.homeState()
+            return
+        }
         _uiState.value = HomeUiState()
         restoreSnapshot()
     }
@@ -388,6 +399,10 @@ object HomeRepository {
     ) {
         fixtureHold?.let { held ->
             _uiState.value = held
+            return
+        }
+        if (AutomationTestMode.isActive) {
+            _uiState.value = AutomationStubs.homeState()
             return
         }
         if (currentDefinitions.isEmpty() && cachedSections.isNotEmpty()) return

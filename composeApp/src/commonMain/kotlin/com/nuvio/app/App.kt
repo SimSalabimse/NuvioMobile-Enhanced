@@ -108,6 +108,7 @@ internal fun AppEnvironment(content: @Composable () -> Unit) {
                 .diskCachePolicy(CachePolicy.ENABLED)
                 .memoryCachePolicy(CachePolicy.ENABLED)
                 .components {
+                    add(com.nuvio.app.core.ui.AutomationImageBlock())
                     add(PosterOfflineImageFetcher.Factory())
                     add(com.nuvio.app.core.uifixture.FixturePosterFetcher.Factory())
                     add(com.nuvio.app.features.offline.OfflineArtworkInterceptor())
