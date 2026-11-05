@@ -116,6 +116,12 @@ internal object AutomationStubs {
         return writeAutomationBytes("nuvio-automation-download-$safe.mp4", AUTOMATION_CLIP_BYTES)
     }
 
+    /** The clip under the download's own file name, in the downloads folder storage lists. */
+    fun placedDownloadFileUrl(fileName: String): String {
+        val safe = fileName.substringAfterLast('/').substringAfterLast('\\').ifBlank { "nuvio-automation-download.mp4" }
+        return writeAutomationDownloadFile(safe, AUTOMATION_CLIP_BYTES) ?: downloadFileUrl(safe)
+    }
+
     fun clipByteCount(): Long = AUTOMATION_CLIP_BYTES.size.toLong()
 
     fun homeState(): HomeUiState {
@@ -279,3 +285,6 @@ internal fun blockedAutomationHttpText(): String? {
 }
 
 internal expect fun writeAutomationBytes(fileName: String, bytes: ByteArray): String
+
+/** Writes [bytes] into the normal downloads folder. Null when that folder is not available. */
+internal expect fun writeAutomationDownloadFile(fileName: String, bytes: ByteArray): String?

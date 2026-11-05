@@ -51,7 +51,7 @@ private fun writeAutomationDownload(
     onSuccess: (localFileUri: String, totalBytes: Long?) -> Unit,
 ): DownloadsTaskHandle {
     val bytes = com.nuvio.app.core.automation.AutomationStubs.clipByteCount()
-    val uri = com.nuvio.app.core.automation.AutomationStubs.downloadFileUrl(request.item.id)
+    val uri = com.nuvio.app.core.automation.AutomationStubs.placedDownloadFileUrl(request.destinationFileName)
     onProgress(bytes, bytes)
     onSuccess(uri, bytes)
     return object : DownloadsTaskHandle {

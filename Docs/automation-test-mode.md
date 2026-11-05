@@ -19,6 +19,8 @@ The mode is not drawn. The root view exposes accessibility identifier `nuvio_aut
 
 A fresh launch with the flag on and no saved profiles skips sign-in and the profile picker. The process keeps one in-memory profile named Test, id `8001`, selects it, and opens Home on Automation Series and Automation Movie. `profile_payload` is not written. With the flag off, an empty profile list still opens sign-in.
 
+Home and Search treat sources as present while the mode is on, even when no addon manifest is installed, and they show Automation Series and Automation Movie. The "No content sources" helper line is unchanged and still used when the flag is off. Play is enabled. Choosing either stub source opens the local clip. A missing TheIntroDB key counts as satisfied: nothing reads or sends a key, Submit stays enabled, and the fake status is what the bar shows. Season downloads release their slot when the clip finishes inside the start call, so a three-episode queue all reaches completed. The clip is written under the download's file name in the normal downloads folder (`Documents/nuvio_downloads` on iOS, the app `files/downloads` directory on Android), which is the folder the Storage card counts.
+
 ## Stub catalog, sources, and playback
 
 While the mode is on, Home, Library, source lookup, debrid resolution, downloads, and the player stay inside the app. Nothing is sent to addons, TorBox, Real-Debrid, Trakt, Simkl, MDBList, TheIntroDB, AniList, WeTrakr, Discord, Jellyfin, or Emby. The owner's addon list may still be copied into the automation keys, and it is not contacted. AniList id lookup, Discord account lookup, Discord image upload, and the Discord gateway return an empty or failed result and do not open a socket. Jellyfin and Emby requests fail the same way, and the real client is created only on a request that is allowed to leave the device. On iOS, a download whose URL is not the local automation clip fails immediately and does not open a session.
@@ -41,7 +43,20 @@ Find sources, for any title, returns two stub sources from the addon name Automa
 | Automation 1080p | 1.2 GB |
 | Automation 2160p | 3.4 GB |
 
-Resolving either source returns a local file, not a debrid link. Season and episode downloads go through the normal queue (progress, completion, retry, delete-when-finished, already-in-downloads) and write that same clip. The file is `composeApp/src/commonMain/composeResources/files/automation/color-bars.mp4`: synthetic FFmpeg `testsrc` colour bars, 64×48, 8 seconds, no audio, **8720 bytes**.
+Resolving either source returns a local file, not a debrid link. Season and episode downloads go through the normal queue (progress, completion, retry, delete-when-finished, already-in-downloads) and write that same clip into the downloads folder under the row's file name. The file is `composeApp/src/commonMain/composeResources/files/automation/color-bars.mp4`: synthetic FFmpeg `testsrc` colour bars, 64×48, 8 seconds, no audio, **8720 bytes**. A season of three episodes all finish; the Storage card counts `8720` bytes for each.
+
+### Phone check: Home and Search
+
+1. Launch with `-NuvioAutomation -NuvioAutomationReset`.
+2. Home shows **Automation Series** and **Automation Movie**. It does not show the "No content sources" card.
+3. Open Search. With the field empty, Discover shows the same two titles. Type a query: the results are those two titles, not the empty card.
+
+### Phone check: play the movie
+
+1. From Home, open **Automation Movie**.
+2. Play is enabled (not "Playback unavailable").
+3. Tap Play. The source list is **Automation 1080p** (1.2 GB) and **Automation 2160p** (3.4 GB).
+4. Pick either. The player opens the local 8-second colour-bar clip.
 
 ### Phone check: season download
 
@@ -51,15 +66,14 @@ Resolving either source returns a local file, not a debrid link. Season and epis
 4. Open a season and tap **Download Season**.
 5. Tap **Find sources**. The two Automation sources appear with sizes 1.2 GB and 3.4 GB.
 6. Pick one and start the download.
-7. The downloads queue runs and completes. The file on disk is the 8720-byte colour-bar clip. No addon or debrid account is used.
+7. Every episode in the queue, including the third, leaves Waiting and reaches completed. Each file is the 8720-byte clip in the downloads folder. Storage shows Downloads as that many times 8720 bytes, not 0. No addon or debrid account is used.
 
 ### Phone check: player submit bar
 
 1. Launch with `-NuvioAutomation` and `-NuvioAutomationSubmitResult=409` (use `200` for the success pass).
-2. Open **Automation Movie**.
-3. Play it and choose **Automation 1080p** or **Automation 2160p**. The player opens the local 8-second clip.
-4. Open the submit bar (Intro / Recap / Credits / Preview). The clip is long enough for a 5 second intro.
-5. Submit. `409` shows Failed. Launch again with `200` and the same steps show sent.
+2. Open **Automation Movie**, tap Play, and choose **Automation 1080p** or **Automation 2160p**.
+3. Open the submit bar (Intro / Recap / Credits / Preview). It does not say "Add a TheIntroDB key". No key is read or sent.
+4. Mark a 5 second intro and tap Submit. `409` shows Failed. Launch again with `200` and the same steps show sent. No request leaves the device.
 
 ## Isolation
 

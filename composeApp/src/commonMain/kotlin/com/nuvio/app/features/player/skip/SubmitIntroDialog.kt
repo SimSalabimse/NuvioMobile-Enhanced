@@ -1,5 +1,6 @@
 package com.nuvio.app.features.player.skip
 
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.features.player.formatPlaybackTime
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -863,7 +864,10 @@ internal suspend fun prepareIntroSubmitKey(
 ): IntroSubmitKeyPrepareResult {
     val trimmed = apiKey.trim()
     val problem = introSubmitKeyProblem(service, trimmed)
-    if (problem != IntroSubmitKeyProblem.NONE) return IntroSubmitKeyPrepareResult.Rejected(problem)
+    if (problem != IntroSubmitKeyProblem.NONE) {
+        if (introSubmitKeySatisfied(service, trimmed)) return IntroSubmitKeyPrepareResult.Ready
+        return IntroSubmitKeyPrepareResult.Rejected(problem)
+    }
     if (trimmed != savedKey.trim()) {
         val valid = try {
             when (service) {
@@ -909,7 +913,8 @@ internal suspend fun submitManualSkipSegment(
     service: IntroSubmitService,
 ): ManualSkipSubmitOutcome {
     val settings = PlayerSettingsRepository.uiState.value
-    if (!settings.introSubmitEnabled) return ManualSkipSubmitOutcome.FAILED
+    val automationSubmit = AutomationTestMode.isActive && service == IntroSubmitService.THE_INTRODB
+    if (!settings.introSubmitEnabled && !automationSubmit) return ManualSkipSubmitOutcome.FAILED
     val key = savedKeyForService(service, settings.introDbApiKey, settings.theIntroDbApiKey)
     if (introSubmitBlockReason(service, key, isMovie, imdbId, season, episode) != null) {
         return ManualSkipSubmitOutcome.FAILED
@@ -958,6 +963,30 @@ private suspend fun submitTheIntroDbSegment(
     videoId: String?,
     parentMetaType: String,
 ): ManualSkipSubmitOutcome {
+    if (AutomationTestMode.isActive) {
+        val mediaType = when {
+            isMovie -> "movie"
+            parentMetaType.equals("movie", ignoreCase = true) -> "movie"
+            else -> "tv"
+        }
+        return when (
+            TheIntroDb.submitTimestamp(
+                apiKey = "",
+                tmdbId = 0,
+                type = mediaType,
+                segment = segmentType,
+                season = season.takeIf { mediaType == "tv" && season > 0 },
+                episode = episode.takeIf { mediaType == "tv" && episode > 0 },
+                startSec = startSec,
+                endSec = endSec,
+                videoDurationMs = durationMs.takeIf { it > 0L },
+            )
+        ) {
+            TheIntroDbSubmitResult.Accepted -> ManualSkipSubmitOutcome.SENT
+            TheIntroDbSubmitResult.AlreadySubmitted -> ManualSkipSubmitOutcome.ALREADY_SUBMITTED
+            is TheIntroDbSubmitResult.Failed -> ManualSkipSubmitOutcome.FAILED
+        }
+    }
     val mediaType = when {
         isMovie -> "movie"
         parentMetaType.equals("movie", ignoreCase = true) -> "movie"

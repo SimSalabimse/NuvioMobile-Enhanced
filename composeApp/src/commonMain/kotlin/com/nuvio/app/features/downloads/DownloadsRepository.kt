@@ -1061,7 +1061,10 @@ object DownloadsRepository {
             },
         )
 
-        activeHandles[item.id] = handle
+        val stillDownloading = _uiState.value.items.firstOrNull { it.id == item.id }?.status == DownloadStatus.Downloading
+        if (!com.nuvio.app.core.automation.AutomationTestMode.isActive || stillDownloading) {
+            activeHandles[item.id] = handle
+        }
     }
 
     private fun mutateItem(downloadId: String, transform: (DownloadItem) -> DownloadItem) {
