@@ -183,11 +183,12 @@ actual suspend fun httpRequestRaw(
     maxResponseBodyBytes: Int,
     bodyBytes: ByteArray?,
 ): RawHttpResponse {
-    if (com.nuvio.app.core.automation.AutomationTestMode.isActive) {
+    val automationActive = com.nuvio.app.core.automation.AutomationTestMode.isActive
+    if (com.nuvio.app.core.ui.automationRawRequestBlocked(automationActive, url)) {
         com.nuvio.app.core.automation.AutomationStubs.noteBlockedNetwork()
         return RawHttpResponse(status = 204, statusText = "automation", url = "", body = "", headers = emptyMap())
     }
-    if (com.nuvio.app.core.uifixture.uiFixturesActive()) {
+    if (!automationActive && com.nuvio.app.core.uifixture.uiFixturesActive()) {
         return RawHttpResponse(
             status = 0,
             statusText = "fixture",

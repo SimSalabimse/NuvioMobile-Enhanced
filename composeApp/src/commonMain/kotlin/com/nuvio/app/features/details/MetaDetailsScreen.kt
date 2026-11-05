@@ -55,6 +55,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.State
@@ -112,6 +113,11 @@ import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.DownloadsSettingsRepository
 import com.nuvio.app.features.downloads.downloadLogicalContentKey
 import com.nuvio.app.features.details.components.DetailActions
+import com.nuvio.app.features.details.components.LocalSeasonPosterPlacement
+import com.nuvio.app.features.details.components.LocalSeasonPosterPreview
+import com.nuvio.app.features.details.components.SeasonPosterPlacement
+import com.nuvio.app.features.details.components.SeasonPosterPreviewOverlay
+import com.nuvio.app.features.details.components.SeasonPosterPreviewRequest
 import com.nuvio.app.features.details.components.CommentDetailSheet
 import com.nuvio.app.features.details.components.DetailAdditionalInfoSection
 import com.nuvio.app.features.details.components.DetailCastSection
@@ -282,6 +288,11 @@ fun MetaDetailsScreen(
     val cinematicArtworkBackdrop = rememberNuvioBackdrop()
     val cinematicContentBackdrop = rememberNuvioBackdrop()
     var selectedSeasonForActions by remember(type, id) { mutableStateOf<Int?>(null) }
+    var seasonPosterPreview by remember(type, id) { mutableStateOf<SeasonPosterPreviewRequest?>(null) }
+    var seasonPosterFixtureOpened by remember(type, id) { mutableStateOf(false) }
+    DisposableEffect(type, id) {
+        onDispose { seasonPosterPreview = null }
+    }
     var seasonOverviewSeason by remember(type, id) { mutableStateOf<Int?>(null) }
     var userRatingSheetRequest by remember(type, id) { mutableStateOf<UserRatingSheetRequest?>(null) }
     val commentsEnabled by remember {
@@ -443,6 +454,28 @@ fun MetaDetailsScreen(
         }
     }
 
+    LaunchedEffect(displayedMeta?.id) {
+        val meta = displayedMeta ?: return@LaunchedEffect
+        if (seasonPosterFixtureOpened) return@LaunchedEffect
+        if (currentUiFixture() != UiFixture.SeasonPoster) return@LaunchedEffect
+        if (meta.id != UiFixtureCatalog.SERIES_ID) return@LaunchedEffect
+        val url = largestSeasonPosterUrl(meta.seasonPosters[1]) ?: return@LaunchedEffect
+        seasonPosterFixtureOpened = true
+        seasonPosterPreview = SeasonPosterPreviewRequest(
+            season = 1,
+            imageUrl = url,
+            anchor = null,
+            settled = true,
+        )
+    }
+
+    val seasonPosterPlacement = remember(type, id) { SeasonPosterPlacement() }
+    CompositionLocalProvider(
+        LocalSeasonPosterPreview provides { request ->
+            seasonPosterPreview = request
+        },
+        LocalSeasonPosterPlacement provides seasonPosterPlacement,
+    ) {
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -2216,6 +2249,13 @@ fun MetaDetailsScreen(
                 },
             )
         }
+        seasonPosterPreview?.let { request ->
+            SeasonPosterPreviewOverlay(
+                request = request,
+                onDismissed = { seasonPosterPreview = null },
+            )
+        }
+    }
     }
 }
 
