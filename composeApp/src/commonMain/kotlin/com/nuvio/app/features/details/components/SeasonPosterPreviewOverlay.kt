@@ -324,6 +324,16 @@ internal fun SeasonPosterPreviewOverlay(
                                 listShownMs = openedAt.elapsedNow().inWholeMilliseconds
                             }
                         },
+                        onError = { state ->
+                            logSeasonPosterOpen(
+                                url = listImageUrl,
+                                bitmapWidthPx = 0,
+                                bitmapHeightPx = 0,
+                                listShownMs = listShownMs,
+                                largeShownMs = -1L,
+                                errorClass = state.result.throwable::class.simpleName,
+                            )
+                        },
                     )
                 }
                 if (imageRequest != null) {
@@ -351,7 +361,15 @@ internal fun SeasonPosterPreviewOverlay(
                                 )
                             }
                         },
-                        onError = {
+                        onError = { state ->
+                            logSeasonPosterOpen(
+                                url = requestedUrl,
+                                bitmapWidthPx = 0,
+                                bitmapHeightPx = 0,
+                                listShownMs = listShownMs,
+                                largeShownMs = openedAt.elapsedNow().inWholeMilliseconds,
+                                errorClass = state.result.throwable::class.simpleName,
+                            )
                             val next = seasonPosterFallbackUrl(requestedUrl)
                             if (next != null && next != requestedUrl) requestedUrl = next
                         },
@@ -366,11 +384,12 @@ private fun lerp(start: Float, stop: Float, fraction: Float): Float =
     start + (stop - start) * fraction
 
 private fun logSeasonPosterOpen(
-    url: String,
+    url: String?,
     bitmapWidthPx: Int,
     bitmapHeightPx: Int,
     listShownMs: Long,
     largeShownMs: Long,
+    errorClass: String? = null,
 ) {
     if (!seasonPosterDiagnosticsEnabled(
             automationActive = AutomationTestMode.isActive,
@@ -385,6 +404,7 @@ private fun logSeasonPosterOpen(
         bitmapHeightPx = bitmapHeightPx,
         listShownMs = listShownMs,
         largeShownMs = largeShownMs,
+        errorClass = errorClass,
     )
     InAppLogger.info("SeasonPoster", line)
     DiagnosticsLogger.logPerformance(line)

@@ -5,6 +5,7 @@ import com.nuvio.app.core.automation.AutomationStubs
 import com.nuvio.app.core.automation.automationSeasonPosterUrl
 import com.nuvio.app.core.perf.TmdbImageSizing
 import com.nuvio.app.core.ui.automationImageRequestAllowed
+import com.nuvio.app.core.ui.automationRawRequestBlocked
 import com.nuvio.app.core.uifixture.fixtureSeasonPosterUrl
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -67,6 +68,19 @@ class SeasonPosterPreviewTest {
         assertEquals("image.tmdb.org/t/p/original", seasonPosterLogTarget(original))
         assertEquals("cdn.example", seasonPosterLogTarget("https://cdn.example/poster.jpg?x=1"))
         assertEquals("none", seasonPosterLogTarget(null))
+        assertEquals(
+            "poster=image.tmdb.org/t/p/w500 bitmap=0x0 listMs=-1 largeMs=-1 error=PosterImageLeftAsPlaceholder",
+            seasonPosterPreviewLogLine(
+                url = "https://image.tmdb.org/t/p/w500/1E5baAaEse26fej7uHcjOgEE2t2.jpg?token=secret",
+                bitmapWidthPx = 0,
+                bitmapHeightPx = 0,
+                listShownMs = -1L,
+                largeShownMs = -1L,
+                errorClass = "PosterImageLeftAsPlaceholder",
+            ),
+        )
+        assertEquals("Error", seasonPosterErrorClass("Illegal State?token=secret"))
+        assertNull(seasonPosterErrorClass("  "))
         assertTrue(seasonPosterDiagnosticsEnabled(automationActive = true, diagnosticsEnabled = false))
         assertFalse(seasonPosterDiagnosticsEnabled(automationActive = false, diagnosticsEnabled = false))
         // A measured slot rewrites `original` back down. Width 0 (Size.ORIGINAL) does not.
@@ -214,5 +228,60 @@ class SeasonPosterPreviewTest {
         assertFalse(automationImageRequestAllowed("https://cdn.example/poster.jpg"))
         assertEquals("season_poster_3", seasonPosterAccessibilityId(3))
         assertEquals("season_poster_overlay", SeasonPosterOverlayAccessibilityId)
+    }
+
+    @Test
+    fun automationGuardAllowsOnlyTheOnePosterAndOnlyWhileTheModeIsOn() {
+        val file = "1E5baAaEse26fej7uHcjOgEE2t2.jpg"
+        listOf("w500", "w185", "w342", "w780", "w1280", "original").forEach { size ->
+            val url = "https://image.tmdb.org/t/p/$size/$file"
+            assertFalse(automationRawRequestBlocked(automationActive = true, url = url), size)
+            assertFalse(
+                automationRawRequestBlocked(automationActive = true, url = "$url?token=secret"),
+                size,
+            )
+        }
+        assertTrue(
+            automationRawRequestBlocked(
+                automationActive = true,
+                url = "https://image.tmdb.org/t/p/w500/other.jpg",
+            ),
+        )
+        assertTrue(
+            automationRawRequestBlocked(
+                automationActive = true,
+                url = "https://image.tmdb.org/3/tv/1396?api_key=secret",
+            ),
+        )
+        assertTrue(
+            automationRawRequestBlocked(
+                automationActive = true,
+                url = "https://cdn.example/poster.jpg",
+            ),
+        )
+        assertTrue(
+            automationRawRequestBlocked(
+                automationActive = true,
+                url = "http://image.tmdb.org/t/p/w500/$file",
+            ),
+        )
+        assertTrue(
+            automationRawRequestBlocked(
+                automationActive = true,
+                url = "https://addon.example/manifest.json",
+            ),
+        )
+        assertFalse(
+            automationRawRequestBlocked(
+                automationActive = false,
+                url = "https://cdn.example/poster.jpg",
+            ),
+        )
+        assertFalse(
+            automationRawRequestBlocked(
+                automationActive = false,
+                url = "https://debrid.example/resolve?token=secret",
+            ),
+        )
     }
 }

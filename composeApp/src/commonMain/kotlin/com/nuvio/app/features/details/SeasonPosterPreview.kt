@@ -115,9 +115,20 @@ internal fun seasonPosterPreviewLogLine(
     bitmapHeightPx: Int,
     listShownMs: Long,
     largeShownMs: Long,
-): String =
-    "poster=${seasonPosterLogTarget(url)} bitmap=${bitmapWidthPx}x$bitmapHeightPx " +
+    errorClass: String? = null,
+): String {
+    val base = "poster=${seasonPosterLogTarget(url)} bitmap=${bitmapWidthPx}x$bitmapHeightPx " +
         "listMs=$listShownMs largeMs=$largeShownMs"
+    val error = seasonPosterErrorClass(errorClass)
+    return if (error == null) base else "$base error=$error"
+}
+
+/** Throwable class name only. Messages, queries, and tokens stay out of the log. */
+internal fun seasonPosterErrorClass(name: String?): String? {
+    val trimmed = name?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    val safe = trimmed.all { char -> char.isLetterOrDigit() || char == '_' || char == '$' }
+    return if (safe) trimmed else "Error"
+}
 
 internal fun seasonPosterDiagnosticsEnabled(
     automationActive: Boolean,

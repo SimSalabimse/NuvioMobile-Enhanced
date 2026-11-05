@@ -38,6 +38,15 @@ internal fun automationImageRequestAllowed(data: Any?): Boolean {
     return text.endsWith("/1E5baAaEse26fej7uHcjOgEE2t2.jpg")
 }
 
+/**
+ * Coil loads posters through `httpRequestRaw`, which is the automation network guard.
+ * The mode off never blocks here. The mode on blocks every call except the one public file.
+ */
+internal fun automationRawRequestBlocked(automationActive: Boolean, url: String): Boolean {
+    if (!automationActive) return false
+    return !automationImageRequestAllowed(url)
+}
+
 private fun Any.isRemoteImageRequest(): Boolean {
     val text = toString()
     return text.startsWith("http://") || text.startsWith("https://")
