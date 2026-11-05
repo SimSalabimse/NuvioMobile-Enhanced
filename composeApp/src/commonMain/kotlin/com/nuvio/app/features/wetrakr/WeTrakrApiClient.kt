@@ -355,6 +355,10 @@ internal class WeTrakrApiClient(
         body: String? = null,
         token: String?,
     ): WeTrakrResponse {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) {
+            com.nuvio.app.core.automation.AutomationStubs.noteBlockedNetwork()
+            return WeTrakrResponse(status = 204, body = "{}", headers = emptyMap())
+        }
         awaitSlot()
         val url = buildString {
             append(WeTrakrConfig.API_BASE_URL)

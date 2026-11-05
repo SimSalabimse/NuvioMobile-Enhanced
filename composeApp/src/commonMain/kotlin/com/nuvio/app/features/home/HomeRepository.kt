@@ -1,5 +1,7 @@
 package com.nuvio.app.features.home
 
+import com.nuvio.app.core.automation.AutomationStubs
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.features.addons.ManagedAddon
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.enabledAddons
@@ -73,6 +75,10 @@ object HomeRepository {
     private var deferredLaunchRefreshForce = false
 
     fun preloadSnapshot() {
+        if (AutomationTestMode.isActive) {
+            _uiState.value = AutomationStubs.homeState()
+            return
+        }
         if (preloadedSnapshot != null || restoreGeneration != 0) return
         val profileKey = HomeSnapshotStore.currentProfileKey() ?: return
         if (preloadedSnapshot != null || restoreGeneration != 0) return
@@ -110,6 +116,12 @@ object HomeRepository {
 
     fun refresh(addons: List<ManagedAddon>, force: Boolean = false) {
         if (fixtureHold != null) return
+        if (AutomationTestMode.isActive) {
+            activeJob?.cancel()
+            activeJob = null
+            _uiState.value = AutomationStubs.homeState()
+            return
+        }
         if (shouldHoldLaunchRefresh()) {
             deferredLaunchRefreshAddons = addons
             deferredLaunchRefreshForce = deferredLaunchRefreshForce || force

@@ -326,7 +326,11 @@ object DownloadsRepository {
                 // needs this row to be in the list first.
                 status = DownloadStatus.Queued,
                 downloadedBytes = 0L,
-                totalBytes = null,
+                totalBytes = if (com.nuvio.app.core.automation.AutomationStubs.isLocalClip(sourceUrl)) {
+                    com.nuvio.app.core.automation.AutomationStubs.clipByteCount()
+                } else {
+                    null
+                },
                 errorMessage = null,
                 createdAtEpochMs = now,
                 updatedAtEpochMs = now,
@@ -1716,5 +1720,6 @@ internal fun String.isSupportedDownloadUrl(): Boolean {
     if (normalized.endsWith(".m3u8") || normalized.contains(".m3u8?")) return false
     if (normalized.endsWith(".mpd") || normalized.contains(".mpd?")) return false
     if (normalized.endsWith(".torrent") || normalized.contains(".torrent?")) return false
+    if (com.nuvio.app.core.automation.AutomationStubs.isLocalClip(normalized)) return true
     return normalized.startsWith("http://") || normalized.startsWith("https://")
 }

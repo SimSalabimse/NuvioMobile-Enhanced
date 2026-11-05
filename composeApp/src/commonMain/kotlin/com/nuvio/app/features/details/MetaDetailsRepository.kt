@@ -5,6 +5,8 @@ import co.touchlab.kermit.Logger
 import kotlin.time.Clock
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
+import com.nuvio.app.core.automation.AutomationStubs
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.features.addons.AddonManifest
 import com.nuvio.app.features.addons.AddonRepository
@@ -91,6 +93,16 @@ object MetaDetailsRepository {
         fixtureMetas["$type:$id"]?.let { meta ->
             activeRequestKey = "$type:$id"
             _uiState.value = MetaDetailsUiState(isLoading = false, meta = meta, episodesComplete = true)
+            return
+        }
+        if (AutomationTestMode.isActive) {
+            activeRequestKey = "$type:$id"
+            val meta = AutomationStubs.meta(type, id)
+            _uiState.value = if (meta == null) {
+                MetaDetailsUiState(isLoading = false, errorMessage = "Automation title is not in the stub catalog")
+            } else {
+                MetaDetailsUiState(isLoading = false, meta = meta, episodesComplete = true)
+            }
             return
         }
         bindProfile()

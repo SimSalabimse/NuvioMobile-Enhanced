@@ -445,6 +445,7 @@ object AddonRepository {
         manifestUrl: String,
         forceRefresh: Boolean = false,
     ) {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         val existingJob = synchronized(activeRefreshJobsLock) { activeRefreshJobs[manifestUrl] }
         if (existingJob?.isActive == true) {
             InAppLogger.debug("Addons/Manifest", "refresh skipped active url=${InAppLogger.redactUrl(manifestUrl)}")

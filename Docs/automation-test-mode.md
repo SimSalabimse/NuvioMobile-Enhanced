@@ -15,7 +15,49 @@ xcrun simctl launch booted <bundle> -NuvioAutomation
 xcrun devicectl device process launch --device <udid> <bundle> -- -NuvioAutomation -NuvioAutomationReset
 ```
 
-The mode is not drawn. The root view exposes accessibility identifier `nuvio_automation_test_mode` only while the mode is on. One stdout line names the namespace id and nothing else (no keys, addon URLs, or stream URLs).
+The mode is not drawn. The root view exposes accessibility identifier `nuvio_automation_test_mode` only while the mode is on. One stdout line names the namespace id and nothing else (no keys, addon URLs, or stream URLs). The profile name on screen is **Test**. Saved profile names are not written.
+
+## Stub catalog, sources, and playback
+
+While the mode is on, Home, Library, source lookup, debrid resolution, downloads, and the player stay inside the app. Nothing is sent to addons, TorBox, Real-Debrid, Trakt, Simkl, MDBList, TheIntroDB, AniList, or WeTrakr. The owner's addon list may still be copied into the automation keys, and it is not contacted.
+
+`AutomationStubs` is the only seam. With the flag off, the same call sites use the real clients.
+
+### What is on screen
+
+The hidden profile's Home and Library show two artwork-free titles:
+
+| Title | Id | Shape |
+| --- | --- | --- |
+| Automation Series | `automation:series` | 3 seasons, 3 episodes each (S1E1–S3E3), aired 2020-01-15 |
+| Automation Movie | `automation:movie` | one movie |
+
+Find sources, for any title, returns two stub sources from the addon name Automation:
+
+| Source | Shown size |
+| --- | --- |
+| Automation 1080p | 1.2 GB |
+| Automation 2160p | 3.4 GB |
+
+Resolving either source returns a local file, not a debrid link. Season and episode downloads go through the normal queue (progress, completion, retry, delete-when-finished, already-in-downloads) and write that same clip. The file is `composeApp/src/commonMain/composeResources/files/automation/color-bars.mp4`: synthetic FFmpeg `testsrc` colour bars, 64×48, 8 seconds, no audio, **8720 bytes**.
+
+### Phone check: season download
+
+1. Launch with `-NuvioAutomation`. Add `-NuvioAutomationReset` for a clean automation namespace.
+2. Confirm accessibility id `nuvio_automation_test_mode` and that the profile name is Test.
+3. On Home (or Library), open **Automation Series**.
+4. Open a season and tap **Download Season**.
+5. Tap **Find sources**. The two Automation sources appear with sizes 1.2 GB and 3.4 GB.
+6. Pick one and start the download.
+7. The downloads queue runs and completes. The file on disk is the 8720-byte colour-bar clip. No addon or debrid account is used.
+
+### Phone check: player submit bar
+
+1. Launch with `-NuvioAutomation` and `-NuvioAutomationSubmitResult=409` (use `200` for the success pass).
+2. Open **Automation Movie**.
+3. Play it and choose **Automation 1080p** or **Automation 2160p**. The player opens the local 8-second clip.
+4. Open the submit bar (Intro / Recap / Credits / Preview). The clip is long enough for a 5 second intro.
+5. Submit. `409` shows Failed. Launch again with `200` and the same steps show sent.
 
 ## Isolation
 
@@ -66,16 +108,16 @@ Catalogs and streams need the same addon list. On the first automation launch, t
 
 ### Outward writes (stubbed)
 
-Reads of catalogs, addon manifests, and streams stay on the network. These do not:
+Catalog, addon, and stream reads are stubbed too (see above). These writes do not leave the device:
 
 - Account sync pull and push (Supabase profile, library, watched, progress, settings, addons)
 - Offline outbox send
 - Trakt and Simkl scrobble, history, and watchlist writes
-- MDBList `POST`/`PUT`/`DELETE` (including scrobble and list writes). `GET` stays
+- MDBList `GET`/`POST`/`PUT`/`DELETE` (including scrobble and list writes). The client returns an empty JSON object and does not open a socket
 - Push: episode-release notification scheduling and authorization prompts
 - TheIntroDB `POST /v4/submit` and `POST /v4/map`, and IntroDB `POST /submit`
 
-The submit sheet still runs. With no saved key (the real key is not loaded) the TheIntroDB path is the one exercised, and the HTTP call is replaced by the fake status. `GET /v4/media` is unchanged and does not send a key.
+The submit sheet still runs. With no saved key (the real key is not loaded) the TheIntroDB path is the one exercised, and the HTTP call is replaced by the fake status. `GET /v4/media` returns no segments and does not open a socket.
 
 ## Risks
 

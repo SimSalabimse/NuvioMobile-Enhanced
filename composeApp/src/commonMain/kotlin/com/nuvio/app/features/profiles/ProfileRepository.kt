@@ -3,6 +3,7 @@ package com.nuvio.app.features.profiles
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.automation.AutomationTestMode
+import com.nuvio.app.core.automation.withAutomationProfileName
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.auth.isAnonymous
 import com.nuvio.app.core.network.SupabaseProvider
@@ -124,7 +125,7 @@ object ProfileRepository {
             cachePhase = profileCachePhaseForProfiles(profiles),
             hasEverSelectedProfile = stored.hasEverSelectedProfile,
             rememberLastProfileEnabled = stored.rememberLastProfileEnabled,
-        )
+        ).withAutomationProfileName()
         _state.value.activeProfile?.let { activeProfileIndex = it.profileIndex }
         syncPinCache(profiles)
         synchronousCacheSnapshot()
@@ -720,7 +721,7 @@ object ProfileRepository {
             cachePhase = profileCachePhaseForProfiles(profiles),
             hasEverSelectedProfile = stored.hasEverSelectedProfile,
             rememberLastProfileEnabled = stored.rememberLastProfileEnabled,
-        )
+        ).withAutomationProfileName()
         _state.value.activeProfile?.let { activeProfileIndex = it.profileIndex }
         withContext(Dispatchers.IO) {
             syncPinCache(profiles)

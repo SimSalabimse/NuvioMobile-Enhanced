@@ -206,7 +206,9 @@ private suspend fun executeTextRequest(
     url: String,
     headers: Map<String, String> = emptyMap(),
     body: String = "",
-): String = withContext(Dispatchers.IO) {
+): String {
+    com.nuvio.app.core.automation.blockedAutomationHttpText()?.let { return it }
+    return withContext(Dispatchers.IO) {
     val normalizedMethod = method.uppercase()
     val sanitizedHeaders = headers.withoutAcceptEncoding()
     val builder = Request.Builder().url(url)
@@ -269,6 +271,7 @@ private suspend fun executeTextRequest(
             },
         )
     }
+    }
 }
 
 actual suspend fun httpGetText(url: String): String =
@@ -322,8 +325,12 @@ actual suspend fun httpRequestRaw(
     followRedirects: Boolean,
     maxResponseBodyBytes: Int,
     bodyBytes: ByteArray?,
-): RawHttpResponse =
-    withContext(Dispatchers.IO) {
+): RawHttpResponse {
+    if (com.nuvio.app.core.automation.AutomationTestMode.isActive) {
+        com.nuvio.app.core.automation.AutomationStubs.noteBlockedNetwork()
+        return RawHttpResponse(status = 204, statusText = "automation", url = "", body = "", headers = emptyMap())
+    }
+    return withContext(Dispatchers.IO) {
         val normalizedMethod = method.uppercase()
         val sanitizedHeaders = headers.withoutAcceptEncoding()
         val builder = Request.Builder().url(url)
@@ -385,3 +392,4 @@ actual suspend fun httpRequestRaw(
             cancelHandle?.dispose()
         }
     }
+}
