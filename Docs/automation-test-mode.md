@@ -17,9 +17,11 @@ xcrun devicectl device process launch --device <udid> <bundle> -- -NuvioAutomati
 
 The mode is not drawn. The root view exposes accessibility identifier `nuvio_automation_test_mode` only while the mode is on. One stdout line names the namespace id and nothing else (no keys, addon URLs, or stream URLs). The profile name on screen is **Test**. Saved profile names are not written.
 
+A fresh launch with the flag on and no saved profiles skips sign-in and the profile picker. The process keeps one in-memory profile named Test, id `8001`, selects it, and opens Home on Automation Series and Automation Movie. `profile_payload` is not written. With the flag off, an empty profile list still opens sign-in.
+
 ## Stub catalog, sources, and playback
 
-While the mode is on, Home, Library, source lookup, debrid resolution, downloads, and the player stay inside the app. Nothing is sent to addons, TorBox, Real-Debrid, Trakt, Simkl, MDBList, TheIntroDB, AniList, or WeTrakr. The owner's addon list may still be copied into the automation keys, and it is not contacted.
+While the mode is on, Home, Library, source lookup, debrid resolution, downloads, and the player stay inside the app. Nothing is sent to addons, TorBox, Real-Debrid, Trakt, Simkl, MDBList, TheIntroDB, AniList, WeTrakr, Discord, Jellyfin, or Emby. The owner's addon list may still be copied into the automation keys, and it is not contacted. AniList id lookup, Discord account lookup, Discord image upload, and the Discord gateway return an empty or failed result and do not open a socket. Jellyfin and Emby requests fail the same way, and the real client is created only on a request that is allowed to leave the device. On iOS, a download whose URL is not the local automation clip fails immediately and does not open a session.
 
 `AutomationStubs` is the only seam. With the flag off, the same call sites use the real clients.
 
@@ -63,7 +65,7 @@ Resolving either source returns a local file, not a debrid link. Season and epis
 
 Profiles already exist (`profile_payload`, `activeProfileIndex`, indexes 1..6). The harness does not become one of those profiles and does not change the saved pointer.
 
-Hidden id: `8001` (outside 1..6, not listed in the profile picker).
+Hidden id: `8001` (outside 1..6). A saved profile list is still loaded and only the on-screen name becomes Test. When that list is empty, the in-memory profile above uses id `8001` and is selected so Home opens without the picker.
 
 `isolateStorageKey` is applied wherever a store key is built:
 

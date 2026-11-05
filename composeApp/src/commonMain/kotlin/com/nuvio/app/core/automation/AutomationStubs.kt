@@ -10,6 +10,8 @@ import com.nuvio.app.features.library.LibraryItem
 import com.nuvio.app.features.library.LibrarySection
 import com.nuvio.app.features.library.LibrarySourceMode
 import com.nuvio.app.features.library.LibraryUiState
+import com.nuvio.app.features.profiles.NuvioProfile
+import com.nuvio.app.features.profiles.ProfileCachePhase
 import com.nuvio.app.features.profiles.ProfileState
 import com.nuvio.app.features.streams.StreamBehaviorHints
 import com.nuvio.app.features.streams.StreamClientResolve
@@ -240,16 +242,34 @@ internal object AutomationStubs {
 
 internal fun ProfileState.withAutomationProfileName(): ProfileState {
     if (!AutomationTestMode.isActive) return this
-    if (profiles.isEmpty() && activeProfile == null) return this
-    val renamed = profiles.map { profile ->
+    val seeded = if (profiles.isEmpty() && activeProfile == null) {
+        val profile = automationStubProfile()
+        copy(
+            profiles = listOf(profile),
+            activeProfile = profile,
+            isLoaded = true,
+            cachePhase = ProfileCachePhase.Ready,
+            hasEverSelectedProfile = true,
+        )
+    } else {
+        this
+    }
+    val renamed = seeded.profiles.map { profile ->
         if (profile.name == AUTOMATION_PROFILE_NAME) profile else profile.copy(name = AUTOMATION_PROFILE_NAME)
     }
-    val active = activeProfile ?: renamed.firstOrNull()
-    return copy(
+    val active = seeded.activeProfile ?: renamed.firstOrNull()
+    return seeded.copy(
         profiles = renamed,
         activeProfile = active?.copy(name = AUTOMATION_PROFILE_NAME),
     )
 }
+
+/** In-memory only. Id 8001 stays outside the saved 1..6 list and is not written to profile_payload. */
+internal fun automationStubProfile(): NuvioProfile = NuvioProfile(
+    id = AUTOMATION_PROFILE_ID.toString(),
+    profileIndex = AUTOMATION_PROFILE_ID,
+    name = AUTOMATION_PROFILE_NAME,
+)
 
 /** Empty body, no socket. The URL is not logged. */
 internal fun blockedAutomationHttpText(): String? {

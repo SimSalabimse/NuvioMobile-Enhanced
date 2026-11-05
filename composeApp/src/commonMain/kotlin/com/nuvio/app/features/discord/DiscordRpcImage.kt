@@ -41,12 +41,19 @@ internal object DiscordExternalAssets {
     private const val TAG = "DiscordRPC"
     private const val MAX_CACHE_ENTRIES = 64
 
-    private val client: HttpClient by lazy { createApiHttpClient() }
+    private val client: HttpClient by lazy {
+        check(!com.nuvio.app.core.automation.AutomationTestMode.isActive)
+        createApiHttpClient()
+    }
     private val json = Json { ignoreUnknownKeys = true }
     private val mutex = Mutex()
     private val cache = LinkedHashMap<String, String>()
 
     suspend fun resolve(url: String, token: String, applicationId: String): String? {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) {
+            com.nuvio.app.core.automation.AutomationStubs.noteBlockedNetwork()
+            return null
+        }
         val normalized = url.trim()
         if (normalized.isEmpty()) return null
         if (normalized.startsWith("mp:")) return normalized
@@ -78,8 +85,9 @@ internal object DiscordExternalAssets {
         }
     }
 
-    private suspend fun fromDiscord(url: String, token: String, applicationId: String): String? =
-        try {
+    private suspend fun fromDiscord(url: String, token: String, applicationId: String): String? {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return null
+        return try {
             val body = buildJsonObject {
                 put("urls", buildJsonArray { add(JsonPrimitive(url)) })
             }.toString()
@@ -104,9 +112,11 @@ internal object DiscordExternalAssets {
             InAppLogger.warn(TAG, "External asset request failed: ${error.message.orEmpty()}")
             null
         }
+    }
 
-    private suspend fun fromKizzyApi(url: String): String? =
-        try {
+    private suspend fun fromKizzyApi(url: String): String? {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return null
+        return try {
             val response = client.get("${DiscordRpcConfig.KIZZY_API_URL}/image") {
                 parameter("url", url)
             }
@@ -123,4 +133,5 @@ internal object DiscordExternalAssets {
             InAppLogger.warn(TAG, "Image proxy request failed: ${error.message.orEmpty()}")
             null
         }
+    }
 }

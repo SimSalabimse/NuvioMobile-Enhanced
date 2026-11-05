@@ -109,9 +109,10 @@ internal fun fallbackAniListMapping(media: AniListMedia): AniListMapping =
 
 internal class AniListIdResolver(
     private val api: AniListApiClient,
-    private val client: HttpClient = sharedApiHttpClient,
+    client: HttpClient? = null,
     private val now: () -> Long = { kotlin.time.Clock.System.now().toEpochMilliseconds() },
 ) {
+    private val suppliedClient: HttpClient? = client
     private val cacheLock = Mutex()
     private val animeIdCache = BoundedCache<String, Long?>(maxEntries = 1000)
     private val imdbCache = BoundedCache<String, List<Long>>(maxEntries = 1000)
@@ -364,23 +365,30 @@ internal class AniListIdResolver(
         return values
     }
 
-    private suspend fun getJson(url: String): kotlinx.serialization.json.JsonElement? = try {
-        client.prepareGet(url) {
-            header("Accept", "application/json")
-        }.execute { response ->
-            val status = response.status.value
-            val body = readBoundedResponseBody(response.bodyAsChannel(), response.contentLength())
-            when {
-                status == 404 -> kotlinx.serialization.json.JsonNull
-                status !in 200..299 -> null
-                body.isBlank() -> kotlinx.serialization.json.JsonNull
-                else -> runCatching { aniListJson.parseToJsonElement(body) }.getOrNull()
-            }
+    private suspend fun getJson(url: String): kotlinx.serialization.json.JsonElement? {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) {
+            com.nuvio.app.core.automation.AutomationStubs.noteBlockedNetwork()
+            return null
         }
-    } catch (error: CancellationException) {
-        throw error
-    } catch (_: Throwable) {
-        null
+        val client = suppliedClient ?: sharedApiHttpClient
+        return try {
+            client.prepareGet(url) {
+                header("Accept", "application/json")
+            }.execute { response ->
+                val status = response.status.value
+                val body = readBoundedResponseBody(response.bodyAsChannel(), response.contentLength())
+                when {
+                    status == 404 -> kotlinx.serialization.json.JsonNull
+                    status !in 200..299 -> null
+                    body.isBlank() -> kotlinx.serialization.json.JsonNull
+                    else -> runCatching { aniListJson.parseToJsonElement(body) }.getOrNull()
+                }
+            }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     private fun JsonObject.longValue(key: String): Long? =
