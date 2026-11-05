@@ -35,7 +35,7 @@ The hidden profile's Home and Library show two artwork-free titles:
 
 | Title | Id | Shape |
 | --- | --- | --- |
-| Automation Series | `automation:series` | 3 seasons, 3 episodes each (S1E1–S3E3), aired 2020-01-15 |
+| Automation Series | `automation:series` | 12 seasons (S1–S3 have 3 episodes, S4–S12 have one), aired 2020-01-15. Two local cast members (Actor One, Actor Two) so the actors row can be tapped with no network fetch. A double-tap enlarges that season and does not change the selection. Closing returns to that thumbnail when it is fully inside the row, and fades when it is not. The poster is removed when the close finishes, and a close past halfway no longer takes touches. |
 | Automation Movie | `automation:movie` | one movie |
 
 Find sources, for any title, returns two stub sources from the addon name Automation:

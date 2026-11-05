@@ -3,6 +3,7 @@ package com.nuvio.app.core.automation
 import com.nuvio.app.core.uifixture.fixtureSeasonPosterUrl
 import com.nuvio.app.features.catalog.CatalogTarget
 import com.nuvio.app.features.details.MetaDetails
+import com.nuvio.app.features.details.MetaPerson
 import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.home.HomeCatalogSection
 import com.nuvio.app.features.home.HomeUiState
@@ -41,6 +42,7 @@ internal const val AUTOMATION_CLIP_MARKER = "nuvio-automation-"
 private const val SOURCE_1080_BYTES = 1_200_000_000L
 private const val SOURCE_2160_BYTES = 3_400_000_000L
 private const val AIRED_ON = "2020-01-15"
+private const val AUTOMATION_SERIES_SEASONS = 12
 
 /** Seasons 1 and 2 stay local. Season 3 is the one public TMDB poster. */
 internal fun automationSeasonPosterUrl(season: Int): String =
@@ -191,8 +193,9 @@ internal object AutomationStubs {
         name = AUTOMATION_SERIES_NAME,
         description = "Local automation series.",
         releaseInfo = "2020",
-        videos = (1..3).flatMap { season ->
-            (1..3).map { episode ->
+        videos = (1..AUTOMATION_SERIES_SEASONS).flatMap { season ->
+            val episodes = if (season <= 3) 1..3 else 1..1
+            episodes.map { episode ->
                 MetaVideo(
                     id = "$AUTOMATION_SERIES_ID:$season:$episode",
                     title = "Episode $episode",
@@ -205,7 +208,11 @@ internal object AutomationStubs {
                 )
             }
         },
-        seasonPosters = (1..3).associateWith(::automationSeasonPosterUrl),
+        seasonPosters = (1..AUTOMATION_SERIES_SEASONS).associateWith(::automationSeasonPosterUrl),
+        cast = listOf(
+            MetaPerson(name = "Actor One", role = "Cast", tmdbId = 900001),
+            MetaPerson(name = "Actor Two", role = "Cast", tmdbId = 900002),
+        ),
     )
 
     fun movie(): MetaDetails = MetaDetails(

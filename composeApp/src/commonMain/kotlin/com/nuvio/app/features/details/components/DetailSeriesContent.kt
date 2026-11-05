@@ -39,6 +39,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Download
@@ -62,6 +63,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -105,6 +108,7 @@ import com.nuvio.app.core.ui.PosterZoomAnchor
 import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
 import com.nuvio.app.core.ui.posterCardClickable
 import com.nuvio.app.features.details.SeasonPosterDoubleTapSlopDp
+import com.nuvio.app.features.details.SeasonPosterDoubleTapWindowMillis
 import com.nuvio.app.features.details.SeasonPosterGesture
 import com.nuvio.app.features.details.largestSeasonPosterUrl
 import com.nuvio.app.features.details.seasonPosterAccessibilityId
@@ -112,6 +116,7 @@ import com.nuvio.app.features.details.seasonPosterScrollDelayMillis
 import com.nuvio.app.features.downloads.SeasonDownloadSheet
 import com.nuvio.app.features.downloads.downloadLogicalContentKey
 import com.nuvio.app.features.details.MetaDetails
+import com.nuvio.app.features.details.MetaPerson
 import com.nuvio.app.features.details.EpisodeRatingsVisibility
 import com.nuvio.app.features.details.MetaEpisodeCardStyle
 import com.nuvio.app.features.details.MetaVideo
@@ -124,6 +129,7 @@ import com.nuvio.app.features.details.seasonSortKey
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
 import com.nuvio.app.features.watching.application.WatchingState
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import nuvio.composeapp.generated.resources.*
@@ -890,6 +896,26 @@ private fun SeasonPosterScrollRow(
     var hasPositionedSeasonRow by remember(seasons) { mutableStateOf(false) }
     var deferRailScroll by remember { mutableStateOf(false) }
     val posterGesture = remember { SeasonPosterGesture() }
+    val placement = LocalSeasonPosterPlacement.current
+    val scope = rememberCoroutineScope()
+    val pendingSelect = remember { PendingSeasonSelect() }
+
+    fun cancelPendingSelect() {
+        pendingSelect.job?.cancel()
+        pendingSelect.job = null
+        posterGesture.cancelDeferredSelect()
+    }
+
+    fun scheduleSelect(season: Int) {
+        pendingSelect.job?.cancel()
+        pendingSelect.job = scope.launch {
+            kotlinx.coroutines.delay(SeasonPosterDoubleTapWindowMillis)
+            if (posterGesture.commitDeferredSelect() == season) {
+                deferRailScroll = true
+                onSelect(season)
+            }
+        }
+    }
 
     LaunchedEffect(currentSeason) {
         posterGesture.noteSelectionChanged()
@@ -916,7 +942,11 @@ private fun SeasonPosterScrollRow(
         state = seasonListState,
         modifier = Modifier
             .nuvioHorizontalScrollBleed(horizontalScrollPadding)
-            .fillMaxWidth(),
+            .fillMaxWidth()
+            .testTag("season_poster_row")
+            .onGloballyPositioned { coordinates ->
+                placement.rowViewport = coordinates.boundsInRoot()
+            },
         contentPadding = PaddingValues(horizontal = horizontalScrollPadding),
         horizontalArrangement = Arrangement.spacedBy(sizing.seasonChipGap),
     ) {
@@ -935,7 +965,8 @@ private fun SeasonPosterScrollRow(
                 isSelected = season == currentSeason,
                 sizing = sizing,
                 gesture = posterGesture,
-                onPosterTap = { deferRailScroll = true },
+                onScheduleSelect = { scheduleSelect(season) },
+                onCancelPendingSelect = { cancelPendingSelect() },
                 onClick = { onSelect(season) },
                 onLongClick = seasonLongPress,
                 longPressActions = seasonLongPressActions(
@@ -970,12 +1001,17 @@ private fun SeasonPosterButton(
     isSelected: Boolean,
     sizing: SeriesContentSizing,
     gesture: SeasonPosterGesture,
-    onPosterTap: () -> Unit,
+    onScheduleSelect: () -> Unit,
+    onCancelPendingSelect: () -> Unit,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)?,
     longPressActions: List<com.nuvio.app.core.a11y.LongPressAccessibilityAction> = emptyList(),
 ) {
     val openPreview = LocalSeasonPosterPreview.current
+    val placement = LocalSeasonPosterPlacement.current
+    DisposableEffect(placement, season) {
+        onDispose { placement.bounds.remove(season) }
+    }
     val enlargedUrl = largestSeasonPosterUrl(previewUrl)
     val posterDescription = seasonPosterContentDescription(season)
     val enlargeLabel = stringResource(Res.string.details_enlarge_poster)
@@ -1007,6 +1043,7 @@ private fun SeasonPosterButton(
     val enlargeAction = if (previewPoster != null) {
         listOf(
             CustomAccessibilityAction(enlargeLabel) {
+                onCancelPendingSelect()
                 previewPoster()
                 true
             },
@@ -1020,12 +1057,18 @@ private fun SeasonPosterButton(
             .combinedClickable(
                 onClick = {
                     val decision = gesture.consumeDecision()
-                    if (decision != null) onPosterTap()
-                    onClick()
-                    if (decision?.enlargePoster == true) previewPoster?.invoke()
+                    when {
+                        decision?.enlargePoster == true -> {
+                            onCancelPendingSelect()
+                            previewPoster?.invoke()
+                        }
+                        decision?.selectSeason == true -> onScheduleSelect()
+                        else -> onClick()
+                    }
                 },
                 onLongClick = onLongClick?.let { menu ->
                     {
+                        onCancelPendingSelect()
                         gesture.onLongPress()
                         menu()
                     }
@@ -1049,7 +1092,9 @@ private fun SeasonPosterButton(
                 .fillMaxWidth()
                 .height(sizing.seasonPosterHeight)
                 .onGloballyPositioned { coordinates ->
-                    posterBounds = coordinates.boundsInRoot()
+                    val bounds = coordinates.boundsInRoot()
+                    posterBounds = bounds
+                    placement.bounds[season] = bounds
                     posterOrigin.value = coordinates.positionInRoot()
                 }
                 .testTag(seasonPosterAccessibilityId(season))
@@ -1117,6 +1162,131 @@ private fun SeasonPosterButton(
     }
 }
 
+/**
+ * The same stack as the series page: season poster, then the actors row, with the
+ * preview drawn on top only while it is open. Actor taps go to [onPersonOpened].
+ */
+@Composable
+internal fun SeasonPosterCastTouchProbe(
+    cast: List<MetaPerson>,
+    onPersonOpened: (MetaPerson) -> Unit,
+) {
+    var preview by remember { mutableStateOf<SeasonPosterPreviewRequest?>(null) }
+    val sizing = seriesContentSizing(400f)
+    val poster = "fixture://art/season/1/Season_1"
+    val gesture = remember { SeasonPosterGesture() }
+    val placement = remember { SeasonPosterPlacement() }
+    CompositionLocalProvider(
+        LocalSeasonPosterPreview provides { preview = it },
+        LocalSeasonPosterPlacement provides placement,
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                SeasonPosterButton(
+                    season = 3,
+                    label = "Season 3",
+                    imageUrl = poster,
+                    previewUrl = poster,
+                    isSelected = false,
+                    sizing = sizing,
+                    gesture = gesture,
+                    onScheduleSelect = {},
+                    onCancelPendingSelect = {},
+                    onClick = {},
+                    onLongClick = {},
+                )
+                DetailCastSection(
+                    cast = cast,
+                    onCastClick = { person, _ -> onPersonOpened(person) },
+                )
+            }
+            preview?.let { request ->
+                SeasonPosterPreviewOverlay(
+                    request = request,
+                    onDismissed = { preview = null },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * A long season row. [placement] is the same map the overlay reads at close time.
+ */
+@Composable
+internal fun SeasonPosterRailTouchProbe(
+    placement: SeasonPosterPlacement,
+    seasonCount: Int = 12,
+) {
+    val videos = remember(seasonCount) {
+        (1..seasonCount).map { season ->
+            MetaVideo(
+                id = "probe:$season:1",
+                title = "Episode",
+                season = season,
+                episode = 1,
+                seasonPoster = "fixture://art/season/$season/Season_$season",
+            )
+        }
+    }
+    val meta = remember(videos) {
+        MetaDetails(
+            id = "probe-series",
+            type = "series",
+            name = "Probe",
+            videos = videos,
+            seasonPosters = videos.associate { (it.season ?: 0) to (it.seasonPoster ?: "") },
+        )
+    }
+    val seasons = remember(videos) { videos.mapNotNull { it.season } }
+    val grouped = remember(videos) { videos.groupBy { it.season ?: 0 } }
+    var selected by remember { mutableStateOf(seasons.first()) }
+    var opened by remember { mutableStateOf(0) }
+    var preview by remember { mutableStateOf<SeasonPosterPreviewRequest?>(null) }
+    val sizing = seriesContentSizing(400f)
+    CompositionLocalProvider(
+        LocalSeasonPosterPreview provides { request ->
+            opened = request.season
+            preview = request
+        },
+        LocalSeasonPosterPlacement provides placement,
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxWidth()) {
+                Text("selected:$selected", modifier = Modifier.testTag("selected_season"))
+                Text("opened:$opened", modifier = Modifier.testTag("opened_season"))
+                SeasonPosterScrollRow(
+                    seasons = seasons,
+                    groupedEpisodes = grouped,
+                    meta = meta,
+                    currentSeason = selected,
+                    sizing = sizing,
+                    horizontalScrollPadding = 0.dp,
+                    onSelect = { selected = it },
+                    onLongPress = {},
+                    progressByVideoId = emptyMap(),
+                    watchedKeys = emptySet(),
+                )
+            }
+            preview?.let { request ->
+                SeasonPosterPreviewOverlay(
+                    request = request,
+                    onDismissed = { preview = null },
+                )
+            }
+        }
+    }
+}
+
+private class PendingSeasonSelect {
+    var job: Job? = null
+}
+
+/** Sees taps on this poster only. Events are not consumed, so the actors row and the rail still receive theirs. */
 private fun Modifier.observeSeasonPosterTaps(
     season: Int,
     gesture: SeasonPosterGesture,

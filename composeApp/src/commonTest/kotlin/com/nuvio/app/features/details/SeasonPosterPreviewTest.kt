@@ -1,5 +1,6 @@
 package com.nuvio.app.features.details
 
+import androidx.compose.ui.geometry.Rect
 import com.nuvio.app.core.automation.AUTOMATION_SEASON_POSTER_URL
 import com.nuvio.app.core.automation.AutomationStubs
 import com.nuvio.app.core.automation.automationSeasonPosterUrl
@@ -104,6 +105,7 @@ class SeasonPosterPreviewTest {
         val first = gesture.onUp(season = 3, timeMillis = 1_040L, x = 10f, y = 20f)
         assertTrue(first!!.selectSeason)
         assertFalse(first.enlargePoster)
+        assertEquals(3, gesture.deferredSelectSeason())
 
         assertFalse(
             seasonPosterSecondDownOpens(
@@ -128,8 +130,10 @@ class SeasonPosterPreviewTest {
         fresh.noteSelectionChanged()
         fresh.onDown(season = 3, timeMillis = 20L + SeasonPosterDoubleTapWindowMillis, x = slop, y = 0f, slopPx = slop)
         val second = fresh.onUp(season = 3, timeMillis = 400L, x = slop, y = 0f)
-        assertTrue(second!!.selectSeason)
+        assertFalse(second!!.selectSeason)
         assertTrue(second.enlargePoster)
+        assertNull(fresh.deferredSelectSeason())
+        assertNull(fresh.commitDeferredSelect())
 
         fresh.onDown(
             season = 3,
@@ -165,6 +169,67 @@ class SeasonPosterPreviewTest {
         otherSeason.onUp(season = 1, timeMillis = 10L, x = 0f, y = 0f)
         otherSeason.onDown(season = 2, timeMillis = 40L, x = 0f, y = 0f, slopPx = slop)
         assertFalse(otherSeason.onUp(season = 2, timeMillis = 50L, x = 0f, y = 0f)!!.enlargePoster)
+    }
+
+    @Test
+    fun closeLandsOnTheLiveThumbnailAndFadesWhenItIsOnlyPartlyInTheRow() {
+        val row = Rect(0f, 80f, 400f, 280f)
+        val live = Rect(200f, 90f, 300f, 240f)
+        val stale = Rect(40f, 90f, 140f, 240f)
+        val partial = Rect(-40f, 90f, 60f, 240f)
+        assertEquals(live, seasonPosterCloseBounds(live, row))
+        assertNull(seasonPosterCloseBounds(partial, row))
+        assertNull(seasonPosterCloseBounds(null, row))
+        assertFalse(seasonPosterCloseBounds(live, row) == stale)
+
+        val end = seasonPosterCloseFrame(
+            progress = 0f,
+            liveBounds = live,
+            rowViewport = row,
+            expandedLeft = 20f,
+            expandedTop = 200f,
+            expandedWidth = 360f,
+            expandedHeight = 540f,
+            reduceMotion = false,
+            swiping = false,
+        )
+        assertTrue(end.zooms)
+        assertEquals(live.left, end.left)
+        assertEquals(live.top, end.top)
+        assertEquals(live.width, end.width)
+        assertEquals(live.height, end.height)
+        assertTrue(seasonPosterCloseClipsToRow(closing = true, zooms = true))
+        assertFalse(seasonPosterCloseClipsToRow(closing = false, zooms = true))
+
+        val moved = Rect(220f, 90f, 320f, 240f)
+        val retargeted = seasonPosterCloseFrame(
+            progress = 0f,
+            liveBounds = moved,
+            rowViewport = row,
+            expandedLeft = 20f,
+            expandedTop = 200f,
+            expandedWidth = 360f,
+            expandedHeight = 540f,
+            reduceMotion = false,
+            swiping = false,
+        )
+        assertEquals(moved.left, retargeted.left)
+        assertEquals(moved.width, retargeted.width)
+
+        val faded = seasonPosterCloseFrame(
+            progress = 0.4f,
+            liveBounds = partial,
+            rowViewport = row,
+            expandedLeft = 20f,
+            expandedTop = 200f,
+            expandedWidth = 360f,
+            expandedHeight = 540f,
+            reduceMotion = false,
+            swiping = false,
+        )
+        assertFalse(faded.zooms)
+        assertEquals(20f, faded.left)
+        assertFalse(seasonPosterCloseClipsToRow(closing = true, zooms = false))
     }
 
     @Test
@@ -226,8 +291,16 @@ class SeasonPosterPreviewTest {
         assertTrue(automationImageRequestAllowed(seasonPosterFallbackUrl(enlarged)))
         assertFalse(automationImageRequestAllowed("https://image.tmdb.org/t/p/w500/other.jpg"))
         assertFalse(automationImageRequestAllowed("https://cdn.example/poster.jpg"))
+        assertTrue(seasons.size >= 10)
+        assertEquals(fixtureSeasonPosterUrl(12), largestSeasonPosterUrl(series.seasonPosters[12]))
         assertEquals("season_poster_3", seasonPosterAccessibilityId(3))
         assertEquals("season_poster_overlay", SeasonPosterOverlayAccessibilityId)
+        assertEquals(listOf(900001, 900002), series.cast.map { it.tmdbId })
+        assertFalse(seasonPosterOverlayBlocksTouches(progress = 0f, closing = false))
+        assertTrue(seasonPosterOverlayBlocksTouches(progress = 1f, closing = false))
+        assertTrue(seasonPosterOverlayBlocksTouches(progress = 0.51f, closing = true))
+        assertFalse(seasonPosterOverlayBlocksTouches(progress = 0.5f, closing = true))
+        assertFalse(seasonPosterOverlayBlocksTouches(progress = 0.2f, closing = true))
     }
 
     @Test

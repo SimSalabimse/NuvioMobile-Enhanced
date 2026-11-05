@@ -1,5 +1,7 @@
 package com.nuvio.app.features.details
 
+import androidx.compose.ui.geometry.Rect
+
 internal const val SeasonPosterOverlayAccessibilityId = "season_poster_overlay"
 
 internal const val SeasonPosterDismissDragDp = 72
@@ -49,6 +51,85 @@ internal fun seasonPosterPreviewEnabled(url: String?): Boolean = largestSeasonPo
 
 internal fun seasonPosterDismisses(dragPx: Float, thresholdPx: Float): Boolean =
     thresholdPx > 0f && dragPx >= thresholdPx
+
+/**
+ * The full-screen preview eats taps only while it is visibly open.
+ * Once a close has passed halfway, touches fall through to the page underneath.
+ */
+internal fun seasonPosterOverlayBlocksTouches(progress: Float, closing: Boolean): Boolean {
+    if (!progress.isFinite() || progress <= 0f) return false
+    if (closing && progress <= 0.5f) return false
+    return true
+}
+
+/**
+ * Close flies back only to this season's own thumbnail, and only when that
+ * thumbnail is fully inside the season row. A neighbour, a poster that has
+ * scrolled away, or one that is only partly in the row fades instead.
+ * The returned rect is the live thumbnail, so the last frame of the shrink
+ * lands on it with nothing left over.
+ */
+internal fun seasonPosterCloseBounds(seasonBounds: Rect?, rowViewport: Rect): Rect? {
+    val bounds = seasonBounds ?: return null
+    if (bounds.width <= 1f || bounds.height <= 1f) return null
+    if (rowViewport.width <= 1f || rowViewport.height <= 1f) return null
+    val fullyInside = bounds.left >= rowViewport.left - 1f &&
+        bounds.top >= rowViewport.top - 1f &&
+        bounds.right <= rowViewport.right + 1f &&
+        bounds.bottom <= rowViewport.bottom + 1f
+    return if (fullyInside) bounds else null
+}
+
+internal data class SeasonPosterCloseFrame(
+    val left: Float,
+    val top: Float,
+    val width: Float,
+    val height: Float,
+    val zooms: Boolean,
+)
+
+/**
+ * Progress 1 is the full poster. Progress 0 is [liveBounds] as it is right now,
+ * so a thumbnail that moved during the close is where the animation ends.
+ */
+internal fun seasonPosterCloseFrame(
+    progress: Float,
+    liveBounds: Rect?,
+    rowViewport: Rect?,
+    expandedLeft: Float,
+    expandedTop: Float,
+    expandedWidth: Float,
+    expandedHeight: Float,
+    reduceMotion: Boolean,
+    swiping: Boolean,
+): SeasonPosterCloseFrame {
+    val fraction = progress.coerceIn(0f, 1f)
+    val target = if (rowViewport == null) null else seasonPosterCloseBounds(liveBounds, rowViewport)
+    val zooms = !reduceMotion && !swiping && target != null
+    if (!zooms || target == null) {
+        return SeasonPosterCloseFrame(
+            left = expandedLeft,
+            top = expandedTop,
+            width = expandedWidth,
+            height = expandedHeight,
+            zooms = false,
+        )
+    }
+    return SeasonPosterCloseFrame(
+        left = seasonPosterLerp(target.left, expandedLeft, fraction),
+        top = seasonPosterLerp(target.top, expandedTop, fraction),
+        width = seasonPosterLerp(target.width, expandedWidth, fraction),
+        height = seasonPosterLerp(target.height, expandedHeight, fraction),
+        zooms = true,
+    )
+}
+
+/** The shrink is clipped to the row. A fade is not. */
+internal fun seasonPosterCloseClipsToRow(closing: Boolean, zooms: Boolean): Boolean =
+    closing && zooms
+
+private fun seasonPosterLerp(start: Float, stop: Float, fraction: Float): Float =
+    start + (stop - start) * fraction
 
 /**
  * Poster shown full size. TMDB `/t/p/wNNN/` and `/t/p/hNNN/` renditions are rewritten to
@@ -202,6 +283,20 @@ internal class SeasonPosterGesture {
     private var pendingEnlarge: Boolean = false
     private var suppressUp: Boolean = false
     private var decision: SeasonPosterTapDecision? = null
+    private var deferredSelect: Int? = null
+
+    fun deferredSelectSeason(): Int? = deferredSelect
+
+    fun cancelDeferredSelect() {
+        deferredSelect = null
+    }
+
+    /** The season a single tap armed, or null once a double-tap or a cancel took it. */
+    fun commitDeferredSelect(): Int? {
+        val season = deferredSelect
+        deferredSelect = null
+        return season
+    }
 
     fun onDown(season: Int, timeMillis: Long, x: Float, y: Float, slopPx: Float) {
         pendingEnlarge = seasonPosterSecondDownOpens(
@@ -225,7 +320,8 @@ internal class SeasonPosterGesture {
         val enlarge = pendingEnlarge
         pendingEnlarge = false
         lastUp = SeasonPosterTap(timeMillis, x, y, season)
-        val result = SeasonPosterTapDecision(selectSeason = true, enlargePoster = enlarge)
+        if (enlarge) deferredSelect = null else deferredSelect = season
+        val result = SeasonPosterTapDecision(selectSeason = !enlarge, enlargePoster = enlarge)
         decision = result
         return result
     }
@@ -234,12 +330,14 @@ internal class SeasonPosterGesture {
         pendingEnlarge = false
         decision = null
         lastUp = null
+        deferredSelect = null
     }
 
     fun onLongPress() {
         pendingEnlarge = false
         decision = null
         lastUp = null
+        deferredSelect = null
         suppressUp = true
     }
 

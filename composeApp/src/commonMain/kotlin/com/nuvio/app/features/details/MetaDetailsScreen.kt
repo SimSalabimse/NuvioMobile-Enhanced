@@ -55,6 +55,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.State
@@ -112,7 +113,9 @@ import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.DownloadsSettingsRepository
 import com.nuvio.app.features.downloads.downloadLogicalContentKey
 import com.nuvio.app.features.details.components.DetailActions
+import com.nuvio.app.features.details.components.LocalSeasonPosterPlacement
 import com.nuvio.app.features.details.components.LocalSeasonPosterPreview
+import com.nuvio.app.features.details.components.SeasonPosterPlacement
 import com.nuvio.app.features.details.components.SeasonPosterPreviewOverlay
 import com.nuvio.app.features.details.components.SeasonPosterPreviewRequest
 import com.nuvio.app.features.details.components.CommentDetailSheet
@@ -287,6 +290,9 @@ fun MetaDetailsScreen(
     var selectedSeasonForActions by remember(type, id) { mutableStateOf<Int?>(null) }
     var seasonPosterPreview by remember(type, id) { mutableStateOf<SeasonPosterPreviewRequest?>(null) }
     var seasonPosterFixtureOpened by remember(type, id) { mutableStateOf(false) }
+    DisposableEffect(type, id) {
+        onDispose { seasonPosterPreview = null }
+    }
     var seasonOverviewSeason by remember(type, id) { mutableStateOf<Int?>(null) }
     var userRatingSheetRequest by remember(type, id) { mutableStateOf<UserRatingSheetRequest?>(null) }
     val commentsEnabled by remember {
@@ -463,10 +469,12 @@ fun MetaDetailsScreen(
         )
     }
 
+    val seasonPosterPlacement = remember(type, id) { SeasonPosterPlacement() }
     CompositionLocalProvider(
         LocalSeasonPosterPreview provides { request ->
             seasonPosterPreview = request
         },
+        LocalSeasonPosterPlacement provides seasonPosterPlacement,
     ) {
     Box(
         modifier = modifier

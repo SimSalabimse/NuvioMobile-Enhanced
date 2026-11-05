@@ -11,19 +11,26 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.TransformOrigin
@@ -64,6 +71,9 @@ import com.nuvio.app.features.details.seasonPosterDecodeSizePx
 import com.nuvio.app.features.details.seasonPosterDiagnosticsEnabled
 import com.nuvio.app.features.details.seasonPosterDismisses
 import com.nuvio.app.features.details.seasonPosterFallbackUrl
+import com.nuvio.app.features.details.seasonPosterCloseClipsToRow
+import com.nuvio.app.features.details.seasonPosterCloseFrame
+import com.nuvio.app.features.details.seasonPosterOverlayBlocksTouches
 import com.nuvio.app.features.details.seasonPosterFullImageCacheKey
 import com.nuvio.app.features.details.seasonPosterPreviewLogLine
 import com.nuvio.app.features.details.seasonPosterPreviewMotion
@@ -85,6 +95,17 @@ internal data class SeasonPosterPreviewRequest(
 
 internal val LocalSeasonPosterPreview =
     staticCompositionLocalOf<((SeasonPosterPreviewRequest) -> Unit)?> { null }
+
+/** Live thumbnail rects, keyed by season number, plus the row that holds them. */
+internal class SeasonPosterPlacement {
+    val bounds: SnapshotStateMap<Int, Rect> = mutableStateMapOf()
+    var rowViewport by mutableStateOf<Rect?>(null)
+}
+
+private val EmptySeasonPosterPlacement = SeasonPosterPlacement()
+
+internal val LocalSeasonPosterPlacement =
+    staticCompositionLocalOf { EmptySeasonPosterPlacement }
 
 @Composable
 internal fun seasonPosterContentDescription(season: Int): String =
@@ -172,66 +193,91 @@ internal fun SeasonPosterPreviewOverlay(
         closing.value = true
         swipeDismiss = fromSwipe
         scope.launch {
-            if (open.value > 0f) {
-                open.animateTo(
-                    0f,
-                    tween(durationMillis = motion.durationMillis, easing = NuvioTokens.Motion.standard),
-                )
+            try {
+                if (open.value > 0f) {
+                    open.animateTo(
+                        0f,
+                        tween(durationMillis = motion.durationMillis, easing = NuvioTokens.Motion.standard),
+                    )
+                }
+            } finally {
+                currentOnDismissed()
             }
-            currentOnDismissed()
         }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { currentOnDismissed() }
     }
 
     PlatformBackHandler(enabled = true) { requestClose(fromSwipe = false) }
 
+    val progress = open.value.coerceIn(0f, 1f)
+    val blocksTouches = seasonPosterOverlayBlocksTouches(progress, closing.value)
     val dismissThreshold = with(density) { SeasonPosterDismissDragDp.dp.toPx() }
     Box(
         modifier = modifier
+            .zIndex(1f)
             .fillMaxSize()
+            .graphicsLayer { clip = false }
             .testTag(SeasonPosterOverlayAccessibilityId)
             .onGloballyPositioned { coordinates ->
                 rootOrigin = coordinates.positionInRoot()
                 rootSize = coordinates.size
             }
-            .pointerInput(dismissThreshold) {
-                awaitEachGesture {
-                    val down = awaitFirstDown()
-                    var drag = 0f
-                    var moved = false
-                    var swiping = false
-                    val slop = viewConfiguration.touchSlop
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        val travelY = change.position.y - down.position.y
-                        val travelX = change.position.x - down.position.x
-                        if (!change.pressed) {
-                            when {
-                                swiping -> {
-                                    if (seasonPosterDismisses(drag, dismissThreshold)) {
-                                        requestClose(fromSwipe = true)
-                                    } else {
-                                        dragPx = 0f
+            .then(
+                if (blocksTouches) {
+                    Modifier.pointerInput(dismissThreshold) {
+                        try {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                var drag = 0f
+                                var moved = false
+                                var swiping = false
+                                val slop = viewConfiguration.touchSlop
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id }
+                                    if (change == null) {
+                                        requestClose(fromSwipe = false)
+                                        break
+                                    }
+                                    val travelY = change.position.y - down.position.y
+                                    val travelX = change.position.x - down.position.x
+                                    if (!change.pressed) {
+                                        when {
+                                            swiping -> {
+                                                if (seasonPosterDismisses(drag, dismissThreshold)) {
+                                                    requestClose(fromSwipe = true)
+                                                } else {
+                                                    dragPx = 0f
+                                                }
+                                            }
+                                            !moved -> requestClose(fromSwipe = false)
+                                        }
+                                        break
+                                    }
+                                    if (!moved && (kotlin.math.abs(travelY) > slop || kotlin.math.abs(travelX) > slop)) {
+                                        moved = true
+                                        swiping = travelY > slop && travelY > kotlin.math.abs(travelX)
+                                    }
+                                    if (swiping) {
+                                        drag = travelY.coerceAtLeast(0f)
+                                        dragPx = drag
+                                        change.consume()
                                     }
                                 }
-                                !moved -> requestClose(fromSwipe = false)
                             }
-                            break
-                        }
-                        if (!moved && (kotlin.math.abs(travelY) > slop || kotlin.math.abs(travelX) > slop)) {
-                            moved = true
-                            swiping = travelY > slop && travelY > kotlin.math.abs(travelX)
-                        }
-                        if (swiping) {
-                            drag = travelY.coerceAtLeast(0f)
-                            dragPx = drag
-                            change.consume()
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            requestClose(fromSwipe = false)
+                            throw cancelled
                         }
                     }
-                }
-            },
+                } else {
+                    Modifier
+                },
+            ),
     ) {
-        val progress = open.value.coerceIn(0f, 1f)
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -278,8 +324,42 @@ internal fun SeasonPosterPreviewOverlay(
         if (fit.widthPx > 1f && fit.heightPx > 1f) {
             val endLeft = insetLeft + (containerWidth - fit.widthPx) / 2f
             val endTop = insetTop + (containerHeight - fit.heightPx) / 2f
-            val anchor = request.anchor?.boundsInRoot?.takeIf { it.width > 1f && it.height > 1f }
-            val zoom = motion.zoomsFromAnchor && anchor != null && !swipeDismiss
+            val placement = LocalSeasonPosterPlacement.current
+            val closingNow = closing.value
+            val closeFrame = seasonPosterCloseFrame(
+                progress = progress,
+                liveBounds = placement.bounds[request.season],
+                rowViewport = placement.rowViewport,
+                expandedLeft = rootOrigin.x + endLeft,
+                expandedTop = rootOrigin.y + endTop,
+                expandedWidth = fit.widthPx,
+                expandedHeight = fit.heightPx,
+                reduceMotion = !motion.zoomsFromAnchor,
+                swiping = swipeDismiss,
+            )
+            val zoom = closeFrame.zooms
+            val clipToRow = seasonPosterCloseClipsToRow(closingNow, zoom)
+            val rowViewport = placement.rowViewport
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(
+                        if (clipToRow && rowViewport != null) {
+                            Modifier.drawWithContent {
+                                clipRect(
+                                    left = rowViewport.left - rootOrigin.x,
+                                    top = rowViewport.top - rootOrigin.y,
+                                    right = rowViewport.right - rootOrigin.x,
+                                    bottom = rowViewport.bottom - rootOrigin.y,
+                                ) {
+                                    this@drawWithContent.drawContent()
+                                }
+                            }
+                        } else {
+                            Modifier
+                        },
+                    ),
+            ) {
             Box(
                 modifier = Modifier
                     .align(Alignment.TopStart)
@@ -289,14 +369,14 @@ internal fun SeasonPosterPreviewOverlay(
                     )
                     .graphicsLayer {
                         val fraction = progress
-                        if (zoom && anchor != null) {
-                            val scaleXFraction = anchor.width / fit.widthPx
-                            scaleX = lerp(scaleXFraction, 1f, fraction)
-                            scaleY = lerp(anchor.height / fit.heightPx, 1f, fraction)
+                        if (zoom) {
+                            scaleX = closeFrame.width / fit.widthPx
+                            scaleY = closeFrame.height / fit.heightPx
                             transformOrigin = TransformOrigin(0f, 0f)
-                            translationX = lerp(anchor.left - rootOrigin.x, endLeft, fraction)
-                            translationY = lerp(anchor.top - rootOrigin.y, endTop, fraction) + dragPx
+                            translationX = closeFrame.left - rootOrigin.x
+                            translationY = closeFrame.top - rootOrigin.y + dragPx
                             alpha = 1f
+                            clip = false
                         } else {
                             translationX = endLeft
                             translationY = endTop + dragPx
@@ -309,6 +389,7 @@ internal fun SeasonPosterPreviewOverlay(
                             scaleY = scale
                             transformOrigin = TransformOrigin.Center
                             alpha = fraction
+                            clip = false
                         }
                     },
             ) {
@@ -375,6 +456,7 @@ internal fun SeasonPosterPreviewOverlay(
                         },
                     )
                 }
+            }
             }
         }
     }
