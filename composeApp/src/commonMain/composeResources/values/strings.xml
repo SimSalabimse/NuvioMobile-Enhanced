@@ -3208,6 +3208,12 @@
     <string name="season_overview_included">Included</string>
     <string name="analysis_status_queued">Analysis queued</string>
     <string name="analysis_status_running">Analysing %1$d% · %2$s</string>
+    <string name="analysis_activity_clip">reading a reference clip</string>
+    <string name="analysis_activity_teach">teaching the season</string>
+    <string name="analysis_activity_backfill">filling the season</string>
+    <string name="analysis_activity_preview">finding a preview</string>
+    <string name="analysis_status_elapsed">%1$d min</string>
+    <string name="analysis_status_elapsed_under">under a minute</string>
     <string name="analysis_status_done">Analysed</string>
     <string name="analysis_status_partly">Partly analysed, more queued</string>
     <string name="analysis_status_failed">Analysis failed: %1$s</string>

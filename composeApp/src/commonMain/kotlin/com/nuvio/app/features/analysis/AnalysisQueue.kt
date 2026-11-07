@@ -1,18 +1,19 @@
 package com.nuvio.app.features.analysis
 
-/** A matching pass that has not returned. Past this, the row shows an error and the queue moves on. */
-internal const val ANALYSIS_MATCH_LIMIT_MS = 60_000L
+import com.nuvio.app.features.downloads.DownloadStatus
 
-/** A reference-clip read that has not returned. */
-internal const val ANALYSIS_CLIP_LIMIT_MS = 90_000L
-
-/** Native decode or previews whose reported progress has not changed. */
-internal const val ANALYSIS_PROGRESS_STALL_MS = 120_000L
-
+/** A thrown analysis is recorded with this reason and the queue continues. */
 internal const val ANALYSIS_STOPPED_REASON = "Analysis stopped"
-internal const val ANALYSIS_MATCH_STALL_REASON = "Matching did not finish"
-internal const val ANALYSIS_CLIP_STALL_REASON = "The reference clip did not finish"
-internal const val ANALYSIS_PROGRESS_STALL_REASON = "Analysis stopped making progress"
+
+/** Only a finished file is analysed. A paused or partial download is left out of the queue. */
+internal fun analysisAcceptsDownload(status: DownloadStatus): Boolean =
+    status == DownloadStatus.Completed
+
+/** Whole minutes since the current step started. The percent is not derived from this. */
+internal fun analysisElapsedMinutes(sinceEpochMs: Long, nowEpochMs: Long): Int {
+    if (sinceEpochMs <= 0L) return 0
+    return ((nowEpochMs - sinceEpochMs).coerceAtLeast(0L) / 60_000L).toInt()
+}
 
 /**
  * The next file after [finishedId] leaves the running slot.
@@ -30,10 +31,6 @@ internal fun nextQueuedAnalysisId(
         id !in failedIds && id !in backingOffIds
     }
 }
-
-/** True when a stage has shown the same progress for [limitMs]. */
-internal fun analysisStageIsStale(lastChangeMs: Long, nowMs: Long, limitMs: Long): Boolean =
-    limitMs > 0L && nowMs - lastChangeMs >= limitMs
 
 /** Unknown progress is NaN, and NaN is not equal to itself. That must not count as movement. */
 internal fun analysisProgressMoved(previous: Double, progress: Double): Boolean =

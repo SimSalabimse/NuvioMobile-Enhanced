@@ -11,7 +11,10 @@ import com.nuvio.app.features.diagnostics.DiagnosticsLogger
  * [decodeNetMs] is [decodeMs] minus [throttledMs], so the decode without those sleeps.
  * [sampleLoopMs] is that loop (K-weighting, energy, decimation).
  * [fingerprintMs] is the head and tail sub-fingerprint FFTs.
- * [matchMs] is intro/credits matching against the season after the file is decoded.
+ * [matchMs] is pairwise intro/credits matching and learning from marked episodes.
+ * [clipMs] is reading a reference clip from another episode. [teachMs] is teaching the season.
+ * [backfillMs] is filling the rest of the season from stored fingerprints.
+ * None of those three is included in [matchMs].
  * [chaptersMs] is reading chapter markers plus classifying them. It is not part of [fingerprintMs].
  * [chapterSource] is `chapters` when a segment was taken from those markers, otherwise `-`.
  * [totalMs] is the whole audio analysis of that file, from the start of the decode through matching.
@@ -26,6 +29,9 @@ internal data class AnalysisStageTimings(
     val sampleLoopMs: Long,
     val fingerprintMs: Long,
     val matchMs: Long,
+    val clipMs: Long = 0L,
+    val teachMs: Long = 0L,
+    val backfillMs: Long = 0L,
     val totalMs: Long,
     val chaptersMs: Long = 0L,
     val chapterSource: String = "-",
@@ -39,7 +45,8 @@ internal data class AnalysisStageTimings(
 
     fun line(fileId: String): String =
         "timings id=$fileId decodeMs=$decodeMs sampleLoopMs=$sampleLoopMs " +
-            "fingerprintMs=$fingerprintMs matchMs=$matchMs chaptersMs=$chaptersMs " +
+            "fingerprintMs=$fingerprintMs matchMs=$matchMs clipMs=$clipMs teachMs=$teachMs " +
+            "backfillMs=$backfillMs chaptersMs=$chaptersMs " +
             "chapterSource=$chapterSource totalMs=$totalMs " +
             "throttledMs=$throttledMs decodeNetMs=$decodeNetMs " +
             "throttleLevelStart=$throttleLevelStart throttleYields=$throttleYields qos=$qos"

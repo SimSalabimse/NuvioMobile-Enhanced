@@ -1,6 +1,6 @@
 # Nov 7 round 2
 
-Build 202 on `sync/upstream-0.6.7-on-batch11`. No merge to enhanced or integration. Public name: Simsalabim.
+Build 203 on `sync/upstream-0.6.7-on-batch11`. No merge to enhanced or integration. Public name: Simsalabim.
 
 ## Portrait hero
 
@@ -12,13 +12,13 @@ Files: `HeroArtworkFrame.kt`, `DetailHero.kt`, `HomeHeroSection.kt`, `TabletDeta
 
 ## Analysis queue
 
-`Analysing 72%` is `AnalysisStage.Matching` (the overall value is fixed at 0.72). Audio cannot display 72. The timings line is written only after matching returns, so a later file still inside matching leaves E6/E7/E8 queued.
+`Analysing 72%` is `AnalysisStage.Matching`. That share stays 0.72 for the whole stage, so a long match looks frozen. Audio cannot display 72. The owner watched one file sit at 72% for more than 10 minutes and then finish by itself. That run was slow work with no visible activity, not a dead queue. The 60s, 90s and 120s cutoffs added for a stall would have cancelled that run. They are gone. A thrown exception and a missing file still record a reason and the queue continues. Cancellation still stops the pass. A paused or partial download is not eligible. The next id is the one after the finished id.
 
-On iOS the analysis store lock is not re-entrant. `update` (and the first-run cleanup, and show linking) take the lock and then call `load`/`save`, which take it again. `teachSeason` calls `update` while the job is still in matching, before the timings line. The queue cannot start the next file. JVM tests hide this because that lock re-enters there.
+The timings line now splits match, reference clip, season teach and season backfill. Each step logs its start, and the row shows the step plus the minutes it has been running. The percent is not animated. The fingerprint matcher is unchanged.
 
-Matching, the reference clip, season teaching, and a native call whose progress does not move are bounded. Teaching that runs out of time is logged and the file still finishes, so a later empty recap is not treated as a stall. A stall records a reason and the loop continues. A thrown exception does the same. Cancellation still stops the pass. Unknown progress is NaN and does not count as movement. This is not a fake progress bump. The next id is the one after the finished id, not the first id that is still in the list.
+The store lock on iOS is still not re-entrant, and `update` still refuses to take it twice. That guard stays. This finished run did not hit it, so it is not the cause of the 10 minutes. JVM tests still hide a real re-entry because that lock re-enters there.
 
-Files: `MediaAnalysisStore.kt`, `MediaAnalysisScheduler.kt`, `AnalysisQueue.kt`. Acceptance: the next id is chosen after a finished id; a failure skips that id; a stale stage is detectable; `update` does not re-enter the lock.
+Files: `MediaAnalysisStore.kt`, `MediaAnalysisScheduler.kt`, `AnalysisQueue.kt`, `AnalysisStatusUi.kt`, `AnalysisStageTimings.kt`. Acceptance: the next id is chosen after a finished id; a failure skips that id; a paused file is not eligible; matching stays at 0.72 while the elapsed minutes advance; `update` does not re-enter the lock.
 
 ## Movies
 

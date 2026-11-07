@@ -1,5 +1,6 @@
 package com.nuvio.app.features.analysis
 
+import com.nuvio.app.features.downloads.DownloadStatus
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -52,11 +53,30 @@ class AnalysisQueueTest {
     }
 
     @Test
-    fun aStaleStageIsVisibleAndAMovingStageIsNot() {
-        assertTrue(analysisStageIsStale(lastChangeMs = 0L, nowMs = ANALYSIS_PROGRESS_STALL_MS, limitMs = ANALYSIS_PROGRESS_STALL_MS))
-        assertFalse(analysisStageIsStale(lastChangeMs = 0L, nowMs = ANALYSIS_PROGRESS_STALL_MS - 1L, limitMs = ANALYSIS_PROGRESS_STALL_MS))
-        assertEquals(0.72, AnalysisJobState.Running("e5", "Evil", AnalysisStage.Matching, -1.0, false).overall)
+    fun matchingStaysAtSeventyTwoWhileTheClockMoves() {
+        val matching = AnalysisJobState.Running(
+            "e5",
+            "Evil",
+            AnalysisStage.Matching,
+            -1.0,
+            false,
+            activity = "match",
+            activitySinceEpochMs = 1_000L,
+        )
+        assertEquals(0.72, matching.overall)
+        assertEquals(0, analysisElapsedMinutes(1_000L, 1_000L + 59_000L))
+        assertEquals(11, analysisElapsedMinutes(1_000L, 1_000L + 11 * 60_000L))
+        assertEquals(0.72, matching.copy(activity = "clip", activitySinceEpochMs = 2_000L).overall)
         assertTrue(AnalysisJobState.Running("e5", "Evil", AnalysisStage.Audio, 1.0, false).overall <= 0.70)
+    }
+
+    @Test
+    fun pausedOrIncompleteIsNotEligible() {
+        assertTrue(analysisAcceptsDownload(DownloadStatus.Completed))
+        assertFalse(analysisAcceptsDownload(DownloadStatus.Paused))
+        assertFalse(analysisAcceptsDownload(DownloadStatus.Downloading))
+        assertFalse(analysisAcceptsDownload(DownloadStatus.Queued))
+        assertFalse(analysisAcceptsDownload(DownloadStatus.Failed))
     }
 
     @Test

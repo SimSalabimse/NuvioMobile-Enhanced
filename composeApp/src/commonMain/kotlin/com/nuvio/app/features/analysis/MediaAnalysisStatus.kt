@@ -25,8 +25,15 @@ sealed interface AnalysisJobState {
         /** 0..1 within the stage; negative when unknown. */
         val stageProgress: Double,
         val inBackground: Boolean,
+        /** Stable step name: audio, match, clip, teach, backfill, recap, preview, previews. */
+        val activity: String = "",
+        /** Wall clock when [activity] started. The row shows elapsed time from this. The percent does not move from it. */
+        val activitySinceEpochMs: Long = 0L,
     ) : AnalysisJobState {
-        /** Overall share of the file: audio pass ~70 %, previews ~25 %, matching and recap the rest. */
+        /**
+         * Overall share of the file. Matching stays at 0.72 for the whole stage.
+         * The row shows the step and the elapsed time; the percent is not animated.
+         */
         val overall: Double
             get() {
                 val p = stageProgress.coerceIn(0.0, 1.0)
@@ -82,7 +89,12 @@ internal fun analysisChipKinds(item: DownloadItem, parts: AnalysisParts): List<A
 sealed interface ItemAnalysisStatus {
     data object Unsupported : ItemAnalysisStatus
     data object Queued : ItemAnalysisStatus
-    data class Running(val stage: AnalysisStage, val overall: Double) : ItemAnalysisStatus
+    data class Running(
+        val stage: AnalysisStage,
+        val overall: Double,
+        val activity: String = "",
+        val activitySinceEpochMs: Long = 0L,
+    ) : ItemAnalysisStatus
     data class Done(val parts: AnalysisParts, val complete: Boolean) : ItemAnalysisStatus
     data class Failed(val reason: String, val parts: AnalysisParts?) : ItemAnalysisStatus
 }
@@ -168,7 +180,14 @@ object MediaAnalysisStatus {
     fun statusFor(item: DownloadItem): ItemAnalysisStatus {
         if (!supported) return ItemAnalysisStatus.Unsupported
         val running = _job.value as? AnalysisJobState.Running
-        if (running != null && running.itemId == item.id) return ItemAnalysisStatus.Running(running.stage, running.overall)
+        if (running != null && running.itemId == item.id) {
+            return ItemAnalysisStatus.Running(
+                running.stage,
+                running.overall,
+                running.activity,
+                running.activitySinceEpochMs,
+            )
+        }
         val stored = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item))?.takeIf { it.fileName == item.fileName }
         val failure = _failures.value[item.id]?.takeIf { it.fileName == null || it.fileName == item.fileName }
         val parts = stored?.let { partsOf(item, it) }
