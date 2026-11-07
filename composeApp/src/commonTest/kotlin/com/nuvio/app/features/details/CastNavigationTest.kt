@@ -4,7 +4,9 @@ import com.nuvio.app.core.ui.KeyboardTap
 import com.nuvio.app.core.ui.keyboardTapAction
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class CastNavigationTest {
     @Test
@@ -43,6 +45,9 @@ class CastNavigationTest {
         assertNull(navigablePersonId("Ada Lovelace"))
         assertNull(navigablePersonId("nm0000001"))
         assertNull(personIdFromUrl("stremio:///search?search=Ada"))
+        assertTrue(castRowActionable(88))
+        assertFalse(castRowActionable(null))
+        assertFalse(castRowActionable(0))
     }
 
     @Test

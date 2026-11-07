@@ -2382,7 +2382,7 @@
     <string name="analysis_subtitle_sync_title">Sync subtitles to audio</string>
     <string name="analysis_subtitle_sync_description">Measure speech in downloaded files and shift online subtitles to match when you pick them.</string>
     <string name="analysis_intro_detection_title">Find intros and credits</string>
-    <string name="analysis_intro_detection_description">Compare the opening and ending audio of downloaded episodes in a season to find the intro and credits.</string>
+    <string name="analysis_intro_detection_description">Match the first 25 minutes and the last 15 minutes of downloaded episodes in a season.</string>
     <string name="analysis_loudness_title">Even out loudness</string>
     <string name="analysis_loudness_description">Measure each downloaded file's loudness and adjust the volume so files play at a similar level.</string>
     <string name="analysis_only_while_charging_title">Analyse only while charging</string>
@@ -3143,8 +3143,8 @@
     <string name="profile_pin_clear_cleanup_failed">Your profile PIN was removed from your account, but Nuvio couldn't confirm removal of all local profile-lock data. Biometric unlock or saved offline PIN data may still be present; reopen Profile Security and try again.</string>
     <string name="analysis_scrub_previews_title">Scrub previews for downloads</string>
     <string name="analysis_scrub_previews_description">Make small thumbnails of downloaded files so you see the picture while scrubbing.</string>
-    <string name="analysis_recap_detection_title">Find recaps in downloads</string>
-    <string name="analysis_recap_detection_description">Detect “Previously on” recaps at the start of downloaded episodes and offer Skip Recap.</string>
+    <string name="analysis_recap_detection_title">Find recaps and previews</string>
+    <string name="analysis_recap_detection_description">Match shared clips in downloaded episodes.</string>
     <string name="smart_downloads_title">Smart downloads</string>
     <string name="smart_downloads_description">When you finish a downloaded episode, download the next ones. The finished episode stays unless Delete when finished is on. Wi-Fi only.</string>
     <string name="smart_downloads_count_title">Episodes to keep ready</string>

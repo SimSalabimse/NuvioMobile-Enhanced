@@ -44,6 +44,7 @@ import com.nuvio.app.core.ui.NuvioSearchField
 import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
 import com.nuvio.app.core.ui.nuvioCardDepth
 import com.nuvio.app.features.details.MetaPerson
+import com.nuvio.app.features.details.castRowActionable
 import com.nuvio.app.features.details.navigablePersonId
 import com.nuvio.app.features.details.castAvatarSharedTransitionKey
 import nuvio.composeapp.generated.resources.*
@@ -106,17 +107,18 @@ fun DetailCastSection(
                     val personId = navigablePersonId(person.tmdbId)
                     val sharedTransitionKey = personId
                         ?.let { castAvatarSharedTransitionKey(it, occurrenceIndex = index) }
+                    val openPerson = personId?.takeIf { castRowActionable(it) }?.let { id ->
+                        onCastClick?.let { click ->
+                            { click(person.copy(tmdbId = id), sharedTransitionKey) }
+                        }
+                    }
                     CastItem(
                         person = person,
                         sharedTransitionKey = sharedTransitionKey,
                         sizing = sizing,
                         sharedTransitionScope = sharedTransitionScope,
                         animatedVisibilityScope = animatedVisibilityScope,
-                        onClick = if (onCastClick != null && personId != null) {
-                            { onCastClick(person.copy(tmdbId = personId), sharedTransitionKey) }
-                        } else {
-                            null
-                        },
+                        onClick = openPerson,
                     )
                 }
             }
@@ -183,9 +185,15 @@ private fun CastItem(
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = CircleShape,
                 )
-                .nuvioCardDepth(
-                    shape = CircleShape,
-                    surface = NuvioCardDepthSurface.Cast,
+                .then(
+                    if (onClick != null) {
+                        Modifier.nuvioCardDepth(
+                            shape = CircleShape,
+                            surface = NuvioCardDepthSurface.Cast,
+                        )
+                    } else {
+                        Modifier
+                    },
                 ),
             contentAlignment = Alignment.Center,
         ) {

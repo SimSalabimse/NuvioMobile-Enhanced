@@ -30,6 +30,18 @@ class OwnAccountLedgerTest {
         assertTrue(decoded.getValue(first).pending.isEmpty())
         assertEquals(setOf("recap"), decoded.getValue(second).pending.getValue("tt1:1:1"))
         assertTrue(decoded.getValue(second).confirmed.isEmpty())
+        val merged = decoded.toMutableMap()
+        merged[first] = applyAccountListing(
+            marks = decoded.getValue(first),
+            contentKey = "tt1:1:1",
+            confirmed = setOf("intro", "outro"),
+            pending = emptySet(),
+            rejected = emptySet(),
+        )
+        assertEquals(setOf("intro", "outro"), ownSentTypes(merged.getValue(first), "tt1:1:1"))
+        assertEquals(setOf("recap"), ownSentTypes(merged.getValue(second), "tt1:1:1"))
+        assertTrue(merged.getValue(second).confirmed.isEmpty())
+        assertTrue(ownSentTypes(OwnAccountMarks(), "tt1:1:1").isEmpty())
     }
 
     @Test

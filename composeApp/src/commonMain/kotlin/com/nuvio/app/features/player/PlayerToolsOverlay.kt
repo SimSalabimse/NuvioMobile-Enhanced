@@ -31,15 +31,12 @@ import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.features.party.PartyRepository
-import com.nuvio.app.features.player.skip.FlagSubmitLedger
 import com.nuvio.app.features.player.skip.OwnMarkStatus
 import com.nuvio.app.features.player.skip.OwnTheIntroDbLedger
 import com.nuvio.app.features.player.skip.accountScopeForService
 import com.nuvio.app.features.player.skip.ownListBucketsForTitle
 import com.nuvio.app.features.player.skip.shouldRecordOwnTheIntroDb
-import com.nuvio.app.features.player.skip.loadTypes
-import com.nuvio.app.features.player.skip.rememberType
-import com.nuvio.app.features.player.skip.replaceTypes
+import com.nuvio.app.features.player.skip.ownSentTypes
 import com.nuvio.app.features.player.skip.IntroSubmitBlockReason
 import com.nuvio.app.features.player.skip.IntroSubmitKeyPrepareResult
 import com.nuvio.app.features.player.skip.IntroSubmitKeyProblem
@@ -236,10 +233,6 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 val accepted = submittedFlagTypesForTitle(records, tmdbId, isMoviePlayback, seasonNow, episodeNow)
                 val rejected = rejectedFlagTypesForTitle(records, tmdbId, isMoviePlayback, seasonNow, episodeNow)
                 val buckets = ownListBucketsForTitle(records, tmdbId, isMoviePlayback, seasonNow, episodeNow)
-                FlagSubmitLedger.replaceTypes(contentKey, accepted)
-                submittedSegmentTypesByVideoId[activeVideoId.orEmpty()].orEmpty().forEach { type ->
-                    if (markSegmentId(type) !in rejected) FlagSubmitLedger.rememberType(contentKey, type)
-                }
                 OwnTheIntroDbLedger.applyListing(
                     scope = accountScopeForService(IntroSubmitService.THE_INTRODB, introDbKey, theIntroDbKey),
                     contentKey = contentKey,
@@ -251,8 +244,9 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 rejectedTypes = rejected
             }
             val sessionTypes = submittedSegmentTypesByVideoId[activeVideoId.orEmpty()].orEmpty()
+            val accountScope = accountScopeForService(IntroSubmitService.THE_INTRODB, introDbKey, theIntroDbKey)
             val submittedTypes = flagChecksForTitle(
-                ledgerTypes = FlagSubmitLedger.loadTypes(contentKey),
+                ledgerTypes = ownSentTypes(OwnTheIntroDbLedger.load(accountScope), contentKey),
                 sessionTypes = sessionTypes,
                 remoteTypes = remoteTypes,
                 rejectedTypes = rejectedTypes,

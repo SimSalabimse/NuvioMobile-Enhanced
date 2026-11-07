@@ -187,7 +187,7 @@ Upstream Nuvio has no Live TV. This fork adds the whole feature.
 
 ## TheIntroDB Integration
 
-On-device detection of the same four segments (intro, recap, credits, preview) is described in [docs/segment-detection.md](docs/segment-detection.md). A detected range is not submitted.
+On-device detection of the same four segments (intro, recap, credits, preview) is described in [docs/segment-detection.md](docs/segment-detection.md). A detected range is not submitted. The rules were checked with synthetic audio, not with a named episode.
 
 **Client:** `composeApp/src/commonMain/kotlin/com/nuvio/app/features/player/skip/TheIntroDb.kt`
 

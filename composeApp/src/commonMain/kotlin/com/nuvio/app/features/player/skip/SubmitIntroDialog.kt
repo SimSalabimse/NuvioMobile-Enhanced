@@ -270,8 +270,6 @@ fun SubmitIntroDialog(
         val buckets = ownListBucketsForTitle(records, tmdbId, isMovie, season, episode)
         if (contentKey.isNotEmpty()) {
             remoteFlagTypesByContentKey[contentKey] = types
-            FlagSubmitLedger.replaceTypes(contentKey, types)
-            latestSubmittedTypes.forEach { FlagSubmitLedger.rememberType(contentKey, it) }
             OwnTheIntroDbLedger.applyListing(
                 scope = accountScopeForService(
                     IntroSubmitService.THE_INTRODB,
@@ -1131,7 +1129,8 @@ private fun SegmentTypeButton(
 private val remoteFlagTypesByContentKey = mutableMapOf<String, Set<String>>()
 
 private fun flagTypesShownForContent(contentKey: String, sessionTypes: Set<String>): Set<String> {
-    return (FlagSubmitLedger.loadTypes(contentKey) + sessionTypes)
+    val stored = ownSentTypes(OwnTheIntroDbLedger.load(currentTheIntroDbAccountScope()), contentKey)
+    return (stored + sessionTypes)
         .mapNotNull { canonicalFlagSegmentType(it) }
         .toSet()
 }

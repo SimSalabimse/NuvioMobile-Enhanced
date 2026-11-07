@@ -88,6 +88,7 @@ import com.nuvio.app.core.ui.PrefetchArtworkDominantColors
 import com.nuvio.app.core.ui.HeroArtworkFit
 import com.nuvio.app.core.ui.focusedAlignment
 import com.nuvio.app.core.ui.heroArtworkDecision
+import com.nuvio.app.core.ui.portraitHeroFrame
 import com.nuvio.app.core.ui.rememberHeroArtworkSize
 import com.nuvio.app.core.ui.rememberBackdropFocusState
 import com.nuvio.app.core.ui.heroStretchHeight
@@ -343,7 +344,8 @@ internal fun HomeHeroSection(
                 else -> HomeHeroArtworkSource.POSTER
             }
             val artworkParallax = if (isCardStyle) 0f else HERO_BACKGROUND_PARALLAX
-            val artworkBaseScale = if (isCardStyle) 1f else HERO_BACKGROUND_SCALE
+            val portraitFrame = portraitHeroFrame(heroFrameWidth.value, layout.heroHeight.value)
+            val artworkBaseScale = if (isCardStyle || portraitFrame) 1f else HERO_BACKGROUND_SCALE
             val heroWidthPx = with(LocalDensity.current) { maxWidth.toPx() }
             val heroHeightPx = with(LocalDensity.current) { layout.heroHeight.toPx() }
             val scrollOffsetPx by remember(listState, heroHeightPx) {
@@ -574,10 +576,19 @@ internal fun HomeHeroSection(
                                         val currentPageOffset = pagerState.currentPageOffsetFraction
                                         val currentPageVisibility = (1f - abs(currentPageOffset)).coerceIn(0f, 1f)
                                         alpha = trailerReadyAlpha * currentPageVisibility
-                                        translationX = -currentPageOffset * heroWidthPx * artworkParallax
-                                        translationY = if (isCardStyle) 0f else heroBackgroundScrollTranslationY(scrollOffsetPx)
-                                        scaleX = artworkBaseScale * if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
-                                        scaleY = artworkBaseScale * if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
+                                        translationX = if (portraitFrame) 0f else -currentPageOffset * heroWidthPx * artworkParallax
+                                        translationY = if (isCardStyle || portraitFrame) {
+                                            0f
+                                        } else {
+                                            heroBackgroundScrollTranslationY(scrollOffsetPx)
+                                        }
+                                        val trailerScroll = if (isCardStyle || portraitFrame) {
+                                            1f
+                                        } else {
+                                            heroBackgroundScrollScale(scrollOffsetPx)
+                                        }
+                                        scaleX = artworkBaseScale * trailerScroll
+                                        scaleY = artworkBaseScale * trailerScroll
                                     },
                                 onReady = {
                                     if (!heroTrailerFinished) heroTrailerReady = true

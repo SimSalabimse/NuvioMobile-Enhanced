@@ -293,10 +293,13 @@ class SeasonOverviewTest {
     @Test
     fun listStatusSplitsPendingConfirmedAndDuplicate() {
         assertEquals(ListStatusBucket.Pending, listStatusBucket("pending"))
+        assertEquals(ListStatusBucket.Pending, listStatusBucket("submitted"))
         assertEquals(ListStatusBucket.Pending, listStatusBucket(""))
         assertEquals(ListStatusBucket.Confirmed, listStatusBucket("approved"))
         assertEquals(ListStatusBucket.Confirmed, listStatusBucket("duplicate"))
+        assertEquals(ListStatusBucket.Confirmed, listStatusBucket("published"))
         assertEquals(ListStatusBucket.Rejected, listStatusBucket("rejected"))
+        assertEquals(ListStatusBucket.Rejected, listStatusBucket("declined"))
         val buckets = ownListBucketsForTitle(
             records = listOf(
                 FlagSubmissionRecord(7, "tv", 1, 1, "intro", "pending"),
@@ -313,6 +316,22 @@ class SeasonOverviewTest {
         assertEquals(setOf("recap", "outro"), buckets.confirmed)
         assertEquals(setOf("intro"), buckets.pending)
         assertEquals(setOf("preview"), buckets.rejected)
+        val receipt = ownListBucketsForTitle(
+            records = listOf(FlagSubmissionRecord(7, "tv", 1, 1, "intro", "submitted")),
+            tmdbId = 7,
+            isMovie = false,
+            season = 1,
+            episode = 1,
+        )
+        assertEquals(setOf("intro"), receipt.pending)
+        assertTrue(receipt.confirmed.isEmpty())
+        val otherAccount = episodeSegmentOverview(
+            episode = episode(1),
+            own = OwnAccountMarks(confirmed = mapOf("other" to setOf("intro"))),
+            detectedTypes = setOf("intro"),
+        )
+        assertTrue(otherAccount.submitted.isEmpty())
+        assertEquals(setOf("intro"), otherAccount.detected)
     }
 
     @Test

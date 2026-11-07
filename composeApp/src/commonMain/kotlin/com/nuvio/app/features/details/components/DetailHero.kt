@@ -53,6 +53,7 @@ import com.nuvio.app.core.ui.DETAIL_LANDSCAPE_EXTRA_SCALE
 import com.nuvio.app.core.ui.HeroArtworkFit
 import com.nuvio.app.core.ui.focusedAlignment
 import com.nuvio.app.core.ui.heroArtworkDecision
+import com.nuvio.app.core.ui.portraitHeroFrame
 import com.nuvio.app.core.ui.rememberBackdropFocusState
 import com.nuvio.app.core.ui.rememberHeroArtworkSize
 import com.nuvio.app.core.ui.featherArtwork
@@ -200,10 +201,12 @@ fun DetailHero(
                                 .height(heroHeight)
                                 .heroStretchZoom(stretchPx)
                                 .graphicsLayer {
+                                    val framePortrait = portraitHeroFrame(heroFrameWidth.value, heroHeight.value)
                                     alpha = trailerAlpha
-                                    translationY = scrollOffset() * 0.5f
-                                    scaleX = 1.08f
-                                    scaleY = 1.08f
+                                    translationY = if (framePortrait) 0f else scrollOffset() * 0.5f
+                                    val trailerScale = if (framePortrait) 1f else DETAIL_LANDSCAPE_EXTRA_SCALE
+                                    scaleX = trailerScale
+                                    scaleY = trailerScale
                                 },
                             onReady = onHeroTrailerReady,
                             onEnded = onHeroTrailerEnded,

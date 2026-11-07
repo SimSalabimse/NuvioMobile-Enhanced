@@ -6,6 +6,9 @@ package com.nuvio.app.features.details
  */
 internal fun navigablePersonId(raw: Int?): Int? = raw?.takeIf { it > 0 }
 
+/** A row opens a person only when [navigablePersonId] is set. A name or an IMDb id is not that. */
+internal fun castRowActionable(tmdbId: Int?): Boolean = navigablePersonId(tmdbId) != null
+
 internal fun navigablePersonId(raw: String?): Int? {
     val text = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
     if (text.any { it.isLetter() }) return personIdFromUrl(text)

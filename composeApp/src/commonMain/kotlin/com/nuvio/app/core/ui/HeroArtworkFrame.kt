@@ -28,10 +28,10 @@ internal fun rememberHeroArtworkSize(url: String?): HeroArtworkSizeState =
 /**
  * How a hero draws one loaded image.
  *
- * Landscape art (wider than it is tall) keeps a width-filling crop, horizontal
- * focus, and the small extra scale the cinematic header already uses.
- * Portrait art is fit whole, at 1:1, with no extra scale and no scroll zoom.
- * An unknown size is fit whole at 1:1 until the image reports its size.
+ * A portrait frame fits the whole picture, wide or tall, at 1:1, with no extra
+ * scale and no scroll zoom. A landscape frame keeps the cinematic crop for wide
+ * art: horizontal focus and the small extra scale. Tall art in that frame stays
+ * fitted. An unknown size is fit whole at 1:1 until the image reports its size.
  */
 internal enum class HeroArtworkFit {
     CropLandscape,
@@ -48,6 +48,10 @@ internal data class HeroArtworkDecision(
 internal const val DETAIL_LANDSCAPE_EXTRA_SCALE = 1.08f
 internal const val HOME_LANDSCAPE_EXTRA_SCALE = 1.14f
 
+/** True when the hero slot is taller than it is wide. A square slot is not portrait. */
+internal fun portraitHeroFrame(frameWidth: Float, frameHeight: Float): Boolean =
+    frameWidth > 0f && frameHeight > frameWidth
+
 internal fun heroArtworkDecision(
     imageWidth: Int,
     imageHeight: Int,
@@ -55,28 +59,20 @@ internal fun heroArtworkDecision(
     frameHeight: Float,
     landscapeExtraScale: Float,
 ): HeroArtworkDecision {
-    if (imageWidth <= 0 || imageHeight <= 0 || frameWidth <= 0f || frameHeight <= 0f) {
-        return HeroArtworkDecision(
-            fit = HeroArtworkFit.FitPortrait,
-            extraScale = 1f,
-            scrollScaleEnabled = false,
-            horizontalFocus = false,
-        )
-    }
-    val portrait = imageHeight > imageWidth
-    return if (portrait) {
-        HeroArtworkDecision(
-            fit = HeroArtworkFit.FitPortrait,
-            extraScale = 1f,
-            scrollScaleEnabled = false,
-            horizontalFocus = false,
-        )
-    } else {
-        HeroArtworkDecision(
-            fit = HeroArtworkFit.CropLandscape,
-            extraScale = landscapeExtraScale,
-            scrollScaleEnabled = true,
-            horizontalFocus = true,
-        )
-    }
+    val fit = HeroArtworkDecision(
+        fit = HeroArtworkFit.FitPortrait,
+        extraScale = 1f,
+        scrollScaleEnabled = false,
+        horizontalFocus = false,
+    )
+    if (imageWidth <= 0 || imageHeight <= 0 || frameWidth <= 0f || frameHeight <= 0f) return fit
+    // A tall phone slot was cropping 16:9 banners to fill the height, then scaling again.
+    if (portraitHeroFrame(frameWidth, frameHeight)) return fit
+    if (imageHeight > imageWidth) return fit
+    return HeroArtworkDecision(
+        fit = HeroArtworkFit.CropLandscape,
+        extraScale = landscapeExtraScale,
+        scrollScaleEnabled = true,
+        horizontalFocus = true,
+    )
 }

@@ -49,10 +49,15 @@ internal enum class ListStatusBucket {
     Rejected,
 }
 
-/** Blank and unknown review states stay pending. They are not confirmed submissions. */
+/**
+ * Review words from this account's list.
+ * A 200 leaves the row pending, including a list status of "submitted".
+ * Approved, published, and a duplicate (the 409 case) are confirmed.
+ * Blank and unknown words stay pending. They are not a filled check.
+ */
 internal fun listStatusBucket(status: String): ListStatusBucket = when (status.trim().lowercase()) {
     "rejected", "declined", "denied" -> ListStatusBucket.Rejected
-    "approved", "accepted", "active", "duplicate", "submitted", "confirmed", "published" -> ListStatusBucket.Confirmed
+    "approved", "accepted", "active", "duplicate", "confirmed", "published" -> ListStatusBucket.Confirmed
     else -> ListStatusBucket.Pending
 }
 
@@ -113,7 +118,7 @@ private fun flagTypesForTitle(
     if (tmdbId <= 0) return emptySet()
     return records.mapNotNullTo(linkedSetOf()) { record ->
         if (record.tmdbId != tmdbId) return@mapNotNullTo null
-        val isRejected = record.status.trim().lowercase() == "rejected"
+        val isRejected = listStatusBucket(record.status) == ListStatusBucket.Rejected
         if (isRejected != rejected) return@mapNotNullTo null
         val movie = record.type.equals("movie", ignoreCase = true)
         if (movie != isMovie) return@mapNotNullTo null

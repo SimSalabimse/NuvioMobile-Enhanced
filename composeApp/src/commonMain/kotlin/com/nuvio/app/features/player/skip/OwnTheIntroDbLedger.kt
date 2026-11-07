@@ -119,6 +119,13 @@ internal fun currentTheIntroDbAccountScope(): String {
 internal fun shouldRecordOwnTheIntroDb(service: IntroSubmitService, succeeded: Boolean): Boolean =
     succeeded && service == IntroSubmitService.THE_INTRODB
 
+/** Confirmed and pending types this account already sent. Another scope is not read. */
+internal fun ownSentTypes(marks: OwnAccountMarks, contentKey: String): Set<String> {
+    if (contentKey.isEmpty()) return emptySet()
+    return (marks.confirmed[contentKey].orEmpty() + marks.pending[contentKey].orEmpty())
+        .mapNotNullTo(linkedSetOf()) { canonicalFlagSegmentType(it) }
+}
+
 internal fun OwnAccountMarks.withStatus(
     contentKey: String,
     segmentType: String,
