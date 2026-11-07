@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Icon
@@ -29,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
@@ -38,6 +40,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import coil3.compose.AsyncImage
+import androidx.compose.ui.graphics.Brush
+import com.nuvio.app.core.ui.ArtworkBackdrop
 import com.nuvio.app.core.ui.NuvioBackButton
 import com.nuvio.app.core.ui.atLeastIosHitTarget
 import com.nuvio.app.core.ui.platformPhysicalTopInset
@@ -66,6 +70,7 @@ fun DetailFloatingHeader(
     isSaved: Boolean,
     progress: Float,
     backgroundColor: Color? = null,
+    background: (@Composable () -> Unit)? = null,
     onBack: () -> Unit,
     onToggleSaved: () -> Unit,
     modifier: Modifier = Modifier,
@@ -104,15 +109,24 @@ fun DetailFloatingHeader(
             modifier = Modifier
                 .fillMaxWidth()
                 .clipToBounds()
-                .liquidGlassSurface(
-                    backdrop = glassBackdrop,
-                    shape = RectangleShape,
-                    tint = surfaceColor.copy(alpha = surfaceColor.alpha * 0.7f),
-                    fallback = surfaceColor,
-                    blurRadius = 24.dp,
-                    withHighlight = false,
+                .then(
+                    if (background == null) {
+                        Modifier.liquidGlassSurface(
+                            backdrop = glassBackdrop,
+                            shape = RectangleShape,
+                            tint = surfaceColor.copy(alpha = surfaceColor.alpha * 0.7f),
+                            fallback = surfaceColor,
+                            blurRadius = 24.dp,
+                            withHighlight = false,
+                        )
+                    } else {
+                        Modifier
+                    },
                 ),
         ) {
+            if (background != null) {
+                Box(modifier = Modifier.matchParentSize()) { background() }
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -185,6 +199,23 @@ fun DetailFloatingHeader(
                 )
             }
         }
+    }
+}
+
+@Composable
+internal fun CinematicHeaderBackdrop(
+    image: ImageBitmap?,
+    screenHeight: Dp,
+    alignment: Alignment = Alignment.Center,
+    scrim: Brush? = null,
+) {
+    val modifier = Modifier
+        .wrapContentHeight(align = Alignment.Top, unbounded = true)
+        .height(screenHeight)
+    if (scrim != null) {
+        ArtworkBackdrop(image = image, alignment = alignment, scrim = scrim, modifier = modifier)
+    } else {
+        ArtworkBackdrop(image = image, alignment = alignment, modifier = modifier)
     }
 }
 

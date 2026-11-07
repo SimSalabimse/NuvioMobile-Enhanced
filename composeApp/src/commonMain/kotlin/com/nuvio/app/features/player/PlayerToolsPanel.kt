@@ -84,7 +84,13 @@ import nuvio.composeapp.generated.resources.action_back
 import nuvio.composeapp.generated.resources.action_retry
 import nuvio.composeapp.generated.resources.action_close
 import nuvio.composeapp.generated.resources.compose_player_fetch_subtitles
+import nuvio.composeapp.generated.resources.compose_player_audio_amplification
+import nuvio.composeapp.generated.resources.compose_player_audio_amplification_keep
+import nuvio.composeapp.generated.resources.compose_player_audio_delay
+import nuvio.composeapp.generated.resources.compose_player_center_mix
 import nuvio.composeapp.generated.resources.compose_player_no_audio_tracks_available
+import nuvio.composeapp.generated.resources.compose_player_reset
+import nuvio.composeapp.generated.resources.settings_playback_downmix
 import nuvio.composeapp.generated.resources.compose_player_no_episodes_available
 import nuvio.composeapp.generated.resources.compose_player_style
 import nuvio.composeapp.generated.resources.episodes_season
@@ -190,6 +196,19 @@ internal fun PlayerToolsPanel(
     audioTracks: List<AudioTrack>,
     selectedAudioIndex: Int,
     onAudio: (Int) -> Unit,
+    showAudioDelay: Boolean,
+    audioDelayMs: Int,
+    onAudioDelayChanged: (Int) -> Unit,
+    showAudioAmplification: Boolean,
+    audioAmplificationDb: Int,
+    keepAudioAmplification: Boolean,
+    onAudioAmplificationChanged: (Int) -> Unit,
+    onKeepAudioAmplificationChanged: (Boolean) -> Unit,
+    showCenterMix: Boolean,
+    centerMixLevelDb: Int,
+    onCenterMixLevelChanged: (Int) -> Unit,
+    downmixEnabled: Boolean,
+    onDownmixChanged: (Boolean) -> Unit,
     streams: StreamsUiState,
     currentStreamUrl: String?,
     currentStreamName: String?,
@@ -296,7 +315,24 @@ internal fun PlayerToolsPanel(
                         onStyle = { onStyleOpenChange(true) },
                     )
                 }
-                PlayerToolTab.Audio -> AudioPage(audioTracks, selectedAudioIndex, onAudio)
+                PlayerToolTab.Audio -> AudioPage(
+                    tracks = audioTracks,
+                    selectedIndex = selectedAudioIndex,
+                    onAudio = onAudio,
+                    showDelay = showAudioDelay,
+                    delayMs = audioDelayMs,
+                    onDelay = onAudioDelayChanged,
+                    showAmplification = showAudioAmplification,
+                    amplificationDb = audioAmplificationDb,
+                    keepAmplification = keepAudioAmplification,
+                    onAmplification = onAudioAmplificationChanged,
+                    onKeepAmplification = onKeepAudioAmplificationChanged,
+                    showCenterMix = showCenterMix,
+                    centerMixDb = centerMixLevelDb,
+                    onCenterMix = onCenterMixLevelChanged,
+                    downmixEnabled = downmixEnabled,
+                    onDownmix = onDownmixChanged,
+                )
                 PlayerToolTab.Sources -> SourcesPage(
                     streams, currentStreamUrl, currentStreamName, onSourceFilter, onSource, onReloadSources,
                 )
@@ -560,18 +596,47 @@ private fun AudioPage(
     tracks: List<AudioTrack>,
     selectedIndex: Int,
     onAudio: (Int) -> Unit,
+    showDelay: Boolean,
+    delayMs: Int,
+    onDelay: (Int) -> Unit,
+    showAmplification: Boolean,
+    amplificationDb: Int,
+    keepAmplification: Boolean,
+    onAmplification: (Int) -> Unit,
+    onKeepAmplification: (Boolean) -> Unit,
+    showCenterMix: Boolean,
+    centerMixDb: Int,
+    onCenterMix: (Int) -> Unit,
+    downmixEnabled: Boolean,
+    onDownmix: (Boolean) -> Unit,
 ) {
-    if (tracks.isEmpty()) {
-        Box(Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
-            Text(
-                text = stringResource(Res.string.compose_player_no_audio_tracks_available),
-                color = Color.White.copy(alpha = 0.7f),
-                fontSize = PlayerToolRowText,
-            )
+    Column(Modifier.fillMaxSize()) {
+        AudioAdjustments(
+            showDelay = showDelay,
+            delayMs = delayMs,
+            onDelay = onDelay,
+            showAmplification = showAmplification,
+            amplificationDb = amplificationDb,
+            keepAmplification = keepAmplification,
+            onAmplification = onAmplification,
+            onKeepAmplification = onKeepAmplification,
+            showCenterMix = showCenterMix,
+            centerMixDb = centerMixDb,
+            onCenterMix = onCenterMix,
+            downmixEnabled = downmixEnabled,
+            onDownmix = onDownmix,
+        )
+        if (tracks.isEmpty()) {
+            Box(Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
+                Text(
+                    text = stringResource(Res.string.compose_player_no_audio_tracks_available),
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = PlayerToolRowText,
+                )
+            }
+            return@Column
         }
-        return
-    }
-    LazyColumn(Modifier.fillMaxSize()) {
+    LazyColumn(Modifier.weight(1f)) {
         items(tracks, key = { "${it.index}:${it.id}" }) { track ->
             val title = localizedTrackDisplayName(track.label, track.language, track.index)
             val language = track.language?.takeIf { it.isNotBlank() && it != "und" }?.let { languageLabelForCode(it) }
@@ -583,6 +648,151 @@ private fun AudioPage(
             )
         }
     }
+    }
+}
+
+@Composable
+private fun AudioAdjustments(
+    showDelay: Boolean,
+    delayMs: Int,
+    onDelay: (Int) -> Unit,
+    showAmplification: Boolean,
+    amplificationDb: Int,
+    keepAmplification: Boolean,
+    onAmplification: (Int) -> Unit,
+    onKeepAmplification: (Boolean) -> Unit,
+    showCenterMix: Boolean,
+    centerMixDb: Int,
+    onCenterMix: (Int) -> Unit,
+    downmixEnabled: Boolean,
+    onDownmix: (Boolean) -> Unit,
+) {
+    val delay = delayMs.coerceIn(AUDIO_DELAY_MIN_MS, AUDIO_DELAY_MAX_MS)
+    val gain = amplificationDb.coerceIn(AUDIO_AMPLIFICATION_MIN_DB, AUDIO_AMPLIFICATION_MAX_DB)
+    val center = centerMixDb.coerceIn(CENTER_MIX_LEVEL_MIN_DB, CENTER_MIX_LEVEL_MAX_DB)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        if (showDelay) {
+            Text(
+                text = stringResource(Res.string.compose_player_audio_delay),
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SubtitleStyleStepper(
+                    value = formatAudioDelay(delay),
+                    onDecrease = { onDelay(delay - AUDIO_DELAY_STEP_MS) },
+                    onIncrease = { onDelay(delay + AUDIO_DELAY_STEP_MS) },
+                    onDecreaseHold = { heldMs -> onDelay(delay - audioDelayHoldStepMs(heldMs)) },
+                    onIncreaseHold = { heldMs -> onDelay(delay + audioDelayHoldStepMs(heldMs)) },
+                    valueWidth = 96.dp,
+                )
+                SubtitleTextAction(
+                    label = stringResource(Res.string.compose_player_reset),
+                    enabled = delay != 0,
+                    onClick = { onDelay(0) },
+                )
+            }
+        }
+        if (showAmplification) {
+            Text(
+                text = stringResource(Res.string.compose_player_audio_amplification),
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            SubtitleStyleStepper(
+                value = if (gain > 0) "+$gain dB" else "$gain dB",
+                onDecrease = { onAmplification(gain - 1) },
+                onIncrease = { onAmplification(gain + 1) },
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(Res.string.compose_player_audio_amplification_keep),
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(
+                    checked = keepAmplification,
+                    onCheckedChange = onKeepAmplification,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = MaterialTheme.nuvio.colors.onAccent,
+                        checkedTrackColor = MaterialTheme.nuvio.colors.accent,
+                    ),
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(Res.string.settings_playback_downmix),
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
+            )
+            Switch(
+                checked = downmixEnabled,
+                onCheckedChange = onDownmix,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = MaterialTheme.nuvio.colors.onAccent,
+                    checkedTrackColor = MaterialTheme.nuvio.colors.accent,
+                ),
+            )
+        }
+        if (showCenterMix) {
+            Text(
+                text = stringResource(Res.string.compose_player_center_mix),
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SubtitleStyleStepper(
+                    value = if (center > 0) "+$center dB" else "$center dB",
+                    onDecrease = { onCenterMix(center - 1) },
+                    onIncrease = { onCenterMix(center + 1) },
+                )
+                SubtitleTextAction(
+                    label = stringResource(Res.string.compose_player_reset),
+                    enabled = center != 0,
+                    onClick = { onCenterMix(0) },
+                )
+            }
+        }
+    }
+}
+
+private const val AUDIO_DELAY_HOLD_STEP_MS = 50
+private const val AUDIO_DELAY_HOLD_FAST_STEP_MS = 100
+private const val AUDIO_DELAY_HOLD_FAST_AFTER_MS = 2_000L
+
+private fun audioDelayHoldStepMs(heldMs: Long): Int =
+    if (heldMs >= AUDIO_DELAY_HOLD_FAST_AFTER_MS) AUDIO_DELAY_HOLD_FAST_STEP_MS else AUDIO_DELAY_HOLD_STEP_MS
+
+private fun formatAudioDelay(delayMs: Int): String {
+    val sign = when {
+        delayMs > 0 -> "+"
+        delayMs < 0 -> "-"
+        else -> ""
+    }
+    val absoluteMs = kotlin.math.abs(delayMs)
+    return "$sign${absoluteMs / 1000}.${(absoluteMs % 1000).toString().padStart(3, '0')}s"
 }
 
 @Composable

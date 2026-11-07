@@ -124,7 +124,7 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
         saturation: Int32,
         gamma: Int32
     ) {
-        playerVC?.configureVideoOutput(
+        ensurePlayerViewController().configureVideoOutput(
             hardwareDecoder: hardwareDecoder,
             targetColorspaceHint: targetColorspaceHint,
             toneMapping: toneMapping,
@@ -141,7 +141,7 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
         )
     }
     func configureAudioOutput(audioOutput: String) {
-        playerVC?.configureAudioOutput(audioOutput: audioOutput)
+        ensurePlayerViewController().configureAudioOutput(audioOutput: audioOutput)
     }
     func isNightModeSupported() -> Bool { MPVPlayerViewController.nightModeSupported }
     func setNightMode(enabled: Bool, filter: String, label: String) {
@@ -214,6 +214,9 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
     func clearExternalSubtitle() { playerVC?.removeExternalSubtitles() }
     func clearExternalSubtitleAndSelect(trackId: Int32) { playerVC?.removeExternalSubtitlesAndSelect(Int(trackId)) }
     func setSubtitleDelayMs(delayMs: Int32) { playerVC?.setSubtitleDelayMs(Int(delayMs)) }
+    func setAudioDelayMs(delayMs: Int32) { playerVC?.setAudioDelayMs(Int(delayMs)) }
+    func setAudioAmplificationDb(db: Int32) { playerVC?.setAudioAmplificationDb(Int(db)) }
+    func setStereoDownmix(enabled: Bool) { playerVC?.setStereoDownmix(enabled) }
     func startAudioEnergyCapture(startTimeMs: Int64) {
         playerVC?.startAudioEnergyCapture(startTimeMs: startTimeMs)
     }
@@ -244,7 +247,8 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
         fontSize: Float,
         subPos: Int32,
         stripSdh: Bool,
-        styledOverlay: Bool
+        styledOverlay: Bool,
+        outlineBlur: Int32
     ) {
         playerVC?.applySubtitleStyle(
             textColor: textColor,
@@ -255,7 +259,8 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
             fontSize: fontSize,
             subPos: Int(subPos),
             stripSdh: stripSdh,
-            styledOverlay: styledOverlay
+            styledOverlay: styledOverlay,
+            outlineBlur: Int(outlineBlur)
         )
     }
 
@@ -266,6 +271,7 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
     func getDurationMs() -> Int64 { return playerVC?.durationMs ?? 0 }
     func getPositionMs() -> Int64 { return playerVC?.positionMs ?? 0 }
     func getTimePosValid() -> Bool { return playerVC?.timePosValid ?? false }
+    func networkSpeedBytesPerSecond() -> Int64 { return playerVC?.networkSpeedBytesPerSecond ?? -1 }
     func getBufferedMs() -> Int64 { return playerVC?.bufferedMs ?? 0 }
     func getPlaybackSpeed() -> Float { playerVC?.currentSpeed ?? 1.0 }
     func getIncomingBytesPerSec() -> Int64 { playerVC?.incomingBytesPerSec ?? -1 }
@@ -369,6 +375,10 @@ final class MPVPlayerViewController: UIViewController {
     private var pendingSurfaceLayoutWorkItems: [DispatchWorkItem] = []
     private var pendingLoadRequest: PendingLoadRequest?
     private var startupSubtitles: [PluginSubtitle] = []
+    /// mpv's sub-add needs a loaded file. An add-on subtitle selected before that (Nuvio restores
+    /// the remembered one as soon as add-ons answer, often while the stream still opens) waits here.
+    private var pendingSubtitleUrl: String?
+    private var isFileLoaded = false
     private var pendingLoadRetryWorkItem: DispatchWorkItem?
     var mpv: OpaquePointer?
     private var cachedNowPlayingMetadata: CachedNowPlayingMetadata?
@@ -469,6 +479,7 @@ final class MPVPlayerViewController: UIViewController {
         let subPos: Int
         let stripSdh: Bool
         let styledOverlay: Bool
+        let outlineBlur: Int
     }
 
     private var lastLoadRequest: PendingLoadRequest?
@@ -529,6 +540,7 @@ final class MPVPlayerViewController: UIViewController {
     var durationMs: Int64 = 0
     var positionMs: Int64 = 0
     var timePosValid: Bool = false
+    var networkSpeedBytesPerSecond: Int64 = -1
     var bufferedMs: Int64 = 0
     var currentSpeed: Float = 1.0
     var incomingBytesPerSec: Int64 = -1
@@ -580,7 +592,7 @@ final class MPVPlayerViewController: UIViewController {
         metalLayer.contentsScale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
         metalLayer.framebufferOnly = true
         metalLayer.backgroundColor = UIColor.black.cgColor
-        metalLayer.wantsExtendedDynamicRangeContent = true
+        metalLayer.wantsExtendedDynamicRangeContent = lastVideoOutputSettings?.extendedDynamicRange ?? true
         metalLayer.anchorPoint = CGPoint(x: 0, y: 0)
         metalLayer.position = .zero
         metalLayer.onRenderingSuspensionChanged = { suspended, reason in
@@ -599,11 +611,32 @@ final class MPVPlayerViewController: UIViewController {
         }
         let pip = PlayerPictureInPictureController(owner: self, metalLayer: metalLayer)
         pictureInPictureController = pip
+        if mpv != nil {
+            pip.setSubtitleText(getString("sub-text") ?? "", bold: lastSubtitleStyle?.bold ?? false)
+        }
         view.layer.addSublayer(pip.displayLayer)
         view.layer.addSublayer(metalLayer)
         layoutPlayerSurfaces()
 
         setupMpv()
+        if let settings = lastVideoOutputSettings {
+            configureVideoOutput(
+                hardwareDecoder: settings.hardwareDecoder,
+                targetColorspaceHint: settings.targetColorspaceHint,
+                toneMapping: settings.toneMapping,
+                hdrComputePeak: settings.hdrComputePeak,
+                targetPrimaries: settings.targetPrimaries,
+                targetTransfer: settings.targetTransfer,
+                extendedDynamicRange: settings.extendedDynamicRange,
+                deband: settings.deband,
+                interpolation: settings.interpolation,
+                brightness: settings.brightness,
+                contrast: settings.contrast,
+                saturation: settings.saturation,
+                gamma: settings.gamma
+            )
+        }
+        if let audioOutput = lastAudioOutput { setStringProperty("ao", audioOutput) }
         if !isEmbeddedPreviewMode {
             activateAudioSessionForPlayback()
         }
@@ -790,7 +823,7 @@ final class MPVPlayerViewController: UIViewController {
         setSetupOption("audio-fallback-to-null", "yes")
         setSetupOption("volume-max", "200")
         setSetupOption("volume", "100")
-        setSetupOption("volume-gain-max", "12")
+        setSetupOption("volume-gain-max", "22")
         setSetupOption("volume-gain", "0")
         setSetupOption("vulkan-swap-mode", "fifo")
         setSetupOption("vulkan-queue-count", "1")
@@ -977,13 +1010,40 @@ final class MPVPlayerViewController: UIViewController {
             self.hwdecBeforeBackground = nil
             guard !before.isEmpty, before != "no" else { return }
             let current = self.getString("hwdec-current") ?? ""
-            InAppLogBridge.shared.warn(
-                tag: "MPV/iOS",
-                message: "Reinitialising hwdec=\(configured) after interruption (was \(before), now \(current.isEmpty ? "none" : current))"
-            )
-            self.setStringProperty("hwdec", "no")
-            self.setStringProperty("hwdec", configured)
+            if current.isEmpty || current == "no" {
+                self.reinitialiseHardwareDecoding(configured, reason: "lost (was \(before), now none)")
+                return
+            }
+            self.pendingDecoderStallCheck = configured
+            self.checkDecoderStallIfPending(generation: coreGeneration)
         }
+    }
+
+    private var pendingDecoderStallCheck: String?
+
+    private func checkDecoderStallIfPending(generation: UInt64) {
+        guard mpvGeneration == generation, mpv != nil, let configured = pendingDecoderStallCheck else { return }
+        guard !getFlag("pause") else { return }
+        let startFrame = getInt("estimated-frame-number")
+        mpvQueue.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            guard let self, self.mpvGeneration == generation, self.mpv != nil,
+                  self.pendingDecoderStallCheck != nil else { return }
+            if self.getFlag("pause") { return }
+            if self.getFlag("seeking") || self.getFlag("paused-for-cache") || self.getFlag("eof-reached") {
+                self.pendingDecoderStallCheck = nil
+                return
+            }
+            self.pendingDecoderStallCheck = nil
+            let endFrame = self.getInt("estimated-frame-number")
+            guard endFrame <= startFrame else { return }
+            self.reinitialiseHardwareDecoding(configured, reason: "frames stalled at \(endFrame) after interruption")
+        }
+    }
+
+    private func reinitialiseHardwareDecoding(_ configured: String, reason: String) {
+        InAppLogBridge.shared.warn(tag: "MPV/iOS", message: "Reinitialising hwdec=\(configured): \(reason)")
+        setStringProperty("hwdec", "no")
+        setStringProperty("hwdec", configured)
     }
 
     private func resumeRenderingAfterDeviceLossIfPossible(reason: String) {
@@ -1102,6 +1162,7 @@ final class MPVPlayerViewController: UIViewController {
             setStringProperty("start", "none")
             loadStartOptionSet = false
         }
+        isFileLoaded = false
         startupSubtitles = request.subtitles
         command("loadfile", args: [request.urlString, "replace"])
         if let audioUrl = request.audioUrl, !audioUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -1156,6 +1217,8 @@ final class MPVPlayerViewController: UIViewController {
         setFlag("pause", false)
         isPlayerPlaying = true
         playbackStateGeneration &+= 1
+        let coreGeneration = mpvGeneration
+        mpvQueue.async { [weak self] in self?.checkDecoderStallIfPending(generation: coreGeneration) }
         if !isEmbeddedPreviewMode {
             syncNowPlayingPlaybackState(isPlaying: true)
         }
@@ -1486,7 +1549,8 @@ final class MPVPlayerViewController: UIViewController {
                 fontSize: style.fontSize,
                 subPos: style.subPos,
                 stripSdh: style.stripSdh,
-                styledOverlay: style.styledOverlay
+                styledOverlay: style.styledOverlay,
+                outlineBlur: style.outlineBlur
             )
         }
         setSpeed(currentSpeed)
@@ -1502,6 +1566,7 @@ final class MPVPlayerViewController: UIViewController {
         applyRequestHeaders(activeRequestHeaders)
         playbackStateGeneration &+= 1
         invalidateMediaInfoCache()
+        isFileLoaded = false
         let coreGeneration = mpvGeneration
         mpvQueue.async { [weak self] in
             guard let self, self.mpvGeneration == coreGeneration else { return }
@@ -1607,7 +1672,7 @@ final class MPVPlayerViewController: UIViewController {
     func getVolume() -> Float {
         guard mpv != nil else { return 1.0 }
         let baseVolume = getDouble("volume") / 100.0
-        let gainDb = getDouble("volume-gain") - loudnessGainDb
+        let gainDb = getDouble("volume-gain") - loudnessGainDb - audioAmplificationDb
         let gainMultiplier = pow(10.0, gainDb / 20.0)
         return Float(max(0.0, min(2.0, baseVolume * gainMultiplier)))
     }
@@ -1624,7 +1689,7 @@ final class MPVPlayerViewController: UIViewController {
         }
 
         setDoubleProperty("volume", 100.0)
-        setDoubleProperty("volume-gain", 20.0 * log10(clamped) + loudnessGainDb)
+        setDoubleProperty("volume-gain", 20.0 * log10(clamped) + loudnessGainDb + audioAmplificationDb)
     }
 
     /// Loudness normalisation from the on-device analysis, added on top of the user's volume.
@@ -1707,7 +1772,12 @@ final class MPVPlayerViewController: UIViewController {
     }
 
     func addSubtitleUrl(_ url: String) {
-        guard mpv != nil else { return }
+        guard mpv != nil, isFileLoaded else {
+            // Upstream: an add-on subtitle picked before mpv has loaded the file is queued and
+            // added on MPV_EVENT_FILE_LOADED.
+            pendingSubtitleUrl = url
+            return
+        }
         let coreGeneration = mpvGeneration
         let headers = activeRequestHeaders
         // Hebrew SRTs are often authored with sentence-final punctuation at the start
@@ -1752,6 +1822,7 @@ final class MPVPlayerViewController: UIViewController {
     }
 
     func removeExternalSubtitles() {
+        pendingSubtitleUrl = nil
         guard mpv != nil else { return }
         let coreGeneration = mpvGeneration
         onMpvQueue { [weak self] in
@@ -1762,6 +1833,7 @@ final class MPVPlayerViewController: UIViewController {
     }
 
     func removeExternalSubtitlesAndSelect(_ trackId: Int) {
+        pendingSubtitleUrl = nil
         guard mpv != nil else { return }
         let coreGeneration = mpvGeneration
         onMpvQueue { [weak self] in
@@ -1795,6 +1867,25 @@ final class MPVPlayerViewController: UIViewController {
         lastSubtitleDelayMs = delayMs
         guard mpv != nil else { return }
         setDoubleProperty("sub-delay", Double(max(-60_000, min(60_000, delayMs))) / 1000.0)
+    }
+
+    func setAudioDelayMs(_ delayMs: Int) {
+        guard mpv != nil else { return }
+        let clamped = max(-60_000, min(60_000, delayMs))
+        setDoubleProperty("audio-delay", Double(clamped) / 1000.0)
+    }
+
+    private var audioAmplificationDb: Double = 0
+
+    func setAudioAmplificationDb(_ db: Int) {
+        audioAmplificationDb = Double(max(0, min(10, db)))
+        guard mpv != nil else { return }
+        setVolume(lastVolume ?? 1.0)
+    }
+
+    func setStereoDownmix(_ enabled: Bool) {
+        guard mpv != nil else { return }
+        setStringProperty("audio-channels", enabled ? "stereo" : "auto")
     }
     
     // MARK: - Audio Capture for Subtitle Auto Sync
@@ -2032,7 +2123,8 @@ final class MPVPlayerViewController: UIViewController {
         fontSize: Float,
         subPos: Int,
         stripSdh: Bool,
-        styledOverlay: Bool
+        styledOverlay: Bool,
+        outlineBlur: Int
     ) {
         lastSubtitleStyle = SubtitleStyleSettings(
             textColor: textColor,
@@ -2043,7 +2135,8 @@ final class MPVPlayerViewController: UIViewController {
             fontSize: fontSize,
             subPos: subPos,
             stripSdh: stripSdh,
-            styledOverlay: styledOverlay
+            styledOverlay: styledOverlay,
+            outlineBlur: outlineBlur
         )
         guard mpv != nil else { return }
 
@@ -2062,6 +2155,7 @@ final class MPVPlayerViewController: UIViewController {
         setStringProperty("sub-border-style", hasBackground ? "opaque-box" : "outline-and-shadow")
         setStringProperty("sub-bold", bold ? "yes" : "no")
         setDoubleProperty("sub-outline-size", effectiveOutlineSize)
+        setDoubleProperty("sub-blur", Double(outlineBlur))
         setDoubleProperty("sub-font-size", Double(fontSize))
         setIntProperty("sub-pos", Int64(subPos))
         setStringProperty("sub-filter-sdh", stripSdh ? "yes" : "no")
@@ -2078,7 +2172,9 @@ final class MPVPlayerViewController: UIViewController {
             setStringProperty("sub-visibility", styled ? "no" : "yes")
             styledSubtitleVisible = styled
         }
-        let text = styled ? (getString("sub-text") ?? "") : ""
+        let cueText = getString("sub-text") ?? ""
+        pictureInPictureController?.setSubtitleText(cueText, bold: lastSubtitleStyle?.bold ?? false)
+        let text = styled ? cueText : ""
         if text != lastSubtitleText {
             lastSubtitleText = text
             subtitleTextHandler?.onTextChanged(text: text)
@@ -2105,6 +2201,8 @@ final class MPVPlayerViewController: UIViewController {
         pendingSurfaceLayoutWorkItems.removeAll(keepingCapacity: false)
         pendingLoadRequest = nil
         startupSubtitles = []
+        pendingSubtitleUrl = nil
+        isFileLoaded = false
         if !isEmbeddedPreviewMode {
             nowPlayingController.invalidate()
         }
@@ -2307,6 +2405,7 @@ final class MPVPlayerViewController: UIViewController {
         let speed: Float
         let incomingBytesPerSec: Int64
         let mediaBitrateBps: Int64
+        let networkSpeedBytesPerSecond: Int64
     }
 
     func refreshPlaybackState() {
@@ -2364,7 +2463,7 @@ final class MPVPlayerViewController: UIViewController {
         let idle = getFlag("core-idle")
         let seeking = getFlag("seeking")
         let bufferingCache = getFlag("paused-for-cache")
-        let cacheSpeed = finiteProperty("cache-speed")
+        let cacheSpeed = getCacheSpeedBytesPerSecond()
         let videoBitrate = finiteProperty("video-bitrate")
         let audioBitrate = finiteProperty("audio-bitrate")
         let bitrateSum = [videoBitrate, audioBitrate].compactMap { $0 }.filter { $0 > 0 }.reduce(0, +)
@@ -2378,8 +2477,9 @@ final class MPVPlayerViewController: UIViewController {
             timePosValid: timePos != nil,
             bufferedMs: Int64(max(bufferedEnd, 0) * 1000),
             speed: Float(speed > 0 ? speed : 1.0),
-            incomingBytesPerSec: cacheSpeed.map { Int64(max($0, 0)) } ?? -1,
-            mediaBitrateBps: bitrateSum > 0 ? Int64(bitrateSum) : 0
+            incomingBytesPerSec: cacheSpeed,
+            mediaBitrateBps: bitrateSum > 0 ? Int64(bitrateSum) : 0,
+            networkSpeedBytesPerSecond: cacheSpeed
         )
     }
 
@@ -2404,6 +2504,7 @@ final class MPVPlayerViewController: UIViewController {
         currentSpeed = snapshot.speed
         incomingBytesPerSec = snapshot.incomingBytesPerSec
         mediaBitrateBps = snapshot.mediaBitrateBps
+        networkSpeedBytesPerSecond = snapshot.networkSpeedBytesPerSecond
 
         positionSampleLock.lock()
         positionSampleMs = snapshot.positionMs
@@ -2792,9 +2893,14 @@ final class MPVPlayerViewController: UIViewController {
                         self.isPlayerLoading = false
                         self.playbackStateGeneration &+= 1
                         self.invalidateMediaInfoCache()
+                        self.isFileLoaded = true
                         let subtitles = self.startupSubtitles
                         self.startupSubtitles = []
                         subtitles.forEach { self.addSubtitle($0, mode: "auto") }
+                        if let url = self.pendingSubtitleUrl {
+                            self.pendingSubtitleUrl = nil
+                            self.addSubtitleUrl(url)
+                        }
                         self.updateState()
                         if !self.isEmbeddedPreviewMode {
                             self.publishNowPlayingForPlaybackSession()
@@ -2947,6 +3053,13 @@ final class MPVPlayerViewController: UIViewController {
 
     private func setVideoEqualizer(_ name: String, _ value: Int) {
         setIntProperty(name, Int64(max(-100, min(100, value))))
+    }
+
+    private func getCacheSpeedBytesPerSecond() -> Int64 {
+        guard let ctx = mpv else { return -1 }
+        var data = Int64()
+        let status = mpv_get_property(ctx, "cache-speed", MPV_FORMAT_INT64, &data)
+        return status >= 0 && data >= 0 ? data : -1
     }
 
     private func getInt(_ name: String) -> Int {

@@ -66,7 +66,7 @@ internal object ChapterSkipIntervals {
             val endSec = c.endMs / 1000.0
             val duration = endSec - startSec
             if (duration < MIN_DURATION_SEC) return@mapNotNull null
-            if (c.type != ChapterType.CREDITS && duration > MAX_DURATION_SEC) return@mapNotNull null
+            if (c.type != ChapterType.CREDITS && c.type != ChapterType.POST_CREDITS && duration > MAX_DURATION_SEC) return@mapNotNull null
             SkipInterval(
                 startTime = startSec,
                 endTime = endSec,
@@ -93,8 +93,8 @@ internal object ChapterSkipIntervals {
         CREDITS("outro"),
         RECAP("recap"),
         INTRO("intro"),
-        // Recognized so a post-credits scene is not folded into the credits roll.
-        POST_CREDITS(null),
+        // A scene after or inside the credits is a landing target, not a skippable segment.
+        POST_CREDITS("post-credits"),
     }
 
     private data class ClassifiedChapter(

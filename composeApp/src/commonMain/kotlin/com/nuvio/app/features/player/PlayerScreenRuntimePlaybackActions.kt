@@ -11,6 +11,9 @@ import com.nuvio.app.features.downloads.partialDownloadWaitReason
 import com.nuvio.app.features.downloads.partialEndCanResume
 import com.nuvio.app.features.downloads.partialFilePlayhead
 import com.nuvio.app.features.downloads.partialPlaybackDownloadId
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineScope
 import com.nuvio.app.features.servers.ServerItemRef
 import com.nuvio.app.features.servers.ServerStreams
 import com.nuvio.app.features.tmdb.TmdbService
@@ -25,7 +28,6 @@ import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.allowsProgressWrite
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
 import com.nuvio.app.features.watching.domain.isShortPlaceholderDuration
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
@@ -182,6 +184,14 @@ internal val PlayerScreenRuntime.activePlaybackKey: PlaybackKey
         playbackEngine = playbackEngineOverride,
     )
 
+internal val PlayerScreenRuntime.sourcePlaybackKey: PlaybackKey
+    get() = PlaybackKey(
+        sourceIdentity = activePlaybackIdentity,
+        videoId = activeVideoId,
+        seasonNumber = activeSeasonNumber,
+        episodeNumber = activeEpisodeNumber,
+    )
+
 internal val PlayerScreenRuntime.playbackSession: WatchProgressPlaybackSession
     get() = WatchProgressPlaybackSession(
         profileId = profileId,
@@ -252,6 +262,15 @@ internal fun PlayerScreenRuntime.currentLaunch(launch: PlayerLaunch): PlayerLaun
 }
 
 internal fun PlayerScreenRuntime.resetIdentityStateIfNeeded() {
+    val sourceIdentity = sourcePlaybackKey
+    if (lastResetSourcePlaybackIdentity != sourceIdentity) {
+        lastResetSourcePlaybackIdentity = sourceIdentity
+        engineFailoverTriggered = false
+        engineFailoverDisarmed = false
+        engineFailoverSourceIdentity = null
+        playbackEngineOverride = null
+    }
+
     val identity = activePlaybackKey
     if (lastResetPlaybackIdentity != identity) {
         lastResetPlaybackIdentity = identity
@@ -402,7 +421,7 @@ private fun PlayerScreenRuntime.emitTrackingScrobbleTerminal(
     val percent = provided ?: currentPlaybackProgressPercent()
     val mediaSnapshot = currentTrackingMedia
     val inputsSnapshot = snapshotTrackingScrobbleItemInputs()
-    scope.launch(NonCancellable) {
+    CoroutineScope(scope.coroutineContext.minusKey(Job) + SupervisorJob()).launch {
         val media = mediaSnapshot ?: inputsSnapshot.buildMedia()
         if (!media.hasResolvableIdentity) return@launch
         TrackingScrobbleCoordinator.scrobble(
@@ -614,7 +633,8 @@ internal fun PlayerScreenRuntime.maybeFailoverPlaybackEngine(
 ): Boolean {
     if (!playerSettingsUiState.autoSwitchPlaybackEngineOnError) return false
     if (engineFailoverDisarmed) return false
-    if (engineFailoverTriggered) return false
+    val sourceIdentity = activePlaybackIdentity
+    if (engineFailoverSourceIdentity == sourceIdentity) return false
 
     val current = playerController?.playbackEngine
         ?: playbackEngineOverride
@@ -627,6 +647,7 @@ internal fun PlayerScreenRuntime.maybeFailoverPlaybackEngine(
     }
 
     engineFailoverTriggered = true
+    engineFailoverSourceIdentity = sourceIdentity
     flushWatchProgress()
     if (initialSeekApplied) {
         activeInitialPositionMs = playbackSnapshot.positionMs.coerceAtLeast(0L)

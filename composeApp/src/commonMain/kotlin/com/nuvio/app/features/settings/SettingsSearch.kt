@@ -639,6 +639,21 @@ internal fun settingsSearchEntries(
         page = SettingsPage.PlaybackInterface,
         rows = listOfNotNull(
             PlaybackSearchRow(
+                "player-title-logo",
+                stringResource(Res.string.settings_playback_show_title_logo),
+                stringResource(Res.string.settings_playback_show_title_logo_description),
+            ),
+            PlaybackSearchRow(
+                "player-control-glass",
+                stringResource(Res.string.settings_playback_control_glass),
+                stringResource(Res.string.settings_playback_control_glass_description),
+            ),
+            PlaybackSearchRow(
+                "player-skip-buttons",
+                stringResource(Res.string.settings_playback_show_skip_buttons),
+                stringResource(Res.string.settings_playback_show_skip_buttons_description),
+            ),
+            PlaybackSearchRow(
                 "loading-screen",
                 stringResource(Res.string.settings_playback_loading_screen),
                 stringResource(Res.string.settings_playback_show_loading_overlay) + " " +
@@ -787,6 +802,8 @@ internal fun settingsSearchEntries(
                 PlaybackSearchRow("exo-native-memory", stringResource(Res.string.settings_playback_exo_native_memory), stringResource(Res.string.settings_playback_exo_native_memory_description), page = SettingsPage.PlaybackBuffer),
                 PlaybackSearchRow("custom-buffers", stringResource(Res.string.settings_playback_custom_buffers), stringResource(Res.string.settings_playback_custom_buffers_description), page = SettingsPage.PlaybackBuffer),
                 PlaybackSearchRow("vod-cache", stringResource(Res.string.settings_playback_vod_disk_cache), stringResource(Res.string.settings_playback_vod_disk_cache_description), page = SettingsPage.PlaybackBuffer),
+                PlaybackSearchRow("remember-audio-delay", stringResource(Res.string.settings_playback_remember_audio_delay), stringResource(Res.string.settings_playback_remember_audio_delay_description), page = SettingsPage.PlaybackAudio),
+                PlaybackSearchRow("downmix", stringResource(Res.string.settings_playback_downmix), stringResource(Res.string.settings_playback_downmix_description), page = SettingsPage.PlaybackAudio),
             ),
         )
         addPlaybackRows(
@@ -1075,6 +1092,14 @@ internal fun settingsSearchEntries(
         section = stringResource(Res.string.settings_notifications_section_test),
     )
 
+    addRow(
+        page = SettingsPage.TraktAuthentication,
+        key = "private-viewing",
+        title = stringResource(Res.string.settings_playback_private_viewing),
+        description = stringResource(Res.string.settings_playback_private_viewing_description),
+        pageLabel = trackingPage,
+        section = stringResource(Res.string.settings_tracking_privacy_section),
+    )
     addRow(
         page = SettingsPage.TraktAuthentication,
         key = "trakt-authentication",

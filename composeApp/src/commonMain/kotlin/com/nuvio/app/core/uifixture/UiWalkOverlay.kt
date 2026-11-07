@@ -321,6 +321,19 @@ private fun PlayerTools(styleOpen: Boolean) {
             onResetVideo = {},
             styleOpen = styleOpen,
             onStyleOpenChange = { _ -> },
+            showAudioDelay = false,
+            audioDelayMs = 0,
+            onAudioDelayChanged = {},
+            showAudioAmplification = false,
+            audioAmplificationDb = 0,
+            keepAudioAmplification = false,
+            onAudioAmplificationChanged = {},
+            onKeepAudioAmplificationChanged = {},
+            showCenterMix = false,
+            centerMixLevelDb = 0,
+            onCenterMixLevelChanged = {},
+            downmixEnabled = false,
+            onDownmixChanged = {},
         )
     }
 }

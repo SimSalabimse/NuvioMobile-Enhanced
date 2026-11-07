@@ -36,6 +36,7 @@ fun snapToAllowedTimeout(value: Int): Int {
 
 data class PlayerSettingsUiState(
     val useLegacyPlayerLayout: Boolean = false,
+    val showPlayerTitleLogo: Boolean = false,
     val showLoadingOverlay: Boolean = true,
     val showPlayerLoadingStatus: Boolean = true,
     val pauseOverlayEnabled: Boolean = true,
@@ -50,6 +51,9 @@ data class PlayerSettingsUiState(
     val legacyTopButtons: LegacyTopButtonLayout = LegacyPlayerButtonLayouts.DefaultTop,
     val touchGesturesEnabled: Boolean = true,
     val swipeToSeekEnabled: Boolean = true,
+    /** Round/pill glass backings behind player buttons, time pills and the legacy bottom bar. */
+    val playerControlGlassEnabled: Boolean = true,
+    val showSkipButtons: Boolean = true,
     val seekPreviewEnabled: Boolean = true,
     val movieRecommendationsEnabled: Boolean = true,
     val autoShowSubtitlesOnRewindEnabled: Boolean = true,
@@ -71,6 +75,13 @@ data class PlayerSettingsUiState(
     val androidLibmpvHardwareDecodingEnabled: Boolean = true,
     val androidLibmpvYuv420pEnabled: Boolean = false,
     val androidExoChaptersEnabled: Boolean = false,
+    val rememberAudioDelayPerDevice: Boolean = true,
+    val persistAudioAmplification: Boolean = false,
+    val audioAmplificationDb: Int = 0,
+    val downmixEnabled: Boolean = false,
+    val audioOutputChannels: AudioOutputChannels = AudioOutputChannels.default,
+    val maintainOriginalAudioOnDownmix: Boolean = true,
+    val centerMixLevelDb: Int = 0,
     val decoderPriority: Int = 1,
     val mapDV7ToHevc: Boolean = false,
     val tunnelingEnabled: Boolean = false,
@@ -141,6 +152,7 @@ object PlayerSettingsRepository {
     private var hasLoaded = false
     private val loadLock = SynchronizedObject()
     private var useLegacyPlayerLayout = false
+    private var showPlayerTitleLogo = false
     private var showLoadingOverlay = true
     private var showPlayerLoadingStatus = true
     private var pauseOverlayEnabled = true
@@ -155,6 +167,8 @@ object PlayerSettingsRepository {
     private var legacyTopButtons = LegacyPlayerButtonLayouts.DefaultTop
     private var touchGesturesEnabled = true
     private var swipeToSeekEnabled = true
+    private var playerControlGlassEnabled = true
+    private var showSkipButtons = true
     private var seekPreviewEnabled = true
     private var movieRecommendationsEnabled = true
     private var autoShowSubtitlesOnRewindEnabled = true
@@ -176,6 +190,13 @@ object PlayerSettingsRepository {
     private var androidLibmpvHardwareDecodingEnabled = true
     private var androidLibmpvYuv420pEnabled = false
     private var androidExoChaptersEnabled = false
+    private var rememberAudioDelayPerDevice = true
+    private var persistAudioAmplification = false
+    private var audioAmplificationDb = 0
+    private var downmixEnabled = false
+    private var audioOutputChannels = AudioOutputChannels.default
+    private var maintainOriginalAudioOnDownmix = true
+    private var centerMixLevelDb = 0
     private var decoderPriority = 1
     private var mapDV7ToHevc = false
     private var tunnelingEnabled = false
@@ -255,6 +276,7 @@ object PlayerSettingsRepository {
         synchronized(loadLock) {
         hasLoaded = false
         useLegacyPlayerLayout = false
+        showPlayerTitleLogo = false
         showLoadingOverlay = true
         showPlayerLoadingStatus = true
         pauseOverlayEnabled = true
@@ -269,6 +291,8 @@ object PlayerSettingsRepository {
         legacyTopButtons = LegacyPlayerButtonLayouts.DefaultTop
         touchGesturesEnabled = true
         swipeToSeekEnabled = true
+        playerControlGlassEnabled = true
+        showSkipButtons = true
         seekPreviewEnabled = true
         movieRecommendationsEnabled = true
         autoShowSubtitlesOnRewindEnabled = true
@@ -290,6 +314,13 @@ object PlayerSettingsRepository {
         androidLibmpvHardwareDecodingEnabled = true
         androidLibmpvYuv420pEnabled = false
         androidExoChaptersEnabled = false
+        rememberAudioDelayPerDevice = true
+        persistAudioAmplification = false
+        audioAmplificationDb = 0
+        downmixEnabled = false
+        audioOutputChannels = AudioOutputChannels.default
+        maintainOriginalAudioOnDownmix = true
+        centerMixLevelDb = 0
         decoderPriority = 1
         mapDV7ToHevc = false
         tunnelingEnabled = false
@@ -358,6 +389,7 @@ object PlayerSettingsRepository {
     private fun loadFromDisk() {
         hasLoaded = true
         useLegacyPlayerLayout = PlayerSettingsStorage.loadUseLegacyPlayerLayout() ?: false
+        showPlayerTitleLogo = PlayerSettingsStorage.loadShowPlayerTitleLogo() ?: false
         showLoadingOverlay = PlayerSettingsStorage.loadShowLoadingOverlay() ?: true
         showPlayerLoadingStatus = PlayerSettingsStorage.loadShowPlayerLoadingStatus() ?: true
         pauseOverlayEnabled = PlayerSettingsStorage.loadPauseOverlayEnabled() ?: true
@@ -374,6 +406,8 @@ object PlayerSettingsRepository {
         legacyTopButtons = LegacyPlayerButtonLayouts.decodeTop(PlayerSettingsStorage.loadLegacyTopButtons())
         touchGesturesEnabled = PlayerSettingsStorage.loadTouchGesturesEnabled() ?: true
         swipeToSeekEnabled = PlayerSettingsStorage.loadSwipeToSeekEnabled() ?: true
+        playerControlGlassEnabled = PlayerSettingsStorage.loadPlayerControlGlassEnabled() ?: true
+        showSkipButtons = PlayerSettingsStorage.loadShowSkipButtons() ?: true
         seekPreviewEnabled = PlayerSettingsStorage.loadSeekPreviewEnabled() ?: true
         movieRecommendationsEnabled = PlayerSettingsStorage.loadMovieRecommendationsEnabled() ?: true
         autoShowSubtitlesOnRewindEnabled = PlayerSettingsStorage.loadAutoShowSubtitlesOnRewindEnabled() ?: true
@@ -430,6 +464,15 @@ object PlayerSettingsRepository {
         androidLibmpvHardwareDecodingEnabled = PlayerSettingsStorage.loadAndroidLibmpvHardwareDecodingEnabled() ?: true
         androidLibmpvYuv420pEnabled = PlayerSettingsStorage.loadAndroidLibmpvYuv420pEnabled() ?: false
         androidExoChaptersEnabled = PlayerSettingsStorage.loadAndroidExoChaptersEnabled() ?: false
+        rememberAudioDelayPerDevice = PlayerSettingsStorage.loadRememberAudioDelayPerDevice() ?: true
+        persistAudioAmplification = PlayerSettingsStorage.loadPersistAudioAmplification() ?: false
+        audioAmplificationDb = (PlayerSettingsStorage.loadAudioAmplificationDb() ?: 0)
+            .coerceIn(AUDIO_AMPLIFICATION_MIN_DB, AUDIO_AMPLIFICATION_MAX_DB)
+        downmixEnabled = PlayerSettingsStorage.loadDownmixEnabled() ?: false
+        audioOutputChannels = AudioOutputChannels.fromSettingValue(PlayerSettingsStorage.loadAudioOutputChannels())
+        maintainOriginalAudioOnDownmix = PlayerSettingsStorage.loadMaintainOriginalAudioOnDownmix() ?: true
+        centerMixLevelDb = (PlayerSettingsStorage.loadCenterMixLevelDb() ?: 0)
+            .coerceIn(CENTER_MIX_LEVEL_MIN_DB, CENTER_MIX_LEVEL_MAX_DB)
         decoderPriority = PlayerSettingsStorage.loadDecoderPriority() ?: 1
         mapDV7ToHevc = PlayerSettingsStorage.loadMapDV7ToHevc() ?: false
         tunnelingEnabled = PlayerSettingsStorage.loadTunnelingEnabled() ?: false
@@ -538,6 +581,14 @@ object PlayerSettingsRepository {
         useLegacyPlayerLayout = enabled
         publish()
         PlayerSettingsStorage.saveUseLegacyPlayerLayout(enabled)
+    }
+
+    fun setShowPlayerTitleLogo(enabled: Boolean) {
+        ensureLoaded()
+        if (showPlayerTitleLogo == enabled) return
+        showPlayerTitleLogo = enabled
+        publish()
+        PlayerSettingsStorage.saveShowPlayerTitleLogo(enabled)
     }
 
     fun setShowLoadingOverlay(enabled: Boolean) {
@@ -653,6 +704,22 @@ object PlayerSettingsRepository {
         swipeToSeekEnabled = enabled
         publish()
         PlayerSettingsStorage.saveSwipeToSeekEnabled(enabled)
+    }
+
+    fun setPlayerControlGlassEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (playerControlGlassEnabled == enabled) return
+        playerControlGlassEnabled = enabled
+        publish()
+        PlayerSettingsStorage.savePlayerControlGlassEnabled(enabled)
+    }
+
+    fun setShowSkipButtons(enabled: Boolean) {
+        ensureLoaded()
+        if (showSkipButtons == enabled) return
+        showSkipButtons = enabled
+        publish()
+        PlayerSettingsStorage.saveShowSkipButtons(enabled)
     }
 
     fun setSeekPreviewEnabled(enabled: Boolean) {
@@ -850,6 +917,64 @@ object PlayerSettingsRepository {
         androidExoChaptersEnabled = enabled
         publish()
         PlayerSettingsStorage.saveAndroidExoChaptersEnabled(enabled)
+    }
+
+    fun setRememberAudioDelayPerDevice(enabled: Boolean) {
+        ensureLoaded()
+        if (rememberAudioDelayPerDevice == enabled) return
+        rememberAudioDelayPerDevice = enabled
+        publish()
+        PlayerSettingsStorage.saveRememberAudioDelayPerDevice(enabled)
+    }
+
+    fun setPersistAudioAmplification(enabled: Boolean) {
+        ensureLoaded()
+        if (persistAudioAmplification == enabled) return
+        persistAudioAmplification = enabled
+        publish()
+        PlayerSettingsStorage.savePersistAudioAmplification(enabled)
+    }
+
+    fun setAudioAmplificationDb(db: Int) {
+        ensureLoaded()
+        val clamped = db.coerceIn(AUDIO_AMPLIFICATION_MIN_DB, AUDIO_AMPLIFICATION_MAX_DB)
+        if (audioAmplificationDb == clamped) return
+        audioAmplificationDb = clamped
+        publish()
+        PlayerSettingsStorage.saveAudioAmplificationDb(clamped)
+    }
+
+    fun setDownmixEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (downmixEnabled == enabled) return
+        downmixEnabled = enabled
+        publish()
+        PlayerSettingsStorage.saveDownmixEnabled(enabled)
+    }
+
+    fun setAudioOutputChannels(channels: AudioOutputChannels) {
+        ensureLoaded()
+        if (audioOutputChannels == channels) return
+        audioOutputChannels = channels
+        publish()
+        PlayerSettingsStorage.saveAudioOutputChannels(channels.settingValue)
+    }
+
+    fun setMaintainOriginalAudioOnDownmix(enabled: Boolean) {
+        ensureLoaded()
+        if (maintainOriginalAudioOnDownmix == enabled) return
+        maintainOriginalAudioOnDownmix = enabled
+        publish()
+        PlayerSettingsStorage.saveMaintainOriginalAudioOnDownmix(enabled)
+    }
+
+    fun setCenterMixLevelDb(db: Int) {
+        ensureLoaded()
+        val clamped = db.coerceIn(CENTER_MIX_LEVEL_MIN_DB, CENTER_MIX_LEVEL_MAX_DB)
+        if (centerMixLevelDb == clamped) return
+        centerMixLevelDb = clamped
+        publish()
+        PlayerSettingsStorage.saveCenterMixLevelDb(clamped)
     }
 
     fun setDecoderPriority(priority: Int) {
@@ -1392,6 +1517,7 @@ object PlayerSettingsRepository {
     private fun publish() {
         _uiState.value = PlayerSettingsUiState(
             useLegacyPlayerLayout = useLegacyPlayerLayout,
+            showPlayerTitleLogo = showPlayerTitleLogo,
             showLoadingOverlay = showLoadingOverlay,
             showPlayerLoadingStatus = showPlayerLoadingStatus,
             pauseOverlayEnabled = pauseOverlayEnabled,
@@ -1406,6 +1532,8 @@ object PlayerSettingsRepository {
             legacyTopButtons = legacyTopButtons,
             touchGesturesEnabled = touchGesturesEnabled,
             swipeToSeekEnabled = swipeToSeekEnabled,
+            playerControlGlassEnabled = playerControlGlassEnabled,
+            showSkipButtons = showSkipButtons,
             seekPreviewEnabled = seekPreviewEnabled,
             movieRecommendationsEnabled = movieRecommendationsEnabled,
             autoShowSubtitlesOnRewindEnabled = autoShowSubtitlesOnRewindEnabled,
@@ -1427,6 +1555,13 @@ object PlayerSettingsRepository {
             androidLibmpvHardwareDecodingEnabled = androidLibmpvHardwareDecodingEnabled,
             androidLibmpvYuv420pEnabled = androidLibmpvYuv420pEnabled,
             androidExoChaptersEnabled = androidExoChaptersEnabled,
+            rememberAudioDelayPerDevice = rememberAudioDelayPerDevice,
+            persistAudioAmplification = persistAudioAmplification,
+            audioAmplificationDb = audioAmplificationDb,
+            downmixEnabled = downmixEnabled,
+            audioOutputChannels = audioOutputChannels,
+            maintainOriginalAudioOnDownmix = maintainOriginalAudioOnDownmix,
+            centerMixLevelDb = centerMixLevelDb,
             decoderPriority = decoderPriority,
             mapDV7ToHevc = mapDV7ToHevc,
             tunnelingEnabled = tunnelingEnabled,

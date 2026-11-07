@@ -97,11 +97,18 @@ actual fun PlatformPlayerSurface(
     }
 
     bridge.setExperimentalSinglePrimaryPictureInPictureEnabled(experimentalSinglePrimaryPictureInPictureEnabled)
+    val playerSettings by PlayerSettingsRepository.uiState.collectAsStateWithLifecycle()
+    LaunchedEffect(playerSettings.downmixEnabled) {
+        bridge.setStereoDownmix(playerSettings.downmixEnabled)
+    }
 
     val controller = remember(bridge) {
         object : PlayerEngineController, PlayerSystemControlSource {
             private var lastAppliedVolume: Float? = null
             private var lastLoggedAudioTracks: String? = null
+
+            override fun networkSpeedBytesPerSecond(): Long? =
+                bridge.networkSpeedBytesPerSecond().takeIf { it >= 0L }
 
             override val keepsPlaybackInBackground: Boolean
                 get() = bridge.getKeepsPlaybackInBackground()
@@ -371,6 +378,18 @@ actual fun PlatformPlayerSurface(
                 InAppLogger.info("Player/iOS", "set subtitle delay ms=$targetMs")
                 bridge.setSubtitleDelayMs(targetMs)
             }
+
+            override val supportsAudioDelay: Boolean get() = true
+
+            override fun setAudioDelayMs(delayMs: Int) {
+                bridge.setAudioDelayMs(delayMs.coerceIn(AUDIO_DELAY_MIN_MS, AUDIO_DELAY_MAX_MS))
+            }
+
+            override val supportsAudioAmplification: Boolean get() = true
+
+            override fun setAudioAmplificationDb(db: Int) {
+                bridge.setAudioAmplificationDb(db.coerceIn(AUDIO_AMPLIFICATION_MIN_DB, AUDIO_AMPLIFICATION_MAX_DB))
+            }
             
             override fun startAudioEnergyCapture(startTimeMs: Long) {
                 InAppLogger.info("Player/iOS", "start audio energy capture at positionMs=$startTimeMs")
@@ -406,7 +425,8 @@ actual fun PlatformPlayerSurface(
                     fontSize = style.toMpvSubtitleFontSize(),
                     subPos = style.toMpvSubtitlePosition(),
                     stripSdh = style.stripSdh,
-                    styledOverlay = style.usesStyledOverlay,
+                    styledOverlay = style.requiresComposeStyledOverlay,
+                    outlineBlur = style.mpvNativeOutlineBlurLevel,
                 )
             }
 

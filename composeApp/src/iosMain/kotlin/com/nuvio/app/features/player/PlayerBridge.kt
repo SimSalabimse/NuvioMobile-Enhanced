@@ -89,6 +89,9 @@ interface NuvioPlayerBridge {
     fun clearExternalSubtitle()
     fun clearExternalSubtitleAndSelect(trackId: Int)
     fun setSubtitleDelayMs(delayMs: Int)
+    fun setAudioDelayMs(delayMs: Int)
+    fun setAudioAmplificationDb(db: Int)
+    fun setStereoDownmix(enabled: Boolean)
     fun startAudioEnergyCapture(startTimeMs: Long)
     fun stopAudioEnergyCapture(): List<AudioEnergySample>
     fun getAudioCaptureDuration(): Long
@@ -105,6 +108,7 @@ interface NuvioPlayerBridge {
         subPos: Int,
         stripSdh: Boolean,
         styledOverlay: Boolean,
+        outlineBlur: Int,
     )
     fun getIsLoading(): Boolean
     fun getIsPlaying(): Boolean
@@ -113,6 +117,7 @@ interface NuvioPlayerBridge {
     fun getPositionMs(): Long
     /** True after mpv has reported a finite time-pos for the current file. */
     fun getTimePosValid(): Boolean
+    fun networkSpeedBytesPerSecond(): Long
     fun getBufferedMs(): Long
     fun getPlaybackSpeed(): Float
     fun getIncomingBytesPerSec(): Long
