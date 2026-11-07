@@ -140,6 +140,7 @@ import com.nuvio.app.features.details.components.DetailTrailersSection
 import com.nuvio.app.features.details.components.EpisodeWatchedActionSheet
 import com.nuvio.app.navigation.EpisodeSubmitRequest
 import com.nuvio.app.navigation.openEpisodeInSubmitMode
+import com.nuvio.app.navigation.openEpisodePrivately
 import com.nuvio.app.features.details.components.SeasonOverviewSheet
 import com.nuvio.app.features.downloads.seasonSheetDismissDurationMs
 import com.nuvio.app.features.details.components.SeasonWatchedActionSheet
@@ -1783,6 +1784,10 @@ fun MetaDetailsScreen(
                                     stopHeroTrailerForNavigation()
                                     openEpisodeInSubmitMode(meta.toEpisodeSubmitRequest(selectedEpisode))
                                 },
+                                onWatchPrivately = {
+                                    stopHeroTrailerForNavigation()
+                                    openEpisodePrivately(meta.toEpisodeSubmitRequest(selectedEpisode))
+                                },
                                 onRate = if (canRateEpisode && episodeRatingTarget != null) {
                                     {
                                         val request = UserRatingSheetRequest(
@@ -1919,6 +1924,10 @@ fun MetaDetailsScreen(
                                 onOpenEpisode = { episode ->
                                     stopHeroTrailerForNavigation()
                                     openEpisodeInSubmitMode(meta.toEpisodeSubmitRequest(episode))
+                                },
+                                onWatchPrivately = { episode ->
+                                    stopHeroTrailerForNavigation()
+                                    openEpisodePrivately(meta.toEpisodeSubmitRequest(episode))
                                 },
                             )
                         }

@@ -27,7 +27,7 @@ import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.p2p.P2pConsentDialog
 import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.player.PlayerLaunch
-import com.nuvio.app.features.player.applyingSubmitMode
+import com.nuvio.app.features.player.applyingIsolatedPlayback
 import com.nuvio.app.navigation.launchPlayer
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.SubtitleRequestExtras
@@ -250,7 +250,7 @@ internal fun StreamDestination(
             contentLanguage = resolveLaunchContentLanguage(),
             sourceFilename = stream.behaviorHints.filename,
             stream = stream,
-        ).applyingSubmitMode(launch.submitMode)
+        ).applyingIsolatedPlayback(launch.submitMode, launch.privateSession)
 
         autoPlayNavigationStarted = replaceStreamRoute
         StreamsRepository.cancelLoading()
@@ -386,7 +386,7 @@ internal fun StreamDestination(
                         bingeGroup = cached.bingeGroup,
                     ),
                 ),
-            ).applyingSubmitMode(launch.submitMode)
+            ).applyingIsolatedPlayback(launch.submitMode, launch.privateSession)
             if (playerSettings.externalPlayerEnabled && playerLaunch.persistsProgress) {
                 openExternalPlayback(playerLaunch)
                 StreamsRepository.cancelLoading()
@@ -547,7 +547,7 @@ internal fun StreamDestination(
             contentLanguage = resolveLaunchContentLanguage(),
             sourceFilename = stream.behaviorHints.filename,
             stream = stream,
-        ).applyingSubmitMode(launch.submitMode)
+        ).applyingIsolatedPlayback(launch.submitMode, launch.privateSession)
         if (playerSettings.externalPlayerEnabled && stream.serverTarget == null && playerLaunch.persistsProgress) {
             openExternalPlayback(playerLaunch)
             StreamsRepository.consumeAutoPlay()
@@ -674,7 +674,7 @@ internal fun StreamDestination(
             }
             return
         }
-        if (stream.shouldOpenExternally && !launch.submitMode) {
+        if (stream.shouldOpenExternally && !launch.submitMode && !launch.privateSession) {
             val opened = stream.externalOpenUrl?.let { url -> openExternalStreamUrl(url) } == true
             if (opened) {
                 StreamsRepository.cancelLoading()
@@ -741,7 +741,7 @@ internal fun StreamDestination(
             contentLanguage = resolveLaunchContentLanguage(),
             sourceFilename = stream.behaviorHints.filename,
             stream = stream,
-        ).applyingSubmitMode(launch.submitMode)
+        ).applyingIsolatedPlayback(launch.submitMode, launch.privateSession)
 
         if (!forceInternal && (forceExternal || playerSettings.externalPlayerEnabled) && playerLaunch.persistsProgress) {
             streamRouteScope.launch {

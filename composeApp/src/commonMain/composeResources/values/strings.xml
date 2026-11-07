@@ -2002,6 +2002,7 @@
     <string name="episode_mark_unwatched">Mark as unwatched</string>
     <string name="episode_mark_watched">Mark as watched</string>
     <string name="episode_submit_segment_only">Submit segment only</string>
+    <string name="watch_privately">Watch privately</string>
     <string name="season_overview">Season overview</string>
     <string name="season_overview_download">Download for analysis</string>
     <string name="season_overview_download_count">Download %1$d for analysis</string>

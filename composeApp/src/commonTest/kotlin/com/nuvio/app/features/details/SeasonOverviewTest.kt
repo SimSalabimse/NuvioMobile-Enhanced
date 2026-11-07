@@ -395,6 +395,7 @@ class SeasonOverviewTest {
                 seasonOverview = "Season overview",
                 libraryLists = "Library lists",
                 submitSegment = "Submit segment only",
+                watchPrivately = "Watch privately",
             ),
         ).map { it.id }
         assertEquals(listOf("season.watched", "season.rate", "season.previous", "season.overview"), ids)

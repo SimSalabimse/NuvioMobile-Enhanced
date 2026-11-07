@@ -71,6 +71,7 @@ import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.details.components.SeasonOverviewSheet
 import com.nuvio.app.features.settings.DownloadsSettingsScreen
 import com.nuvio.app.navigation.openEpisodeInSubmitMode
+import com.nuvio.app.navigation.openEpisodePrivately
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
@@ -320,6 +321,15 @@ fun DownloadsScreen(
                             candidate.episodeNumber == video.episode
                     }
                     if (item != null) openEpisodeInSubmitMode(item.toEpisodeSubmitRequest())
+                },
+                onWatchPrivately = { video ->
+                    val item = uiState.items.firstOrNull { candidate ->
+                        candidate.parentMetaId == overviewShowId &&
+                            candidate.videoId == video.id &&
+                            candidate.seasonNumber == video.season &&
+                            candidate.episodeNumber == video.episode
+                    }
+                    if (item != null) openEpisodePrivately(item.toEpisodeSubmitRequest())
                 },
             )
         }

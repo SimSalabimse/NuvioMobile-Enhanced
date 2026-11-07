@@ -22,6 +22,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -101,6 +102,7 @@ import nuvio.composeapp.generated.resources.season_overview_segment_pending
 import nuvio.composeapp.generated.resources.season_overview_segment_submitted
 import nuvio.composeapp.generated.resources.season_overview_select
 import nuvio.composeapp.generated.resources.season_overview_watched
+import nuvio.composeapp.generated.resources.watch_privately
 import nuvio.composeapp.generated.resources.submit_intro_segment_intro
 import nuvio.composeapp.generated.resources.submit_intro_segment_preview
 import nuvio.composeapp.generated.resources.submit_intro_segment_recap
@@ -119,6 +121,7 @@ internal fun SeasonOverviewSheet(
     fromDownloads: Boolean = false,
     onDismiss: () -> Unit,
     onOpenEpisode: (MetaVideo) -> Unit,
+    onWatchPrivately: (MetaVideo) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
@@ -184,7 +187,7 @@ internal fun SeasonOverviewSheet(
             dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
         }
     }
-    fun openEpisode(video: MetaVideo) {
+    fun openEpisode(video: MetaVideo, open: () -> Unit = { onOpenEpisode(video) }) {
         if (openingEpisode) return
         openingEpisode = true
         coroutineScope.launch {
@@ -198,7 +201,7 @@ internal fun SeasonOverviewSheet(
                 }
                 onDismiss()
             }
-            if (OverviewOpenStep.OpenEpisode in steps) onOpenEpisode(video)
+            if (OverviewOpenStep.OpenEpisode in steps) open()
         }
     }
     val windowPx = LocalWindowInfo.current.containerSize.height
@@ -292,6 +295,7 @@ internal fun SeasonOverviewSheet(
                                             selected = if (checked) selected + row.contentKey else selected - row.contentKey
                                         },
                                         onOpen = { if (video != null) openEpisode(video) },
+                                        onWatchPrivately = { if (video != null) openEpisode(video) { onWatchPrivately(video) } },
                                     )
                                 }
                             }
@@ -366,6 +370,7 @@ private fun SeasonOverviewEpisodeRow(
     selected: Boolean,
     onSelectedChange: (Boolean) -> Unit,
     onOpen: () -> Unit,
+    onWatchPrivately: () -> Unit,
 ) {
     val selectLabel = stringResource(Res.string.season_overview_select)
     val watchedLabel = stringResource(Res.string.season_overview_watched)
@@ -382,29 +387,37 @@ private fun SeasonOverviewEpisodeRow(
             onCheckedChange = onSelectedChange,
             modifier = Modifier.semantics { contentDescription = selectLabel },
         )
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .heightIn(min = rowMin)
-                .clip(MaterialTheme.nuvio.shapes.compactCard)
-                .clickable(onClick = onOpen)
-                .padding(horizontal = 8.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Text(
-                text = if (code.isBlank()) title else "$code  $title",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.Medium,
-            )
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+        Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = rowMin)
+                    .clip(MaterialTheme.nuvio.shapes.compactCard)
+                    .clickable(onClick = onOpen)
+                    .padding(horizontal = 8.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                SEASON_SEGMENT_TYPES.forEach { type ->
-                    val mark = marks[type] ?: SegmentMark.Missing
-                    SegmentMarkChip(type = type, mark = mark)
+                Text(
+                    text = if (code.isBlank()) title else "$code  $title",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Medium,
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    SEASON_SEGMENT_TYPES.forEach { type ->
+                        val mark = marks[type] ?: SegmentMark.Missing
+                        SegmentMarkChip(type = type, mark = mark)
+                    }
                 }
+            }
+            TextButton(
+                onClick = onWatchPrivately,
+                modifier = Modifier.heightIn(min = 44.dp),
+            ) {
+                Text(text = stringResource(Res.string.watch_privately))
             }
         }
         if (watched) {

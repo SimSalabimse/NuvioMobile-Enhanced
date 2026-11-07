@@ -1030,8 +1030,16 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         playerSettingsUiState.nextEpisodeThresholdMinutesBeforeEnd,
         playerSettingsUiState.streamAutoPlayNextEpisodeEnabled,
         nextEpisodeCardDismissed,
+        blocksAutoplay,
     ) {
         snapshotFlow { playbackClock.positionMs }.collect {
+            if (blocksAutoplay) {
+                if (showNextEpisodeCard || nextEpisodeAutoPlayJob != null) {
+                    cancelNextEpisodeAutoPlay()
+                    showNextEpisodeCard = false
+                }
+                return@collect
+            }
             val shouldShow = nextEpisodeInfo != null && !nextEpisodeCardDismissed && isAtNextEpisodeThreshold()
             if (nextEpisodeAutoPlayAutomatic &&
                 (!shouldShow || !playerSettingsUiState.streamAutoPlayNextEpisodeEnabled)

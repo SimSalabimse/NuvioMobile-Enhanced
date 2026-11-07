@@ -1,13 +1,13 @@
 package com.nuvio.app.features.watchprogress
 
 /**
- * Submit mode is [com.nuvio.app.features.player.PlayerLaunch.submitMode].
- * That launch's [com.nuvio.app.features.player.PlayerLaunch.persistsProgress] is then false,
- * and the same value is copied onto [WatchProgressPlaybackSession.persistsProgress].
+ * Submit mode and a private session set [com.nuvio.app.features.player.PlayerLaunch.persistsProgress]
+ * false. The player also folds the saved Private Viewing switch into that same flag.
+ * The value is copied onto [WatchProgressPlaybackSession.persistsProgress].
  *
  * Every progress writer calls [allowsProgressWrite] and returns before it changes
- * watch progress, resume, watched state, Continue Watching, scrobbles, next-up,
- * watch history, or a completion-driven download. There is no other submit-mode condition.
+ * watch progress, resume, watched state, Continue Watching, scrobbles, the offline
+ * outbox, next-up, watch history, or a completion-driven download.
  */
 internal fun allowsProgressWrite(persistsProgress: Boolean): Boolean = persistsProgress
 

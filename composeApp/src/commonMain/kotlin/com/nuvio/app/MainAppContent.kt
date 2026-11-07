@@ -173,7 +173,8 @@ import com.nuvio.app.features.player.recordExternalPlaybackProgress
 import com.nuvio.app.features.player.ExternalPlayerPlatform
 import com.nuvio.app.features.player.PlayerLaunch
 import com.nuvio.app.features.player.PlayerLaunchStore
-import com.nuvio.app.features.player.applyingSubmitMode
+import com.nuvio.app.features.player.applyingIsolatedPlayback
+import com.nuvio.app.navigation.IsolatedPlayback
 import com.nuvio.app.navigation.launchPlayer
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.SubtitleLanguageOption
@@ -1182,9 +1183,11 @@ internal fun MainAppContent(
             downloadMode: Boolean = false,
             forceExternalPlayer: Boolean = false,
             submitMode: Boolean = false,
+            privateSession: Boolean = false,
         ) {
-            val targetResumePositionMs = if (startFromBeginning || submitMode) 0L else (resumePositionMs ?: 0L)
-            val targetResumeProgressFraction = if (startFromBeginning || submitMode) null else resumeProgressFraction
+            val isolated = submitMode || privateSession
+            val targetResumePositionMs = if (startFromBeginning || isolated) 0L else (resumePositionMs ?: 0L)
+            val targetResumeProgressFraction = if (startFromBeginning || isolated) null else resumeProgressFraction
 
             if (!manualSelection) {
                 val downloadedItem = DownloadsRepository.findPlayableDownload(
@@ -1229,9 +1232,9 @@ internal fun MainAppContent(
                         parentMetaType = parentMetaType,
                         initialPositionMs = targetResumePositionMs,
                         initialProgressFraction = targetResumeProgressFraction,
-                    ).applyingSubmitMode(submitMode)
+                    ).applyingIsolatedPlayback(submitMode, privateSession)
                     if (
-                        !submitMode &&
+                        !isolated &&
                         (forceExternalPlayer || playerSettingsUiState.externalPlayerEnabled) &&
                         !isLoopbackPartialPlaybackUrl(localSourceUrl)
                     ) {
@@ -1266,13 +1269,14 @@ internal fun MainAppContent(
                     episodeTitle = episodeTitle,
                     episodeThumbnail = episodeThumbnail,
                     pauseDescription = pauseDescription,
-                    resumePositionMs = if (startFromBeginning || submitMode) 0L else resumePositionMs,
+                    resumePositionMs = if (startFromBeginning || isolated) 0L else resumePositionMs,
                     resumeProgressFraction = targetResumeProgressFraction,
                     manualSelection = manualSelection,
-                    startFromBeginning = startFromBeginning || submitMode,
+                    startFromBeginning = startFromBeginning || isolated,
                     downloadMode = downloadMode,
-                    forceExternalPlayer = forceExternalPlayer && !submitMode,
+                    forceExternalPlayer = forceExternalPlayer && !isolated,
                     submitMode = submitMode,
+                    privateSession = privateSession,
                 ),
             )
             navController.navigate(
@@ -1281,7 +1285,7 @@ internal fun MainAppContent(
         }
 
         SideEffect {
-            installEpisodeSubmitLauncher { request ->
+            installEpisodeSubmitLauncher { request, kind ->
                 launchPlaybackWithDownloadPreference(
                     type = request.type,
                     videoId = request.videoId,
@@ -1300,7 +1304,8 @@ internal fun MainAppContent(
                     resumeProgressFraction = null,
                     manualSelection = false,
                     startFromBeginning = true,
-                    submitMode = true,
+                    submitMode = kind == IsolatedPlayback.Submit,
+                    privateSession = kind == IsolatedPlayback.Private,
                 )
             }
         }

@@ -56,15 +56,19 @@ data class PlayerLaunch(
     val sourceFilename: String? = null,
     val stream: com.nuvio.app.features.streams.StreamItem? = null,
     /**
-     * Opened only to submit or fix a segment. [persistsProgress] is then false, and
-     * every progress writer returns before it changes resume, watched state, or
-     * Continue Watching. See [com.nuvio.app.navigation.openEpisodeInSubmitMode].
+     * Opened only to submit or fix a segment. [persistsProgress] is then false.
+     * See [com.nuvio.app.navigation.openEpisodeInSubmitMode].
      */
     val submitMode: Boolean = false,
+    /**
+     * This playback only. Does not read or write the saved Private Viewing switch.
+     * See [com.nuvio.app.navigation.openEpisodePrivately].
+     */
+    val privateSession: Boolean = false,
 ) {
-    /** False exactly when [submitMode] is set. The one flag progress writers read. */
+    /** False for submit mode and for a private session. Progress writers read this flag. */
     val persistsProgress: Boolean
-        get() = !submitMode
+        get() = !submitMode && !privateSession
 }
 
 /** Submit mode plays from the start and does not adopt a saved resume as the launch position. */
@@ -74,6 +78,17 @@ internal fun PlayerLaunch.applyingSubmitMode(submitMode: Boolean): PlayerLaunch 
         initialPositionMs = 0L,
         initialProgressFraction = null,
     )
+
+/** A private session plays from the start and does not adopt a saved resume. */
+internal fun PlayerLaunch.applyingPrivateSession(privateSession: Boolean): PlayerLaunch =
+    if (!privateSession) this else copy(
+        privateSession = true,
+        initialPositionMs = 0L,
+        initialProgressFraction = null,
+    )
+
+internal fun PlayerLaunch.applyingIsolatedPlayback(submitMode: Boolean, privateSession: Boolean): PlayerLaunch =
+    applyingSubmitMode(submitMode).applyingPrivateSession(privateSession)
 
 object PlayerLaunchStore {
     /**
