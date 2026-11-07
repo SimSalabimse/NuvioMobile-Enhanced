@@ -3,6 +3,9 @@ package com.nuvio.app.core.uifixture
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -18,11 +21,15 @@ import com.nuvio.app.features.details.components.EpisodeWatchedActionSheet
 import com.nuvio.app.features.downloads.DownloadSheetRequest
 import com.nuvio.app.features.downloads.DownloadSourceSheet
 import com.nuvio.app.features.downloads.SeasonDownloadSheet
+import com.nuvio.app.features.player.skip.MovieSegmentStatusList
+import com.nuvio.app.features.player.skip.PublicMediaStatus
+import com.nuvio.app.features.player.skip.movieSegmentFixtureRows
 import com.nuvio.app.features.player.AddonSubtitle
 import com.nuvio.app.features.player.AudioTrack
 import com.nuvio.app.features.player.EpisodeStreamsPanelState
 import com.nuvio.app.features.player.PlayerChaptersPanel
 import com.nuvio.app.features.player.PlayerChapter
+import com.nuvio.app.features.player.PlayerCurrentStream
 import com.nuvio.app.features.player.PlayerEpisodesPanel
 import com.nuvio.app.features.player.PlayerQualityPanel
 import com.nuvio.app.features.player.PlayerQualitySelectionState
@@ -63,6 +70,7 @@ internal fun UiWalkOverlay() {
             WalkKind.PlayerTools -> PlayerTools(styleOpen = false)
             WalkKind.PlayerSubtitles -> PlayerTools(styleOpen = true)
             WalkKind.PlayerSubmitBarMovie -> MovieSubmitBar()
+            WalkKind.MovieSegmentRows -> MovieSegmentRows()
             else -> Unit
         }
     }
@@ -75,6 +83,20 @@ private fun MovieSubmitBar() {
         longLabels = false,
         isMovie = true,
     )
+}
+
+@Composable
+private fun MovieSegmentRows() {
+    Box(Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
+        Surface(color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.medium) {
+            Box(Modifier.padding(16.dp)) {
+                MovieSegmentStatusList(
+                    rows = movieSegmentFixtureRows(),
+                    publicStatus = PublicMediaStatus.Found,
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -186,8 +208,10 @@ private fun PlayerSources() {
         currentSeason = 1,
         currentEpisode = 2,
         currentEpisodeTitle = "Low Tide",
-        currentStreamUrl = streams.allStreams.firstOrNull()?.url,
-        currentStreamName = streams.allStreams.firstOrNull()?.name,
+        currentStream = PlayerCurrentStream(
+            url = streams.allStreams.firstOrNull()?.url,
+            name = streams.allStreams.firstOrNull()?.name,
+        ),
         onFilterSelected = { _ -> },
         onStreamSelected = { _ -> },
         onReload = {},
@@ -318,6 +342,19 @@ private fun PlayerTools(styleOpen: Boolean) {
             onResetVideo = {},
             styleOpen = styleOpen,
             onStyleOpenChange = { _ -> },
+            showAudioDelay = false,
+            audioDelayMs = 0,
+            onAudioDelayChanged = {},
+            showAudioAmplification = false,
+            audioAmplificationDb = 0,
+            keepAudioAmplification = false,
+            onAudioAmplificationChanged = {},
+            onKeepAudioAmplificationChanged = {},
+            showCenterMix = false,
+            centerMixLevelDb = 0,
+            onCenterMixLevelChanged = {},
+            downmixEnabled = false,
+            onDownmixChanged = {},
         )
     }
 }

@@ -2,7 +2,11 @@ package com.nuvio.app.features.downloads
 
 import com.nuvio.app.features.addons.httpGetTextWithHeaders
 import com.nuvio.app.features.player.PlayerSubtitleCueParser
+import com.nuvio.app.features.player.SubtitleAddonRequest
+import com.nuvio.app.features.player.addonSubtitleRequests
+import com.nuvio.app.features.player.computeLocalVideoHash
 import com.nuvio.app.features.player.loadAddonSubtitles
+import com.nuvio.app.features.player.subtitleExtrasForDownloadedFile
 import com.nuvio.app.features.streams.StreamSubtitle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -24,9 +28,13 @@ internal object DownloadSubtitles {
         val storage = DownloadSubtitleStorage(localVideoUri)
         val manifest = readManifest(storage)
         val saved = manifest.tracks.filter { storage.localFileUri(it.fileName) != null }.toMutableList()
-        if (manifest.complete && saved.size == manifest.tracks.size) return@withContext
+        val requests = requestsForDownloadedFile(item, localVideoUri)
+        // A finished manifest from before the file hash is not the last word: ask again
+        // with the hash so a matching release can be saved in front of the old tracks.
+        val usingFileHash = requests != item.subtitleRequests
+        if (manifest.complete && saved.size == manifest.tracks.size && !usingFileHash) return@withContext
         var nextFileIndex = (saved.maxOfOrNull { it.fileName.substringBefore('.').toIntOrNull() ?: -1 } ?: -1) + 1
-        val addonSubtitles = loadAddonSubtitles(item.subtitleRequests).map {
+        val addonSubtitles = loadAddonSubtitles(requests).map {
             StreamSubtitle(url = it.url, language = it.language, name = it.display)
         }
         val pending = (item.sourceSubtitles + addonSubtitles)
@@ -58,7 +66,8 @@ internal object DownloadSubtitles {
                 val fileName = "${nextFileIndex++}.$extension"
                 try {
                     storage.write(fileName, body)
-                    saved += DownloadedSubtitle(subtitle.url, fileName, subtitle.language, subtitle.name)
+                    val downloaded = DownloadedSubtitle(subtitle.url, fileName, subtitle.language, subtitle.name)
+                    if (usingFileHash) saved.add(0, downloaded) else saved += downloaded
                     storage.write("manifest.json", json.encodeToString(SubtitleManifest(tracks = saved.toList())))
                 } catch (error: Exception) {
                     if (error is CancellationException) throw error
@@ -70,6 +79,30 @@ internal object DownloadSubtitles {
             storage.write("manifest.json", json.encodeToString(SubtitleManifest(complete = true, tracks = saved)))
         }
         Unit
+    }
+
+    /**
+     * Asks add-ons about the downloaded file's own hash. The requests stored at enqueue
+     * time only know the stream hint, which can name a different release. A file that
+     * cannot be hashed keeps those requests.
+     */
+    private suspend fun requestsForDownloadedFile(
+        item: DownloadItem,
+        localVideoUri: String,
+    ): List<SubtitleAddonRequest> {
+        val hashed = computeLocalVideoHash(localVideoUri) ?: return item.subtitleRequests
+        val extras = subtitleExtrasForDownloadedFile(
+            filename = item.sourceFilename,
+            hintedHash = null,
+            hintedSize = null,
+            fileHash = hashed.first,
+            fileSize = hashed.second,
+        )
+        return addonSubtitleRequests(
+            type = item.contentType,
+            videoId = item.videoId,
+            extras = extras,
+        ).ifEmpty { item.subtitleRequests }
     }
 
     fun localSubtitles(localVideoUri: String): List<StreamSubtitle> {

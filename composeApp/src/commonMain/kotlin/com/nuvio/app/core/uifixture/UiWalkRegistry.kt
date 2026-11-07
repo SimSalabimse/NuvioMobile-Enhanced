@@ -95,6 +95,7 @@ internal object UiWalkScreens {
         add(WalkScreen("player-tools", WalkKind.PlayerTools))
         add(WalkScreen("player-subtitles", WalkKind.PlayerSubtitles))
         add(WalkScreen("player-submit-bar-movie", WalkKind.PlayerSubmitBarMovie))
+        add(WalkScreen("movie-segment-rows", WalkKind.MovieSegmentRows))
         add(WalkScreen("download-sheet-dismiss", WalkKind.DownloadSheetDismiss))
         SettingsPage.entries.forEach { page ->
             add(
@@ -123,6 +124,7 @@ internal enum class WalkKind {
     PlayerTools,
     PlayerSubtitles,
     PlayerSubmitBarMovie,
+    MovieSegmentRows,
     DownloadSheetDismiss,
 }
 
@@ -145,6 +147,7 @@ internal data class WalkScreen(
             WalkKind.PlayerTools,
             WalkKind.PlayerSubtitles,
             WalkKind.PlayerSubmitBarMovie,
+            WalkKind.MovieSegmentRows,
             WalkKind.DownloadSheetDismiss,
             -> true
             WalkKind.Settings,

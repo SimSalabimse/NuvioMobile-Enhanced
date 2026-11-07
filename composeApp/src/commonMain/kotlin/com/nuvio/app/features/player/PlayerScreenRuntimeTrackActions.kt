@@ -88,6 +88,9 @@ internal fun PlayerScreenRuntime.persistAddonSubtitlePreference(subtitle: AddonS
 
 internal fun PlayerScreenRuntime.restorePersistedTrackPreferenceIfNeeded(): Boolean {
     if (trackPreferenceRestoreApplied) return true
+    // A pending carry-over describes the selection playing right now; it wins over the stored
+    // preference (same ordering as NuvioTV).
+    if (pendingEngineSwitchTrackPreference?.sourceIdentity == activePlaybackIdentity) return true
     val preference = PlayerTrackPreferenceStorage.load(parentMetaId)
     if (preference == null) {
         trackPreferenceRestoreApplied = true
@@ -264,7 +267,16 @@ internal fun PlayerScreenRuntime.refreshTracks() {
 
     applyPreferredAudioTrack(preferredAudioTargets)
 
-    if (subtitlePreferenceReady && (preferredAudioSelectionApplied || audioTracks.isEmpty())) {
+    // The engine may have just switched: restore the selection captured before the switch.
+    // That selection wins over the automatic "subtitles off" pass, which would otherwise
+    // clear the track and then have the carry-over turn it back on.
+    applyPendingEngineSwitchTrackPreference()
+
+    if (
+        pendingEngineSwitchTrackPreference == null &&
+        subtitlePreferenceReady &&
+        (preferredAudioSelectionApplied || audioTracks.isEmpty())
+    ) {
         tryAutoSelectPreferredSubtitleFromAvailableTracks(preferredAudioTargets)
     }
 }
@@ -365,9 +377,10 @@ private fun PlayerScreenRuntime.tryAutoSelectPreferredSubtitleFromAvailableTrack
             return
         }
         if (matchedTargetPosition > 0 && !isLoadingAddonSubtitles) {
-            val primaryAddonMatch = addonSubtitles.firstOrNull { subtitle ->
-                SubtitleLanguageMatching.matchesLanguageCode(subtitle.language, selectionPlan.targets.first())
-            }
+            val primaryAddonMatch = firstMatchingAddonSubtitle(
+                addonSubtitles,
+                selectionPlan.targets.first(),
+            )
             if (primaryAddonMatch != null) {
                 applyAddonSubtitle(primaryAddonMatch, autoSync = true)
                 return
@@ -437,9 +450,8 @@ private fun PlayerScreenRuntime.tryAutoSelectPreferredSubtitleFromAvailableTrack
     if (playbackSnapshot.isLoading) return
 
     val addonMatch = selectionPlan.targets.firstNotNullOfOrNull { target ->
-        addonSubtitles.firstOrNull { subtitle ->
-            (!subtitleStyle.useForcedSubtitles || !addonSubtitleIsForced(subtitle)) &&
-                SubtitleLanguageMatching.matchesLanguageCode(subtitle.language, target)
+        firstMatchingAddonSubtitle(addonSubtitles, target) { subtitle ->
+            !subtitleStyle.useForcedSubtitles || !addonSubtitleIsForced(subtitle)
         }
     }
     if (addonMatch != null) {

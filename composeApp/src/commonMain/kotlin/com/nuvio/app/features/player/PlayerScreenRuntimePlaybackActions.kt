@@ -11,6 +11,9 @@ import com.nuvio.app.features.downloads.partialDownloadWaitReason
 import com.nuvio.app.features.downloads.partialEndCanResume
 import com.nuvio.app.features.downloads.partialFilePlayhead
 import com.nuvio.app.features.downloads.partialPlaybackDownloadId
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineScope
 import com.nuvio.app.features.servers.ServerItemRef
 import com.nuvio.app.features.servers.ServerStreams
 import com.nuvio.app.features.tmdb.TmdbService
@@ -25,10 +28,10 @@ import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.allowsProgressWrite
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
 import com.nuvio.app.features.watching.domain.isShortPlaceholderDuration
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.player_engine_switching_automatic_message
 import nuvio.composeapp.generated.resources.player_engine_switching_manual_message
 import kotlin.math.abs
 import kotlin.time.Duration.Companion.seconds
@@ -164,13 +167,24 @@ internal val PlayerScreenRuntime.activePlaybackIdentity: String
         ?: downloadSwapIdentity
         ?: activeSourceUrl
 
+internal val PlayerScreenRuntime.playbackIsolation: com.nuvio.app.features.watchprogress.PlaybackIsolation
+    get() = com.nuvio.app.features.watchprogress.playbackIsolation(
+        submitMode = args.submitMode,
+        privateSession = args.privateSession,
+        globalPrivateViewing = playerSettingsUiState.privateViewingEnabled,
+    )
+
 internal val PlayerScreenRuntime.shouldTrackWatchProgress: Boolean
     get() = !isLiveTvPlayback && !parentMetaType.equals("live", ignoreCase = true) &&
-        !playerSettingsUiState.privateViewingEnabled
+        persistsProgress
 
-/** Submit mode carries this as false from [PlayerLaunch.persistsProgress]. */
+/** Submit mode, a private session, and the saved Private Viewing switch all make this false. */
 internal val PlayerScreenRuntime.persistsProgress: Boolean
-    get() = !args.submitMode
+    get() = playbackIsolation.persistsProgress
+
+/** Private session and submit mode do not roll into the next episode. */
+internal val PlayerScreenRuntime.blocksAutoplay: Boolean
+    get() = !playbackIsolation.allowsAutoplay
 
 internal val PlayerScreenRuntime.activePlaybackKey: PlaybackKey
     get() = PlaybackKey(
@@ -179,6 +193,14 @@ internal val PlayerScreenRuntime.activePlaybackKey: PlaybackKey
         seasonNumber = activeSeasonNumber,
         episodeNumber = activeEpisodeNumber,
         playbackEngine = playbackEngineOverride,
+    )
+
+internal val PlayerScreenRuntime.sourcePlaybackKey: PlaybackKey
+    get() = PlaybackKey(
+        sourceIdentity = activePlaybackIdentity,
+        videoId = activeVideoId,
+        seasonNumber = activeSeasonNumber,
+        episodeNumber = activeEpisodeNumber,
     )
 
 internal val PlayerScreenRuntime.playbackSession: WatchProgressPlaybackSession
@@ -251,6 +273,15 @@ internal fun PlayerScreenRuntime.currentLaunch(launch: PlayerLaunch): PlayerLaun
 }
 
 internal fun PlayerScreenRuntime.resetIdentityStateIfNeeded() {
+    val sourceIdentity = sourcePlaybackKey
+    if (lastResetSourcePlaybackIdentity != sourceIdentity) {
+        lastResetSourcePlaybackIdentity = sourceIdentity
+        engineFailoverTriggered = false
+        engineFailoverDisarmed = false
+        engineFailoverSourceIdentity = null
+        playbackEngineOverride = null
+    }
+
     val identity = activePlaybackKey
     if (lastResetPlaybackIdentity != identity) {
         lastResetPlaybackIdentity = identity
@@ -401,7 +432,7 @@ private fun PlayerScreenRuntime.emitTrackingScrobbleTerminal(
     val percent = provided ?: currentPlaybackProgressPercent()
     val mediaSnapshot = currentTrackingMedia
     val inputsSnapshot = snapshotTrackingScrobbleItemInputs()
-    scope.launch(NonCancellable) {
+    CoroutineScope(scope.coroutineContext.minusKey(Job) + SupervisorJob()).launch {
         val media = mediaSnapshot ?: inputsSnapshot.buildMedia()
         if (!media.hasResolvableIdentity) return@launch
         TrackingScrobbleCoordinator.scrobble(
@@ -586,13 +617,63 @@ internal fun PlayerScreenRuntime.switchPlaybackEngine() {
         activeInitialPositionMs = playbackClock.positionMs.coerceAtLeast(0L)
         activeInitialProgressFraction = null
     }
+    // Capture the current track selection so it can be restored on the new engine.
+    rememberCurrentTrackPreferenceForEngineSwitch(target)
     playbackEngineOverride = target
+    // A manual switch is an explicit user decision: never let the automatic engine
+    // failover drag the user back to the engine they just switched away from.
+    engineFailoverDisarmed = true
     showGestureFeedback(
         GestureFeedbackState(
             messageRes = Res.string.player_engine_switching_manual_message,
             messageArgs = listOf(target.label),
         ),
     )
+}
+
+/**
+ * Switches to the opposite playback engine after a playback error, when the
+ * "auto-switch engine on playback error" setting is enabled. Applies whichever engine is
+ * selected; fires at most once per source, after the engine's own retries, and never after a
+ * manual engine switch.
+ *
+ * @return true when the failover was started and the caller should swallow the error.
+ */
+internal fun PlayerScreenRuntime.maybeFailoverPlaybackEngine(
+    resolvedAutoEngine: AndroidPlaybackEngine?,
+): Boolean {
+    if (!playerSettingsUiState.autoSwitchPlaybackEngineOnError) return false
+    if (engineFailoverDisarmed) return false
+    val sourceIdentity = activePlaybackIdentity
+    if (engineFailoverSourceIdentity == sourceIdentity) return false
+
+    val current = playerController?.playbackEngine
+        ?: playbackEngineOverride
+        ?: resolvedAutoEngine
+        ?: playerSettingsUiState.androidPlaybackEngine
+    val target = if (current == AndroidPlaybackEngine.Libmpv) {
+        AndroidPlaybackEngine.ExoPlayer
+    } else {
+        AndroidPlaybackEngine.Libmpv
+    }
+
+    engineFailoverTriggered = true
+    engineFailoverSourceIdentity = sourceIdentity
+    flushWatchProgress()
+    if (initialSeekApplied) {
+        activeInitialPositionMs = playbackSnapshot.positionMs.coerceAtLeast(0L)
+        activeInitialProgressFraction = null
+    }
+    // Capture the current track selection so it can be restored on the new engine.
+    rememberCurrentTrackPreferenceForEngineSwitch(target)
+    playbackEngineOverride = target
+    showGestureFeedback(
+        GestureFeedbackState(
+            messageRes = Res.string.player_engine_switching_automatic_message,
+            messageArgs = listOf(target.label),
+        ),
+    )
+    return true
 }
 
 internal fun PlayerScreenRuntime.openStreamInfo() {

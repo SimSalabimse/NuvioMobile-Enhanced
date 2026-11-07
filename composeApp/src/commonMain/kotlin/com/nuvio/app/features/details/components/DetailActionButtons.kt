@@ -62,6 +62,7 @@ import com.nuvio.app.features.downloads.DetailsDownloadProgress
 import com.nuvio.app.features.downloads.SeriesSmartDownloadCountPicker
 import com.nuvio.app.features.downloads.DetailsDownloadProgressKind
 import com.nuvio.app.features.downloads.resumeDownloadFromMark
+import com.nuvio.app.core.ui.backdropControlColor
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_play
 import nuvio.composeapp.generated.resources.details_download_action
@@ -282,7 +283,7 @@ fun DetailActionButtons(
                     } else if (moreGlassActive) {
                         Color.Transparent
                     } else {
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.82f)
+                        backdropControlColor(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.82f))
                     },
                     contentColor = if (actionsExpanded) {
                         MaterialTheme.colorScheme.background
@@ -757,7 +758,7 @@ internal fun DetailIconAction(
         } else if (glassActive) {
             Color.Transparent
         } else {
-            MaterialTheme.colorScheme.surfaceVariant
+            backdropControlColor(MaterialTheme.colorScheme.surfaceVariant)
         },
         contentColor = if (active) {
             MaterialTheme.colorScheme.background

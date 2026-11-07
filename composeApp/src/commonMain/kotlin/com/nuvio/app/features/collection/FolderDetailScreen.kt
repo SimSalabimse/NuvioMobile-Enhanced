@@ -148,7 +148,11 @@ fun FolderDetailScreen(
             )
         }
 
-        if (!useNativeNavigation) {
+        if (useNativeNavigation) {
+            val nativeBarSpace = (statusBarTop + NativeNavigationBarHeight) *
+                if (coverImageUrl != null) heroCollapseFraction else 1f
+            if (nativeBarSpace > 0.dp) Spacer(modifier = Modifier.height(nativeBarSpace))
+        } else {
             NuvioScreenHeader(
                 title = folder?.title ?: uiState.collectionTitle,
                 modifier = Modifier.padding(horizontal = 16.dp),
@@ -197,6 +201,8 @@ fun FolderDetailScreen(
         }
     }
 }
+
+private val NativeNavigationBarHeight = 44.dp
 
 @Composable
 private fun FolderCoverImage(

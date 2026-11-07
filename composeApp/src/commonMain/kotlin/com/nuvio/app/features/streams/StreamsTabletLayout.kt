@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalLayoutDirection
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.ui.shimmer
+import com.nuvio.app.core.ui.LocalOnBackdrop
 import com.nuvio.app.core.ui.LocalVerticalBarPadding
 import com.nuvio.app.isIos
 import com.nuvio.app.core.ui.glass.LocalLiquidGlassBackdrop
@@ -54,6 +55,7 @@ import com.nuvio.app.core.ui.glass.nuvioBackdropSource
 import com.nuvio.app.core.ui.glass.rememberNuvioBackdrop
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
+import com.nuvio.app.core.i18n.localizedEpisodeTitle
 
 @Composable
 internal fun TabletStreamsLayout(
@@ -373,7 +375,9 @@ private fun TabletEpisodeInfoPanel(
                 Res.string.streams_episode_title_with_name,
                 seasonNumber,
                 episodeNumber,
-                episodeTitle?.takeIf { it.isNotBlank() } ?: stringResource(Res.string.streams_episode_fallback_title),
+                localizedEpisodeTitle(episodeTitle, episodeNumber)
+                    ?: episodeTitle?.takeIf { it.isNotBlank() }
+                    ?: stringResource(Res.string.streams_episode_fallback_title),
             ),
             style = MaterialTheme.typography.bodyLarge.copy(
                 fontSize = 16.sp,

@@ -31,12 +31,12 @@ import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.features.party.PartyRepository
-import com.nuvio.app.features.player.skip.FlagSubmitLedger
+import com.nuvio.app.features.player.skip.OwnMarkStatus
 import com.nuvio.app.features.player.skip.OwnTheIntroDbLedger
+import com.nuvio.app.features.player.skip.accountScopeForService
+import com.nuvio.app.features.player.skip.ownListBucketsForTitle
 import com.nuvio.app.features.player.skip.shouldRecordOwnTheIntroDb
-import com.nuvio.app.features.player.skip.loadTypes
-import com.nuvio.app.features.player.skip.rememberType
-import com.nuvio.app.features.player.skip.replaceTypes
+import com.nuvio.app.features.player.skip.ownSentTypes
 import com.nuvio.app.features.player.skip.IntroSubmitBlockReason
 import com.nuvio.app.features.player.skip.IntroSubmitKeyPrepareResult
 import com.nuvio.app.features.player.skip.IntroSubmitKeyProblem
@@ -232,17 +232,21 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 val episodeNow = activeEpisodeNumber ?: 0
                 val accepted = submittedFlagTypesForTitle(records, tmdbId, isMoviePlayback, seasonNow, episodeNow)
                 val rejected = rejectedFlagTypesForTitle(records, tmdbId, isMoviePlayback, seasonNow, episodeNow)
-                FlagSubmitLedger.replaceTypes(contentKey, accepted)
-                submittedSegmentTypesByVideoId[activeVideoId.orEmpty()].orEmpty().forEach { type ->
-                    if (markSegmentId(type) !in rejected) FlagSubmitLedger.rememberType(contentKey, type)
-                }
-                OwnTheIntroDbLedger.applyListing(contentKey, accepted, rejected)
+                val buckets = ownListBucketsForTitle(records, tmdbId, isMoviePlayback, seasonNow, episodeNow)
+                OwnTheIntroDbLedger.applyListing(
+                    scope = accountScopeForService(IntroSubmitService.THE_INTRODB, introDbKey, theIntroDbKey),
+                    contentKey = contentKey,
+                    confirmed = buckets.confirmed,
+                    pending = buckets.pending,
+                    rejected = buckets.rejected,
+                )
                 remoteTypes = accepted
                 rejectedTypes = rejected
             }
             val sessionTypes = submittedSegmentTypesByVideoId[activeVideoId.orEmpty()].orEmpty()
+            val accountScope = accountScopeForService(IntroSubmitService.THE_INTRODB, introDbKey, theIntroDbKey)
             val submittedTypes = flagChecksForTitle(
-                ledgerTypes = FlagSubmitLedger.loadTypes(contentKey),
+                ledgerTypes = ownSentTypes(OwnTheIntroDbLedger.load(accountScope), contentKey),
                 sessionTypes = sessionTypes,
                 remoteTypes = remoteTypes,
                 rejectedTypes = rejectedTypes,
@@ -387,7 +391,17 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                                     ),
                                 )
                                 if (shouldRecordOwnTheIntroDb(service, succeeded = true)) {
-                                    OwnTheIntroDbLedger.remember(contentKey, snapshot.segmentType)
+                                    val status = if (posted == MarkPost.AlreadySubmitted) {
+                                        OwnMarkStatus.Confirmed
+                                    } else {
+                                        OwnMarkStatus.Pending
+                                    }
+                                    OwnTheIntroDbLedger.remember(
+                                        accountScopeForService(service, introDbKey, theIntroDbKey),
+                                        contentKey,
+                                        snapshot.segmentType,
+                                        status,
+                                    )
                                 }
                                 if (posted == MarkPost.AlreadySubmitted) {
                                     NuvioToastController.show(TheIntroDbAlreadySubmittedMessage)
@@ -501,6 +515,19 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 audioTracks = serverAudioTracks.ifEmpty { audioTracks },
                 selectedAudioIndex = serverAudioTracks.firstOrNull { it.isSelected }?.index ?: selectedAudioIndex,
                 onAudio = { index -> selectAudio(index) },
+                showAudioDelay = playerController?.supportsAudioDelay == true,
+                audioDelayMs = audioDelayMs,
+                onAudioDelayChanged = { setAudioDelay(it) },
+                showAudioAmplification = playerController?.supportsAudioAmplification == true,
+                audioAmplificationDb = audioAmplificationDb,
+                keepAudioAmplification = playerSettingsUiState.persistAudioAmplification,
+                onAudioAmplificationChanged = { setAudioAmplification(it) },
+                onKeepAudioAmplificationChanged = { setKeepAudioAmplification(it) },
+                showCenterMix = centerMixAvailable,
+                centerMixLevelDb = centerMixLevelDb,
+                onCenterMixLevelChanged = { setCenterMixLevel(it) },
+                downmixEnabled = playerSettingsUiState.downmixEnabled,
+                onDownmixChanged = PlayerSettingsRepository::setDownmixEnabled,
                 streams = sourceStreamsState,
                 currentStreamUrl = activeSourceUrl,
                 currentStreamName = activeStreamTitle,

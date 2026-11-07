@@ -25,6 +25,7 @@ internal data class StoredMetaPerson(
     val name: String,
     val role: String? = null,
     val photo: String? = null,
+    val tmdbId: Int? = null,
 )
 
 @Serializable
@@ -175,6 +176,7 @@ internal fun MetaDetails.toStoredRenderMeta(): StoredMetaDetails = StoredMetaDet
             name = person.name,
             role = person.role,
             photo = renderUrl(person.photo),
+            tmdbId = navigablePersonId(person.tmdbId),
         )
     },
     productionCompanies = productionCompanies.map { company ->
@@ -243,7 +245,12 @@ internal fun StoredMetaDetails.toMetaDetails(): MetaDetails = MetaDetails(
     director = director,
     writer = writer,
     cast = cast.map { person ->
-        MetaPerson(name = person.name, role = person.role, photo = person.photo)
+        MetaPerson(
+            name = person.name,
+            role = person.role,
+            photo = person.photo,
+            tmdbId = navigablePersonId(person.tmdbId),
+        )
     },
     productionCompanies = productionCompanies.map { company ->
         MetaCompany(name = company.name, logo = company.logo)

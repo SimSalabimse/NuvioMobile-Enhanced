@@ -2,6 +2,7 @@ package com.nuvio.app.core.uifixture
 
 import com.nuvio.app.navigation.AppRoute
 import com.nuvio.app.navigation.DetailRoute
+import com.nuvio.app.navigation.DownloadShowRoute
 import com.nuvio.app.navigation.DownloadsRoute
 
 /**
@@ -22,6 +23,7 @@ enum class UiFixture(
     DetailsOffline("details-offline", startsOnline = false),
     DetailsMovieOffline("details-movie-offline", startsOnline = false),
     Downloads("downloads", startsOnline = true),
+    DownloadsSeason("downloads-season", startsOnline = true),
     LongTitles("long-titles", startsOnline = true),
     SmartDownloads("smart-downloads", startsOnline = true),
     PlayerSubmitBar("player-submit-bar", startsOnline = true),
@@ -53,6 +55,10 @@ enum class UiFixture(
             title = UiFixtureCatalog.MOVIE_TITLE,
         )
         Downloads -> DownloadsRoute()
+        DownloadsSeason -> DownloadShowRoute(
+            showId = UiFixtureCatalog.DOWNLOADS_SEASON_SHOW_ID,
+            title = UiFixtureCatalog.LONG_TITLE,
+        )
         Walk -> UiWalkScreens.route()
     }
 

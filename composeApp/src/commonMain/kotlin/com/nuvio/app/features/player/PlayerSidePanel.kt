@@ -48,10 +48,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import com.nuvio.app.core.ui.glass.ambientLiquidGlass
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.atLeastIosHitTarget
@@ -71,6 +74,7 @@ internal fun PlayerSidePanel(
     visible: Boolean,
     onDismiss: () -> Unit,
     width: Dp = 520.dp,
+    modal: Boolean = true,
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -84,8 +88,7 @@ internal fun PlayerSidePanel(
     )
     val fadeEnter = if (reduceMotion) EnterTransition.None else fadeIn(tween(200))
     val fadeExit = if (reduceMotion) ExitTransition.None else fadeOut(tween(160))
-    val slideEnter = if (reduceMotion) EnterTransition.None else slideInHorizontally(tween(250)) { it }
-    val slideExit = if (reduceMotion) ExitTransition.None else slideOutHorizontally(tween(200)) { it }
+    val slideDirection = if (LocalLayoutDirection.current == LayoutDirection.Ltr) 1 else -1
 
     PlatformBackHandler(enabled = visible, onBack = onDismiss)
 
@@ -98,54 +101,57 @@ internal fun PlayerSidePanel(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = scrimAlpha))
-                .clickable(
-                    interactionSource = backgroundInteraction,
-                    indication = null,
-                    onClick = onDismiss,
+                .then(
+                    if (modal) {
+                        Modifier
+                            .background(Color.Black.copy(alpha = scrimAlpha))
+                            .clickable(
+                                interactionSource = backgroundInteraction,
+                                indication = null,
+                                onClick = onDismiss,
+                            )
+                    } else {
+                        Modifier
+                    },
                 ),
         ) {
             val resolvedWidth = minOf(maxWidth, width)
             val shape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp)
 
-            AnimatedVisibility(
-                visible = visible,
-                enter = slideEnter,
-                exit = slideExit,
-                modifier = Modifier.align(Alignment.CenterEnd),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .width(resolvedWidth)
-                        .fillMaxHeight()
-                        .clip(shape)
-                        .clickable(
-                            interactionSource = panelInteraction,
-                            indication = null,
-                            onClick = {},
-                        ),
-                ) {
-                    PlayerChromeBackdrop(
-                        modifier = Modifier.matchParentSize(),
+            Column(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .animateEnterExit(
+                        enter = if (reduceMotion) EnterTransition.None else slideInHorizontally(tween(250)) { it * slideDirection },
+                        exit = if (reduceMotion) ExitTransition.None else slideOutHorizontally(tween(200)) { it * slideDirection },
+                    )
+                    .width(resolvedWidth)
+                    .fillMaxHeight()
+                    .clip(shape)
+                    .ambientLiquidGlass(
                         shape = shape,
-                        fallbackColor = tokens.colors.surfaceElevated,
+                        tint = tokens.colors.surfaceElevated.copy(alpha = tokens.colors.surfaceElevated.alpha * 0.72f),
+                        fallback = tokens.colors.surfaceElevated,
+                        blurRadius = 28.dp,
+                        refractionHeight = 10.dp,
+                        refractionAmount = 18.dp,
                     )
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .windowInsetsPadding(
-                                if (isIos) {
-                                    WindowInsets.safeContent.only(
-                                        WindowInsetsSides.Top + WindowInsetsSides.Bottom + WindowInsetsSides.End,
-                                    )
-                                } else {
-                                    WindowInsets.navigationBars.only(WindowInsetsSides.End)
-                                },
-                            ),
-                        content = content,
+                    .clickable(
+                        interactionSource = panelInteraction,
+                        indication = null,
+                        onClick = {},
                     )
-                }
-            }
+                    .windowInsetsPadding(
+                        if (isIos) {
+                            WindowInsets.safeContent.only(
+                                WindowInsetsSides.Top + WindowInsetsSides.Bottom + WindowInsetsSides.End,
+                            )
+                        } else {
+                            WindowInsets.navigationBars.only(WindowInsetsSides.End)
+                        },
+                    ),
+                content = content,
+            )
         }
     }
 }

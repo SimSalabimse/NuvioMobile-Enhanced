@@ -3,6 +3,8 @@ package com.nuvio.app.core.ui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
+import androidx.compose.foundation.ExperimentalFoundationApi
+import com.nuvio.app.features.settings.ThemeSettingsRepository
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,9 +22,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.gestures.stopScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -35,7 +37,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import com.nuvio.app.features.settings.ThemeSettingsRepository
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -68,6 +69,7 @@ enum class NuvioViewAllPillSize {
     Compact,
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun <T> NuvioShelfSection(
     title: String,
@@ -108,6 +110,7 @@ fun <T> NuvioShelfSection(
             state = state,
             contentPadding = rowContentPadding.withVerticalBar(),
             horizontalArrangement = Arrangement.spacedBy(itemSpacing),
+            cacheWindow = ShelfRowCacheWindow,
         ) {
             if (key != null) {
                 items(
@@ -369,7 +372,7 @@ private fun NuvioShelfSectionHeader(
     onShuffleClick: (() -> Unit)? = null,
 ) {
     val tokens = MaterialTheme.nuvio
-    val showAccent by ThemeSettingsRepository.showCatalogAccentEnabled.collectAsState()
+    val showAccent = rememberShowCatalogAccentEnabled()
     Column(
         modifier = modifier.fillMaxWidth(),
     ) {
@@ -447,7 +450,7 @@ private fun NuvioViewAllPill(
     }
 }
 
-private val NuvioPosterShape.aspectRatio: Float
+internal val NuvioPosterShape.aspectRatio: Float
     get() = when (this) {
         NuvioPosterShape.Poster -> 0.675f
         NuvioPosterShape.Square -> 1f
@@ -480,7 +483,7 @@ private fun catalogLogoOverlaySize(
         }
     }
 
-private fun NuvioPosterShape.cardWidth(basePosterWidthDp: Int): Dp =
+internal fun NuvioPosterShape.cardWidth(basePosterWidthDp: Int): Dp =
     when (this) {
         NuvioPosterShape.Poster -> basePosterWidthDp.dp
         NuvioPosterShape.Square -> basePosterWidthDp.dp

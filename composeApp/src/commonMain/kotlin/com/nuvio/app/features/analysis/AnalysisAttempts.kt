@@ -77,6 +77,13 @@ internal fun shouldQueueAnalysis(
     return needsDerivedWork
 }
 
+/**
+ * A stored print from the shorter capture window should be decoded again when this device can
+ * analyse audio. Android's analyser is a stub, so a short print there is left as it is.
+ */
+internal fun shouldRecapture(stored: MediaAnalysisResult?, analyzerSupported: Boolean): Boolean =
+    analyzerSupported && stored != null && stored.capturedWindowIsShort()
+
 /** Fingerprint is stored, intro and credits are still missing, and a clip try can still run. */
 internal fun MediaAnalysisResult.needsSiblingClipRetry(): Boolean =
     analysisAttempts in 1 until ANALYSIS_MAX_ATTEMPTS &&

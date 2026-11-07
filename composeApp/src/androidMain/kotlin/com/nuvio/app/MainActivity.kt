@@ -80,6 +80,8 @@ import com.nuvio.app.features.anilist.PlatformAniListAuthPersistence
 import com.nuvio.app.features.anilist.PlatformAniListSyncStorage
 import com.nuvio.app.features.wetrakr.PlatformWeTrakrAuthPersistence
 import com.nuvio.app.features.wetrakr.PlatformWeTrakrSyncStorage
+import com.nuvio.app.features.publicmetadb.PlatformPublicMetaDbAuthPersistence
+import com.nuvio.app.features.publicmetadb.PlatformPublicMetaDbSyncStorage
 import com.nuvio.app.features.simkl.SimklAuthStorage
 import com.nuvio.app.features.simkl.SimklSyncStorage
 import com.nuvio.app.features.tmdb.TmdbSettingsStorage
@@ -111,6 +113,7 @@ open class MainActivity : AppCompatActivity() {
             ),
         )
         ThemeSettingsStorage.initialize(applicationContext)
+        com.nuvio.app.core.ui.background.AppBackgroundStorage.initialize(applicationContext)
         AppIconPlatform.initialize(applicationContext)
         SentrySettingsStorage.initialize(applicationContext)
         SentryInitializer.start(application)
@@ -133,7 +136,6 @@ open class MainActivity : AppCompatActivity() {
         HomeCatalogSettingsStorage.initialize(applicationContext)
         PlayerSettingsStorage.initialize(applicationContext)
         com.nuvio.app.features.player.skip.FlagSubmitLedger.initialize(applicationContext)
-        com.nuvio.app.features.player.SubtitleFontFiles.initialize(applicationContext)
         com.nuvio.app.features.player.seekpreview.SeekPreviewAndroid.initialize(applicationContext)
         PlayerTrackPreferenceStorage.initialize(applicationContext)
         P2pSettingsStorage.initialize(applicationContext)
@@ -167,6 +169,8 @@ open class MainActivity : AppCompatActivity() {
         PlatformAniListSyncStorage.initialize(applicationContext)
         PlatformWeTrakrAuthPersistence.initialize(applicationContext)
         PlatformWeTrakrSyncStorage.initialize(applicationContext)
+        PlatformPublicMetaDbAuthPersistence.initialize(applicationContext)
+        PlatformPublicMetaDbSyncStorage.initialize(applicationContext)
         DiscordRpcStorage.initialize(applicationContext)
         SimklAuthStorage.initialize(applicationContext)
         SimklSyncStorage.initialize(applicationContext)

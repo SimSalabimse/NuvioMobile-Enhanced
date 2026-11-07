@@ -28,7 +28,7 @@ class FlagSubmitTypesTest {
         val records = listOf(
             record(segment = "intro", status = "accepted"),
             record(segment = "credits", status = "pending"),
-            record(segment = "preview", status = "rejected"),
+            record(segment = "preview", status = "declined"),
             record(segment = "recap", status = "accepted", season = 2, episode = 1),
             record(tmdbId = 99, segment = "recap", status = "accepted"),
         )

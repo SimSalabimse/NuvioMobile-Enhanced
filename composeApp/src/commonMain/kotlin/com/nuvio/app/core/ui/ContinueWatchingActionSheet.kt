@@ -49,6 +49,7 @@ import nuvio.composeapp.generated.resources.hero_mark_unwatched
 import nuvio.composeapp.generated.resources.hero_mark_watched
 import nuvio.composeapp.generated.resources.cw_action_remove
 import nuvio.composeapp.generated.resources.cw_action_start_from_beginning
+import nuvio.composeapp.generated.resources.hero_mark_watched
 import nuvio.composeapp.generated.resources.play_manually
 import com.nuvio.app.features.player.ShowPlaybackMemory
 import org.jetbrains.compose.resources.stringResource
@@ -69,6 +70,7 @@ fun NuvioContinueWatchingActionSheet(
     onOpenDetails: () -> Unit,
     onStartFromBeginning: (() -> Unit)? = null,
     onPlayManually: (() -> Unit)? = null,
+    onMarkWatched: (() -> Unit)? = null,
     onRemove: () -> Unit,
     downloadState: ContinueWatchingDownloadState = ContinueWatchingDownloadState.Unavailable,
     onDownload: (() -> Unit)? = null,
@@ -175,6 +177,13 @@ fun NuvioContinueWatchingActionSheet(
                     icon = Icons.Rounded.Flag,
                     title = com.nuvio.app.features.downloads.FinishSeriesGoal.label(goalPinned),
                     onClick = { dismissAfter(onToggleGoal) },
+                )
+            }
+            if (onMarkWatched != null) {
+                NuvioBottomSheetActionRow(
+                    icon = Icons.Default.CheckCircle,
+                    title = stringResource(Res.string.hero_mark_watched),
+                    onClick = { dismissAfter(onMarkWatched) },
                 )
             }
             NuvioBottomSheetActionRow(

@@ -8,6 +8,12 @@ import nuvio.composeapp.generated.resources.analysis_stage_recap
 import nuvio.composeapp.generated.resources.analysis_stage_previews
 import nuvio.composeapp.generated.resources.analysis_status_queued
 import nuvio.composeapp.generated.resources.analysis_status_running
+import nuvio.composeapp.generated.resources.analysis_activity_clip
+import nuvio.composeapp.generated.resources.analysis_activity_teach
+import nuvio.composeapp.generated.resources.analysis_activity_backfill
+import nuvio.composeapp.generated.resources.analysis_activity_preview
+import nuvio.composeapp.generated.resources.analysis_status_elapsed
+import nuvio.composeapp.generated.resources.analysis_status_elapsed_under
 import nuvio.composeapp.generated.resources.analysis_status_done
 import nuvio.composeapp.generated.resources.analysis_status_partly
 import nuvio.composeapp.generated.resources.analysis_status_failed
@@ -70,8 +76,11 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -88,6 +97,7 @@ import com.nuvio.app.features.settings.SettingsClickableRow
 import com.nuvio.app.features.settings.SettingsGroup
 import com.nuvio.app.features.settings.SettingsGroupDivider
 import com.nuvio.app.features.settings.SettingsSection
+import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -99,6 +109,47 @@ private fun stageLabel(stage: AnalysisStage): String = when (stage) {
 }
 
 private fun percent(value: Double): Int = (value.coerceIn(0.0, 1.0) * 100).toInt()
+
+@Composable
+private fun activityLabel(activity: String, stage: AnalysisStage): String = when (activity) {
+    "clip" -> stringResource(Res.string.analysis_activity_clip)
+    "teach" -> stringResource(Res.string.analysis_activity_teach)
+    "backfill" -> stringResource(Res.string.analysis_activity_backfill)
+    "preview" -> stringResource(Res.string.analysis_activity_preview)
+    else -> stageLabel(stage)
+}
+
+/** Wall clock for a running step. It does not change the percent. */
+@Composable
+private fun analysisClock(sinceEpochMs: Long): Long {
+    var now by remember(sinceEpochMs) { mutableLongStateOf(com.nuvio.app.features.streams.epochMs()) }
+    LaunchedEffect(sinceEpochMs) {
+        if (sinceEpochMs <= 0L) return@LaunchedEffect
+        while (true) {
+            delay(15_000)
+            now = com.nuvio.app.features.streams.epochMs()
+        }
+    }
+    return now
+}
+
+@Composable
+private fun elapsedLabel(sinceEpochMs: Long): String {
+    if (sinceEpochMs <= 0L) return ""
+    val minutes = analysisElapsedMinutes(sinceEpochMs, analysisClock(sinceEpochMs))
+    return if (minutes < 1) {
+        stringResource(Res.string.analysis_status_elapsed_under)
+    } else {
+        stringResource(Res.string.analysis_status_elapsed, minutes)
+    }
+}
+
+@Composable
+private fun runningDetail(stage: AnalysisStage, activity: String, sinceEpochMs: Long): String {
+    val label = activityLabel(activity, stage)
+    val clock = elapsedLabel(sinceEpochMs)
+    return if (clock.isEmpty()) label else "$label · $clock"
+}
 
 /** Small analysis status under a finished download in Downloads. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -117,7 +168,11 @@ fun AnalysisStatusRow(item: DownloadItem) {
         is ItemAnalysisStatus.Running -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             StatusLine(
                 Icons.Rounded.GraphicEq,
-                stringResource(Res.string.analysis_status_running, percent(status.overall), stageLabel(status.stage)),
+                stringResource(
+                    Res.string.analysis_status_running,
+                    percent(status.overall),
+                    runningDetail(status.stage, status.activity, status.activitySinceEpochMs),
+                ),
                 MaterialTheme.colorScheme.primary,
             )
             LinearProgressIndicator(
@@ -308,8 +363,8 @@ internal fun AnalysisSummarySection(isTablet: Boolean) {
                     is AnalysisJobState.Running -> stringResource(
                         Res.string.analysis_summary_running,
                         j.title,
-                        stageLabel(j.stage),
-                        percent(if (j.stageProgress >= 0) j.stageProgress else 0.0),
+                        runningDetail(j.stage, j.activity, j.activitySinceEpochMs),
+                        percent(j.overall),
                     ) + if (j.inBackground) " · " + stringResource(Res.string.analysis_summary_in_background) else ""
                     AnalysisJobState.Starting -> stringResource(Res.string.analysis_summary_starting)
                     AnalysisJobState.WaitingForCharger -> stringResource(Res.string.analysis_summary_waiting_charger)

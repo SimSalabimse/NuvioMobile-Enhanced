@@ -10,12 +10,14 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -27,8 +29,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.VolumeOff
-import androidx.compose.material.icons.rounded.VolumeUp
+import androidx.compose.material.icons.automirrored.rounded.VolumeOff
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -41,7 +43,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -59,7 +60,13 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.format.extractReleaseYearForDisplay
+import com.nuvio.app.core.ui.ArtworkBackdrop
+import com.nuvio.app.core.ui.HeroArtworkFit
 import com.nuvio.app.core.ui.NuvioTokens
+import com.nuvio.app.core.ui.heroArtworkDecision
+import com.nuvio.app.core.ui.heroImageHeightFraction
+import com.nuvio.app.core.ui.rememberHeroArtworkSize
+import com.nuvio.app.core.ui.featherArtwork
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.formatRuntimeForDisplay
 import com.nuvio.app.features.player.MiniPlayerController
@@ -76,6 +83,7 @@ import com.nuvio.app.core.ui.LocalVerticalBarPadding
 fun TabletDetailBackdrop(
     meta: MetaDetails,
     cinematic: Boolean,
+    backdropImage: ImageBitmap?,
     scrollOffsetPx: () -> Float,
     heroHeightPx: () -> Int,
     heroTrailerSourceUrl: String?,
@@ -95,10 +103,21 @@ fun TabletDetailBackdrop(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+        if (cinematic) {
+            ArtworkBackdrop(
+                image = backdropImage,
+                alignment = TabletArtworkBackdropAlignment,
+            )
+        }
         BackdropArtwork(
             meta = meta,
             gradientColor = backgroundColor,
-            blur = false,
+            cinematic = cinematic,
+            modifier = if (cinematic) {
+                Modifier.graphicsLayer { alpha = 1f - scrollProgress() }
+            } else {
+                Modifier
+            },
             heroTrailerSourceUrl = heroTrailerSourceUrl,
             heroTrailerSourceAudioUrl = heroTrailerSourceAudioUrl,
             heroTrailerReady = heroTrailerReady,
@@ -108,22 +127,14 @@ fun TabletDetailBackdrop(
             onHeroTrailerReady = onHeroTrailerReady,
             onHeroTrailerFinished = onHeroTrailerFinished,
         )
-        if (cinematic) {
-            BackdropArtwork(
-                meta = meta,
-                gradientColor = backgroundColor,
-                blur = true,
-                modifier = Modifier.graphicsLayer { alpha = scrollProgress() },
+        if (!cinematic) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = scrollProgress() * 0.86f }
+                    .background(backgroundColor),
             )
         }
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    alpha = scrollProgress() * if (cinematic) 0.36f else 0.86f
-                }
-                .background(backgroundColor),
-        )
     }
 }
 
@@ -131,7 +142,7 @@ fun TabletDetailBackdrop(
 private fun BackdropArtwork(
     meta: MetaDetails,
     gradientColor: Color,
-    blur: Boolean,
+    cinematic: Boolean = false,
     modifier: Modifier = Modifier,
     heroTrailerSourceUrl: String? = null,
     heroTrailerSourceAudioUrl: String? = null,
@@ -157,22 +168,53 @@ private fun BackdropArtwork(
     )
     val artworkModifier = Modifier
         .fillMaxSize()
-        .then(if (blur) Modifier.blur(30.dp) else Modifier)
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
-            .background(gradientColor),
+            .then(
+                if (cinematic) {
+                    Modifier.featherArtwork {
+                        cinematicStartFade(size.width, gradientIntensity, isRtl)
+                    }
+                } else {
+                    Modifier.background(gradientColor)
+                },
+            ),
     ) {
         val imageUrl = meta.background ?: meta.poster
         if (imageUrl != null) {
+            val artworkSize = rememberHeroArtworkSize(imageUrl)
+            val artwork = heroArtworkDecision(
+                imageWidth = artworkSize.width,
+                imageHeight = artworkSize.height,
+                frameWidth = maxWidth.value,
+                frameHeight = maxHeight.value,
+                landscapeExtraScale = 1f,
+            )
+            val portrait = artwork.fit != HeroArtworkFit.CropLandscape
+            val imageFraction = heroImageHeightFraction(artwork, maxWidth.value, maxHeight.value)
             AsyncImage(
                 model = imageUrl,
                 contentDescription = meta.name,
-                modifier = artworkModifier,
-                alignment = BiasAlignment(0f, BackdropVerticalBias),
-                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth(artwork.widthFraction)
+                    .fillMaxHeight(imageFraction)
+                    .then(if (portrait) Modifier.background(gradientColor) else Modifier),
+                alignment = if (artwork.horizontalFocus) {
+                    BiasAlignment(0f, BackdropVerticalBias)
+                } else {
+                    Alignment.Center
+                },
+                contentScale = if (artwork.fit == HeroArtworkFit.PosterColumn) {
+                    ContentScale.Fit
+                } else {
+                    ContentScale.Crop
+                },
                 onSuccess = { state ->
+                    val image = state.result.image
+                    artworkSize.onImageLoaded(image.width, image.height)
                     onBackdropLoaded(state.painter, loadedBackdropImageBitmap(state.result))
                 },
             )
@@ -207,7 +249,7 @@ private fun BackdropArtwork(
             )
         }
 
-        Box(
+        if (!cinematic) Box(
             modifier = Modifier
                 .fillMaxSize()
                 .drawWithCache {
@@ -239,6 +281,23 @@ private fun BackdropArtwork(
                 },
         )
     }
+}
+
+private fun cinematicStartFade(width: Float, intensity: Float, isRtl: Boolean): Brush {
+    val opacity = NuvioTokens.Opacity
+    fun visible(overlay: Float) = Color.Black.copy(alpha = 1f - overlay * intensity)
+    return Brush.horizontalGradient(
+        colorStops = arrayOf(
+            0.00f to Color.Transparent,
+            0.12f to visible(0.98f),
+            0.34f to visible(opacity.overlayHeavy),
+            0.62f to visible(opacity.overlayLight),
+            0.86f to visible(opacity.subtle),
+            1.00f to Color.Black,
+        ),
+        startX = if (isRtl) width else 0f,
+        endX = if (isRtl) 0f else width,
+    )
 }
 
 @Composable
@@ -390,7 +449,7 @@ fun TabletDetailHero(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
-                        imageVector = if (heroTrailerMuted) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp,
+                        imageVector = if (heroTrailerMuted) Icons.AutoMirrored.Rounded.VolumeOff else Icons.AutoMirrored.Rounded.VolumeUp,
                         contentDescription = null,
                         modifier = Modifier.size(20.dp),
                     )
@@ -413,7 +472,9 @@ private fun TabletHeroMetaRow(meta: MetaDetails, showImdbRating: Boolean) {
     }
     val validImdbRating = meta.imdbRating
         ?.takeIf { showImdbRating }
-        ?.takeIf { raw -> raw.toDoubleOrNull()?.let { it > 0.0 } == true }
+        ?.toDoubleOrNull()
+        ?.takeIf { it > 0.0 }
+        ?.let(::formatOneDecimal)
     val itemStyle = MaterialTheme.typography.titleSmall.copy(
         fontSize = NuvioTokens.Type.bodyLg,
         fontWeight = FontWeight.Bold,
@@ -452,3 +513,5 @@ private fun TabletHeroMetaRow(meta: MetaDetails, showImdbRating: Boolean) {
 private val TabletHeroHeight = 660.dp
 private val TabletHeroTopInset = 96.dp
 private const val BackdropVerticalBias = -0.6f
+
+internal val TabletArtworkBackdropAlignment: Alignment = BiasAlignment(0f, BackdropVerticalBias)

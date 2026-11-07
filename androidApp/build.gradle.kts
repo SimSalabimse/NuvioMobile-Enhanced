@@ -19,6 +19,7 @@ plugins {
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.sentry.android.gradle)
+    alias(libs.plugins.androidx.baselineprofile)
 }
 
 val localProps = Properties().apply {
@@ -89,6 +90,8 @@ android {
         manifest.srcFile("src/full/AndroidManifest.xml")
         jniLibs.directories.add("../composeApp/src/full/jniLibs")
     }
+
+    sourceSets.getByName("androidTest").assets.directories.add("../testFixtures")
 
     packaging {
         resources {
@@ -245,8 +248,16 @@ sentry {
     }
 }
 
+baselineProfile {
+    mergeIntoMain = true
+    saveInSrc = true
+    automaticGenerationDuringBuild = false
+}
+
 dependencies {
     implementation(project(":composeApp"))
+    implementation(libs.androidx.profileinstaller)
+    baselineProfile(project(":baselineprofile"))
     implementation(libs.androidx.appcompat)
     implementation(libs.compose.runtime)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
@@ -255,6 +266,7 @@ dependencies {
     androidTestImplementation("androidx.test:core:1.7.0")
     androidTestImplementation(libs.androidx.testExt.junit)
     androidTestImplementation(libs.androidx.activity.compose)
+    androidTestImplementation(libs.compose.foundation)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4:${libs.versions.composeMultiplatform.get()}")
     debugImplementation("androidx.compose.ui:ui-test-manifest:${libs.versions.composeMultiplatform.get()}")
 }

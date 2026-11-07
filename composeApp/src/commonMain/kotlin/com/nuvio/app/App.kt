@@ -2,6 +2,7 @@ package com.nuvio.app
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import com.nuvio.app.core.ui.background.AppBackgroundHost
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,6 +40,10 @@ import com.nuvio.app.navigation.TabsRoute
 
 fun disposeRoute(route: AppRoute) {
     disposeRouteResources(route)
+}
+
+fun setPlayerParkedInPictureInPicture(parked: Boolean) {
+    com.nuvio.app.core.ui.background.AppBackgroundRepository.setPlayerParked(parked)
 }
 
 @OptIn(ExperimentalCoilApi::class)
@@ -100,7 +105,10 @@ fun App(
 
 @OptIn(ExperimentalCoilApi::class)
 @Composable
-internal fun AppEnvironment(content: @Composable () -> Unit) {
+internal fun AppEnvironment(
+    drawAppBackground: Boolean = true,
+    content: @Composable () -> Unit,
+) {
     if (!platformProvidesImageLoader) {
         setSingletonImageLoaderFactory { context ->
             ImageLoader.Builder(context)
@@ -145,12 +153,21 @@ internal fun AppEnvironment(content: @Composable () -> Unit) {
     val customThemeColors by ThemeSettingsRepository.customThemeColors.collectAsStateWithLifecycle()
 
     NuvioTheme(appTheme = selectedTheme, amoled = amoledEnabled, customThemeColors = customThemeColors) {
-        if (AutomationTestMode.isActive) {
-            Box(Modifier.fillMaxSize().testTag(AUTOMATION_ACCESSIBILITY_ID)) {
+        val themed: @Composable () -> Unit = {
+            if (AutomationTestMode.isActive) {
+                Box(Modifier.fillMaxSize().testTag(AUTOMATION_ACCESSIBILITY_ID)) {
+                    content()
+                }
+            } else {
                 content()
             }
+        }
+        if (drawAppBackground) {
+            AppBackgroundHost {
+                themed()
+            }
         } else {
-            content()
+            themed()
         }
     }
 }

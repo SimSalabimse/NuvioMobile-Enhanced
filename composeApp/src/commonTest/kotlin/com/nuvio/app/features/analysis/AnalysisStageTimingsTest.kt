@@ -22,7 +22,7 @@ class AnalysisStageTimingsTest {
         )
         assertEquals(7L, timings.decodeNetMs)
         assertEquals(
-            "timings id=$id decodeMs=11 sampleLoopMs=22 fingerprintMs=3 matchMs=44 chaptersMs=0 chapterSource=- totalMs=90 " +
+            "timings id=$id decodeMs=11 sampleLoopMs=22 fingerprintMs=3 matchMs=44 clipMs=0 teachMs=0 backfillMs=0 chaptersMs=0 chapterSource=- totalMs=90 " +
                 "throttledMs=4 decodeNetMs=7 throttleLevelStart=1 throttleYields=6 qos=utility",
             timings.line(id),
         )
@@ -32,7 +32,7 @@ class AnalysisStageTimingsTest {
         assertTrue(logged.any { it == timings.line(id) })
         val fromChapters = timings.copy(chaptersMs = 8, chapterSource = "chapters")
         assertEquals(
-            "timings id=$id decodeMs=11 sampleLoopMs=22 fingerprintMs=3 matchMs=44 chaptersMs=8 chapterSource=chapters totalMs=90 " +
+            "timings id=$id decodeMs=11 sampleLoopMs=22 fingerprintMs=3 matchMs=44 clipMs=0 teachMs=0 backfillMs=0 chaptersMs=8 chapterSource=chapters totalMs=90 " +
                 "throttledMs=4 decodeNetMs=7 throttleLevelStart=1 throttleYields=6 qos=utility",
             fromChapters.line(id),
         )

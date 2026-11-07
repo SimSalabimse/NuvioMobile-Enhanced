@@ -88,7 +88,7 @@ class SyntheticSegmentSignalsTest {
         assertNull(RecapDetector.detect(tinyRecap.episode, tinyRecap.others, tinyTrace))
         assertFalse(tinyTrace.decisions.single().accepted)
 
-        val shortRecap = recapOfLength(frames = 80, introAtMs = null)
+        val shortRecap = recapOfLength(frames = 40, introAtMs = null)
         val shortTrace = SegmentTrace()
         assertNull(RecapDetector.detect(shortRecap.episode, shortRecap.others, shortTrace))
         assertEquals("rejected-short", shortTrace.decisions.single().why)
@@ -105,7 +105,7 @@ class SyntheticSegmentSignalsTest {
         val shortPreview = previewCollapsedByBlack()
         val shortPreviewTrace = SegmentTrace()
         assertNull(PreviewDetector.detect(shortPreview.episode, shortPreview.others, shortPreviewTrace))
-        assertEquals("rejected-short", shortPreviewTrace.decisions.single().why)
+        assertEquals("rejected-not-beside-credits", shortPreviewTrace.decisions.single().why)
         assertTrue(shortPreviewTrace.decisions.single().candidates >= 1)
 
         val keptPreview = nextColdOpenPreview()

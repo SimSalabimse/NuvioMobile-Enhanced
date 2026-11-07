@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -36,8 +37,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Star
-import androidx.compose.material.icons.rounded.VolumeOff
-import androidx.compose.material.icons.rounded.VolumeUp
+import androidx.compose.material.icons.automirrored.rounded.VolumeOff
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -85,6 +86,13 @@ import com.nuvio.app.core.ui.atLeastIosHitTarget
 import com.nuvio.app.core.ui.LocalDynamicArtworkBackgroundColor
 import com.nuvio.app.core.ui.rememberDynamicArtworkBackgroundEnabled
 import com.nuvio.app.core.ui.PrefetchArtworkDominantColors
+import com.nuvio.app.core.ui.HeroArtworkFit
+import com.nuvio.app.core.ui.focusedAlignment
+import com.nuvio.app.core.ui.heroArtworkDecision
+import com.nuvio.app.core.ui.heroImageHeightFraction
+import com.nuvio.app.core.ui.portraitHeroFrame
+import com.nuvio.app.core.ui.rememberHeroArtworkSize
+import com.nuvio.app.core.ui.rememberBackdropFocusState
 import com.nuvio.app.core.ui.heroStretchHeight
 import com.nuvio.app.core.ui.LocalVerticalBarPadding
 import com.nuvio.app.core.ui.ScreenActivityEffect
@@ -314,6 +322,7 @@ internal fun HomeHeroSection(
                 )
                 .clip(heroShape),
         ) {
+            val heroFrameWidth = maxWidth
             val baseLayout = homeHeroLayout(
                 maxWidthDp = maxWidth.value,
                 viewportHeightDp = viewportHeight?.value,
@@ -337,7 +346,8 @@ internal fun HomeHeroSection(
                 else -> HomeHeroArtworkSource.POSTER
             }
             val artworkParallax = if (isCardStyle) 0f else HERO_BACKGROUND_PARALLAX
-            val artworkBaseScale = if (isCardStyle) 1f else HERO_BACKGROUND_SCALE
+            val portraitFrame = portraitHeroFrame(heroFrameWidth.value, layout.heroHeight.value)
+            val artworkBaseScale = if (isCardStyle || portraitFrame) 1f else HERO_BACKGROUND_SCALE
             val heroWidthPx = with(LocalDensity.current) { maxWidth.toPx() }
             val heroHeightPx = with(LocalDensity.current) { layout.heroHeight.toPx() }
             val scrollOffsetPx by remember(listState, heroHeightPx) {
@@ -483,11 +493,41 @@ internal fun HomeHeroSection(
                             val artworkUrl = heroArtworkUrl(item, effectiveArtworkSource)
                             val isCurrentLayer = layer.page == currentPage
                             key(effectiveArtworkSource, item.type, item.id, artworkUrl) {
+                                val backdropFocus = rememberBackdropFocusState(artworkUrl)
+                                val artworkSize = rememberHeroArtworkSize(artworkUrl)
+                                val artwork = heroArtworkDecision(
+                                    imageWidth = artworkSize.width,
+                                    imageHeight = artworkSize.height,
+                                    frameWidth = heroFrameWidth.value,
+                                    frameHeight = layout.heroHeight.value,
+                                    landscapeExtraScale = if (isCardStyle) 1f else HERO_BACKGROUND_SCALE,
+                                )
+                                val portrait = artwork.fit != HeroArtworkFit.CropLandscape
+                                val imageFraction = heroImageHeightFraction(
+                                    artwork,
+                                    heroFrameWidth.value,
+                                    layout.heroHeight.value,
+                                )
+                                val scrollScale = if (artwork.scrollScaleEnabled && !isCardStyle) {
+                                    heroBackgroundScrollScale(scrollOffsetPx)
+                                } else {
+                                    1f
+                                }
+                                val drawnScale = artwork.extraScale * scrollScale
                                 AsyncImage(
                                     model = artworkUrl,
                                     contentDescription = item.name,
                                     modifier = Modifier
-                                        .fillMaxSize()
+                                        .align(Alignment.TopCenter)
+                                        .fillMaxWidth(artwork.widthFraction)
+                                        .fillMaxHeight(imageFraction)
+                                        .then(
+                                            if (portrait) {
+                                                Modifier.background(MaterialTheme.colorScheme.background)
+                                            } else {
+                                                Modifier
+                                            },
+                                        )
                                         .graphicsLayer {
                                             val offset = heroPageOffset(pagerState, layer.page)
                                             val visibility = (1f - abs(offset)).coerceIn(0f, 1f)
@@ -496,15 +536,32 @@ internal fun HomeHeroSection(
                                                 visibility > 0f -> 1f
                                                 else -> 0f
                                             }
-                                            translationX = -offset * heroWidthPx * artworkParallax
-                                            translationY = if (isCardStyle) 0f else heroBackgroundScrollTranslationY(scrollOffsetPx)
-                                            scaleX = artworkBaseScale *
-                                                if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
-                                            scaleY = artworkBaseScale *
-                                                if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
+                                            translationX = if (portrait) 0f else -offset * heroWidthPx * artworkParallax
+                                            translationY = if (portrait || isCardStyle) {
+                                                0f
+                                            } else {
+                                                heroBackgroundScrollTranslationY(scrollOffsetPx)
+                                            }
+                                            scaleX = drawnScale
+                                            scaleY = drawnScale
                                         },
-                                    alignment = if (layout.isTablet) Alignment.TopCenter else Alignment.Center,
-                                    contentScale = ContentScale.Crop,
+                                    alignment = if (artwork.horizontalFocus) {
+                                        backdropFocus.focusedAlignment(
+                                            if (layout.isTablet) Alignment.TopCenter else Alignment.Center,
+                                        )
+                                    } else {
+                                        Alignment.Center
+                                    },
+                                    contentScale = if (artwork.fit == HeroArtworkFit.PosterColumn) {
+                                        ContentScale.Fit
+                                    } else {
+                                        ContentScale.Crop
+                                    },
+                                    onSuccess = { state ->
+                                        val image = state.result.image
+                                        artworkSize.onImageLoaded(image.width, image.height)
+                                        backdropFocus.onImageLoaded(image)
+                                    },
                                 )
                             }
                         }
@@ -527,15 +584,42 @@ internal fun HomeHeroSection(
                                     HomeHeroTrailerPlaybackPositionStore.get(heroTrailerItemKey)
                                 },
                                 modifier = Modifier
-                                    .fillMaxSize()
+                                    .align(Alignment.TopCenter)
+                                    .fillMaxWidth()
+                                    .fillMaxHeight(
+                                        if (portraitFrame) {
+                                            heroImageHeightFraction(
+                                                heroArtworkDecision(
+                                                    imageWidth = 16,
+                                                    imageHeight = 9,
+                                                    frameWidth = heroFrameWidth.value,
+                                                    frameHeight = layout.heroHeight.value,
+                                                    landscapeExtraScale = 1f,
+                                                ),
+                                                heroFrameWidth.value,
+                                                layout.heroHeight.value,
+                                            )
+                                        } else {
+                                            1f
+                                        },
+                                    )
                                     .graphicsLayer {
                                         val currentPageOffset = pagerState.currentPageOffsetFraction
                                         val currentPageVisibility = (1f - abs(currentPageOffset)).coerceIn(0f, 1f)
                                         alpha = trailerReadyAlpha * currentPageVisibility
-                                        translationX = -currentPageOffset * heroWidthPx * artworkParallax
-                                        translationY = if (isCardStyle) 0f else heroBackgroundScrollTranslationY(scrollOffsetPx)
-                                        scaleX = artworkBaseScale * if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
-                                        scaleY = artworkBaseScale * if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
+                                        translationX = if (portraitFrame) 0f else -currentPageOffset * heroWidthPx * artworkParallax
+                                        translationY = if (isCardStyle || portraitFrame) {
+                                            0f
+                                        } else {
+                                            heroBackgroundScrollTranslationY(scrollOffsetPx)
+                                        }
+                                        val trailerScroll = if (isCardStyle || portraitFrame) {
+                                            1f
+                                        } else {
+                                            heroBackgroundScrollScale(scrollOffsetPx)
+                                        }
+                                        scaleX = artworkBaseScale * trailerScroll
+                                        scaleY = artworkBaseScale * trailerScroll
                                     },
                                 onReady = {
                                     if (!heroTrailerFinished) heroTrailerReady = true
@@ -689,7 +773,7 @@ internal fun HomeHeroSection(
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(
-                                imageVector = if (heroTrailerMuted) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp,
+                                imageVector = if (heroTrailerMuted) Icons.AutoMirrored.Rounded.VolumeOff else Icons.AutoMirrored.Rounded.VolumeUp,
                                 contentDescription = muteLabel,
                                 tint = Color.White,
                                 modifier = Modifier.size(muteIconSize),

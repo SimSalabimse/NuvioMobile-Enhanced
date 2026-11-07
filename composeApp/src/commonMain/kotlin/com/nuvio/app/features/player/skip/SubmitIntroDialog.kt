@@ -24,11 +24,12 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.PlayCircleOutline
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Replay
-import androidx.compose.material.icons.rounded.Send
+import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.StopCircle
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
@@ -91,6 +92,18 @@ import nuvio.composeapp.generated.resources.submit_intro_introdb_prefix
 import nuvio.composeapp.generated.resources.submit_intro_key_saved_submit_failed
 import nuvio.composeapp.generated.resources.submit_intro_service_introdb
 import nuvio.composeapp.generated.resources.submit_intro_service_label
+import nuvio.composeapp.generated.resources.analysis_part_credits
+import nuvio.composeapp.generated.resources.analysis_part_intro
+import nuvio.composeapp.generated.resources.analysis_part_previews
+import nuvio.composeapp.generated.resources.analysis_part_recap
+import nuvio.composeapp.generated.resources.movie_segment_detected
+import nuvio.composeapp.generated.resources.movie_segment_heading
+import nuvio.composeapp.generated.resources.movie_segment_own_confirmed
+import nuvio.composeapp.generated.resources.movie_segment_own_pending
+import nuvio.composeapp.generated.resources.movie_segment_public_available
+import nuvio.composeapp.generated.resources.movie_segment_public_count
+import nuvio.composeapp.generated.resources.movie_segment_public_missing
+import nuvio.composeapp.generated.resources.movie_segment_public_none
 import nuvio.composeapp.generated.resources.submit_intro_none_intro
 import nuvio.composeapp.generated.resources.submit_intro_none_outro
 import nuvio.composeapp.generated.resources.submit_intro_none_preview
@@ -267,11 +280,20 @@ fun SubmitIntroDialog(
             season = season,
             episode = episode,
         )
+        val buckets = ownListBucketsForTitle(records, tmdbId, isMovie, season, episode)
         if (contentKey.isNotEmpty()) {
             remoteFlagTypesByContentKey[contentKey] = types
-            FlagSubmitLedger.replaceTypes(contentKey, types)
-            latestSubmittedTypes.forEach { FlagSubmitLedger.rememberType(contentKey, it) }
-            OwnTheIntroDbLedger.applyListing(contentKey, types, rejected)
+            OwnTheIntroDbLedger.applyListing(
+                scope = accountScopeForService(
+                    IntroSubmitService.THE_INTRODB,
+                    playerSettings.introDbApiKey,
+                    playerSettings.theIntroDbApiKey,
+                ),
+                contentKey = contentKey,
+                confirmed = buckets.confirmed,
+                pending = buckets.pending,
+                rejected = buckets.rejected,
+            )
             localTypes = flagTypesShownForContent(contentKey, latestSubmittedTypes)
         }
         remoteTypes = types
@@ -360,7 +382,21 @@ fun SubmitIntroDialog(
                     val submittedKey = flagSubmitContentKey(imdbId, season, episode, isMovie)
                     FlagSubmitLedger.rememberType(submittedKey, segmentType)
                     if (shouldRecordOwnTheIntroDb(service, succeeded = true)) {
-                        OwnTheIntroDbLedger.remember(submittedKey, segmentType)
+                        val status = if (result == ManualSkipSubmitOutcome.ALREADY_SUBMITTED) {
+                            OwnMarkStatus.Confirmed
+                        } else {
+                            OwnMarkStatus.Pending
+                        }
+                        OwnTheIntroDbLedger.remember(
+                            accountScopeForService(
+                                service,
+                                PlayerSettingsRepository.uiState.value.introDbApiKey,
+                                PlayerSettingsRepository.uiState.value.theIntroDbApiKey,
+                            ),
+                            submittedKey,
+                            segmentType,
+                            status,
+                        )
                     }
                     canonicalFlagSegmentType(segmentType)?.let { type ->
                         if (submittedKey.isNotEmpty()) {
@@ -426,6 +462,13 @@ fun SubmitIntroDialog(
             }
             val submitIntroBody: @Composable () -> Unit = {
                 // At the top so they are found: this account's submissions and the share link.
+                if (isMovie) {
+                    MovieSegmentStatusBlock(
+                        imdbId = imdbId,
+                        contentKey = contentKey,
+                        parentMetaId = shareMetaId?.takeIf { it.isNotBlank() } ?: imdbId,
+                    )
+                }
                 MySubmissionsSection(
                     submissions = mySubmissions,
                     error = mySubmissionsError,
@@ -785,7 +828,7 @@ fun SubmitIntroDialog(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Icon(Icons.Rounded.Send, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp))
+                                Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(18.dp))
                                 Text(
                                     text = stringResource(Res.string.submit_intro_button_submit),
                                     color = MaterialTheme.colorScheme.onPrimary,
@@ -1106,7 +1149,8 @@ private fun SegmentTypeButton(
 private val remoteFlagTypesByContentKey = mutableMapOf<String, Set<String>>()
 
 private fun flagTypesShownForContent(contentKey: String, sessionTypes: Set<String>): Set<String> {
-    return (FlagSubmitLedger.loadTypes(contentKey) + sessionTypes)
+    val stored = ownSentTypes(OwnTheIntroDbLedger.load(currentTheIntroDbAccountScope()), contentKey)
+    return (stored + sessionTypes)
         .mapNotNull { canonicalFlagSegmentType(it) }
         .toSet()
 }
@@ -1119,6 +1163,115 @@ private fun normalizeSegmentTypeForSubmit(type: String): String? {
         "preview" -> "preview"
         else -> null
     }
+}
+
+/**
+ * Public catalogue versus this account. A check is only a confirmed submission from this account.
+ * A public count never becomes that check.
+ */
+@Composable
+private fun MovieSegmentStatusBlock(
+    imdbId: String,
+    contentKey: String,
+    parentMetaId: String,
+) {
+    var rows by remember(contentKey) { mutableStateOf<List<MovieSegmentRow>?>(null) }
+    var publicStatus by remember(contentKey) { mutableStateOf(PublicMediaStatus.Unavailable) }
+    androidx.compose.runtime.LaunchedEffect(contentKey, imdbId, parentMetaId) {
+        val media = TheIntroDb.getMedia(imdbId = imdbId.takeIf { it.startsWith("tt", ignoreCase = true) })
+        val status = TheIntroDb.lastPublicStatus
+        val marks = OwnTheIntroDbLedger.load(currentTheIntroDbAccountScope())
+        val stored = runCatching {
+            com.nuvio.app.features.analysis.MediaAnalysisStore.load(
+                com.nuvio.app.features.analysis.MediaAnalysisStore.keyFor(parentMetaId, null, null),
+            )
+        }.getOrNull()
+        val detected = movieDetectedTypes(stored)
+        publicStatus = status
+        rows = movieSegmentRows(
+            media = media,
+            publicStatus = status,
+            confirmed = marks.confirmed[contentKey].orEmpty(),
+            pending = marks.pending[contentKey].orEmpty(),
+            detected = detected,
+        )
+    }
+    val shown = rows ?: return
+    MovieSegmentStatusList(shown, publicStatus)
+}
+
+@Composable
+internal fun MovieSegmentStatusList(
+    rows: List<MovieSegmentRow>,
+    publicStatus: PublicMediaStatus,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = if (publicStatus == PublicMediaStatus.NoSubmissions) {
+                stringResource(Res.string.movie_segment_public_missing)
+            } else {
+                stringResource(Res.string.movie_segment_heading)
+            },
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        rows.forEach { row ->
+            MovieSegmentStatusLine(row)
+        }
+    }
+}
+
+@Composable
+private fun MovieSegmentStatusLine(row: MovieSegmentRow) {
+    val label = when (row.type) {
+        "intro" -> stringResource(Res.string.analysis_part_intro)
+        "recap" -> stringResource(Res.string.analysis_part_recap)
+        "outro" -> stringResource(Res.string.analysis_part_credits)
+        else -> stringResource(Res.string.analysis_part_previews)
+    }
+    val publicText = when {
+        row.publicCount != null -> stringResource(Res.string.movie_segment_public_count, label, row.publicCount)
+        row.publicAvailable -> stringResource(Res.string.movie_segment_public_available, label)
+        else -> stringResource(Res.string.movie_segment_public_none, label)
+    }
+    val ownText = when {
+        row.ownConfirmed -> stringResource(Res.string.movie_segment_own_confirmed)
+        row.ownPending -> stringResource(Res.string.movie_segment_own_pending)
+        row.detected -> stringResource(Res.string.movie_segment_detected)
+        else -> null
+    }
+    Row(
+        modifier = Modifier.heightIn(min = 44.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (row.ownConfirmed) {
+            Icon(
+                imageVector = Icons.Filled.Check,
+                contentDescription = stringResource(Res.string.movie_segment_own_confirmed),
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp),
+            )
+        }
+        Text(
+            text = listOfNotNull(publicText, ownText).joinToString(" · "),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+private fun movieDetectedTypes(result: com.nuvio.app.features.analysis.MediaAnalysisResult?): Set<String> {
+    if (result == null) return emptySet()
+    val user = result.userSegments.keys
+    fun range(type: String, start: Long?, end: Long?) =
+        type.takeIf { start != null && end != null && end > start && type !in user }
+    return listOfNotNull(
+        range("intro", result.introStartMs, result.introEndMs),
+        range("recap", result.recapStartMs, result.recapEndMs),
+        range("outro", result.creditsStartMs, result.creditsEndMs),
+        range("preview", result.previewStartMs, result.previewEndMs),
+    ).toSet()
 }
 
 /** Read-only list of what this account already sent TheIntroDB for the title, with each review status. */

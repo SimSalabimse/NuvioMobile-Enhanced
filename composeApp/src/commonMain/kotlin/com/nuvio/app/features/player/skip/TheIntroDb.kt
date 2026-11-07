@@ -84,25 +84,33 @@ internal object TheIntroDb {
         durationMs: Long? = null,
         apiKey: String? = null,
     ): TheIntroDbMediaResponse? {
+        lastPublicStatus = PublicMediaStatus.Unavailable
         if (AutomationTestMode.isActive) return null
         if (tmdbId == null && imdbId.isNullOrBlank()) return null
-        val url = "$MEDIA_URL?${theIntroDbMediaQuery(tmdbId, imdbId, season, episode, durationMs)}"
+        val query = if (season == null && episode == null) {
+            theIntroDbMovieQuery(tmdbId, imdbId, durationMs)
+        } else {
+            theIntroDbMediaQuery(tmdbId, imdbId, season, episode, durationMs)
+        }
+        val url = "$MEDIA_URL?$query"
         val key = if (AutomationTestMode.isActive) null else apiKey
         return try {
-            val text = if (key.isNullOrBlank()) {
-                httpGetText(url)
-            } else {
-                httpRequestRaw(
-                    method = "GET",
-                    url = url,
-                    headers = mapOf("Authorization" to "Bearer $key"),
-                    body = "",
-                ).body
-            }
-            json.decodeFromString<TheIntroDbMediaResponse>(text)
+            val response = httpRequestRaw(
+                method = "GET",
+                url = url,
+                headers = if (key.isNullOrBlank()) emptyMap() else mapOf("Authorization" to "Bearer $key"),
+                body = "",
+            )
+            val errorField = runCatching {
+                json.decodeFromString<TheIntroDbError>(response.body).error
+            }.getOrNull()
+            lastPublicStatus = classifyPublicMediaHttp(response.status, errorField)
+            if (lastPublicStatus != PublicMediaStatus.Found) return null
+            json.decodeFromString<TheIntroDbMediaResponse>(response.body)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
+            lastPublicStatus = PublicMediaStatus.Unavailable
             null
         }
     }
@@ -127,6 +135,10 @@ internal object TheIntroDb {
             false
         }
     }
+
+    /** Public GET /media for the last [getMedia] call. A 404 is [PublicMediaStatus.NoSubmissions]. */
+    var lastPublicStatus: PublicMediaStatus = PublicMediaStatus.Unavailable
+        private set
 
     /** Why the last [listMySubmissions] call stopped early, or null when it went through. */
     var lastListError: String? = null

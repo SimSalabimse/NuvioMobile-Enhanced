@@ -59,6 +59,8 @@ interface NuvioPlayerBridge {
         gamma: Int,
     )
     fun configureAudioOutput(audioOutput: String)
+    fun setNightMode(enabled: Boolean, filter: String, label: String)
+    fun isNightModeSupported(): Boolean
     fun setPlaybackSpeed(speed: Float)
     fun getVolume(): Float
     fun setVolume(volume: Float)
@@ -87,21 +89,26 @@ interface NuvioPlayerBridge {
     fun clearExternalSubtitle()
     fun clearExternalSubtitleAndSelect(trackId: Int)
     fun setSubtitleDelayMs(delayMs: Int)
+    fun setAudioDelayMs(delayMs: Int)
+    fun setAudioAmplificationDb(db: Int)
+    fun setStereoDownmix(enabled: Boolean)
     fun startAudioEnergyCapture(startTimeMs: Long)
     fun stopAudioEnergyCapture(): List<AudioEnergySample>
     fun getAudioCaptureDuration(): Long
     fun getAudioCaptureFailureReason(): String
     fun setSubtitleFontPath(path: String)
+    fun setSubtitleTextHandler(handler: SubtitleTextHandler?)
     fun applySubtitleStyle(
         textColor: String,
         backgroundColor: String,
         outlineColor: String,
         outlineSize: Float,
-        shadowOffset: Float,
         bold: Boolean,
         fontSize: Float,
         subPos: Int,
         stripSdh: Boolean,
+        styledOverlay: Boolean,
+        outlineBlur: Int,
     )
     fun getIsLoading(): Boolean
     fun getIsPlaying(): Boolean
@@ -110,6 +117,7 @@ interface NuvioPlayerBridge {
     fun getPositionMs(): Long
     /** True after mpv has reported a finite time-pos for the current file. */
     fun getTimePosValid(): Boolean
+    fun networkSpeedBytesPerSecond(): Long
     fun getBufferedMs(): Long
     fun getPlaybackSpeed(): Float
     fun getIncomingBytesPerSec(): Long
@@ -122,6 +130,10 @@ interface NuvioPlayerBridge {
     fun setKeyboardShortcutHandler(handler: ((String) -> Unit)?)
     fun getProperty(name: String): String
     fun destroy()
+}
+
+fun interface SubtitleTextHandler {
+    fun onTextChanged(text: String)
 }
 
 /**

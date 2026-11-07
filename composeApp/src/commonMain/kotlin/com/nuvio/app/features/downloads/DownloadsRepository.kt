@@ -1,5 +1,6 @@
 package com.nuvio.app.features.downloads
 
+import com.nuvio.app.features.player.SubtitleRequestExtras
 import com.nuvio.app.features.player.addonSubtitleRequests
 import com.nuvio.app.features.streams.StreamItem
 import kotlinx.atomicfu.locks.SynchronizedObject
@@ -318,7 +319,11 @@ object DownloadsRepository {
                 sourceFilename = stream.behaviorHints.filename?.trim()?.takeIf { it.isNotBlank() },
                 sourceBingeGroup = stream.behaviorHints.bingeGroup?.trim()?.takeIf { it.isNotBlank() },
                 sourceQualityLabel = streamQualityLabel(stream),
-                subtitleRequests = addonSubtitleRequests(contentType, videoId),
+                subtitleRequests = addonSubtitleRequests(
+                type = contentType,
+                videoId = videoId,
+                extras = SubtitleRequestExtras.from(stream.behaviorHints, sourceUrl),
+            ),
                 sourceSubtitles = stream.externalSubtitles,
                 localFileUri = null,
                 fileName = fileName,

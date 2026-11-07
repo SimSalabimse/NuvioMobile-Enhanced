@@ -34,7 +34,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.logging.InAppLogLevel
 import com.nuvio.app.core.logging.InAppLogger
+import com.nuvio.app.features.analysis.AnalysisExportLog
+import com.nuvio.app.features.analysis.AnalysisExportStatus
+import com.nuvio.app.features.analysis.AnalysisLogShare
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.settings_debug_export_analysis_log
+import nuvio.composeapp.generated.resources.settings_debug_export_analysis_log_empty
+import nuvio.composeapp.generated.resources.settings_debug_export_analysis_log_ready
 import nuvio.composeapp.generated.resources.settings_advanced_debugging_clear_logs
 import nuvio.composeapp.generated.resources.settings_advanced_debugging_clear_logs_description
 import nuvio.composeapp.generated.resources.settings_advanced_debugging_copy_logs
@@ -103,6 +109,18 @@ private fun DebugLogsSection(isTablet: Boolean) {
                 selectedLevel = selectedLevel,
                 onLevelSelected = { selectedLevel = it },
                 isTablet = isTablet,
+            )
+            SettingsGroupDivider(isTablet = isTablet)
+            val analysisExport = AnalysisExportLog.export()
+            SettingsNavigationRow(
+                title = stringResource(Res.string.settings_debug_export_analysis_log),
+                description = if (analysisExport.status == AnalysisExportStatus.Empty) {
+                    stringResource(Res.string.settings_debug_export_analysis_log_empty)
+                } else {
+                    stringResource(Res.string.settings_debug_export_analysis_log_ready, analysisExport.lineCount)
+                },
+                isTablet = isTablet,
+                onClick = { AnalysisLogShare.share(AnalysisExportLog.export()) },
             )
             SettingsGroupDivider(isTablet = isTablet)
             SettingsNavigationRow(

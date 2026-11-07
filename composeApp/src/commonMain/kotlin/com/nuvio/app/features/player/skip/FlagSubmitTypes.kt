@@ -43,6 +43,61 @@ internal fun submittedFlagTypesForTitle(
     episode: Int,
 ): Set<String> = flagTypesForTitle(records, tmdbId, isMovie, season, episode, rejected = false)
 
+internal enum class ListStatusBucket {
+    Confirmed,
+    Pending,
+    Rejected,
+}
+
+/**
+ * Review words from this account's list.
+ * A 200 leaves the row pending, including a list status of "submitted".
+ * Approved, published, and a duplicate (the 409 case) are confirmed.
+ * Blank and unknown words stay pending. They are not a filled check.
+ */
+internal fun listStatusBucket(status: String): ListStatusBucket = when (status.trim().lowercase()) {
+    "rejected", "declined", "denied" -> ListStatusBucket.Rejected
+    "approved", "accepted", "active", "duplicate", "confirmed", "published" -> ListStatusBucket.Confirmed
+    else -> ListStatusBucket.Pending
+}
+
+internal data class OwnListBuckets(
+    val confirmed: Set<String> = emptySet(),
+    val pending: Set<String> = emptySet(),
+    val rejected: Set<String> = emptySet(),
+)
+
+/** This account's rows for one title, split by review status. Community data is not an input. */
+internal fun ownListBucketsForTitle(
+    records: List<FlagSubmissionRecord>,
+    tmdbId: Int,
+    isMovie: Boolean,
+    season: Int,
+    episode: Int,
+): OwnListBuckets {
+    if (tmdbId <= 0) return OwnListBuckets()
+    val confirmed = linkedSetOf<String>()
+    val pending = linkedSetOf<String>()
+    val rejected = linkedSetOf<String>()
+    records.forEach { record ->
+        if (record.tmdbId != tmdbId) return@forEach
+        val movie = record.type.equals("movie", ignoreCase = true)
+        if (movie != isMovie) return@forEach
+        if (!isMovie && (record.season != season || record.episode != episode)) return@forEach
+        val type = canonicalFlagSegmentType(record.segment) ?: return@forEach
+        when (listStatusBucket(record.status)) {
+            ListStatusBucket.Confirmed -> confirmed += type
+            ListStatusBucket.Pending -> pending += type
+            ListStatusBucket.Rejected -> rejected += type
+        }
+    }
+    return OwnListBuckets(
+        confirmed = confirmed - rejected,
+        pending = pending - confirmed - rejected,
+        rejected = rejected,
+    )
+}
+
 /** Rejected rows for this title. They must not draw a check. */
 internal fun rejectedFlagTypesForTitle(
     records: List<FlagSubmissionRecord>,
@@ -63,7 +118,7 @@ private fun flagTypesForTitle(
     if (tmdbId <= 0) return emptySet()
     return records.mapNotNullTo(linkedSetOf()) { record ->
         if (record.tmdbId != tmdbId) return@mapNotNullTo null
-        val isRejected = record.status.trim().lowercase() == "rejected"
+        val isRejected = listStatusBucket(record.status) == ListStatusBucket.Rejected
         if (isRejected != rejected) return@mapNotNullTo null
         val movie = record.type.equals("movie", ignoreCase = true)
         if (movie != isMovie) return@mapNotNullTo null

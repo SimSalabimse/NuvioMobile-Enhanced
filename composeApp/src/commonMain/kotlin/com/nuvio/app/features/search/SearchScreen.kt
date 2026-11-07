@@ -1,5 +1,7 @@
 package com.nuvio.app.features.search
 
+import androidx.compose.ui.graphics.Color
+import com.nuvio.app.core.ui.background.appBackgroundCover
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +20,14 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.runtime.mutableIntStateOf
+import com.nuvio.app.core.ui.NuvioIconActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -44,6 +54,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.ui.NuvioInputField
+import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.nuvioConsumePointerEvents
@@ -96,6 +107,8 @@ fun SearchScreen(
 ) {
     val focusRequester = remember { FocusRequester() }
     var isSearchFocused by remember { mutableStateOf(false) }
+    var isSearchVisible by rememberSaveable { mutableStateOf(false) }
+    var searchFocusRequest by remember { mutableIntStateOf(0) }
 
     ScreenActivityEffect(listState) { screenActive ->
         if (!screenActive) {
@@ -106,7 +119,8 @@ fun SearchScreen(
 
     ScreenActivityEffect(searchFocusRequestCount) { screenActive ->
         if (screenActive && searchFocusRequestCount > 0) {
-            focusRequester.requestFocus()
+            isSearchVisible = true
+            searchFocusRequest++
         }
     }
 
@@ -241,28 +255,59 @@ fun SearchScreen(
         val homeSectionPadding = remember(maxWidth) {
             homeSectionHorizontalPaddingForWidth(maxWidth.value)
         }
-        val headerTitle = when {
-            query.isNotBlank() -> stringResource(Res.string.compose_nav_search)
-            discoverInFocus -> stringResource(Res.string.compose_search_discover_title)
-            else -> stringResource(Res.string.compose_nav_search)
+        val searchShown = isSearchVisible || query.isNotBlank()
+        val headerTitle = if (searchShown) {
+            stringResource(Res.string.compose_nav_search)
+        } else {
+            stringResource(Res.string.compose_search_discover_title)
         }
 
         androidx.compose.foundation.layout.Column(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .appBackgroundCover(MaterialTheme.colorScheme.background),
+            ) {
                 androidx.compose.foundation.layout.Column(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     NuvioScreenHeader(
                         title = headerTitle,
                         modifier = Modifier.padding(horizontal = 16.dp),
+                        actions = {
+                            NuvioIconActionButton(
+                                icon = if (searchShown) Icons.Rounded.Close else Icons.Rounded.Search,
+                                contentDescription = stringResource(Res.string.compose_nav_search),
+                                onClick = {
+                                    if (searchShown) {
+                                        query = ""
+                                        isSearchFocused = false
+                                        isSearchVisible = false
+                                    } else {
+                                        isSearchVisible = true
+                                        searchFocusRequest++
+                                    }
+                                },
+                            )
+                        },
                     )
                     androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(6.dp))
+                    AnimatedVisibility(
+                        visible = searchShown,
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut(),
+                    ) {
+                    androidx.compose.foundation.layout.Column {
+                    LaunchedEffect(searchFocusRequest) {
+                        if (searchFocusRequest > 0) runCatching { focusRequester.requestFocus() }
+                    }
                     androidx.compose.foundation.layout.Box(modifier = Modifier.padding(horizontal = 16.dp)) {
                         NuvioInputField(
                             value = query,
                             onValueChange = { query = it },
                             enabled = !networkStatusUiState.isOfflineLike,
                             placeholder = stringResource(Res.string.compose_search_placeholder),
+                            shape = RoundedCornerShape(NuvioTokens.Radius.xl),
                             modifier = Modifier
                                 .focusRequester(focusRequester)
                                 .onFocusChanged { isSearchFocused = it.isFocused },
@@ -282,6 +327,19 @@ fun SearchScreen(
                         )
                     }
                     androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(14.dp))
+                    }
+                    }
+                    if (query.isBlank()) {
+                        DiscoverFilterRow(
+                            state = discoverUiState,
+                            modifier = Modifier
+                                .padding(horizontal = 16.dp)
+                                .padding(top = 8.dp, bottom = 14.dp),
+                            onTypeSelected = SearchRepository::selectDiscoverType,
+                            onCatalogSelected = SearchRepository::selectDiscoverCatalog,
+                            onGenreSelected = SearchRepository::selectDiscoverGenre,
+                        )
+                    }
                 }
             }
 
@@ -292,30 +350,6 @@ fun SearchScreen(
                 autoHidesNativeTabBar = true,
                 modifier = Modifier.weight(1f),
             ) {
-                if (query.isBlank()) {
-                    item {
-                        DiscoverSectionHeader(modifier = Modifier.padding(horizontal = 16.dp))
-                    }
-                    stickyHeader {
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            Box(
-                                modifier = Modifier
-                                    .matchParentSize()
-                                    .background(MaterialTheme.colorScheme.background)
-                                    .nuvioConsumePointerEvents(),
-                            )
-                            DiscoverFilterRow(
-                                state = discoverUiState,
-                                modifier = Modifier
-                                    .padding(horizontal = 16.dp)
-                                    .padding(top = 8.dp, bottom = 14.dp),
-                                onTypeSelected = SearchRepository::selectDiscoverType,
-                                onCatalogSelected = SearchRepository::selectDiscoverCatalog,
-                                onGenreSelected = SearchRepository::selectDiscoverGenre,
-                            )
-                        }
-                    }
-                }
                 if (query.isBlank()) {
                     if (isSearchFocused && recentSearches.isNotEmpty()) {
                         item(key = "recent_searches") {

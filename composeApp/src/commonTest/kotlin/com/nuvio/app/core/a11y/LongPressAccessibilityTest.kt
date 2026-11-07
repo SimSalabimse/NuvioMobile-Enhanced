@@ -78,6 +78,7 @@ class LongPressAccessibilityTest {
                 "episode.rate",
                 "episode.play_manually",
                 "episode.submit_segment",
+                "episode.watch_privately",
             ),
             zoomIds,
         )
@@ -102,7 +103,13 @@ class LongPressAccessibilityTest {
             labels,
         ).map { it.id }
         assertEquals(
-            listOf("episode.watched", "episode.previous", "episode.season", "episode.submit_segment"),
+            listOf(
+                "episode.watched",
+                "episode.previous",
+                "episode.season",
+                "episode.submit_segment",
+                "episode.watch_privately",
+            ),
             watchedIds,
         )
     }
@@ -188,6 +195,7 @@ class LongPressAccessibilityTest {
                     "episode.download",
                     "episode.play_manually",
                     "episode.submit_segment",
+                    "episode.watch_privately",
                 ),
             ),
             Triple(
@@ -246,5 +254,6 @@ class LongPressAccessibilityTest {
         seasonOverview = "Season overview",
         libraryLists = "Library lists",
         submitSegment = "Submit segment only",
+        watchPrivately = "Watch privately",
     )
 }

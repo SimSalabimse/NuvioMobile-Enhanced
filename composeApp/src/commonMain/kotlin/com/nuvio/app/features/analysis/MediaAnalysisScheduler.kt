@@ -8,6 +8,7 @@ import com.nuvio.app.features.downloads.FinishedDownloadDeletion
 import com.nuvio.app.features.downloads.InAppPlaybackKeepAlive
 import com.nuvio.app.features.downloads.hasStoredFingerprint
 import kotlinx.atomicfu.atomic
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -294,6 +295,9 @@ internal object MediaAnalysisScheduler {
                 !MediaAnalyzerPlatform.isCharging()
             ) {
                 InAppLogger.debug("Analysis", "waiting for charger")
+                if (MediaAnalysisStatus.job.value !is AnalysisJobState.WaitingForCharger) {
+                    exportNote("-", "queue", "charger", "waiting")
+                }
                 MediaAnalysisStatus.setJob(AnalysisJobState.WaitingForCharger)
                 // In the app, keep checking: nothing else starts the queue when the charger goes in.
                 if (fromBackgroundTask) return false
@@ -308,11 +312,17 @@ internal object MediaAnalysisScheduler {
                 com.nuvio.app.features.downloads.PlaybackPriority.Level.Strained &&
                 !strainExemptReady()
             ) {
+                if (MediaAnalysisStatus.job.value !is AnalysisJobState.WaitingForPlayback) {
+                    exportNote("-", "queue", "playback", "waiting")
+                }
                 MediaAnalysisStatus.setJob(AnalysisJobState.WaitingForPlayback)
                 delay(PLAYBACK_POLL_MS)
                 continue
             }
             val item = nextPending() ?: run {
+                if (MediaAnalysisStatus.job.value !is AnalysisJobState.Idle) {
+                    exportNote("-", "queue", "idle", "no-pending")
+                }
                 MediaAnalysisStatus.setJob(AnalysisJobState.Idle)
                 scheduleRetryKick()
                 return true
@@ -321,12 +331,23 @@ internal object MediaAnalysisScheduler {
             currentInBackground = fromBackgroundTask
             val pass = try {
                 analyzeOne(item)
+            } catch (cancelled: CancellationException) {
+                exportNote(item.id, "cancel", "queue", "cancelled")
+                throw cancelled
+            } catch (_: Throwable) {
+                MediaAnalysisStatus.recordFailure(item, ANALYSIS_STOPPED_REASON)
+                exportNote(item.id, "error", "queue", "stopped")
+                PassResult.Retry
             } finally {
                 currentItem = null
                 MediaAnalysisStatus.setJob(AnalysisJobState.Idle)
                 MediaAnalysisStatus.resultsChanged()
             }
-            if (pass == PassResult.Cancelled || !scopeActive()) return false
+            if (pass == PassResult.Cancelled || !scopeActive()) {
+                exportNote(item.id, "cancel", "queue", "cancelled")
+                return false
+            }
+            exportNote(item.id, "queue", pass.name.lowercase(), "finished-pass")
             val prior = resolveAnalysisAttempts(MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item)), item.fileName)
             val kind = classifyAnalysisAttempt(
                 scopeActive = pass != PassResult.Cancelled,
@@ -420,24 +441,71 @@ internal object MediaAnalysisScheduler {
     private var currentItem: DownloadItem? = null
     private var currentInBackground = false
 
-    private fun stage(stage: AnalysisStage) {
+    private fun stage(stage: AnalysisStage, activity: String = activityFor(stage)) {
         val item = currentItem ?: return
         val title = buildString {
             append(item.title)
             if (item.seasonNumber != null && item.episodeNumber != null) append(" S${item.seasonNumber}E${item.episodeNumber}")
         }
-        MediaAnalysisStatus.setJob(AnalysisJobState.Running(item.id, title, stage, if (stage == AnalysisStage.Audio || stage == AnalysisStage.Previews) 0.0 else -1.0, currentInBackground))
+        val since = com.nuvio.app.features.streams.epochMs()
+        MediaAnalysisStatus.setJob(
+            AnalysisJobState.Running(
+                item.id,
+                title,
+                stage,
+                if (stage == AnalysisStage.Audio || stage == AnalysisStage.Previews) 0.0 else -1.0,
+                currentInBackground,
+                activity = activity,
+                activitySinceEpochMs = since,
+            ),
+        )
+        InAppLogger.info("Analysis", "activity id=${item.id} $activity")
+        exportNote(item.id, "stage", activity, "")
     }
 
-    /** Runs [block] while copying the platform analyzer's progress into the status every half second. */
-    private suspend fun <T> withProgress(block: suspend () -> T): T {
+    /** Same stage, new step. The percent stays. The clock starts again for this step. */
+    private fun noteActivity(activity: String) {
+        val current = MediaAnalysisStatus.job.value as? AnalysisJobState.Running
+        if (current == null) {
+            stage(AnalysisStage.Matching, activity)
+            return
+        }
+        if (current.activity == activity) return
+        MediaAnalysisStatus.setJob(
+            current.copy(activity = activity, activitySinceEpochMs = com.nuvio.app.features.streams.epochMs()),
+        )
+        InAppLogger.info("Analysis", "activity id=${current.itemId} $activity")
+        exportNote(current.itemId, "stage", activity, "")
+    }
+
+    private fun exportNote(jobId: String, kind: String, stage: String, detail: String) {
+        AnalysisExportLog.record(jobId, kind, stage, detail)
+    }
+
+    private fun activityFor(stage: AnalysisStage): String = when (stage) {
+        AnalysisStage.Audio -> "audio"
+        AnalysisStage.Matching -> "match"
+        AnalysisStage.Recap -> "recap"
+        AnalysisStage.Previews -> "previews"
+    }
+
+    /**
+     * Runs [block] while copying the platform analyzer's progress into the status every half second.
+     * A long decode is left running. The percent moves only when the platform reports a new value.
+     */
+    private suspend fun <T> withProgress(block: suspend () -> T): T? {
         // The test stand-in does not report progress, and a poller would stall the host test clock.
         if (analyzeFileForTest != null) return block()
         return kotlinx.coroutines.coroutineScope {
             val poller = launch {
+                var last = Double.NaN
                 while (isActive) {
                     delay(500)
-                    MediaAnalysisStatus.updateProgress(MediaAnalyzerPlatform.progress())
+                    val progress = MediaAnalyzerPlatform.progress()
+                    if (analysisProgressMoved(last, progress)) {
+                        last = progress
+                        MediaAnalysisStatus.updateProgress(progress)
+                    }
                 }
             }
             try {
@@ -451,14 +519,15 @@ internal object MediaAnalysisScheduler {
     private suspend fun scopeActive(): Boolean = kotlin.coroutines.coroutineContext.isActive
 
     private fun nextPending(): DownloadItem? = DownloadsRepository.uiState.value.items
-        .filter { it.status == DownloadStatus.Completed && it.id !in failedThisSession && !isBackingOff(it.id) }
+        .filter { analysisAcceptsDownload(it.status) && it.id !in failedThisSession && !isBackingOff(it.id) }
         .sortedWith(compareBy<DownloadItem> { if (it.id == priorityItemId) 0 else 1 }.then(AnalysisOrder))
         .firstOrNull { item ->
             val existing = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item))
             shouldQueueAnalysis(
                 stored = existing,
                 fileName = item.fileName,
-                needsDerivedWork = existing == null || existing.fileName != item.fileName || needsDerived(existing),
+                needsDerivedWork = existing == null || existing.fileName != item.fileName || needsDerived(existing) ||
+                    shouldRecapture(existing, MediaAnalyzerPlatform.supported),
                 backingOff = false,
             )
         }
@@ -478,19 +547,22 @@ internal object MediaAnalysisScheduler {
     }
 
     private suspend fun analyzeOne(item: DownloadItem): PassResult {
+        exportNote(item.id, "queue", "start", "s=${item.seasonNumber ?: -1} e=${item.episodeNumber ?: -1}")
         val uri = DownloadsRepository.playableLocalFileUri(item) ?: run {
             MediaAnalysisStatus.recordFailure(item, "The file is not on this device")
+            exportNote(item.id, "error", "file", "missing")
             return if (scopeActive()) PassResult.Retry else PassResult.Cancelled
         }
         if (!uri.startsWith("file:")) {
             MediaAnalysisStatus.recordFailure(item, "The file is not on this device")
+            exportNote(item.id, "error", "file", "not-local")
             return if (scopeActive()) PassResult.Retry else PassResult.Cancelled
         }
         val stored = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item))
             ?.takeIf { it.fileName == item.fileName && it.hasStoredFingerprint() }
         val base: MediaAnalysisResult
         val trace: SegmentTrace
-        if (stored != null && !stored.needsSiblingClipRetry()) {
+        if (stored != null && !stored.needsSiblingClipRetry() && !shouldRecapture(stored, MediaAnalyzerPlatform.supported)) {
             base = stored
             trace = SegmentTrace()
         } else {
@@ -555,6 +627,7 @@ internal object MediaAnalysisScheduler {
                 previewMark != null ->
                     trace.replace("preview", userMarkDecision("preview", previewMark.startMs, previewMark.endMs))
                 else -> {
+                    noteActivity("preview")
                     val preview = withContext(Dispatchers.Default) {
                         PreviewDetector.detect(result, siblings, trace, priors.preview)
                     }
@@ -631,18 +704,22 @@ internal object MediaAnalysisScheduler {
     )
 
     /**
-     * [already] is a stored fingerprint for this same file (a sibling-clip retry). The file is not
-     * decoded again. Null means the audio pass still has to run.
+     * [already] is a stored fingerprint for this same file. It is reused for a sibling-clip retry.
+     * A print from the shorter capture window is decoded again when this device can analyse audio.
+     * Null means the audio pass still has to run.
      */
     private suspend fun audioAnalysis(item: DownloadItem, uri: String, already: MediaAnalysisResult?): AudioPass? {
         val started = TimeSource.Monotonic.markNow()
         var matchMs = 0L
-        suspend fun <T> duringMatch(block: suspend () -> T): T {
+        var clipMs = 0L
+        var teachMs = 0L
+        var backfillMs = 0L
+        suspend fun <T> timed(add: (Long) -> Unit, block: suspend () -> T): T {
             val mark = TimeSource.Monotonic.markNow()
             try {
                 return block()
             } finally {
-                matchMs += mark.elapsedNow().inWholeMilliseconds
+                add(mark.elapsedNow().inWholeMilliseconds)
             }
         }
         var decodeMs = 0L
@@ -657,7 +734,8 @@ internal object MediaAnalysisScheduler {
         val key = MediaAnalysisStore.keyFor(item)
         val trace = SegmentTrace()
         val previous = already ?: MediaAnalysisStore.load(key)
-        var result = if (already != null && already.fileName == item.fileName && already.hasStoredFingerprint()) {
+        val recapture = shouldRecapture(already, MediaAnalyzerPlatform.supported)
+        var result = if (already != null && already.fileName == item.fileName && already.hasStoredFingerprint() && !recapture) {
             already
         } else {
             InAppLogger.info("Analysis", "analyse start id=${item.id} file=${item.fileName}")
@@ -672,7 +750,13 @@ internal object MediaAnalysisScheduler {
                 ChapterSkipClassifier.clear()
             } ?: run {
                 InAppLogger.warn("Analysis", "analyse failed id=${item.id}")
-                if (scopeActive()) MediaAnalysisStatus.recordFailure(item, MediaAnalyzerPlatform.lastError() ?: "Could not analyse the audio")
+                exportNote(item.id, "error", "audio", "decode-failed")
+                if (scopeActive()) {
+                    MediaAnalysisStatus.recordFailure(
+                        item,
+                        MediaAnalyzerPlatform.lastError() ?: "Could not analyse the audio",
+                    )
+                }
                 return null
             }
             val raw = runCatching { json.decodeFromString(RawMediaAnalysis.serializer(), text) }.getOrNull() ?: run {
@@ -701,6 +785,7 @@ internal object MediaAnalysisScheduler {
                 tailFingerprint = raw.tail,
                 tailStartMs = raw.tailStartMs,
                 userSegments = previous?.userSegments.orEmpty(),
+                rejectedSegments = previous?.rejectedSegments.orEmpty(),
                 analysisAttempts = resolveAnalysisAttempts(previous, item.fileName),
             )
         }
@@ -716,7 +801,11 @@ internal object MediaAnalysisScheduler {
                 .take(MAX_SIBLINGS)
             result = if (siblings.isNotEmpty()) {
                 stage(AnalysisStage.Matching)
-                duringMatch {
+                val matchDetail = "siblings=${siblings.size} headChars=${result.headFingerprint?.length ?: 0} " +
+                    "tailChars=${result.tailFingerprint?.length ?: 0}"
+                InAppLogger.info("Analysis", "match id=${item.id} $matchDetail")
+                exportNote(item.id, "stage", "match", matchDetail)
+                timed({ matchMs += it }) {
                     withContext(Dispatchers.Default) {
                         result.applyingSeasonDetection(siblings, priors.intro, priors.credits, trace)
                     }
@@ -737,12 +826,19 @@ internal object MediaAnalysisScheduler {
                 .filter { it.userSegments.containsKey("intro") || it.userSegments.containsKey("outro") }
             if (references.isNotEmpty()) {
                 stage(AnalysisStage.Matching)
-                result = duringMatch { withContext(Dispatchers.Default) { SkipLearning.learnFromReferences(result, references) } }
+                result = timed({ matchMs += it }) {
+                    withContext(Dispatchers.Default) { SkipLearning.learnFromReferences(result, references) }
+                }
             }
             // No stored episode to match: fingerprint a clip of the nearest episode with known times.
             if (siblings.isEmpty() && references.isEmpty()) {
-                stage(AnalysisStage.Matching)
-                val clip = duringMatch { SiblingClipReference.apply(item, result) }
+                stage(AnalysisStage.Matching, "clip")
+                val clipDetail = "headChars=${result.headFingerprint?.length ?: 0}"
+                InAppLogger.info("Analysis", "clip id=${item.id} $clipDetail")
+                exportNote(item.id, "stage", "clip", clipDetail)
+                val clip = timed({ clipMs += it }) {
+                    SiblingClipReference.apply(item, result)
+                }
                 result = clip.result
                 clipUnavailable = clip.attempt == SiblingClipAttempt.Unavailable
             }
@@ -776,7 +872,7 @@ internal object MediaAnalysisScheduler {
         }
         val chaptersMs = rawChaptersMs.coerceAtLeast(0L) + chapterMark.elapsedNow().inWholeMilliseconds
         val chapterSource = if (result.chapterTypes.isEmpty()) "-" else com.nuvio.app.features.player.CHAPTER_SKIP_PROVIDER
-        result = duringMatch { saveFingerprint(item, result) }
+        result = saveFingerprint(item, result) { backfillMs += it }
         // The season back-fill can re-run detection on this episode; chapter times outrank it.
         if (fileChapters.isNotEmpty() && result.chapterTypes.isNotEmpty()) {
             val again = result.applyingChapterSegments(
@@ -795,7 +891,12 @@ internal object MediaAnalysisScheduler {
         if (season != null && item.episodeNumber != null &&
             (result.userSegments.containsKey("intro") || result.userSegments.containsKey("outro"))
         ) {
-            duringMatch { SkipLearning.teachSeason(item.parentMetaId, season, key) }
+            noteActivity("teach")
+            InAppLogger.info("Analysis", "teach id=${item.id} season=$season")
+            exportNote(item.id, "stage", "teach", "season=$season")
+            timed({ teachMs += it }) {
+                SkipLearning.teachSeason(item.parentMetaId, season, key)
+            }
         }
         InAppLogger.info(
             "Analysis",
@@ -809,6 +910,9 @@ internal object MediaAnalysisScheduler {
                 sampleLoopMs = sampleLoopMs.coerceAtLeast(0L),
                 fingerprintMs = fingerprintMs.coerceAtLeast(0L),
                 matchMs = matchMs.coerceAtLeast(0L),
+                clipMs = clipMs.coerceAtLeast(0L),
+                teachMs = teachMs.coerceAtLeast(0L),
+                backfillMs = backfillMs.coerceAtLeast(0L),
                 totalMs = started.elapsedNow().inWholeMilliseconds.coerceAtLeast(0L),
                 chaptersMs = chaptersMs.coerceAtLeast(0L),
                 chapterSource = chapterSource,
@@ -822,16 +926,25 @@ internal object MediaAnalysisScheduler {
     }
 
     /** Saves [result], then fills intro, credits, recap, and preview on the rest of the season from stored fingerprints. */
-    private suspend fun saveFingerprint(item: DownloadItem, result: MediaAnalysisResult): MediaAnalysisResult {
+    private suspend fun saveFingerprint(
+        item: DownloadItem,
+        result: MediaAnalysisResult,
+        onBackfillMs: (Long) -> Unit,
+    ): MediaAnalysisResult {
         MediaAnalysisStore.save(result)
         val season = item.seasonNumber ?: return result
         if (item.episodeNumber == null || !result.hasStoredFingerprint()) return result
         if (!MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.IntroDetection)) return result
         val stored = MediaAnalysisStore.seasonResults(item.parentMetaId, season)
         val detectRecap = MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.RecapDetection)
+        noteActivity("backfill")
+        InAppLogger.info("Analysis", "backfill id=${item.id} stored=${stored.size}")
+        exportNote(item.id, "stage", "backfill", "stored=${stored.size}")
+        val mark = TimeSource.Monotonic.markNow()
         val filled = withContext(Dispatchers.Default) {
             backfillSeasonOnFingerprintSave(saved = result, stored = stored, detectRecap = detectRecap)
         }
+        onBackfillMs(mark.elapsedNow().inWholeMilliseconds)
         var current = result
         filled.forEach { updated ->
             MediaAnalysisStore.save(updated)

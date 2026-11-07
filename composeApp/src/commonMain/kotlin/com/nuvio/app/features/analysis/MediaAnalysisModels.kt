@@ -169,8 +169,36 @@ internal data class ThumbnailSheets(
 
 internal fun thumbnailSheetFileName(key: String, index: Int): String = "${key}_thumbs_$index.jpg"
 
-internal const val HEAD_FINGERPRINT_MS = 10 * 60_000L
-internal const val TAIL_FINGERPRINT_MS = 8 * 60_000L
+/**
+ * Opening audio kept for intro and recap matching. Long enough for a title that starts after a
+ * long first act. A title past this point is not in the print. Keep in step with
+ * `MediaAnalyzerSampleLoop.headWindowMs`.
+ */
+internal const val HEAD_FINGERPRINT_MS = 25 * 60_000L
+
+/**
+ * Ending audio kept for credits and preview matching. Keep in step with `MediaAnalysisRun.tailMs`.
+ * Credits longer than this window are only found for the part that was captured.
+ */
+internal const val TAIL_FINGERPRINT_MS = 15 * 60_000L
+
+/**
+ * True when a stored print is shorter than the capture window for this file. Older results kept
+ * the first 10 minutes and the last 8. A late title is not in those prints.
+ * A file shorter than the window is complete once its print covers the file.
+ */
+internal fun MediaAnalysisResult.capturedWindowIsShort(): Boolean {
+    val step = fingerprintStepMs.coerceAtLeast(1).toLong()
+    if (durationMs <= 0L || step <= 0L) return false
+    fun short(encoded: String?, limitMs: Long): Boolean {
+        val frames = decodeFingerprint(encoded)
+        if (frames.isEmpty()) return false
+        val expected = (minOf(limitMs, durationMs) / step).toInt()
+        if (expected <= 0) return false
+        return frames.size + 5 < expected * 9 / 10
+    }
+    return short(headFingerprint, HEAD_FINGERPRINT_MS) || short(tailFingerprint, TAIL_FINGERPRINT_MS)
+}
 
 /** ReplayGain 2 reference level; films and episodes land a little under music targets. */
 internal const val LOUDNESS_TARGET_LUFS = -18.0

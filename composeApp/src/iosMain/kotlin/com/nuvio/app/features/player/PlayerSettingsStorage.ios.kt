@@ -20,6 +20,7 @@ actual object PlayerSettingsStorage {
     private const val pendingExternalPlaybackKey = "pending_external_playback"
     private const val playbackBrightnessKey = "playback_brightness"
     private const val useLegacyPlayerLayoutKey = "use_legacy_player_layout"
+    private const val showPlayerTitleLogoKey = "show_player_title_logo"
     private const val showLoadingOverlayKey = "show_loading_overlay"
     private const val showPlayerLoadingStatusKey = "show_player_loading_status"
     private const val pauseOverlayEnabledKey = "pause_overlay_enabled"
@@ -28,10 +29,15 @@ actual object PlayerSettingsStorage {
     private const val holdToSpeedEnabledKey = "hold_to_speed_enabled"
     private const val holdToSpeedValueKey = "hold_to_speed_value"
     private const val skipBackwardSecondsKey = "skip_backward_seconds"
+    private const val skipIntroOffsetSecondsKey = "skip_intro_offset_seconds"
     private const val toolbarLayoutKey = "player_toolbar_layout"
+    private const val legacyBottomButtonsKey = "legacy_player_bottom_buttons"
+    private const val legacyTopButtonsKey = "legacy_player_top_buttons"
     private const val skipForwardSecondsKey = "skip_forward_seconds"
     private const val touchGesturesEnabledKey = "touch_gestures_enabled"
     private const val swipeToSeekEnabledKey = "swipe_to_seek_enabled"
+    private const val playerControlGlassEnabledKey = "player_glass_effect_enabled"
+    private const val showSkipButtonsKey = "player_show_skip_buttons"
     private const val seekPreviewEnabledKey = "seek_preview_enabled"
     private const val movieRecommendationsEnabledKey = "movie_recommendations_enabled"
     private const val autoShowSubtitlesOnRewindEnabledKey = "auto_show_subtitles_on_rewind_enabled"
@@ -45,73 +51,93 @@ actual object PlayerSettingsStorage {
     private const val preferredSubtitleLanguageKey = "preferred_subtitle_language"
     private const val secondaryPreferredSubtitleLanguageKey = "secondary_preferred_subtitle_language"
     private const val subtitleTextColorKey = "subtitle_text_color"
+    private const val subtitleAppearanceKey = "subtitle_appearance"
     private const val subtitleBackgroundColorKey = "subtitle_background_color"
-    private const val subtitleCustomFontKey = "subtitle_custom_font"
-    private const val subtitleOutlineColorKey = "subtitle_outline_color"
-    private const val subtitleOutlineEnabledKey = "subtitle_outline_enabled"
-    private const val subtitleOutlineWidthKey = "subtitle_outline_width"
-    private const val subtitleShadowEnabledKey = "subtitle_shadow_enabled"
-    private const val subtitleShadowStrengthKey = "subtitle_shadow_strength"
-    private const val subtitleBoldKey = "subtitle_bold"
-    private const val subtitleFontSizeSpKey = "subtitle_font_size_sp"
-    private const val subtitleBottomOffsetKey = "subtitle_bottom_offset"
-    private const val subtitleStripSdhKey = "subtitle_strip_sdh"
-    private const val subtitleUseForcedSubtitlesKey = "subtitle_use_forced_subtitles"
-    private const val subtitleShowOnlyPreferredLanguagesKey = "subtitle_show_only_preferred_languages"
-    private const val streamReuseLastLinkEnabledKey = "stream_reuse_last_link_enabled"
-    private const val streamReuseLastLinkCacheHoursKey = "stream_reuse_last_link_cache_hours"
-    private const val androidPlaybackEngineKey = "android_playback_engine"
-    private const val androidLibmpvVideoOutputKey = "android_libmpv_video_output"
-    private const val androidLibmpvHardwareDecodingEnabledKey = "android_libmpv_hardware_decoding_enabled"
-    private const val androidLibmpvYuv420pEnabledKey = "android_libmpv_yuv420p_enabled"
-    private const val androidExoChaptersEnabledKey = "android_exo_chapters_enabled"
-    private const val decoderPriorityKey = "decoder_priority"
-    private const val mapDV7ToHevcKey = "map_dv7_to_hevc"
-    private const val tunnelingEnabledKey = "tunneling_enabled"
     private const val androidAudioPassthroughEnabledKey = "android_audio_passthrough_enabled"
-    private const val streamAutoPlayModeKey = "stream_auto_play_mode"
-    private const val streamAutoPlaySourceKey = "stream_auto_play_source"
-    private const val streamAutoPlaySelectedAddonsKey = "stream_auto_play_selected_addons"
-    private const val streamAutoPlaySelectedPluginsKey = "stream_auto_play_selected_plugins"
-    private const val streamAutoPlayRegexKey = "stream_auto_play_regex"
-    private const val streamAutoPlayTimeoutSecondsKey = "stream_auto_play_timeout_seconds"
-    private const val skipIntroEnabledKey = "skip_intro_enabled"
-    private const val autoSkipMovieCreditsKey = "auto_skip_movie_credits"
-    private const val autoSkipSegmentTypesKey = "auto_skip_segment_types"
-    private const val autoSkipPostCreditsKey = "auto_skip_post_credits"
-    private const val animeSkipEnabledKey = "animeskip_enabled"
+    private const val androidExoChaptersEnabledKey = "android_exo_chapters_enabled"
+    private const val androidLibmpvHardwareDecodingEnabledKey = "android_libmpv_hardware_decoding_enabled"
+    private const val androidLibmpvVideoOutputKey = "android_libmpv_video_output"
+    private const val androidLibmpvYuv420pEnabledKey = "android_libmpv_yuv420p_enabled"
+    private const val androidPlaybackEngineKey = "android_playback_engine"
+    private const val rememberAudioDelayPerDeviceKey = "remember_audio_delay_per_device"
+    private const val persistAudioAmplificationKey = "persist_audio_amplification"
+    private const val audioAmplificationDbKey = "audio_amplification_db"
+    private const val downmixEnabledKey = "downmix_enabled"
+    private const val audioOutputChannelsKey = "audio_output_channels"
+    private const val maintainOriginalAudioOnDownmixKey = "maintain_original_audio_on_downmix"
+    private const val centerMixLevelDbKey = "center_mix_level_db"
+    private const val exoNativeMemoryEnabledKey = "exo_native_memory_enabled"
+    private const val vodCacheEnabledKey = "vod_cache_enabled"
+    private const val vodCacheSizeModeKey = "vod_cache_size_mode"
+    private const val vodCacheSizeMbKey = "vod_cache_size_mb"
+    private const val bufferEngineEnabledKey = "buffer_engine_enabled"
+    private const val minBufferMsKey = "min_buffer_ms"
+    private const val maxBufferMsKey = "max_buffer_ms"
+    private const val bufferForPlaybackMsKey = "buffer_for_playback_ms"
+    private const val bufferForPlaybackAfterRebufferMsKey = "buffer_for_playback_after_rebuffer_ms"
+    private const val backBufferDurationMsKey = "back_buffer_duration_ms"
+    private const val targetBufferSizeMbKey = "target_buffer_size_mb"
     private const val animeSkipClientIdKey = "animeskip_client_id"
+    private const val animeSkipEnabledKey = "animeskip_enabled"
+    private const val autoSkipMovieCreditsKey = "auto_skip_movie_credits"
+    private const val autoSkipPostCreditsKey = "auto_skip_post_credits"
+    private const val autoSkipSegmentTypesKey = "auto_skip_segment_types"
+    private const val autoSwitchPlaybackEngineOnErrorKey = "auto_switch_playback_engine_on_error"
+    private const val decoderPriorityKey = "decoder_priority"
     private const val introDbApiKeyKey = "introdb_api_key"
     private const val introSubmitEnabledKey = "intro_submit_enabled"
+    private const val iosAudioOutputModeKey = "ios_audio_output_mode"
+    private const val iosBrightnessKey = "ios_brightness"
+    private const val iosContrastKey = "ios_contrast"
+    private const val iosDebandEnabledKey = "ios_deband_enabled"
+    private const val iosExtendedDynamicRangeEnabledKey = "ios_extended_dynamic_range_enabled"
+    private const val iosGammaKey = "ios_gamma"
+    private const val iosHardwareDecoderModeKey = "ios_hardware_decoder_mode"
+    private const val iosHdrComputePeakEnabledKey = "ios_hdr_compute_peak_enabled"
+    private const val iosInterpolationEnabledKey = "ios_interpolation_enabled"
+    private const val iosSaturationKey = "ios_saturation"
+    private const val iosTargetColorspaceHintEnabledKey = "ios_target_colorspace_hint_enabled"
+    private const val iosTargetPrimariesKey = "ios_target_primaries"
+    private const val iosTargetTransferKey = "ios_target_transfer"
+    private const val iosToneMappingModeKey = "ios_tone_mapping_mode"
+    private const val iosVideoOutputPresetKey = "ios_video_output_preset"
+    private const val libassRenderTypeKey = "libass_render_type"
+    private const val mapDV7ToHevcKey = "map_dv7_to_hevc"
+    private const val miniPlayerEnabledKey = "mini_player_enabled"
+    private const val nextEpisodeThresholdMinutesBeforeEndKey = "next_episode_threshold_minutes_before_end_v2"
+    private const val nextEpisodeThresholdModeKey = "next_episode_threshold_mode"
+    private const val nextEpisodeThresholdPercentKey = "next_episode_threshold_percent_v2"
+    private const val nightModeButtonEnabledKey = "night_mode_button_enabled"
+    private const val nightModeEnabledKey = "night_mode_enabled"
+    private const val preloadNextEpisodeSourcesKey = "preload_next_episode_sources"
+    private const val privateViewingEnabledKey = "private_viewing_enabled"
+    private const val skipIntroEnabledKey = "skip_intro_enabled"
+    private const val streamAutoPlayModeKey = "stream_auto_play_mode"
     private const val streamAutoPlayNextEpisodeEnabledKey = "stream_auto_play_next_episode_enabled"
     private const val streamAutoPlayNextEpisodeFallbackEnabledKey = "stream_auto_play_next_episode_fallback_enabled"
     private const val streamAutoPlayPreferBingeGroupKey = "stream_auto_play_prefer_binge_group"
+    private const val streamAutoPlayRegexKey = "stream_auto_play_regex"
     private const val streamAutoPlayReuseBingeGroupKey = "stream_auto_play_reuse_binge_group"
-    private const val nextEpisodeThresholdModeKey = "next_episode_threshold_mode"
-    private const val nextEpisodeThresholdPercentKey = "next_episode_threshold_percent_v2"
-    private const val nextEpisodeThresholdMinutesBeforeEndKey = "next_episode_threshold_minutes_before_end_v2"
-    private const val preloadNextEpisodeSourcesKey = "preload_next_episode_sources"
-    private const val miniPlayerEnabledKey = "mini_player_enabled"
-    private const val privateViewingEnabledKey = "private_viewing_enabled"
+    private const val streamAutoPlaySelectedAddonsKey = "stream_auto_play_selected_addons"
+    private const val streamAutoPlaySelectedPluginsKey = "stream_auto_play_selected_plugins"
+    private const val streamAutoPlaySourceKey = "stream_auto_play_source"
+    private const val streamAutoPlayTimeoutSecondsKey = "stream_auto_play_timeout_seconds"
+    private const val streamReuseLastLinkCacheHoursKey = "stream_reuse_last_link_cache_hours"
+    private const val streamReuseLastLinkEnabledKey = "stream_reuse_last_link_enabled"
+    private const val subtitleBoldKey = "subtitle_bold"
+    private const val subtitleBottomOffsetKey = "subtitle_bottom_offset"
+    private const val subtitleFontSizeSpKey = "subtitle_font_size_sp"
+    private const val subtitleOutlineColorKey = "subtitle_outline_color"
+    private const val subtitleOutlineEnabledKey = "subtitle_outline_enabled"
+    private const val subtitleOutlineWidthKey = "subtitle_outline_width"
+    private const val subtitleShowOnlyPreferredLanguagesKey = "subtitle_show_only_preferred_languages"
+    private const val subtitleStripSdhKey = "subtitle_strip_sdh"
+    private const val subtitleUseForcedSubtitlesKey = "subtitle_use_forced_subtitles"
+    private const val tunnelingEnabledKey = "tunneling_enabled"
     private const val useLibassKey = "use_libass"
-    private const val libassRenderTypeKey = "libass_render_type"
     private const val useLibmpvAssKey = "use_libmpv_ass"
-    private const val iosVideoOutputPresetKey = "ios_video_output_preset"
-    private const val iosToneMappingModeKey = "ios_tone_mapping_mode"
-    private const val iosTargetPrimariesKey = "ios_target_primaries"
-    private const val iosTargetTransferKey = "ios_target_transfer"
-    private const val iosHardwareDecoderModeKey = "ios_hardware_decoder_mode"
-    private const val iosAudioOutputModeKey = "ios_audio_output_mode"
-    private const val iosExtendedDynamicRangeEnabledKey = "ios_extended_dynamic_range_enabled"
-    private const val iosTargetColorspaceHintEnabledKey = "ios_target_colorspace_hint_enabled"
-    private const val iosHdrComputePeakEnabledKey = "ios_hdr_compute_peak_enabled"
-    private const val iosDebandEnabledKey = "ios_deband_enabled"
-    private const val iosInterpolationEnabledKey = "ios_interpolation_enabled"
-    private const val iosBrightnessKey = "ios_brightness"
-    private const val iosContrastKey = "ios_contrast"
-    private const val iosSaturationKey = "ios_saturation"
-    private const val iosGammaKey = "ios_gamma"
     private val syncKeys = listOf(
+        showPlayerTitleLogoKey,
         showLoadingOverlayKey,
         showPlayerLoadingStatusKey,
         pauseOverlayEnabledKey,
@@ -134,9 +160,6 @@ actual object PlayerSettingsStorage {
         subtitleOutlineEnabledKey,
         subtitleOutlineWidthKey,
         subtitleBoldKey,
-        subtitleShadowEnabledKey,
-        subtitleShadowStrengthKey,
-        subtitleCustomFontKey,
         subtitleFontSizeSpKey,
         subtitleBottomOffsetKey,
         subtitleStripSdhKey,
@@ -149,6 +172,13 @@ actual object PlayerSettingsStorage {
         androidLibmpvHardwareDecodingEnabledKey,
         androidLibmpvYuv420pEnabledKey,
         androidExoChaptersEnabledKey,
+        rememberAudioDelayPerDeviceKey,
+        persistAudioAmplificationKey,
+        audioAmplificationDbKey,
+        downmixEnabledKey,
+        audioOutputChannelsKey,
+        maintainOriginalAudioOnDownmixKey,
+        centerMixLevelDbKey,
         decoderPriorityKey,
         mapDV7ToHevcKey,
         tunnelingEnabledKey,
@@ -192,8 +222,9 @@ actual object PlayerSettingsStorage {
         iosContrastKey,
         iosSaturationKey,
         iosGammaKey,
+        subtitleAppearanceKey,
+        autoSwitchPlaybackEngineOnErrorKey,
     )
-
     actual fun loadPendingExternalPlayback(): String? = NSUserDefaults.standardUserDefaults.stringForKey(pendingExternalPlaybackKey)
 
     actual fun savePendingExternalPlayback(value: String?) {
@@ -282,6 +313,16 @@ actual object PlayerSettingsStorage {
         NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(useLegacyPlayerLayoutKey))
     }
 
+    actual fun loadShowPlayerTitleLogo(): Boolean? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(showPlayerTitleLogoKey)
+        return if (defaults.objectForKey(key) != null) defaults.boolForKey(key) else null
+    }
+
+    actual fun saveShowPlayerTitleLogo(enabled: Boolean) {
+        NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(showPlayerTitleLogoKey))
+    }
+
     actual fun loadShowParentalGuide(): Boolean? {
         val defaults = NSUserDefaults.standardUserDefaults
         val key = ProfileScopedKey.of(showParentalGuideKey)
@@ -341,9 +382,27 @@ actual object PlayerSettingsStorage {
         NSUserDefaults.standardUserDefaults.setObject(layout, forKey = ProfileScopedKey.of(toolbarLayoutKey))
     }
 
+    actual fun loadLegacyBottomButtons(): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(legacyBottomButtonsKey))
+
+    actual fun saveLegacyBottomButtons(layout: String) {
+        NSUserDefaults.standardUserDefaults.setObject(layout, forKey = ProfileScopedKey.of(legacyBottomButtonsKey))
+    }
+
+    actual fun loadLegacyTopButtons(): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(legacyTopButtonsKey))
+
+    actual fun saveLegacyTopButtons(layout: String) {
+        NSUserDefaults.standardUserDefaults.setObject(layout, forKey = ProfileScopedKey.of(legacyTopButtonsKey))
+    }
+
     actual fun loadSkipBackwardSeconds(): Int? = loadInt(skipBackwardSecondsKey)
 
     actual fun saveSkipBackwardSeconds(seconds: Int) = saveInt(skipBackwardSecondsKey, seconds)
+
+    actual fun loadSkipIntroOffsetSeconds(): Int? = loadInt(skipIntroOffsetSecondsKey)
+
+    actual fun saveSkipIntroOffsetSeconds(seconds: Int) = saveInt(skipIntroOffsetSecondsKey, seconds)
 
     actual fun loadSkipForwardSeconds(): Int? = loadInt(skipForwardSecondsKey)
 
@@ -359,6 +418,18 @@ actual object PlayerSettingsStorage {
 
     actual fun saveSwipeToSeekEnabled(enabled: Boolean) {
         saveBoolean(swipeToSeekEnabledKey, enabled)
+    }
+
+    actual fun loadPlayerControlGlassEnabled(): Boolean? = loadBoolean(playerControlGlassEnabledKey)
+
+    actual fun savePlayerControlGlassEnabled(enabled: Boolean) {
+        saveBoolean(playerControlGlassEnabledKey, enabled)
+    }
+
+    actual fun loadShowSkipButtons(): Boolean? = loadBoolean(showSkipButtonsKey)
+
+    actual fun saveShowSkipButtons(enabled: Boolean) {
+        saveBoolean(showSkipButtonsKey, enabled)
     }
 
     actual fun loadSeekPreviewEnabled(): Boolean? = loadBoolean(seekPreviewEnabledKey)
@@ -505,6 +576,13 @@ actual object PlayerSettingsStorage {
         NSUserDefaults.standardUserDefaults.setObject(colorHex, forKey = ProfileScopedKey.of(subtitleTextColorKey))
     }
 
+    actual fun loadSubtitleAppearance(): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(subtitleAppearanceKey))
+
+    actual fun saveSubtitleAppearance(value: String) {
+        NSUserDefaults.standardUserDefaults.setObject(value, forKey = ProfileScopedKey.of(subtitleAppearanceKey))
+    }
+
     actual fun loadSubtitleBackgroundColor(): String? {
         val defaults = NSUserDefaults.standardUserDefaults
         val key = ProfileScopedKey.of(subtitleBackgroundColorKey)
@@ -543,38 +621,6 @@ actual object PlayerSettingsStorage {
 
     actual fun saveSubtitleOutlineWidth(width: Int) {
         saveInt(subtitleOutlineWidthKey, width)
-    }
-
-    actual fun loadSubtitleCustomFont(): String? =
-        NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(subtitleCustomFontKey))
-
-    actual fun saveSubtitleCustomFont(fileName: String?) {
-        val key = ProfileScopedKey.of(subtitleCustomFontKey)
-        if (fileName.isNullOrBlank()) {
-            NSUserDefaults.standardUserDefaults.removeObjectForKey(key)
-        } else {
-            NSUserDefaults.standardUserDefaults.setObject(fileName, forKey = key)
-        }
-    }
-
-    actual fun loadSubtitleShadowEnabled(): Boolean? {
-        val defaults = NSUserDefaults.standardUserDefaults
-        val key = ProfileScopedKey.of(subtitleShadowEnabledKey)
-        return if (defaults.objectForKey(key) != null) {
-            defaults.boolForKey(key)
-        } else {
-            null
-        }
-    }
-
-    actual fun saveSubtitleShadowEnabled(enabled: Boolean) {
-        NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(subtitleShadowEnabledKey))
-    }
-
-    actual fun loadSubtitleShadowStrength(): Int? = loadInt(subtitleShadowStrengthKey)
-
-    actual fun saveSubtitleShadowStrength(strength: Int) {
-        saveInt(subtitleShadowStrengthKey, strength)
     }
 
     actual fun loadSubtitleBold(): Boolean? = loadBoolean(subtitleBoldKey)
@@ -664,6 +710,12 @@ actual object PlayerSettingsStorage {
         NSUserDefaults.standardUserDefaults.setObject(engine, forKey = ProfileScopedKey.of(androidPlaybackEngineKey))
     }
 
+    actual fun loadAutoSwitchPlaybackEngineOnError(): Boolean? = loadBoolean(autoSwitchPlaybackEngineOnErrorKey)
+
+    actual fun saveAutoSwitchPlaybackEngineOnError(enabled: Boolean) {
+        saveBoolean(autoSwitchPlaybackEngineOnErrorKey, enabled)
+    }
+
     actual fun loadAndroidLibmpvVideoOutput(): String? =
         NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(androidLibmpvVideoOutputKey))
 
@@ -713,6 +765,97 @@ actual object PlayerSettingsStorage {
         NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(androidExoChaptersEnabledKey))
     }
 
+    actual fun loadRememberAudioDelayPerDevice(): Boolean? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(rememberAudioDelayPerDeviceKey)
+        return if (defaults.objectForKey(key) != null) {
+            defaults.boolForKey(key)
+        } else {
+            null
+        }
+    }
+
+    actual fun saveRememberAudioDelayPerDevice(enabled: Boolean) {
+        NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(rememberAudioDelayPerDeviceKey))
+    }
+
+    actual fun loadPersistAudioAmplification(): Boolean? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(persistAudioAmplificationKey)
+        return if (defaults.objectForKey(key) != null) {
+            defaults.boolForKey(key)
+        } else {
+            null
+        }
+    }
+
+    actual fun savePersistAudioAmplification(enabled: Boolean) {
+        NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(persistAudioAmplificationKey))
+    }
+
+    actual fun loadAudioAmplificationDb(): Int? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(audioAmplificationDbKey)
+        return if (defaults.objectForKey(key) != null) {
+            defaults.integerForKey(key).toInt()
+        } else {
+            null
+        }
+    }
+
+    actual fun saveAudioAmplificationDb(db: Int) {
+        NSUserDefaults.standardUserDefaults.setInteger(db.toLong(), forKey = ProfileScopedKey.of(audioAmplificationDbKey))
+    }
+
+    actual fun loadDownmixEnabled(): Boolean? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(downmixEnabledKey)
+        return if (defaults.objectForKey(key) != null) {
+            defaults.boolForKey(key)
+        } else {
+            null
+        }
+    }
+
+    actual fun saveDownmixEnabled(enabled: Boolean) {
+        NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(downmixEnabledKey))
+    }
+
+    actual fun loadAudioOutputChannels(): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(audioOutputChannelsKey))
+
+    actual fun saveAudioOutputChannels(value: String) {
+        NSUserDefaults.standardUserDefaults.setObject(value, forKey = ProfileScopedKey.of(audioOutputChannelsKey))
+    }
+
+    actual fun loadMaintainOriginalAudioOnDownmix(): Boolean? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(maintainOriginalAudioOnDownmixKey)
+        return if (defaults.objectForKey(key) != null) {
+            defaults.boolForKey(key)
+        } else {
+            null
+        }
+    }
+
+    actual fun saveMaintainOriginalAudioOnDownmix(enabled: Boolean) {
+        NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(maintainOriginalAudioOnDownmixKey))
+    }
+
+    actual fun loadCenterMixLevelDb(): Int? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(centerMixLevelDbKey)
+        return if (defaults.objectForKey(key) != null) {
+            defaults.integerForKey(key).toInt()
+        } else {
+            null
+        }
+    }
+
+    actual fun saveCenterMixLevelDb(db: Int) {
+        NSUserDefaults.standardUserDefaults.setInteger(db.toLong(), forKey = ProfileScopedKey.of(centerMixLevelDbKey))
+    }
+
     actual fun loadDecoderPriority(): Int? {
         val defaults = NSUserDefaults.standardUserDefaults
         val key = ProfileScopedKey.of(decoderPriorityKey)
@@ -739,6 +882,34 @@ actual object PlayerSettingsStorage {
 
     actual fun saveAndroidAudioPassthroughEnabled(enabled: Boolean) {
         NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(androidAudioPassthroughEnabledKey))
+    }
+
+    actual fun loadNightModeButtonEnabled(): Boolean? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(nightModeButtonEnabledKey)
+        return if (defaults.objectForKey(key) != null) {
+            defaults.boolForKey(key)
+        } else {
+            null
+        }
+    }
+
+    actual fun saveNightModeButtonEnabled(enabled: Boolean) {
+        NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(nightModeButtonEnabledKey))
+    }
+
+    actual fun loadNightModeEnabled(): Boolean? {
+        val defaults = NSUserDefaults.standardUserDefaults
+        val key = ProfileScopedKey.of(nightModeEnabledKey)
+        return if (defaults.objectForKey(key) != null) {
+            defaults.boolForKey(key)
+        } else {
+            null
+        }
+    }
+
+    actual fun saveNightModeEnabled(enabled: Boolean) {
+        NSUserDefaults.standardUserDefaults.setBool(enabled, forKey = ProfileScopedKey.of(nightModeEnabledKey))
     }
 
     actual fun loadMapDV7ToHevc(): Boolean? {
@@ -1103,6 +1274,10 @@ actual object PlayerSettingsStorage {
 
     actual fun saveLibassRenderScale(scale: String) {}
 
+    actual fun loadLibassRenderMode(): String? = null
+
+    actual fun saveLibassRenderMode(mode: String) {}
+
     actual fun loadIosVideoOutputPreset(): String? =
         NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(iosVideoOutputPresetKey))
 
@@ -1205,6 +1380,7 @@ actual object PlayerSettingsStorage {
     }
 
     actual fun exportToSyncPayload(): JsonObject = buildJsonObject {
+        loadShowPlayerTitleLogo()?.let { put(showPlayerTitleLogoKey, encodeSyncBoolean(it)) }
         loadShowLoadingOverlay()?.let { put(showLoadingOverlayKey, encodeSyncBoolean(it)) }
         loadShowPlayerLoadingStatus()?.let { put(showPlayerLoadingStatusKey, encodeSyncBoolean(it)) }
         loadPauseOverlayEnabled()?.let { put(pauseOverlayEnabledKey, encodeSyncBoolean(it)) }
@@ -1225,14 +1401,12 @@ actual object PlayerSettingsStorage {
         loadPreferredSubtitleLanguage()?.let { put(preferredSubtitleLanguageKey, encodeSyncString(it)) }
         loadSecondaryPreferredSubtitleLanguage()?.let { put(secondaryPreferredSubtitleLanguageKey, encodeSyncString(it)) }
         loadSubtitleTextColor()?.let { put(subtitleTextColorKey, encodeSyncString(it)) }
+        loadSubtitleAppearance()?.let { put(subtitleAppearanceKey, encodeSyncString(it)) }
         loadSubtitleBackgroundColor()?.let { put(subtitleBackgroundColorKey, encodeSyncString(it)) }
         loadSubtitleOutlineColor()?.let { put(subtitleOutlineColorKey, encodeSyncString(it)) }
         loadSubtitleOutlineEnabled()?.let { put(subtitleOutlineEnabledKey, encodeSyncBoolean(it)) }
         loadSubtitleOutlineWidth()?.let { put(subtitleOutlineWidthKey, encodeSyncInt(it)) }
         loadSubtitleBold()?.let { put(subtitleBoldKey, encodeSyncBoolean(it)) }
-        loadSubtitleShadowEnabled()?.let { put(subtitleShadowEnabledKey, encodeSyncBoolean(it)) }
-        loadSubtitleShadowStrength()?.let { put(subtitleShadowStrengthKey, encodeSyncInt(it)) }
-        loadSubtitleCustomFont()?.let { put(subtitleCustomFontKey, encodeSyncString(it)) }
         loadSubtitleFontSizeSp()?.let { put(subtitleFontSizeSpKey, encodeSyncInt(it)) }
         loadSubtitleBottomOffset()?.let { put(subtitleBottomOffsetKey, encodeSyncInt(it)) }
         loadSubtitleStripSdh()?.let { put(subtitleStripSdhKey, encodeSyncBoolean(it)) }
@@ -1241,12 +1415,22 @@ actual object PlayerSettingsStorage {
         loadStreamReuseLastLinkEnabled()?.let { put(streamReuseLastLinkEnabledKey, encodeSyncBoolean(it)) }
         loadStreamReuseLastLinkCacheHours()?.let { put(streamReuseLastLinkCacheHoursKey, encodeSyncInt(it)) }
         loadAndroidPlaybackEngine()?.let { put(androidPlaybackEngineKey, encodeSyncString(it)) }
+        loadAutoSwitchPlaybackEngineOnError()?.let {
+            put(autoSwitchPlaybackEngineOnErrorKey, encodeSyncBoolean(it))
+        }
         loadAndroidLibmpvVideoOutput()?.let { put(androidLibmpvVideoOutputKey, encodeSyncString(it)) }
         loadAndroidLibmpvHardwareDecodingEnabled()?.let {
             put(androidLibmpvHardwareDecodingEnabledKey, encodeSyncBoolean(it))
         }
         loadAndroidLibmpvYuv420pEnabled()?.let { put(androidLibmpvYuv420pEnabledKey, encodeSyncBoolean(it)) }
         loadAndroidExoChaptersEnabled()?.let { put(androidExoChaptersEnabledKey, encodeSyncBoolean(it)) }
+        loadRememberAudioDelayPerDevice()?.let { put(rememberAudioDelayPerDeviceKey, encodeSyncBoolean(it)) }
+        loadPersistAudioAmplification()?.let { put(persistAudioAmplificationKey, encodeSyncBoolean(it)) }
+        loadAudioAmplificationDb()?.let { put(audioAmplificationDbKey, encodeSyncInt(it)) }
+        loadDownmixEnabled()?.let { put(downmixEnabledKey, encodeSyncBoolean(it)) }
+        loadAudioOutputChannels()?.let { put(audioOutputChannelsKey, encodeSyncString(it)) }
+        loadMaintainOriginalAudioOnDownmix()?.let { put(maintainOriginalAudioOnDownmixKey, encodeSyncBoolean(it)) }
+        loadCenterMixLevelDb()?.let { put(centerMixLevelDbKey, encodeSyncInt(it)) }
         loadDecoderPriority()?.let { put(decoderPriorityKey, encodeSyncInt(it)) }
         loadMapDV7ToHevc()?.let { put(mapDV7ToHevcKey, encodeSyncBoolean(it)) }
         loadTunnelingEnabled()?.let { put(tunnelingEnabledKey, encodeSyncBoolean(it)) }
@@ -1297,6 +1481,7 @@ actual object PlayerSettingsStorage {
             NSUserDefaults.standardUserDefaults.removeObjectForKey(ProfileScopedKey.of(key))
         }
 
+        payload.decodeSyncBoolean(showPlayerTitleLogoKey)?.let(::saveShowPlayerTitleLogo)
         payload.decodeSyncBoolean(showLoadingOverlayKey)?.let(::saveShowLoadingOverlay)
         payload.decodeSyncBoolean(showPlayerLoadingStatusKey)?.let(::saveShowPlayerLoadingStatus)
         payload.decodeSyncBoolean(pauseOverlayEnabledKey)?.let(::savePauseOverlayEnabled)
@@ -1317,14 +1502,12 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncString(preferredSubtitleLanguageKey)?.let(::savePreferredSubtitleLanguage)
         payload.decodeSyncString(secondaryPreferredSubtitleLanguageKey)?.let(::saveSecondaryPreferredSubtitleLanguage)
         payload.decodeSyncString(subtitleTextColorKey)?.let(::saveSubtitleTextColor)
+        payload.decodeSyncString(subtitleAppearanceKey)?.let(::saveSubtitleAppearance)
         payload.decodeSyncString(subtitleBackgroundColorKey)?.let(::saveSubtitleBackgroundColor)
         payload.decodeSyncString(subtitleOutlineColorKey)?.let(::saveSubtitleOutlineColor)
         payload.decodeSyncBoolean(subtitleOutlineEnabledKey)?.let(::saveSubtitleOutlineEnabled)
         payload.decodeSyncInt(subtitleOutlineWidthKey)?.let(::saveSubtitleOutlineWidth)
         payload.decodeSyncBoolean(subtitleBoldKey)?.let(::saveSubtitleBold)
-        payload.decodeSyncBoolean(subtitleShadowEnabledKey)?.let(::saveSubtitleShadowEnabled)
-        payload.decodeSyncInt(subtitleShadowStrengthKey)?.let(::saveSubtitleShadowStrength)
-        payload.decodeSyncString(subtitleCustomFontKey)?.let(::saveSubtitleCustomFont)
         payload.decodeSyncInt(subtitleFontSizeSpKey)?.let(::saveSubtitleFontSizeSp)
         payload.decodeSyncInt(subtitleBottomOffsetKey)?.let(::saveSubtitleBottomOffset)
         payload.decodeSyncBoolean(subtitleStripSdhKey)?.let(::saveSubtitleStripSdh)
@@ -1333,11 +1516,19 @@ actual object PlayerSettingsStorage {
         payload.decodeSyncBoolean(streamReuseLastLinkEnabledKey)?.let(::saveStreamReuseLastLinkEnabled)
         payload.decodeSyncInt(streamReuseLastLinkCacheHoursKey)?.let(::saveStreamReuseLastLinkCacheHours)
         payload.decodeSyncString(androidPlaybackEngineKey)?.let(::saveAndroidPlaybackEngine)
+        payload.decodeSyncBoolean(autoSwitchPlaybackEngineOnErrorKey)?.let(::saveAutoSwitchPlaybackEngineOnError)
         payload.decodeSyncString(androidLibmpvVideoOutputKey)?.let(::saveAndroidLibmpvVideoOutput)
         payload.decodeSyncBoolean(androidLibmpvHardwareDecodingEnabledKey)
             ?.let(::saveAndroidLibmpvHardwareDecodingEnabled)
         payload.decodeSyncBoolean(androidLibmpvYuv420pEnabledKey)?.let(::saveAndroidLibmpvYuv420pEnabled)
         payload.decodeSyncBoolean(androidExoChaptersEnabledKey)?.let(::saveAndroidExoChaptersEnabled)
+        payload.decodeSyncBoolean(rememberAudioDelayPerDeviceKey)?.let(::saveRememberAudioDelayPerDevice)
+        payload.decodeSyncBoolean(persistAudioAmplificationKey)?.let(::savePersistAudioAmplification)
+        payload.decodeSyncInt(audioAmplificationDbKey)?.let(::saveAudioAmplificationDb)
+        payload.decodeSyncBoolean(downmixEnabledKey)?.let(::saveDownmixEnabled)
+        payload.decodeSyncString(audioOutputChannelsKey)?.let(::saveAudioOutputChannels)
+        payload.decodeSyncBoolean(maintainOriginalAudioOnDownmixKey)?.let(::saveMaintainOriginalAudioOnDownmix)
+        payload.decodeSyncInt(centerMixLevelDbKey)?.let(::saveCenterMixLevelDb)
         payload.decodeSyncInt(decoderPriorityKey)?.let(::saveDecoderPriority)
         payload.decodeSyncBoolean(mapDV7ToHevcKey)?.let(::saveMapDV7ToHevc)
         payload.decodeSyncBoolean(tunnelingEnabledKey)?.let(::saveTunnelingEnabled)

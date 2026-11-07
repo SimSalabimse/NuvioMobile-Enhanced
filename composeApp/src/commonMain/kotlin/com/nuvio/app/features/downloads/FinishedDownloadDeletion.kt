@@ -930,6 +930,7 @@ internal fun WatchProgressSource.syncedDeletionSourceLabel(): String = when (thi
     WatchProgressSource.MDBLIST -> "mdblist_history"
     WatchProgressSource.ANILIST -> "anilist_history"
     WatchProgressSource.WETRAKR -> "wetrakr_history"
+    WatchProgressSource.PUBLICMETADB -> "publicmetadb_history"
 }
 
 private fun SyncedWatchCompletion.hasTrustedRemoteSource(): Boolean {
