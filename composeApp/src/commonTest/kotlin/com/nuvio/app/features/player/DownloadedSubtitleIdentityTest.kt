@@ -60,4 +60,12 @@ class DownloadedSubtitleIdentityTest {
         assertEquals("0000000000020001", OpenSubtitlesHash.of(131_072L, head, tail))
         assertNull(OpenSubtitlesHash.of(100L, head, tail))
     }
+
+    @Test
+    fun chunkSumWrapsLikeAnUnsignedAdd() {
+        val head = ByteArray(OpenSubtitlesHash.CHUNK_BYTES)
+        head[0] = 1
+        val tail = ByteArray(OpenSubtitlesHash.CHUNK_BYTES)
+        assertEquals("8000000000000000", OpenSubtitlesHash.of(Long.MAX_VALUE, head, tail))
+    }
 }

@@ -97,7 +97,6 @@ actual fun PlatformPlayerSurface(
     }
 
     bridge.setExperimentalSinglePrimaryPictureInPictureEnabled(experimentalSinglePrimaryPictureInPictureEnabled)
-    val playerSettings by PlayerSettingsRepository.uiState.collectAsStateWithLifecycle()
     LaunchedEffect(playerSettings.downmixEnabled) {
         bridge.setStereoDownmix(playerSettings.downmixEnabled)
     }
