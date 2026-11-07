@@ -44,9 +44,10 @@ internal object UiFixtureCatalog {
         }
         val now = Clock.System.now().toEpochMilliseconds()
         val longTitles = fixture == UiFixture.LongTitles
+        val tallHero = fixture == UiFixture.HomeTall
         NetworkStatusRepository.adoptFixture(online = fixture.startsOnline)
         HomeCatalogSettingsRepository.installFixture(settingsItems(longTitles))
-        HomeRepository.installFixture(homeState(longTitles))
+        HomeRepository.installFixture(homeState(longTitles, tallHero = tallHero))
         val watchedForOverview = if (fixture == UiFixture.SeasonOverviewLong) {
             listOf(
                 progress(
@@ -90,6 +91,9 @@ internal object UiFixtureCatalog {
             UiFixture.DetailsOnline,
             UiFixture.DetailsOffline,
             -> MetaDetailsRepository.installFixture(series(seasonPosters = true))
+            UiFixture.DetailsTall -> MetaDetailsRepository.installFixture(
+                series(seasonPosters = true, tallHero = true),
+            )
             UiFixture.SeasonOverview -> {
                 val show = series(seasonPosters = true).copy(imdbId = SEASON_OVERVIEW_IMDB)
                 MetaDetailsRepository.installFixture(show)
@@ -120,9 +124,9 @@ internal object UiFixtureCatalog {
         startConnectivityFixturePoller()
     }
 
-    private fun homeState(longTitles: Boolean): HomeUiState {
+    private fun homeState(longTitles: Boolean, tallHero: Boolean = false): HomeUiState {
         val heroes = listOf(
-            preview(1, if (longTitles) LONG_TITLE else "Northwind", wide = true),
+            preview(1, if (longTitles) LONG_TITLE else "Northwind", wide = !tallHero),
             preview(2, if (longTitles) "Tide" else "Harbor Lane", wide = true),
             preview(3, "Paper Kite", wide = true),
             preview(4, "Glass Orchard", wide = true),
@@ -186,6 +190,7 @@ internal object UiFixtureCatalog {
     private fun series(
         seasonPosters: Boolean,
         episodesInSeason: Map<Int, Int> = emptyMap(),
+        tallHero: Boolean = false,
     ): MetaDetails {
         val videos = (1..3).flatMap { season ->
             val count = episodesInSeason[season] ?: 3
@@ -213,7 +218,7 @@ internal object UiFixtureCatalog {
             type = SERIES_TYPE,
             name = SERIES_TITLE,
             poster = fixtureArtUrl(2, wide = false, label = SERIES_TITLE),
-            background = fixtureArtUrl(2, wide = true, label = SERIES_TITLE),
+            background = fixtureArtUrl(2, wide = !tallHero, label = SERIES_TITLE),
             description = "A synthetic series with three seasons, used to check the details layout.",
             releaseInfo = "2024",
             genres = listOf("Drama"),

@@ -41,7 +41,7 @@ STRIP_WINDOW_SECONDS="0.6"
 # Keep ALL_STATES in the same order as UiFixture.wireName.
 # @dp suffixes are the same fixture at a fixed width. They are listed because
 # known_state matches the launch string exactly.
-ALL_STATES="home-online,home-offline,details-online,details-offline,details-movie-offline,downloads,long-titles,smart-downloads,player-submit-bar,player-submit-bar@667,player-submit-bar@844,player-submit-bar@932,player-submit-bar-long,player-submit-bar-fresh,player-submit-bar-touched-invalid,season-overview,season-overview-long"
+ALL_STATES="home-online,home-offline,home-tall,details-online,details-offline,details-movie-offline,details-tall,downloads,downloads-season,long-titles,smart-downloads,player-submit-bar,player-submit-bar@667,player-submit-bar@844,player-submit-bar@932,player-submit-bar-long,player-submit-bar-fresh,player-submit-bar-touched-invalid,season-overview,season-overview-long,movie-segment-rows"
 DEFAULT_DEVICES="iPhone 18 Pro,iPhone 17e"
 TRANSITION_FIXTURE="home-offline"
 TRANSITION_ONLINE_SECONDS=2

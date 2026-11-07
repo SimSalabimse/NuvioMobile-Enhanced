@@ -47,3 +47,13 @@ Before this change the count chip only stored a number. Nothing was queued until
 The chip now runs the same next-episode check at once. The next episodes are the ones after the furthest watched episode, or after the latest download of the show when nothing is watched. Episodes already saved or already queued are skipped, including one you picked yourself. Wi-Fi, charging, free space, and air dates still apply. The page says it is looking, then "Queued N episodes", or the reason it cannot start. Choosing 0 drops a waiting next-episode request for that show and does not cancel a download. Private Viewing, a UI fixture, and automation do not start one. Playback still waits until the episode is far enough along.
 
 Files: `SeriesSmartDownloadCount.kt`, `SmartDownloadRuleChange.kt`, `SmartDownloads.kt`.
+
+## Baseline screenshots
+
+The attached contact sheet is the exact 508 baseline on iOS 27.2 (24B114), synthetic fixtures, not the owner's media. Home and details show the wide art fitted whole, with empty surface around it. The season sheet shows an empty square on every row, Watch privately under every row, and Preview wrapping onto the next line. Detail fixtures that say playback is unavailable are offline on purpose. The startup fixture keychain abort no longer occurs.
+
+The attached Downloads image is the generic downloads list (storage card, search, Active, Movies). It is not the crowded season header. That header is the `downloads-season` fixture, which the default shot list did not include.
+
+`home-online` and `details-online` use the wide banner (800×450). `home-tall` and `details-tall` use the 2:3 poster (400×600). `movie-segment-rows` is one overlay with a public count, a confirmed check, a pending send, and a local detection. Fixture series have no cast, and this batch does not change the cast row.
+
+Every app theme paints a dark surface. WHITE is the default dark surface with a white accent, not a light chrome. The simulator appearance switch does not change it. Set the in-app value `selected_theme_1` to WHITE and to CRIMSON before launch. Both stay dark. AX5 is the system content size Accessibility Extra Extra Extra Large. Reduce Motion is the system switch `UIAccessibilityIsReduceMotionEnabled`.

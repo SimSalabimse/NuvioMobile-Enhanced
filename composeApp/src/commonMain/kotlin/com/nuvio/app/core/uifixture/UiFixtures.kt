@@ -19,9 +19,13 @@ enum class UiFixture(
 ) {
     HomeOnline("home-online", startsOnline = true),
     HomeOffline("home-offline", startsOnline = false),
+    /** First home hero is a 2:3 poster. [HomeOnline] stays the wide banner. */
+    HomeTall("home-tall", startsOnline = true),
     DetailsOnline("details-online", startsOnline = true),
     DetailsOffline("details-offline", startsOnline = false),
     DetailsMovieOffline("details-movie-offline", startsOnline = false),
+    /** Details hero uses the 2:3 poster. [DetailsOnline] stays the wide background. */
+    DetailsTall("details-tall", startsOnline = true),
     Downloads("downloads", startsOnline = true),
     DownloadsSeason("downloads-season", startsOnline = true),
     LongTitles("long-titles", startsOnline = true),
@@ -41,10 +45,10 @@ enum class UiFixture(
     ;
 
     fun launchRoute(): AppRoute? = when (this) {
-        HomeOnline, HomeOffline, LongTitles, PlayerSubmitBar, PlayerSubmitBarLong,
+        HomeOnline, HomeOffline, HomeTall, LongTitles, PlayerSubmitBar, PlayerSubmitBarLong,
         PlayerSubmitBarFresh, PlayerSubmitBarTouchedInvalid,
         -> null
-        DetailsOnline, DetailsOffline, SmartDownloads, SeasonOverview, SeasonOverviewLong -> DetailRoute(
+        DetailsOnline, DetailsOffline, DetailsTall, SmartDownloads, SeasonOverview, SeasonOverviewLong -> DetailRoute(
             type = UiFixtureCatalog.SERIES_TYPE,
             id = UiFixtureCatalog.SERIES_ID,
             title = UiFixtureCatalog.SERIES_TITLE,
