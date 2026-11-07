@@ -1,6 +1,6 @@
 # Nov 7 round 2
 
-Build 204 on `sync/upstream-0.6.7-on-batch11`. No merge to enhanced or integration. Public name: Simsalabim.
+Build 205 on `sync/upstream-0.6.7-on-batch11`. No merge to enhanced or integration. Public name: Simsalabim.
 
 ## Portrait hero
 
@@ -33,3 +33,11 @@ Files: `TheIntroDb.kt`, `MovieSegmentStatus.kt`, `SubmitIntroDialog.kt`.
 Rows are an inset list. Segment chips show only when they are not missing, with a short label. Watched is a word, not the submission check. Download selection is a menu action, not a checkbox. Watch privately is a swipe and a menu item. The downloads season title gets the full width; actions wrap on the next line.
 
 Files: `SeasonOverview.kt`, `SeasonOverviewSheet.kt`, `DownloadsScreen.kt`.
+
+## Smart Downloads on the show page
+
+Before this change the count chip only stored a number. Nothing was queued until playback of an episode you already had, near the end, or until a request left over from earlier was retried. Leaving the page did not start it.
+
+The chip now runs the same next-episode check at once. The next episodes are the ones after the furthest watched episode, or after the latest download of the show when nothing is watched. Episodes already saved or already queued are skipped, including one you picked yourself. Wi-Fi, charging, free space, and air dates still apply. The page says it is looking, then "Queued N episodes", or the reason it cannot start. Choosing 0 drops a waiting next-episode request for that show and does not cancel a download. Private Viewing, a UI fixture, and automation do not start one. Playback still waits until the episode is far enough along.
+
+Files: `SeriesSmartDownloadCount.kt`, `SmartDownloadRuleChange.kt`, `SmartDownloads.kt`.

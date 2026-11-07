@@ -95,6 +95,12 @@ internal object SeriesSmartDownloadCounts {
     }
 }
 
+/** Details-page save: store the choice, then evaluate it. Storage tests call [SeriesSmartDownloadCounts.set] and do not evaluate. */
+internal fun saveSeriesSmartDownloadCount(seriesId: String, choice: SeriesSmartDownloadCount) {
+    SeriesSmartDownloadCounts.set(seriesId, choice)
+    SmartDownloads.onSeriesCountSaved(seriesId)
+}
+
 @Composable
 internal fun SeriesSmartDownloadCountPicker(
     metaType: String,
@@ -122,7 +128,7 @@ internal fun SeriesSmartDownloadCountPicker(
                 selected = choice.selected,
                 onClick = {
                     selected = choice.count
-                    SeriesSmartDownloadCounts.set(seriesId, choice.count)
+                    saveSeriesSmartDownloadCount(seriesId, choice.count)
                 },
                 label = { Text(choice.label) },
                 modifier = Modifier.semantics {
