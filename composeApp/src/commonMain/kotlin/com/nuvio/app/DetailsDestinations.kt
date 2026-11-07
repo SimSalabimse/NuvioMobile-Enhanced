@@ -8,7 +8,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import com.nuvio.app.features.catalog.CatalogTarget
+import com.nuvio.app.features.details.CastNavigation
 import com.nuvio.app.features.details.MetaDetailsScreen
+import com.nuvio.app.features.details.castNavigationPlan
 import com.nuvio.app.features.details.PersonDetailScreen
 import com.nuvio.app.features.details.TmdbEntityBrowseScreen
 import com.nuvio.app.features.home.MetaPreview
@@ -122,8 +124,9 @@ internal fun DetailsDestination(
             }
         },
         onCastClick = { person, avatarTransitionKey ->
-            val tmdbId = person.tmdbId
-            if (tmdbId != null && tmdbId > 0) {
+            val plan = castNavigationPlan(person.tmdbId, overlayVisible = false)
+            val tmdbId = plan.personId
+            if (plan.navigation == CastNavigation.OpenPerson && tmdbId != null) {
                 navController.navigate(
                     PersonDetailRoute(
                         personId = tmdbId,

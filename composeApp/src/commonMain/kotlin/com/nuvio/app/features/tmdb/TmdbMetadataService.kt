@@ -11,6 +11,7 @@ import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.details.MoreLikeThisPage
 import com.nuvio.app.features.details.MoreLikeThisSource
 import com.nuvio.app.features.details.PersonDetail
+import com.nuvio.app.features.details.navigablePersonId
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.PosterShape
 import kotlinx.atomicfu.locks.SynchronizedObject
@@ -2060,7 +2061,10 @@ private fun List<MetaPerson>.dedupePeople(): List<MetaPerson> {
         merged[key] = if (existing == null) {
             person
         } else {
-            existing.copy(photo = existing.photo ?: person.photo)
+            existing.copy(
+                photo = existing.photo ?: person.photo,
+                tmdbId = navigablePersonId(existing.tmdbId) ?: navigablePersonId(person.tmdbId),
+            )
         }
     }
     return merged.values.toList()

@@ -85,7 +85,10 @@ import com.nuvio.app.core.ui.atLeastIosHitTarget
 import com.nuvio.app.core.ui.LocalDynamicArtworkBackgroundColor
 import com.nuvio.app.core.ui.rememberDynamicArtworkBackgroundEnabled
 import com.nuvio.app.core.ui.PrefetchArtworkDominantColors
+import com.nuvio.app.core.ui.HeroArtworkFit
 import com.nuvio.app.core.ui.focusedAlignment
+import com.nuvio.app.core.ui.heroArtworkDecision
+import com.nuvio.app.core.ui.rememberHeroArtworkSize
 import com.nuvio.app.core.ui.rememberBackdropFocusState
 import com.nuvio.app.core.ui.heroStretchHeight
 import com.nuvio.app.core.ui.LocalVerticalBarPadding
@@ -316,6 +319,7 @@ internal fun HomeHeroSection(
                 )
                 .clip(heroShape),
         ) {
+            val heroFrameWidth = maxWidth
             val baseLayout = homeHeroLayout(
                 maxWidthDp = maxWidth.value,
                 viewportHeightDp = viewportHeight?.value,
@@ -486,11 +490,33 @@ internal fun HomeHeroSection(
                             val isCurrentLayer = layer.page == currentPage
                             key(effectiveArtworkSource, item.type, item.id, artworkUrl) {
                                 val backdropFocus = rememberBackdropFocusState(artworkUrl)
+                                val artworkSize = rememberHeroArtworkSize(artworkUrl)
+                                val artwork = heroArtworkDecision(
+                                    imageWidth = artworkSize.width,
+                                    imageHeight = artworkSize.height,
+                                    frameWidth = heroFrameWidth.value,
+                                    frameHeight = layout.heroHeight.value,
+                                    landscapeExtraScale = if (isCardStyle) 1f else HERO_BACKGROUND_SCALE,
+                                )
+                                val portrait = artwork.fit == HeroArtworkFit.FitPortrait
+                                val scrollScale = if (artwork.scrollScaleEnabled && !isCardStyle) {
+                                    heroBackgroundScrollScale(scrollOffsetPx)
+                                } else {
+                                    1f
+                                }
+                                val drawnScale = artwork.extraScale * scrollScale
                                 AsyncImage(
                                     model = artworkUrl,
                                     contentDescription = item.name,
                                     modifier = Modifier
                                         .fillMaxSize()
+                                        .then(
+                                            if (portrait) {
+                                                Modifier.background(MaterialTheme.colorScheme.background)
+                                            } else {
+                                                Modifier
+                                            },
+                                        )
                                         .graphicsLayer {
                                             val offset = heroPageOffset(pagerState, layer.page)
                                             val visibility = (1f - abs(offset)).coerceIn(0f, 1f)
@@ -499,18 +525,28 @@ internal fun HomeHeroSection(
                                                 visibility > 0f -> 1f
                                                 else -> 0f
                                             }
-                                            translationX = -offset * heroWidthPx * artworkParallax
-                                            translationY = if (isCardStyle) 0f else heroBackgroundScrollTranslationY(scrollOffsetPx)
-                                            scaleX = artworkBaseScale *
-                                                if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
-                                            scaleY = artworkBaseScale *
-                                                if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
+                                            translationX = if (portrait) 0f else -offset * heroWidthPx * artworkParallax
+                                            translationY = if (portrait || isCardStyle) {
+                                                0f
+                                            } else {
+                                                heroBackgroundScrollTranslationY(scrollOffsetPx)
+                                            }
+                                            scaleX = drawnScale
+                                            scaleY = drawnScale
                                         },
-                                    alignment = backdropFocus.focusedAlignment(
-                                        if (layout.isTablet) Alignment.TopCenter else Alignment.Center,
-                                    ),
-                                    contentScale = ContentScale.Crop,
-                                    onSuccess = { state -> backdropFocus.onImageLoaded(state.result.image) },
+                                    alignment = if (artwork.horizontalFocus) {
+                                        backdropFocus.focusedAlignment(
+                                            if (layout.isTablet) Alignment.TopCenter else Alignment.Center,
+                                        )
+                                    } else {
+                                        Alignment.Center
+                                    },
+                                    contentScale = if (portrait) ContentScale.Fit else ContentScale.Crop,
+                                    onSuccess = { state ->
+                                        val image = state.result.image
+                                        artworkSize.onImageLoaded(image.width, image.height)
+                                        backdropFocus.onImageLoaded(image)
+                                    },
                                 )
                             }
                         }

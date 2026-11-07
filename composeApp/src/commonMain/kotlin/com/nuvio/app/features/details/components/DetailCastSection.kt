@@ -44,6 +44,7 @@ import com.nuvio.app.core.ui.NuvioSearchField
 import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
 import com.nuvio.app.core.ui.nuvioCardDepth
 import com.nuvio.app.features.details.MetaPerson
+import com.nuvio.app.features.details.navigablePersonId
 import com.nuvio.app.features.details.castAvatarSharedTransitionKey
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
@@ -102,8 +103,8 @@ fun DetailCastSection(
                     // The index in the full list, so shared-element keys stay the same while filtering.
                     val index = entry.index
                     val person = entry.value
-                    val sharedTransitionKey = person.tmdbId
-                        ?.takeIf { it > 0 }
+                    val personId = navigablePersonId(person.tmdbId)
+                    val sharedTransitionKey = personId
                         ?.let { castAvatarSharedTransitionKey(it, occurrenceIndex = index) }
                     CastItem(
                         person = person,
@@ -111,8 +112,8 @@ fun DetailCastSection(
                         sizing = sizing,
                         sharedTransitionScope = sharedTransitionScope,
                         animatedVisibilityScope = animatedVisibilityScope,
-                        onClick = if (onCastClick != null && person.tmdbId != null && person.tmdbId > 0) {
-                            { onCastClick(person, sharedTransitionKey) }
+                        onClick = if (onCastClick != null && personId != null) {
+                            { onCastClick(person.copy(tmdbId = personId), sharedTransitionKey) }
                         } else {
                             null
                         },

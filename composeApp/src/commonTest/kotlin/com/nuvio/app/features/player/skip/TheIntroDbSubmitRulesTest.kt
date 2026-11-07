@@ -132,17 +132,28 @@ class TheIntroDbSubmitRulesTest {
         assertFalse(skipFeedbackMaySubmit("intro", 0.0, 3.0, 2_700.0))
         assertTrue(skipFeedbackMaySubmit("intro", 0.0, 40.0, 2_700.0))
         val remembered = skipFeedbackOwnLedger(
-            entries = emptyMap(),
+            marks = OwnAccountMarks(),
             contentKey = "tt0903747:1:2",
             segmentType = "intro",
             service = IntroSubmitService.THE_INTRODB,
             sent = true,
         )
-        assertEquals(setOf("intro"), remembered["tt0903747:1:2"])
+        assertEquals(setOf("intro"), remembered.pending["tt0903747:1:2"])
+        assertTrue(remembered.confirmed.isEmpty())
+        val duplicate = skipFeedbackOwnLedger(
+            marks = OwnAccountMarks(),
+            contentKey = "tt0903747:1:2",
+            segmentType = "intro",
+            service = IntroSubmitService.THE_INTRODB,
+            sent = true,
+            duplicate = true,
+        )
+        assertEquals(setOf("intro"), duplicate.confirmed["tt0903747:1:2"])
+        assertTrue(duplicate.pending.isEmpty())
         assertEquals(
-            emptyMap(),
+            OwnAccountMarks(),
             skipFeedbackOwnLedger(
-                entries = emptyMap(),
+                marks = OwnAccountMarks(),
                 contentKey = "tt0903747:1:2",
                 segmentType = "intro",
                 service = IntroSubmitService.THE_INTRODB,
