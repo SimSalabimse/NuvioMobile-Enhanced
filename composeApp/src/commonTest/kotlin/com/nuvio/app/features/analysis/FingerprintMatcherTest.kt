@@ -47,6 +47,35 @@ class FingerprintMatcherTest {
     fun unrelatedAudioHasNoMatch() {
         val random = Random(11)
         assertNull(FingerprintMatcher.longestSharedSegment(noise(random, 1200), noise(random, 1200), minFrames = 150))
+        assertNull(FingerprintMatcher.longestSharedSegment(noise(random, 1200), noise(random, 1200), minFrames = 50))
+    }
+
+    @Test
+    fun coarseSearchMatchesTheExactAlignment() {
+        val random = Random(7)
+        val intro = noise(random, 600)
+        val a = noise(random, 300) + intro + noise(random, 2000)
+        val b = noise(random, 900) + intro.map { it xor 0b101 } + noise(random, 1500)
+        val exact = assertNotNull(FingerprintMatcher.longestSharedSegment(a, b, minFrames = 150, maxFrames = 1500))
+        val coarse = assertNotNull(
+            FingerprintMatcher.longestSharedSegment(a, b, minFrames = 150, maxFrames = 1500, forceCoarse = true),
+        )
+        assertEquals(exact.startA, coarse.startA)
+        assertEquals(exact.endA, coarse.endA)
+        assertEquals(exact.startB, coarse.startB)
+        assertEquals(exact.endB, coarse.endB)
+    }
+
+    @Test
+    fun keepEndTrimsASharedRunToTheCap() {
+        // Sequential values also match at small shifts. The cap has to be applied to the
+        // longest original run, not to whichever partial alignment is seen last.
+        val shared = IntArray(500) { 0x0C0FFEE0 + it }
+        val trimmed = assertNotNull(
+            FingerprintMatcher.longestSharedSegment(shared, shared.copyOf(), minFrames = 50, maxFrames = 100, keepEnd = true),
+        )
+        assertEquals(400, trimmed.startA)
+        assertEquals(500, trimmed.endA)
     }
 
     /** Episodes of one season sharing an intro and credits at the given 100 ms frames. */
@@ -65,7 +94,7 @@ class FingerprintMatcherTest {
                 durationMs = 2_400_000L,
                 headFingerprint = encodeFingerprint(head),
                 tailFingerprint = encodeFingerprint(tail),
-                tailStartMs = 2_400_000L - TAIL_FINGERPRINT_MS,
+                tailStartMs = 2_400_000L - 4_800L * 100,
             )
         }
     }
@@ -264,12 +293,13 @@ class FingerprintMatcherTest {
     }
 
     @Test
-    fun creditsLongerThanThreeMinutesKeepTheLastThreeMinutes() {
+    fun creditsSharedAcrossTheTailStayInsideTheCapAndReachTheFileEnd() {
         val tail = noise(21, 4_800)
         val one = episodeWithTails("cap__s1e1", noise(1, 6_000), tail)
         val two = episodeWithTails("cap__s1e2", noise(2, 6_000), tail)
         val found = SeasonSegmentDetector.detect(one, listOf(two))
-        assertEquals(2_220_000L, found.creditsStartMs)
+        // 480s is inside the 1800s credits cap, so the shared ending is kept whole.
+        assertEquals(one.tailStartMs, found.creditsStartMs)
         assertEquals(2_400_000L, found.creditsEndMs)
         assertNull(found.introStartMs)
     }
@@ -353,7 +383,7 @@ class FingerprintMatcherTest {
         fingerprintStepMs = 100,
         headFingerprint = encodeFingerprint(head),
         tailFingerprint = encodeFingerprint(tail),
-        tailStartMs = 2_400_000L - TAIL_FINGERPRINT_MS,
+        tailStartMs = 2_400_000L - tail.size * 100L,
     )
 
     private fun episodeFrom(key: String, head: IntArray) = MediaAnalysisResult(
@@ -362,7 +392,7 @@ class FingerprintMatcherTest {
         durationMs = 2_400_000L,
         fingerprintStepMs = 100,
         headFingerprint = encodeFingerprint(head),
-        tailStartMs = 2_400_000L - TAIL_FINGERPRINT_MS,
+        tailStartMs = 1_920_000L,
     )
 
     private fun headWithShortAndLong(): IntArray {

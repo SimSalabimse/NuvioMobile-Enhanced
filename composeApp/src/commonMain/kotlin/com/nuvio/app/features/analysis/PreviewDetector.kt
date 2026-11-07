@@ -4,20 +4,27 @@ package com.nuvio.app.features.analysis
  * "Next time on" previews.
  *
  * The ending of this episode, stored in its tail with the credits masked out, is matched
- * against the opening of the next episode before that episode's intro (its cold open).
- * One next episode is enough. A preview is not a clip shared by the season, so it never
- * goes through the intro vote.
+ * against the next episode: the opening before its intro, and its tail with credits masked.
+ * A preview is usually several short clips with narration between them. Those clips join
+ * while the gap stays inside [NARRATION_GAP_MS]. The block has to sit against the credits
+ * (just before them, or just after). One next episode is enough. It does not go through
+ * the intro vote.
+ *
+ * Without a credits time, a single ending match is not called a preview: it may be the
+ * credits theme. Two or more clips that finish the file still count.
  *
  * A TheIntroDB preview time is only a confidence note. It does not create a range when the
- * audio does not match. Middle-of-episode footage is not stored, so a preview made only of
- * that is not found.
+ * audio does not match. Footage from the middle of the next episode is not stored, so a
+ * preview made only of that is not found.
  */
 internal object PreviewDetector {
+    private const val MIN_CLIP_MS = 2_000L
     private const val MIN_PREVIEW_MS = 5_000L
-    private const val MAX_PREVIEW_MS = 180_000L
+    private const val MAX_PREVIEW_MS = 1_800_000L
     /** Opening searched when the next episode has no intro time yet. */
     private const val COLD_OPEN_PRIOR_MS = 90_000L
-    private const val SNAP_TO_CREDITS_MS = 10_000L
+    private const val BESIDE_CREDITS_MS = 10_000L
+    private const val NARRATION_GAP_MS = 8_000L
 
     fun detect(
         episode: MediaAnalysisResult,
@@ -48,38 +55,129 @@ internal object PreviewDetector {
         val step = episode.fingerprintStepMs.coerceAtLeast(1).toLong()
         if (next.fingerprintStepMs.toLong() != step) return Found(why = "rejected-step")
         val tail = decodeFingerprint(episode.tailFingerprint)
-        val head = decodeFingerprint(next.headFingerprint)
-        if (tail.isEmpty() || head.isEmpty()) return Found(why = "rejected-no-match")
-        val introStart = next.introStartMs
-        val windowMs = when {
-            introStart == null -> COLD_OPEN_PRIOR_MS
-            introStart < MIN_PREVIEW_MS -> return Found(why = "rejected-no-cold-open")
-            else -> minOf(introStart, MAX_PREVIEW_MS)
-        }
-        val windowFrames = minOf(head.size, (windowMs / step).toInt())
-        val minFrames = (MIN_PREVIEW_MS / step).toInt().coerceAtLeast(1)
-        if (windowFrames < minFrames) return Found(why = "rejected-no-cold-open")
-        val window = maskRange(head, next.introStartMs, next.introEndMs, step, 0L).copyOfRange(0, windowFrames)
+        if (tail.isEmpty()) return Found(why = "rejected-no-match")
         val maskedTail = maskRange(tail, episode.creditsStartMs, episode.creditsEndMs, step, episode.tailStartMs)
-        val runs = FingerprintMatcher.topSharedSegments(maskedTail, window, minFrames = minFrames, limit = 4)
-        if (runs.isEmpty()) return Found(why = "rejected-no-match")
-        val segment = runs.maxBy { it.length }
-        var startMs = episode.tailStartMs + segment.startA * step
-        var endMs = episode.tailStartMs + segment.endA * step
-        val creditsStart = episode.creditsStartMs
-        if (creditsStart != null && startMs >= creditsStart) return Found(candidates = runs.size, why = "rejected-no-match")
-        if (creditsStart != null && creditsStart >= endMs && creditsStart - endMs <= SNAP_TO_CREDITS_MS) {
-            endMs = creditsStart
+        val minFrames = (MIN_CLIP_MS / step).toInt().coerceAtLeast(1)
+        val runs = mutableListOf<FingerprintMatcher.SharedSegment>()
+        val head = decodeFingerprint(next.headFingerprint)
+        if (head.isNotEmpty()) {
+            val introStart = next.introStartMs
+            val windowMs = when {
+                introStart == null -> COLD_OPEN_PRIOR_MS
+                introStart < MIN_CLIP_MS -> 0L
+                else -> minOf(introStart, MAX_PREVIEW_MS)
+            }
+            val windowFrames = minOf(head.size, (windowMs / step).toInt())
+            if (windowFrames >= minFrames) {
+                val window = maskRange(head, next.introStartMs, next.introEndMs, step, 0L).copyOfRange(0, windowFrames)
+                runs += FingerprintMatcher.topSharedSegments(maskedTail, window, minFrames = minFrames, limit = 8)
+            }
         }
-        val snapped = episode.snapSegmentEdges(startMs, endMs)
+        val nextTail = maskRange(
+            decodeFingerprint(next.tailFingerprint),
+            next.creditsStartMs,
+            next.creditsEndMs,
+            step,
+            next.tailStartMs,
+        )
+        if (nextTail.isNotEmpty()) {
+            runs += FingerprintMatcher.topSharedSegments(maskedTail, nextTail, minFrames = minFrames, limit = 8)
+        }
+        if (runs.isEmpty()) {
+            val noColdOpen = head.isNotEmpty() && next.introStartMs != null && next.introStartMs < MIN_CLIP_MS
+            return Found(why = if (noColdOpen) "rejected-no-cold-open" else "rejected-no-match")
+        }
+        val clips = runs.map { segment ->
+            (episode.tailStartMs + segment.startA * step) to (episode.tailStartMs + segment.endA * step)
+        }.filter { (start, end) -> !overlapsCredits(start, end, episode) }
+        if (clips.isEmpty()) return Found(candidates = runs.size, why = "rejected-no-match")
+        val chain = previewChain(clips, episode) ?: return Found(candidates = runs.size, why = "rejected-not-beside-credits")
+        val snapped = episode.snapSegmentEdges(chain.first, chain.second)
             ?: return Found(candidates = runs.size, why = "rejected-short")
-        if (snapped.second - snapped.first !in MIN_PREVIEW_MS..MAX_PREVIEW_MS) {
+        val trimmed = trimOffCredits(snapped, episode)
+        if (trimmed.second - trimmed.first !in MIN_PREVIEW_MS..MAX_PREVIEW_MS) {
             return Found(candidates = runs.size, why = "rejected-short")
         }
-        if (episode.rejectedSegments.covers("preview", snapped.first, snapped.second)) {
+        if (overlapsCredits(trimmed.first, trimmed.second, episode)) {
             return Found(candidates = runs.size, why = "rejected-no-match")
         }
-        return Found(range = snapped, candidates = runs.size)
+        if (episode.rejectedSegments.covers("preview", trimmed.first, trimmed.second)) {
+            return Found(candidates = runs.size, why = "rejected-no-match")
+        }
+        if (speechEnergyHigh(episode.energy, episode.energyStepMs, trimmed.first, trimmed.second) &&
+            clipGroups(clips.filter { it.second > trimmed.first && it.first < trimmed.second }) <= 1
+        ) {
+            return Found(candidates = runs.size, why = "rejected-dialog-overlay")
+        }
+        return Found(range = trimmed, candidates = runs.size)
+    }
+
+    private fun overlapsCredits(startMs: Long, endMs: Long, episode: MediaAnalysisResult): Boolean {
+        val creditsStart = episode.creditsStartMs ?: return false
+        val creditsEnd = episode.creditsEndMs ?: return false
+        return startMs < creditsEnd && endMs > creditsStart
+    }
+
+    /** Pulls a snapped end back off the credits. A snap must not swallow the credit roll. */
+    private fun trimOffCredits(range: Pair<Long, Long>, episode: MediaAnalysisResult): Pair<Long, Long> {
+        val creditsStart = episode.creditsStartMs ?: return range
+        if (range.first >= (episode.creditsEndMs ?: Long.MAX_VALUE)) return range
+        if (range.second > creditsStart && range.first < creditsStart) return range.first to creditsStart
+        return range
+    }
+
+    /**
+     * The chain of clips with narration-sized gaps that sits against the credits, or, when the
+     * credits time is unknown, a multi-clip chain that finishes the file.
+     */
+    private fun previewChain(
+        clips: List<Pair<Long, Long>>,
+        episode: MediaAnalysisResult,
+    ): Pair<Long, Long>? {
+        val sorted = clips.distinct().sortedBy { it.first }
+        var best: Pair<Long, Long>? = null
+        var bestClips = 0
+        var index = 0
+        while (index < sorted.size) {
+            var end = sorted[index].second
+            var count = 1
+            var next = index + 1
+            while (next < sorted.size && sorted[next].first <= end + NARRATION_GAP_MS) {
+                if (sorted[next].second > end) end = sorted[next].second
+                count++
+                next++
+            }
+            val start = sorted[index].first
+            val span = start to end
+            if (count >= bestClips && beside(span, count, episode)) {
+                best = span
+                bestClips = count
+            }
+            index = next
+        }
+        return best
+    }
+
+    private fun beside(span: Pair<Long, Long>, clips: Int, episode: MediaAnalysisResult): Boolean {
+        val creditsStart = episode.creditsStartMs
+        val creditsEnd = episode.creditsEndMs
+        if (creditsStart != null && creditsEnd != null && creditsEnd > creditsStart) {
+            val before = span.second <= creditsStart && creditsStart - span.second <= BESIDE_CREDITS_MS
+            val after = span.first >= creditsEnd && span.first - creditsEnd <= BESIDE_CREDITS_MS
+            return before || after
+        }
+        val finishesFile = episode.durationMs > 0L && episode.durationMs - span.second <= BESIDE_CREDITS_MS
+        return finishesFile && clips >= 2
+    }
+
+    private fun clipGroups(clips: List<Pair<Long, Long>>): Int {
+        val starts = clips.map { it.first }.distinct().sorted()
+        if (starts.isEmpty()) return 0
+        var groups = 1
+        for (index in 1 until starts.size) {
+            if (starts[index] - starts[index - 1] > 1_000L) groups++
+        }
+        return groups
     }
 
     private fun previewLine(
@@ -100,7 +198,8 @@ internal object PreviewDetector {
             endMs = range?.second,
             confidence = "prior=${if (agrees) 1 else 0}",
             why = why,
-            thresholds = "minMs=$MIN_PREVIEW_MS,maxMs=$MAX_PREVIEW_MS,coldOpenMs=$COLD_OPEN_PRIOR_MS,snapCreditsMs=$SNAP_TO_CREDITS_MS,maxBits=6",
+            thresholds = "minClipMs=$MIN_CLIP_MS,minMs=$MIN_PREVIEW_MS,maxMs=$MAX_PREVIEW_MS," +
+                "coldOpenMs=$COLD_OPEN_PRIOR_MS,besideMs=$BESIDE_CREDITS_MS,gapMs=$NARRATION_GAP_MS,maxBits=6",
         )
     }
 

@@ -14,7 +14,8 @@ import Libavutil
 /// Energy bytes, fingerprint samples and integrated loudness stay bit-identical with the scalar
 /// loop. Intro and credits times come from the fingerprint samples.
 final class MediaAnalyzerSampleLoop {
-    static let headWindowMs: Int64 = 10 * 60_000
+    /// Keep in step with `HEAD_FINGERPRINT_MS` (25 minutes).
+    static let headWindowMs: Int64 = 25 * 60_000
     static let fingerprintTargetRate = 6000.0
 
     /// Debug-only switch for timing the old loop against the fast loop on one file.
@@ -264,7 +265,8 @@ final class MediaAnalyzerSampleLoop {
             decimCount += 1
             if decimCount == decimation {
                 let value = decimSum / Float(decimation)
-                if sampleIndex < headEndSample { headSamples.append(value) } else { tailSamples.append(value) }
+                if sampleIndex < headEndSample { headSamples.append(value) }
+                if sampleIndex >= tailStartSample { tailSamples.append(value) }
                 decimSum = 0
                 decimCount = 0
             }
@@ -360,7 +362,8 @@ final class MediaAnalyzerSampleLoop {
                                 dCnt += 1
                                 if dCnt == dec {
                                     let value = dSum / Float(dec)
-                                    if idx < headEnd { headSamples.append(value) } else { tailSamples.append(value) }
+                                    if idx < headEnd { headSamples.append(value) }
+                                    if idx >= tailStart { tailSamples.append(value) }
                                     dSum = 0
                                     dCnt = 0
                                 }
