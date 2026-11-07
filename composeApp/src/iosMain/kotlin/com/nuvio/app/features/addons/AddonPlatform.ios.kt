@@ -85,8 +85,9 @@ private val addonHttpClient = HttpClient(Darwin) {
     expectSuccess = false
 }
 
-actual suspend fun httpGetText(url: String): String =
-    addonHttpClient
+actual suspend fun httpGetText(url: String): String {
+    com.nuvio.app.core.automation.blockedAutomationHttpText()?.let { return it }
+    return addonHttpClient
         .get(url) {
             accept(ContentType.Application.Json)
         }
@@ -100,9 +101,11 @@ actual suspend fun httpGetText(url: String): String =
             }
             payload
         }
+}
 
-actual suspend fun httpPostJson(url: String, body: String): String =
-    addonHttpClient
+actual suspend fun httpPostJson(url: String, body: String): String {
+    com.nuvio.app.core.automation.blockedAutomationHttpText()?.let { return it }
+    return addonHttpClient
         .post(url) {
             accept(ContentType.Application.Json)
             header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
@@ -118,12 +121,14 @@ actual suspend fun httpPostJson(url: String, body: String): String =
             }
             payload
         }
+}
 
 actual suspend fun httpGetTextWithHeaders(
     url: String,
     headers: Map<String, String>,
-): String =
-    addonHttpClient
+): String {
+    com.nuvio.app.core.automation.blockedAutomationHttpText()?.let { return it }
+    return addonHttpClient
         .get(url) {
             accept(ContentType.Application.Json)
             headers.forEach { (key, value) ->
@@ -140,13 +145,15 @@ actual suspend fun httpGetTextWithHeaders(
             }
             payload
         }
+}
 
 actual suspend fun httpPostJsonWithHeaders(
     url: String,
     body: String,
     headers: Map<String, String>,
-): String =
-    addonHttpClient
+): String {
+    com.nuvio.app.core.automation.blockedAutomationHttpText()?.let { return it }
+    return addonHttpClient
         .post(url) {
             accept(ContentType.Application.Json)
             header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
@@ -165,6 +172,7 @@ actual suspend fun httpPostJsonWithHeaders(
             }
             payload
         }
+}
 
 actual suspend fun httpRequestRaw(
     method: String,
@@ -175,6 +183,10 @@ actual suspend fun httpRequestRaw(
     maxResponseBodyBytes: Int,
     bodyBytes: ByteArray?,
 ): RawHttpResponse {
+    if (com.nuvio.app.core.automation.AutomationTestMode.isActive) {
+        com.nuvio.app.core.automation.AutomationStubs.noteBlockedNetwork()
+        return RawHttpResponse(status = 204, statusText = "automation", url = "", body = "", headers = emptyMap())
+    }
     if (com.nuvio.app.core.uifixture.uiFixturesActive()) {
         return RawHttpResponse(
             status = 0,

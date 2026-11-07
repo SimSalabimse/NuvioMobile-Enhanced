@@ -51,6 +51,7 @@ object AuthRepository {
             )
         }
 
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         sessionStatusJob = scope.launch {
             SupabaseProvider.client.auth.sessionStatus.collect { status ->
                 if (AuthStorage.loadAnonymousUserId() != null) return@collect
@@ -82,6 +83,7 @@ object AuthRepository {
     }
 
     private suspend fun validateRemoteSession(userId: String): Boolean {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return true
         if (userId.isBlank() || validatedRemoteUserId == userId) return true
         if (trustNextSessionWithoutValidation) {
             trustNextSessionWithoutValidation = false

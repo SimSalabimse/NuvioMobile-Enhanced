@@ -162,7 +162,10 @@ internal object DiscordRpcRepository {
         encodeDefaults = true
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default.limitedParallelism(1))
-    private val httpClient: HttpClient by lazy { createApiHttpClient() }
+    private val httpClient: HttpClient by lazy {
+        check(!com.nuvio.app.core.automation.AutomationTestMode.isActive)
+        createApiHttpClient()
+    }
 
     private val _uiState = MutableStateFlow(DiscordRpcUiState())
     val uiState: StateFlow<DiscordRpcUiState> = _uiState.asStateFlow()
@@ -520,8 +523,12 @@ internal object DiscordRpcRepository {
         }
     }
 
-    private suspend fun fetchUser(candidateToken: String): DiscordRpcUser? =
-        try {
+    private suspend fun fetchUser(candidateToken: String): DiscordRpcUser? {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) {
+            com.nuvio.app.core.automation.AutomationStubs.noteBlockedNetwork()
+            return null
+        }
+        return try {
             val response = httpClient.get("${DiscordRpcConfig.DISCORD_API_URL}/users/@me") {
                 header(HttpHeaders.Authorization, candidateToken)
             }
@@ -539,6 +546,7 @@ internal object DiscordRpcRepository {
             _uiState.update { it.copy(lastError = error.message ?: "Discord login check failed") }
             null
         }
+    }
 
     private fun signOut(expired: Boolean) {
         testJob?.cancel()

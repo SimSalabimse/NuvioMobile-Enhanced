@@ -167,6 +167,7 @@ object AddonRepository {
     }
 
     suspend fun pullFromServer(profileId: Int) {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         currentProfileId = resolveEffectiveProfileId(profileId)
         log.i { "pullFromServer() — profileId=$profileId, initialized=$initialized, pulledFromServer=$pulledFromServer" }
         InAppLogger.info("Addons/Repository", "pullFromServer profile=$currentProfileId initialized=$initialized pulled=$pulledFromServer")
@@ -445,6 +446,7 @@ object AddonRepository {
         manifestUrl: String,
         forceRefresh: Boolean = false,
     ) {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         val existingJob = synchronized(activeRefreshJobsLock) { activeRefreshJobs[manifestUrl] }
         if (existingJob?.isActive == true) {
             InAppLogger.debug("Addons/Manifest", "refresh skipped active url=${InAppLogger.redactUrl(manifestUrl)}")

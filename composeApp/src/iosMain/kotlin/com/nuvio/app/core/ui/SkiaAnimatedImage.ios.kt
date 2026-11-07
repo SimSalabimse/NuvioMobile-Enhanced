@@ -218,6 +218,10 @@ private fun trimDiskCache(directory: String) {
 }
 
 private suspend fun fetchSourceBytes(url: String): ByteArray? = loadSemaphore.withPermit {
+    if (com.nuvio.app.core.automation.AutomationTestMode.isActive) {
+        com.nuvio.app.core.automation.AutomationStubs.noteBlockedNetwork()
+        return@withPermit null
+    }
     cachedSourceBytes(url)?.let { return@withPermit it }
 
     if (url.startsWith("file://")) {

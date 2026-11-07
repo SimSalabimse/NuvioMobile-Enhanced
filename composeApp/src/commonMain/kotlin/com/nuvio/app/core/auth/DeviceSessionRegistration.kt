@@ -32,6 +32,7 @@ object DeviceSessionRegistration {
     private var lastRegistration: TimeMark? = null
 
     suspend fun registerIfAuthenticated(force: Boolean = false): Boolean {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return false
         val authState = AuthRepository.state.value as? AuthState.Authenticated ?: return false
         if (authState.isAnonymous) return false
 

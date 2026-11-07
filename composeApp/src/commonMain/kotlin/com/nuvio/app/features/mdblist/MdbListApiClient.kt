@@ -56,7 +56,7 @@ class MdbListApiClient(
         scope: MdbListAuthScope,
         acceptedStatuses: Set<Int> = emptySet()
     ): MdbListHttpResponse {
-        if (AutomationTestMode.isActive && method != MdbListHttpMethod.GET) {
+        if (AutomationTestMode.isActive) {
             return MdbListHttpResponse(status = 200, body = "{}")
         }
         var authorization = auth.authorization(scope)

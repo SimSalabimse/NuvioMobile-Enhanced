@@ -48,7 +48,7 @@ import com.nuvio.app.features.player.skip.defaultIntroSubmitService
 import com.nuvio.app.features.player.skip.flagChecksForTitle
 import com.nuvio.app.features.player.skip.flagSubmitContentKey
 import com.nuvio.app.features.player.skip.introSubmitBlockReason
-import com.nuvio.app.features.player.skip.introSubmitKeyProblem
+import com.nuvio.app.features.player.skip.introSubmitKeySatisfied
 import com.nuvio.app.features.player.skip.prepareIntroSubmitKey
 import com.nuvio.app.features.player.skip.rejectedFlagTypesForTitle
 import com.nuvio.app.features.player.skip.resolveIntroSubmitTimes
@@ -120,7 +120,7 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
     val settings = playerSettingsUiState
     val service = defaultIntroSubmitService(settings.introDbApiKey, settings.theIntroDbApiKey)
     val savedKey = savedKeyForService(service, settings.introDbApiKey, settings.theIntroDbApiKey)
-    val keyMissing = introSubmitKeyProblem(service, savedKey) != IntroSubmitKeyProblem.NONE
+    val keyMissing = !introSubmitKeySatisfied(service, savedKey)
     val durationSec = playbackSnapshot.durationMs / 1000.0
     val startSec = parseMarkClock(submitIntroStartTimeStr)
     val endSec = parseMarkClock(submitIntroEndTimeStr)

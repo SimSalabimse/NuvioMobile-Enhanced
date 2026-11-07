@@ -1,6 +1,8 @@
 package com.nuvio.app.features.library
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.automation.AutomationStubs
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.sync.OfflineAccountFlush
@@ -663,6 +665,10 @@ object LibraryRepository {
             _uiState.value = held
             return
         }
+        if (AutomationTestMode.isActive) {
+            _uiState.value = AutomationStubs.libraryState()
+            return
+        }
         val localSnapshot = localState.snapshot()
         val sourceMode = effectiveLibrarySourceMode()
         activeLibraryProvider(sourceMode)?.let { provider ->
@@ -721,6 +727,7 @@ object LibraryRepository {
     }
 
     private fun refreshLibraryProviderAsync(provider: TrackingLibraryProvider) {
+        if (AutomationTestMode.isActive) return
         syncScope.launch {
             refreshLibraryProvider(
                 provider = provider,
@@ -736,6 +743,7 @@ object LibraryRepository {
         reason: String,
         intent: TrackingRefreshIntent,
     ) {
+        if (AutomationTestMode.isActive) return
         log.i {
             "Tracking library refresh request provider=${provider.providerId.storageId} " +
                 "reason=$reason intent=$intent"

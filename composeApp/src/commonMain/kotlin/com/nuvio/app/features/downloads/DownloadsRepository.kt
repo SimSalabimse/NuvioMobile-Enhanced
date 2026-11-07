@@ -331,7 +331,11 @@ object DownloadsRepository {
                 // needs this row to be in the list first.
                 status = DownloadStatus.Queued,
                 downloadedBytes = 0L,
-                totalBytes = null,
+                totalBytes = if (com.nuvio.app.core.automation.AutomationStubs.isLocalClip(sourceUrl)) {
+                    com.nuvio.app.core.automation.AutomationStubs.clipByteCount()
+                } else {
+                    null
+                },
                 errorMessage = null,
                 createdAtEpochMs = now,
                 updatedAtEpochMs = now,
@@ -1062,7 +1066,10 @@ object DownloadsRepository {
             },
         )
 
-        activeHandles[item.id] = handle
+        val stillDownloading = _uiState.value.items.firstOrNull { it.id == item.id }?.status == DownloadStatus.Downloading
+        if (!com.nuvio.app.core.automation.AutomationTestMode.isActive || stillDownloading) {
+            activeHandles[item.id] = handle
+        }
     }
 
     private fun mutateItem(downloadId: String, transform: (DownloadItem) -> DownloadItem) {
@@ -1721,5 +1728,6 @@ internal fun String.isSupportedDownloadUrl(): Boolean {
     if (normalized.endsWith(".m3u8") || normalized.contains(".m3u8?")) return false
     if (normalized.endsWith(".mpd") || normalized.contains(".mpd?")) return false
     if (normalized.endsWith(".torrent") || normalized.contains(".torrent?")) return false
+    if (com.nuvio.app.core.automation.AutomationStubs.isLocalClip(normalized)) return true
     return normalized.startsWith("http://") || normalized.startsWith("https://")
 }

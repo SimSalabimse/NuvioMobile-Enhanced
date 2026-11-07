@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.network.NetworkCondition
@@ -996,7 +997,10 @@ fun HomeScreen(
         }
     }
 
-    val hasActiveAddons = enabledAddons.any { it.manifest != null }
+    val hasActiveAddons = homeHasActiveSources(
+        installedAddonManifests = enabledAddons.any { it.manifest != null },
+        sections = homeUiState.sections,
+    )
     val serversUiState by remember {
         ServerRepository.ensureLoaded()
         ServerRepository.uiState
@@ -1336,6 +1340,23 @@ fun HomeScreen(
                                         )
                                     }
                                 }
+                            }
+                        }
+                        homeSectionsMissingFromSettings(
+                            sections = homeUiState.sections,
+                            settingsKeys = keyedEnabledHomeItems.map { it.value.key }.toSet(),
+                        ).forEach { section ->
+                            item(key = "automation_${section.key}") {
+                                HomeCatalogRowSection(
+                                    section = section,
+                                    entries = section.items.take(HOME_CATALOG_PREVIEW_LIMIT),
+                                    modifier = Modifier.padding(bottom = 12.dp),
+                                    sectionPadding = homeSectionPadding,
+                                    watchedKeys = watchedUiState.watchedKeys,
+                                    fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+                                    onPosterClick = onPosterClick,
+                                    onPosterLongClick = onPosterLongClick,
+                                )
                             }
                         }
                     }
@@ -2327,3 +2348,19 @@ private fun ContinueWatchingItem.isCloudLibraryContinueWatchingItem(): Boolean =
 private fun WatchProgressEntry.isCloudLibraryProgressEntry(): Boolean =
     contentType.equals(CloudLibraryContentType, ignoreCase = true) ||
         parentMetaType.equals(CloudLibraryContentType, ignoreCase = true)
+
+/** Installed addon manifests, or the stubbed home rows while automation mode is on. */
+internal fun homeHasActiveSources(
+    installedAddonManifests: Boolean,
+    sections: List<HomeCatalogSection>,
+): Boolean = installedAddonManifests ||
+    (AutomationTestMode.isActive && sections.any { it.items.isNotEmpty() })
+
+/** Stub sections whose key is not a home-settings row. Empty when the flag is off. */
+internal fun homeSectionsMissingFromSettings(
+    sections: List<HomeCatalogSection>,
+    settingsKeys: Set<String>,
+): List<HomeCatalogSection> {
+    if (!AutomationTestMode.isActive) return emptyList()
+    return sections.filter { it.items.isNotEmpty() && it.key !in settingsKeys }
+}

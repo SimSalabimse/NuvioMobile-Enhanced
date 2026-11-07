@@ -80,6 +80,7 @@ object AvatarRepository {
     private var lastMemberRefresh: TimeMark? = null
 
     suspend fun shareableImageUrl(profile: NuvioProfile): String? {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return null
         val storage = "${ServerConfigurationRepository.active.value.backendUrl}/storage/v1/object/"
         normalizedAvatarUrl(profile.avatarUrl)?.let { url -> return url.takeIf { it.startsWith(storage) } }
         val avatar = profile.avatarId?.let { id -> avatars.value.firstOrNull { it.id == id } } ?: return null
@@ -99,6 +100,7 @@ object AvatarRepository {
     }
 
     suspend fun fetchAvatars() {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         hydrateFromCacheIfNeeded()
         ensureMemberAccessObserver()
         if (standardLoaded && standardCatalog.isNotEmpty()) {
@@ -109,6 +111,7 @@ object AvatarRepository {
     }
 
     suspend fun refreshAvatars(force: Boolean = false) {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         hydrateFromCacheIfNeeded()
         ensureMemberAccessObserver()
         if (force || isRefreshDue(lastStandardRefresh)) {
