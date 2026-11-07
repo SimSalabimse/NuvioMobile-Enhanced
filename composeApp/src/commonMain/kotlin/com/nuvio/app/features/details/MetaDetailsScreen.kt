@@ -229,6 +229,7 @@ fun MetaDetailsScreen(
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
+    ChangedSurfaceTextScale {
     val playbackAvailability = rememberPlaybackAvailability()
     val shuffleProfile by remember {
         EpisodeShuffleRepository.ensureLoaded()
@@ -1307,6 +1308,7 @@ fun MetaDetailsScreen(
                     val colorScheme = MaterialTheme.colorScheme
                     val useTabletLayout = minOf(maxWidth, maxHeight) >= 600.dp
                     val screenHeight = maxHeight
+                    val portraitPhone = !useTabletLayout && screenHeight >= maxWidth
                     val isTablet = useTabletLayout || maxWidth >= 720.dp
                     val tabletViewportHeight = maxHeight
                     val isTabletLandscape = maxWidth > maxHeight
@@ -1472,6 +1474,7 @@ fun MetaDetailsScreen(
                                             DetailHero(
                                                 meta = meta,
                                                 isTablet = isTablet,
+                                                portraitPhone = portraitPhone,
                                                 contentMaxWidth = contentMaxWidth,
                                                 scrollOffset = heroScrollOffset,
                                                 stretchPx = { heroStretchState.stretchPx },
@@ -2273,6 +2276,7 @@ fun MetaDetailsScreen(
             )
         }
 
+    }
     }
 }
 

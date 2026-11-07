@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -42,6 +43,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
@@ -54,6 +56,7 @@ import com.nuvio.app.core.ui.HeroArtworkFit
 import com.nuvio.app.core.ui.focusedAlignment
 import com.nuvio.app.core.ui.heroArtworkDecision
 import com.nuvio.app.core.ui.heroImageHeightFraction
+import com.nuvio.app.core.ui.portraitArtworkSlotHeight
 import com.nuvio.app.core.ui.portraitHeroFrame
 import com.nuvio.app.core.ui.rememberBackdropFocusState
 import com.nuvio.app.core.ui.rememberHeroArtworkSize
@@ -71,6 +74,7 @@ import com.nuvio.app.core.ui.verticalBarWidth
 fun DetailHero(
     meta: MetaDetails,
     isTablet: Boolean = false,
+    portraitPhone: Boolean = !isTablet,
     scrollOffset: () -> Int = { 0 },
     stretchPx: () -> Float = { 0f },
     contentMaxWidth: Dp = 560.dp,
@@ -94,6 +98,15 @@ fun DetailHero(
     ) {
         val heroHeight = detailHeroHeight(maxWidth - verticalBarWidth(), isTablet)
         val heroFrameWidth = maxWidth
+        var loadedWidth by remember(meta.background, meta.poster) { mutableStateOf(0) }
+        var loadedHeight by remember(meta.background, meta.poster) { mutableStateOf(0) }
+        val tallArt = loadedWidth > 0 && loadedHeight > loadedWidth
+        val artworkFrameHeight = if (portraitPhone) {
+            portraitArtworkSlotHeight(heroFrameWidth, tallArt)
+        } else {
+            heroHeight
+        }
+        val portrait = portraitPhone || portraitHeroFrame(heroFrameWidth.value, artworkFrameHeight.value)
         val trailerAlpha by animateFloatAsState(
             targetValue = if (heroTrailerReady) 1f else 0f,
             animationSpec = tween(durationMillis = 300),
@@ -112,13 +125,20 @@ fun DetailHero(
         }
         val logoUrl = meta.logo?.takeIf { it.isNotBlank() }
 
-        val heroBaseHeightPx = with(LocalDensity.current) { heroHeight.roundToPx() }
-        LaunchedEffect(heroBaseHeightPx) { onHeightChanged(heroBaseHeightPx) }
+        if (!portraitPhone) {
+            val heroBaseHeightPx = with(LocalDensity.current) { heroHeight.roundToPx() }
+            LaunchedEffect(heroBaseHeightPx) { onHeightChanged(heroBaseHeightPx) }
+        }
 
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .onSizeChanged { if (portraitPhone) onHeightChanged(it.height) },
+        ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .heroStretchHeight(heroHeight, stretchPx)
+                .heroStretchHeight(artworkFrameHeight, stretchPx)
                 .graphicsLayer {
                     clip = true
                 },
@@ -141,16 +161,17 @@ fun DetailHero(
                             imageWidth = artworkSize.width,
                             imageHeight = artworkSize.height,
                             frameWidth = heroFrameWidth.value,
-                            frameHeight = heroHeight.value,
+                            frameHeight = artworkFrameHeight.value,
                             landscapeExtraScale = DETAIL_LANDSCAPE_EXTRA_SCALE,
+                            portrait = portrait,
                         )
-                        val portrait = artwork.fit != HeroArtworkFit.CropLandscape
                         val imageFraction = heroImageHeightFraction(
                             artwork,
                             heroFrameWidth.value,
-                            heroHeight.value,
+                            artworkFrameHeight.value,
+                            portrait = portrait,
                         )
-                        val imageHeight = heroHeight * imageFraction
+                        val imageHeight = artworkFrameHeight * imageFraction
                         AsyncImage(
                             model = imageUrl,
                             contentDescription = meta.name,
@@ -186,6 +207,8 @@ fun DetailHero(
                             onSuccess = { state ->
                                 val image = state.result.image
                                 artworkSize.onImageLoaded(image.width, image.height)
+                                loadedWidth = image.width
+                                loadedHeight = image.height
                                 backdropFocus.onImageLoaded(image)
                                 onBackdropLoaded(
                                     state.painter,
@@ -210,21 +233,23 @@ fun DetailHero(
                                 .align(Alignment.TopCenter)
                                 .fillMaxWidth()
                                 .height(
-                                    heroHeight * heroImageHeightFraction(
+                                    artworkFrameHeight * heroImageHeightFraction(
                                         heroArtworkDecision(
                                             imageWidth = 16,
                                             imageHeight = 9,
                                             frameWidth = heroFrameWidth.value,
-                                            frameHeight = heroHeight.value,
+                                            frameHeight = artworkFrameHeight.value,
                                             landscapeExtraScale = DETAIL_LANDSCAPE_EXTRA_SCALE,
+                                            portrait = portrait,
                                         ),
                                         heroFrameWidth.value,
-                                        heroHeight.value,
+                                        artworkFrameHeight.value,
+                                        portrait = portrait,
                                     ),
                                 )
                                 .heroStretchZoom(stretchPx)
                                 .graphicsLayer {
-                                    val framePortrait = portraitHeroFrame(heroFrameWidth.value, heroHeight.value)
+                                    val framePortrait = portrait
                                     alpha = trailerAlpha
                                     translationY = if (framePortrait) 0f else scrollOffset() * 0.5f
                                     val trailerScale = if (framePortrait) 1f else DETAIL_LANDSCAPE_EXTRA_SCALE
@@ -281,7 +306,19 @@ fun DetailHero(
                     }
                 }
 
-                if (!cinematicBackground) {
+                if (!cinematicBackground && portraitPhone) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(36.dp)
+                            .align(Alignment.BottomCenter)
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(Color.Transparent, bottomGradientColor),
+                                ),
+                            ),
+                    )
+                } else if (!cinematicBackground) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -303,45 +340,79 @@ fun DetailHero(
                     )
                 }
 
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = if (isTablet) 32.dp else 18.dp)
-                        .padding(bottom = 8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    if (logoUrl != null && !logoLoadError) {
-                        AsyncImage(
-                            model = logoUrl,
-                            contentDescription = stringResource(Res.string.detail_logo_content_description, meta.name),
-                            modifier = Modifier
-                                .fillMaxWidth(if (isTablet) 0.56f else 0.6f)
-                                .widthIn(max = contentMaxWidth)
-                                .height(if (isTablet) 72.dp else 80.dp),
-                            alignment = Alignment.Center,
-                            contentScale = ContentScale.Fit,
-                            onError = { logoLoadError = true },
-                        )
-                    } else {
-                        Text(
-                            text = meta.name,
-                            style = if (isTablet) MaterialTheme.typography.displaySmall else MaterialTheme.typography.displayLarge,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
-
-                    if (meta.genres.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = meta.genres.take(3).joinToString(" \u2022 "),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                        )
-                    }
+                if (!portraitPhone) {
+                    DetailHeroHeading(
+                        meta = meta,
+                        logoUrl = logoUrl,
+                        logoLoadError = logoLoadError,
+                        onLogoError = { logoLoadError = true },
+                        isTablet = isTablet,
+                        contentMaxWidth = contentMaxWidth,
+                        modifier = Modifier.padding(bottom = 8.dp),
+                    )
                 }
             }
+        }
+        if (portraitPhone) {
+            DetailHeroHeading(
+                meta = meta,
+                logoUrl = logoUrl,
+                logoLoadError = logoLoadError,
+                onLogoError = { logoLoadError = true },
+                isTablet = false,
+                contentMaxWidth = contentMaxWidth,
+                modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
+            )
+        }
+        }
+    }
+}
+
+@Composable
+private fun DetailHeroHeading(
+    meta: MetaDetails,
+    logoUrl: String?,
+    logoLoadError: Boolean,
+    onLogoError: () -> Unit,
+    isTablet: Boolean,
+    contentMaxWidth: Dp,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = if (isTablet) 32.dp else 18.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        if (logoUrl != null && !logoLoadError) {
+            AsyncImage(
+                model = logoUrl,
+                contentDescription = stringResource(Res.string.detail_logo_content_description, meta.name),
+                modifier = Modifier
+                    .fillMaxWidth(if (isTablet) 0.56f else 0.72f)
+                    .widthIn(max = contentMaxWidth)
+                    .then(if (isTablet) Modifier.height(72.dp) else Modifier.aspectRatio(2.6f)),
+                alignment = Alignment.Center,
+                contentScale = ContentScale.Fit,
+                onError = { onLogoError() },
+            )
+        } else {
+            Text(
+                text = meta.name,
+                style = if (isTablet) MaterialTheme.typography.displaySmall else MaterialTheme.typography.displayLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                textAlign = TextAlign.Center,
+            )
+        }
+
+        if (meta.genres.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = meta.genres.take(3).joinToString(" \u2022 "),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
         }
     }
 }

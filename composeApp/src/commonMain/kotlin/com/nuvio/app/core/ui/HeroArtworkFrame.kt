@@ -6,6 +6,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 
 @Stable
 internal class HeroArtworkSizeState {
@@ -62,14 +64,29 @@ internal const val PORTRAIT_WIDE_BAND_ASPECT = 16f / 9f
 internal const val PORTRAIT_POSTER_ASPECT = 2f / 3f
 internal const val PORTRAIT_POSTER_WIDTH_FRACTION = 0.62f
 
+/**
+ * Height of the portrait artwork itself. Wide and unknown art are a 16:9 band.
+ * Tall art is a 2:3 column at [PORTRAIT_POSTER_WIDTH_FRACTION] of the frame.
+ * The title sits under this height. Nothing is reserved below the picture.
+ */
+internal fun portraitArtworkSlotHeight(frameWidth: Dp, tallArt: Boolean): Dp {
+    val width = frameWidth.value
+    val height = if (tallArt) {
+        width * PORTRAIT_POSTER_WIDTH_FRACTION / PORTRAIT_POSTER_ASPECT
+    } else {
+        width / PORTRAIT_WIDE_BAND_ASPECT
+    }
+    return height.dp
+}
+
 internal fun heroArtworkDecision(
     imageWidth: Int,
     imageHeight: Int,
     frameWidth: Float,
     frameHeight: Float,
     landscapeExtraScale: Float,
+    portrait: Boolean = portraitHeroFrame(frameWidth, frameHeight),
 ): HeroArtworkDecision {
-    val portrait = portraitHeroFrame(frameWidth, frameHeight)
     val unknown = HeroArtworkDecision(
         fit = if (portrait) HeroArtworkFit.WideBand else HeroArtworkFit.CropLandscape,
         extraScale = 1f,
@@ -104,20 +121,21 @@ internal fun heroArtworkDecision(
 }
 
 /**
- * Height of the image as a fraction of the hero slot.
- * 1 fills the slot. A portrait band is shorter so the title sits on the surface, not in empty bars.
+ * Height of the image as a fraction of the slot. 1 fills a slot that is already the
+ * artwork height. [portrait] is the phone orientation, not the slot's own aspect.
  */
 internal fun heroImageHeightFraction(
     decision: HeroArtworkDecision,
     frameWidth: Float,
     frameHeight: Float,
+    portrait: Boolean = portraitHeroFrame(frameWidth, frameHeight),
 ): Float {
     if (frameWidth <= 0f || frameHeight <= 0f) return 1f
-    if (!portraitHeroFrame(frameWidth, frameHeight)) return 1f
+    if (!portrait) return 1f
     val heightOverWidth = when (decision.fit) {
         HeroArtworkFit.WideBand -> 1f / PORTRAIT_WIDE_BAND_ASPECT
         HeroArtworkFit.PosterColumn -> decision.widthFraction / PORTRAIT_POSTER_ASPECT
         HeroArtworkFit.CropLandscape -> return 1f
     }
-    return (frameWidth * heightOverWidth / frameHeight).coerceIn(0.34f, 0.92f)
+    return (frameWidth * heightOverWidth / frameHeight).coerceIn(0.34f, 1f)
 }

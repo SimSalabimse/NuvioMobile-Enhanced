@@ -51,6 +51,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -90,6 +91,7 @@ import com.nuvio.app.core.ui.HeroArtworkFit
 import com.nuvio.app.core.ui.focusedAlignment
 import com.nuvio.app.core.ui.heroArtworkDecision
 import com.nuvio.app.core.ui.heroImageHeightFraction
+import com.nuvio.app.core.ui.portraitArtworkSlotHeight
 import com.nuvio.app.core.ui.portraitHeroFrame
 import com.nuvio.app.core.ui.rememberHeroArtworkSize
 import com.nuvio.app.core.ui.rememberBackdropFocusState
@@ -132,7 +134,6 @@ private const val HERO_SWIPE_THRESHOLD_FRACTION = 0.16f
 private const val HERO_SWIPE_VELOCITY_THRESHOLD = 300f
 private const val HERO_AUTO_SCROLL_INTERVAL_MS = 8_000L
 private const val MOBILE_HERO_VIEWPORT_RATIO = 0.82f
-private const val MOBILE_PORTRAIT_HERO_WIDTH_RATIO = 1.5f
 private const val MOBILE_HERO_MIN_HEIGHT_DP = 360f
 private const val MOBILE_HERO_MAX_HEIGHT_DP = 760f
 private const val TABLET_LANDSCAPE_HERO_HEIGHT_MULTIPLIER = 1.5f
@@ -346,7 +347,10 @@ internal fun HomeHeroSection(
                 else -> HomeHeroArtworkSource.POSTER
             }
             val artworkParallax = if (isCardStyle) 0f else HERO_BACKGROUND_PARALLAX
-            val portraitFrame = portraitHeroFrame(heroFrameWidth.value, layout.heroHeight.value)
+            // Phone portrait is the orientation, not a reserved slot taller than the picture.
+            val phonePortrait = !isCardStyle && !layout.isTablet &&
+                (viewportHeight == null || viewportHeight >= maxWidth)
+            val portraitFrame = phonePortrait || portraitHeroFrame(heroFrameWidth.value, layout.heroHeight.value)
             val artworkBaseScale = if (isCardStyle || portraitFrame) 1f else HERO_BACKGROUND_SCALE
             val heroWidthPx = with(LocalDensity.current) { maxWidth.toPx() }
             val heroHeightPx = with(LocalDensity.current) { layout.heroHeight.toPx() }
@@ -464,10 +468,20 @@ internal fun HomeHeroSection(
                 }
             }
 
+            val artworkIsTall = remember { mutableStateMapOf<String, Boolean>() }
+            val currentArtworkUrl = heroArtworkUrl(currentItem, effectiveArtworkSource)
+            val tallArt = currentArtworkUrl?.let { artworkIsTall[it] } == true
+            val artworkSlotHeight = if (phonePortrait) {
+                portraitArtworkSlotHeight(heroFrameWidth, tallArt)
+            } else {
+                layout.heroHeight
+            }
+
+            Column(modifier = Modifier.fillMaxWidth()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heroStretchHeight(layout.heroHeight, stretchPx),
+                    .heroStretchHeight(artworkSlotHeight, stretchPx),
             ) {
                 HorizontalPager(
                     state = pagerState,
@@ -485,7 +499,7 @@ internal fun HomeHeroSection(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(layout.heroHeight)
+                            .height(artworkSlotHeight)
                             .heroStretchZoom(stretchPx),
                     ) {
                         visiblePages.forEach { layer ->
@@ -499,14 +513,16 @@ internal fun HomeHeroSection(
                                     imageWidth = artworkSize.width,
                                     imageHeight = artworkSize.height,
                                     frameWidth = heroFrameWidth.value,
-                                    frameHeight = layout.heroHeight.value,
+                                    frameHeight = artworkSlotHeight.value,
                                     landscapeExtraScale = if (isCardStyle) 1f else HERO_BACKGROUND_SCALE,
+                                    portrait = portraitFrame,
                                 )
                                 val portrait = artwork.fit != HeroArtworkFit.CropLandscape
                                 val imageFraction = heroImageHeightFraction(
                                     artwork,
                                     heroFrameWidth.value,
-                                    layout.heroHeight.value,
+                                    artworkSlotHeight.value,
+                                    portrait = portraitFrame,
                                 )
                                 val scrollScale = if (artwork.scrollScaleEnabled && !isCardStyle) {
                                     heroBackgroundScrollScale(scrollOffsetPx)
@@ -561,6 +577,9 @@ internal fun HomeHeroSection(
                                         val image = state.result.image
                                         artworkSize.onImageLoaded(image.width, image.height)
                                         backdropFocus.onImageLoaded(image)
+                                        if (artworkUrl != null && image.width > 0 && image.height > 0) {
+                                            artworkIsTall[artworkUrl] = image.height > image.width
+                                        }
                                     },
                                 )
                             }
@@ -593,11 +612,13 @@ internal fun HomeHeroSection(
                                                     imageWidth = 16,
                                                     imageHeight = 9,
                                                     frameWidth = heroFrameWidth.value,
-                                                    frameHeight = layout.heroHeight.value,
+                                                    frameHeight = artworkSlotHeight.value,
                                                     landscapeExtraScale = 1f,
+                                                    portrait = true,
                                                 ),
                                                 heroFrameWidth.value,
-                                                layout.heroHeight.value,
+                                                artworkSlotHeight.value,
+                                                portrait = true,
                                             )
                                         } else {
                                             1f
@@ -641,7 +662,7 @@ internal fun HomeHeroSection(
                         }
                     }
 
-                    if (!isCardStyle) {
+                    if (!isCardStyle && !phonePortrait) {
                         val heroFadeColorState = LocalDynamicArtworkBackgroundColor.current
                         val themeBackground = MaterialTheme.colorScheme.background
                         Box(
@@ -674,6 +695,23 @@ internal fun HomeHeroSection(
                         )
                     }
 
+                    if (phonePortrait) {
+                        val edge = MaterialTheme.colorScheme.background
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(36.dp)
+                                .align(Alignment.BottomCenter)
+                                .drawBehind {
+                                    drawRect(
+                                        Brush.verticalGradient(
+                                            colors = listOf(edge.copy(alpha = 0f), edge),
+                                        ),
+                                    )
+                                },
+                        )
+                    }
+
                     if (isCardStyle) {
                         Box(
                             modifier = Modifier
@@ -690,57 +728,19 @@ internal fun HomeHeroSection(
                                     onItemClick?.invoke(currentItem)
                                 },
                         )
-                        Column(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .padding(
-                                    if (layout.isTablet) {
-                                        PaddingValues(horizontal = layout.contentHorizontalPadding).withVerticalBar()
-                                    } else {
-                                        centeredVerticalBarPadding(layout.contentHorizontalPadding)
-                                    },
-                                )
-                                .padding(vertical = layout.contentVerticalPadding),
-                            horizontalAlignment = if (layout.isTablet) Alignment.Start else Alignment.CenterHorizontally,
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth(layout.contentWidthFraction)
-                                    .widthIn(max = layout.contentMaxWidth),
-                                contentAlignment = Alignment.BottomStart,
-                            ) {
-                                visiblePages.forEach { layer ->
-                                    val layerItem = items[layer.itemIndex]
-                                    key(layerItem.stableKey()) {
-                                    Box(
-                                        modifier = Modifier.graphicsLayer {
-                                            val offset = heroPageOffset(pagerState, layer.page)
-                                            val visibility = (1f - abs(offset)).coerceIn(0f, 1f)
-                                            alpha = ((visibility - 0.5f) * 2f).coerceIn(0f, 1f)
-                                            translationX = -offset * heroWidthPx * HERO_CONTENT_PARALLAX
-                                        },
-                                    ) {
-                                        HeroContentBlock(
-                                            item = layerItem,
-                                            layout = layout,
-                                            showImdbRating = showImdbRating,
-                                            showMdbListRatings = showMdbListRatings,
-                                            onItemClick = onItemClick,
-                                        )
-                                    }
-                                    }
-                                }
-                            }
-
-                            if (items.size > 1) {
-                                Spacer(modifier = Modifier.height(if (layout.isTablet) 16.dp else 18.dp))
-                                HeroPageIndicator(
-                                    itemCount = items.size,
-                                    pagerState = pagerState,
-                                    coroutineScope = coroutineScope,
-                                )
-                            }
+                        if (!phonePortrait) {
+                            HomeHeroCopy(
+                                items = items,
+                                visiblePages = visiblePages,
+                                layout = layout,
+                                pagerState = pagerState,
+                                coroutineScope = coroutineScope,
+                                heroWidthPx = heroWidthPx,
+                                showImdbRating = showImdbRating,
+                                showMdbListRatings = showMdbListRatings,
+                                onItemClick = onItemClick,
+                                modifier = Modifier.align(Alignment.BottomCenter),
+                            )
                         }
                     }
 
@@ -782,10 +782,91 @@ internal fun HomeHeroSection(
                     }
                 }
             }
+            if (phonePortrait) {
+                HomeHeroCopy(
+                    items = items,
+                    visiblePages = visiblePages,
+                    layout = layout,
+                    pagerState = pagerState,
+                    coroutineScope = coroutineScope,
+                    heroWidthPx = heroWidthPx,
+                    showImdbRating = showImdbRating,
+                    showMdbListRatings = showMdbListRatings,
+                    onItemClick = onItemClick,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            }
         }
 
         if (isCardStyle && items.size > 1) {
             Spacer(modifier = Modifier.height(12.dp))
+            HeroPageIndicator(
+                itemCount = items.size,
+                pagerState = pagerState,
+                coroutineScope = coroutineScope,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeHeroCopy(
+    items: List<MetaPreview>,
+    visiblePages: List<HeroPageLayer>,
+    layout: HomeHeroLayout,
+    pagerState: PagerState,
+    coroutineScope: CoroutineScope,
+    heroWidthPx: Float,
+    showImdbRating: Boolean,
+    showMdbListRatings: Boolean,
+    onItemClick: ((MetaPreview) -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(
+                if (layout.isTablet) {
+                    PaddingValues(horizontal = layout.contentHorizontalPadding).withVerticalBar()
+                } else {
+                    centeredVerticalBarPadding(layout.contentHorizontalPadding)
+                },
+            )
+            .padding(vertical = layout.contentVerticalPadding),
+        horizontalAlignment = if (layout.isTablet) Alignment.Start else Alignment.CenterHorizontally,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(layout.contentWidthFraction)
+                .widthIn(max = layout.contentMaxWidth),
+            contentAlignment = Alignment.BottomStart,
+        ) {
+            visiblePages.forEach { layer ->
+                val layerItem = items[layer.itemIndex]
+                key(layerItem.stableKey()) {
+                    Box(
+                        modifier = Modifier.graphicsLayer {
+                            val offset = heroPageOffset(pagerState, layer.page)
+                            val visibility = (1f - abs(offset)).coerceIn(0f, 1f)
+                            alpha = ((visibility - 0.5f) * 2f).coerceIn(0f, 1f)
+                            translationX = -offset * heroWidthPx * HERO_CONTENT_PARALLAX
+                        },
+                    ) {
+                        HeroContentBlock(
+                            item = layerItem,
+                            layout = layout,
+                            showImdbRating = showImdbRating,
+                            showMdbListRatings = showMdbListRatings,
+                            onItemClick = onItemClick,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (items.size > 1) {
+            Spacer(modifier = Modifier.height(if (layout.isTablet) 16.dp else 12.dp))
             HeroPageIndicator(
                 itemCount = items.size,
                 pagerState = pagerState,
@@ -960,7 +1041,7 @@ private fun HeroContentBlock(
                 color = MaterialTheme.colorScheme.onBackground,
                 fontWeight = FontWeight.Black,
                 textAlign = if (layout.isTablet) TextAlign.Start else TextAlign.Center,
-                maxLines = 2,
+                maxLines = 4,
                 overflow = TextOverflow.Ellipsis,
             )
         }
@@ -1008,7 +1089,7 @@ private fun HeroContentBlock(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.72f),
                 textAlign = if (layout.isTablet) TextAlign.Start else TextAlign.Center,
-                maxLines = 2,
+                maxLines = 4,
                 overflow = TextOverflow.Ellipsis,
             )
         }
@@ -1098,7 +1179,8 @@ private fun mobileHeroHeight(
     val isPortraitViewport = viewportHeightDp?.let { it >= maxWidthDp } != false
 
     if (isPortraitViewport) {
-        return (maxWidthDp * MOBILE_PORTRAIT_HERO_WIDTH_RATIO).dp
+        // Wide-band height. Tall art grows the live slot once the image size is known.
+        return portraitArtworkSlotHeight(maxWidthDp.dp, tallArt = false)
     }
 
     val viewportDrivenHeight = viewportHeightDp?.let { (it * MOBILE_HERO_VIEWPORT_RATIO).dp }

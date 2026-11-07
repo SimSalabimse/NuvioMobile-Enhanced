@@ -4,11 +4,23 @@ Build 206 on `sync/upstream-0.6.7-on-batch11`. No merge to enhanced or integrati
 
 ## Portrait hero
 
-The tall phone slot currently fits the whole picture inside the hero, so a wide banner sits in empty bars. Landscape keeps the existing crop and extra scale.
+The first portrait pass kept the old hero slot (home `width * 1.5`, details at least 420dp) and pinned the title to the bottom of it. A 16:9 band at the top left a large black rectangle before the title. That reserve is gone.
 
-Portrait wide art draws as a full-bleed 16:9 band at the top (crop, no extra scale, no scroll zoom, horizontal focus). The title and actions stay in the hero below that band, on the surface colour. A tall poster fits a 2:3 column and does not stretch. Unknown size does not apply the landscape extra scale.
+On a portrait phone the artwork slot is the picture: a 16:9 band for wide or not-yet-loaded art, or a 2:3 column at 0.62 of the width for tall art. The title and actions sit directly under that slot. Landscape and tablet keep the crop and the extra scale (details 1.08, home 1.14). A tall image may grow the slot once, when its size is known.
 
-Files: `HeroArtworkFrame.kt`, `DetailHero.kt`, `HomeHeroSection.kt`, `TabletDetailHero.kt`. Risk: the home scroll reserve stays the full hero height so the rows below do not jump. Acceptance: landscape decisions unchanged; portrait wide art reports a band shorter than the frame. Screenshots stay on the Mac. This VM does not substitute them.
+Files: `HeroArtworkFrame.kt`, `DetailHero.kt`, `HomeHeroSection.kt`. `TabletDetailHero.kt` is unchanged.
+
+## Dynamic Type on the changed screens
+
+`NuvioTheme` still pins Compose `fontScale` to 1, so the rest of the app does not follow the system size. The season sheet already overrides that locally, which is why it scaled and home, details, and Downloads did not. Those three screens now apply the same override. Fixture launch does not bypass it. iOS reads `preferredContentSizeCategory` (AX5 is 3.12). Android reads the configuration font scale. Text wraps in the column; the season title and the home title allow four lines. The theme pin stays.
+
+Set the simulator content size before a cold launch, then reshoot `home-online`, `home-tall`, `details-online`, `details-tall`, `downloads-season`, and `season-overview`:
+
+```
+xcrun simctl ui <udid> content_size accessibility-extra-extra-extra-large
+```
+
+Reset with `content_size large`. Landscape and Reduce Motion are not covered here.
 
 ## Analysis queue
 

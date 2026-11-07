@@ -32,7 +32,7 @@ class HomeHeroSectionTest {
         )
 
         assertEquals(false, layout.isTablet)
-        assertEquals(390f * 1.5f, layout.heroHeight.value, 0.001f)
+        assertEquals(390f * 9f / 16f, layout.heroHeight.value, 0.01f)
     }
 
     @Test
@@ -66,12 +66,12 @@ class HomeHeroSectionTest {
             mobileBelowSectionHeightHintDp = reserveHeight.value,
         )
 
-        assertEquals(390f * 1.5f, layout.heroHeight.value, 0.001f)
+        assertEquals(390f * 9f / 16f, layout.heroHeight.value, 0.01f)
         assertTrue(viewportHeight - layout.heroHeight.value >= continueWatchingHeight.value)
     }
 
     @Test
-    fun `portrait hero keeps the poster ratio on a short screen`() {
+    fun `portrait hero is the wide band even on a short screen`() {
         val layout = homeHeroLayout(
             maxWidthDp = 390f,
             viewportHeightDp = 568f,
@@ -79,6 +79,6 @@ class HomeHeroSectionTest {
         )
 
         assertEquals(false, layout.isTablet)
-        assertEquals(390f * 1.5f, layout.heroHeight.value, 0.001f)
+        assertEquals(390f * 9f / 16f, layout.heroHeight.value, 0.01f)
     }
 }

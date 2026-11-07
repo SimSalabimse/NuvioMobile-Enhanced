@@ -380,6 +380,9 @@ class SeasonOverviewTest {
             fontScaleForIosContentCategory("UIContentSizeCategoryAccessibilityExtraExtraExtraLarge"),
         )
         assertTrue(fontScaleForIosContentCategory("UICTContentSizeCategoryAccessibilityXXXL") >= 3f)
+        val applied = changedSurfaceDensity(density = 3f, fontScale = 3.12f)
+        assertEquals(3f, applied.density)
+        assertEquals(3.12f, applied.fontScale)
     }
 
     @Test

@@ -132,19 +132,24 @@ fun DownloadsScreen(
     }
 
     if (showSettings) {
-        PlatformBackHandler(enabled = true) { showSettings = false }
-        DownloadsSettingsScreen(
-            onBack = { showSettings = false },
-        )
+        com.nuvio.app.features.details.ChangedSurfaceTextScale {
+            PlatformBackHandler(enabled = true) { showSettings = false }
+            DownloadsSettingsScreen(
+                onBack = { showSettings = false },
+            )
+        }
         return
     }
 
     if (showStorage) {
-        PlatformBackHandler(enabled = true) { showStorage = false }
-        DownloadStorageScreen(items = uiState.items, onBack = { showStorage = false })
+        com.nuvio.app.features.details.ChangedSurfaceTextScale {
+            PlatformBackHandler(enabled = true) { showStorage = false }
+            DownloadStorageScreen(items = uiState.items, onBack = { showStorage = false })
+        }
         return
     }
 
+    com.nuvio.app.features.details.ChangedSurfaceTextScale {
     var storageRefresh by remember { mutableStateOf(0) }
     val storageSummary = rememberDownloadStorageSummary(uiState.items, storageRefresh)
     // Health check of the finished files (sizes on disk, analysed lengths), off the main thread.
@@ -369,6 +374,7 @@ fun DownloadsScreen(
             },
             onDismiss = { groupPendingCancel = null },
         )
+    }
     }
 }
 
@@ -669,7 +675,7 @@ private fun LazyListScope.downloadsShowContent(
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.SemiBold,
-                    maxLines = 2,
+                    maxLines = 4,
                     overflow = TextOverflow.Ellipsis,
                 )
                 FlowRow(

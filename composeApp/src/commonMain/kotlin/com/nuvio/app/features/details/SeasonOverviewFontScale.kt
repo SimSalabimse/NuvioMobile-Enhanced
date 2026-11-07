@@ -1,6 +1,9 @@
 package com.nuvio.app.features.details
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 
 /**
  * Body-text scale for an iOS content-size category, relative to Large (1).
@@ -29,3 +32,24 @@ internal fun fontScaleForIosContentCategory(category: String?): Float {
 /** Dynamic Type scale for the season overview sheet. Large is 1. */
 @Composable
 internal expect fun seasonOverviewFontScale(): Float
+
+/**
+ * Dynamic Type scale for home, details, and Downloads.
+ * iOS reads the same content-size category as the season sheet.
+ * Android reads the configuration scale, which the app theme otherwise pins to 1.
+ */
+@Composable
+internal expect fun changedSurfaceFontScale(): Float
+
+internal fun changedSurfaceDensity(density: Float, fontScale: Float): Density =
+    Density(density = density, fontScale = fontScale)
+
+@Composable
+internal fun ChangedSurfaceTextScale(content: @Composable () -> Unit) {
+    val base = LocalDensity.current
+    CompositionLocalProvider(
+        LocalDensity provides changedSurfaceDensity(base.density, changedSurfaceFontScale()),
+    ) {
+        content()
+    }
+}

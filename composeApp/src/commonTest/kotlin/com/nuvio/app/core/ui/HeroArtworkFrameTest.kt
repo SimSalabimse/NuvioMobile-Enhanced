@@ -1,5 +1,6 @@
 package com.nuvio.app.core.ui
 
+import androidx.compose.ui.unit.dp
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -95,5 +96,29 @@ class HeroArtworkFrameTest {
         assertEquals(HeroArtworkFit.CropLandscape, landscape.fit)
         assertEquals(1f, landscape.extraScale)
         assertFalse(landscape.scrollScaleEnabled)
+    }
+
+    @Test
+    fun portraitSlotIsThePictureSoTheTitleIsNotLeftInAGap() {
+        val width = 390f
+        val wideSlot = portraitArtworkSlotHeight(width.dp, tallArt = false).value
+        assertEquals(width * 9f / 16f, wideSlot, 0.01f)
+        assertTrue(wideSlot < width)
+        val wide = heroArtworkDecision(1920, 1080, width, wideSlot, HOME_LANDSCAPE_EXTRA_SCALE, portrait = true)
+        assertEquals(HeroArtworkFit.WideBand, wide.fit)
+        assertEquals(1f, wide.extraScale)
+        assertFalse(wide.scrollScaleEnabled)
+        assertEquals(1f, heroImageHeightFraction(wide, width, wideSlot, portrait = true), 0.001f)
+
+        val posterSlot = portraitArtworkSlotHeight(width.dp, tallArt = true).value
+        assertEquals(width * PORTRAIT_POSTER_WIDTH_FRACTION / PORTRAIT_POSTER_ASPECT, posterSlot, 0.01f)
+        val poster = heroArtworkDecision(400, 600, width, posterSlot, HOME_LANDSCAPE_EXTRA_SCALE, portrait = true)
+        assertEquals(HeroArtworkFit.PosterColumn, poster.fit)
+        assertEquals(PORTRAIT_POSTER_WIDTH_FRACTION, poster.widthFraction)
+        assertEquals(1f, poster.extraScale)
+        assertEquals(1f, heroImageHeightFraction(poster, width, posterSlot, portrait = true), 0.001f)
+
+        assertEquals(320f * 9f / 16f, portraitArtworkSlotHeight(320.dp, tallArt = false).value, 0.01f)
+        assertEquals(430f * 9f / 16f, portraitArtworkSlotHeight(430.dp, tallArt = false).value, 0.01f)
     }
 }

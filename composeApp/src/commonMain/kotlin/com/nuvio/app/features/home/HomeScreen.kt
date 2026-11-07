@@ -149,6 +149,7 @@ fun HomeScreen(
     onOpenDownload: ((com.nuvio.app.features.downloads.DownloadItem) -> Unit)? = null,
     onOpenDownloads: () -> Unit = {},
 ) {
+    com.nuvio.app.features.details.ChangedSurfaceTextScale {
     LaunchedEffect(Unit) {
         AddonRepository.initialize()
         CollectionRepository.initialize()
@@ -1392,6 +1393,7 @@ fun HomeScreen(
                     translationY = offlineCoverSlide.value.dp.toPx()
                 },
         )
+    }
     }
     }
 }
