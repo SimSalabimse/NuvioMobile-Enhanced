@@ -1,6 +1,6 @@
 # Nov 7 round 2
 
-Build 205 on `sync/upstream-0.6.7-on-batch11`. No merge to enhanced or integration. Public name: Simsalabim.
+Build 206 on `sync/upstream-0.6.7-on-batch11`. No merge to enhanced or integration. Public name: Simsalabim.
 
 ## Portrait hero
 
@@ -16,7 +16,13 @@ Files: `HeroArtworkFrame.kt`, `DetailHero.kt`, `HomeHeroSection.kt`, `TabletDeta
 
 The timings line now splits match, reference clip, season teach and season backfill. Each step logs its start, and the row shows the step plus the minutes it has been running. The percent is not animated. The fingerprint matcher is unchanged.
 
-Settings › Advanced › Debug Logs has Export analysis log. It uses the existing system share sheet. The log is a separate bounded file of job, stage, timings, errors, and queue changes. Export is only when the user asks, nothing is uploaded, and the diagnostics log is left as it is. URLs keep the host only. Tokens, emails, and personal paths are removed before the text is shared. Which step used the 10 minutes is still unknown until a log from that run is read.
+Settings › Advanced › Debug Logs has Export analysis log. It uses the existing system share sheet. The log is a separate bounded file of job, stage, timings, errors, and queue changes. Export is only when the user asks, nothing is uploaded, and the diagnostics log is left as it is. URLs keep the host only. Tokens, emails, and personal paths are removed before the text is shared. Reason codes that start with accepted-, rejected-, or skip- are kept. A secret in the same line is not.
+
+The owner's diagnostics export from 19:36 Oslo on 7 Nov is mixed history. Builds 197, 198, and 199 are older and are not this run. Build 201 (0.6.9.1) on that evening is the run. Times below are Oslo (UTC+1). A timings line is written when that pass ends. totalMs and matchMs are measured durations of that pass, not the gap from the previous line.
+
+Twelve distinct job ids have a build 201 timings line. The previously quoted 2.3s line is job mw4an0ww_1 at 18:57:08 (matchMs 336, totalMs 2269). It is a different job from the long one. The long pass is job mvpdb6ts_1, line at 19:30:08: matchMs 1338520, totalMs 1345191, decodeMs 4079, sampleLoopMs 2460, fingerprintMs 37, chaptersMs 0, throttledMs 0, qos userInitiated. Match time is 22 minutes 19 seconds of a 22 minute 25 second pass. An earlier build 201 pass, job mviqlafc_2 at 18:56:47, is also long: matchMs 670814 of totalMs 709089, throttledMs 20331, qos utility. After mvpdb6ts_1 the next timings lines are 19:32:27 (matchMs 124610), 19:33:05, 19:33:39, and 19:34:16. That cluster is the 12-of-12 finish the owner saw at 19:33. Seven distinct ids have a timings line before mvpdb6ts_1. The log does not number the on-screen rows, so it does not prove which row was the eighth.
+
+On build 201, matchMs is one bucket: pairwise detection, learning from marked episodes, a sibling clip, saving and backfilling the season, and teaching the season. The row is already on Matching, whose percent is the constant 0.72, for that whole bucket. Decode, fingerprint, and throttle do not account for this wait. The line has no clip, teach, or backfill split, so which of those five used the 22 minutes is not in this log. Job ids are not titles.
 
 The store lock on iOS is still not re-entrant, and `update` still refuses to take it twice. That guard stays. This finished run did not hit it, so it is not the cause of the 10 minutes. JVM tests still hide a real re-entry because that lock re-enters there.
 

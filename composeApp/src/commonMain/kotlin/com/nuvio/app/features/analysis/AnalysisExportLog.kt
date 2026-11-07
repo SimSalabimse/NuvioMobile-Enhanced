@@ -114,7 +114,14 @@ internal object AnalysisExportLog {
 }
 
 internal fun redactAnalysisExport(raw: String): String {
-    var text = webUrl.replace(raw) { match ->
+    val held = mutableListOf<String>()
+    var text = analysisReasonCode.replace(raw) { match ->
+        val code = match.groupValues[1].lowercase()
+        if (!analysisExportReasonKept(code)) return@replace match.value
+        held += code
+        "\u0001R${held.lastIndex}\u0001"
+    }
+    text = webUrl.replace(text) { match ->
         val rawUrl = match.value
         val scheme = rawUrl.substringBefore("://")
         val rest = rawUrl.substringAfter("://")
@@ -129,8 +136,19 @@ internal fun redactAnalysisExport(raw: String): String {
     }
     text = bearer.replace(text, "Bearer [redacted]")
     text = longToken.replace(text, "[redacted]")
+    held.forEachIndexed { index, code ->
+        text = text.replace("\u0001R$index\u0001", code)
+    }
     return text
 }
+
+/** accepted-, rejected-, and skip- codes stay. A long secret in the same line does not. */
+internal fun analysisExportReasonKept(code: String): Boolean =
+    code.matches(Regex("""^(accepted|rejected|skip)-[a-z0-9]{1,16}(?:-[a-z0-9]{1,16}){0,6}$"""))
+
+private val analysisReasonCode = Regex(
+    """(?i)\b((?:accepted|rejected|skip)-[a-z0-9]{1,24}(?:-[a-z0-9]{1,24}){0,8})\b""",
+)
 
 private fun sanitizeToken(value: String, max: Int): String =
     value.trim().lowercase().map { char ->

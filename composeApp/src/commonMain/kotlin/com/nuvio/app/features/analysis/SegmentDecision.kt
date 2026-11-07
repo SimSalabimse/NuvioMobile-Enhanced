@@ -61,6 +61,12 @@ internal fun logSegmentDecisions(fileId: String, decisions: List<SegmentDecision
         val line = decision.line(fileId)
         InAppLogger.info("Analysis", line)
         DiagnosticsLogger.logPerformance(line)
+        AnalysisExportLog.record(
+            fileId,
+            "segment",
+            decision.type,
+            "why=${decision.why} signal=${decision.signal} accepted=${if (decision.accepted) 1 else 0}",
+        )
     }
 }
 

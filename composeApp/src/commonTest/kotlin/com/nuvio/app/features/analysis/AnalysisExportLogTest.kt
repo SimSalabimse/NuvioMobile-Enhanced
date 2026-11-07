@@ -30,6 +30,25 @@ class AnalysisExportLogTest {
     }
 
     @Test
+    fun allowlistedReasonCodesSurviveAndSecretsDoNot() {
+        val redacted = redactAnalysisExport(
+            "why=accepted-previous-ending why=rejected-audio-miss-prior-unused " +
+                "why=rejected-dialog-overlay why=skip-user-declined " +
+                "why=notasecretvalueabcdefghijklmnopqrstuvwxyz " +
+                "Bearer notabearervalueabcdefghijklmnopqrstuvwxyz",
+        )
+        assertTrue(redacted.contains("why=accepted-previous-ending"))
+        assertTrue(redacted.contains("why=rejected-audio-miss-prior-unused"))
+        assertTrue(redacted.contains("why=rejected-dialog-overlay"))
+        assertTrue(redacted.contains("why=skip-user-declined"))
+        assertFalse(redacted.contains("notasecretvalueabcdefghijklmnopqrstuvwxyz"))
+        assertFalse(redacted.contains("notabearervalueabcdefghijklmnopqrstuvwxyz"))
+        assertTrue(redacted.contains("[redacted]"))
+        assertFalse(analysisExportReasonKept("notasecretvalueabcdefghijklmnopqrstuvwxyz"))
+        assertTrue(analysisExportReasonKept("rejected-no-cluster"))
+    }
+
+    @Test
     fun exportIsBoundedAndReportsReadyContentWithoutTheCoreDiagnosticsFile() {
         var now = 1_000L
         val buffer = AnalysisExportBuffer(maxLines = 3, clock = { now })
