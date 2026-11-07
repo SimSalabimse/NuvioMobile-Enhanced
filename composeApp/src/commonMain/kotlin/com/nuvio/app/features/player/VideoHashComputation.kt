@@ -11,3 +11,10 @@ internal expect suspend fun computeVideoHash(
     url: String,
     headers: Map<String, String>,
 ): Pair<String, Long>?
+
+/**
+ * OpenSubtitles hash of a file already on disk. Null when the path is not a local
+ * file or the file is smaller than 128 KB. Playback of a remote stream uses
+ * [computeVideoHash] instead.
+ */
+internal expect suspend fun computeLocalVideoHash(uri: String): Pair<String, Long>?

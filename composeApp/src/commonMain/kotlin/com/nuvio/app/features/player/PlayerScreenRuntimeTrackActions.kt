@@ -377,9 +377,10 @@ private fun PlayerScreenRuntime.tryAutoSelectPreferredSubtitleFromAvailableTrack
             return
         }
         if (matchedTargetPosition > 0 && !isLoadingAddonSubtitles) {
-            val primaryAddonMatch = addonSubtitles.firstOrNull { subtitle ->
-                SubtitleLanguageMatching.matchesLanguageCode(subtitle.language, selectionPlan.targets.first())
-            }
+            val primaryAddonMatch = firstMatchingAddonSubtitle(
+                addonSubtitles,
+                selectionPlan.targets.first(),
+            )
             if (primaryAddonMatch != null) {
                 applyAddonSubtitle(primaryAddonMatch, autoSync = true)
                 return
@@ -449,9 +450,8 @@ private fun PlayerScreenRuntime.tryAutoSelectPreferredSubtitleFromAvailableTrack
     if (playbackSnapshot.isLoading) return
 
     val addonMatch = selectionPlan.targets.firstNotNullOfOrNull { target ->
-        addonSubtitles.firstOrNull { subtitle ->
-            (!subtitleStyle.useForcedSubtitles || !addonSubtitleIsForced(subtitle)) &&
-                SubtitleLanguageMatching.matchesLanguageCode(subtitle.language, target)
+        firstMatchingAddonSubtitle(addonSubtitles, target) { subtitle ->
+            !subtitleStyle.useForcedSubtitles || !addonSubtitleIsForced(subtitle)
         }
     }
     if (addonMatch != null) {

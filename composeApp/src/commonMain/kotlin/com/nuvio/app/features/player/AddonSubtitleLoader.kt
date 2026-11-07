@@ -74,6 +74,28 @@ data class SubtitleRequestExtras(
     }
 }
 
+/**
+ * Extras for a subtitle request about a file that is already downloaded.
+ * The hash and size of that file identify the release. A hash copied from the
+ * stream hint is kept only when the file itself cannot be hashed.
+ */
+internal fun subtitleExtrasForDownloadedFile(
+    filename: String?,
+    hintedHash: String?,
+    hintedSize: Long?,
+    fileHash: String?,
+    fileSize: Long?,
+): SubtitleRequestExtras? {
+    val hash = fileHash?.trim()?.takeIf { it.isNotEmpty() }
+        ?: hintedHash?.trim()?.takeIf { it.isNotEmpty() }
+    val size = fileSize?.takeIf { it > 0L } ?: hintedSize?.takeIf { it > 0L }
+    return SubtitleRequestExtras(
+        filename = filename?.trim()?.takeIf { it.isNotEmpty() },
+        videoSize = size,
+        videoHash = hash,
+    ).takeIf { it.toPathSegment() != null }
+}
+
 internal fun buildSubtitleRequestUrl(
     manifestUrl: String,
     type: String,

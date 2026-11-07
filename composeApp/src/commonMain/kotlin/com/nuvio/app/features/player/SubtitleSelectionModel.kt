@@ -82,7 +82,10 @@ internal fun buildSubtitleLanguageItems(
     val preferredOrder = listOfNotNull(
         preferredLanguage.toPreferredSubtitleKey(),
         secondaryPreferredLanguage.toPreferredSubtitleKey(),
-    ).distinct()
+    ).flatMap { key ->
+        // Nynorsk stays a separate group, listed after Bokmål when Norwegian is preferred.
+        if (key == "no") listOf("no", "nn") else listOf(key)
+    }.distinct()
     val preferredKeys = preferredOrder.toSet()
     val visibleEntries = counts.entries.filter { entry ->
         !showOnlyPreferredLanguages || entry.key in preferredKeys || entry.key == selectedLanguageKey

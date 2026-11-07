@@ -3,7 +3,6 @@ package com.nuvio.app.features.player
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.InputStream
-import java.net.HttpURLConnection
 
 /**
  * Calculates the OpenSubtitles file hash for a video stream.
@@ -16,7 +15,6 @@ import java.net.HttpURLConnection
 internal object OpenSubtitlesHasher {
 
     private const val CHUNK_SIZE = 65536L // 64 KB
-    private const val LONG_SIZE = 8
     private const val CONNECT_TIMEOUT_MS = 5_000
     private const val READ_TIMEOUT_MS = 5_000
 
@@ -30,13 +28,14 @@ internal object OpenSubtitlesHasher {
             val fileSize = getContentLength(url, headers) ?: return@withContext null
             if (fileSize < CHUNK_SIZE * 2) return@withContext null
 
-            val headSum = readChunkSum(url, headers, offset = 0, length = CHUNK_SIZE)
+            val head = readChunk(url, headers, offset = 0, length = CHUNK_SIZE)
                 ?: return@withContext null
-            val tailSum = readChunkSum(url, headers, offset = fileSize - CHUNK_SIZE, length = CHUNK_SIZE)
+            val tail = readChunk(url, headers, offset = fileSize - CHUNK_SIZE, length = CHUNK_SIZE)
                 ?: return@withContext null
+            val hash = OpenSubtitlesHash.of(fileSize, head, tail) ?: return@withContext null
 
             Result(
-                hash = "%016x".format(fileSize + headSum + tailSum),
+                hash = hash,
                 fileSize = fileSize,
             )
         } catch (_: Exception) {
@@ -72,12 +71,12 @@ internal object OpenSubtitlesHasher {
      * or `null` when the server did not honour the range, the read was short, or an
      * I/O error occurred.
      */
-    private fun readChunkSum(
+    private fun readChunk(
         url: String,
         headers: Map<String, String>,
         offset: Long,
         length: Long,
-    ): Long? {
+    ): ByteArray? {
         val connection = PlayerPlaybackNetworking.openConnection(
             url = url,
             headers = headers,
@@ -90,30 +89,18 @@ internal object OpenSubtitlesHasher {
             val code = connection.responseCode
             if (code != 206) return null
             val stream: InputStream = connection.inputStream ?: return null
-            val buf = ByteArray(LONG_SIZE)
-            var sum = 0L
-            var consumed = 0L
-            while (consumed < length) {
-                var read = 0
-                while (read < LONG_SIZE) {
-                    val n = stream.read(buf, read, LONG_SIZE - read)
-                    if (n < 0) return null // short read
-                    read += n
-                }
-                sum += buf.toLongLE()
-                consumed += LONG_SIZE
+            val buf = ByteArray(length.toInt())
+            var consumed = 0
+            while (consumed < buf.size) {
+                val n = stream.read(buf, consumed, buf.size - consumed)
+                if (n < 0) return null
+                consumed += n
             }
-            sum
+            buf
         } catch (_: Exception) {
             null
         } finally {
             connection.disconnect()
         }
-    }
-
-    internal fun ByteArray.toLongLE(): Long {
-        var v = 0L
-        for (i in 0 until LONG_SIZE) v = v or ((this[i].toLong() and 0xFF) shl (i * 8))
-        return v
     }
 }
