@@ -458,7 +458,8 @@ internal object MediaAnalysisScheduler {
             shouldQueueAnalysis(
                 stored = existing,
                 fileName = item.fileName,
-                needsDerivedWork = existing == null || existing.fileName != item.fileName || needsDerived(existing),
+                needsDerivedWork = existing == null || existing.fileName != item.fileName || needsDerived(existing) ||
+                    shouldRecapture(existing, MediaAnalyzerPlatform.supported),
                 backingOff = false,
             )
         }
@@ -490,7 +491,7 @@ internal object MediaAnalysisScheduler {
             ?.takeIf { it.fileName == item.fileName && it.hasStoredFingerprint() }
         val base: MediaAnalysisResult
         val trace: SegmentTrace
-        if (stored != null && !stored.needsSiblingClipRetry()) {
+        if (stored != null && !stored.needsSiblingClipRetry() && !shouldRecapture(stored, MediaAnalyzerPlatform.supported)) {
             base = stored
             trace = SegmentTrace()
         } else {
@@ -631,8 +632,9 @@ internal object MediaAnalysisScheduler {
     )
 
     /**
-     * [already] is a stored fingerprint for this same file (a sibling-clip retry). The file is not
-     * decoded again. Null means the audio pass still has to run.
+     * [already] is a stored fingerprint for this same file. It is reused for a sibling-clip retry.
+     * A print from the shorter capture window is decoded again when this device can analyse audio.
+     * Null means the audio pass still has to run.
      */
     private suspend fun audioAnalysis(item: DownloadItem, uri: String, already: MediaAnalysisResult?): AudioPass? {
         val started = TimeSource.Monotonic.markNow()
@@ -657,7 +659,8 @@ internal object MediaAnalysisScheduler {
         val key = MediaAnalysisStore.keyFor(item)
         val trace = SegmentTrace()
         val previous = already ?: MediaAnalysisStore.load(key)
-        var result = if (already != null && already.fileName == item.fileName && already.hasStoredFingerprint()) {
+        val recapture = shouldRecapture(already, MediaAnalyzerPlatform.supported)
+        var result = if (already != null && already.fileName == item.fileName && already.hasStoredFingerprint() && !recapture) {
             already
         } else {
             InAppLogger.info("Analysis", "analyse start id=${item.id} file=${item.fileName}")
@@ -701,6 +704,7 @@ internal object MediaAnalysisScheduler {
                 tailFingerprint = raw.tail,
                 tailStartMs = raw.tailStartMs,
                 userSegments = previous?.userSegments.orEmpty(),
+                rejectedSegments = previous?.rejectedSegments.orEmpty(),
                 analysisAttempts = resolveAnalysisAttempts(previous, item.fileName),
             )
         }

@@ -282,7 +282,7 @@ class SeasonFingerprintPassTest {
             fingerprintStepMs = 100,
             headFingerprint = encodeFingerprint(noise(backgroundSeed + 50, 6_000)),
             tailFingerprint = encodeFingerprint(tail),
-            tailStartMs = 2_400_000L - TAIL_FINGERPRINT_MS,
+            tailStartMs = 2_400_000L - 4_800L * 100,
         )
     }
 
@@ -309,7 +309,7 @@ class SeasonFingerprintPassTest {
         fingerprintStepMs = 100,
         headFingerprint = encodeFingerprint(head),
         tailFingerprint = encodeFingerprint(tail),
-        tailStartMs = 2_400_000L - TAIL_FINGERPRINT_MS,
+        tailStartMs = 2_400_000L - 4_800L * 100,
     )
 
     /** Episodes of one season sharing an intro and credits at the given 100 ms frames. */
@@ -329,7 +329,7 @@ class SeasonFingerprintPassTest {
                 fingerprintStepMs = 100,
                 headFingerprint = encodeFingerprint(head),
                 tailFingerprint = encodeFingerprint(tail),
-                tailStartMs = 2_400_000L - TAIL_FINGERPRINT_MS,
+                tailStartMs = 2_400_000L - 4_800L * 100,
             )
         }
     }

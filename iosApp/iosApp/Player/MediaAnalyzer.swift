@@ -12,8 +12,9 @@ import Libavutil
 ///  - speech energy: RMS per 100 ms of the downmix, for subtitle-to-audio sync;
 ///  - EBU R128 / ITU BS.1770 integrated loudness (K-weighting, 400 ms blocks, -70 LUFS absolute
 ///    and -10 LU relative gates), for loudness normalisation;
-///  - Philips/Haitsma-style 32-bit audio sub-fingerprints every 100 ms of the first 10 and last
-///    8 minutes, for intro/credits matching across the episodes of a season.
+///  - Philips/Haitsma-style 32-bit audio sub-fingerprints every 100 ms of the first 25 and last
+///    15 minutes, for intro/credits matching across the episodes of a season.
+///    Keep in step with `HEAD_FINGERPRINT_MS` and `TAIL_FINGERPRINT_MS`.
 /// Video stays discarded (`AVDISCARD_ALL` on every non-audio stream below). Black-frame ranges
 /// are an optional Kotlin cue (`blackRanges`); measuring them here would decode video and blow
 /// the ~18 s pass. On device the decision trace reports black=0. Silence and audio scene
@@ -252,7 +253,7 @@ private final class MediaAnalyzerAbortFlag {
 private final class MediaAnalysisRun {
     static let stepMs = 100
     static let headMs: Int64 = MediaAnalyzerSampleLoop.headWindowMs
-    static let tailMs: Int64 = 8 * 60_000
+    static let tailMs: Int64 = 15 * 60_000
     static let fingerprintRate = MediaAnalyzerSampleLoop.fingerprintTargetRate
 
     private let fileUri: String
