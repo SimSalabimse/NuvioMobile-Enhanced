@@ -10,6 +10,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -59,7 +60,10 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.format.extractReleaseYearForDisplay
 import com.nuvio.app.core.ui.ArtworkBackdrop
+import com.nuvio.app.core.ui.HeroArtworkFit
 import com.nuvio.app.core.ui.NuvioTokens
+import com.nuvio.app.core.ui.heroArtworkDecision
+import com.nuvio.app.core.ui.rememberHeroArtworkSize
 import com.nuvio.app.core.ui.featherArtwork
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.formatRuntimeForDisplay
@@ -163,7 +167,7 @@ private fun BackdropArtwork(
     val artworkModifier = Modifier
         .fillMaxSize()
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .then(
@@ -178,13 +182,26 @@ private fun BackdropArtwork(
     ) {
         val imageUrl = meta.background ?: meta.poster
         if (imageUrl != null) {
+            val artworkSize = rememberHeroArtworkSize(imageUrl)
+            val artwork = heroArtworkDecision(
+                imageWidth = artworkSize.width,
+                imageHeight = artworkSize.height,
+                frameWidth = maxWidth.value,
+                frameHeight = maxHeight.value,
+                landscapeExtraScale = 1f,
+            )
+            val portrait = artwork.fit == HeroArtworkFit.FitPortrait
             AsyncImage(
                 model = imageUrl,
                 contentDescription = meta.name,
-                modifier = artworkModifier,
-                alignment = BiasAlignment(0f, BackdropVerticalBias),
-                contentScale = ContentScale.Crop,
+                modifier = artworkModifier.then(
+                    if (portrait) Modifier.background(gradientColor) else Modifier,
+                ),
+                alignment = if (portrait) Alignment.Center else BiasAlignment(0f, BackdropVerticalBias),
+                contentScale = if (portrait) ContentScale.Fit else ContentScale.Crop,
                 onSuccess = { state ->
+                    val image = state.result.image
+                    artworkSize.onImageLoaded(image.width, image.height)
                     onBackdropLoaded(state.painter, loadedBackdropImageBitmap(state.result))
                 },
             )

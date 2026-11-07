@@ -49,8 +49,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.graphicsLayer
 import coil3.compose.AsyncImage
+import com.nuvio.app.core.ui.DETAIL_LANDSCAPE_EXTRA_SCALE
+import com.nuvio.app.core.ui.HeroArtworkFit
 import com.nuvio.app.core.ui.focusedAlignment
+import com.nuvio.app.core.ui.heroArtworkDecision
 import com.nuvio.app.core.ui.rememberBackdropFocusState
+import com.nuvio.app.core.ui.rememberHeroArtworkSize
 import com.nuvio.app.core.ui.featherArtwork
 import com.nuvio.app.core.ui.heroStretchHeight
 import com.nuvio.app.core.ui.heroStretchZoom
@@ -87,6 +91,7 @@ fun DetailHero(
         modifier = modifier.fillMaxWidth(),
     ) {
         val heroHeight = detailHeroHeight(maxWidth - verticalBarWidth(), isTablet)
+        val heroFrameWidth = maxWidth
         val trailerAlpha by animateFloatAsState(
             targetValue = if (heroTrailerReady) 1f else 0f,
             animationSpec = tween(durationMillis = 300),
@@ -129,6 +134,15 @@ fun DetailHero(
                     val imageUrl = meta.background ?: meta.poster
                     if (imageUrl != null) {
                         val backdropFocus = rememberBackdropFocusState(imageUrl)
+                        val artworkSize = rememberHeroArtworkSize(imageUrl)
+                        val artwork = heroArtworkDecision(
+                            imageWidth = artworkSize.width,
+                            imageHeight = artworkSize.height,
+                            frameWidth = heroFrameWidth.value,
+                            frameHeight = heroHeight.value,
+                            landscapeExtraScale = DETAIL_LANDSCAPE_EXTRA_SCALE,
+                        )
+                        val portrait = artwork.fit == HeroArtworkFit.FitPortrait
                         AsyncImage(
                             model = imageUrl,
                             contentDescription = meta.name,
@@ -136,18 +150,31 @@ fun DetailHero(
                                 .align(Alignment.TopCenter)
                                 .fillMaxWidth()
                                 .height(heroHeight)
+                                .then(
+                                    if (portrait) {
+                                        Modifier.background(MaterialTheme.colorScheme.background)
+                                    } else {
+                                        Modifier
+                                    },
+                                )
                                 .heroStretchZoom(stretchPx)
                                 .graphicsLayer {
-                                    translationY = scrollOffset() * 0.5f
-                                    scaleX = 1.08f
-                                    scaleY = 1.08f
+                                    translationY = if (portrait) 0f else scrollOffset() * 0.5f
+                                    scaleX = artwork.extraScale
+                                    scaleY = artwork.extraScale
                                 },
-                            alignment = backdropFocus.focusedAlignment(
-                                if (isTablet) Alignment.TopCenter else Alignment.Center,
-                            ),
-                            contentScale = ContentScale.Crop,
+                            alignment = if (artwork.horizontalFocus) {
+                                backdropFocus.focusedAlignment(
+                                    if (isTablet) Alignment.TopCenter else Alignment.Center,
+                                )
+                            } else {
+                                Alignment.Center
+                            },
+                            contentScale = if (portrait) ContentScale.Fit else ContentScale.Crop,
                             onSuccess = { state ->
-                                backdropFocus.onImageLoaded(state.result.image)
+                                val image = state.result.image
+                                artworkSize.onImageLoaded(image.width, image.height)
+                                backdropFocus.onImageLoaded(image)
                                 onBackdropLoaded(
                                     state.painter,
                                     loadedBackdropImageBitmap(state.result),

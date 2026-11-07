@@ -47,4 +47,5 @@ internal data class PlayerScreenArgs(
     val onOpenPartyMedia: (PartyMedia) -> Unit = {},
     val stream: com.nuvio.app.features.streams.StreamItem? = null,
     val submitMode: Boolean = false,
+    val privateSession: Boolean = false,
 )

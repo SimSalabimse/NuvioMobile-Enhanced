@@ -267,11 +267,22 @@ fun SubmitIntroDialog(
             season = season,
             episode = episode,
         )
+        val buckets = ownListBucketsForTitle(records, tmdbId, isMovie, season, episode)
         if (contentKey.isNotEmpty()) {
             remoteFlagTypesByContentKey[contentKey] = types
             FlagSubmitLedger.replaceTypes(contentKey, types)
             latestSubmittedTypes.forEach { FlagSubmitLedger.rememberType(contentKey, it) }
-            OwnTheIntroDbLedger.applyListing(contentKey, types, rejected)
+            OwnTheIntroDbLedger.applyListing(
+                scope = accountScopeForService(
+                    IntroSubmitService.THE_INTRODB,
+                    playerSettings.introDbApiKey,
+                    playerSettings.theIntroDbApiKey,
+                ),
+                contentKey = contentKey,
+                confirmed = buckets.confirmed,
+                pending = buckets.pending,
+                rejected = buckets.rejected,
+            )
             localTypes = flagTypesShownForContent(contentKey, latestSubmittedTypes)
         }
         remoteTypes = types
@@ -360,7 +371,21 @@ fun SubmitIntroDialog(
                     val submittedKey = flagSubmitContentKey(imdbId, season, episode, isMovie)
                     FlagSubmitLedger.rememberType(submittedKey, segmentType)
                     if (shouldRecordOwnTheIntroDb(service, succeeded = true)) {
-                        OwnTheIntroDbLedger.remember(submittedKey, segmentType)
+                        val status = if (result == ManualSkipSubmitOutcome.ALREADY_SUBMITTED) {
+                            OwnMarkStatus.Confirmed
+                        } else {
+                            OwnMarkStatus.Pending
+                        }
+                        OwnTheIntroDbLedger.remember(
+                            accountScopeForService(
+                                service,
+                                PlayerSettingsRepository.uiState.value.introDbApiKey,
+                                PlayerSettingsRepository.uiState.value.theIntroDbApiKey,
+                            ),
+                            submittedKey,
+                            segmentType,
+                            status,
+                        )
                     }
                     canonicalFlagSegmentType(segmentType)?.let { type ->
                         if (submittedKey.isNotEmpty()) {

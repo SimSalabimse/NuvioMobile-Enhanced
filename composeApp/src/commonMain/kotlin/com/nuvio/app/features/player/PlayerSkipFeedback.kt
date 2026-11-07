@@ -20,8 +20,11 @@ import com.nuvio.app.features.player.skip.TheIntroDbAlreadySubmittedMessage
 import com.nuvio.app.features.player.skip.TheIntroDbRateLimitMessage
 import com.nuvio.app.features.player.skip.defaultIntroSubmitService
 import com.nuvio.app.features.player.skip.flagSubmitContentKey
-import com.nuvio.app.features.player.skip.rememberOwnTheIntroDbType
+import com.nuvio.app.features.player.skip.OwnAccountMarks
+import com.nuvio.app.features.player.skip.OwnMarkStatus
+import com.nuvio.app.features.player.skip.accountScopeForService
 import com.nuvio.app.features.player.skip.shouldRecordOwnTheIntroDb
+import com.nuvio.app.features.player.skip.withStatus
 import com.nuvio.app.features.player.skip.submitManualSkipSegment
 import kotlinx.coroutines.launch
 
@@ -116,15 +119,23 @@ internal fun PlayerScreenRuntime.saveUserSkipMark(type: String, startSec: Double
             }
             if (posted.recorded && shouldRecordOwnTheIntroDb(service, succeeded = true)) {
                 val contentKey = flagSubmitContentKey(imdbId.orEmpty(), season ?: 0, episode ?: 0, isMovie)
+                val scope = accountScopeForService(service, settings.introDbApiKey, settings.theIntroDbApiKey)
+                val current = OwnTheIntroDbLedger.load(scope)
                 val remembered = skipFeedbackOwnLedger(
-                    OwnTheIntroDbLedger.loadAll(),
-                    contentKey,
-                    category,
-                    service,
+                    marks = current,
+                    contentKey = contentKey,
+                    segmentType = category,
+                    service = service,
                     sent = true,
+                    duplicate = posted == ManualSkipSubmitOutcome.ALREADY_SUBMITTED,
                 )
-                if (remembered != OwnTheIntroDbLedger.loadAll()) {
-                    OwnTheIntroDbLedger.remember(contentKey, category)
+                if (remembered != current) {
+                    val status = if (posted == ManualSkipSubmitOutcome.ALREADY_SUBMITTED) {
+                        OwnMarkStatus.Confirmed
+                    } else {
+                        OwnMarkStatus.Pending
+                    }
+                    OwnTheIntroDbLedger.remember(scope, contentKey, category, status)
                 }
             }
             InAppLogger.info(
@@ -190,14 +201,19 @@ internal fun skipFeedbackMaySubmit(
     durationSec: Double?,
 ): Boolean = markProblems(segmentType, startSec, endSec, durationSec).isEmpty()
 
-/** Ledger after a Good / Save send. A failed send leaves the map unchanged. */
+/**
+ * Ledger after a Good / Save send. A failed send leaves the marks unchanged.
+ * A 200 is pending. A 409 duplicate from this account is confirmed. Nothing here submits a detection.
+ */
 internal fun skipFeedbackOwnLedger(
-    entries: Map<String, Set<String>>,
+    marks: OwnAccountMarks,
     contentKey: String,
     segmentType: String,
     service: IntroSubmitService,
     sent: Boolean,
-): Map<String, Set<String>> {
-    if (!shouldRecordOwnTheIntroDb(service, sent)) return entries
-    return rememberOwnTheIntroDbType(entries, contentKey, segmentType)
+    duplicate: Boolean = false,
+): OwnAccountMarks {
+    if (!shouldRecordOwnTheIntroDb(service, sent)) return marks
+    val status = if (duplicate) OwnMarkStatus.Confirmed else OwnMarkStatus.Pending
+    return marks.withStatus(contentKey, segmentType, status)
 }

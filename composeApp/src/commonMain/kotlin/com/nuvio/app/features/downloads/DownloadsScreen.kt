@@ -68,7 +68,10 @@ import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.features.details.components.SeasonOverviewSheet
 import com.nuvio.app.features.settings.DownloadsSettingsScreen
+import com.nuvio.app.navigation.openEpisodeInSubmitMode
+import com.nuvio.app.navigation.openEpisodePrivately
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
@@ -95,6 +98,7 @@ fun DownloadsScreen(
     var expandedSeasonGroups by remember { mutableStateOf<Set<String>>(emptySet()) }
     var groupPendingCancel by remember { mutableStateOf<ActiveSeasonGroup?>(null) }
     var reanalyzeTarget by remember { mutableStateOf<ReanalyzeTarget?>(null) }
+    var overviewSeason by remember { mutableStateOf<Int?>(null) }
     var unwatchedOnly by remember { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var sort by rememberSaveable { mutableStateOf(DownloadsSort.Name) }
@@ -275,12 +279,61 @@ fun DownloadsScreen(
                 unwatchedOnly = unwatchedOnly,
                 watchedIds = watchedIds,
                 onToggleUnwatched = { unwatchedOnly = !unwatchedOnly },
+                onOpenOverview = { season -> overviewSeason = season },
             )
         }
     }
     }
 
     ReanalyzeModal(target = reanalyzeTarget, onDismiss = { reanalyzeTarget = null })
+    val overviewSeasonNumber = overviewSeason
+    val overviewShowId = selectedShowId
+    if (overviewSeasonNumber != null && overviewShowId != null) {
+        val overview = downloadsSeasonOverviewContent(uiState.items, overviewShowId, overviewSeasonNumber)
+        if (overview != null) {
+            val seasonLabel = if (overviewSeasonNumber == 0) {
+                stringResource(Res.string.episodes_specials)
+            } else {
+                stringResource(Res.string.episodes_season, overviewSeasonNumber)
+            }
+            SeasonOverviewSheet(
+                meta = overview.meta,
+                season = overviewSeasonNumber,
+                seasonLabel = seasonLabel,
+                episodes = overview.episodes,
+                isWatched = { video ->
+                    uiState.items.any { item ->
+                        item.videoId == video.id &&
+                            item.seasonNumber == video.season &&
+                            item.episodeNumber == video.episode &&
+                            downloadWatchState(item).watched
+                    }
+                },
+                loading = false,
+                offline = true,
+                fromDownloads = true,
+                onDismiss = { overviewSeason = null },
+                onOpenEpisode = { video ->
+                    val item = uiState.items.firstOrNull { candidate ->
+                        candidate.parentMetaId == overviewShowId &&
+                            candidate.videoId == video.id &&
+                            candidate.seasonNumber == video.season &&
+                            candidate.episodeNumber == video.episode
+                    }
+                    if (item != null) openEpisodeInSubmitMode(item.toEpisodeSubmitRequest())
+                },
+                onWatchPrivately = { video ->
+                    val item = uiState.items.firstOrNull { candidate ->
+                        candidate.parentMetaId == overviewShowId &&
+                            candidate.videoId == video.id &&
+                            candidate.seasonNumber == video.season &&
+                            candidate.episodeNumber == video.episode
+                    }
+                    if (item != null) openEpisodePrivately(item.toEpisodeSubmitRequest())
+                },
+            )
+        }
+    }
 
     val pendingDeletionId = downloadPendingDeletionId
     if (pendingDeletionId != null) {
@@ -538,6 +591,7 @@ private fun LazyListScope.downloadsShowContent(
     unwatchedOnly: Boolean,
     watchedIds: Set<String>,
     onToggleUnwatched: () -> Unit,
+    onOpenOverview: (Int) -> Unit,
 ) {
     val allShowEpisodes = episodes.filter { it.parentMetaId == showId }
     val showEpisodes = allShowEpisodes
@@ -608,6 +662,12 @@ private fun LazyListScope.downloadsShowContent(
                     )
                 }
                 val seasonLabel = if (seasonNumber == 0) "Specials" else "Season $seasonNumber"
+                TextButton(
+                    onClick = { onOpenOverview(seasonNumber) },
+                    modifier = Modifier.heightIn(min = 44.dp),
+                ) {
+                    Text(text = stringResource(Res.string.season_overview))
+                }
                 if (entries.any { it.status == DownloadStatus.Completed }) {
                     IconButton(
                         onClick = {

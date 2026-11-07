@@ -2003,6 +2003,7 @@
     <string name="episode_mark_unwatched">Mark as unwatched</string>
     <string name="episode_mark_watched">Mark as watched</string>
     <string name="episode_submit_segment_only">Submit segment only</string>
+    <string name="watch_privately">Watch privately</string>
     <string name="season_overview">Season overview</string>
     <string name="season_overview_download">Download for analysis</string>
     <string name="season_overview_download_count">Download %1$d for analysis</string>
@@ -2012,7 +2013,8 @@
     <string name="season_overview_select">Select episode</string>
     <string name="season_overview_watched">Watched</string>
     <string name="season_overview_segment_submitted">%1$s, submitted from this account</string>
-    <string name="season_overview_segment_on_theintrodb">%1$s, already on TheIntroDB</string>
+    <string name="season_overview_segment_pending">%1$s, pending</string>
+    <string name="season_overview_segment_detected">%1$s. Detected, not submitted yet</string>
     <string name="season_overview_segment_missing">%1$s, missing</string>
     <string name="home_continue_watching_up_next">Next Up</string>
     <string name="home_continue_watching_watched">%1$s watched</string>

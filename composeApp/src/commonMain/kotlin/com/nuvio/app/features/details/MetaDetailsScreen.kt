@@ -76,6 +76,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import com.nuvio.app.core.ui.dismissKeyboardOnScrollOrTap
+import com.nuvio.app.core.ui.dismissPresentedNuvioBottomSheet
+import com.nuvio.app.core.ui.systemReduceMotionEnabled
+import com.nuvio.app.core.ui.usesNativeNuvioBottomSheet
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
@@ -137,7 +140,9 @@ import com.nuvio.app.features.details.components.DetailTrailersSection
 import com.nuvio.app.features.details.components.EpisodeWatchedActionSheet
 import com.nuvio.app.navigation.EpisodeSubmitRequest
 import com.nuvio.app.navigation.openEpisodeInSubmitMode
+import com.nuvio.app.navigation.openEpisodePrivately
 import com.nuvio.app.features.details.components.SeasonOverviewSheet
+import com.nuvio.app.features.downloads.seasonSheetDismissDurationMs
 import com.nuvio.app.features.details.components.SeasonWatchedActionSheet
 import com.nuvio.app.core.uifixture.UiFixture
 import com.nuvio.app.core.uifixture.UiFixtureCatalog
@@ -303,6 +308,39 @@ fun MetaDetailsScreen(
     var commentsError by remember(type, id) { mutableStateOf<String?>(null) }
     var selectedComment by remember(type, id) { mutableStateOf<TraktCommentReview?>(null) }
     val detailsScope = rememberCoroutineScope()
+    val castReduceMotion = systemReduceMotionEnabled()
+    val resolvedCastClick: ((MetaPerson, String?) -> Unit)? = if (onCastClick == null) {
+        null
+    } else {
+        val click = onCastClick
+        { person, transitionKey ->
+            val overlayVisible = seasonOverviewSeason != null ||
+                selectedEpisodeForActions != null ||
+                selectedSeasonForActions != null ||
+                selectedEpisodeZoomAnchor != null ||
+                userRatingSheetRequest != null
+            val plan = castNavigationPlan(person.tmdbId, overlayVisible)
+            if (plan.navigation == CastNavigation.OpenPerson) {
+                if (plan.dismissOverlayFirst) {
+                    detailsScope.launch {
+                        if (usesNativeNuvioBottomSheet) {
+                            dismissPresentedNuvioBottomSheet(
+                                seasonSheetDismissDurationMs(castReduceMotion),
+                            )
+                        }
+                        seasonOverviewSeason = null
+                        selectedEpisodeForActions = null
+                        selectedSeasonForActions = null
+                        selectedEpisodeZoomAnchor = null
+                        userRatingSheetRequest = null
+                        click(person, transitionKey)
+                    }
+                } else {
+                    click(person, transitionKey)
+                }
+            }
+        }
+    }
     var showLibraryListPicker by remember(type, id) { mutableStateOf(false) }
     var pickerTabs by remember(type, id) { mutableStateOf<List<TrackingLibraryTab>>(emptyList()) }
     var pickerMembership by remember(type, id) { mutableStateOf<Map<String, Boolean>>(emptyMap()) }
@@ -1545,7 +1583,7 @@ fun MetaDetailsScreen(
                                         onDownloadEpisode = onEpisodeDownloadClick,
                                         onOpenMeta = onOpenMeta,
                                         onOpenMoreLikeThis = onOpenMoreLikeThis,
-                                        onCastClick = onCastClick,
+                                        onCastClick = resolvedCastClick,
                                         onCompanyClick = onCompanyClick,
                                         sharedTransitionScope = sharedTransitionScope,
                                         animatedVisibilityScope = animatedVisibilityScope,
@@ -1746,6 +1784,10 @@ fun MetaDetailsScreen(
                                     stopHeroTrailerForNavigation()
                                     openEpisodeInSubmitMode(meta.toEpisodeSubmitRequest(selectedEpisode))
                                 },
+                                onWatchPrivately = {
+                                    stopHeroTrailerForNavigation()
+                                    openEpisodePrivately(meta.toEpisodeSubmitRequest(selectedEpisode))
+                                },
                                 onRate = if (canRateEpisode && episodeRatingTarget != null) {
                                     {
                                         val request = UserRatingSheetRequest(
@@ -1882,6 +1924,10 @@ fun MetaDetailsScreen(
                                 onOpenEpisode = { episode ->
                                     stopHeroTrailerForNavigation()
                                     openEpisodeInSubmitMode(meta.toEpisodeSubmitRequest(episode))
+                                },
+                                onWatchPrivately = { episode ->
+                                    stopHeroTrailerForNavigation()
+                                    openEpisodePrivately(meta.toEpisodeSubmitRequest(episode))
                                 },
                             )
                         }

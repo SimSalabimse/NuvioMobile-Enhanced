@@ -32,7 +32,10 @@ import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.features.party.PartyRepository
 import com.nuvio.app.features.player.skip.FlagSubmitLedger
+import com.nuvio.app.features.player.skip.OwnMarkStatus
 import com.nuvio.app.features.player.skip.OwnTheIntroDbLedger
+import com.nuvio.app.features.player.skip.accountScopeForService
+import com.nuvio.app.features.player.skip.ownListBucketsForTitle
 import com.nuvio.app.features.player.skip.shouldRecordOwnTheIntroDb
 import com.nuvio.app.features.player.skip.loadTypes
 import com.nuvio.app.features.player.skip.rememberType
@@ -232,11 +235,18 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 val episodeNow = activeEpisodeNumber ?: 0
                 val accepted = submittedFlagTypesForTitle(records, tmdbId, isMoviePlayback, seasonNow, episodeNow)
                 val rejected = rejectedFlagTypesForTitle(records, tmdbId, isMoviePlayback, seasonNow, episodeNow)
+                val buckets = ownListBucketsForTitle(records, tmdbId, isMoviePlayback, seasonNow, episodeNow)
                 FlagSubmitLedger.replaceTypes(contentKey, accepted)
                 submittedSegmentTypesByVideoId[activeVideoId.orEmpty()].orEmpty().forEach { type ->
                     if (markSegmentId(type) !in rejected) FlagSubmitLedger.rememberType(contentKey, type)
                 }
-                OwnTheIntroDbLedger.applyListing(contentKey, accepted, rejected)
+                OwnTheIntroDbLedger.applyListing(
+                    scope = accountScopeForService(IntroSubmitService.THE_INTRODB, introDbKey, theIntroDbKey),
+                    contentKey = contentKey,
+                    confirmed = buckets.confirmed,
+                    pending = buckets.pending,
+                    rejected = buckets.rejected,
+                )
                 remoteTypes = accepted
                 rejectedTypes = rejected
             }
@@ -387,7 +397,17 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                                     ),
                                 )
                                 if (shouldRecordOwnTheIntroDb(service, succeeded = true)) {
-                                    OwnTheIntroDbLedger.remember(contentKey, snapshot.segmentType)
+                                    val status = if (posted == MarkPost.AlreadySubmitted) {
+                                        OwnMarkStatus.Confirmed
+                                    } else {
+                                        OwnMarkStatus.Pending
+                                    }
+                                    OwnTheIntroDbLedger.remember(
+                                        accountScopeForService(service, introDbKey, theIntroDbKey),
+                                        contentKey,
+                                        snapshot.segmentType,
+                                        status,
+                                    )
                                 }
                                 if (posted == MarkPost.AlreadySubmitted) {
                                     NuvioToastController.show(TheIntroDbAlreadySubmittedMessage)

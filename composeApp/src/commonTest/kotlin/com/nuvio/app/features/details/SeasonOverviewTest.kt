@@ -8,10 +8,19 @@ import com.nuvio.app.core.ui.FitSheetAction
 import com.nuvio.app.core.ui.fitSheetDetentPoints
 import com.nuvio.app.core.ui.fitSheetMeasurement
 import com.nuvio.app.core.uifixture.UiFixtureCatalog
+import com.nuvio.app.features.analysis.MediaAnalysisResult
+import com.nuvio.app.features.analysis.UserSegment
+import com.nuvio.app.features.player.PlayerLaunch
+import com.nuvio.app.features.player.applyingSubmitMode
+import com.nuvio.app.features.player.skip.FlagSubmissionRecord
 import com.nuvio.app.features.player.skip.IntroSubmitService
-import com.nuvio.app.features.player.skip.TheIntroDb
-import com.nuvio.app.features.player.skip.applyOwnTheIntroDbListing
+import com.nuvio.app.features.player.skip.ListStatusBucket
+import com.nuvio.app.features.player.skip.OwnAccountMarks
+import com.nuvio.app.features.player.skip.applyAccountListing
+import com.nuvio.app.features.player.skip.listStatusBucket
+import com.nuvio.app.features.player.skip.ownListBucketsForTitle
 import com.nuvio.app.features.player.skip.shouldRecordOwnTheIntroDb
+import com.nuvio.app.features.watchprogress.allowsProgressWrite
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -19,7 +28,7 @@ import kotlin.test.assertTrue
 
 class SeasonOverviewTest {
     @Test
-    fun seasonWithOwnPublicBothAndNothingMarksOnlyOwnAsSubmitted() {
+    fun seasonMarksConfirmedPendingDetectedAndMissingWithoutPublicConsensus() {
         val rows = seasonSegmentOverview(
             episodes = listOf(
                 episode(1, watched = true),
@@ -27,62 +36,64 @@ class SeasonOverviewTest {
                 episode(3, watched = true),
                 episode(4, watched = false),
             ),
-            ownByKey = mapOf(
-                key(1) to setOf("intro"),
-                key(3) to setOf("intro", "recap"),
-            ),
-            publicByKey = mapOf(
-                key(2) to mapOf("intro" to TheIntroDb.PROVIDER),
-                key(3) to mapOf(
-                    "intro" to TheIntroDb.PROVIDER,
-                    "recap" to TheIntroDb.PROVIDER,
-                    "outro" to "introdb",
+            own = OwnAccountMarks(
+                confirmed = mapOf(
+                    key(1) to setOf("intro"),
+                    key(3) to setOf("intro", "recap"),
                 ),
+                pending = mapOf(key(2) to setOf("outro")),
+            ),
+            detectedByKey = mapOf(
+                key(2) to setOf("intro", "outro"),
+                key(3) to setOf("intro", "outro"),
+                key(4) to setOf("preview"),
             ),
         )
         assertEquals(listOf(1, 2, 3, 4), rows.map { it.episode })
-        assertTrue(rows.all { it.season == 1 })
         assertTrue(rows[0].watched)
         assertTrue(rows[2].watched)
 
-        val ownOnly = rows[0]
-        assertEquals(setOf("intro"), ownOnly.submitted)
-        assertEquals(emptySet(), ownOnly.onTheIntroDb)
-        assertEquals(setOf("recap", "outro", "preview"), ownOnly.missing)
+        val confirmedOnly = rows[0]
+        assertEquals(setOf("intro"), confirmedOnly.submitted)
+        assertEquals(emptySet(), confirmedOnly.pending)
+        assertEquals(emptySet(), confirmedOnly.detected)
+        assertEquals(setOf("recap", "outro", "preview"), confirmedOnly.missing)
 
-        val publicOnly = rows[1]
-        assertEquals(emptySet(), publicOnly.submitted)
-        assertEquals(setOf("intro"), publicOnly.onTheIntroDb)
-        assertFalse("intro" in publicOnly.submitted)
-        assertEquals(setOf("recap", "outro", "preview"), publicOnly.missing)
+        val pendingBeatsDetection = rows[1]
+        assertEquals(emptySet(), pendingBeatsDetection.submitted)
+        assertEquals(setOf("outro"), pendingBeatsDetection.pending)
+        assertEquals(setOf("intro"), pendingBeatsDetection.detected)
+        assertFalse("intro" in pendingBeatsDetection.submitted)
+        assertEquals(setOf("recap", "preview"), pendingBeatsDetection.missing)
 
-        val both = rows[2]
-        assertEquals(setOf("intro", "recap"), both.submitted)
-        assertEquals(emptySet(), both.onTheIntroDb)
-        assertFalse("intro" in both.onTheIntroDb)
-        assertEquals(setOf("outro", "preview"), both.missing)
-        assertFalse("outro" in both.submitted)
+        val confirmedBeatsDetection = rows[2]
+        assertEquals(setOf("intro", "recap"), confirmedBeatsDetection.submitted)
+        assertEquals(setOf("outro"), confirmedBeatsDetection.detected)
+        assertFalse("intro" in confirmedBeatsDetection.detected)
 
-        val nothing = rows[3]
-        assertEquals(emptySet(), nothing.submitted)
-        assertEquals(emptySet(), nothing.onTheIntroDb)
-        assertEquals(setOf("intro", "recap", "outro", "preview"), nothing.missing)
+        val detectedOnly = rows[3]
+        assertEquals(emptySet(), detectedOnly.submitted)
+        assertEquals(setOf("preview"), detectedOnly.detected)
+        assertEquals(
+            "Preview. $DETECTED_NOT_SUBMITTED_STATE",
+            segmentChipModel("Preview", detectedOnly.marks.getValue("preview")).visibleText,
+        )
 
         assertEquals(3, submittedCount(rows))
-        assertEquals(12, missingCount(rows))
+        assertEquals(9, missingCount(rows))
     }
 
     @Test
-    fun publicFetchedTypeIsNeverSubmittedEvenWhenTheNameMatches() {
+    fun publicFetchIsNotAMark() {
         val row = episodeSegmentOverview(
             episode = episode(8),
-            ownTypes = emptySet(),
-            publicProviders = mapOf("opening" to TheIntroDb.PROVIDER, "credits" to "introdb"),
+            own = OwnAccountMarks(),
+            detectedTypes = emptySet(),
         )
         assertEquals(emptySet(), row.submitted)
-        assertEquals(setOf("intro"), row.onTheIntroDb)
-        assertTrue("outro" in row.missing)
-        assertFalse("credits" in row.submitted)
+        assertEquals(emptySet(), row.pending)
+        assertEquals(emptySet(), row.detected)
+        assertEquals(setOf("intro", "recap", "outro", "preview"), row.missing)
     }
 
     @Test
@@ -93,28 +104,39 @@ class SeasonOverviewTest {
     }
 
     @Test
-    fun listingKeepsALocalTheIntroDbSuccessAndDropsARejectedOne() {
-        val listed = applyOwnTheIntroDbListing(
-            entries = mapOf(key(1) to setOf("intro", "outro")),
+    fun listingKeepsCachedConfirmedDropsRejectedAndDoesNotPromotePending() {
+        val listed = applyAccountListing(
+            marks = OwnAccountMarks(
+                confirmed = mapOf(key(1) to setOf("intro", "outro")),
+                pending = mapOf(key(1) to setOf("preview")),
+            ),
             contentKey = key(1),
-            accepted = setOf("recap"),
+            confirmed = setOf("recap"),
+            pending = setOf("intro"),
             rejected = setOf("outro"),
         )
-        assertEquals(setOf("intro", "recap"), listed[key(1)])
+        assertEquals(setOf("recap"), listed.confirmed[key(1)])
+        assertEquals(setOf("intro", "preview"), listed.pending[key(1)])
+        assertFalse("outro" in listed.confirmed[key(1)].orEmpty())
+        assertFalse("intro" in listed.confirmed[key(1)].orEmpty())
     }
 
     @Test
     fun overviewReportsLoadingEmptyAllSubmittedNonePartialAndOffline() {
-        val one = episodeSegmentOverview(episode(1), ownTypes = setOf("intro"), publicProviders = emptyMap())
+        val one = episodeSegmentOverview(
+            episode(1),
+            own = OwnAccountMarks(confirmed = mapOf(key(1) to setOf("intro"))),
+            detectedTypes = emptySet(),
+        )
         val all = episodeSegmentOverview(
             episode(1),
-            ownTypes = setOf("intro", "recap", "outro", "preview"),
-            publicProviders = mapOf("intro" to TheIntroDb.PROVIDER),
+            own = OwnAccountMarks(confirmed = mapOf(key(1) to setOf("intro", "recap", "outro", "preview"))),
+            detectedTypes = setOf("intro"),
         )
         val none = episodeSegmentOverview(
             episode(1),
-            ownTypes = emptySet(),
-            publicProviders = mapOf("intro" to TheIntroDb.PROVIDER),
+            own = OwnAccountMarks(pending = mapOf(key(1) to setOf("intro"))),
+            detectedTypes = setOf("recap"),
         )
         assertEquals(SeasonOverviewUiState.Loading, seasonOverviewUiState(true, offline = true, episodesKnown = false, rows = emptyList()))
         assertEquals(SeasonOverviewUiState.EmptySeason, seasonOverviewUiState(false, offline = false, episodesKnown = true, rows = emptyList()))
@@ -129,30 +151,33 @@ class SeasonOverviewTest {
         assertTrue(seasonOverviewDownloadEnabled(SeasonOverviewUiState.Partial, offline = false))
         assertFalse(seasonOverviewDownloadEnabled(SeasonOverviewUiState.EmptySeason, offline = false))
         assertEquals(setOf("intro", "recap", "outro", "preview"), all.submitted)
-        assertEquals(emptySet(), all.onTheIntroDb)
+        assertEquals(emptySet(), all.detected)
+        assertEquals(setOf("intro"), none.pending)
+        assertEquals(setOf("recap"), none.detected)
+        assertTrue(none.submitted.isEmpty())
     }
 
     @Test
-    fun chipVisualIsFilledCheckOutlinedOrDimAndOwnSubmissionStaysFilled() {
+    fun chipVisualDiffersWithoutALegend() {
         assertEquals(SegmentChipVisual.FilledCheck, segmentChipVisual(SegmentMark.Submitted))
-        assertEquals(SegmentChipVisual.Outlined, segmentChipVisual(SegmentMark.OnTheIntroDb))
+        assertEquals(SegmentChipVisual.Outlined, segmentChipVisual(SegmentMark.Pending))
+        assertEquals(SegmentChipVisual.DetectedText, segmentChipVisual(SegmentMark.Detected))
         assertEquals(SegmentChipVisual.Dim, segmentChipVisual(SegmentMark.Missing))
-        assertEquals(
-            3,
-            setOf(SegmentChipVisual.FilledCheck, SegmentChipVisual.Outlined, SegmentChipVisual.Dim).size,
-        )
+        assertEquals(DETECTED_NOT_SUBMITTED_STATE, "Detected, not submitted yet")
+        val detected = segmentChipModel("Intro", SegmentMark.Detected)
+        assertTrue(detected.visibleText.contains(DETECTED_NOT_SUBMITTED_STATE))
+        assertFalse(detected.visibleText.contains("legend", ignoreCase = true))
         val row = episodeSegmentOverview(
             episode = episode(1),
-            ownTypes = setOf("recap"),
-            publicProviders = mapOf(
-                "intro" to TheIntroDb.PROVIDER,
-                "recap" to TheIntroDb.PROVIDER,
+            own = OwnAccountMarks(
+                confirmed = mapOf(key(1) to setOf("recap")),
+                pending = mapOf(key(1) to setOf("intro")),
             ),
+            detectedTypes = setOf("outro"),
         )
         assertEquals(SegmentChipVisual.FilledCheck, segmentChipVisual(row.marks.getValue("recap")))
-        assertFalse("recap" in row.onTheIntroDb)
         assertEquals(SegmentChipVisual.Outlined, segmentChipVisual(row.marks.getValue("intro")))
-        assertEquals(SegmentChipVisual.Dim, segmentChipVisual(row.marks.getValue("outro")))
+        assertEquals(SegmentChipVisual.DetectedText, segmentChipVisual(row.marks.getValue("outro")))
         assertEquals(SegmentChipVisual.Dim, segmentChipVisual(row.marks.getValue("preview")))
     }
 
@@ -165,14 +190,13 @@ class SeasonOverviewTest {
         }
         val rows = seasonSegmentOverview(
             episodes = episodes,
-            ownByKey = mapOf(
-                key(1) to setOf("recap"),
-                key(2) to setOf("intro", "recap", "outro", "preview"),
+            own = OwnAccountMarks(
+                confirmed = mapOf(
+                    key(1) to setOf("recap"),
+                    key(2) to setOf("intro", "recap", "outro", "preview"),
+                ),
             ),
-            publicByKey = mapOf(
-                key(1) to mapOf("intro" to TheIntroDb.PROVIDER, "recap" to TheIntroDb.PROVIDER),
-                key(4) to mapOf("intro" to TheIntroDb.PROVIDER),
-            ),
+            detectedByKey = mapOf(key(4) to setOf("intro")),
         )
         assertEquals(episodes.size, rows.size)
         assertEquals(count, rows.size)
@@ -180,11 +204,115 @@ class SeasonOverviewTest {
         assertTrue(rows.first().watched)
         assertTrue(rows.last().watched)
         assertEquals(setOf("recap"), rows[0].submitted)
-        assertEquals(setOf("intro"), rows[0].onTheIntroDb)
+        assertEquals(emptySet(), rows[0].detected)
         assertEquals(setOf("intro", "recap", "outro", "preview"), rows[1].submitted)
         assertTrue(rows[2].submitted.isEmpty())
-        assertTrue(rows[2].onTheIntroDb.isEmpty())
+        assertTrue(rows[2].detected.isEmpty())
+        assertEquals(setOf("intro"), rows[3].detected)
         assertEquals(setOf("intro", "recap", "outro", "preview"), rows[2].missing)
+    }
+
+    @Test
+    fun episodeOpenDismissesTheOverlayBeforeNavigationAndCanOpenAgain() {
+        assertEquals(
+            listOf(OverviewOpenStep.DismissOverlay, OverviewOpenStep.OpenEpisode),
+            overviewEpisodeOpenSteps(),
+        )
+        val after = overviewSessionAfterEpisodeOpen()
+        assertFalse(after.overlayVisible)
+        assertTrue(overviewCanOpenAgain(after))
+        assertEquals(overviewEpisodeOpenSteps(), overviewEpisodeOpenSteps())
+    }
+
+    @Test
+    fun downloadsEntryDoesNotDownloadAgainAndSubmitModeDoesNotPersistProgress() {
+        assertFalse(
+            seasonOverviewAnalysisDownloadAllowed(
+                fromDownloads = true,
+                offline = true,
+                state = SeasonOverviewUiState.Partial,
+            ),
+        )
+        assertFalse(
+            seasonOverviewAnalysisDownloadAllowed(
+                fromDownloads = false,
+                offline = true,
+                state = SeasonOverviewUiState.Partial,
+            ),
+        )
+        assertTrue(
+            seasonOverviewAnalysisDownloadAllowed(
+                fromDownloads = false,
+                offline = false,
+                state = SeasonOverviewUiState.NoneSubmitted,
+            ),
+        )
+        val launch = PlayerLaunch(
+            profileId = 1,
+            title = "Show",
+            sourceUrl = "file:///episode.mp4",
+            streamTitle = "Episode",
+            providerName = "Local",
+            parentMetaId = "tt1",
+            parentMetaType = "series",
+            initialPositionMs = 50_000L,
+            initialProgressFraction = 0.4f,
+        ).applyingSubmitMode(true)
+        assertTrue(launch.submitMode)
+        assertFalse(launch.persistsProgress)
+        assertEquals(0L, launch.initialPositionMs)
+        assertEquals(null, launch.initialProgressFraction)
+        assertFalse(allowsProgressWrite(launch.persistsProgress))
+    }
+
+    @Test
+    fun localDetectionIgnoresUserMarksAndDoesNotBecomeSubmitted() {
+        val detected = localDetectionTypes(
+            MediaAnalysisResult(
+                key = "show__s1e1",
+                analyzedAtMs = 1L,
+                durationMs = 1_200_000L,
+                introStartMs = 0L,
+                introEndMs = 40_000L,
+                creditsStartMs = 1_000_000L,
+                creditsEndMs = 1_100_000L,
+                userSegments = mapOf("intro" to UserSegment(startMs = 0L, endMs = 40_000L, imported = true)),
+                creditsConfidence = com.nuvio.app.features.analysis.SegmentConfidence(theIntroDbAgrees = true),
+            ),
+        )
+        assertEquals(setOf("outro"), detected)
+        val row = episodeSegmentOverview(
+            episode = episode(1),
+            own = OwnAccountMarks(),
+            detectedTypes = detected,
+        )
+        assertTrue(row.submitted.isEmpty())
+        assertEquals(setOf("outro"), row.detected)
+    }
+
+    @Test
+    fun listStatusSplitsPendingConfirmedAndDuplicate() {
+        assertEquals(ListStatusBucket.Pending, listStatusBucket("pending"))
+        assertEquals(ListStatusBucket.Pending, listStatusBucket(""))
+        assertEquals(ListStatusBucket.Confirmed, listStatusBucket("approved"))
+        assertEquals(ListStatusBucket.Confirmed, listStatusBucket("duplicate"))
+        assertEquals(ListStatusBucket.Rejected, listStatusBucket("rejected"))
+        val buckets = ownListBucketsForTitle(
+            records = listOf(
+                FlagSubmissionRecord(7, "tv", 1, 1, "intro", "pending"),
+                FlagSubmissionRecord(7, "tv", 1, 1, "recap", "approved"),
+                FlagSubmissionRecord(7, "tv", 1, 1, "outro", "duplicate"),
+                FlagSubmissionRecord(7, "tv", 1, 1, "preview", "rejected"),
+                FlagSubmissionRecord(8, "tv", 1, 1, "intro", "approved"),
+            ),
+            tmdbId = 7,
+            isMovie = false,
+            season = 1,
+            episode = 1,
+        )
+        assertEquals(setOf("recap", "outro"), buckets.confirmed)
+        assertEquals(setOf("intro"), buckets.pending)
+        assertEquals(setOf("preview"), buckets.rejected)
     }
 
     @Test
@@ -267,11 +395,18 @@ class SeasonOverviewTest {
                 seasonOverview = "Season overview",
                 libraryLists = "Library lists",
                 submitSegment = "Submit segment only",
+                watchPrivately = "Watch privately",
             ),
         ).map { it.id }
         assertEquals(listOf("season.watched", "season.rate", "season.previous", "season.overview"), ids)
         assertEquals(emptyList(), seasonOverviewRemovalList)
-        assertEquals(listOf("MetaDetailsScreen.SeasonWatchedActionSheet"), seasonOverviewCallers)
+        assertEquals(
+            listOf(
+                "MetaDetailsScreen.SeasonWatchedActionSheet",
+                "DownloadsScreen.ShowSeason",
+            ),
+            seasonOverviewCallers,
+        )
     }
 
     private fun episode(number: Int, watched: Boolean = false) = SeasonEpisodeRef(

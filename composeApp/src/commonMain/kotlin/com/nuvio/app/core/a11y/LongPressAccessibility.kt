@@ -54,6 +54,7 @@ internal data class LongPressMenuFacts(
     val includePreviousSeasons: Boolean = false,
     val includeSeasonOverview: Boolean = false,
     val includeSubmitSegment: Boolean = false,
+    val includeWatchPrivately: Boolean = false,
     val canPinSource: Boolean = false,
     val sourcePinned: Boolean = false,
     val externalPlayerEnabled: Boolean = false,
@@ -82,6 +83,7 @@ internal data class LongPressMenuLabels(
     val seasonOverview: String,
     val libraryLists: String,
     val submitSegment: String,
+    val watchPrivately: String,
 )
 
 data class LongPressAccessibilityAction(
@@ -179,6 +181,7 @@ internal fun longPressAccessibilityActions(
             if (facts.includeDownload && facts.downloadLabel.isNotBlank()) add(action("episode.download", facts.downloadLabel))
             if (facts.includePlayManually) add(action("episode.play_manually", labels.playManually))
             if (facts.includeSubmitSegment) add(action("episode.submit_segment", labels.submitSegment))
+            if (facts.includeWatchPrivately) add(action("episode.watch_privately", labels.watchPrivately))
         }
         LongPressSite.Season -> buildList {
             if (facts.includeSeasonToggle && seasonLabel.isNotBlank()) add(action("season.watched", seasonLabel))
@@ -231,6 +234,7 @@ internal fun episodeLongPressFacts(
     downloadLabel = downloadLabel,
     includePlayManually = playManually,
     includeSubmitSegment = true,
+    includeWatchPrivately = true,
 )
 
 internal fun seasonLongPressFacts(

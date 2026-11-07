@@ -43,6 +43,56 @@ internal fun submittedFlagTypesForTitle(
     episode: Int,
 ): Set<String> = flagTypesForTitle(records, tmdbId, isMovie, season, episode, rejected = false)
 
+internal enum class ListStatusBucket {
+    Confirmed,
+    Pending,
+    Rejected,
+}
+
+/** Blank and unknown review states stay pending. They are not confirmed submissions. */
+internal fun listStatusBucket(status: String): ListStatusBucket = when (status.trim().lowercase()) {
+    "rejected", "declined", "denied" -> ListStatusBucket.Rejected
+    "approved", "accepted", "active", "duplicate", "submitted", "confirmed", "published" -> ListStatusBucket.Confirmed
+    else -> ListStatusBucket.Pending
+}
+
+internal data class OwnListBuckets(
+    val confirmed: Set<String> = emptySet(),
+    val pending: Set<String> = emptySet(),
+    val rejected: Set<String> = emptySet(),
+)
+
+/** This account's rows for one title, split by review status. Community data is not an input. */
+internal fun ownListBucketsForTitle(
+    records: List<FlagSubmissionRecord>,
+    tmdbId: Int,
+    isMovie: Boolean,
+    season: Int,
+    episode: Int,
+): OwnListBuckets {
+    if (tmdbId <= 0) return OwnListBuckets()
+    val confirmed = linkedSetOf<String>()
+    val pending = linkedSetOf<String>()
+    val rejected = linkedSetOf<String>()
+    records.forEach { record ->
+        if (record.tmdbId != tmdbId) return@forEach
+        val movie = record.type.equals("movie", ignoreCase = true)
+        if (movie != isMovie) return@forEach
+        if (!isMovie && (record.season != season || record.episode != episode)) return@forEach
+        val type = canonicalFlagSegmentType(record.segment) ?: return@forEach
+        when (listStatusBucket(record.status)) {
+            ListStatusBucket.Confirmed -> confirmed += type
+            ListStatusBucket.Pending -> pending += type
+            ListStatusBucket.Rejected -> rejected += type
+        }
+    }
+    return OwnListBuckets(
+        confirmed = confirmed - rejected,
+        pending = pending - confirmed - rejected,
+        rejected = rejected,
+    )
+}
+
 /** Rejected rows for this title. They must not draw a check. */
 internal fun rejectedFlagTypesForTitle(
     records: List<FlagSubmissionRecord>,

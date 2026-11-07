@@ -49,6 +49,7 @@ fun PlayerScreen(
     sourceFilename: String? = null,
     stream: com.nuvio.app.features.streams.StreamItem? = null,
     submitMode: Boolean = false,
+    privateSession: Boolean = false,
 ) {
     PlayerScreenContent(
         PlayerScreenArgs(
@@ -95,6 +96,7 @@ fun PlayerScreen(
             onOpenPartyMedia = onOpenPartyMedia,
             stream = stream,
             submitMode = submitMode,
+            privateSession = privateSession,
         )
     )
 }

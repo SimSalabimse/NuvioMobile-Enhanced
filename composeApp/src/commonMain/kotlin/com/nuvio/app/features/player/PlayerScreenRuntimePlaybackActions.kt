@@ -167,13 +167,24 @@ internal val PlayerScreenRuntime.activePlaybackIdentity: String
         ?: downloadSwapIdentity
         ?: activeSourceUrl
 
+internal val PlayerScreenRuntime.playbackIsolation: com.nuvio.app.features.watchprogress.PlaybackIsolation
+    get() = com.nuvio.app.features.watchprogress.playbackIsolation(
+        submitMode = args.submitMode,
+        privateSession = args.privateSession,
+        globalPrivateViewing = playerSettingsUiState.privateViewingEnabled,
+    )
+
 internal val PlayerScreenRuntime.shouldTrackWatchProgress: Boolean
     get() = !isLiveTvPlayback && !parentMetaType.equals("live", ignoreCase = true) &&
-        !playerSettingsUiState.privateViewingEnabled
+        persistsProgress
 
-/** Submit mode carries this as false from [PlayerLaunch.persistsProgress]. */
+/** Submit mode, a private session, and the saved Private Viewing switch all make this false. */
 internal val PlayerScreenRuntime.persistsProgress: Boolean
-    get() = !args.submitMode
+    get() = playbackIsolation.persistsProgress
+
+/** Private session and submit mode do not roll into the next episode. */
+internal val PlayerScreenRuntime.blocksAutoplay: Boolean
+    get() = !playbackIsolation.allowsAutoplay
 
 internal val PlayerScreenRuntime.activePlaybackKey: PlaybackKey
     get() = PlaybackKey(

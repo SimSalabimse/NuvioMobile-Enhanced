@@ -23,8 +23,10 @@ import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.WatchProgressStorage
 import com.nuvio.app.features.watchprogress.allowsProgressWrite
 import com.nuvio.app.navigation.EpisodeSubmitRequest
+import com.nuvio.app.navigation.IsolatedPlayback
 import com.nuvio.app.navigation.installEpisodeSubmitLauncher
 import com.nuvio.app.navigation.openEpisodeInSubmitMode
+import com.nuvio.app.navigation.openEpisodePrivately
 import java.io.File
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -160,9 +162,31 @@ class SubmitModeProgressTest {
     }
 
     @Test
+    fun privateSessionLeavesContinueWatchingUntouched() {
+        seedEpisodeFour()
+        ProgressWriteTrace.clear()
+        val before = snapshotProgress()
+
+        val driven = driveSession(submitMode = false, privateSession = true)
+
+        val after = snapshotProgress()
+        assertEquals(emptyList(), ProgressWriteTrace.snapshot())
+        assertEquals(before, driven.afterPause)
+        assertEquals(before, after)
+        assertEquals(episodeFourPositionMs, episodeFourPosition())
+        assertFalse(driven.panelOpen)
+        assertTrue(PlayerLaunchStore.get(driven.launchId)?.privateSession == true)
+        assertFalse(PlayerSettingsRepository.uiState.value.privateViewingEnabled)
+    }
+
+    @Test
     fun openEpisodeInSubmitModeReachesTheInstalledLauncher() {
         var seen: EpisodeSubmitRequest? = null
-        installEpisodeSubmitLauncher { seen = it }
+        var kind: IsolatedPlayback? = null
+        installEpisodeSubmitLauncher { request, playback ->
+            seen = request
+            kind = playback
+        }
         val request = EpisodeSubmitRequest(
             type = "series",
             videoId = "tt999:1:2",
@@ -175,6 +199,9 @@ class SubmitModeProgressTest {
         )
         openEpisodeInSubmitMode(request)
         assertEquals(request, seen)
+        assertEquals(IsolatedPlayback.Submit, kind)
+        openEpisodePrivately(request)
+        assertEquals(IsolatedPlayback.Private, kind)
         installEpisodeSubmitLauncher(null)
         openEpisodeInSubmitMode(request)
         assertEquals(request, seen)
@@ -205,7 +232,7 @@ class SubmitModeProgressTest {
         )
     }
 
-    private fun driveSession(submitMode: Boolean): Driven = runBlocking {
+    private fun driveSession(submitMode: Boolean, privateSession: Boolean = false): Driven = runBlocking {
         val launch = PlayerLaunch(
             profileId = ProfileRepository.activeProfileId,
             title = "Show",
@@ -221,10 +248,11 @@ class SubmitModeProgressTest {
             episodeTitle = "Two",
             initialPositionMs = 0L,
             submitMode = submitMode,
+            privateSession = privateSession,
         )
         val launchId = PlayerLaunchStore.put(launch)
         val runtime = PlayerScreenRuntime(
-            episodeArgs(submitMode = submitMode, launchId = launchId),
+            episodeArgs(submitMode = submitMode, privateSession = privateSession, launchId = launchId),
         )
         val job = SupervisorJob()
         runtime.scope = CoroutineScope(
@@ -280,7 +308,7 @@ class SubmitModeProgressTest {
         }
     }
 
-    private fun episodeArgs(submitMode: Boolean, launchId: Long) = PlayerScreenArgs(
+    private fun episodeArgs(submitMode: Boolean, launchId: Long, privateSession: Boolean = false) = PlayerScreenArgs(
         profileId = ProfileRepository.activeProfileId,
         title = "Show",
         sourceUrl = "https://example.com/ep2.mp4",
@@ -317,6 +345,7 @@ class SubmitModeProgressTest {
         initialProgressFraction = null,
         launchId = launchId,
         submitMode = submitMode,
+        privateSession = privateSession,
     )
 
     private fun episodeFourPosition(): Long? = WatchProgressRepository.progressForVideo(

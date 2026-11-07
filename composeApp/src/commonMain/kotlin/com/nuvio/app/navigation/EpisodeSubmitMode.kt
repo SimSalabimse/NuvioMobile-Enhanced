@@ -22,10 +22,15 @@ data class EpisodeSubmitRequest(
     val pauseDescription: String? = null,
 )
 
-private var episodeSubmitLauncher: ((EpisodeSubmitRequest) -> Unit)? = null
+internal enum class IsolatedPlayback {
+    Submit,
+    Private,
+}
+
+private var episodeSubmitLauncher: ((EpisodeSubmitRequest, IsolatedPlayback) -> Unit)? = null
 
 /** Installed by the app shell while it is composed. */
-internal fun installEpisodeSubmitLauncher(launcher: ((EpisodeSubmitRequest) -> Unit)?) {
+internal fun installEpisodeSubmitLauncher(launcher: ((EpisodeSubmitRequest, IsolatedPlayback) -> Unit)?) {
     episodeSubmitLauncher = launcher
 }
 
@@ -40,5 +45,16 @@ internal fun installEpisodeSubmitLauncher(launcher: ((EpisodeSubmitRequest) -> U
  * The shell installs the launcher while it is on screen. A call before that does nothing.
  */
 fun openEpisodeInSubmitMode(request: EpisodeSubmitRequest) {
-    episodeSubmitLauncher?.invoke(request)
+    episodeSubmitLauncher?.invoke(request, IsolatedPlayback.Submit)
+}
+
+/**
+ * Opens [request] for this playback only.
+ *
+ * The saved Private Viewing switch is left as it is. Resume, watched state,
+ * Continue Watching, scrobbles, and autoplay stay unchanged. The submit action
+ * in the player still sends a segment.
+ */
+fun openEpisodePrivately(request: EpisodeSubmitRequest) {
+    episodeSubmitLauncher?.invoke(request, IsolatedPlayback.Private)
 }
