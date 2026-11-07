@@ -472,8 +472,12 @@ kotlin {
                     compilerOpts("-I${project.projectDir}/src/nativeInterop/cinterop")
                 }
                 create("diagnostics") {
-                    defFile(project.file("src/nativeInterop/cinterop/diagnostics.def"))
-                    compilerOpts("-I${project.projectDir}/src/nativeInterop/cinterop")
+                    val cinteropDir = project.layout.projectDirectory.dir("src/nativeInterop/cinterop")
+                    defFile(cinteropDir.file("diagnostics.def"))
+                    compilerOpts("-I${cinteropDir.asFile.absolutePath}")
+                    // A -I path is not a task input. The header file is, so a new cdecl
+                    // is compiled into the klib instead of leaving the previous one in place.
+                    header(cinteropDir.file("DiagnosticsInterop.h"))
                 }
                 if (iosDistribution == "full") {
                     check(nuvioEngineSliceDirectory.resolve("libCNuvioEngine.a").isFile) {
