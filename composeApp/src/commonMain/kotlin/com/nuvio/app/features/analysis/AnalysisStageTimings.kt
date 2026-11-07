@@ -57,4 +57,5 @@ internal fun logAnalysisStageTimings(fileId: String, timings: AnalysisStageTimin
     val line = timings.line(fileId)
     InAppLogger.info("Analysis", line)
     DiagnosticsLogger.logPerformance(line)
+    AnalysisExportLog.record(fileId, "timings", "done", line)
 }

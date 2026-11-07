@@ -598,6 +598,9 @@
     <string name="settings_advanced_section_debugging">DEBUGGING</string>
     <string name="settings_advanced_debug_logs">Debug Logs</string>
     <string name="settings_advanced_debug_logs_description">View, copy, or clear in-app debug logs</string>
+    <string name="settings_debug_export_analysis_log">Export analysis log</string>
+    <string name="settings_debug_export_analysis_log_ready">%1$d lines on this device. Nothing is uploaded.</string>
+    <string name="settings_debug_export_analysis_log_empty">No analysis log yet. Nothing is uploaded.</string>
     <string name="settings_advanced_debugging_copy_logs">Copy Logs to Clipboard</string>
     <string name="settings_advanced_debugging_copy_logs_description">Copy %1$d in-app log lines</string>
     <string name="settings_advanced_debugging_clear_logs">Clear Logs</string>

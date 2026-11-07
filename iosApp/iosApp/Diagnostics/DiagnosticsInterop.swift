@@ -50,3 +50,8 @@ public func NuvioDiagnosticsLogPlaybackStall(_ durationSeconds: Double) {
 public func NuvioDiagnosticsLogPerformance(_ message: UnsafePointer<CChar>?) {
     DiagnosticsBridge.logPerformance(nuvioDiagnosticsString(message))
 }
+
+@_cdecl("NuvioDiagnosticsShareAnalysisLog")
+public func NuvioDiagnosticsShareAnalysisLog(_ text: UnsafePointer<CChar>?) {
+    DiagnosticsBridge.shareAnalysisLog(nuvioDiagnosticsString(text))
+}
