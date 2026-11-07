@@ -74,10 +74,13 @@ class SeasonOverviewTest {
         val detectedOnly = rows[3]
         assertEquals(emptySet(), detectedOnly.submitted)
         assertEquals(setOf("preview"), detectedOnly.detected)
+        val previewChip = segmentChipModel("Preview", detectedOnly.marks.getValue("preview"))
+        assertEquals("Preview · detected", previewChip.visibleText)
         assertEquals(
             "Preview. $DETECTED_NOT_SUBMITTED_STATE",
-            segmentChipModel("Preview", detectedOnly.marks.getValue("preview")).visibleText,
+            previewChip.spokenText,
         )
+        assertEquals(listOf("preview"), visibleSegmentMarks(detectedOnly.marks).map { it.first })
 
         assertEquals(3, submittedCount(rows))
         assertEquals(9, missingCount(rows))
@@ -165,7 +168,8 @@ class SeasonOverviewTest {
         assertEquals(SegmentChipVisual.Dim, segmentChipVisual(SegmentMark.Missing))
         assertEquals(DETECTED_NOT_SUBMITTED_STATE, "Detected, not submitted yet")
         val detected = segmentChipModel("Intro", SegmentMark.Detected)
-        assertTrue(detected.visibleText.contains(DETECTED_NOT_SUBMITTED_STATE))
+        assertEquals("Intro · detected", detected.visibleText)
+        assertTrue(detected.spokenText.contains(DETECTED_NOT_SUBMITTED_STATE))
         assertFalse(detected.visibleText.contains("legend", ignoreCase = true))
         val row = episodeSegmentOverview(
             episode = episode(1),

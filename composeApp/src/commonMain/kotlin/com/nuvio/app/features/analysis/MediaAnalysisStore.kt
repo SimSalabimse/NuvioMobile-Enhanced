@@ -50,7 +50,23 @@ internal object MediaAnalysisStore {
     private val json = LenientDefaultsJson
     private val cache = mutableMapOf<String, MediaAnalysisResult?>()
 
+    /**
+     * iOS `SynchronizedObject` does not re-enter. A second lock on the same thread never returns,
+     * so the analysis job stays on matching (72%) and the next episode stays queued.
+     * [lockHeld] makes that re-entry fail on JVM too, where the same lock would otherwise hide it.
+     */
     private val lock = SynchronizedObject()
+    private var lockHeld = false
+
+    private fun <T> withStoreLock(block: () -> T): T = synchronized(lock) {
+        check(!lockHeld) { "analysis store lock re-entered" }
+        lockHeld = true
+        try {
+            block()
+        } finally {
+            lockHeld = false
+        }
+    }
 
     fun keyFor(parentMetaId: String, season: Int?, episode: Int?): String {
         val show = showKey(parentMetaId)
@@ -59,19 +75,21 @@ internal object MediaAnalysisStore {
 
     fun keyFor(item: DownloadItem): String = keyFor(item.parentMetaId, item.seasonNumber, item.episodeNumber)
 
-    fun load(key: String): MediaAnalysisResult? = synchronized(lock) {
+    fun load(key: String): MediaAnalysisResult? = withStoreLock { loadLocked(key) }
+
+    private fun loadLocked(key: String): MediaAnalysisResult? {
         dropMisimportedMarksOnce()
         if (cache.containsKey(key)) return cache[key]
         val result = MediaAnalysisFiles.read(key)?.let { text ->
             runCatching { json.decodeFromString(MediaAnalysisResult.serializer(), text) }.getOrNull()
         }?.takeIf { it.version == MEDIA_ANALYSIS_VERSION }
         cache[key] = result
-        result
+        return result
     }
 
     /** Read-modify-write of one episode under the lock, so concurrent jobs can't drop each other's changes. */
     fun update(key: String, transform: (MediaAnalysisResult?) -> MediaAnalysisResult?): MediaAnalysisResult? =
-        synchronized(lock) { transform(load(key))?.also(::save) }
+        withStoreLock { transform(loadLocked(key))?.also(::saveLocked) }
 
     /** Show ids that name the same title (tmdb:1, tt…) share one stored key: the first one seen. */
     private val aliases: MutableMap<String, String> by lazy {
@@ -82,19 +100,19 @@ internal object MediaAnalysisStore {
 
     private fun showKey(parentMetaId: String): String {
         val id = sanitize(parentMetaId.trim())
-        return synchronized(lock) { aliases[id]?.let { aliases[it] ?: it } } ?: id
+        return withStoreLock { aliases[id]?.let { aliases[it] ?: it } } ?: id
     }
 
     /**
      * Records that [parentMetaId] is TMDB title [tmdbId]. The first id seen for a title owns its
      * store; episodes stored under a later id are merged into it (marks already there win).
      */
-    fun linkShow(parentMetaId: String, tmdbId: Int) = synchronized(lock) {
+    fun linkShow(parentMetaId: String, tmdbId: Int) = withStoreLock {
         val id = sanitize(parentMetaId.trim())
-        if (id.isEmpty() || tmdbId <= 0 || id in aliases) return@synchronized
+            if (id.isEmpty() || tmdbId <= 0 || id in aliases) return@withStoreLock
         val group = "tmdb#$tmdbId"
         val owner = aliases[group]
-        if (owner == id) return@synchronized
+        if (owner == id) return@withStoreLock
         if (owner == null) {
             aliases[group] = id
         } else {
@@ -105,10 +123,10 @@ internal object MediaAnalysisStore {
     }
 
     private fun mergeInto(oldKey: String, newKey: String) {
-        val old = load(oldKey)
+        val old = loadLocked(oldKey)
         if (old != null) {
-            val target = load(newKey)
-            save(
+            val target = loadLocked(newKey)
+            saveLocked(
                 target?.copy(userSegments = old.userSegments + target.userSegments)
                     ?: old.copy(key = newKey),
             )
@@ -129,23 +147,25 @@ internal object MediaAnalysisStore {
         if (importCleanupDone) return
         importCleanupDone = true
         if (MediaAnalysisFiles.read(IMPORT_CLEANUP_FLAG) != null) return
-        val all = MediaAnalysisFiles.list("").filter { it.contains("__") }.mapNotNull(::load)
+        val all = MediaAnalysisFiles.list("").filter { it.contains("__") }.mapNotNull(::loadLocked)
         val affectedShows = mutableSetOf<String>()
         all.forEach { result ->
             val cleaned = result.withoutImportedMarks()
             if (cleaned != result) {
                 affectedShows += result.key.substringBefore("__")
-                save(cleaned)
+                saveLocked(cleaned)
             }
         }
         all.filter { it.key.substringBefore("__") in affectedShows && it.learnedTypes.isNotEmpty() }
-            .forEach { stored -> load(stored.key)?.let { save(it.withoutLearnedTypes()) } }
+            .forEach { stored -> loadLocked(stored.key)?.let { saveLocked(it.withoutLearnedTypes()) } }
         MediaAnalysisFiles.write(IMPORT_CLEANUP_FLAG, "1")
     }
 
-    internal fun clearCacheForTests() = synchronized(lock) { cache.clear() }
+    internal fun clearCacheForTests() = withStoreLock { cache.clear() }
 
-    fun save(result: MediaAnalysisResult) = synchronized(lock) {
+    fun save(result: MediaAnalysisResult) = withStoreLock { saveLocked(result) }
+
+    private fun saveLocked(result: MediaAnalysisResult) {
         // User marks always win over whatever was detected.
         val applied = result.withUserSegmentsApplied()
         cache[applied.key] = applied

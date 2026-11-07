@@ -17,12 +17,19 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.rounded.Download
-import androidx.compose.material3.Checkbox
+import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -76,6 +83,7 @@ import com.nuvio.app.features.details.SeasonOverviewUiState
 import com.nuvio.app.features.details.SegmentChipVisual
 import com.nuvio.app.features.details.SegmentMark
 import com.nuvio.app.features.details.localDetectionTypes
+import com.nuvio.app.features.details.visibleSegmentMarks
 import com.nuvio.app.features.details.overviewEpisodeOpenSteps
 import com.nuvio.app.features.details.overviewLedgerScope
 import com.nuvio.app.features.details.seasonEpisodeContentKey
@@ -101,6 +109,11 @@ import nuvio.composeapp.generated.resources.season_overview_segment_missing
 import nuvio.composeapp.generated.resources.season_overview_segment_pending
 import nuvio.composeapp.generated.resources.season_overview_segment_submitted
 import nuvio.composeapp.generated.resources.season_overview_select
+import nuvio.composeapp.generated.resources.season_overview_include_download
+import nuvio.composeapp.generated.resources.season_overview_included
+import nuvio.composeapp.generated.resources.season_overview_more
+import nuvio.composeapp.generated.resources.season_overview_open
+import nuvio.composeapp.generated.resources.season_overview_remove_download
 import nuvio.composeapp.generated.resources.season_overview_watched
 import nuvio.composeapp.generated.resources.watch_privately
 import nuvio.composeapp.generated.resources.submit_intro_segment_intro
@@ -372,61 +385,159 @@ private fun SeasonOverviewEpisodeRow(
     onOpen: () -> Unit,
     onWatchPrivately: () -> Unit,
 ) {
-    val selectLabel = stringResource(Res.string.season_overview_select)
-    val watchedLabel = stringResource(Res.string.season_overview_watched)
-    val rowMin = 44.dp.atLeastIosHitTarget()
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = rowMin)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.Top,
-    ) {
-        Checkbox(
-            checked = selected,
-            onCheckedChange = onSelectedChange,
-            modifier = Modifier.semantics { contentDescription = selectLabel },
+    val reduceMotion = systemReduceMotionEnabled()
+    val body = @Composable {
+        SeasonOverviewEpisodeBody(
+            code = code,
+            title = title,
+            watched = watched,
+            marks = marks,
+            selected = selected,
+            onSelectedChange = onSelectedChange,
+            onOpen = onOpen,
+            onWatchPrivately = onWatchPrivately,
         )
-        Column(modifier = Modifier.weight(1f)) {
-            Column(
+    }
+    if (reduceMotion) {
+        body()
+        return
+    }
+    val dismissState = rememberSwipeToDismissBoxState()
+    LaunchedEffect(dismissState.currentValue) {
+        if (dismissState.currentValue != SwipeToDismissBoxValue.Settled) {
+            onWatchPrivately()
+            dismissState.reset()
+        }
+    }
+    SwipeToDismissBox(
+        state = dismissState,
+        enableDismissFromEndToStart = false,
+        backgroundContent = {
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = rowMin)
+                    .heightIn(min = 44.dp)
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
                     .clip(MaterialTheme.nuvio.shapes.compactCard)
-                    .clickable(onClick = onOpen)
-                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                    .background(MaterialTheme.colorScheme.primary),
+                contentAlignment = Alignment.CenterStart,
             ) {
                 Text(
+                    text = stringResource(Res.string.watch_privately),
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                )
+            }
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        body()
+    }
+}
+
+@Composable
+private fun SeasonOverviewEpisodeBody(
+    code: String,
+    title: String,
+    watched: Boolean,
+    marks: Map<String, SegmentMark>,
+    selected: Boolean,
+    onSelectedChange: (Boolean) -> Unit,
+    onOpen: () -> Unit,
+    onWatchPrivately: () -> Unit,
+) {
+    var menu by remember { mutableStateOf(false) }
+    val moreLabel = stringResource(Res.string.season_overview_more)
+    val watchedLabel = stringResource(Res.string.season_overview_watched)
+    val visible = visibleSegmentMarks(marks)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(MaterialTheme.nuvio.shapes.compactCard)
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .clickable(onClick = onOpen)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
                     text = if (code.isBlank()) title else "$code  $title",
+                    modifier = Modifier.fillMaxWidth(),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Medium,
+                    maxLines = 3,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 )
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    SEASON_SEGMENT_TYPES.forEach { type ->
-                        val mark = marks[type] ?: SegmentMark.Missing
-                        SegmentMarkChip(type = type, mark = mark)
-                    }
+                if (watched || selected) {
+                    Text(
+                        text = listOfNotNull(
+                            watchedLabel.takeIf { watched },
+                            stringResource(Res.string.season_overview_included).takeIf { selected },
+                        ).joinToString(" · "),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
-            TextButton(
-                onClick = onWatchPrivately,
-                modifier = Modifier.heightIn(min = 44.dp),
-            ) {
-                Text(text = stringResource(Res.string.watch_privately))
+            Box {
+                IconButton(
+                    onClick = { menu = true },
+                    modifier = Modifier.size(44.dp.atLeastIosHitTarget()),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.MoreHoriz,
+                        contentDescription = moreLabel,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(Res.string.watch_privately)) },
+                        onClick = {
+                            menu = false
+                            onWatchPrivately()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(Res.string.season_overview_open)) },
+                        onClick = {
+                            menu = false
+                            onOpen()
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                stringResource(
+                                    if (selected) {
+                                        Res.string.season_overview_remove_download
+                                    } else {
+                                        Res.string.season_overview_include_download
+                                    },
+                                ),
+                            )
+                        },
+                        onClick = {
+                            menu = false
+                            onSelectedChange(!selected)
+                        },
+                    )
+                }
             }
         }
-        if (watched) {
-            Icon(
-                imageVector = Icons.Filled.Check,
-                contentDescription = watchedLabel,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(top = 12.dp),
-            )
+        if (visible.isNotEmpty()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                visible.forEach { (type, mark) ->
+                    SegmentMarkChip(type = type, mark = mark)
+                }
+            }
         }
     }
 }
@@ -456,11 +567,7 @@ private fun SegmentMarkChip(type: String, mark: SegmentMark) {
         SegmentChipVisual.Dim -> scheme.onSurfaceVariant
     }
     val weight = if (visual == SegmentChipVisual.Dim) FontWeight.Normal else FontWeight.SemiBold
-    val chipText = when (mark) {
-        SegmentMark.Detected -> description
-        SegmentMark.Pending -> description
-        else -> label
-    }
+    val chipText = model.visibleText
     val checkSize = with(LocalDensity.current) { MaterialTheme.typography.labelLarge.fontSize.toDp() }
     Row(
         modifier = Modifier

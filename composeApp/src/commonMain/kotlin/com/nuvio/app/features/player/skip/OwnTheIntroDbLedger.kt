@@ -66,11 +66,19 @@ internal object OwnTheIntroDbLedger {
 
     /** Layout fixture only. Production reads [load] for the signed-in account. */
     fun saveAll(entries: Map<String, Set<String>>) {
-        val confirmed = entries.mapValues { (_, types) ->
+        saveFixture(confirmed = entries)
+    }
+
+    /** Layout fixture. [pending] is this account's unconfirmed send, never a public count. */
+    fun saveFixture(
+        confirmed: Map<String, Set<String>>,
+        pending: Map<String, Set<String>> = emptyMap(),
+    ) {
+        fun canon(entries: Map<String, Set<String>>) = entries.mapValues { (_, types) ->
             types.mapNotNullTo(linkedSetOf()) { canonicalFlagSegmentType(it) }
         }.filterValues { it.isNotEmpty() }
         val next = read().toMutableMap()
-        next[FIXTURE_SCOPE] = OwnAccountMarks(confirmed = confirmed)
+        next[FIXTURE_SCOPE] = OwnAccountMarks(confirmed = canon(confirmed), pending = canon(pending))
         write(next)
     }
 

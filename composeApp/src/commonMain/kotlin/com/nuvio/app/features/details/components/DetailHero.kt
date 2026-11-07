@@ -53,6 +53,7 @@ import com.nuvio.app.core.ui.DETAIL_LANDSCAPE_EXTRA_SCALE
 import com.nuvio.app.core.ui.HeroArtworkFit
 import com.nuvio.app.core.ui.focusedAlignment
 import com.nuvio.app.core.ui.heroArtworkDecision
+import com.nuvio.app.core.ui.heroImageHeightFraction
 import com.nuvio.app.core.ui.portraitHeroFrame
 import com.nuvio.app.core.ui.rememberBackdropFocusState
 import com.nuvio.app.core.ui.rememberHeroArtworkSize
@@ -143,14 +144,20 @@ fun DetailHero(
                             frameHeight = heroHeight.value,
                             landscapeExtraScale = DETAIL_LANDSCAPE_EXTRA_SCALE,
                         )
-                        val portrait = artwork.fit == HeroArtworkFit.FitPortrait
+                        val portrait = artwork.fit != HeroArtworkFit.CropLandscape
+                        val imageFraction = heroImageHeightFraction(
+                            artwork,
+                            heroFrameWidth.value,
+                            heroHeight.value,
+                        )
+                        val imageHeight = heroHeight * imageFraction
                         AsyncImage(
                             model = imageUrl,
                             contentDescription = meta.name,
                             modifier = Modifier
                                 .align(Alignment.TopCenter)
-                                .fillMaxWidth()
-                                .height(heroHeight)
+                                .fillMaxWidth(artwork.widthFraction)
+                                .height(imageHeight)
                                 .then(
                                     if (portrait) {
                                         Modifier.background(MaterialTheme.colorScheme.background)
@@ -171,7 +178,11 @@ fun DetailHero(
                             } else {
                                 Alignment.Center
                             },
-                            contentScale = if (portrait) ContentScale.Fit else ContentScale.Crop,
+                            contentScale = if (artwork.fit == HeroArtworkFit.PosterColumn) {
+                                ContentScale.Fit
+                            } else {
+                                ContentScale.Crop
+                            },
                             onSuccess = { state ->
                                 val image = state.result.image
                                 artworkSize.onImageLoaded(image.width, image.height)
@@ -198,7 +209,19 @@ fun DetailHero(
                             modifier = Modifier
                                 .align(Alignment.TopCenter)
                                 .fillMaxWidth()
-                                .height(heroHeight)
+                                .height(
+                                    heroHeight * heroImageHeightFraction(
+                                        heroArtworkDecision(
+                                            imageWidth = 16,
+                                            imageHeight = 9,
+                                            frameWidth = heroFrameWidth.value,
+                                            frameHeight = heroHeight.value,
+                                            landscapeExtraScale = DETAIL_LANDSCAPE_EXTRA_SCALE,
+                                        ),
+                                        heroFrameWidth.value,
+                                        heroHeight.value,
+                                    ),
+                                )
                                 .heroStretchZoom(stretchPx)
                                 .graphicsLayer {
                                     val framePortrait = portraitHeroFrame(heroFrameWidth.value, heroHeight.value)

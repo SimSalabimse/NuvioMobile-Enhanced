@@ -33,6 +33,7 @@ internal object UiFixtureCatalog {
     const val MOVIE_TITLE = "Paper Kite"
     const val SEASON_OVERVIEW_IMDB = "tt0000101"
     const val SEASON_OVERVIEW_LONG_EPISODE_COUNT = 25
+    const val DOWNLOADS_SEASON_SHOW_ID = "fixture-series-railway"
     const val LONG_TITLE =
         "The Extraordinary and Completely Unabridged Account of a Very Long Evening on the Northern Coastal Railway"
 
@@ -81,6 +82,7 @@ internal object UiFixtureCatalog {
             when (fixture) {
                 UiFixture.HomeOffline -> offlineCoverDownloads(now)
                 UiFixture.Downloads -> downloadsList(now)
+                UiFixture.DownloadsSeason -> downloadsSeason(now)
                 else -> emptyList()
             },
         )
@@ -267,6 +269,51 @@ internal object UiFixtureCatalog {
         ),
     )
 
+    private fun downloadsSeason(now: Long): List<DownloadItem> = listOf(
+        download(
+            now = now,
+            id = "fixture-dl-railway-1",
+            title = LONG_TITLE,
+            type = SERIES_TYPE,
+            parentId = DOWNLOADS_SEASON_SHOW_ID,
+            season = 1,
+            episode = 1,
+            episodeTitle = "The Platform at the End of the Line",
+            status = DownloadStatus.Completed,
+            downloaded = 800_000_000L,
+            total = 800_000_000L,
+            slot = 80,
+        ),
+        download(
+            now = now,
+            id = "fixture-dl-railway-2",
+            title = LONG_TITLE,
+            type = SERIES_TYPE,
+            parentId = DOWNLOADS_SEASON_SHOW_ID,
+            season = 1,
+            episode = 2,
+            episodeTitle = "A Short Stop",
+            status = DownloadStatus.Downloading,
+            downloaded = 120_000_000L,
+            total = 900_000_000L,
+            slot = 81,
+        ),
+        download(
+            now = now,
+            id = "fixture-dl-railway-3",
+            title = LONG_TITLE,
+            type = SERIES_TYPE,
+            parentId = DOWNLOADS_SEASON_SHOW_ID,
+            season = 1,
+            episode = 3,
+            episodeTitle = "Lanterns Along the Cutting",
+            status = DownloadStatus.Paused,
+            downloaded = 40_000_000L,
+            total = 900_000_000L,
+            slot = 82,
+        ),
+    )
+
     private fun downloadsList(now: Long): List<DownloadItem> = listOf(
         download(
             now = now,
@@ -412,11 +459,12 @@ internal object UiFixtureCatalog {
 
     private fun installSeasonOverviewSegments() {
         val imdb = SEASON_OVERVIEW_IMDB
-        OwnTheIntroDbLedger.saveAll(
-            mapOf(
+        OwnTheIntroDbLedger.saveFixture(
+            confirmed = mapOf(
                 "$imdb:1:1" to setOf("intro"),
                 "$imdb:1:3" to setOf("intro"),
             ),
+            pending = mapOf("$imdb:1:2" to setOf("recap")),
         )
         SkipSourceLedger.record(
             SERIES_ID,

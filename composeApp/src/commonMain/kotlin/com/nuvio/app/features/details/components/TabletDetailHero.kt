@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -63,6 +64,7 @@ import com.nuvio.app.core.ui.ArtworkBackdrop
 import com.nuvio.app.core.ui.HeroArtworkFit
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.heroArtworkDecision
+import com.nuvio.app.core.ui.heroImageHeightFraction
 import com.nuvio.app.core.ui.rememberHeroArtworkSize
 import com.nuvio.app.core.ui.featherArtwork
 import com.nuvio.app.features.details.MetaDetails
@@ -190,15 +192,26 @@ private fun BackdropArtwork(
                 frameHeight = maxHeight.value,
                 landscapeExtraScale = 1f,
             )
-            val portrait = artwork.fit == HeroArtworkFit.FitPortrait
+            val portrait = artwork.fit != HeroArtworkFit.CropLandscape
+            val imageFraction = heroImageHeightFraction(artwork, maxWidth.value, maxHeight.value)
             AsyncImage(
                 model = imageUrl,
                 contentDescription = meta.name,
-                modifier = artworkModifier.then(
-                    if (portrait) Modifier.background(gradientColor) else Modifier,
-                ),
-                alignment = if (portrait) Alignment.Center else BiasAlignment(0f, BackdropVerticalBias),
-                contentScale = if (portrait) ContentScale.Fit else ContentScale.Crop,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth(artwork.widthFraction)
+                    .fillMaxHeight(imageFraction)
+                    .then(if (portrait) Modifier.background(gradientColor) else Modifier),
+                alignment = if (artwork.horizontalFocus) {
+                    BiasAlignment(0f, BackdropVerticalBias)
+                } else {
+                    Alignment.Center
+                },
+                contentScale = if (artwork.fit == HeroArtworkFit.PosterColumn) {
+                    ContentScale.Fit
+                } else {
+                    ContentScale.Crop
+                },
                 onSuccess = { state ->
                     val image = state.result.image
                     artworkSize.onImageLoaded(image.width, image.height)

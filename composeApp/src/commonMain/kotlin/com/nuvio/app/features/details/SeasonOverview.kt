@@ -47,18 +47,32 @@ internal fun segmentChipVisual(mark: SegmentMark): SegmentChipVisual = when (mar
 internal data class SegmentChipModel(
     val visibleText: String,
     val visual: SegmentChipVisual,
+    /** Longer state, including the detection sentence. The row shows [visibleText]. */
+    val spokenText: String = visibleText,
 )
 
-/** The detection sentence is the chip text. There is no separate legend. */
+/** Short label on the row. The detection sentence stays in [SegmentChipModel.spokenText]. */
 internal fun segmentChipModel(typeLabel: String, mark: SegmentMark): SegmentChipModel = when (mark) {
     SegmentMark.Submitted -> SegmentChipModel(typeLabel, SegmentChipVisual.FilledCheck)
-    SegmentMark.Pending -> SegmentChipModel("$typeLabel, pending", SegmentChipVisual.Outlined)
+    SegmentMark.Pending -> SegmentChipModel(
+        "$typeLabel · pending",
+        SegmentChipVisual.Outlined,
+        spokenText = "$typeLabel, pending",
+    )
     SegmentMark.Detected -> SegmentChipModel(
-        "$typeLabel. $DETECTED_NOT_SUBMITTED_STATE",
+        "$typeLabel · detected",
         SegmentChipVisual.DetectedText,
+        spokenText = "$typeLabel. $DETECTED_NOT_SUBMITTED_STATE",
     )
     SegmentMark.Missing -> SegmentChipModel(typeLabel, SegmentChipVisual.Dim)
 }
+
+/** Chips that carry a status. Missing segments are omitted so the row stays short. */
+internal fun visibleSegmentMarks(marks: Map<String, SegmentMark>): List<Pair<String, SegmentMark>> =
+    SEASON_SEGMENT_TYPES.mapNotNull { type ->
+        val mark = marks[type] ?: return@mapNotNull null
+        if (mark == SegmentMark.Missing) null else type to mark
+    }
 
 internal data class SeasonEpisodeRef(
     val season: Int,

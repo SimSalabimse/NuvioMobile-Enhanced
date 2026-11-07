@@ -14,6 +14,8 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -541,8 +543,8 @@ private fun LazyListScope.downloadsRootContent(
                             val group = unfinishedSeasons.first()
                             TextButton(
                                 onClick = { onCancelSeasonGroup(group) },
-                                contentPadding = PaddingValues(0.dp),
-                                modifier = Modifier.height(32.dp),
+                                contentPadding = PaddingValues(horizontal = 0.dp),
+                                modifier = Modifier.heightIn(min = 44.dp),
                             ) {
                                 Text(
                                     text = stringResource(Res.string.downloads_season_cancel),
@@ -580,6 +582,7 @@ private fun LazyListScope.downloadsRootContent(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 private fun LazyListScope.downloadsShowContent(
     showId: String,
     episodes: List<DownloadItem>,
@@ -648,49 +651,58 @@ private fun LazyListScope.downloadsShowContent(
     seasons.forEach { (seasonNumber, entries) ->
         val unfinished = unfinishedSeasonGroup(allItems, entries.first())
         item(key = "show-season:$seasonNumber") {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
+            val seasonTitle = if (seasonNumber == 0) {
+                stringResource(Res.string.episodes_specials)
+            } else {
+                stringResource(Res.string.episodes_season, seasonNumber)
+            }
+            val seasonLabel = if (seasonNumber == 0) "Specials" else "Season $seasonNumber"
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Box(modifier = Modifier.weight(1f)) {
-                    SectionTitle(
-                        if (seasonNumber == 0) {
-                            stringResource(Res.string.episodes_specials)
-                        } else {
-                            stringResource(Res.string.episodes_season, seasonNumber)
-                        },
-                    )
-                }
-                val seasonLabel = if (seasonNumber == 0) "Specials" else "Season $seasonNumber"
-                TextButton(
-                    onClick = { onOpenOverview(seasonNumber) },
-                    modifier = Modifier.heightIn(min = 44.dp),
+                Text(
+                    text = seasonTitle,
+                    modifier = Modifier.fillMaxWidth(),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Text(text = stringResource(Res.string.season_overview))
-                }
-                if (entries.any { it.status == DownloadStatus.Completed }) {
-                    IconButton(
-                        onClick = {
-                            onReanalyze(
-                                ReanalyzeTarget(
-                                    "${entries.first().title} – $seasonLabel",
-                                    entries.map { it.id },
-                                ),
-                            )
-                        },
+                    TextButton(
+                        onClick = { onOpenOverview(seasonNumber) },
+                        modifier = Modifier.heightIn(min = 44.dp),
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Refresh,
-                            contentDescription = "Re-analyze $seasonLabel",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        Text(text = stringResource(Res.string.season_overview))
+                    }
+                    if (entries.any { it.status == DownloadStatus.Completed }) {
+                        TextButton(
+                            onClick = {
+                                onReanalyze(
+                                    ReanalyzeTarget(
+                                        "${entries.first().title} – $seasonLabel",
+                                        entries.map { it.id },
+                                    ),
+                                )
+                            },
+                            modifier = Modifier.heightIn(min = 44.dp),
+                        ) {
+                            Text(text = "Re-analyze $seasonLabel")
+                        }
+                    }
+                    if (unfinished != null) {
+                        SeasonGroupActions(
+                            group = unfinished,
+                            onCancel = { onCancelSeasonGroup(unfinished) },
                         )
                     }
-                }
-                if (unfinished != null) {
-                    SeasonGroupActions(
-                        group = unfinished,
-                        onCancel = { onCancelSeasonGroup(unfinished) },
-                    )
                 }
             }
         }
@@ -973,6 +985,7 @@ private fun downloadDisplaySubtitle(
  * The season's own card at the top of Active: name, count and progress, and labelled
  * Pause/Resume season and Cancel season buttons. Tapping the card lists its episodes.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ActiveSeasonGroupHeader(
     group: ActiveSeasonGroup,
@@ -999,7 +1012,7 @@ private fun ActiveSeasonGroupHeader(
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurface,
                         fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                     val speeds by DownloadSpeeds.speeds.collectAsState()
@@ -1054,25 +1067,25 @@ private fun ActiveSeasonGroupHeader(
                     modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
                 )
             }
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 if (group.anyRunning) {
-                    TextButton(onClick = onPauseAll) {
+                    TextButton(onClick = onPauseAll, modifier = Modifier.heightIn(min = 44.dp)) {
                         Icon(Icons.Rounded.Pause, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.size(4.dp))
                         Text(stringResource(Res.string.downloads_season_pause))
                     }
                 } else if (group.anyPaused) {
-                    TextButton(onClick = onResumeAll) {
+                    TextButton(onClick = onResumeAll, modifier = Modifier.heightIn(min = 44.dp)) {
                         Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.size(4.dp))
                         Text(stringResource(Res.string.downloads_season_resume))
                     }
                 }
-                TextButton(onClick = onCancelAll) {
+                TextButton(onClick = onCancelAll, modifier = Modifier.heightIn(min = 44.dp)) {
                     Icon(
                         Icons.Rounded.Delete,
                         contentDescription = null,
@@ -1090,23 +1103,33 @@ private fun ActiveSeasonGroupHeader(
     }
 }
 
-/** Pause/Resume season and Cancel season next to a season title in a show's downloads. */
+/** Pause/Resume season and Cancel season under a season title. They wrap instead of squeezing the title. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SeasonGroupActions(
     group: ActiveSeasonGroup,
     onCancel: () -> Unit,
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
         if (group.anyRunning) {
-            TextButton(onClick = { DownloadsRepository.pauseDownloads(group.items.map { it.id }) }) {
+            TextButton(
+                onClick = { DownloadsRepository.pauseDownloads(group.items.map { it.id }) },
+                modifier = Modifier.heightIn(min = 44.dp),
+            ) {
                 Text(stringResource(Res.string.downloads_season_pause))
             }
         } else if (group.anyPaused) {
-            TextButton(onClick = { DownloadsRepository.resumeDownloads(group.items.map { it.id }) }) {
+            TextButton(
+                onClick = { DownloadsRepository.resumeDownloads(group.items.map { it.id }) },
+                modifier = Modifier.heightIn(min = 44.dp),
+            ) {
                 Text(stringResource(Res.string.downloads_season_resume))
             }
         }
-        TextButton(onClick = onCancel) {
+        TextButton(onClick = onCancel, modifier = Modifier.heightIn(min = 44.dp)) {
             Text(
                 text = stringResource(Res.string.downloads_season_cancel),
                 color = MaterialTheme.colorScheme.error,

@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -88,6 +89,7 @@ import com.nuvio.app.core.ui.PrefetchArtworkDominantColors
 import com.nuvio.app.core.ui.HeroArtworkFit
 import com.nuvio.app.core.ui.focusedAlignment
 import com.nuvio.app.core.ui.heroArtworkDecision
+import com.nuvio.app.core.ui.heroImageHeightFraction
 import com.nuvio.app.core.ui.portraitHeroFrame
 import com.nuvio.app.core.ui.rememberHeroArtworkSize
 import com.nuvio.app.core.ui.rememberBackdropFocusState
@@ -500,7 +502,12 @@ internal fun HomeHeroSection(
                                     frameHeight = layout.heroHeight.value,
                                     landscapeExtraScale = if (isCardStyle) 1f else HERO_BACKGROUND_SCALE,
                                 )
-                                val portrait = artwork.fit == HeroArtworkFit.FitPortrait
+                                val portrait = artwork.fit != HeroArtworkFit.CropLandscape
+                                val imageFraction = heroImageHeightFraction(
+                                    artwork,
+                                    heroFrameWidth.value,
+                                    layout.heroHeight.value,
+                                )
                                 val scrollScale = if (artwork.scrollScaleEnabled && !isCardStyle) {
                                     heroBackgroundScrollScale(scrollOffsetPx)
                                 } else {
@@ -511,7 +518,9 @@ internal fun HomeHeroSection(
                                     model = artworkUrl,
                                     contentDescription = item.name,
                                     modifier = Modifier
-                                        .fillMaxSize()
+                                        .align(Alignment.TopCenter)
+                                        .fillMaxWidth(artwork.widthFraction)
+                                        .fillMaxHeight(imageFraction)
                                         .then(
                                             if (portrait) {
                                                 Modifier.background(MaterialTheme.colorScheme.background)
@@ -543,7 +552,11 @@ internal fun HomeHeroSection(
                                     } else {
                                         Alignment.Center
                                     },
-                                    contentScale = if (portrait) ContentScale.Fit else ContentScale.Crop,
+                                    contentScale = if (artwork.fit == HeroArtworkFit.PosterColumn) {
+                                        ContentScale.Fit
+                                    } else {
+                                        ContentScale.Crop
+                                    },
                                     onSuccess = { state ->
                                         val image = state.result.image
                                         artworkSize.onImageLoaded(image.width, image.height)
@@ -571,7 +584,25 @@ internal fun HomeHeroSection(
                                     HomeHeroTrailerPlaybackPositionStore.get(heroTrailerItemKey)
                                 },
                                 modifier = Modifier
-                                    .fillMaxSize()
+                                    .align(Alignment.TopCenter)
+                                    .fillMaxWidth()
+                                    .fillMaxHeight(
+                                        if (portraitFrame) {
+                                            heroImageHeightFraction(
+                                                heroArtworkDecision(
+                                                    imageWidth = 16,
+                                                    imageHeight = 9,
+                                                    frameWidth = heroFrameWidth.value,
+                                                    frameHeight = layout.heroHeight.value,
+                                                    landscapeExtraScale = 1f,
+                                                ),
+                                                heroFrameWidth.value,
+                                                layout.heroHeight.value,
+                                            )
+                                        } else {
+                                            1f
+                                        },
+                                    )
                                     .graphicsLayer {
                                         val currentPageOffset = pagerState.currentPageOffsetFraction
                                         val currentPageVisibility = (1f - abs(currentPageOffset)).coerceIn(0f, 1f)
