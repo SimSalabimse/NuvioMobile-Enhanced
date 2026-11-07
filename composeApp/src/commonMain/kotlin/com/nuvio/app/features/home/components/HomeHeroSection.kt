@@ -69,6 +69,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -91,7 +92,10 @@ import com.nuvio.app.core.ui.HeroArtworkFit
 import com.nuvio.app.core.ui.focusedAlignment
 import com.nuvio.app.core.ui.heroArtworkDecision
 import com.nuvio.app.core.ui.heroImageHeightFraction
+import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.core.ui.portraitArtworkSlotHeight
+import com.nuvio.app.features.details.accessibilityTextSize
+import com.nuvio.app.features.details.accessibleHeroTitleStyle
 import com.nuvio.app.core.ui.portraitHeroFrame
 import com.nuvio.app.core.ui.rememberHeroArtworkSize
 import com.nuvio.app.core.ui.rememberBackdropFocusState
@@ -1026,24 +1030,28 @@ private fun HeroContentBlock(
                 onError = { logoLoadError = true },
             )
         } else {
-            Text(
-                text = item.name,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(enabled = onItemClick != null) {
-                        onItemClick?.invoke(item)
-                    },
-                style = if (layout.isTablet) {
-                    MaterialTheme.typography.displaySmall
-                } else {
-                    MaterialTheme.typography.displaySmall
-                },
-                color = MaterialTheme.colorScheme.onBackground,
-                fontWeight = FontWeight.Black,
-                textAlign = if (layout.isTablet) TextAlign.Start else TextAlign.Center,
-                maxLines = 4,
-                overflow = TextOverflow.Ellipsis,
-            )
+            val titleStyle = MaterialTheme.typography.displaySmall
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = item.name,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = onItemClick != null) {
+                            onItemClick?.invoke(item)
+                        },
+                    style = accessibleHeroTitleStyle(
+                        titleStyle,
+                        maxWidth.value,
+                        item.name,
+                        LocalDensity.current.fontScale,
+                    ),
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontWeight = FontWeight.Black,
+                    textAlign = if (layout.isTablet) TextAlign.Start else TextAlign.Center,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
 
         val detailsState = remember(item.type, item.id) {
@@ -1092,6 +1100,9 @@ private fun HeroContentBlock(
                 maxLines = 4,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+        if (accessibilityTextSize(LocalDensity.current.fontScale)) {
+            Spacer(modifier = Modifier.height(nuvioSafeBottomPadding()))
         }
     }
 }

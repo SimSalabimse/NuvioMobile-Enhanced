@@ -46,6 +46,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalDensity
+import com.nuvio.app.features.details.accessibleHeroTitleStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -397,12 +398,25 @@ private fun DetailHeroHeading(
                 onError = { onLogoError() },
             )
         } else {
-            Text(
-                text = meta.name,
-                style = if (isTablet) MaterialTheme.typography.displaySmall else MaterialTheme.typography.displayLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-                textAlign = TextAlign.Center,
-            )
+            val titleStyle = if (isTablet) {
+                MaterialTheme.typography.displaySmall
+            } else {
+                MaterialTheme.typography.displayLarge
+            }
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = meta.name,
+                    modifier = Modifier.fillMaxWidth(),
+                    style = accessibleHeroTitleStyle(
+                        titleStyle,
+                        maxWidth.value,
+                        meta.name,
+                        LocalDensity.current.fontScale,
+                    ),
+                    color = MaterialTheme.colorScheme.onBackground,
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
 
         if (meta.genres.isNotEmpty()) {

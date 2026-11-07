@@ -12,7 +12,9 @@ Files: `HeroArtworkFrame.kt`, `DetailHero.kt`, `HomeHeroSection.kt`. `TabletDeta
 
 ## Dynamic Type on the changed screens
 
-`NuvioTheme` still pins Compose `fontScale` to 1, so the rest of the app does not follow the system size. The season sheet already overrides that locally, which is why it scaled and home, details, and Downloads did not. Those three screens now apply the same override. Fixture launch does not bypass it. iOS reads `preferredContentSizeCategory` (AX5 is 3.12). Android reads the configuration font scale. Text wraps in the column; the season title and the home title allow four lines. The theme pin stays.
+`NuvioTheme` still pins Compose `fontScale` to 1, so the rest of the app does not follow the system size. The season sheet already overrides that locally, which is why it scaled and home, details, and Downloads did not. Those three screens now apply the same override. Fixture launch does not bypass it. iOS reads `preferredContentSizeCategory` (AX5 is 3.12). Android reads the configuration font scale. The theme pin stays, and the scale is not divided.
+
+At the default size the hero titles stay on the display style. From 1.5 up, home and details pick the largest base at or under that display size whose longest word still fits the content width after the full scale. A small phone therefore wraps "Harbor Lane" on the space instead of splitting "Northwind" inside the word. The scaled title stays larger than the default display size. Smart downloads stacks the label above the choices at those sizes, wraps the choices, and gives each choice a 44dp target. The home hero adds the tab-bar inset under the synopsis so that copy can scroll clear of the bar. Details already ends with that inset.
 
 Set the simulator content size before a cold launch, then reshoot `home-online`, `home-tall`, `details-online`, `details-tall`, `downloads-season`, and `season-overview`:
 
