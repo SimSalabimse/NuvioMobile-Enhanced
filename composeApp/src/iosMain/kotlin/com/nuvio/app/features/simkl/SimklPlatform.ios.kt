@@ -1,5 +1,6 @@
 package com.nuvio.app.features.simkl
 
+import com.nuvio.app.core.security.protectedCredentialIntegrationsIsolated
 import com.nuvio.app.core.storage.ProfileScopedKey
 import com.nuvio.app.features.plugins.cryptointerop.CC_SHA256
 import com.nuvio.app.features.plugins.cryptointerop.CC_SHA256_DIGEST_LENGTH
@@ -93,7 +94,9 @@ internal actual object SimklAuthStorage {
     }
 
     @OptIn(ExperimentalForeignApi::class)
-    private fun loadKeychainValue(key: String): String? = withKeychainQuery(key) { query ->
+    private fun loadKeychainValue(key: String): String? {
+        if (protectedCredentialIntegrationsIsolated()) return null
+        return withKeychainQuery(key) { query ->
         CFDictionarySetValue(query, kSecReturnData, kCFBooleanTrue)
         CFDictionarySetValue(query, kSecMatchLimit, kSecMatchLimitOne)
         memScoped {
@@ -110,10 +113,12 @@ internal actual object SimklAuthStorage {
                 CFRelease(data)
             }
         }
+        }
     }
 
     @OptIn(ExperimentalForeignApi::class)
     private fun saveKeychainValue(key: String, value: String?) {
+        if (protectedCredentialIntegrationsIsolated()) return
         deleteKeychainValue(key)
         if (value.isNullOrBlank()) return
         withKeychainQuery(key) { query ->
@@ -131,6 +136,7 @@ internal actual object SimklAuthStorage {
 
     @OptIn(ExperimentalForeignApi::class)
     private fun deleteKeychainValue(key: String, profileId: Int? = null) {
+        if (protectedCredentialIntegrationsIsolated()) return
         withKeychainQuery(key, profileId) { query -> SecItemDelete(query) }
     }
 

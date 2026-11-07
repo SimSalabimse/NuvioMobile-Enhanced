@@ -19,9 +19,12 @@ import com.nuvio.app.features.trakt.TraktTrackingLibraryProvider
 import com.nuvio.app.features.trakt.TraktTrackingProgressProvider
 import com.nuvio.app.features.wetrakr.WeTrakrTracker
 import com.nuvio.app.features.publicmetadb.PublicMetaDbTracker
+import com.nuvio.app.core.security.protectedCredentialIntegrationsIsolated
+import com.nuvio.app.core.security.registerCredentialBackedIntegrations
 import com.nuvio.app.features.watching.sync.TraktWatchedSyncAdapter
 
 fun ensureTrackingProvidersRegistered() {
+    registerCredentialBackedIntegrations(protectedCredentialIntegrationsIsolated()) {
     MdbListTracker.register()
     AniListTracker.register()
     WeTrakrTracker.register()
@@ -41,4 +44,5 @@ fun ensureTrackingProvidersRegistered() {
     TrackingProviderRegistry.registerProgressProvider(SimklTrackingProgressProvider)
     TrackingProviderRegistry.registerRatingProvider(TraktRatingsProvider)
     TrackingProviderRegistry.registerRatingProvider(SimklRatingsProvider)
+    }
 }
