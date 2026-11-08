@@ -181,6 +181,16 @@ class SeasonCatalogStatusTest {
         assertEquals(withFile.ownConfirmed, afterDelete.ownConfirmed)
         assertEquals(setOf("outro"), afterDelete.ownConfirmed)
         assertTrue("intro" !in afterDelete.ownConfirmed)
+        val storedOnly = factsForEpisode(
+            contentKey = request.contentKey,
+            publicStatus = null,
+            media = null,
+            ownListed = false,
+            ownFailed = false,
+            merged = merged,
+        )
+        assertEquals(CatalogRead.Listed, storedOnly.ownRead)
+        assertEquals(CatalogRead.NotChecked, storedOnly.publicRead)
     }
 
     private fun request(episode: Int, imdb: String = show) = SeasonStatusRequest(

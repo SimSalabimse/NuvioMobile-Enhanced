@@ -116,9 +116,9 @@ internal fun factsForEpisode(
     val pending = merged.pending[contentKey].orEmpty() - confirmed
     val ownRead = when {
         ownFailed -> CatalogRead.Unavailable
+        confirmed.isNotEmpty() || pending.isNotEmpty() -> CatalogRead.Listed
         !ownListed -> CatalogRead.NotChecked
-        confirmed.isEmpty() && pending.isEmpty() -> CatalogRead.None
-        else -> CatalogRead.Listed
+        else -> CatalogRead.None
     }
     return EpisodeCatalogFacts(
         contentKey = contentKey,

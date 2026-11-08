@@ -189,13 +189,14 @@ internal fun SeasonOverviewSheet(
     LaunchedEffect(refs, offline, meta.id, meta.imdbId) {
         val scope = overviewLedgerScope()
         val stored = OwnTheIntroDbLedger.load(scope)
-        if (offline || currentUiFixture().usesFixtureLedger()) {
+        val fixtureLedger = currentUiFixture().usesFixtureLedger()
+        if (offline || fixtureLedger) {
             catalogFacts = refs.associate { ref ->
                 ref.contentKey to factsForEpisode(
                     contentKey = ref.contentKey,
                     publicStatus = null,
                     media = null,
-                    ownListed = false,
+                    ownListed = fixtureLedger,
                     ownFailed = false,
                     merged = stored,
                 )
