@@ -44,10 +44,13 @@ internal data class SiblingClipOutcome(val result: MediaAnalysisResult, val atte
 
 internal object SiblingClipReference {
     private const val PAD_MS = 5_000L
-    private const val MIN_MATCH_MS = 8_000L
     private const val MAX_ONLINE_LOOKUPS = 4
     private val json = LenientJson
     private val clipCache = ReferenceFingerprintCache()
+
+    internal fun clearCacheForTests() {
+        clipCache.clear()
+    }
 
     suspend fun apply(
         item: DownloadItem,
@@ -169,7 +172,8 @@ internal object SiblingClipReference {
         val season = item.seasonNumber ?: return finished()
         val step = result.fingerprintStepMs.toLong().coerceAtLeast(1L)
         var updated = result
-        var missing = false
+        var readFailed = false
+        var matched = false
         var preempted = false
         if (result.introStartMs == null) {
             when (
@@ -190,6 +194,7 @@ internal object SiblingClipReference {
                 )
             ) {
                 is ReferenceAlignment.Matched -> {
+                    matched = true
                     updated = updated.copy(
                         introStartMs = aligned.range.first,
                         introEndMs = aligned.range.second,
@@ -198,10 +203,10 @@ internal object SiblingClipReference {
                 }
                 is ReferenceAlignment.Partial -> {
                     InAppLogger.info("Analysis", "reference partial reason=${aligned.reason} segment=intro")
-                    missing = true
+                    if (referenceReadFailed(aligned.reason)) readFailed = true
                 }
                 ReferenceAlignment.Preempted -> preempted = true
-                ReferenceAlignment.Unreadable -> missing = true
+                ReferenceAlignment.Unreadable -> readFailed = true
             }
         }
         val credits = reference.credits
@@ -224,6 +229,7 @@ internal object SiblingClipReference {
                 )
             ) {
                 is ReferenceAlignment.Matched -> {
+                    matched = true
                     updated = updated.copy(
                         creditsStartMs = aligned.range.first,
                         creditsEndMs = aligned.range.second,
@@ -232,14 +238,14 @@ internal object SiblingClipReference {
                 }
                 is ReferenceAlignment.Partial -> {
                     InAppLogger.info("Analysis", "reference partial reason=${aligned.reason} segment=credits")
-                    missing = true
+                    if (referenceReadFailed(aligned.reason)) readFailed = true
                 }
                 ReferenceAlignment.Preempted -> preempted = true
-                ReferenceAlignment.Unreadable -> missing = true
+                ReferenceAlignment.Unreadable -> readFailed = true
             }
         }
         if (preempted) return SiblingClipOutcome(result, SiblingClipAttempt.Preempted)
-        if (missing) return unavailable(result)
+        if (readFailed && !matched) return unavailable(result)
         InAppLogger.info(
             "Analysis",
             "sibling clip e${reference.episode} for ${item.id}: intro=${updated.introStartMs}-${updated.introEndMs} " +
@@ -363,7 +369,7 @@ internal object SiblingClipReference {
             return null
         }
         val windowMs = (segment.second - segment.first).coerceAtLeast(0L)
-        val minMs = maxOf(MIN_MATCH_MS, windowMs / 2)
+        val minMs = maxOf(REFERENCE_MIN_MATCH_MS, windowMs / 2)
         val match = FingerprintMatcher.longestSharedSegment(frames, clip, minFrames = (minMs / step).toInt().coerceAtLeast(1))
             ?: return null
         val windowFrames = (windowMs / step).toInt()
@@ -431,6 +437,12 @@ internal suspend fun alignReferenceSegment(
         matches += slice to range
     }
     val bounds = verifiedSegmentBounds(segmentStartMs, segmentEndMs, slices, matches)
+    if (bounds != null) return ReferenceAlignment.Matched(bounds)
+    val shared = provenSharedRun(segmentStartMs, segmentEndMs, matches)
         ?: return ReferenceAlignment.Partial("unverified-slice")
-    return ReferenceAlignment.Matched(bounds)
+    return ReferenceAlignment.Matched(shared)
 }
+
+/** A finished comparison that found no shared run is not a failed read. */
+internal fun referenceReadFailed(reason: String): Boolean =
+    reason != "unverified-slice" && reason != "no-slice"

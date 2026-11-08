@@ -583,8 +583,9 @@ private final class ClipFingerprintRun {
                         continue
                     }
                     if frameMs < startMs {
-                        // A bad seek that lands far before the window must not decode the prefix.
-                        if startMs - frameMs > 2_000 {
+                        // A seek more than one reference window early is a different region.
+                        // A nearby keyframe is skipped. The frame budget still caps the prefix.
+                        if startMs - frameMs > 50_000 {
                             stopReason = "preroll-budget"
                             reachedEnd = true
                             break

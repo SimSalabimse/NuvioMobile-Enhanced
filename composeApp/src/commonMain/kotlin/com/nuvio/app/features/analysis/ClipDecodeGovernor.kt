@@ -3,12 +3,13 @@ package com.nuvio.app.features.analysis
 /** Hard cap on one reference window, including the small pad around the segment. */
 internal const val REFERENCE_MAX_WINDOW_MS = 50_000L
 
-internal const val CLIP_PREROLL_MS = 2_000L
+/** Shortest shared run that can be carried across episodes. Half of a longer mark is required too. */
+internal const val REFERENCE_MIN_MATCH_MS = 8_000L
+
 internal const val CLIP_MISSING_TIMESTAMP_FRAMES = 60
 internal const val CLIP_STUCK_TIMESTAMP_FRAMES = 60
 
 internal data class ClipDecodeLimits(
-    val maxPrerollMs: Long = CLIP_PREROLL_MS,
     val maxMissingTimestampFrames: Int = CLIP_MISSING_TIMESTAMP_FRAMES,
     val maxStuckFrames: Int = CLIP_STUCK_TIMESTAMP_FRAMES,
     val maxFrames: Int,
@@ -86,7 +87,9 @@ internal class ClipDecodeGovernor(
             return true
         }
         if (timestampMs < startMs) {
-            if (startMs - timestampMs > limits.maxPrerollMs) {
+            // A seek into a different region stops. A nearby keyframe is skipped, and the frame
+            // budget still caps how much prefix audio can be read.
+            if (startMs - timestampMs > REFERENCE_MAX_WINDOW_MS) {
                 stop = "preroll-budget"
                 return false
             }
@@ -176,6 +179,24 @@ internal fun verifiedSegmentBounds(
     val start = segmentStartMs + median
     val end = segmentEndMs + median
     return if (end > start) start to end else null
+}
+
+/**
+ * One shared run that already meets the same bar as a full-interval locate.
+ * It is not widened to the marked interval. Two disagreeing runs store nothing.
+ */
+internal fun provenSharedRun(
+    segmentStartMs: Long,
+    segmentEndMs: Long,
+    matches: List<Pair<ReferenceSlice, Pair<Long, Long>>>,
+): Pair<Long, Long>? {
+    val windowMs = (segmentEndMs - segmentStartMs).coerceAtLeast(0L)
+    val minMs = maxOf(REFERENCE_MIN_MATCH_MS, windowMs / 2)
+    val qualified = matches.map { it.second }.filter { range ->
+        val run = range.second - range.first
+        run >= minMs && range.second > range.first
+    }
+    return qualified.singleOrNull()
 }
 
 /**

@@ -108,6 +108,71 @@ class ReferenceAlignmentTest {
     }
 
     @Test
+    fun aSharedThemePastTheOpeningKeepsTheLocatedRun() = runBlocking {
+        val segmentStart = 20_000L
+        val segmentEnd = 80_000L
+        val frames = IntArray(100) { lane(it, 14) }
+        for (index in 45 until 80) frames[index] = lane(index - 45, 6)
+        val baseline = SiblingClipReference.locate(
+            frames = frames,
+            framesOffsetMs = 0L,
+            clip = tone(15_000L, 85_000L),
+            clipStartMs = 15_000L,
+            step = 1_000L,
+            segment = segmentStart to segmentEnd,
+            targetDurationMs = 2_400_000L,
+            referenceDurationMs = 2_400_000L,
+        )
+        assertEquals(45_000L to 80_000L, baseline)
+        val aligned = alignReferenceSegment(
+            segmentStartMs = segmentStart,
+            segmentEndMs = segmentEnd,
+            padMs = 5_000L,
+            frames = frames,
+            framesOffsetMs = 0L,
+            stepMs = 1_000L,
+            targetDurationMs = 2_400_000L,
+            referenceDurationMs = 2_400_000L,
+            decode = { start, end -> fingerprint(start, tone(start, end)) },
+        )
+        assertTrue(aligned is ReferenceAlignment.Matched, "$aligned")
+        val range = (aligned as ReferenceAlignment.Matched).range
+        assertEquals(baseline, range)
+        assertTrue(range.second - range.first < segmentEnd - segmentStart)
+    }
+
+    @Test
+    fun aSharedRunShorterThanHalfTheMarkIsNotStored() = runBlocking {
+        val segmentStart = 20_000L
+        val segmentEnd = 80_000L
+        val frames = IntArray(100) { lane(it, 14) }
+        for (index in 55 until 80) frames[index] = lane(index - 55, 6)
+        val baseline = SiblingClipReference.locate(
+            frames = frames,
+            framesOffsetMs = 0L,
+            clip = tone(15_000L, 85_000L, themeStart = 55, themeEnd = 80),
+            clipStartMs = 15_000L,
+            step = 1_000L,
+            segment = segmentStart to segmentEnd,
+            targetDurationMs = 2_400_000L,
+            referenceDurationMs = 2_400_000L,
+        )
+        assertEquals(null, baseline)
+        val aligned = alignReferenceSegment(
+            segmentStartMs = segmentStart,
+            segmentEndMs = segmentEnd,
+            padMs = 5_000L,
+            frames = frames,
+            framesOffsetMs = 0L,
+            stepMs = 1_000L,
+            targetDurationMs = 2_400_000L,
+            referenceDurationMs = 2_400_000L,
+            decode = { start, end -> fingerprint(start, tone(start, end, themeStart = 55, themeEnd = 80)) },
+        )
+        assertTrue(aligned is ReferenceAlignment.Partial, "$aligned")
+    }
+
+    @Test
     fun localWorkPreemptsAReferenceAndAnUnreadWindowIsNotFinished() {
         val lane = AnalysisLane()
         assertTrue(lane.beginReference())
@@ -157,6 +222,15 @@ class ReferenceAlignmentTest {
     }
 
     private fun pattern(salt: Int, count: Int): IntArray = IntArray(count) { lane(it, salt) }
+
+    /** Synthetic tones. The shared run is [themeStart, themeEnd) seconds. This is not a programme. */
+    private fun tone(startMs: Long, endMs: Long, themeStart: Int = 45, themeEnd: Int = 80): IntArray {
+        val count = ((endMs - startMs) / 1_000L).toInt()
+        return IntArray(count) { index ->
+            val second = (startMs / 1_000L).toInt() + index
+            if (second in themeStart until themeEnd) lane(second - themeStart, 6) else lane(index, 2)
+        }
+    }
 
     /** Frames far enough apart that a 6-bit match cannot slide onto a neighbour. */
     private fun lane(index: Int, salt: Int): Int {

@@ -33,6 +33,18 @@ class ClipDecodeGovernorTest {
     }
 
     @Test
+    fun aTimestampAFewSecondsEarlyIsSkippedUntilTheWindow() {
+        val governor = ClipDecodeGovernor(startMs = 20_000L, endMs = 60_000L)
+        var ms = 15_000L
+        while (governor.stop == null && ms < 70_000L) {
+            governor.onFrame(timestampMs = ms, sampleCount = 10)
+            ms += 1_000L
+        }
+        assertEquals("window-end", governor.stop)
+        assertTrue(governor.samples > 0)
+    }
+
+    @Test
     fun stuckTimestampsStopAndTheWindowEndStopsAHealthyRead() {
         val stuck = ClipDecodeGovernor(startMs = 0L, endMs = 40_000L)
         repeat(200) {

@@ -2,6 +2,7 @@ package com.nuvio.app.features.analysis
 
 import android.app.Application
 import android.content.Context
+import com.nuvio.app.core.uifixture.UiFixtureSession
 import com.nuvio.app.features.downloads.DownloadStatus
 import com.nuvio.app.features.downloads.DownloadsPlatformDownloader
 import com.nuvio.app.features.downloads.DownloadsRepository
@@ -10,6 +11,7 @@ import com.nuvio.app.features.downloads.DownloadsSettingsStorage
 import com.nuvio.app.features.downloads.DownloadsStorage
 import com.nuvio.app.features.downloads.downloadItem
 import java.io.File
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -46,6 +48,7 @@ class ReferenceYieldTest {
         MediaAnalysisFiles.retainForTests = true
         MediaAnalysisFiles.clearForTests()
         MediaAnalysisStore.clearCacheForTests()
+        SiblingClipReference.clearCacheForTests()
         MediaAnalysisScheduler.resetForTest()
         MediaAnalysisScheduler.supportedOverride = true
         MediaAnalysisSettings.set(MediaAnalysisSettings.Flag.IntroDetection, true)
@@ -59,6 +62,7 @@ class ReferenceYieldTest {
         MediaAnalysisSettings.set(MediaAnalysisSettings.Flag.IntroDetection, true)
         MediaAnalysisSettings.set(MediaAnalysisSettings.Flag.RecapDetection, true)
         MediaAnalysisSettings.set(MediaAnalysisSettings.Flag.ScrubPreviews, true)
+        SiblingClipReference.clearCacheForTests()
         MediaAnalysisScheduler.resetForTest()
         MediaAnalysisFiles.clearForTests()
         MediaAnalysisFiles.retainForTests = false
@@ -101,6 +105,113 @@ class ReferenceYieldTest {
         }
         val stored = MediaAnalysisStore.load(MediaAnalysisStore.keyFor("show", 1, 5))
         assertNull(stored?.introEndMs)
+    }
+
+    @Test
+    fun aMatchedOpeningIsKeptWhenTheCreditsWindowDoesNotMatch() = runTest {
+        UiFixtureSession.testFixture = null
+        val frames = IntArray(50) { openingLane(it, 14) }
+        for (index in 10 until 40) frames[index] = openingLane(index - 10, 6)
+        MediaAnalysisScheduler.fingerprintClipForTest = { _, start, end ->
+            val count = ((end - start) / 1_000L).toInt().coerceAtLeast(1)
+            val values = if (start >= 1_000_000L) {
+                IntArray(count) { openingLane(it, 3) }
+            } else {
+                IntArray(count) { index ->
+                    val second = (start / 1_000L).toInt() + index
+                    if (second in 10 until 40) openingLane(second - 10, 6) else openingLane(index, 2)
+                }
+            }
+            clipText(start, end, values)
+        }
+        storeTarget(encodeFingerprint(frames), encodeFingerprint(IntArray(40) { openingLane(it, 9) }))
+        storeMarkedOpeningAndCredits()
+        DownloadsRepository.replaceItems(listOf(episode(5), episode(6)))
+        assertEquals(true, MediaAnalysisScheduler.runPending(fromBackgroundTask = false))
+        val stored = MediaAnalysisStore.load(MediaAnalysisStore.keyFor("show", 1, 5))
+        assertEquals(10_000L, stored?.introStartMs)
+        assertEquals(40_000L, stored?.introEndMs)
+        assertEquals(null, stored?.creditsStartMs)
+    }
+
+    @Test
+    fun anIncompleteReferenceWindowDoesNotWriteAnIntro() = runTest {
+        UiFixtureSession.testFixture = null
+        MediaAnalysisScheduler.fingerprintClipForTest = { _, start, end ->
+            clipText(start, end, IntArray(10) { openingLane(it, 6) }, stop = "truncated", complete = false)
+        }
+        storeTarget(encodeFingerprint(IntArray(50) { openingLane(it, 6) }), null)
+        storeMarkedOpeningAndCredits()
+        DownloadsRepository.replaceItems(listOf(episode(5), episode(6)))
+        MediaAnalysisScheduler.runPending(fromBackgroundTask = false)
+        val stored = MediaAnalysisStore.load(MediaAnalysisStore.keyFor("show", 1, 5))
+        assertEquals(null, stored?.introEndMs)
+    }
+
+    private val fingerprintJson = Json { encodeDefaults = true }
+
+    private fun clipText(
+        start: Long,
+        end: Long,
+        values: IntArray,
+        stop: String = "window-end",
+        complete: Boolean = true,
+    ): String = fingerprintJson.encodeToString(
+        RawClipFingerprint.serializer(),
+        RawClipFingerprint(
+            startMs = start,
+            stepMs = 1_000,
+            decodedFrames = values.size.coerceAtLeast(1),
+            decodedSamples = values.size.coerceAtLeast(1),
+            fingerprint = encodeFingerprint(values),
+            windowComplete = complete,
+            stopReason = stop,
+        ),
+    )
+
+    private fun storeTarget(head: String, tail: String?) {
+        MediaAnalysisStore.save(
+            MediaAnalysisResult(
+                key = MediaAnalysisStore.keyFor("show", 1, 5),
+                analyzedAtMs = 1L,
+                durationMs = 2_400_000L,
+                fileName = "e5.mkv",
+                fingerprintStepMs = 1_000,
+                headFingerprint = head,
+                tailFingerprint = tail,
+                tailStartMs = 1_980_000L,
+                analysisAttempts = ANALYSIS_MAX_ATTEMPTS,
+                derivedVersion = MEDIA_ANALYSIS_DERIVED_VERSION,
+            ),
+        )
+    }
+
+    private fun storeMarkedOpeningAndCredits() {
+        MediaAnalysisStore.save(
+            MediaAnalysisResult(
+                key = MediaAnalysisStore.keyFor("show", 1, 6),
+                analyzedAtMs = 1L,
+                durationMs = 2_400_000L,
+                fileName = "e6.mkv",
+                analysisAttempts = ANALYSIS_MAX_ATTEMPTS,
+                derivedVersion = MEDIA_ANALYSIS_DERIVED_VERSION,
+                userSegments = mapOf(
+                    "intro" to UserSegment(10_000L, 40_000L, markedAtMs = 1L, durationMs = 2_400_000L),
+                    "outro" to UserSegment(2_000_000L, 2_020_000L, markedAtMs = 1L, durationMs = 2_400_000L),
+                ),
+            ),
+        )
+    }
+
+    /** Frames far enough apart that a 6-bit match cannot slide onto a neighbour. */
+    private fun openingLane(index: Int, salt: Int): Int {
+        var mixed = 0x12345678 xor (index * 0x45D9F3B) xor (salt * 0x6C8E9CF5.toInt())
+        mixed = mixed xor (mixed ushr 16)
+        mixed *= 0x7FEB352D
+        mixed = mixed xor (mixed ushr 15)
+        mixed *= 0x846CA68B.toInt()
+        mixed = mixed xor (mixed ushr 16)
+        return mixed or 1
     }
 
     private fun storeEpisodeNeedingReference() {
