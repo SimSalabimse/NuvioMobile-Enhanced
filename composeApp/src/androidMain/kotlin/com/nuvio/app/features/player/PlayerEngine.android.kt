@@ -1540,13 +1540,27 @@ private fun ExoPlayerSurface(
                     )
                 }
 
-                override fun setSubtitleDelayMs(delayMs: Int) {
-                    val targetMs = delayMs.coerceIn(SUBTITLE_DELAY_MIN_MS, SUBTITLE_DELAY_MAX_MS)
-                    InAppLogger.info("ExoPlayer/Android", "set subtitle delay ms=$targetMs")
-                    subtitleDelayMs = targetMs
+                var fittedSubtitleDelayMs = 0L
+                var userSubtitleDelayMs = 0
+
+                fun writeSubtitleDelay() {
+                    val combined = (fittedSubtitleDelayMs + userSubtitleDelayMs).toInt()
+                        .coerceIn(SUBTITLE_DELAY_MIN_MS, SUBTITLE_DELAY_MAX_MS)
+                    subtitleDelayMs = combined
                     exoPlayer.getAssHandlerCompat()?.let {
-                        it.subtitleDelayUs = subtitleDelayMs.toLong() * 1000L
+                        it.subtitleDelayUs = combined.toLong() * 1000L
                     }
+                }
+
+                override fun setSubtitleDelayMs(delayMs: Int) {
+                    userSubtitleDelayMs = delayMs.coerceIn(SUBTITLE_DELAY_MIN_MS, SUBTITLE_DELAY_MAX_MS)
+                    InAppLogger.info("ExoPlayer/Android", "set subtitle delay ms=$userSubtitleDelayMs")
+                    writeSubtitleDelay()
+                }
+
+                override fun applyFittedSubtitleSync(speed: Double, fitDelayMs: Long) {
+                    fittedSubtitleDelayMs = fitDelayMs
+                    writeSubtitleDelay()
                 }
                 
                 override fun startAudioEnergyCapture(startTimeMs: Long) {
@@ -2761,12 +2775,31 @@ private class NuvioLibmpvView(
                 }
             }
 
-            override fun setSubtitleDelayMs(delayMs: Int) {
-                val targetMs = delayMs.coerceIn(SUBTITLE_DELAY_MIN_MS, SUBTITLE_DELAY_MAX_MS)
-                InAppLogger.info("MPV/Android", "set subtitle delay ms=$targetMs")
+            var fittedSubtitleSpeed = 1.0
+            var fittedSubtitleDelayMs = 0L
+            var userSubtitleDelayMs = 0
+
+            fun writeSubtitleSync() {
+                val speed = if (fittedSubtitleSpeed > 0.5 && fittedSubtitleSpeed < 1.5) fittedSubtitleSpeed else 1.0
+                val combined = (fittedSubtitleDelayMs + userSubtitleDelayMs).toInt()
+                    .coerceIn(SUBTITLE_DELAY_MIN_MS, SUBTITLE_DELAY_MAX_MS)
                 executeMpv {
-                    mpv.setPropertyDouble("sub-delay", targetMs / 1000.0)
+                    mpv.setPropertyDouble("sub-speed", speed)
+                    mpv.setPropertyDouble("sub-delay", combined / 1000.0)
                 }
+            }
+
+            override fun setSubtitleDelayMs(delayMs: Int) {
+                userSubtitleDelayMs = delayMs.coerceIn(SUBTITLE_DELAY_MIN_MS, SUBTITLE_DELAY_MAX_MS)
+                InAppLogger.info("MPV/Android", "set subtitle delay ms=$userSubtitleDelayMs")
+                writeSubtitleSync()
+            }
+
+            override fun applyFittedSubtitleSync(speed: Double, fitDelayMs: Long) {
+                fittedSubtitleSpeed = speed
+                fittedSubtitleDelayMs = fitDelayMs
+                InAppLogger.info("MPV/Android", "set subtitle sync speed=$speed delayMs=$fitDelayMs")
+                writeSubtitleSync()
             }
             
             override fun startAudioEnergyCapture(startTimeMs: Long) {

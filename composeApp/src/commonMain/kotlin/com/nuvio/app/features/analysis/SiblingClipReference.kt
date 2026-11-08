@@ -129,10 +129,12 @@ internal object SiblingClipReference {
         var missing = false
         var read = false
         if (result.introStartMs == null) {
-            onStatus(referenceActivityToken(operation, windowSeconds(reference.intro), season, reference.episode))
+            if (referenceSampleWindow(reference.intro.first, reference.intro.second, PAD_MS).complete) {
+                onStatus(referenceActivityToken(operation, windowSeconds(reference.intro), season, reference.episode))
+            }
             when (val clip = readClip(url, headers, identity, decodeFingerprint(result.headFingerprint), 0L, step, reference.intro, result.durationMs, reference.durationMs)) {
                 ClipRead.Missing -> missing = true
-                ClipRead.Skipped -> Unit
+                ClipRead.Skipped, ClipRead.Partial -> Unit
                 is ClipRead.Read -> {
                     read = true
                     clip.range?.let { (start, end) ->
@@ -143,10 +145,12 @@ internal object SiblingClipReference {
         }
         val credits = reference.credits
         if (credits != null && result.creditsStartMs == null) {
-            onStatus(referenceActivityToken(operation, windowSeconds(credits), season, reference.episode))
+            if (referenceSampleWindow(credits.first, credits.second, PAD_MS).complete) {
+                onStatus(referenceActivityToken(operation, windowSeconds(credits), season, reference.episode))
+            }
             when (val clip = readClip(url, headers, identity, decodeFingerprint(result.tailFingerprint), result.tailStartMs, step, credits, result.durationMs, reference.durationMs)) {
                 ClipRead.Missing -> missing = true
-                ClipRead.Skipped -> Unit
+                ClipRead.Skipped, ClipRead.Partial -> Unit
                 is ClipRead.Read -> {
                     read = true
                     clip.range?.let { (start, end) ->
@@ -168,11 +172,13 @@ internal object SiblingClipReference {
         data object Missing : ClipRead
         data object Skipped : ClipRead
         data class Read(val range: Pair<Long, Long>?) : ClipRead
+        data object Partial : ClipRead
     }
 
     private fun windowSeconds(segment: Pair<Long, Long>): Int {
-        val bounded = boundReferenceWindow(segment.first - PAD_MS, segment.second + PAD_MS)
-        return ((bounded.second - bounded.first) / 1_000L).toInt().coerceAtLeast(1)
+        val window = referenceSampleWindow(segment.first, segment.second, PAD_MS)
+        val shown = if (window.complete) window.endMs - window.startMs else window.requestedMs
+        return (shown / 1_000L).toInt().coerceAtLeast(1)
     }
 
     private suspend fun readClip(
@@ -187,14 +193,21 @@ internal object SiblingClipReference {
         referenceDurationMs: Long,
     ): ClipRead {
         if (frames.isEmpty()) return ClipRead.Skipped
-        val bounded = boundReferenceWindow((segment.first - PAD_MS).coerceAtLeast(0L), segment.second + PAD_MS)
-        val key = ReferenceFingerprintKey(identity, bounded.first, bounded.second, REFERENCE_FINGERPRINT_ALGORITHM)
+        val window = referenceSampleWindow(segment.first, segment.second, PAD_MS)
+        if (!window.complete) {
+            InAppLogger.info(
+                "Analysis",
+                "reference partial reason=requested-window-longer-than-budget requestedMs=${window.requestedMs}",
+            )
+            return ClipRead.Partial
+        }
+        val key = ReferenceFingerprintKey(identity, window.startMs, window.endMs, REFERENCE_FINGERPRINT_ALGORITHM)
         val cached = clipCache.lookup(key)
         val text = if (cached != null) {
             cached.first
         } else {
             clipCache.beginDecode(identity)
-            val decoded = MediaAnalyzerPlatform.fingerprintClip(url, headers, bounded.first, bounded.second)
+            val decoded = MediaAnalyzerPlatform.fingerprintClip(url, headers, window.startMs, window.endMs)
             if (decoded == null) {
                 clipCache.endDecode(identity)
                 return ClipRead.Missing
@@ -204,7 +217,8 @@ internal object SiblingClipReference {
         }
         val clip = runCatching { json.decodeFromString(RawClipFingerprint.serializer(), text) }.getOrNull()
             ?: return ClipRead.Missing
-        if (reportedClipExceedsBudget(clip.decodedFrames, clip.decodedSamples, bounded.second - bounded.first)) {
+        if (!clip.windowComplete) return ClipRead.Partial
+        if (reportedClipExceedsBudget(clip.decodedFrames, clip.decodedSamples, window.endMs - window.startMs)) {
             return ClipRead.Missing
         }
         if (clip.stepMs.toLong() != step) return ClipRead.Skipped

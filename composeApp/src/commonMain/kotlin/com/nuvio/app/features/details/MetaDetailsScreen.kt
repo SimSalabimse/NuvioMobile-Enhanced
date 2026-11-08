@@ -2086,7 +2086,11 @@ fun MetaDetailsScreen(
                 onClick = onBack,
                 modifier = Modifier.padding(
                     start = 12.dp,
-                    top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp,
+                    top = if (com.nuvio.app.navigation.LocalHostRespectsTopSafeArea.current) {
+                        8.dp
+                    } else {
+                        WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp
+                    },
                 ),
                 containerColor = Color.Transparent,
                 contentColor = MaterialTheme.colorScheme.onBackground,

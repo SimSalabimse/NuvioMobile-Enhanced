@@ -1730,10 +1730,10 @@ private struct DetailDestinationView: View {
         wrapper.route is DetailRoute || wrapper.route is StreamRoute
     }
 
-    /// Detail, stream, and player artwork runs under the status bar.
-    /// Folder and every other pushed screen keep the top safe area from UIKit.
+    /// Stream and player stay full-bleed. The detail hero image and the page under it
+    /// stay below the status bar, which this host owns. Compose does not add that inset again.
     private var artworkBleedsUnderStatusBar: Bool {
-        wrapper.route is DetailRoute || wrapper.route is StreamRoute || wrapper.route is PlayerRoute
+        wrapper.route is StreamRoute || wrapper.route is PlayerRoute
     }
 
     private var respectsNativeNavigationSafeArea: Bool {

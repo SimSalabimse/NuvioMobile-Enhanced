@@ -30,6 +30,7 @@ internal fun isUnaskedJump(fromMs: Long, toMs: Long, elapsedMs: Long): Boolean =
 /** Every seek the app asks for is noted, so only jumps the player made on its own count. */
 internal fun PlayerScreenRuntime.noteSeek() {
     lastSeekMark = TimeSource.Monotonic.markNow()
+    subtitleDrift.noteSeek()
 }
 
 /**

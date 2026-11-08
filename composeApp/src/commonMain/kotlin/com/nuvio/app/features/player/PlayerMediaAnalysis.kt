@@ -18,8 +18,8 @@ import com.nuvio.app.features.downloads.downloadOpenedBySource
 import com.nuvio.app.features.player.skip.SkipInterval
 import com.nuvio.app.features.player.skip.TheIntroDb
 import kotlin.math.abs
-import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 /**
  * Uses the on-device analysis (see features/analysis). Loudness gain, subtitle-to-audio sync and
@@ -193,7 +193,6 @@ internal fun PlayerScreenRuntime.localThumbnailSource(): com.nuvio.app.features.
 
 private const val SYNC_WINDOW_BEFORE_MS = 20_000L
 private const val SYNC_WINDOW_AFTER_MS = 40_000L
-private const val SYNC_AGREEMENT_MS = 300
 
 /** Stored speech energy around [centerMs], in the shape the live capture produces. */
 private fun storedEnergyWindow(levels: DoubleArray, stepMs: Int, centerMs: Long): List<AudioEnergySample> {
@@ -205,23 +204,22 @@ private fun storedEnergyWindow(levels: DoubleArray, stepMs: Int, centerMs: Long)
 }
 
 /**
- * Offset that lines [cues] up with the file's speech, measured at several points of the episode
- * from the stored energy. Null unless at least two windows agree within 300 ms.
+ * Matches from the stored speech energy at several points of the episode.
+ * Each point uses [SubtitleAutoSyncEngine]. The caller fits those matches. It does not invent a frame rate.
  */
-internal fun storedEnergySubtitleOffset(analysis: MediaAnalysisResult, cues: List<SubtitleSyncCue>): Int? {
+internal fun energySubtitleObservations(
+    analysis: MediaAnalysisResult,
+    cues: List<SubtitleSyncCue>,
+): List<SubtitleMatchObservation> {
     val levels = decodeEnergy(analysis.energy)
-    if (levels.isEmpty() || cues.isEmpty()) return null
+    if (levels.isEmpty() || cues.isEmpty()) return emptyList()
     val duration = levels.size.toLong() * analysis.energyStepMs
-    val offsets = listOf(0.2, 0.4, 0.6, 0.8).mapNotNull { fraction ->
+    return listOf(0.2, 0.4, 0.6, 0.8).mapNotNull { fraction ->
         val center = (duration * fraction).toLong()
         val samples = storedEnergyWindow(levels, analysis.energyStepMs, center)
         if (samples.isEmpty()) return@mapNotNull null
-        (SubtitleAutoSyncEngine.computeOptimalOffset(samples, cues, center) as? SubtitleAutoSyncResult.Success)?.offsetMs
-    }.sorted()
-    if (offsets.size < 2) return null
-    val median = offsets[offsets.size / 2]
-    val agreeing = offsets.count { abs(it - median) <= SYNC_AGREEMENT_MS }
-    return median.takeIf { agreeing >= 2 }
+        matchObservation(center, samples, cues)
+    }
 }
 
 @Composable
@@ -244,23 +242,25 @@ internal fun PlayerScreenRuntime.BindMediaAnalysisEffects() {
         val analysis = currentLocalAnalysis()?.takeIf { !it.energy.isNullOrEmpty() } ?: return@LaunchedEffect
         delay(1_500)
         if (subtitleDelayMs != 0) return@LaunchedEffect
+        val ticket = subtitleDrift.begin()
         val cues = runCatching {
             PlayerSubtitleCueParser.parse(
                 httpGetTextWithHeaders(url = subtitle.url, headers = emptyMap()),
                 subtitle.url,
             )
         }.getOrNull().orEmpty()
-        if (cues.isEmpty()) return@LaunchedEffect
-        val offset = storedEnergySubtitleOffset(analysis, cues) ?: run {
-            InAppLogger.info("Analysis", "subtitle sync: no agreeing offset")
-            return@LaunchedEffect
-        }
-        if (selectedAddonSubtitle?.url != subtitle.url || subtitleDelayMs != 0) return@LaunchedEffect
-        if (abs(offset) < 100) return@LaunchedEffect
-        setSubtitleDelay(offset)
-        val seconds = (offset / 100.0).roundToInt() / 10.0
-        val sign = if (offset > 0) "+" else ""
-        NuvioToastController.show("Subtitles synced to audio ($sign$seconds s)")
-        InAppLogger.info("Analysis", "subtitle sync applied offsetMs=$offset")
+        if (cues.isEmpty() || !isActive || !subtitleDrift.isCurrent(ticket)) return@LaunchedEffect
+        val stillRunning = isActive
+        val outcome = subtitleDrift.correct(
+            source = SubtitleObservationSource { energySubtitleObservations(analysis, cues) },
+            ticket = ticket,
+            provider = subtitle.addonName,
+            release = subtitle.label,
+            cancelled = { !stillRunning || !subtitleDrift.isCurrent(ticket) },
+        )
+        if (outcome != SubtitleDriftOutcome.Applied || selectedAddonSubtitle?.url != subtitle.url) return@LaunchedEffect
+        if (subtitleDelayMs != 0) return@LaunchedEffect
+        NuvioToastController.show("Subtitles synced to audio")
+        InAppLogger.info("Analysis", "subtitle sync applied")
     }
 }

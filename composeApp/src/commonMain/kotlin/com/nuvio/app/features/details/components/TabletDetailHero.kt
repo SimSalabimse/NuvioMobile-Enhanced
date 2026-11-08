@@ -334,7 +334,9 @@ fun TabletDetailHero(
     val textTop = immersiveTextTopInsetDp(
         chromeDp = chromeTop.value,
         navigationBarDp = NATIVE_NAVIGATION_BAR_DP,
-        nativeBarOverlaysHero = LocalUseNativeNavigation.current && !LocalNativeNavigationBarHidden.current,
+        nativeBarOverlaysHero = !com.nuvio.app.navigation.LocalHostRespectsTopSafeArea.current &&
+            LocalUseNativeNavigation.current &&
+            !LocalNativeNavigationBarHidden.current,
     ).dp
 
     Box(

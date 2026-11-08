@@ -101,6 +101,8 @@ internal data class RawClipFingerprint(
     val decodedFrames: Int = 0,
     val decodedSamples: Int = 0,
     val fingerprint: String? = null,
+    /** False when the decoder refused a window longer than the budget instead of truncating it. */
+    val windowComplete: Boolean = true,
 )
 
 @Serializable

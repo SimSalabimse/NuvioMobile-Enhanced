@@ -25,10 +25,29 @@ internal fun clipDecodeLimits(windowMs: Long): ClipDecodeLimits {
     )
 }
 
-internal fun boundReferenceWindow(startMs: Long, endMs: Long): Pair<Long, Long> {
-    val start = startMs.coerceAtLeast(0L)
-    val end = endMs.coerceAtLeast(start)
-    return start to minOf(end, start + REFERENCE_MAX_WINDOW_MS)
+internal data class ReferenceSampleWindow(
+    val startMs: Long,
+    val endMs: Long,
+    val requestedMs: Long,
+    /** Complete windows are decoded. A longer request is partial and is not decoded as its first 50 seconds. */
+    val complete: Boolean,
+)
+
+/**
+ * The decode covers the requested segment plus its pad when that fits in [REFERENCE_MAX_WINDOW_MS].
+ * A longer known segment is marked partial. It is not shortened to the first 50 seconds and then treated as done.
+ */
+internal fun referenceSampleWindow(segmentStartMs: Long, segmentEndMs: Long, padMs: Long): ReferenceSampleWindow {
+    val start = (segmentStartMs - padMs).coerceAtLeast(0L)
+    val end = (segmentEndMs + padMs).coerceAtLeast(start)
+    val requested = end - start
+    val complete = requested in 1..REFERENCE_MAX_WINDOW_MS
+    return ReferenceSampleWindow(
+        startMs = start,
+        endMs = if (complete) end else start,
+        requestedMs = requested,
+        complete = complete,
+    )
 }
 
 /**

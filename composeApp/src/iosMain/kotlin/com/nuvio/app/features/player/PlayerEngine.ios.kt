@@ -378,6 +378,11 @@ actual fun PlatformPlayerSurface(
                 bridge.setSubtitleDelayMs(targetMs)
             }
 
+            override fun applyFittedSubtitleSync(speed: Double, fitDelayMs: Long) {
+                InAppLogger.info("Player/iOS", "set subtitle sync speed=$speed delayMs=$fitDelayMs")
+                bridge.setFittedSubtitleSync(speed, fitDelayMs)
+            }
+
             override val supportsAudioDelay: Boolean get() = true
 
             override fun setAudioDelayMs(delayMs: Int) {

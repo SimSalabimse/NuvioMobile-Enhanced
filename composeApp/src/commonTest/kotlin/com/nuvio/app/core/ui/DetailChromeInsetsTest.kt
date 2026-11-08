@@ -5,9 +5,10 @@ import kotlin.test.assertEquals
 
 class DetailChromeInsetsTest {
     @Test
-    fun immersiveRoutesKeepTheTopEdgeAndOtherPushedScreensDoNot() {
-        assertEquals(false, hostRespectsTopSafeArea(null))
-        assertEquals(false, hostRespectsTopSafeArea("detail"))
+    fun detailRouteKeepsTheHeroImageAndPageBelowTheStatusBar() {
+        assertEquals(true, hostRespectsTopSafeArea("detail"))
+        assertEquals(0f, detailHeroImageTopDp("detail"))
+        assertEquals(0f, detailChromeTopInsetDp(59f, 59f, hostRespectsTop = hostRespectsTopSafeArea("detail")))
         assertEquals(false, hostRespectsTopSafeArea("stream"))
         assertEquals(false, hostRespectsTopSafeArea("player"))
         assertEquals(true, hostRespectsTopSafeArea("folder"))

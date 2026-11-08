@@ -66,7 +66,7 @@ internal fun PlayerScreenRuntime.setSubtitleDelay(delayMs: Int) {
     val clamped = delayMs.coerceIn(SUBTITLE_DELAY_MIN_MS, SUBTITLE_DELAY_MAX_MS)
     subtitleDelayMs = clamped
     PlayerTrackPreferenceStorage.saveSubtitleDelayMs(playbackSession.videoId, clamped)
-    playerController?.setSubtitleDelayMs(clamped)
+    subtitleDrift.noteManualDelay(clamped.toLong())
 }
 
 internal fun PlayerScreenRuntime.loadSubtitleAutoSyncCues(force: Boolean = false, preserveLoadingState: Boolean = false) {
@@ -137,6 +137,7 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
         loadSubtitleAutoSyncCues(force = true, preserveLoadingState = true)
     }
     
+    val ticket = subtitleDrift.begin()
     scope.launch {
         try {
             // Wait for cues to load if needed
@@ -231,7 +232,20 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
             when (result) {
                 is SubtitleAutoSyncResult.Success -> {
                     if (result.movesSubtitleDelay()) {
-                        setSubtitleDelay(result.offsetMs)
+                        subtitleDrift.correct(
+                            source = SubtitleObservationSource {
+                                listOf(
+                                    SubtitleMatchObservation(
+                                        videoMs = startPositionMs,
+                                        offsetMs = result.offsetMs.toLong(),
+                                        confident = true,
+                                    ),
+                                )
+                            },
+                            ticket = ticket,
+                            provider = subtitle.addonName,
+                            release = subtitle.label,
+                        )
                     }
                     subtitleAutoSyncState = subtitleAutoSyncState.copy(
                         errorMessage = autoSyncSuccessMessage(
@@ -244,6 +258,20 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
                     )
                 }
                 is SubtitleAutoSyncResult.LowConfidence -> {
+                    subtitleDrift.correct(
+                        source = SubtitleObservationSource {
+                            listOf(
+                                SubtitleMatchObservation(
+                                    videoMs = startPositionMs,
+                                    offsetMs = result.offsetMs.toLong(),
+                                    confident = false,
+                                ),
+                            )
+                        },
+                        ticket = ticket,
+                        provider = subtitle.addonName,
+                        release = subtitle.label,
+                    )
                     subtitleAutoSyncState = subtitleAutoSyncState.copy(
                         errorMessage = "${autoSyncLowConfidenceMessage(
                             offsetMs = result.offsetMs,

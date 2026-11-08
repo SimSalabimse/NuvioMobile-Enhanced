@@ -59,8 +59,13 @@ class ClipDecodeGovernorTest {
         assertEquals(false, reportedClipExceedsBudget(frames = 0, samples = 0, windowMs = window))
         assertEquals(false, reportedClipExceedsBudget(frames = limits.maxFrames, samples = 1, windowMs = window))
         assertEquals(true, reportedClipExceedsBudget(frames = limits.maxFrames + 1, samples = 0, windowMs = window))
-        val bounded = boundReferenceWindow(10_000L, 10_000L + 120_000L)
-        assertEquals(10_000L, bounded.first)
-        assertEquals(10_000L + REFERENCE_MAX_WINDOW_MS, bounded.second)
+        val short = referenceSampleWindow(10_000L, 40_000L, padMs = 5_000L)
+        assertEquals(true, short.complete)
+        assertEquals(5_000L, short.startMs)
+        assertEquals(45_000L, short.endMs)
+        val longer = referenceSampleWindow(0L, 90_000L, padMs = 5_000L)
+        assertEquals(false, longer.complete)
+        assertEquals(95_000L, longer.requestedMs)
+        assertEquals(longer.startMs, longer.endMs)
     }
 }

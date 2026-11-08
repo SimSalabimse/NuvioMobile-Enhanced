@@ -20,13 +20,18 @@ internal const val EXTREME_FONT_SCALE = 1.5f
 internal fun extremeAccessibilityText(fontScale: Float): Boolean = fontScale >= EXTREME_FONT_SCALE
 
 /**
- * Routes whose artwork is allowed to run under the status bar.
- * Every other pushed screen is placed below the top safe area by the host.
+ * The detail hero image and the page under it are content, so the host places them
+ * below the status bar. Stream and player stay full-bleed. Every other pushed screen
+ * is also placed below the top safe area by the host.
  */
 internal fun hostRespectsTopSafeArea(routeKind: String?): Boolean = when (routeKind) {
-    null, "detail", "stream", "player" -> false
+    null, "stream", "player" -> false
     else -> true
 }
+
+/** Top of the detail hero image inside the Compose view. The host already applied its inset. */
+internal fun detailHeroImageTopDp(routeKind: String?): Float =
+    if (hostRespectsTopSafeArea(routeKind)) 0f else Float.NaN
 
 /** Extra top padding Compose may add. Zero when the host already applied the top safe area. */
 internal fun detailChromeTopInsetDp(
