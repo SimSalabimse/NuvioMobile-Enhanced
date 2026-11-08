@@ -100,12 +100,16 @@ import com.nuvio.app.features.details.factsForEpisode
 import com.nuvio.app.features.details.loadSeasonCatalog
 import com.nuvio.app.features.details.mergeOwnListing
 import com.nuvio.app.features.details.productionPublicEpisode
+import com.nuvio.app.features.details.seasonCatalogReloadKey
 import com.nuvio.app.features.details.seasonPublicCache
 import com.nuvio.app.features.details.SeasonOwnCache
 import com.nuvio.app.features.details.usesFixtureLedger
 import com.nuvio.app.features.details.seasonSegmentOverview
 import com.nuvio.app.features.details.segmentChipModel
+import com.nuvio.app.features.player.PlayerSettingsRepository
+import com.nuvio.app.features.player.skip.IntroSubmitService
 import com.nuvio.app.features.player.skip.OwnAccountMarks
+import com.nuvio.app.features.player.skip.accountScopeForService
 import com.nuvio.app.features.player.skip.ownListBucketsForTitle
 import com.nuvio.app.features.downloads.AnalysisTempDownloads
 import com.nuvio.app.features.downloads.downloadEpisodesForAnalysis
@@ -165,6 +169,16 @@ internal fun SeasonOverviewSheet(
     val analysisRevision by MediaAnalysisStatus.revision.collectAsStateWithLifecycle()
     val ownRevision by OwnTheIntroDbLedger.revision.collectAsStateWithLifecycle()
     val tempRevision by AnalysisTempDownloads.revision.collectAsStateWithLifecycle()
+    val playerSettings by PlayerSettingsRepository.uiState.collectAsStateWithLifecycle()
+    val accountScope = if (currentUiFixture().usesFixtureLedger()) {
+        overviewLedgerScope()
+    } else {
+        accountScopeForService(
+            IntroSubmitService.THE_INTRODB,
+            playerSettings.introDbApiKey,
+            playerSettings.theIntroDbApiKey,
+        )
+    }
     val refs = remember(episodes, isWatched, meta.id, meta.imdbId) {
         episodes.mapNotNull { video ->
             val episode = video.episode ?: return@mapNotNull null
@@ -186,8 +200,15 @@ internal fun SeasonOverviewSheet(
         }
     }
     var catalogFacts by remember(meta.id, season) { mutableStateOf<Map<String, EpisodeCatalogFacts>>(emptyMap()) }
-    LaunchedEffect(refs, offline, meta.id, meta.imdbId) {
-        val scope = overviewLedgerScope()
+    val reloadKey = seasonCatalogReloadKey(
+        metaId = meta.id,
+        imdbId = meta.imdbId,
+        offline = offline,
+        accountScope = accountScope,
+        contentKeys = refs.map { it.contentKey },
+    )
+    LaunchedEffect(reloadKey) {
+        val scope = accountScope
         val stored = OwnTheIntroDbLedger.load(scope)
         val fixtureLedger = currentUiFixture().usesFixtureLedger()
         if (offline || fixtureLedger) {
@@ -255,8 +276,8 @@ internal fun SeasonOverviewSheet(
             nowMs = com.nuvio.app.features.streams.epochMs(),
         ).associateBy { it.contentKey }
     }
-    val rows = remember(refs, analysisRevision, ownRevision, tempRevision, meta.id) {
-        val own = OwnTheIntroDbLedger.load(overviewLedgerScope())
+    val rows = remember(refs, analysisRevision, ownRevision, tempRevision, meta.id, accountScope) {
+        val own = OwnTheIntroDbLedger.load(accountScope)
         val detected = refs.associate { ref ->
             val stored = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(meta.id, ref.season, ref.episode))
             ref.contentKey to localDetectionTypes(stored)

@@ -34,6 +34,23 @@ internal fun recapOutcomeToStore(decisions: List<SegmentDecision>): String? =
     decisions.lastOrNull { it.type == "recap" }?.why
 
 /**
+ * Token written with the analysis.
+ * A finished pass keeps the recorded token, or the previous one when this pass recorded none.
+ * A cancelled pass records what this pass actually decided. A previous completed miss is dropped
+ * when this pass recorded nothing, so a stopped pass cannot keep claiming "no recap found".
+ */
+internal fun recapOutcomeToPersist(
+    previous: String?,
+    decisions: List<SegmentDecision>,
+    finished: Boolean,
+): String? {
+    val recorded = recapOutcomeToStore(decisions)
+    if (recorded != null) return recorded
+    if (!finished && previous in RECAP_CHECKED_NONE) return null
+    return previous
+}
+
+/**
  * A same-cut recap mark is Ready even when the stored end time was not copied yet.
  * A mark for another cut is not "no recap found".
  * Movies have no recap chip.

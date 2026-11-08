@@ -61,6 +61,15 @@ internal data class OwnListing(
 internal data class PublicCacheEntry(
     val status: PublicMediaStatus,
     val media: TheIntroDbMediaResponse?,
+    /** A failed read may be requested again after this time. A successful read has none. */
+    val retryAfterMs: Long? = null,
+)
+
+/** One public GET. [retryUntilMs] is set only for HTTP 429, from the response deadline. */
+internal data class PublicMediaFetch(
+    val status: PublicMediaStatus,
+    val media: TheIntroDbMediaResponse? = null,
+    val retryUntilMs: Long? = null,
 )
 
 internal class SeasonPublicCache {
@@ -164,15 +173,29 @@ internal fun mergeOwnListing(
 internal const val SEASON_PUBLIC_BACKOFF_MS = 60_000L
 
 /**
+ * Fields that restart the season catalogue read.
+ * [accountScope] is the hashed account, so two accounts do not reuse one load.
+ */
+internal fun seasonCatalogReloadKey(
+    metaId: String,
+    imdbId: String?,
+    offline: Boolean,
+    accountScope: String,
+    contentKeys: List<String>,
+): String = listOf(metaId, imdbId.orEmpty(), offline.toString(), accountScope, contentKeys.joinToString(","))
+    .joinToString("|")
+
+/**
  * Public reads go through [publicFetch], one episode at a time.
  * The first unavailable response backs off and does not call the rest.
- * A cached row is not fetched again. [ownListing] is one list for the title, not one list per episode.
+ * An episode that was not requested stays not checked. A 429 keeps the server deadline.
+ * A cached successful row is not fetched again. [ownListing] is one list for the title, not one list per episode.
  */
 internal suspend fun loadSeasonCatalog(
     requests: List<SeasonStatusRequest>,
     ownListing: OwnListing?,
     merged: OwnAccountMarks,
-    publicFetch: suspend (SeasonStatusRequest) -> Pair<PublicMediaStatus, TheIntroDbMediaResponse?>,
+    publicFetch: suspend (SeasonStatusRequest) -> PublicMediaFetch,
     cache: SeasonPublicCache,
     nowMs: Long,
 ): List<EpisodeCatalogFacts> {
@@ -181,26 +204,30 @@ internal suspend fun loadSeasonCatalog(
     for (request in requests) {
         if (!currentCoroutineContext().isActive) throw CancellationException()
         val key = cache.key(request)
-        val cached = cache.values[key]
-        val (status, media) = when {
-            request.imdbId.isBlank() -> null to null
-            cached != null -> cached.status to cached.media
-            blocked -> PublicMediaStatus.Unavailable to null
+        val cached = cache.values[key]?.takeIf { entry ->
+            entry.retryAfterMs == null || entry.retryAfterMs > nowMs
+        }
+        val fetched = when {
+            request.imdbId.isBlank() -> null
+            cached != null -> PublicMediaFetch(cached.status, cached.media)
+            blocked -> null
             else -> {
-                val fetched = publicFetch(request)
-                if (fetched.first == PublicMediaStatus.Unavailable) {
-                    cache.blockedUntilMs = nowMs + SEASON_PUBLIC_BACKOFF_MS
-                    blocked = true
+                val read = publicFetch(request)
+                if (read.status == PublicMediaStatus.Unavailable) {
+                    val until = read.retryUntilMs ?: (nowMs + SEASON_PUBLIC_BACKOFF_MS)
+                    if (until > cache.blockedUntilMs) cache.blockedUntilMs = until
+                    cache.values[key] = PublicCacheEntry(read.status, null, retryAfterMs = until)
+                    blocked = until > nowMs
                 } else {
-                    cache.values[key] = PublicCacheEntry(fetched.first, fetched.second)
+                    cache.values[key] = PublicCacheEntry(read.status, read.media)
                 }
-                fetched
+                read
             }
         }
         facts += factsForEpisode(
             contentKey = request.contentKey,
-            publicStatus = status,
-            media = media,
+            publicStatus = fetched?.status,
+            media = fetched?.media,
             ownListed = ownListing != null && !ownListing.failed && ownListing.tmdbId > 0,
             ownFailed = ownListing != null && (ownListing.failed || ownListing.tmdbId <= 0),
             merged = merged,
@@ -241,15 +268,23 @@ internal suspend fun currentOwnListing(imdbId: String): OwnListing? {
     }
 }
 
+/** The last [TheIntroDb.getMedia] result, including a 429 deadline and excluding the header text. */
+internal fun publicFetchFromLastGet(media: TheIntroDbMediaResponse?): PublicMediaFetch =
+    PublicMediaFetch(
+        status = TheIntroDb.lastPublicStatus,
+        media = media,
+        retryUntilMs = TheIntroDb.lastPublicRetryUntilMs,
+    )
+
 internal suspend fun productionPublicEpisode(
     request: SeasonStatusRequest,
-): Pair<PublicMediaStatus, TheIntroDbMediaResponse?> {
-    if (!request.imdbId.startsWith("tt")) return PublicMediaStatus.Unavailable to null
+): PublicMediaFetch {
+    if (!request.imdbId.startsWith("tt")) return PublicMediaFetch(PublicMediaStatus.Unavailable)
     val media = TheIntroDb.getMedia(
         imdbId = request.imdbId,
         season = request.season,
         episode = request.episode,
         durationMs = request.durationMs,
     )
-    return TheIntroDb.lastPublicStatus to media
+    return publicFetchFromLastGet(media)
 }

@@ -83,9 +83,12 @@ internal object TheIntroDb {
         episode: Int? = null,
         durationMs: Long? = null,
         apiKey: String? = null,
+        nowEpochMs: Long = kotlin.time.Clock.System.now().toEpochMilliseconds(),
+        transport: (suspend () -> RawHttpResponse)? = null,
     ): TheIntroDbMediaResponse? {
         lastPublicStatus = PublicMediaStatus.Unavailable
-        if (AutomationTestMode.isActive) return null
+        lastPublicRetryUntilMs = null
+        if (transport == null && AutomationTestMode.isActive) return null
         if (tmdbId == null && imdbId.isNullOrBlank()) return null
         val query = if (season == null && episode == null) {
             theIntroDbMovieQuery(tmdbId, imdbId, durationMs)
@@ -95,7 +98,7 @@ internal object TheIntroDb {
         val url = "$MEDIA_URL?$query"
         val key = if (AutomationTestMode.isActive) null else apiKey
         return try {
-            val response = httpRequestRaw(
+            val response = transport?.invoke() ?: httpRequestRaw(
                 method = "GET",
                 url = url,
                 headers = if (key.isNullOrBlank()) emptyMap() else mapOf("Authorization" to "Bearer $key"),
@@ -105,6 +108,9 @@ internal object TheIntroDb {
                 json.decodeFromString<TheIntroDbError>(response.body).error
             }.getOrNull()
             lastPublicStatus = classifyPublicMediaHttp(response.status, errorField)
+            if (response.status == 429) {
+                lastPublicRetryUntilMs = theIntroDbRateLimitUntilEpochMs(response.headers, nowEpochMs)
+            }
             if (lastPublicStatus != PublicMediaStatus.Found) return null
             json.decodeFromString<TheIntroDbMediaResponse>(response.body)
         } catch (cancelled: CancellationException) {
@@ -138,6 +144,13 @@ internal object TheIntroDb {
 
     /** Public GET /media for the last [getMedia] call. A 404 is [PublicMediaStatus.NoSubmissions]. */
     var lastPublicStatus: PublicMediaStatus = PublicMediaStatus.Unavailable
+        private set
+
+    /**
+     * Epoch millis until a 429 may be retried. Null after any other response, including a
+     * generic failure that happened to carry a retry header. The header value is not stored.
+     */
+    var lastPublicRetryUntilMs: Long? = null
         private set
 
     /** Why the last [listMySubmissions] call stopped early, or null when it went through. */

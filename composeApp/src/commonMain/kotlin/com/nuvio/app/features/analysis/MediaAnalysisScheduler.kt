@@ -868,16 +868,19 @@ internal object MediaAnalysisScheduler {
                 }
             }
         }
-        if (!scopeActive()) {
+        val finished = scopeActive()
+        val outcome = recapOutcomeToPersist(result.recapOutcome, trace.decisions, finished)
+        if (!finished) {
             // Stopped (the download is being deleted): keep the recap already found; the step
-            // counts as not done, so it runs again if the file comes back.
-            MediaAnalysisStore.save(result)
+            // counts as not done, so it runs again if the file comes back. The token is the
+            // decision from this pass, so an older completed miss does not stay behind.
+            MediaAnalysisStore.save(result.copy(recapOutcome = outcome))
             return false
         }
         MediaAnalysisStore.save(
             result.copy(
                 derivedVersion = MEDIA_ANALYSIS_DERIVED_VERSION,
-                recapOutcome = recapOutcomeToStore(trace.decisions) ?: result.recapOutcome,
+                recapOutcome = outcome,
             ),
         )
         return thumbsOk

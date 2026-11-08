@@ -2,6 +2,7 @@ package com.nuvio.app.features.analysis
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class RecapMarkStatusTest {
     @Test
@@ -102,6 +103,68 @@ class RecapMarkStatusTest {
     }
 
     @Test
+    fun aShortOpeningPrintIsNotACompletedMiss() {
+        val episode = episode(frames = 5, episode = 13)
+        val previous = episode(frames = 40, episode = 12)
+        val trace = SegmentTrace()
+        assertEquals(null, RecapDetector.detect(episode, listOf(previous), trace))
+        val why = trace.decisions.single().why
+        assertEquals("not-checked-short-window", why)
+        assertTrue(why !in RECAP_CHECKED_NONE)
+        val stored = recapOutcomeToStore(trace.decisions)
+        val part = recapAnalysisPart(
+            recapEnabled = true,
+            isEpisode = true,
+            derivedCurrent = true,
+            recapEndMs = null,
+            userRecap = null,
+            durationMs = episode.durationMs,
+            siblingsEmpty = false,
+            outcome = stored,
+        )
+        assertEquals(AnalysisPart.NotChecked, part)
+        assertEquals(RecapChipSentence.NotChecked, recapChipSentence(part))
+        val boundary = SegmentTrace()
+        assertEquals(null, RecapDetector.detect(episode(frames = 19, episode = 13), listOf(previous), boundary))
+        assertEquals("not-checked-short-window", boundary.decisions.single().why)
+        val compared = SegmentTrace()
+        assertEquals(null, RecapDetector.detect(episode(frames = 20, episode = 13), listOf(previous), compared))
+        val comparedWhy = compared.decisions.single().why
+        assertTrue(comparedWhy in RECAP_CHECKED_NONE)
+        assertEquals(AnalysisPart.NotFound, recapAnalysisPart(
+            recapEnabled = true,
+            isEpisode = true,
+            derivedCurrent = true,
+            recapEndMs = null,
+            userRecap = null,
+            durationMs = episode.durationMs,
+            siblingsEmpty = false,
+            outcome = recapOutcomeToStore(compared.decisions),
+        ))
+    }
+
+    @Test
+    fun aCancelledPassDoesNotKeepAStaleCompletedMiss() {
+        val episode = episode(frames = 5, episode = 13)
+        val trace = SegmentTrace()
+        RecapDetector.detect(episode, listOf(episode(frames = 40, episode = 12)), trace)
+        val persisted = recapOutcomeToPersist("rejected-no-match", trace.decisions, finished = false)
+        assertEquals("not-checked-short-window", persisted)
+        assertEquals(AnalysisPart.NotChecked, recapAnalysisPart(
+            recapEnabled = true,
+            isEpisode = true,
+            derivedCurrent = true,
+            recapEndMs = null,
+            userRecap = null,
+            durationMs = episode.durationMs,
+            siblingsEmpty = false,
+            outcome = persisted,
+        ))
+        assertEquals(null, recapOutcomeToPersist("rejected-no-match", emptyList(), finished = false))
+        assertEquals("rejected-no-match", recapOutcomeToPersist("rejected-no-match", emptyList(), finished = true))
+    }
+
+    @Test
     fun aSameCutMarkStaysReadyWhenTheSearchRecordedAMiss() {
         val mark = UserSegment(startMs = 0L, endMs = 80_000L, markedAtMs = 5L, durationMs = 1_200_000L)
         val part = recapAnalysisPart(
@@ -117,4 +180,13 @@ class RecapMarkStatusTest {
         assertEquals(AnalysisPart.Ready, part)
         assertEquals(RecapChipSentence.Ready, recapChipSentence(part))
     }
+
+    private fun episode(frames: Int, episode: Int) = MediaAnalysisResult(
+        key = "show__s3e$episode",
+        analyzedAtMs = 1L,
+        durationMs = 2_400_000L,
+        fingerprintStepMs = 100,
+        headFingerprint = encodeFingerprint(IntArray(frames) { index -> index + episode }),
+        introStartMs = 40_000L,
+    )
 }

@@ -1,13 +1,17 @@
 package com.nuvio.app.features.details
 
+import com.nuvio.app.features.addons.RawHttpResponse
 import com.nuvio.app.features.player.skip.FlagSubmissionRecord
 import com.nuvio.app.features.player.skip.OwnAccountMarks
 import com.nuvio.app.features.player.skip.PublicMediaStatus
+import com.nuvio.app.features.player.skip.TheIntroDb
 import com.nuvio.app.features.player.skip.TheIntroDbMediaResponse
 import com.nuvio.app.features.player.skip.TheIntroDbSegment
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
@@ -56,7 +60,8 @@ class SeasonCatalogStatusTest {
             merged = merged,
             publicFetch = { request ->
                 calls += 1
-                responses.getValue(request.episode)
+                val (status, body) = responses.getValue(request.episode)
+                PublicMediaFetch(status, body)
             },
             cache = cache,
             nowMs = 1_000L,
@@ -91,7 +96,7 @@ class SeasonCatalogStatusTest {
             merged = merged,
             publicFetch = {
                 calls += 1
-                PublicMediaStatus.Unavailable to null
+                PublicMediaFetch(PublicMediaStatus.Unavailable)
             },
             cache = cache,
             nowMs = 2_000L,
@@ -110,14 +115,15 @@ class SeasonCatalogStatusTest {
             merged = OwnAccountMarks(),
             publicFetch = {
                 calls += 1
-                PublicMediaStatus.Unavailable to null
+                PublicMediaFetch(PublicMediaStatus.Unavailable)
             },
             cache = cache,
             nowMs = 5_000L,
         )
         assertEquals(1, calls)
         assertEquals(CatalogRead.Unavailable, facts[0].publicRead)
-        assertEquals(CatalogRead.Unavailable, facts[1].publicRead)
+        assertEquals(CatalogRead.NotChecked, facts[1].publicRead)
+        assertEquals(CatalogRead.Unavailable, facts[1].ownRead)
         assertEquals(CatalogRead.NotChecked, facts[2].publicRead)
         assertEquals(CatalogRead.Unavailable, facts[0].ownRead)
         val blocked = loadSeasonCatalog(
@@ -126,14 +132,141 @@ class SeasonCatalogStatusTest {
             merged = OwnAccountMarks(),
             publicFetch = {
                 calls += 1
-                PublicMediaStatus.Found to media(intro = segment(0, 10_000))
+                PublicMediaFetch(PublicMediaStatus.Found, media(intro = segment(0, 10_000)))
             },
             cache = cache,
             nowMs = 5_000L + 1_000L,
         )
         assertEquals(1, calls)
-        assertEquals(CatalogRead.Unavailable, blocked.single().publicRead)
+        assertEquals(CatalogRead.NotChecked, blocked.single().publicRead)
         assertEquals(CatalogRead.NotChecked, blocked.single().ownRead)
+    }
+
+    @Test
+    fun aRateLimitKeepsTheServerDeadlineAndAGenericFailureDoesNot() = runBlocking {
+        val now = 1_700_000_000_000L
+        val cache = SeasonPublicCache()
+        var calls = 0
+        val facts = loadSeasonCatalog(
+            requests = listOf(request(13), request(14)),
+            ownListing = null,
+            merged = OwnAccountMarks(),
+            publicFetch = {
+                calls += 1
+                val body = TheIntroDb.getMedia(
+                    imdbId = show,
+                    season = 3,
+                    episode = 13,
+                    nowEpochMs = now,
+                    transport = { http(429, mapOf("Retry-After" to "600")) },
+                )
+                publicFetchFromLastGet(body)
+            },
+            cache = cache,
+            nowMs = now,
+        )
+        assertEquals(1, calls)
+        assertEquals(1_700_000_600_000L, cache.blockedUntilMs)
+        assertEquals(CatalogRead.Unavailable, facts[0].publicRead)
+        assertEquals(CatalogRead.NotChecked, facts[1].publicRead)
+        assertEquals(CatalogRead.NotChecked, facts[0].ownRead)
+        val again = loadSeasonCatalog(
+            requests = listOf(request(13), request(14)),
+            ownListing = null,
+            merged = OwnAccountMarks(),
+            publicFetch = {
+                calls += 1
+                PublicMediaFetch(PublicMediaStatus.Found, media(intro = segment(0, 10_000)))
+            },
+            cache = cache,
+            nowMs = now + 599_000L,
+        )
+        assertEquals(1, calls)
+        assertEquals(CatalogRead.Unavailable, again[0].publicRead)
+        assertEquals(CatalogRead.NotChecked, again[1].publicRead)
+        val dated = TheIntroDb.getMedia(
+            imdbId = show,
+            season = 3,
+            episode = 13,
+            nowEpochMs = 1_445_412_000_000L,
+            transport = { http(429, mapOf("Retry-After" to "Wed, 21 Oct 2015 07:28:00 GMT")) },
+        )
+        assertNull(dated)
+        assertEquals(1_445_412_480_000L, publicFetchFromLastGet(dated).retryUntilMs)
+        val fallback = TheIntroDb.getMedia(
+            imdbId = show,
+            season = 3,
+            episode = 13,
+            nowEpochMs = now,
+            transport = { http(429, emptyMap()) },
+        )
+        assertEquals(now + 60_000L, publicFetchFromLastGet(fallback).retryUntilMs)
+        val generic = TheIntroDb.getMedia(
+            imdbId = show,
+            season = 3,
+            episode = 13,
+            nowEpochMs = now,
+            transport = { http(500, mapOf("Retry-After" to "600")) },
+        )
+        assertNull(publicFetchFromLastGet(generic).retryUntilMs)
+        assertEquals(PublicMediaStatus.Unavailable, publicFetchFromLastGet(generic).status)
+        val genericCache = SeasonPublicCache()
+        loadSeasonCatalog(
+            requests = listOf(request(13), request(14)),
+            ownListing = null,
+            merged = OwnAccountMarks(),
+            publicFetch = { publicFetchFromLastGet(generic) },
+            cache = genericCache,
+            nowMs = now,
+        )
+        assertEquals(now + SEASON_PUBLIC_BACKOFF_MS, genericCache.blockedUntilMs)
+        assertFailsWith<CancellationException> {
+            TheIntroDb.getMedia(
+                imdbId = show,
+                season = 3,
+                episode = 13,
+                nowEpochMs = now,
+                transport = { throw CancellationException() },
+            )
+        }
+        assertNull(TheIntroDb.lastPublicRetryUntilMs)
+        val afterDeadline = loadSeasonCatalog(
+            requests = listOf(request(14)),
+            ownListing = null,
+            merged = OwnAccountMarks(),
+            publicFetch = {
+                calls += 1
+                PublicMediaFetch(PublicMediaStatus.NoSubmissions)
+            },
+            cache = cache,
+            nowMs = now + 600_000L,
+        )
+        assertEquals(2, calls)
+        assertEquals(CatalogRead.None, afterDeadline.single().publicRead)
+    }
+
+    @Test
+    fun anAccountSwitchReloadsThatAccountsListing() = runBlocking {
+        SeasonOwnCache.clearForTest()
+        val first = OwnListing(
+            failed = false,
+            tmdbId = 77,
+            records = listOf(record(3, 13, "recap", "pending")),
+        )
+        val second = OwnListing(failed = false, tmdbId = 77, records = emptyList())
+        SeasonOwnCache.put("account-a", first)
+        SeasonOwnCache.put("account-b", second)
+        val requests = listOf(request(13))
+        val fromFirst = factsForListing(SeasonOwnCache.get("account-a"), requests)
+        val fromSecond = factsForListing(SeasonOwnCache.get("account-b"), requests)
+        assertEquals(setOf("recap"), fromFirst.single().ownPending)
+        assertEquals(CatalogRead.None, fromSecond.single().ownRead)
+        assertTrue(fromSecond.single().ownPending.isEmpty())
+        val keyA = seasonCatalogReloadKey(show, show, false, "account-a", requests.map { it.contentKey })
+        val keyB = seasonCatalogReloadKey(show, show, false, "account-b", requests.map { it.contentKey })
+        assertNotEquals(keyA, keyB)
+        assertEquals(keyA, seasonCatalogReloadKey(show, show, false, "account-a", requests.map { it.contentKey }))
+        SeasonOwnCache.clearForTest()
     }
 
     @Test
@@ -165,7 +298,7 @@ class SeasonCatalogStatusTest {
             requests = listOf(request),
             ownListing = listing,
             merged = merged,
-            publicFetch = { PublicMediaStatus.Found to media(intro = segment(1_000, 20_000)) },
+            publicFetch = { PublicMediaFetch(PublicMediaStatus.Found, media(intro = segment(1_000, 20_000))) },
             cache = SeasonPublicCache(),
             nowMs = 0L,
         ).single()
@@ -192,6 +325,33 @@ class SeasonCatalogStatusTest {
         assertEquals(CatalogRead.Listed, storedOnly.ownRead)
         assertEquals(CatalogRead.NotChecked, storedOnly.publicRead)
     }
+
+    private suspend fun factsForListing(
+        listing: OwnListing?,
+        requests: List<SeasonStatusRequest>,
+    ): List<EpisodeCatalogFacts> {
+        val merged = if (listing == null) {
+            OwnAccountMarks()
+        } else {
+            mergeOwnListing(OwnAccountMarks(), OwnAccountMarks(), requests, listing).first
+        }
+        return loadSeasonCatalog(
+            requests = requests,
+            ownListing = listing,
+            merged = merged,
+            publicFetch = { PublicMediaFetch(PublicMediaStatus.NoSubmissions) },
+            cache = SeasonPublicCache(),
+            nowMs = 0L,
+        )
+    }
+
+    private fun http(status: Int, headers: Map<String, String>) = RawHttpResponse(
+        status = status,
+        statusText = "",
+        url = "",
+        body = "",
+        headers = headers,
+    )
 
     private fun request(episode: Int, imdb: String = show) = SeasonStatusRequest(
         imdbId = imdb,
