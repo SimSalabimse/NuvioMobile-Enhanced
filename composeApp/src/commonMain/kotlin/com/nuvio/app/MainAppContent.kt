@@ -1783,6 +1783,17 @@ internal fun MainAppContent(
                     LocalNuvioBottomNavigationOverlayPadding provides settingsRouteBottomOverlay,
                     LocalPosterClickAnchor provides if (posterNavigationEnabled) posterNavigation::prepare else null,
                     LocalUseNativeNavigation provides useNativeNavigation,
+                    LocalHostRespectsTopSafeArea provides (
+                        useNativeNavigation && com.nuvio.app.core.ui.hostRespectsTopSafeArea(
+                            when (currentRoute) {
+                                is DetailRoute -> "detail"
+                                is StreamRoute -> "stream"
+                                is PlayerRoute -> "player"
+                                null -> null
+                                else -> "other"
+                            },
+                        )
+                    ),
                     LocalNativeNavigationBarHidden provides (currentRoute?.hidesNavigationBar == true),
                     LocalVerticalBarPadding provides if (drawsUnderVerticalBar) verticalBarPadding else PaddingValues(),
                 ) {

@@ -1,6 +1,25 @@
 {
   "releases": [
     {
+      "version": "0.6.9.1",
+      "build": 207,
+      "date": "2026-11-08",
+      "new": [
+        "Movie pages and the player flag strip show public skip counts and this account's own confirmed or pending submissions.",
+        "Session messages can export a redacted subtitle sync result. The device error log stays a separate screen."
+      ],
+      "improved": [
+        "Show pages keep the title, hero, and folder screens clear of the status bar.",
+        "The season sheet is the same from Downloads and the show page, including episodes you already submitted after the file was removed.",
+        "A saved recap mark stays on the episode even when detection did not copy the time.",
+        "Reference audio prefers another downloaded episode, then a remote episode, and says which season, episode, and window it is reading."
+      ],
+      "fixed": [
+        "The season sheet no longer shows Watch privately through the list while the row is still.",
+        "Very large text no longer clips the Next up badge, ratings, or director line."
+      ]
+    },
+    {
       "version": "0.6.4.1",
       "build": 197,
       "date": "2026-10-26",

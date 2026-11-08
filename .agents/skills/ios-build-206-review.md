@@ -1,5 +1,7 @@
 # Build 206 iOS review backlog
 
+Build 207 took the three findings in this note: subtitle add runs on the player queue, each share writes a unique file, and the detail host no longer ignores the top safe area for every route.
+
 Reviewed the Swift and iOS delta of `e7e877ce4f484bef34f39100b7f84c7c8f402c15` against `integration/batch11`, using `.agents/skills/swiftui-expert-skill/SKILL.md` and `.agents/skills/swift-concurrency/SKILL.md`. No app code was changed.
 
 Project settings read from `iosApp/iosApp.xcodeproj/project.pbxproj`: `SWIFT_VERSION = 5.0` (line 465) and `IPHONEOS_DEPLOYMENT_TARGET = 16.1` (line 436). `SWIFT_STRICT_CONCURRENCY`, `SWIFT_DEFAULT_ACTOR_ISOLATION`, and `SWIFT_APPROACHABLE_CONCURRENCY` are not set. The concurrency skill's Xcode 26 new-project defaults are not this target.

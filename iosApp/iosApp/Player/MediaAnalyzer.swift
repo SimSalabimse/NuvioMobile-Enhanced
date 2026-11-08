@@ -477,7 +477,7 @@ private final class ClipFingerprintRun {
         self.url = url
         self.headers = headers
         self.startMs = startMs
-        self.endMs = min(endMs, startMs + MediaAnalysisRun.headMs)
+        self.endMs = min(endMs, startMs + 50_000)
         self.abort = abort
     }
 
@@ -534,6 +534,14 @@ private final class ClipFingerprintRun {
         var accumulator: MediaAnalyzerSampleLoop?
         var originMs: Int64 = -1
         var reachedEnd = false
+        var decodedFrames = 0
+        var decodedSamples = 0
+        var missingTimestamps = 0
+        var stuckTimestamps = 0
+        var lastTimestamp: Int64 = Self.noPtsValue
+        let windowMs = max(Int64(1), endMs - startMs)
+        let maxFrames = Int(windowMs / 10) + 200
+        let maxSamples = maxFrames * 4_000
         guard let packet = av_packet_alloc(), let frame = av_frame_alloc() else { return nil }
         var packetPointer: UnsafeMutablePointer<AVPacket>? = packet
         var framePointer: UnsafeMutablePointer<AVFrame>? = frame
@@ -545,14 +553,30 @@ private final class ClipFingerprintRun {
             if packet.pointee.stream_index == audioIndex, avcodec_send_packet(codecContext, packet) >= 0 {
                 while avcodec_receive_frame(codecContext, frame) >= 0 {
                     defer { av_frame_unref(frame) }
+                    decodedFrames += 1
+                    decodedSamples += Int(frame.pointee.nb_samples)
+                    if decodedFrames > maxFrames || decodedSamples > maxSamples { reachedEnd = true; break }
                     let pts = frame.pointee.best_effort_timestamp
                     let frameMs = pts == Self.noPtsValue ? nil : av_rescale_q(pts - streamStart, timeBase, AVRational(num: 1, den: 1000))
-                    if let frameMs, frameMs > endMs { reachedEnd = true; break }
-                    if originMs < 0 {
-                        // Audio before the window (the seek lands on an earlier keyframe) is skipped.
-                        guard let frameMs, frameMs >= startMs else { continue }
-                        originMs = frameMs
+                    guard let frameMs else {
+                        missingTimestamps += 1
+                        if missingTimestamps > 60 { reachedEnd = true; break }
+                        continue
                     }
+                    if frameMs < startMs {
+                        // A bad seek that lands far before the window must not decode the prefix.
+                        if startMs - frameMs > 2_000 { reachedEnd = true; break }
+                        continue
+                    }
+                    if lastTimestamp != Self.noPtsValue && frameMs <= lastTimestamp {
+                        stuckTimestamps += 1
+                        if stuckTimestamps > 60 { reachedEnd = true; break }
+                    } else {
+                        stuckTimestamps = 0
+                    }
+                    lastTimestamp = frameMs
+                    if frameMs > endMs { reachedEnd = true; break }
+                    if originMs < 0 { originMs = frameMs }
                     let rate = Int(frame.pointee.sample_rate)
                     let channels = Int(frame.pointee.ch_layout.nb_channels)
                     guard rate > 0, channels > 0 else { continue }
@@ -566,7 +590,13 @@ private final class ClipFingerprintRun {
         }
         guard !abort.isSet, let acc = accumulator,
               let print = Fingerprinter.fingerprint(samples: acc.headSamples, rate: acc.fingerprintRate) else { return nil }
-        let output: [String: Any] = ["startMs": originMs, "stepMs": MediaAnalysisRun.stepMs, "fingerprint": print]
+        let output: [String: Any] = [
+            "startMs": originMs,
+            "stepMs": MediaAnalysisRun.stepMs,
+            "fingerprint": print,
+            "decodedFrames": decodedFrames,
+            "decodedSamples": decodedSamples,
+        ]
         guard let data = try? JSONSerialization.data(withJSONObject: output) else { return nil }
         log("clip done startMs=\(originMs) decodedMs=\(acc.decodedMs)")
         return String(data: data, encoding: .utf8)

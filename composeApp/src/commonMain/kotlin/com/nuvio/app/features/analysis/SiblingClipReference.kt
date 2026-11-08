@@ -8,9 +8,9 @@ import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.downloads.DownloadDiskInfo
 import com.nuvio.app.features.downloads.DownloadItem
-import com.nuvio.app.features.downloads.DownloadNetworkGuard
+import com.nuvio.app.features.downloads.DownloadStatus
+import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.SMART_DOWNLOAD_MIN_FREE_BYTES
-import com.nuvio.app.features.downloads.SmartDownloadSettings
 import com.nuvio.app.features.downloads.SmartDownloads
 import com.nuvio.app.features.downloads.seasonStreamVideoId
 import com.nuvio.app.features.player.PlayerSettingsRepository
@@ -47,46 +47,90 @@ internal object SiblingClipReference {
     private const val MIN_MATCH_MS = 8_000L
     private const val MAX_ONLINE_LOOKUPS = 4
     private val json = LenientJson
+    private val clipCache = ReferenceFingerprintCache()
 
-    suspend fun apply(item: DownloadItem, result: MediaAnalysisResult): SiblingClipOutcome {
+    suspend fun apply(
+        item: DownloadItem,
+        result: MediaAnalysisResult,
+        onStatus: (String) -> Unit = {},
+    ): SiblingClipOutcome {
         fun finished(value: MediaAnalysisResult = result) = SiblingClipOutcome(value, SiblingClipAttempt.Finished)
         fun unavailable(value: MediaAnalysisResult = result) = SiblingClipOutcome(value, SiblingClipAttempt.Unavailable)
         val season = item.seasonNumber ?: return finished()
         val episode = item.episodeNumber ?: return finished()
-        // Cellular with "only on Wi-Fi" is a chosen skip. Unreachable is not reported here, so a
-        // failed clip read below is what counts as a retry, not this check.
-        if (SmartDownloadSettings.snapshot().onlyOnWifi && !DownloadNetworkGuard.isOnWifi()) return finished()
         val free = DownloadDiskInfo.volumeSpace()?.availableBytes
         if (free != null && free < SMART_DOWNLOAD_MIN_FREE_BYTES) return unavailable()
         val meta = MetaDetailsRepository.fetch(item.parentMetaType, item.parentMetaId) ?: return unavailable()
         val episodes = meta.videos.filter { it.season == season }.mapNotNull { it.episode }.distinct()
         var resolvedImdb: String? = null
         var imdbResolved = false
-        val reference = pickReference(episode, ownMarks(item.parentMetaId, season), episodes) { e ->
+        val localFiles = completedLocalSiblingFiles(item)
+        val localEpisodes = localFiles.map { it.episode }
+        val remoteEpisodes = episodes.filter { it != episode && it !in localEpisodes }
+        val plan = planReference(episode, localEpisodes, remoteEpisodes)
+        if (plan.choice == ReferenceChoice.None) {
+            InAppLogger.info("Analysis", "reference skip id=${item.id} reason=${plan.reason}")
+            return finished()
+        }
+        suspend fun timesFor(candidate: Int): SiblingTimes? {
+            ownMarks(item.parentMetaId, season).firstOrNull { it.episode == candidate }?.let { return it }
             if (!imdbResolved) {
                 imdbResolved = true
                 resolvedImdb = resolveSkipImdbId(item.parentMetaId, null, "series")
             }
-            onlineTimes(
+            return onlineTimes(
                 SkipIntroRepository.getSkipIntervals(
                     resolvedImdb,
                     season,
-                    e,
+                    candidate,
                     requireSkipIntroEnabled = false,
                     durationMs = result.durationMs,
                 ),
-                e,
+                candidate,
             )
-        } ?: return finished()
-        val video = meta.videos.firstOrNull { it.season == season && it.episode == reference.episode } ?: return finished()
-        val (url, headers) = streamFor(meta, video, item) ?: return unavailable()
+        }
+        var chosenTimes: SiblingTimes? = null
+        var chosenLocal = false
+        for (candidate in nearestFirst(episode, localEpisodes)) {
+            timesFor(candidate)?.let {
+                chosenTimes = it
+                chosenLocal = true
+                return@let
+            }
+            if (chosenTimes != null) break
+        }
+        if (chosenTimes == null) {
+            for (candidate in nearestFirst(episode, remoteEpisodes).take(MAX_ONLINE_LOOKUPS)) {
+                timesFor(candidate)?.let { chosenTimes = it }
+                if (chosenTimes != null) break
+            }
+        }
+        val reference = chosenTimes
+        if (reference == null) {
+            InAppLogger.info("Analysis", "reference skip id=${item.id} reason=no-sibling-with-known-times")
+            return finished()
+        }
+        val localFile = localFiles.firstOrNull { it.episode == reference.episode }
+        val (url, headers, identity) = if (chosenLocal && localFile != null) {
+            Triple(localFile.uri, emptyMap(), referenceIdentity(localFile.fileName, resolvedImdb.orEmpty(), season, reference.episode))
+        } else {
+            val video = meta.videos.firstOrNull { it.season == season && it.episode == reference.episode } ?: return finished()
+            val stream = streamFor(meta, video, item) ?: return unavailable()
+            Triple(
+                stream.first,
+                stream.second,
+                referenceIdentity(null, resolvedImdb ?: meta.imdbId.orEmpty(), season, reference.episode),
+            )
+        }
+        val operation = if (chosenLocal) "read" else "fetch"
         val step = result.fingerprintStepMs.toLong().coerceAtLeast(1L)
 
         var updated = result
         var missing = false
         var read = false
         if (result.introStartMs == null) {
-            when (val clip = readClip(url, headers, decodeFingerprint(result.headFingerprint), 0L, step, reference.intro, result.durationMs, reference.durationMs)) {
+            onStatus(referenceActivityToken(operation, windowSeconds(reference.intro), season, reference.episode))
+            when (val clip = readClip(url, headers, identity, decodeFingerprint(result.headFingerprint), 0L, step, reference.intro, result.durationMs, reference.durationMs)) {
                 ClipRead.Missing -> missing = true
                 ClipRead.Skipped -> Unit
                 is ClipRead.Read -> {
@@ -99,7 +143,8 @@ internal object SiblingClipReference {
         }
         val credits = reference.credits
         if (credits != null && result.creditsStartMs == null) {
-            when (val clip = readClip(url, headers, decodeFingerprint(result.tailFingerprint), result.tailStartMs, step, credits, result.durationMs, reference.durationMs)) {
+            onStatus(referenceActivityToken(operation, windowSeconds(credits), season, reference.episode))
+            when (val clip = readClip(url, headers, identity, decodeFingerprint(result.tailFingerprint), result.tailStartMs, step, credits, result.durationMs, reference.durationMs)) {
                 ClipRead.Missing -> missing = true
                 ClipRead.Skipped -> Unit
                 is ClipRead.Read -> {
@@ -125,9 +170,15 @@ internal object SiblingClipReference {
         data class Read(val range: Pair<Long, Long>?) : ClipRead
     }
 
+    private fun windowSeconds(segment: Pair<Long, Long>): Int {
+        val bounded = boundReferenceWindow(segment.first - PAD_MS, segment.second + PAD_MS)
+        return ((bounded.second - bounded.first) / 1_000L).toInt().coerceAtLeast(1)
+    }
+
     private suspend fun readClip(
         url: String,
         headers: Map<String, String>,
+        identity: String,
         frames: IntArray,
         framesOffsetMs: Long,
         step: Long,
@@ -136,10 +187,26 @@ internal object SiblingClipReference {
         referenceDurationMs: Long,
     ): ClipRead {
         if (frames.isEmpty()) return ClipRead.Skipped
-        val text = MediaAnalyzerPlatform.fingerprintClip(url, headers, (segment.first - PAD_MS).coerceAtLeast(0L), segment.second + PAD_MS)
-            ?: return ClipRead.Missing
+        val bounded = boundReferenceWindow((segment.first - PAD_MS).coerceAtLeast(0L), segment.second + PAD_MS)
+        val key = ReferenceFingerprintKey(identity, bounded.first, bounded.second, REFERENCE_FINGERPRINT_ALGORITHM)
+        val cached = clipCache.lookup(key)
+        val text = if (cached != null) {
+            cached.first
+        } else {
+            clipCache.beginDecode(identity)
+            val decoded = MediaAnalyzerPlatform.fingerprintClip(url, headers, bounded.first, bounded.second)
+            if (decoded == null) {
+                clipCache.endDecode(identity)
+                return ClipRead.Missing
+            }
+            clipCache.store(key, decoded)
+            decoded
+        }
         val clip = runCatching { json.decodeFromString(RawClipFingerprint.serializer(), text) }.getOrNull()
             ?: return ClipRead.Missing
+        if (reportedClipExceedsBudget(clip.decodedFrames, clip.decodedSamples, bounded.second - bounded.first)) {
+            return ClipRead.Missing
+        }
         if (clip.stepMs.toLong() != step) return ClipRead.Skipped
         return ClipRead.Read(
             locate(
@@ -154,6 +221,18 @@ internal object SiblingClipReference {
             ),
         )
     }
+
+    private data class LocalSiblingFile(val episode: Int, val fileName: String, val uri: String)
+
+    /** Completed files of other episodes. The episode being analysed is not included. */
+    private fun completedLocalSiblingFiles(item: DownloadItem): List<LocalSiblingFile> =
+        DownloadsRepository.uiState.value.items.mapNotNull { other ->
+            if (other.parentMetaId != item.parentMetaId || other.seasonNumber != item.seasonNumber) return@mapNotNull null
+            val otherEpisode = other.episodeNumber ?: return@mapNotNull null
+            if (otherEpisode == item.episodeNumber || other.status != DownloadStatus.Completed) return@mapNotNull null
+            val uri = DownloadsRepository.playableLocalFileUri(other)?.takeIf { it.startsWith("file:") } ?: return@mapNotNull null
+            LocalSiblingFile(otherEpisode, other.fileName.orEmpty(), uri)
+        }
 
     /** Your marks on other episodes of the season (also those never downloaded or analysed). */
     private fun ownMarks(parentMetaId: String, season: Int): List<SiblingTimes> =

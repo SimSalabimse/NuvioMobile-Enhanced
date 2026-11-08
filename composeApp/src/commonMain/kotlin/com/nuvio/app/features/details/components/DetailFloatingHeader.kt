@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -44,7 +43,7 @@ import androidx.compose.ui.graphics.Brush
 import com.nuvio.app.core.ui.ArtworkBackdrop
 import com.nuvio.app.core.ui.NuvioBackButton
 import com.nuvio.app.core.ui.atLeastIosHitTarget
-import com.nuvio.app.core.ui.platformPhysicalTopInset
+import com.nuvio.app.core.ui.detailChromeTopInset
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.isIos
 import com.nuvio.app.navigation.LocalUseNativeNavigation
@@ -56,12 +55,7 @@ import com.nuvio.app.core.ui.glass.liquidGlassSurface
 
 @Composable
 internal fun detailFloatingHeaderHeight(): Dp {
-    val safeAreaTop = if (LocalUseNativeNavigation.current) {
-        platformPhysicalTopInset()
-    } else {
-        WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    }
-    return (safeAreaTop - 6.dp).coerceAtLeast(safeAreaTop * 0.8f) + 56.dp
+    return detailChromeTopInset() + 56.dp
 }
 
 @Composable
@@ -77,12 +71,7 @@ fun DetailFloatingHeader(
     glassBackdrop: Backdrop? = null,
 ) {
     val useNativeNavigation = LocalUseNativeNavigation.current
-    val safeAreaTop = if (useNativeNavigation) {
-        platformPhysicalTopInset()
-    } else {
-        WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    }
-    val headerTopPadding = (safeAreaTop - 6.dp).coerceAtLeast(safeAreaTop * 0.8f)
+    val headerTopPadding = detailChromeTopInset()
     val interactive = progress > 0.05f
     val surfaceColor = backgroundColor ?: if (isIos) {
         MaterialTheme.colorScheme.surface.copy(alpha = 1.0f)

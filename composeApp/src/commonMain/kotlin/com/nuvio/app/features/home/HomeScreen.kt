@@ -1087,6 +1087,9 @@ fun HomeScreen(
             } else {
                 0.dp
             }
+        val extremeText = com.nuvio.app.core.ui.extremeAccessibilityText(
+            androidx.compose.ui.platform.LocalDensity.current.fontScale,
+        )
         val mobileHeroBelowSectionHeightHint = remember(
             maxWidth.value,
             continueWatchingPreferences.isVisible,
@@ -1095,6 +1098,7 @@ fun HomeScreen(
             continueWatchingLayout,
             posterCardStyle.widthDp,
             nativeBottomNavigationOverlayHeight,
+            extremeText,
         ) {
             if (
                 maxWidth.value < 600f &&
@@ -1105,6 +1109,7 @@ fun HomeScreen(
                     style = continueWatchingPreferences.style,
                     layout = continueWatchingLayout,
                     basePosterWidthDp = posterCardStyle.widthDp,
+                    extremeText = extremeText,
                 ) + nativeBottomNavigationOverlayHeight
             } else {
                 null

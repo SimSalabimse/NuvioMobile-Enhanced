@@ -1903,10 +1903,14 @@ fun MetaDetailsScreen(
                             }
                         }
                         seasonOverviewSeason?.let { overviewSeason ->
-                            val overviewEpisodes = remember(meta, overviewSeason) {
-                                meta.videos
-                                    .filter { video -> (video.season ?: 0) == overviewSeason && video.episode != null }
-                                    .sortedBy { it.episode }
+                            val ledgerRevision by com.nuvio.app.features.player.skip.OwnTheIntroDbLedger.revision.collectAsStateWithLifecycle()
+                            val overviewEpisodes = remember(meta, overviewSeason, ledgerRevision) {
+                                seasonSheetEpisodes(
+                                    catalog = meta.videos,
+                                    ledger = com.nuvio.app.features.player.skip.OwnTheIntroDbLedger.load(overviewLedgerScope()),
+                                    showImdbIds = showImdbIds(meta),
+                                    season = overviewSeason,
+                                )
                             }
                             SeasonOverviewSheet(
                                 meta = meta,
@@ -2812,6 +2816,20 @@ private fun ConfiguredMetaSections(
                     isMdbListActive = isMdbListActive,
                     horizontalScrollPadding = horizontalScrollPadding,
                 )
+                if (com.nuvio.app.features.player.skip.movieSegmentStatusAttached(
+                        com.nuvio.app.features.player.skip.MovieSegmentSurface.Details,
+                        meta.type.equals("movie", ignoreCase = true),
+                    )
+                ) {
+                    val imdb = meta.imdbId?.takeIf { it.startsWith("tt", ignoreCase = true) }
+                        ?: meta.id.takeIf { it.startsWith("tt", ignoreCase = true) }
+                        ?: ""
+                    com.nuvio.app.features.player.skip.MovieSegmentStatusBlock(
+                        imdbId = imdb,
+                        contentKey = com.nuvio.app.features.player.skip.flagSubmitContentKey(imdb, 0, 0, isMovie = true),
+                        parentMetaId = meta.id,
+                    )
+                }
             }
             MetaScreenSectionKey.PRODUCTION -> {
                 if (hasProductionSection) {

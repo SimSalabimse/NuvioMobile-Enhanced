@@ -252,6 +252,9 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 rejectedTypes = rejectedTypes,
             )
             SegmentMarkingLayer(
+                movieImdbId = imdbId,
+                movieContentKey = contentKey,
+                movieParentId = parentMetaId.orEmpty(),
                 segmentType = submitIntroSegmentType,
                 isMovie = isMoviePlayback,
                 episodeCode = episodeCode,

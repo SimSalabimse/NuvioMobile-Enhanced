@@ -260,12 +260,14 @@ private fun CatalogHeader(
     modifier: Modifier = Modifier,
 ) {
     if (LocalUseNativeNavigation.current) {
-        Box(
-            modifier = modifier
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .height(44.dp),
-        )
+        if (!com.nuvio.app.navigation.LocalHostRespectsTopSafeArea.current) {
+            Box(
+                modifier = modifier
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .height(44.dp),
+            )
+        }
         return
     }
 

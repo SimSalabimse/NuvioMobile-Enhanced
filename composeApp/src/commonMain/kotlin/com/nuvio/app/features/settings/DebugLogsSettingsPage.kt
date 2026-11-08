@@ -34,11 +34,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.logging.InAppLogLevel
 import com.nuvio.app.core.logging.InAppLogger
+import com.nuvio.app.features.analysis.AnalysisExportDocument
 import com.nuvio.app.features.analysis.AnalysisExportLog
 import com.nuvio.app.features.analysis.AnalysisExportStatus
 import com.nuvio.app.features.analysis.AnalysisLogShare
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.settings_debug_export_analysis_log
+import nuvio.composeapp.generated.resources.settings_debug_export_subtitle_sync
+import nuvio.composeapp.generated.resources.settings_debug_export_subtitle_sync_description
 import nuvio.composeapp.generated.resources.settings_debug_export_analysis_log_empty
 import nuvio.composeapp.generated.resources.settings_debug_export_analysis_log_ready
 import nuvio.composeapp.generated.resources.settings_advanced_debugging_clear_logs
@@ -121,6 +124,22 @@ private fun DebugLogsSection(isTablet: Boolean) {
                 },
                 isTablet = isTablet,
                 onClick = { AnalysisLogShare.share(AnalysisExportLog.export()) },
+            )
+            SettingsGroupDivider(isTablet = isTablet)
+            SettingsNavigationRow(
+                title = stringResource(Res.string.settings_debug_export_subtitle_sync),
+                description = stringResource(Res.string.settings_debug_export_subtitle_sync_description),
+                isTablet = isTablet,
+                onClick = {
+                    val text = com.nuvio.app.features.player.SubtitleSyncExportLog.exportText()
+                    AnalysisLogShare.share(
+                        AnalysisExportDocument(
+                            status = AnalysisExportStatus.Ready,
+                            lineCount = text.lineSequence().count { it.isNotBlank() },
+                            text = text,
+                        ),
+                    )
+                },
             )
             SettingsGroupDivider(isTablet = isTablet)
             SettingsNavigationRow(

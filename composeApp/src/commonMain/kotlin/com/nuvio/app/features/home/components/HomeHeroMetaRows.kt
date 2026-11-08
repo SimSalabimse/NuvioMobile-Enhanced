@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -121,10 +122,21 @@ internal fun HomeHeroMetaRows(
         }
 
         if (ratings.isNotEmpty()) {
-            RatingsRow(
-                ratings = ratings,
-                maxItems = HERO_RATINGS_LIMIT,
+            val extreme = com.nuvio.app.core.ui.extremeAccessibilityText(
+                androidx.compose.ui.platform.LocalDensity.current.fontScale,
             )
+            if (extreme) {
+                RatingsRow(
+                    ratings = ratings,
+                    maxItems = HERO_RATINGS_LIMIT,
+                    modifier = Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+                )
+            } else {
+                RatingsRow(
+                    ratings = ratings,
+                    maxItems = HERO_RATINGS_LIMIT,
+                )
+            }
         }
     }
 }

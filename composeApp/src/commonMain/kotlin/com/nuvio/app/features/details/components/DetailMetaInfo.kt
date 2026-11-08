@@ -271,15 +271,36 @@ internal fun MetaLabelValueRow(
     label: String,
     value: String,
 ) {
-    Row {
+    val extreme = com.nuvio.app.core.ui.extremeAccessibilityText(
+        androidx.compose.ui.platform.LocalDensity.current.fontScale,
+    )
+    if (!extreme) {
+        Row {
+            Text(
+                text = "$label:  ",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        return
+    }
+    Row(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = "$label:  ",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
         )
         Text(
             text = value,
+            modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )
@@ -326,7 +347,7 @@ private fun MetaBadgeText(
         text = text,
         style = MaterialTheme.typography.labelMedium,
         color = color,
-        maxLines = 1,
+        maxLines = if (com.nuvio.app.core.ui.extremeAccessibilityText(androidx.compose.ui.platform.LocalDensity.current.fontScale)) 3 else 1,
         overflow = TextOverflow.Ellipsis,
     )
 }

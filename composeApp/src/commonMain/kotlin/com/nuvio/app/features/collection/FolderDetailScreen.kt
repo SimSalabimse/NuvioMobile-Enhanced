@@ -149,9 +149,11 @@ fun FolderDetailScreen(
         }
 
         if (useNativeNavigation) {
-            val nativeBarSpace = (statusBarTop + NativeNavigationBarHeight) *
-                if (coverImageUrl != null) heroCollapseFraction else 1f
-            if (nativeBarSpace > 0.dp) Spacer(modifier = Modifier.height(nativeBarSpace))
+            if (!com.nuvio.app.navigation.LocalHostRespectsTopSafeArea.current) {
+                val nativeBarSpace = (statusBarTop + NativeNavigationBarHeight) *
+                    if (coverImageUrl != null) heroCollapseFraction else 1f
+                if (nativeBarSpace > 0.dp) Spacer(modifier = Modifier.height(nativeBarSpace))
+            }
         } else {
             NuvioScreenHeader(
                 title = folder?.title ?: uiState.collectionTitle,

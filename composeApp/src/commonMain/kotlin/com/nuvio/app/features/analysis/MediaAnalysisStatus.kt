@@ -224,16 +224,16 @@ object MediaAnalysisStatus {
             siblingsEmpty -> AnalysisPart.NeedsMoreEpisodes
             else -> AnalysisPart.NotFound
         }
-        val recap = when {
-            !on(MediaAnalysisSettings.Flag.RecapDetection) -> AnalysisPart.Off
-            !isEpisode -> AnalysisPart.NotFound
-            !derivedCurrent -> AnalysisPart.Pending
-            r.recapEndMs != null -> AnalysisPart.Ready
-            // Only "needs another episode" when there truly is no analysed sibling; with siblings
-            // present and derived data current, a missing recap simply means none was found.
-            MediaAnalysisStore.seasonSiblings(item.parentMetaId, item.seasonNumber, r.key).isEmpty() -> AnalysisPart.NeedsMoreEpisodes
-            else -> AnalysisPart.NotFound
-        }
+        val recap = recapAnalysisPart(
+            recapEnabled = on(MediaAnalysisSettings.Flag.RecapDetection),
+            isEpisode = isEpisode,
+            derivedCurrent = derivedCurrent,
+            recapEndMs = r.recapEndMs,
+            userRecap = r.userSegments["recap"],
+            durationMs = r.durationMs,
+            siblingsEmpty = season != null &&
+                MediaAnalysisStore.seasonSiblings(item.parentMetaId, season, r.key).isEmpty(),
+        )
         val subtitleSync = when {
             !on(MediaAnalysisSettings.Flag.SubtitleSync) -> AnalysisPart.Off
             !r.energy.isNullOrEmpty() -> AnalysisPart.Ready

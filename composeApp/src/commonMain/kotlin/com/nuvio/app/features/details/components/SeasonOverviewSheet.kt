@@ -88,6 +88,7 @@ import com.nuvio.app.features.details.overviewEpisodeOpenSteps
 import com.nuvio.app.features.details.overviewLedgerScope
 import com.nuvio.app.features.details.seasonEpisodeContentKey
 import com.nuvio.app.features.details.seasonOverviewFontScale
+import com.nuvio.app.features.details.seasonSwipeRevealsAction
 import com.nuvio.app.features.details.seasonOverviewModel
 import com.nuvio.app.features.details.seasonSegmentOverview
 import com.nuvio.app.features.details.segmentChipModel
@@ -237,6 +238,7 @@ internal fun SeasonOverviewSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = sheetCap)
+                    .background(MaterialTheme.colorScheme.surface)
                     .padding(bottom = nuvioSafeBottomPadding(16.dp)),
             ) {
                 Text(
@@ -270,6 +272,7 @@ internal fun SeasonOverviewSheet(
                             modifier = Modifier
                                 .weight(1f, fill = false)
                                 .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.surface)
                                 .drawWithContent {
                                     drawContent()
                                     if (scrollMax <= 0 || size.height <= 1f) return@drawWithContent
@@ -409,28 +412,36 @@ private fun SeasonOverviewEpisodeRow(
             dismissState.reset()
         }
     }
+    val reveal = seasonSwipeRevealsAction(
+        currentSettled = dismissState.currentValue == SwipeToDismissBoxValue.Settled,
+        targetSettled = dismissState.targetValue == SwipeToDismissBoxValue.Settled,
+    )
     SwipeToDismissBox(
         state = dismissState,
         enableDismissFromEndToStart = false,
         backgroundContent = {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 44.dp)
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-                    .clip(MaterialTheme.nuvio.shapes.compactCard)
-                    .background(MaterialTheme.colorScheme.primary),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                Text(
-                    text = stringResource(Res.string.watch_privately),
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                )
+            if (reveal) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 44.dp)
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .clip(MaterialTheme.nuvio.shapes.compactCard)
+                        .background(MaterialTheme.colorScheme.primary),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    Text(
+                        text = stringResource(Res.string.watch_privately),
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                }
             }
         },
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.nuvio.shapes.compactCard),
     ) {
         body()
     }

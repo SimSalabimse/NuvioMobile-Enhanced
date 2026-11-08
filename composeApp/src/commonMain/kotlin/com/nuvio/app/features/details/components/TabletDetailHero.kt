@@ -24,7 +24,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.statusBars
+import com.nuvio.app.core.ui.NATIVE_NAVIGATION_BAR_DP
+import com.nuvio.app.core.ui.detailChromeTopInset
+import com.nuvio.app.core.ui.immersiveTextTopInsetDp
+import com.nuvio.app.navigation.LocalNativeNavigationBarHidden
+import com.nuvio.app.navigation.LocalUseNativeNavigation
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
@@ -326,6 +330,12 @@ fun TabletDetailHero(
     val logoUrl = meta.logo?.takeIf { it.isNotBlank() }
     val heroMinHeight = if (viewportHeight > 0.dp) viewportHeight else TabletHeroHeight
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val chromeTop = detailChromeTopInset()
+    val textTop = immersiveTextTopInsetDp(
+        chromeDp = chromeTop.value,
+        navigationBarDp = NATIVE_NAVIGATION_BAR_DP,
+        nativeBarOverlaysHero = LocalUseNativeNavigation.current && !LocalNativeNavigationBarHidden.current,
+    ).dp
 
     Box(
         modifier = Modifier
@@ -335,16 +345,16 @@ fun TabletDetailHero(
     ) {
         Column(
             modifier = Modifier
-                .align(Alignment.BottomStart)
+                .fillMaxSize()
                 .padding(LocalVerticalBarPadding.current)
-                .fillMaxWidth()
                 .padding(
                     start = horizontalPadding,
                     end = horizontalPadding,
-                    top = TabletHeroTopInset,
+                    top = textTop,
                     bottom = bottomInset + space.s24,
                 ),
         ) {
+            Spacer(modifier = Modifier.weight(1f))
             if (logoUrl != null && !logoLoadError) {
                 AsyncImage(
                     model = logoUrl,
@@ -438,7 +448,7 @@ fun TabletDetailHero(
                     .align(Alignment.TopEnd)
                     .padding(LocalVerticalBarPadding.current)
                     .padding(
-                        top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + space.s8,
+                        top = chromeTop + space.s8,
                         end = horizontalPadding,
                     )
                     .size(40.dp)
@@ -511,7 +521,6 @@ private fun TabletHeroMetaRow(meta: MetaDetails, showImdbRating: Boolean) {
 }
 
 private val TabletHeroHeight = 660.dp
-private val TabletHeroTopInset = 96.dp
 private const val BackdropVerticalBias = -0.6f
 
 internal val TabletArtworkBackdropAlignment: Alignment = BiasAlignment(0f, BackdropVerticalBias)

@@ -491,6 +491,8 @@ final class MPVPlayerViewController: UIViewController {
     private var lastResizeMode: Int?
     private var lastVideoZoom: Double?
     private var lastSubtitleDelayMs: Int?
+    private var fittedSubtitleSpeed: Double = 1
+    private var fittedSubtitleDelayMs: Int64 = 0
     private var lastVolume: Float?
     private var lastMuted: Bool?
     private var lastSelectedAudioTrackId: Int?
@@ -1763,12 +1765,15 @@ final class MPVPlayerViewController: UIViewController {
 
     func selectSubtitle(_ trackId: Int) {
         lastSelectedSubtitleTrackId = trackId
+        fittedSubtitleSpeed = 1
+        fittedSubtitleDelayMs = 0
         guard mpv != nil else { return }
         if trackId < 0 {
             setStringProperty("sid", "no")
         } else {
             setIntProperty("sid", Int64(trackId))
         }
+        applySubtitleTiming(userDelayMs: lastSubtitleDelayMs ?? 0)
     }
 
     func addSubtitleUrl(_ url: String) {
@@ -1785,12 +1790,21 @@ final class MPVPlayerViewController: UIViewController {
         // punctuation shows at the start of the sentence. Fix the file off the main
         // thread before handing it to mpv; fall back to the original URL otherwise.
         MPVSubtitleRtlFix.prepare(url: url, headers: headers) { [weak self] localPath, title in
-            guard let self, self.mpvGeneration == coreGeneration else { return }
-            if let localPath {
-                InAppLogBridge.shared.info(tag: "MPV/SubRtl", message: "using RTL-fixed subtitle copy")
-                self.command("sub-add", args: [localPath, "select", title])
-            } else {
-                self.command("sub-add", args: [url, "select"])
+            guard let self else { return }
+            let path = localPath
+            let remote = url
+            let addedTitle = title
+            self.onMpvQueue { [weak self] in
+                guard let self, self.mpvGeneration == coreGeneration, self.mpv != nil else { return }
+                self.fittedSubtitleSpeed = 1
+                self.fittedSubtitleDelayMs = 0
+                if let path {
+                    InAppLogBridge.shared.info(tag: "MPV/SubRtl", message: "using RTL-fixed subtitle copy")
+                    self.command("sub-add", args: [path, "select", addedTitle])
+                } else {
+                    self.command("sub-add", args: [remote, "select"])
+                }
+                self.applySubtitleTiming(userDelayMs: self.lastSubtitleDelayMs ?? 0)
             }
         }
     }
@@ -1865,8 +1879,27 @@ final class MPVPlayerViewController: UIViewController {
 
     func setSubtitleDelayMs(_ delayMs: Int) {
         lastSubtitleDelayMs = delayMs
+        applySubtitleTiming(userDelayMs: delayMs)
+    }
+
+    /// Fitted speed and delay stay separate from the user's delay. A track change clears the fit.
+    func setFittedSubtitleSync(speed: Double, delayMs: Int64) {
+        fittedSubtitleSpeed = speed
+        fittedSubtitleDelayMs = delayMs
+        applySubtitleTiming(userDelayMs: lastSubtitleDelayMs ?? 0)
+    }
+
+    private func applySubtitleTiming(userDelayMs: Int) {
         guard mpv != nil else { return }
-        setDoubleProperty("sub-delay", Double(max(-60_000, min(60_000, delayMs))) / 1000.0)
+        let combined = fittedSubtitleDelayMs + Int64(userDelayMs)
+        let clamped = max(Int64(-60_000), min(Int64(60_000), combined))
+        let values = MpvSubtitleSync.encoded(subSpeed: fittedSubtitleSpeed, subDelayMs: clamped)
+        if let speed = values["sub-speed"] {
+            setDoubleProperty("sub-speed", speed)
+        }
+        if let delay = values["sub-delay"] {
+            setDoubleProperty("sub-delay", delay)
+        }
     }
 
     func setAudioDelayMs(_ delayMs: Int) {

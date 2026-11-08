@@ -1170,7 +1170,7 @@ private fun normalizeSegmentTypeForSubmit(type: String): String? {
  * A public count never becomes that check.
  */
 @Composable
-private fun MovieSegmentStatusBlock(
+internal fun MovieSegmentStatusBlock(
     imdbId: String,
     contentKey: String,
     parentMetaId: String,

@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.VolumeOff
@@ -62,6 +61,8 @@ import com.nuvio.app.core.ui.portraitHeroFrame
 import com.nuvio.app.core.ui.rememberBackdropFocusState
 import com.nuvio.app.core.ui.rememberHeroArtworkSize
 import com.nuvio.app.core.ui.featherArtwork
+import com.nuvio.app.core.ui.detailChromeTopInset
+import com.nuvio.app.core.ui.headingTopPaddingDp
 import com.nuvio.app.core.ui.heroStretchHeight
 import com.nuvio.app.core.ui.heroStretchZoom
 import com.nuvio.app.features.details.MetaDetails
@@ -117,7 +118,8 @@ fun DetailHero(
         val trailerAudioLabel = stringResource(
             if (heroTrailerMuted) Res.string.compose_player_muted else Res.string.compose_player_volume,
         )
-        val heroChromeTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() +
+        val chromeTop = detailChromeTopInset()
+        val heroChromeTopPadding = chromeTop +
             8.dp +
             ((40.dp - muteIconSize) / 2)
         val bottomGradientColor = heroGradientColor ?: MaterialTheme.colorScheme.background
@@ -362,7 +364,10 @@ fun DetailHero(
                 onLogoError = { logoLoadError = true },
                 isTablet = false,
                 contentMaxWidth = contentMaxWidth,
-                modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
+                modifier = Modifier.padding(
+                    top = headingTopPaddingDp(artworkFrameHeight.value, chromeTop.value).dp,
+                    bottom = 8.dp,
+                ),
             )
         }
         }

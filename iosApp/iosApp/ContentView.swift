@@ -1730,8 +1730,14 @@ private struct DetailDestinationView: View {
         wrapper.route is DetailRoute || wrapper.route is StreamRoute
     }
 
+    /// Detail, stream, and player artwork runs under the status bar.
+    /// Folder and every other pushed screen keep the top safe area from UIKit.
+    private var artworkBleedsUnderStatusBar: Bool {
+        wrapper.route is DetailRoute || wrapper.route is StreamRoute || wrapper.route is PlayerRoute
+    }
+
     private var respectsNativeNavigationSafeArea: Bool {
-        false
+        !artworkBleedsUnderStatusBar
     }
 
     private var showsReadabilityFade: Bool {
