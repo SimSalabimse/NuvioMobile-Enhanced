@@ -214,6 +214,9 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
     func clearExternalSubtitle() { playerVC?.removeExternalSubtitles() }
     func clearExternalSubtitleAndSelect(trackId: Int32) { playerVC?.removeExternalSubtitlesAndSelect(Int(trackId)) }
     func setSubtitleDelayMs(delayMs: Int32) { playerVC?.setSubtitleDelayMs(Int(delayMs)) }
+    func setFittedSubtitleSync(speed: Double, delayMs: Int64) {
+        playerVC?.setFittedSubtitleSync(speed: speed, delayMs: delayMs)
+    }
     func setAudioDelayMs(delayMs: Int32) { playerVC?.setAudioDelayMs(Int(delayMs)) }
     func setAudioAmplificationDb(db: Int32) { playerVC?.setAudioAmplificationDb(Int(db)) }
     func setStereoDownmix(enabled: Bool) { playerVC?.setStereoDownmix(enabled) }

@@ -89,6 +89,13 @@ interface NuvioPlayerBridge {
     fun clearExternalSubtitle()
     fun clearExternalSubtitleAndSelect(trackId: Int)
     fun setSubtitleDelayMs(delayMs: Int)
+    /**
+     * Fitted speed and delay for the current subtitle track.
+     * Swift requirement, same shape as [setSubtitleDelayMs]: `setFittedSubtitleSync(speed:delayMs:)`
+     * with `Double` and `Int64`. The parameter names are the selector. `MPVPlayerBridgeImpl` forwards
+     * them to the player. The player queues the fit on the mpv queue.
+     */
+    fun setFittedSubtitleSync(speed: Double, delayMs: Long)
     fun setAudioDelayMs(delayMs: Int)
     fun setAudioAmplificationDb(db: Int)
     fun setStereoDownmix(enabled: Boolean)
