@@ -28,6 +28,7 @@ import nuvio.composeapp.generated.resources.analysis_part_state_needs_episodes
 import nuvio.composeapp.generated.resources.analysis_part_state_pending
 import nuvio.composeapp.generated.resources.analysis_part_recap
 import nuvio.composeapp.generated.resources.analysis_part_recap_none
+import nuvio.composeapp.generated.resources.analysis_part_recap_unchecked
 import nuvio.composeapp.generated.resources.analysis_part_subtitle_sync
 import nuvio.composeapp.generated.resources.analysis_part_loudness
 import nuvio.composeapp.generated.resources.analysis_part_previews
@@ -244,6 +245,7 @@ private fun stateWord(part: AnalysisPart): String = when (part) {
     AnalysisPart.NotFound -> stringResource(Res.string.analysis_part_state_not_found)
     AnalysisPart.NeedsMoreEpisodes -> stringResource(Res.string.analysis_part_state_needs_episodes)
     AnalysisPart.Pending -> stringResource(Res.string.analysis_part_state_pending)
+    AnalysisPart.NotChecked -> stringResource(Res.string.analysis_part_recap_unchecked)
     AnalysisPart.Off -> ""
 }
 
@@ -255,6 +257,7 @@ private fun PartChips(item: DownloadItem, parts: AnalysisParts) {
     val ledger by SkipSourceLedger.revision.collectAsStateWithLifecycle()
     val external = remember(item.id, item.fileName, parts, ledger) { externalSkipSources(item) }
     val noRecapText = stringResource(Res.string.analysis_part_recap_none)
+    val notCheckedText = stringResource(Res.string.analysis_part_recap_unchecked)
     val readyWord = stringResource(Res.string.analysis_part_state_ready)
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
@@ -280,9 +283,22 @@ private fun PartChips(item: DownloadItem, parts: AnalysisParts) {
                 )
                 return@forEach
             }
-            if (kind == AnalysisChipKind.Recap && part == AnalysisPart.NotFound) {
+            if (kind == AnalysisChipKind.Recap && recapChipSentence(part) == RecapChipSentence.NoRecapFound) {
                 Text(
                     text = noRecapText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .clearAndSetSemantics { contentDescription = spoken },
+                )
+                return@forEach
+            }
+            if (kind == AnalysisChipKind.Recap && recapChipSentence(part) == RecapChipSentence.NotChecked) {
+                Text(
+                    text = notCheckedText,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
@@ -298,6 +314,7 @@ private fun PartChips(item: DownloadItem, parts: AnalysisParts) {
                 AnalysisPart.NotFound -> stringResource(Res.string.analysis_part_none) to false
                 AnalysisPart.NeedsMoreEpisodes -> stringResource(Res.string.analysis_part_needs_episodes) to false
                 AnalysisPart.Pending -> "…" to false
+                AnalysisPart.NotChecked -> notCheckedText to false
                 AnalysisPart.Off -> "" to false
             }
             PartChip("$label $suffix", ready, spoken)

@@ -690,6 +690,7 @@ internal object RecapDetector {
     ): Pair<Long, Long>? {
         val found = search(episode, others)
         val why = when {
+            found.unchecked -> "not-checked-no-print"
             found.range != null && found.fromPrevious -> "accepted-previous-ending"
             found.range != null -> "accepted-montage"
             found.dialog -> "rejected-dialog-overlay"
@@ -744,6 +745,8 @@ internal object RecapDetector {
         val tooShort: Boolean = false,
         val fromPrevious: Boolean = false,
         val dialog: Boolean = false,
+        /** The search did not run. An empty opening print is not a completed miss. */
+        val unchecked: Boolean = false,
     )
 
     private data class Clip(val startMs: Long, val endMs: Long, val sibling: Int, val previous: Boolean)
@@ -753,7 +756,7 @@ internal object RecapDetector {
         val introStart = episode.introStartMs
         if (introStart != null && introStart < MIN_RECAP_MS) return Found()
         val head = decodeFingerprint(episode.headFingerprint)
-        if (head.isEmpty()) return Found()
+        if (head.isEmpty()) return Found(unchecked = true)
         val windowMs = if (introStart == null) NO_INTRO_WINDOW_MS else minOf(introStart, MAX_RECAP_MS)
         val windowFrames = minOf(head.size, (windowMs / step).toInt())
         val minFrames = (MIN_CLIP_MS / step).toInt().coerceAtLeast(1)

@@ -59,7 +59,7 @@ data class AnalysisBackgroundInfo(
 )
 
 /** Readiness of one analysis output for a file. */
-enum class AnalysisPart { Ready, NotFound, NeedsMoreEpisodes, Off, Pending }
+enum class AnalysisPart { Ready, NotFound, NeedsMoreEpisodes, Off, Pending, NotChecked }
 
 /** One chip on a downloaded item. Intro is episodes only; movies show Credits. */
 enum class AnalysisChipKind { Intro, Credits, Recap, SubtitleSync, Loudness, Previews }
@@ -233,6 +233,7 @@ object MediaAnalysisStatus {
             durationMs = r.durationMs,
             siblingsEmpty = season != null &&
                 MediaAnalysisStore.seasonSiblings(item.parentMetaId, season, r.key).isEmpty(),
+            outcome = r.recapOutcome,
         )
         val subtitleSync = when {
             !on(MediaAnalysisSettings.Flag.SubtitleSync) -> AnalysisPart.Off

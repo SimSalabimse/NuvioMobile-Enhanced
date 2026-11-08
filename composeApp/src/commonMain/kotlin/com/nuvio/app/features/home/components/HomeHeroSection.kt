@@ -60,6 +60,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
+import com.nuvio.app.core.ui.platformPhysicalTopInset
+import com.nuvio.app.features.home.HOME_HERO_CONTENT_TAG
+import com.nuvio.app.features.home.HOME_HERO_CONTENT_TAG
+import com.nuvio.app.features.home.homeContentTopInsetDp
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -181,6 +186,14 @@ internal val HERO_CARD_CORNER_RADIUS = 28.dp
 internal val HERO_CARD_HORIZONTAL_PADDING = 12.dp
 internal val HERO_CARD_TOP_PADDING = 8.dp
 
+/** Status bar and window top, once. The tab host does not consume the top inset. */
+@Composable
+internal fun homeContentTopInset(): Dp {
+    val status = WindowInsets.statusBars.asPaddingValues().calculateTopPadding().value
+    val windowTop = platformPhysicalTopInset().value
+    return homeContentTopInsetDp(status, windowTop).dp
+}
+
 internal fun heroUsesWideArtwork(
     maxWidth: Dp,
     viewportHeight: Dp?,
@@ -295,10 +308,10 @@ internal fun HomeHeroSection(
     }
 
     val isCardStyle = heroStyle == HomeHeroStyle.CARD
-    val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val contentTopInset = homeContentTopInset()
     val cardInsetModifier = if (isCardStyle) {
         Modifier.padding(
-            top = statusBarTopPadding + HERO_CARD_TOP_PADDING,
+            top = HERO_CARD_TOP_PADDING,
             start = HERO_CARD_HORIZONTAL_PADDING,
             end = HERO_CARD_HORIZONTAL_PADDING,
         )
@@ -312,7 +325,10 @@ internal fun HomeHeroSection(
     }
 
     Column(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = contentTopInset)
+            .testTag(HOME_HERO_CONTENT_TAG),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         BoxWithConstraints(
@@ -761,7 +777,7 @@ internal fun HomeHeroSection(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
                                 .padding(
-                                    top = statusBarTopPadding + 12.dp,
+                                    top = 12.dp,
                                     end = if (layout.isTablet) 32.dp else 18.dp,
                                 )
                                 .size((muteIconSize + 16.dp).atLeastIosHitTarget())
@@ -949,15 +965,16 @@ internal fun HomeHeroReservedSpace(
     heroStyle: HomeHeroStyle = HomeHeroStyle.FULL_BLEED,
 ) {
     val isCardStyle = heroStyle == HomeHeroStyle.CARD
-    val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val contentTopInset = homeContentTopInset()
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
+            .padding(top = contentTopInset)
             .then(
                 if (isCardStyle) {
                     Modifier.padding(
-                        top = statusBarTopPadding + HERO_CARD_TOP_PADDING,
+                        top = HERO_CARD_TOP_PADDING,
                         start = HERO_CARD_HORIZONTAL_PADDING,
                         end = HERO_CARD_HORIZONTAL_PADDING,
                     )

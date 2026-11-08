@@ -304,7 +304,9 @@ fun DownloadsScreen(
         var catalogMeta by remember(overviewShowId, showType) { mutableStateOf<com.nuvio.app.features.details.MetaDetails?>(null) }
         LaunchedEffect(overviewShowId, showType) {
             catalogMeta = com.nuvio.app.features.details.MetaDetailsRepository.cachedMeta(showType, overviewShowId)
+                ?: com.nuvio.app.features.details.MetaDetailsRepository.fetch(showType, overviewShowId)
         }
+        val downloadsOnline by com.nuvio.app.core.network.NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
         val ledgerRevision by com.nuvio.app.features.player.skip.OwnTheIntroDbLedger.revision.collectAsStateWithLifecycle()
         val overviewEpisodes = remember(catalogMeta, overviewShowId, overviewSeasonNumber, ledgerRevision, showItems) {
             val imdb = buildSet {
@@ -349,7 +351,7 @@ fun DownloadsScreen(
                     }
                 },
                 loading = false,
-                offline = true,
+                offline = !downloadsOnline.isOnline,
                 fromDownloads = true,
                 onDismiss = { overviewSeason = null },
                 onOpenEpisode = { video ->

@@ -70,6 +70,7 @@ import com.nuvio.app.features.home.components.HomeContinueWatchingSection
 import com.nuvio.app.features.home.components.HomeEmptyStateCard
 import com.nuvio.app.features.home.components.HomeHeroReservedSpace
 import com.nuvio.app.features.home.components.HomeHeroSection
+import com.nuvio.app.features.home.components.homeContentTopInset
 import com.nuvio.app.features.home.components.HomeSkeletonHero
 import com.nuvio.app.features.home.components.HomeSkeletonRow
 import com.nuvio.app.features.home.components.HomeContinueWatchingSectionBottomPadding
@@ -1132,7 +1133,7 @@ fun HomeScreen(
             NuvioScreen(
                 modifier = Modifier.fillMaxSize().then(heroStretchModifier),
                 horizontalPadding = 0.dp,
-                topPadding = if (showHeroSlot) 0.dp else null,
+                topPadding = if (showHeroSlot) 0.dp else homeContentTopInset(),
                 listState = homeListState,
                 autoHidesNativeTabBar = true,
             ) {

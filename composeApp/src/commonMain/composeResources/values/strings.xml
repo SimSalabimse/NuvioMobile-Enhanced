@@ -2021,6 +2021,14 @@
     <string name="season_overview_segment_pending">%1$s, pending</string>
     <string name="season_overview_segment_detected">%1$s. Detected, not submitted yet</string>
     <string name="season_overview_segment_missing">%1$s, missing</string>
+    <string name="season_overview_public_checking">Public · checking</string>
+    <string name="season_overview_public_none">Public · none</string>
+    <string name="season_overview_public_unavailable">Public · unavailable</string>
+    <string name="season_overview_public_not_checked">Public · not checked</string>
+    <string name="season_overview_public_listed">Public · %1$s</string>
+    <string name="season_overview_own_not_checked">Yours · not checked</string>
+    <string name="season_overview_own_not_submitted">Yours · not submitted</string>
+    <string name="season_overview_own_unavailable">Yours · unavailable</string>
     <string name="home_continue_watching_up_next">Next Up</string>
     <string name="home_continue_watching_watched">%1$s watched</string>
     <string name="home_continue_watching_hours_minutes_left">%1$dh %2$dm left</string>
@@ -3290,6 +3298,7 @@
     </plurals>
     <string name="watch_stats_last_7_days">Last 7 days</string>
     <string name="analysis_part_recap_none">No recap found</string>
+    <string name="analysis_part_recap_unchecked">Not checked</string>
     <string name="settings_nav_bar_liquid_glass">Liquid Glass material</string>
     <string name="settings_nav_bar_liquid_glass_description">Adds refraction and blur to the floating navigation bar.</string>
     <string name="settings_nav_bar_liquid_glass_unsupported_description">Requires Android 13 or later. This device will keep the existing glass style.</string>

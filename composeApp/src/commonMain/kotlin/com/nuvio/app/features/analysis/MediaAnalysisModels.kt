@@ -43,6 +43,12 @@ internal data class MediaAnalysisResult(
     /** "Previously on" recap at the start, found against other episodes of the season. */
     val recapStartMs: Long? = null,
     val recapEndMs: Long? = null,
+    /**
+     * Why the last recap pass ended, as a token such as `rejected-no-match` or
+     * `not-checked-no-print`. Null on a result saved before this was recorded.
+     * A missing time with a null token was not a completed "none" result.
+     */
+    val recapOutcome: String? = null,
     /** Derived data (recap, thumbnails) is up to date with [MEDIA_ANALYSIS_DERIVED_VERSION]. */
     val derivedVersion: Int = 0,
     /** Scrub-preview thumbnail sheets of this file (null: not made). */

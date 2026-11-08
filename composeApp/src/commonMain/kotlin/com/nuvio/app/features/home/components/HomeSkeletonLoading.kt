@@ -71,15 +71,16 @@ internal fun HomeSkeletonHero(
 ) {
     val brush = rememberHomeSkeletonBrush()
     val isCardStyle = heroStyle == HomeHeroStyle.CARD
-    val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val contentTopInset = homeContentTopInset()
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
+            .padding(top = contentTopInset)
             .then(
                 if (isCardStyle) {
                     Modifier.padding(
-                        top = statusBarTopPadding + HERO_CARD_TOP_PADDING,
+                        top = HERO_CARD_TOP_PADDING,
                         start = HERO_CARD_HORIZONTAL_PADDING,
                         end = HERO_CARD_HORIZONTAL_PADDING,
                     )

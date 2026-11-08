@@ -874,7 +874,12 @@ internal object MediaAnalysisScheduler {
             MediaAnalysisStore.save(result)
             return false
         }
-        MediaAnalysisStore.save(result.copy(derivedVersion = MEDIA_ANALYSIS_DERIVED_VERSION))
+        MediaAnalysisStore.save(
+            result.copy(
+                derivedVersion = MEDIA_ANALYSIS_DERIVED_VERSION,
+                recapOutcome = recapOutcomeToStore(trace.decisions) ?: result.recapOutcome,
+            ),
+        )
         return thumbsOk
     }
 

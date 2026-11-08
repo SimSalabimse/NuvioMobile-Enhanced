@@ -90,8 +90,23 @@ import com.nuvio.app.features.details.seasonEpisodeContentKey
 import com.nuvio.app.features.details.seasonOverviewFontScale
 import com.nuvio.app.features.details.seasonSwipeRevealsAction
 import com.nuvio.app.features.details.seasonOverviewModel
+import com.nuvio.app.core.uifixture.currentUiFixture
+import com.nuvio.app.features.details.CatalogRead
+import com.nuvio.app.features.details.EpisodeCatalogFacts
+import com.nuvio.app.features.details.SeasonStatusRequest
+import com.nuvio.app.features.details.catalogueDurationMs
+import com.nuvio.app.features.details.currentOwnListing
+import com.nuvio.app.features.details.factsForEpisode
+import com.nuvio.app.features.details.loadSeasonCatalog
+import com.nuvio.app.features.details.mergeOwnListing
+import com.nuvio.app.features.details.productionPublicEpisode
+import com.nuvio.app.features.details.seasonPublicCache
+import com.nuvio.app.features.details.SeasonOwnCache
+import com.nuvio.app.features.details.usesFixtureLedger
 import com.nuvio.app.features.details.seasonSegmentOverview
 import com.nuvio.app.features.details.segmentChipModel
+import com.nuvio.app.features.player.skip.OwnAccountMarks
+import com.nuvio.app.features.player.skip.ownListBucketsForTitle
 import com.nuvio.app.features.downloads.AnalysisTempDownloads
 import com.nuvio.app.features.downloads.downloadEpisodesForAnalysis
 import com.nuvio.app.features.downloads.seasonSheetDismissDurationMs
@@ -113,6 +128,13 @@ import nuvio.composeapp.generated.resources.season_overview_select
 import nuvio.composeapp.generated.resources.season_overview_include_download
 import nuvio.composeapp.generated.resources.season_overview_included
 import nuvio.composeapp.generated.resources.season_overview_more
+import nuvio.composeapp.generated.resources.season_overview_own_not_checked
+import nuvio.composeapp.generated.resources.season_overview_own_not_submitted
+import nuvio.composeapp.generated.resources.season_overview_own_unavailable
+import nuvio.composeapp.generated.resources.season_overview_public_listed
+import nuvio.composeapp.generated.resources.season_overview_public_none
+import nuvio.composeapp.generated.resources.season_overview_public_not_checked
+import nuvio.composeapp.generated.resources.season_overview_public_unavailable
 import nuvio.composeapp.generated.resources.season_overview_open
 import nuvio.composeapp.generated.resources.season_overview_remove_download
 import nuvio.composeapp.generated.resources.season_overview_watched
@@ -162,6 +184,75 @@ internal fun SeasonOverviewSheet(
                 ),
             )
         }
+    }
+    var catalogFacts by remember(meta.id, season) { mutableStateOf<Map<String, EpisodeCatalogFacts>>(emptyMap()) }
+    LaunchedEffect(refs, offline, meta.id, meta.imdbId) {
+        val scope = overviewLedgerScope()
+        val stored = OwnTheIntroDbLedger.load(scope)
+        if (offline || currentUiFixture().usesFixtureLedger()) {
+            catalogFacts = refs.associate { ref ->
+                ref.contentKey to factsForEpisode(
+                    contentKey = ref.contentKey,
+                    publicStatus = null,
+                    media = null,
+                    ownListed = false,
+                    ownFailed = false,
+                    merged = stored,
+                )
+            }
+            return@LaunchedEffect
+        }
+        val imdb = meta.imdbId?.takeIf { it.startsWith("tt", ignoreCase = true) }
+            ?: meta.id.takeIf { it.startsWith("tt", ignoreCase = true) }
+            ?: refs.firstNotNullOfOrNull { ref ->
+                ref.contentKey.substringBefore(':').takeIf { it.startsWith("tt") }
+            }
+            .orEmpty()
+        val requests = refs.map { ref ->
+            val video = episodes.firstOrNull { it.episode == ref.episode && (it.season ?: 0) == ref.season }
+            val episodeImdb = ref.contentKey.substringBefore(':').takeIf { it.startsWith("tt") } ?: imdb
+            SeasonStatusRequest(
+                imdbId = episodeImdb,
+                season = ref.season,
+                episode = ref.episode,
+                durationMs = catalogueDurationMs(video?.runtime),
+                contentKey = ref.contentKey,
+            )
+        }
+        val listing = SeasonOwnCache.get(scope) ?: currentOwnListing(imdb)?.also { SeasonOwnCache.put(scope, it) }
+        if (listing != null && !listing.failed && listing.tmdbId > 0) {
+            requests.forEach { request ->
+                val buckets = ownListBucketsForTitle(
+                    listing.records,
+                    listing.tmdbId,
+                    isMovie = false,
+                    season = request.season,
+                    episode = request.episode,
+                )
+                OwnTheIntroDbLedger.applyListing(
+                    scope = scope,
+                    contentKey = request.contentKey,
+                    confirmed = buckets.confirmed,
+                    pending = buckets.pending,
+                    rejected = buckets.rejected,
+                )
+            }
+        }
+        val merged = if (listing != null) {
+            mergeOwnListing(stored, OwnAccountMarks(), requests, listing).first
+        } else {
+            stored
+        }
+        catalogFacts = loadSeasonCatalog(
+            requests = requests,
+            ownListing = listing,
+            merged = OwnTheIntroDbLedger.load(scope).let { latest ->
+                if (latest.confirmed.isEmpty() && latest.pending.isEmpty()) merged else latest
+            },
+            publicFetch = ::productionPublicEpisode,
+            cache = seasonPublicCache,
+            nowMs = com.nuvio.app.features.streams.epochMs(),
+        ).associateBy { it.contentKey }
     }
     val rows = remember(refs, analysisRevision, ownRevision, tempRevision, meta.id) {
         val own = OwnTheIntroDbLedger.load(overviewLedgerScope())
@@ -306,6 +397,7 @@ internal fun SeasonOverviewSheet(
                                         title = row.title,
                                         watched = row.watched,
                                         marks = row.marks,
+                                        facts = catalogFacts[row.contentKey],
                                         selected = row.contentKey in selected,
                                         onSelectedChange = { checked ->
                                             selected = if (checked) selected + row.contentKey else selected - row.contentKey
@@ -383,6 +475,7 @@ private fun SeasonOverviewEpisodeRow(
     title: String,
     watched: Boolean,
     marks: Map<String, SegmentMark>,
+    facts: EpisodeCatalogFacts?,
     selected: Boolean,
     onSelectedChange: (Boolean) -> Unit,
     onOpen: () -> Unit,
@@ -395,6 +488,7 @@ private fun SeasonOverviewEpisodeRow(
             title = title,
             watched = watched,
             marks = marks,
+            facts = facts,
             selected = selected,
             onSelectedChange = onSelectedChange,
             onOpen = onOpen,
@@ -453,6 +547,7 @@ private fun SeasonOverviewEpisodeBody(
     title: String,
     watched: Boolean,
     marks: Map<String, SegmentMark>,
+    facts: EpisodeCatalogFacts?,
     selected: Boolean,
     onSelectedChange: (Boolean) -> Unit,
     onOpen: () -> Unit,
@@ -550,7 +645,53 @@ private fun SeasonOverviewEpisodeBody(
                 }
             }
         }
+        facts?.let { status ->
+            Text(
+                text = publicStatusLine(status),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            ownStatusLine(status, visible.isNotEmpty())?.let { line ->
+                Text(
+                    text = line,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
+}
+
+@Composable
+private fun publicStatusLine(facts: EpisodeCatalogFacts): String {
+    val intro = stringResource(Res.string.submit_intro_segment_intro)
+    val recap = stringResource(Res.string.submit_intro_segment_recap)
+    val credits = stringResource(Res.string.analysis_part_credits)
+    val preview = stringResource(Res.string.submit_intro_segment_preview)
+    return when (facts.publicRead) {
+        CatalogRead.NotChecked -> stringResource(Res.string.season_overview_public_not_checked)
+        CatalogRead.None -> stringResource(Res.string.season_overview_public_none)
+        CatalogRead.Unavailable -> stringResource(Res.string.season_overview_public_unavailable)
+        CatalogRead.Listed -> stringResource(
+            Res.string.season_overview_public_listed,
+            facts.publicTypes.joinToString(", ") { type ->
+                when (type) {
+                    "intro" -> intro
+                    "recap" -> recap
+                    "outro" -> credits
+                    else -> preview
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun ownStatusLine(facts: EpisodeCatalogFacts, hasOwnChips: Boolean): String? = when (facts.ownRead) {
+    CatalogRead.NotChecked -> stringResource(Res.string.season_overview_own_not_checked)
+    CatalogRead.Unavailable -> stringResource(Res.string.season_overview_own_unavailable)
+    CatalogRead.None -> if (hasOwnChips) null else stringResource(Res.string.season_overview_own_not_submitted)
+    CatalogRead.Listed -> null
 }
 
 @Composable
