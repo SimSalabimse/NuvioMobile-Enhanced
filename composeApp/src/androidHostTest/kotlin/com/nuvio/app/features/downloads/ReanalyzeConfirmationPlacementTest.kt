@@ -174,6 +174,10 @@ class ReanalyzeConfirmationPlacementTest {
         val viewport = compose.onNodeWithTag("viewport").getBoundsInRoot()
         assertEquals(width, viewport.right - viewport.left)
         assertEquals(height, viewport.bottom - viewport.top)
+        val spanX = viewport.right - viewport.left
+        val spanY = viewport.bottom - viewport.top
+        val viewMidX = viewport.left + spanX / 2
+        val viewMidY = viewport.top + spanY / 2
         listOf(
             compose.onNodeWithTag(REANALYZE_CONFIRMATION_TAG),
             compose.onNodeWithText("Cancel"),
@@ -185,5 +189,12 @@ class ReanalyzeConfirmationPlacementTest {
             assertTrue(bounds.right <= viewport.right, "right ${bounds.right} viewport ${viewport.right}")
             assertTrue(bounds.bottom <= viewport.bottom, "bottom ${bounds.bottom} viewport ${viewport.bottom}")
         }
+        val card = compose.onNodeWithTag(REANALYZE_CONFIRMATION_TAG).getBoundsInRoot()
+        val cardMidX = card.left + (card.right - card.left) / 2
+        val cardMidY = card.top + (card.bottom - card.top) / 2
+        val dx = if (cardMidX > viewMidX) cardMidX - viewMidX else viewMidX - cardMidX
+        val dy = if (cardMidY > viewMidY) cardMidY - viewMidY else viewMidY - cardMidY
+        assertTrue(dx <= spanX * 0.15f, "card mid x $cardMidX viewport mid $viewMidX")
+        assertTrue(dy <= spanY * 0.15f, "card mid y $cardMidY viewport mid $viewMidY")
     }
 }
