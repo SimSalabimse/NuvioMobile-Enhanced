@@ -53,6 +53,8 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
+import com.nuvio.app.core.uifixture.currentUiFixture
+import com.nuvio.app.core.uifixture.playsBundledClip
 import com.nuvio.app.core.uifixture.withLocalizedSettingsWalkTitle
 import com.nuvio.app.core.ui.LocalPosterClickAnchor
 import com.nuvio.app.core.ui.LocalVerticalBarPadding
@@ -1235,6 +1237,7 @@ internal fun MainAppContent(
                     ).applyingIsolatedPlayback(submitMode, privateSession)
                     if (
                         !isolated &&
+                        !currentUiFixture().playsBundledClip() &&
                         (forceExternalPlayer || playerSettingsUiState.externalPlayerEnabled) &&
                         !isLoopbackPartialPlaybackUrl(localSourceUrl)
                     ) {

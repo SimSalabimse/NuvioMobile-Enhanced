@@ -225,6 +225,7 @@ internal fun UiFixture?.usesFixtureLedger(): Boolean =
     this == UiFixture.SeasonOverview ||
         this == UiFixture.SeasonOverviewLong ||
         this == UiFixture.DownloadsSeason ||
+        this == UiFixture.DownloadsPlay ||
         this == UiFixture.DetailsOnline ||
         this == UiFixture.DetailsMovieOffline
 

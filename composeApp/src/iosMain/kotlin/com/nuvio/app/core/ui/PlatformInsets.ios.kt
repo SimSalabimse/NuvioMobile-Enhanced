@@ -43,5 +43,25 @@ internal actual fun platformPhysicalBottomInset(): Dp {
         ?: nuvioBottomNavigationBarInsets().asPaddingValues().calculateBottomPadding()
 }
 
+@OptIn(ExperimentalForeignApi::class)
+@Composable
+internal actual fun platformPhysicalSafeInsets(): DisplaySafeInsets {
+    val insets = LocalUIViewController.current.view.window?.safeAreaInsets
+    if (insets != null) {
+        return insets.useContents {
+            DisplaySafeInsets(
+                top = top.toFloat().dp,
+                bottom = bottom.toFloat().dp,
+                left = left.toFloat().dp,
+                right = right.toFloat().dp,
+            )
+        }
+    }
+    return DisplaySafeInsets(
+        top = platformPhysicalTopInset(),
+        bottom = platformPhysicalBottomInset(),
+    )
+}
+
 @Composable
 internal actual fun ResizeForKeyboard() = Unit

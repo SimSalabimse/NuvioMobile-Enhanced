@@ -62,9 +62,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import com.nuvio.app.core.ui.platformPhysicalTopInset
-import com.nuvio.app.features.home.HOME_HERO_CONTENT_TAG
+import com.nuvio.app.features.home.HOME_HERO_ART_TAG
 import com.nuvio.app.features.home.HOME_HERO_CONTENT_TAG
 import com.nuvio.app.features.home.homeContentTopInsetDp
+import com.nuvio.app.features.home.homeHeroTopPaddingDp
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -327,14 +328,14 @@ internal fun HomeHeroSection(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = contentTopInset)
-            .testTag(HOME_HERO_CONTENT_TAG),
+            .padding(top = homeHeroTopPaddingDp(isCardStyle, contentTopInset.value).dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(cardInsetModifier)
+                .testTag(HOME_HERO_ART_TAG)
                 .homeHeroPagerGesture(
                     pagerState = pagerState,
                     itemCount = items.size,
@@ -759,7 +760,9 @@ internal fun HomeHeroSection(
                                 showImdbRating = showImdbRating,
                                 showMdbListRatings = showMdbListRatings,
                                 onItemClick = onItemClick,
-                                modifier = Modifier.align(Alignment.BottomCenter),
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .testTag(HOME_HERO_CONTENT_TAG),
                             )
                         }
                     }
@@ -777,7 +780,7 @@ internal fun HomeHeroSection(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
                                 .padding(
-                                    top = 12.dp,
+                                    top = 12.dp + if (isCardStyle) 0.dp else contentTopInset,
                                     end = if (layout.isTablet) 32.dp else 18.dp,
                                 )
                                 .size((muteIconSize + 16.dp).atLeastIosHitTarget())
@@ -813,7 +816,9 @@ internal fun HomeHeroSection(
                     showImdbRating = showImdbRating,
                     showMdbListRatings = showMdbListRatings,
                     onItemClick = onItemClick,
-                    modifier = Modifier.padding(top = 4.dp),
+                    modifier = Modifier
+                        .padding(top = 4.dp)
+                        .testTag(HOME_HERO_CONTENT_TAG),
                 )
             }
             }
@@ -970,7 +975,7 @@ internal fun HomeHeroReservedSpace(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = contentTopInset)
+            .padding(top = homeHeroTopPaddingDp(isCardStyle, contentTopInset.value).dp)
             .then(
                 if (isCardStyle) {
                     Modifier.padding(

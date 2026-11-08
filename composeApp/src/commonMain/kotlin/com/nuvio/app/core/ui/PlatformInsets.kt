@@ -22,6 +22,17 @@ internal expect fun platformPhysicalTopInset(): Dp
 @Composable
 internal expect fun platformPhysicalBottomInset(): Dp
 
+/** The window's safe area. The tab host draws edge to edge, so this is not the Compose inset. */
+internal data class DisplaySafeInsets(
+    val top: Dp = 0.dp,
+    val bottom: Dp = 0.dp,
+    val left: Dp = 0.dp,
+    val right: Dp = 0.dp,
+)
+
+@Composable
+internal expect fun platformPhysicalSafeInsets(): DisplaySafeInsets
+
 @Composable
 internal expect fun ResizeForKeyboard()
 

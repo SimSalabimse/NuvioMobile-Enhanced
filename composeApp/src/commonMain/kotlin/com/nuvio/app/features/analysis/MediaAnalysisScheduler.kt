@@ -1,6 +1,8 @@
 package com.nuvio.app.features.analysis
 
 import com.nuvio.app.core.logging.InAppLogger
+import com.nuvio.app.core.uifixture.currentUiFixture
+import com.nuvio.app.core.uifixture.playsBundledClip
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadStatus
 import com.nuvio.app.features.downloads.DownloadsRepository
@@ -239,6 +241,7 @@ internal object MediaAnalysisScheduler {
 
     /** Drops the stored results of [items] and analyses them again. */
     fun reanalyse(items: List<DownloadItem>) {
+        if (currentUiFixture().playsBundledClip()) return
         val runningId = (MediaAnalysisStatus.job.value as? AnalysisJobState.Running)?.itemId
         if (runningId != null && items.any { it.id == runningId }) cancel()
         items.forEach { item ->
@@ -313,6 +316,7 @@ internal object MediaAnalysisScheduler {
     }
 
     private suspend fun runPendingOnce(fromBackgroundTask: Boolean): Boolean {
+        if (currentUiFixture().playsBundledClip()) return true
         if (!analyserSupported() || !anyFeatureEnabled) return true
         DownloadsRepository.ensureLoaded()
         forgetDeletedFiles()

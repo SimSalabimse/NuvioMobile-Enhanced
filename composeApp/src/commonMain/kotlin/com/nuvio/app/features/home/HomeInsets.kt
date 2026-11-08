@@ -19,3 +19,13 @@ internal const val HOME_SMALL_PORTRAIT_TOP_DP = 20f
 
 /** The hero title and artwork. The screen background is not this tag. */
 internal const val HOME_HERO_CONTENT_TAG = "home-hero-content"
+
+/** The hero picture. It is not padded by the status inset. */
+internal const val HOME_HERO_ART_TAG = "home-hero-art"
+
+/**
+ * Full-bleed artwork starts at the top of the viewport.
+ * A card hero is content, so it keeps the one status inset.
+ */
+internal fun homeHeroTopPaddingDp(cardStyle: Boolean, contentTopDp: Float): Float =
+    if (cardStyle) contentTopDp.coerceAtLeast(0f) else 0f

@@ -14,6 +14,7 @@ import com.nuvio.app.features.player.skip.OwnTheIntroDbLedger
 import com.nuvio.app.features.player.skip.PublicMediaStatus
 import com.nuvio.app.features.player.skip.movieSegmentRows
 import com.nuvio.app.features.settings.SettingsPage
+import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.navigation.DetailRoute
 import com.nuvio.app.navigation.DownloadShowRoute
 import java.io.File
@@ -118,6 +119,33 @@ class UiFixturesTest {
         assertEquals(UiFixture.HomeTall, parseUiFixtureLaunch("home-tall"))
         assertEquals(UiFixture.DetailsTall, parseUiFixtureLaunch("details-tall"))
         assertEquals(UiFixture.DownloadsSeason, parseUiFixtureLaunch("downloads-season"))
+        assertEquals(UiFixture.DownloadsPlay, parseUiFixtureLaunch("downloads-play"))
+        assertEquals(UiFixture.HomePlay, parseUiFixtureLaunch("home-play"))
+        assertNull(UiFixture.HomePlay.launchRoute())
+        val playRoute = UiFixture.DownloadsPlay.launchRoute() as DownloadShowRoute
+        assertEquals(UiFixtureCatalog.DOWNLOADS_SEASON_SHOW_ID, playRoute.showId)
+        assertTrue(UiFixture.DownloadsPlay.playsBundledClip())
+        assertTrue(UiFixture.HomePlay.playsBundledClip())
+        assertFalse(UiFixture.DownloadsSeason.playsBundledClip())
+        assertTrue(UiFixture.DownloadsPlay.usesFixtureLedger())
+        val harbor = with(UiFixtureCatalog) {
+            WatchProgressEntry(
+                contentType = "series",
+                parentMetaId = SERIES_ID,
+                parentMetaType = "series",
+                videoId = HOME_PLAY_VIDEO_ID,
+                title = SERIES_TITLE,
+                seasonNumber = 1,
+                episodeNumber = 3,
+                lastPositionMs = 420_000L,
+                durationMs = 1_000_000L,
+                lastUpdatedEpochMs = 0L,
+                progressPercent = 42f,
+            ).forHomeClip()
+        }
+        assertEquals(1_000L, harbor.lastPositionMs)
+        assertEquals(8_000L, harbor.durationMs)
+        assertEquals(3, harbor.episodeNumber)
         assertEquals(UiFixture.Walk, parseUiFixtureLaunch("player-submit-bar-movie"))
         assertEquals("player-submit-bar-movie", parseUiFixtureRequest("player-submit-bar-movie")?.walkId)
         assertNull(parseUiFixtureRequest("settings-appearance@844"))

@@ -7,9 +7,11 @@ import android.view.WindowManager
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -27,6 +29,18 @@ internal actual fun platformPhysicalTopInset(): Dp =
 @Composable
 internal actual fun platformPhysicalBottomInset(): Dp =
     WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+@Composable
+internal actual fun platformPhysicalSafeInsets(): DisplaySafeInsets {
+    val padding = WindowInsets.safeDrawing.asPaddingValues()
+    val direction = LocalLayoutDirection.current
+    return DisplaySafeInsets(
+        top = padding.calculateTopPadding(),
+        bottom = padding.calculateBottomPadding(),
+        left = padding.calculateLeftPadding(direction),
+        right = padding.calculateRightPadding(direction),
+    )
+}
 
 @Composable
 internal actual fun ResizeForKeyboard() {
