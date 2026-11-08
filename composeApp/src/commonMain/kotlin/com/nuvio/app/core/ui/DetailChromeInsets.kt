@@ -33,6 +33,16 @@ internal fun hostRespectsTopSafeArea(routeKind: String?): Boolean = when (routeK
 internal fun detailHeroImageTopDp(routeKind: String?): Float =
     if (hostRespectsTopSafeArea(routeKind)) 0f else Float.NaN
 
+/** The custom hero back button is absent while the native back button is on screen. */
+internal fun detailHeroBackShown(nativeBackVisible: Boolean): Boolean = !nativeBackVisible
+
+/**
+ * Extra top padding for that custom button. When the host already inset the page, this is 8.
+ * It does not add the status bar again.
+ */
+internal fun detailHeroBackTopDp(hostRespectsTop: Boolean, statusBarDp: Float): Float =
+    detailChromeTopInsetDp(statusBarDp, statusBarDp, hostRespectsTop) + 8f
+
 /** Extra top padding Compose may add. Zero when the host already applied the top safe area. */
 internal fun detailChromeTopInsetDp(
     physicalDp: Float,

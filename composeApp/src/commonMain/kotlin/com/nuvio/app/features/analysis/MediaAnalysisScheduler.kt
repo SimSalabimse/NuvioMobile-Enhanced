@@ -103,6 +103,8 @@ internal data class RawClipFingerprint(
     val fingerprint: String? = null,
     /** False when the decoder refused a window longer than the budget instead of truncating it. */
     val windowComplete: Boolean = true,
+    /** Why decoding stopped. Anything other than window-end means the fingerprint is not the whole window. */
+    val stopReason: String? = null,
 )
 
 @Serializable
@@ -140,6 +142,13 @@ internal object MediaAnalysisScheduler {
     /** Test stand-in for [MediaAnalyzerPlatform.analyze]. Null calls the platform. */
     internal var analyzeFileForTest: (suspend (String) -> String?)? = null
 
+    /** Test stand-in for a reference fingerprint. Null calls the platform decoder. */
+    internal var fingerprintClipForTest: (suspend (url: String, startMs: Long, endMs: Long) -> String?)? = null
+
+    private val referenceCancel = atomic(false)
+
+    internal fun referenceCancelRequested(): Boolean = referenceCancel.value
+
     /** Test stand-in for [MediaAnalyzerPlatform.supported]. */
     internal var supportedOverride: Boolean? = null
 
@@ -157,6 +166,12 @@ internal object MediaAnalysisScheduler {
         retries.clear()
         runAgain.value = false
         analyzeFileForTest = null
+        fingerprintClipForTest = null
+        referenceCancel.value = false
+        referenceSettled.clear()
+        referenceAttempts.clear()
+        referenceNotBefore.clear()
+        analyzerLane.finish()
         supportedOverride = null
         priorityItemId = null
         playbackStrainExemptId = null
@@ -170,16 +185,24 @@ internal object MediaAnalysisScheduler {
             MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.ScrubPreviews) ||
             MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.RecapDetection)
 
+    private fun requestReferenceCancel() {
+        if (!analyzerLane.referenceHeld) return
+        referenceCancel.value = true
+        MediaAnalyzerPlatform.cancel()
+    }
+
     /** Starts a pass over finished downloads unless one is already running. */
     fun kick(startDelayMs: Long = START_DELAY_MS) {
         if (!analyserSupported()) return
         if (!runMutex.tryLock()) {
             runAgain.value = true
+            requestReferenceCancel()
             return
         }
         runMutex.unlock()
         if (job?.isActive == true) {
             runAgain.value = true
+            requestReferenceCancel()
             return
         }
         startJob(startDelayMs)
@@ -326,6 +349,7 @@ internal object MediaAnalysisScheduler {
                 continue
             }
             val localItem = nextPending()
+            if (localItem != null) analyzerLane.beginLocal()
             val item = localItem ?: referenceNext() ?: run {
                 val waitingOnRetry = retries.isNotEmpty() || referenceNotBefore.isNotEmpty()
                 noteWait(if (waitingOnRetry) "retry-wait" else "idle", waitingOnRetry)
@@ -338,7 +362,13 @@ internal object MediaAnalysisScheduler {
             }
             noteWait("retry-wait", false)
             if (localItem == null) {
-                runReferenceOnly(item)
+                if (!analyzerLane.beginReference()) continue
+                referenceCancel.value = false
+                try {
+                    runReferenceOnly(item)
+                } finally {
+                    analyzerLane.finish()
+                }
                 continue
             }
             currentItem = item
@@ -354,6 +384,7 @@ internal object MediaAnalysisScheduler {
                 PassResult.Retry
             } finally {
                 currentItem = null
+                analyzerLane.finish()
                 MediaAnalysisStatus.setJob(AnalysisJobState.Idle)
                 MediaAnalysisStatus.resultsChanged()
             }
@@ -443,6 +474,7 @@ internal object MediaAnalysisScheduler {
     private val referenceAttempts = mutableMapOf<String, Int>()
     private val referenceNotBefore = mutableMapOf<String, Long>()
     private val referenceSettled = mutableSetOf<String>()
+    private val analyzerLane = AnalysisLane()
 
     private fun isBackingOff(id: String): Boolean =
         (retries[id]?.second ?: 0L) > com.nuvio.app.features.streams.epochMs()
@@ -591,39 +623,53 @@ internal object MediaAnalysisScheduler {
                 return
             }
             val guard = referenceWriteGuard(stored)
-            val outcome = SiblingClipReference.apply(item, stored) { token ->
-                val title = buildString {
-                    append(item.title)
-                    if (item.seasonNumber != null && item.episodeNumber != null) {
-                        append(" S${item.seasonNumber}E${item.episodeNumber}")
+            val outcome = SiblingClipReference.apply(
+                item,
+                stored,
+                onStatus = { token ->
+                    val title = buildString {
+                        append(item.title)
+                        if (item.seasonNumber != null && item.episodeNumber != null) {
+                            append(" S${item.seasonNumber}E${item.episodeNumber}")
+                        }
                     }
-                }
-                MediaAnalysisStatus.setJob(
-                    AnalysisJobState.Running(
-                        item.id,
-                        title,
-                        AnalysisStage.Matching,
-                        -1.0,
-                        currentInBackground,
-                        activity = token,
-                        activitySinceEpochMs = com.nuvio.app.features.streams.epochMs(),
-                    ),
-                )
-                exportNote(item.id, "stage", "clip", token)
-            }
+                    MediaAnalysisStatus.setJob(
+                        AnalysisJobState.Running(
+                            item.id,
+                            title,
+                            AnalysisStage.Matching,
+                            -1.0,
+                            currentInBackground,
+                            activity = token,
+                            activitySinceEpochMs = com.nuvio.app.features.streams.epochMs(),
+                        ),
+                    )
+                    exportNote(item.id, "stage", "clip", token)
+                },
+                yieldToLocal = { nextPending() != null },
+            )
             if (!scopeActive()) return
-            if (outcome.attempt == SiblingClipAttempt.Unavailable) {
-                val count = (referenceAttempts[item.id] ?: 0) + 1
-                referenceAttempts[item.id] = count
-                val delay = analysisRetryDelayMs(count.coerceAtMost(REFERENCE_MAX_ATTEMPTS))
-                if (count >= REFERENCE_MAX_ATTEMPTS || delay == null) {
-                    referenceSettled += item.id
-                    exportNote(item.id, "clip", "gave-up", "attempts=$count")
-                } else {
-                    referenceNotBefore[item.id] = com.nuvio.app.features.streams.epochMs() + delay
-                    exportNote(item.id, "clip", "retry", "attempt=$count")
+            when (referenceDisposition(outcome.attempt, referenceAttempts[item.id] ?: 0, REFERENCE_MAX_ATTEMPTS)) {
+                ReferenceDisposition.Preempted -> {
+                    exportNote(item.id, "clip", "preempted", "local-work")
+                    return
                 }
-                return
+                ReferenceDisposition.Retry, ReferenceDisposition.GaveUp -> {
+                    val count = (referenceAttempts[item.id] ?: 0) + 1
+                    referenceAttempts[item.id] = count
+                    val delay = analysisRetryDelayMs(count.coerceAtMost(REFERENCE_MAX_ATTEMPTS))
+                    val gaveUp = referenceDisposition(outcome.attempt, count - 1, REFERENCE_MAX_ATTEMPTS) ==
+                        ReferenceDisposition.GaveUp || delay == null
+                    if (gaveUp) {
+                        referenceSettled += item.id
+                        exportNote(item.id, "clip", "gave-up", "attempts=$count")
+                    } else {
+                        referenceNotBefore[item.id] = com.nuvio.app.features.streams.epochMs() + delay
+                        exportNote(item.id, "clip", "retry", "attempt=$count")
+                    }
+                    return
+                }
+                ReferenceDisposition.Settled -> Unit
             }
             val current = MediaAnalysisStore.load(key)
             val merged = current?.let {

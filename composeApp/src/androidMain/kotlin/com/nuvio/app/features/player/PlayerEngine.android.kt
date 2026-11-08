@@ -1558,6 +1558,8 @@ private fun ExoPlayerSurface(
                     writeSubtitleDelay()
                 }
 
+                override fun supportsSubtitleRate(): Boolean = false
+
                 override fun applyFittedSubtitleSync(speed: Double, fitDelayMs: Long) {
                     fittedSubtitleDelayMs = fitDelayMs
                     writeSubtitleDelay()

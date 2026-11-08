@@ -5,6 +5,8 @@ package com.nuvio.app.features.player
  * It does not compute the fit.
  */
 internal interface SubtitleSyncTransport {
+    /** False on a player that can move a subtitle by a constant delay only. */
+    val supportsSubtitleRate: Boolean get() = true
     fun applyFit(speed: Double, fitDelayMs: Long)
     fun applyUserDelay(delayMs: Long)
     fun resetFit()
@@ -25,6 +27,7 @@ internal enum class SubtitleDriftOutcome {
     Applied,
     LowConfidence,
     Cancelled,
+    RateUnsupported,
 }
 
 /**
@@ -38,6 +41,8 @@ internal class SubtitleDriftCorrection(
     var generation: Long = 0
         private set
     private var userDelayMs: Long = 0
+    private var manualEpoch: Long = 0
+    private var epochAtTicket: Long = 0
     private var fit: MpvSubtitleProperties = MpvSubtitleProperties(1.0, 0L, confident = false)
     private var provider: String? = null
     private var release: String? = null
@@ -45,6 +50,7 @@ internal class SubtitleDriftCorrection(
 
     fun begin(): Long {
         generation += 1
+        epochAtTicket = manualEpoch
         return generation
     }
 
@@ -59,6 +65,7 @@ internal class SubtitleDriftCorrection(
 
     fun noteManualDelay(delayMs: Long) {
         userDelayMs = delayMs
+        manualEpoch += 1
         transport.applyUserDelay(delayMs)
         publishExport()
     }
@@ -76,11 +83,12 @@ internal class SubtitleDriftCorrection(
         ticket: Long,
         provider: String?,
         release: String?,
+        automatic: Boolean = false,
         cancelled: () -> Boolean = { false },
     ): SubtitleDriftOutcome {
-        if (cancelled() || ticket != generation) return SubtitleDriftOutcome.Cancelled
+        if (blocked(ticket, automatic, cancelled)) return SubtitleDriftOutcome.Cancelled
         val observations = source.collect()
-        if (cancelled() || ticket != generation) return SubtitleDriftOutcome.Cancelled
+        if (blocked(ticket, automatic, cancelled)) return SubtitleDriftOutcome.Cancelled
         this.provider = provider
         this.release = release
         val anchors = observations.mapNotNull { it.toAnchor() }
@@ -90,18 +98,67 @@ internal class SubtitleDriftCorrection(
             publishExport(fitted)
             return SubtitleDriftOutcome.LowConfidence
         }
-        if (cancelled() || ticket != generation) return SubtitleDriftOutcome.Cancelled
+        if (blocked(ticket, automatic, cancelled)) return SubtitleDriftOutcome.Cancelled
+        val rateSupported = transport.supportsSubtitleRate
+        if (!rateSupported && kotlin.math.abs(fitted.subSpeed - 1.0) > 0.0005) {
+            publishExport(MpvSubtitleProperties(1.0, 0L, confident = false), rateSupported = false)
+            return SubtitleDriftOutcome.RateUnsupported
+        }
         fit = fitted
         transport.applyFit(fitted.subSpeed, fitted.subDelayMs)
-        publishExport(fitted)
+        publishExport(fitted, rateSupported = rateSupported)
         return SubtitleDriftOutcome.Applied
+    }
+
+    private fun blocked(ticket: Long, automatic: Boolean, cancelled: () -> Boolean): Boolean {
+        if (cancelled() || ticket != generation) return true
+        return automatic && manualEpoch != epochAtTicket
     }
 
     /** Commands mpv receives: fitted speed, and fitted delay plus the user delay once. */
     fun appliedCommands(): Map<String, Double> = mpvPropertyValues(withUserDelay(fit, userDelayMs))
 
-    private fun publishExport(shown: MpvSubtitleProperties = fit) {
-        SubtitleSyncExportLog.record(provider, release, shown, userDelayMs, anchorCount)
+    private fun publishExport(shown: MpvSubtitleProperties = fit, rateSupported: Boolean = true) {
+        SubtitleSyncExportLog.record(provider, release, shown, userDelayMs, anchorCount, rateSupported)
+    }
+}
+
+/**
+ * What both playback entries do with one matcher result.
+ * A confident zero is a real measurement and clears a previous rate. A search-wall offset is not.
+ */
+internal fun applyCapturedSync(
+    correction: SubtitleDriftCorrection,
+    result: SubtitleAutoSyncResult?,
+    videoMs: Long,
+    ticket: Long,
+    provider: String?,
+    release: String?,
+    automatic: Boolean,
+): SubtitleDriftOutcome {
+    return when (result) {
+        is SubtitleAutoSyncResult.Success -> {
+            val usable = !offsetSitsOnSearchWall(result.offsetMs.toLong())
+            correction.correct(
+                source = SubtitleObservationSource {
+                    listOf(SubtitleMatchObservation(videoMs, result.offsetMs.toLong(), confident = usable))
+                },
+                ticket = ticket,
+                provider = provider,
+                release = release,
+                automatic = automatic,
+            )
+        }
+        is SubtitleAutoSyncResult.LowConfidence -> correction.correct(
+            source = SubtitleObservationSource {
+                listOf(SubtitleMatchObservation(videoMs, result.offsetMs.toLong(), confident = false))
+            },
+            ticket = ticket,
+            provider = provider,
+            release = release,
+            automatic = automatic,
+        )
+        else -> SubtitleDriftOutcome.Cancelled
     }
 }
 
@@ -131,7 +188,10 @@ internal fun matchObservation(
 ): SubtitleMatchObservation? = when (
     val result = SubtitleAutoSyncEngine.computeOptimalOffset(samples, cues, videoMs)
 ) {
-    is SubtitleAutoSyncResult.Success -> SubtitleMatchObservation(videoMs, result.offsetMs.toLong(), confident = true)
+    is SubtitleAutoSyncResult.Success -> {
+        val offset = result.offsetMs.toLong()
+        SubtitleMatchObservation(videoMs, offset, confident = !offsetSitsOnSearchWall(offset))
+    }
     is SubtitleAutoSyncResult.LowConfidence -> SubtitleMatchObservation(videoMs, result.offsetMs.toLong(), confident = false)
     else -> null
 }

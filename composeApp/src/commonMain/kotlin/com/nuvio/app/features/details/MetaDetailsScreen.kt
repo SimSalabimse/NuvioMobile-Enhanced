@@ -2082,19 +2082,19 @@ fun MetaDetailsScreen(
         }
 
         if (displayedMeta == null) {
+            val nativeBackVisible = com.nuvio.app.navigation.LocalUseNativeNavigation.current &&
+                !com.nuvio.app.navigation.LocalNativeNavigationBarHidden.current
+            if (com.nuvio.app.core.ui.detailHeroBackShown(nativeBackVisible)) {
             NuvioBackButton(
                 onClick = onBack,
                 modifier = Modifier.padding(
                     start = 12.dp,
-                    top = if (com.nuvio.app.navigation.LocalHostRespectsTopSafeArea.current) {
-                        8.dp
-                    } else {
-                        WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp
-                    },
+                    top = com.nuvio.app.core.ui.detailChromeTopInset() + 8.dp,
                 ),
                 containerColor = Color.Transparent,
                 contentColor = MaterialTheme.colorScheme.onBackground,
             )
+            }
         }
         }
 
@@ -2309,14 +2309,16 @@ private fun DetailHeaderOverlay(
         label = "detail_floating_header_progress",
     )
 
-    if (headerProgress <= 0.05f) {
+    val nativeBackVisible = com.nuvio.app.navigation.LocalUseNativeNavigation.current &&
+        !com.nuvio.app.navigation.LocalNativeNavigationBarHidden.current
+    if (headerProgress <= 0.05f && com.nuvio.app.core.ui.detailHeroBackShown(nativeBackVisible)) {
         NuvioBackButton(
             onClick = onBack,
             modifier = Modifier
                 .padding(LocalVerticalBarPadding.current)
                 .padding(
                     start = 12.dp,
-                    top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp,
+                    top = com.nuvio.app.core.ui.detailChromeTopInset() + 8.dp,
                 )
                 .zIndex(2f),
             containerColor = Color.Transparent,

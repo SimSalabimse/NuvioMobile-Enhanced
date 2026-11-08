@@ -253,6 +253,13 @@ internal fun encodeEnergyLevels(levels: IntArray): String {
     return Base64.encode(bytes)
 }
 
+/** Inverse of [decodeEnergy], so a test can store the same uint8 levels the analyser writes. */
+internal fun energyLevelForLinear(energy: Double): Int {
+    if (energy <= 0.0) return 0
+    val db = 20.0 * kotlin.math.log10(energy)
+    return ((db + 90.0) / 90.0 * 255.0).toInt().coerceIn(0, 255)
+}
+
 /** Linear RMS per step (the scale the live subtitle sync capture reports). */
 @OptIn(ExperimentalEncodingApi::class)
 internal fun decodeEnergy(encoded: String?): DoubleArray {

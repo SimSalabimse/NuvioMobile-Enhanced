@@ -1,8 +1,10 @@
 package com.nuvio.app.features.player
 
+import com.nuvio.app.core.logging.InAppLogger
 import kotlin.math.abs
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class SubtitleDriftFitTest {
@@ -81,5 +83,33 @@ class SubtitleDriftFitTest {
         assertTrue(!text.contains("http"))
         assertTrue(!text.contains("://"))
         assertTrue(text.contains("provider=Unknown"))
+        val plain = subtitleSourceLabel("OpenSubtitles", "Episode.srt")
+        assertEquals("Episode.srt", plain.release)
+        val raw = "note https://user:pass@addon.example/a/b?api_key=secret Episode.srt"
+        val redacted = redactSubtitleSyncExport(raw)
+        assertTrue(redacted.contains("Episode.srt"))
+        assertFalse(redacted.contains("addon.example"))
+        assertFalse(redacted.contains("api_key"))
+        assertFalse(redacted.contains("user:pass"))
+        assertFalse(redacted.contains("https://"))
+    }
+
+    @Test
+    fun clearingSessionMessagesClearsTheSyncExportToo() {
+        InAppLogger.clear()
+        InAppLogger.info("Analysis", "session-line")
+        SubtitleSyncExportLog.record(
+            "OpenSubtitles",
+            "Episode.srt",
+            MpvSubtitleProperties(0.99, -400L, confident = true),
+            userDelayMs = 250L,
+            anchorCount = 3,
+        )
+        assertTrue(InAppLogger.dump().contains("session-line"))
+        assertTrue(SubtitleSyncExportLog.exportText().contains("OpenSubtitles"))
+        clearSessionMessages()
+        assertEquals("", InAppLogger.dump())
+        assertFalse(SubtitleSyncExportLog.exportText().contains("OpenSubtitles"))
+        assertFalse(SubtitleSyncExportLog.exportText().contains("0.99"))
     }
 }

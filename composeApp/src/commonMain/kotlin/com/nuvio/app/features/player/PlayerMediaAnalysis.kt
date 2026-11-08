@@ -18,8 +18,10 @@ import com.nuvio.app.features.downloads.downloadOpenedBySource
 import com.nuvio.app.features.player.skip.SkipInterval
 import com.nuvio.app.features.player.skip.TheIntroDb
 import kotlin.math.abs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.Job
+import kotlin.coroutines.coroutineContext
 
 /**
  * Uses the on-device analysis (see features/analysis). Loudness gain, subtitle-to-audio sync and
@@ -205,7 +207,8 @@ private fun storedEnergyWindow(levels: DoubleArray, stepMs: Int, centerMs: Long)
 
 /**
  * Matches from the stored speech energy at several points of the episode.
- * Each point uses [SubtitleAutoSyncEngine]. The caller fits those matches. It does not invent a frame rate.
+ * Each point uses [SubtitleAutoSyncEngine]. A frame-rate candidate is used only to bring a
+ * growing lag into that matcher's window. The fit still comes from the measured anchors.
  */
 internal fun energySubtitleObservations(
     analysis: MediaAnalysisResult,
@@ -213,13 +216,10 @@ internal fun energySubtitleObservations(
 ): List<SubtitleMatchObservation> {
     val levels = decodeEnergy(analysis.energy)
     if (levels.isEmpty() || cues.isEmpty()) return emptyList()
-    val duration = levels.size.toLong() * analysis.energyStepMs
-    return listOf(0.2, 0.4, 0.6, 0.8).mapNotNull { fraction ->
-        val center = (duration * fraction).toLong()
-        val samples = storedEnergyWindow(levels, analysis.energyStepMs, center)
-        if (samples.isEmpty()) return@mapNotNull null
-        matchObservation(center, samples, cues)
-    }
+    val step = analysis.energyStepMs.coerceAtLeast(1)
+    val duration = levels.size.toLong() * step
+    val centers = listOf(0.2, 0.4, 0.6, 0.8).map { fraction -> (duration * fraction).toLong() }
+    return observeSubtitleWindows(centers, { center -> storedEnergyWindow(levels, step, center) }, cues)
 }
 
 @Composable
@@ -243,20 +243,27 @@ internal fun PlayerScreenRuntime.BindMediaAnalysisEffects() {
         delay(1_500)
         if (subtitleDelayMs != 0) return@LaunchedEffect
         val ticket = subtitleDrift.begin()
-        val cues = runCatching {
-            PlayerSubtitleCueParser.parse(
-                httpGetTextWithHeaders(url = subtitle.url, headers = emptyMap()),
-                subtitle.url,
-            )
-        }.getOrNull().orEmpty()
-        if (cues.isEmpty() || !isActive || !subtitleDrift.isCurrent(ticket)) return@LaunchedEffect
-        val stillRunning = isActive
+        val job = coroutineContext[Job]
+        val cueText = try {
+            httpGetTextWithHeaders(url = subtitle.url, headers = emptyMap())
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            null
+        }
+        val cues = if (cueText.isNullOrEmpty()) {
+            emptyList()
+        } else {
+            PlayerSubtitleCueParser.parse(cueText, subtitle.url)
+        }
+        if (cues.isEmpty() || job?.isActive == false || !subtitleDrift.isCurrent(ticket)) return@LaunchedEffect
         val outcome = subtitleDrift.correct(
             source = SubtitleObservationSource { energySubtitleObservations(analysis, cues) },
             ticket = ticket,
             provider = subtitle.addonName,
             release = subtitle.label,
-            cancelled = { !stillRunning || !subtitleDrift.isCurrent(ticket) },
+            automatic = true,
+            cancelled = { job?.isActive == false || !subtitleDrift.isCurrent(ticket) },
         )
         if (outcome != SubtitleDriftOutcome.Applied || selectedAddonSubtitle?.url != subtitle.url) return@LaunchedEffect
         if (subtitleDelayMs != 0) return@LaunchedEffect

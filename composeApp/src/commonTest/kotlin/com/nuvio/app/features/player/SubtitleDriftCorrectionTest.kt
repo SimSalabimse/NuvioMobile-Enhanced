@@ -115,6 +115,135 @@ class SubtitleDriftCorrectionTest {
     }
 
     @Test
+    fun aConfidentZeroGoesThroughThePlaybackEntryAndClearsThePreviousSpeed() {
+        val transport = RecordingTransport()
+        val correction = SubtitleDriftCorrection(transport)
+        val first = correction.begin()
+        assertEquals(
+            SubtitleDriftOutcome.Applied,
+            correction.correct(
+                source = SubtitleObservationSource {
+                    listOf(
+                        SubtitleMatchObservation(0L, 0L, confident = true),
+                        SubtitleMatchObservation(1_200_000L, 4_000L, confident = true),
+                    )
+                },
+                ticket = first,
+                provider = "OpenSubtitles",
+                release = "Episode.srt",
+            ),
+        )
+        assertTrue(abs(transport.commands.last().getValue("sub-speed") - 1.0) > 0.001)
+        correction.noteManualDelay(250L)
+        val ticket = correction.begin()
+        val outcome = applyCapturedSync(
+            correction = correction,
+            result = SubtitleAutoSyncResult.Success(offsetMs = 0, confidence = 0.8, rivalOffsetMs = 0),
+            videoMs = 30_000L,
+            ticket = ticket,
+            provider = "OpenSubtitles",
+            release = "Episode.srt",
+            automatic = false,
+        )
+        assertEquals(SubtitleDriftOutcome.Applied, outcome)
+        val last = transport.commands.last()
+        assertEquals(1.0, last.getValue("sub-speed"))
+        assertEquals(0.25, last.getValue("sub-delay"))
+    }
+
+    @Test
+    fun aSearchWallOffsetIsNotAnAnchor() {
+        val transport = RecordingTransport()
+        val correction = SubtitleDriftCorrection(transport)
+        val ticket = correction.begin()
+        val outcome = applyCapturedSync(
+            correction = correction,
+            result = SubtitleAutoSyncResult.Success(offsetMs = -10_000, confidence = 0.9, rivalOffsetMs = 0),
+            videoMs = 480_000L,
+            ticket = ticket,
+            provider = null,
+            release = null,
+            automatic = false,
+        )
+        assertEquals(SubtitleDriftOutcome.LowConfidence, outcome)
+        assertTrue(transport.fits.isEmpty())
+    }
+
+    @Test
+    fun manualDelayDuringCollectionCancelsAnAutomaticFit() {
+        val transport = RecordingTransport()
+        val correction = SubtitleDriftCorrection(transport)
+        val observations = listOf(
+            SubtitleMatchObservation(0L, 0L, confident = true),
+            SubtitleMatchObservation(1_200_000L, 4_000L, confident = true),
+        )
+        val during = correction.begin()
+        val duringOutcome = correction.correct(
+            source = SubtitleObservationSource {
+                correction.noteManualDelay(250L)
+                observations
+            },
+            ticket = during,
+            provider = null,
+            release = null,
+            automatic = true,
+        )
+        assertEquals(SubtitleDriftOutcome.Cancelled, duringOutcome)
+        assertTrue(transport.fits.isEmpty())
+        assertEquals(0.25, transport.commands.last().getValue("sub-delay"))
+
+        val between = correction.begin()
+        correction.noteManualDelay(250L)
+        val betweenOutcome = correction.correct(
+            source = SubtitleObservationSource { observations },
+            ticket = between,
+            provider = null,
+            release = null,
+            automatic = true,
+        )
+        assertEquals(SubtitleDriftOutcome.Cancelled, betweenOutcome)
+        assertTrue(transport.fits.isEmpty())
+
+        val requested = correction.begin()
+        val applied = correction.correct(
+            source = SubtitleObservationSource { observations },
+            ticket = requested,
+            provider = null,
+            release = null,
+            automatic = false,
+        )
+        assertEquals(SubtitleDriftOutcome.Applied, applied)
+        assertEquals(1, transport.fits.size)
+        val fitDelaySeconds = transport.fits.last().second / 1_000.0
+        assertEquals(fitDelaySeconds + 0.25, transport.commands.last().getValue("sub-delay"), 0.001)
+        assertTrue(transport.users.all { it == 250L })
+    }
+
+    @Test
+    fun aPlayerWithoutRateSupportDoesNotClaimASpeedFit() {
+        val transport = RecordingTransport(supportsSubtitleRate = false)
+        val correction = SubtitleDriftCorrection(transport)
+        val ticket = correction.begin()
+        val outcome = correction.correct(
+            source = SubtitleObservationSource {
+                listOf(
+                    SubtitleMatchObservation(0L, 0L, confident = true),
+                    SubtitleMatchObservation(1_200_000L, 8_000L, confident = true),
+                )
+            },
+            ticket = ticket,
+            provider = "OpenSubtitles",
+            release = "Episode.srt",
+        )
+        assertEquals(SubtitleDriftOutcome.RateUnsupported, outcome)
+        assertTrue(transport.fits.isEmpty())
+        val export = SubtitleSyncExportLog.exportText()
+        assertTrue(export.contains("rateSupported=false"))
+        assertTrue(export.contains("confident=false"))
+        assertTrue(export.contains("subSpeed=1.0"))
+    }
+
+    @Test
     fun aCancelledTicketDoesNotApply() {
         val transport = RecordingTransport()
         val correction = SubtitleDriftCorrection(transport)
@@ -162,7 +291,9 @@ class SubtitleDriftCorrectionTest {
     }
 }
 
-private class RecordingTransport : SubtitleSyncTransport {
+private class RecordingTransport(
+    override val supportsSubtitleRate: Boolean = true,
+) : SubtitleSyncTransport {
     val fits = mutableListOf<Pair<Double, Long>>()
     val users = mutableListOf<Long>()
     val commands = mutableListOf<Map<String, Double>>()

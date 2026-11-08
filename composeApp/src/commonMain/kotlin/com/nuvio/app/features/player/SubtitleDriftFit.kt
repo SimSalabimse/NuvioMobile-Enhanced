@@ -130,14 +130,21 @@ internal data class SubtitleSourceLabel(
 
 /** A provider name is shown only when the metadata says it. Otherwise the label is Unknown. */
 internal fun subtitleSourceLabel(provider: String?, release: String?): SubtitleSourceLabel {
-    val normalized = provider?.trim()?.lowercase()?.removePrefix("www.").orEmpty()
-    val known = normalized.isNotEmpty() && normalized in providerAllowlist
+    val rawProvider = provider?.trim().orEmpty()
+    val normalized = rawProvider.lowercase().removePrefix("www.")
+    val known = normalized.isNotEmpty() &&
+        normalized in providerAllowlist &&
+        !rawProvider.contains("://") &&
+        !rawProvider.contains('/')
     val shownProvider = if (known) provider!!.trim() else "Unknown"
     val shownRelease = release?.trim()?.takeIf { value ->
         value.isNotEmpty() &&
             value.length <= 120 &&
             !value.contains("://") &&
-            !value.contains('@')
+            !value.contains('@') &&
+            !value.contains('/') &&
+            !value.contains('\\') &&
+            !value.contains('?')
     }
     return SubtitleSourceLabel(shownProvider, shownRelease)
 }
@@ -147,18 +154,23 @@ internal fun subtitleSyncExportText(
     properties: MpvSubtitleProperties,
     userDelayMs: Long,
     anchorCount: Int,
-): String = buildString {
-    appendLine("provider=${source.provider}")
-    appendLine("release=${source.release ?: "-"}")
-    appendLine("subSpeed=${properties.subSpeed}")
-    appendLine("subDelayMs=${properties.subDelayMs}")
-    appendLine("userDelayMs=$userDelayMs")
-    appendLine("anchors=$anchorCount")
-    appendLine("confident=${properties.confident}")
-}.let { redactAnalysisExport(it) }
+    rateSupported: Boolean = true,
+): String = redactSubtitleSyncExport(
+    buildString {
+        appendLine("provider=${source.provider}")
+        appendLine("release=${source.release ?: "-"}")
+        appendLine("subSpeed=${properties.subSpeed}")
+        appendLine("subDelayMs=${properties.subDelayMs}")
+        appendLine("userDelayMs=$userDelayMs")
+        appendLine("anchors=$anchorCount")
+        appendLine("confident=${properties.confident}")
+        appendLine("rateSupported=$rateSupported")
+    },
+)
 
-private fun redactAnalysisExport(text: String): String =
-    com.nuvio.app.features.analysis.redactAnalysisExport(text)
+/** Drops a whole address, including the host. The analysis log keeps a host; this export does not. */
+internal fun redactSubtitleSyncExport(text: String): String =
+    text.replace(Regex("""(?i)\b(?:https?|addon)://\S+"""), "")
 
 /** Last redacted sync export. Empty until a fit is recorded. Nothing here is uploaded. */
 internal object SubtitleSyncExportLog {
@@ -170,13 +182,19 @@ internal object SubtitleSyncExportLog {
         properties: MpvSubtitleProperties,
         userDelayMs: Long,
         anchorCount: Int,
+        rateSupported: Boolean = true,
     ) {
         body = subtitleSyncExportText(
             subtitleSourceLabel(provider, release),
             properties,
             userDelayMs,
             anchorCount,
+            rateSupported,
         )
+    }
+
+    fun clear() {
+        body = null
     }
 
     fun exportText(): String = body ?: subtitleSyncExportText(
@@ -185,4 +203,10 @@ internal object SubtitleSyncExportLog {
         userDelayMs = 0L,
         anchorCount = 0,
     )
+}
+
+/** Session messages and the subtitle sync export are cleared together. */
+internal fun clearSessionMessages() {
+    com.nuvio.app.core.logging.InAppLogger.clear()
+    SubtitleSyncExportLog.clear()
 }

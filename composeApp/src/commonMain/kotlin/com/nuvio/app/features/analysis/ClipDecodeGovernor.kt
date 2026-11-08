@@ -34,8 +34,9 @@ internal data class ReferenceSampleWindow(
 )
 
 /**
- * The decode covers the requested segment plus its pad when that fits in [REFERENCE_MAX_WINDOW_MS].
- * A longer known segment is marked partial. It is not shortened to the first 50 seconds and then treated as done.
+ * One decode covers the requested segment plus its pad when that fits in [REFERENCE_MAX_WINDOW_MS].
+ * A longer segment does not fit in one window. [referenceDecodeSlices] splits it. The whole window is not
+ * treated as its first 50 seconds.
  */
 internal fun referenceSampleWindow(segmentStartMs: Long, segmentEndMs: Long, padMs: Long): ReferenceSampleWindow {
     val start = (segmentStartMs - padMs).coerceAtLeast(0L)
@@ -113,6 +114,77 @@ internal class ClipDecodeGovernor(
         }
         return true
     }
+}
+
+internal data class ReferenceSlice(
+    val contentStartMs: Long,
+    val contentEndMs: Long,
+    val decodeStartMs: Long,
+    val decodeEndMs: Long,
+)
+
+/**
+ * Windows to fingerprint for one known segment. Each decode window is at most [REFERENCE_MAX_WINDOW_MS].
+ * A segment that fits is one window. A longer segment is a start slice and an end slice, not the first 50 seconds
+ * standing in for the whole segment.
+ */
+internal fun referenceDecodeSlices(segmentStartMs: Long, segmentEndMs: Long, padMs: Long): List<ReferenceSlice> {
+    val start = segmentStartMs.coerceAtLeast(0L)
+    val end = segmentEndMs.coerceAtLeast(start + 1L)
+    val whole = referenceSampleWindow(start, end, padMs)
+    if (whole.complete && whole.endMs > whole.startMs) {
+        return listOf(ReferenceSlice(start, end, whole.startMs, whole.endMs))
+    }
+    val pad = padMs.coerceAtLeast(0L)
+    val contentBudget = (REFERENCE_MAX_WINDOW_MS - pad * 2).coerceAtLeast(1_000L)
+    val sliceLen = contentBudget.coerceAtMost(end - start)
+    val first = start to (start + sliceLen).coerceAtMost(end)
+    val tailStart = (end - sliceLen).coerceAtLeast(start)
+    val pieces = ArrayList<Pair<Long, Long>>(2)
+    pieces += first
+    val tail = tailStart to end
+    if (tail != first) pieces += tail
+    return pieces.mapNotNull { (contentStart, contentEnd) ->
+        val window = referenceSampleWindow(contentStart, contentEnd, pad)
+        if (!window.complete || window.endMs <= window.startMs) return@mapNotNull null
+        if (window.endMs - window.startMs > REFERENCE_MAX_WINDOW_MS) return@mapNotNull null
+        ReferenceSlice(contentStart, contentEnd, window.startMs, window.endMs)
+    }
+}
+
+/**
+ * Full known segment bounds, shifted by the offset the slices agree on.
+ * One slice that covers the whole segment keeps the located shared run.
+ * A sliced segment is not stored as the slice itself. Disagreeing slices store nothing.
+ */
+internal fun verifiedSegmentBounds(
+    segmentStartMs: Long,
+    segmentEndMs: Long,
+    slices: List<ReferenceSlice>,
+    matches: List<Pair<ReferenceSlice, Pair<Long, Long>>>,
+): Pair<Long, Long>? {
+    if (matches.isEmpty() || slices.isEmpty()) return null
+    val only = slices.singleOrNull()
+    if (only != null && only.contentStartMs == segmentStartMs && only.contentEndMs == segmentEndMs) {
+        val range = matches.firstOrNull { it.first == only }?.second ?: return null
+        return range.takeIf { it.second > it.first }
+    }
+    if (matches.size < 2) return null
+    val offsets = matches.map { (slice, range) -> range.first - slice.contentStartMs }
+    val median = offsets.sorted()[offsets.size / 2]
+    if (offsets.any { kotlin.math.abs(it - median) > 2_000L }) return null
+    val start = segmentStartMs + median
+    val end = segmentEndMs + median
+    return if (end > start) start to end else null
+}
+
+/**
+ * A fingerprint is the requested window only when decoding reached the window end.
+ * A budget, stuck timestamp, or abort stop is partial even if some samples were fingerprinted.
+ */
+internal fun clipCoversRequestedWindow(windowComplete: Boolean, stopReason: String?): Boolean {
+    if (!windowComplete) return false
+    return stopReason == null || stopReason == "window-end"
 }
 
 /** A clip that reports work past the budget is discarded. Missing counters are not treated as over budget. */

@@ -32,6 +32,48 @@ internal fun nextQueuedAnalysisId(
     }
 }
 
+/**
+ * One native decode at a time. Local work takes the lane from a reference read.
+ * A second decode is refused while the lane is held, so two FFmpeg calls do not run together.
+ */
+internal class AnalysisLane {
+    var holder: String? = null
+        private set
+
+    fun beginReference(): Boolean {
+        if (holder != null) return false
+        holder = "reference"
+        return true
+    }
+
+    fun beginLocal(): Boolean {
+        if (holder == "reference") holder = null
+        if (holder != null) return false
+        holder = "local"
+        return true
+    }
+
+    fun finish() {
+        holder = null
+    }
+
+    val referenceHeld: Boolean get() = holder == "reference"
+}
+
+internal enum class ReferenceDisposition { Preempted, Retry, GaveUp, Settled }
+
+/** A preempted reference is not finished. An unread long window retries, then stops. It is not a success. */
+internal fun referenceDisposition(
+    attempt: SiblingClipAttempt,
+    attemptsSoFar: Int,
+    maxAttempts: Int,
+): ReferenceDisposition = when (attempt) {
+    SiblingClipAttempt.Preempted -> ReferenceDisposition.Preempted
+    SiblingClipAttempt.Unavailable ->
+        if (attemptsSoFar + 1 >= maxAttempts) ReferenceDisposition.GaveUp else ReferenceDisposition.Retry
+    SiblingClipAttempt.Finished -> ReferenceDisposition.Settled
+}
+
 /** Unknown progress is NaN, and NaN is not equal to itself. That must not count as movement. */
 internal fun analysisProgressMoved(previous: Double, progress: Double): Boolean =
     !progress.isNaN() && progress != previous

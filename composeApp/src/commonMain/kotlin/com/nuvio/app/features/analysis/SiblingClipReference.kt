@@ -38,7 +38,7 @@ internal data class SiblingTimes(
  * The episode is then stored with its own fingerprints, the reference for later episodes.
  */
 /** A clip was read, or there was nothing to fetch. [Unavailable] is tried again. */
-internal enum class SiblingClipAttempt { Finished, Unavailable }
+internal enum class SiblingClipAttempt { Finished, Unavailable, Preempted }
 
 internal data class SiblingClipOutcome(val result: MediaAnalysisResult, val attempt: SiblingClipAttempt)
 
@@ -53,6 +53,7 @@ internal object SiblingClipReference {
         item: DownloadItem,
         result: MediaAnalysisResult,
         onStatus: (String) -> Unit = {},
+        yieldToLocal: () -> Boolean = { false },
     ): SiblingClipOutcome {
         fun finished(value: MediaAnalysisResult = result) = SiblingClipOutcome(value, SiblingClipAttempt.Finished)
         fun unavailable(value: MediaAnalysisResult = result) = SiblingClipOutcome(value, SiblingClipAttempt.Unavailable)
@@ -60,12 +61,29 @@ internal object SiblingClipReference {
         val episode = item.episodeNumber ?: return finished()
         val free = DownloadDiskInfo.volumeSpace()?.availableBytes
         if (free != null && free < SMART_DOWNLOAD_MIN_FREE_BYTES) return unavailable()
+        val localFiles = completedLocalSiblingFiles(item)
+        val localEpisodes = localFiles.map { it.episode }
+        val markedLocal = ownMarks(item.parentMetaId, season).filter { it.episode in localEpisodes }
+        val localEpisode = nearestFirst(episode, markedLocal.map { it.episode }).firstOrNull()
+        if (localEpisode != null) {
+            val reference = markedLocal.first { it.episode == localEpisode }
+            val localFile = localFiles.first { it.episode == localEpisode }
+            return readKnownReference(
+                item = item,
+                result = result,
+                reference = reference,
+                url = localFile.uri,
+                headers = emptyMap(),
+                identity = referenceIdentity(localFile.fileName, "", season, reference.episode),
+                operation = "read",
+                onStatus = onStatus,
+                yieldToLocal = yieldToLocal,
+            )
+        }
         val meta = MetaDetailsRepository.fetch(item.parentMetaType, item.parentMetaId) ?: return unavailable()
         val episodes = meta.videos.filter { it.season == season }.mapNotNull { it.episode }.distinct()
         var resolvedImdb: String? = null
         var imdbResolved = false
-        val localFiles = completedLocalSiblingFiles(item)
-        val localEpisodes = localFiles.map { it.episode }
         val remoteEpisodes = episodes.filter { it != episode && it !in localEpisodes }
         val plan = planReference(episode, localEpisodes, remoteEpisodes)
         if (plan.choice == ReferenceChoice.None) {
@@ -122,44 +140,106 @@ internal object SiblingClipReference {
                 referenceIdentity(null, resolvedImdb ?: meta.imdbId.orEmpty(), season, reference.episode),
             )
         }
-        val operation = if (chosenLocal) "read" else "fetch"
-        val step = result.fingerprintStepMs.toLong().coerceAtLeast(1L)
+        return readKnownReference(
+            item = item,
+            result = result,
+            reference = reference,
+            url = url,
+            headers = headers,
+            identity = identity,
+            operation = if (chosenLocal) "read" else "fetch",
+            onStatus = onStatus,
+            yieldToLocal = yieldToLocal,
+        )
+    }
 
+    private suspend fun readKnownReference(
+        item: DownloadItem,
+        result: MediaAnalysisResult,
+        reference: SiblingTimes,
+        url: String,
+        headers: Map<String, String>,
+        identity: String,
+        operation: String,
+        onStatus: (String) -> Unit,
+        yieldToLocal: () -> Boolean,
+    ): SiblingClipOutcome {
+        fun finished(value: MediaAnalysisResult = result) = SiblingClipOutcome(value, SiblingClipAttempt.Finished)
+        fun unavailable(value: MediaAnalysisResult = result) = SiblingClipOutcome(value, SiblingClipAttempt.Unavailable)
+        val season = item.seasonNumber ?: return finished()
+        val step = result.fingerprintStepMs.toLong().coerceAtLeast(1L)
         var updated = result
         var missing = false
-        var read = false
+        var preempted = false
         if (result.introStartMs == null) {
-            if (referenceSampleWindow(reference.intro.first, reference.intro.second, PAD_MS).complete) {
-                onStatus(referenceActivityToken(operation, windowSeconds(reference.intro), season, reference.episode))
-            }
-            when (val clip = readClip(url, headers, identity, decodeFingerprint(result.headFingerprint), 0L, step, reference.intro, result.durationMs, reference.durationMs)) {
-                ClipRead.Missing -> missing = true
-                ClipRead.Skipped, ClipRead.Partial -> Unit
-                is ClipRead.Read -> {
-                    read = true
-                    clip.range?.let { (start, end) ->
-                        updated = updated.copy(introStartMs = start, introEndMs = end, foundUsing = updated.foundUsing + ("intro" to reference.episode))
-                    }
+            when (
+                val aligned = alignReferenceSegment(
+                    segmentStartMs = reference.intro.first,
+                    segmentEndMs = reference.intro.second,
+                    padMs = PAD_MS,
+                    frames = decodeFingerprint(result.headFingerprint),
+                    framesOffsetMs = 0L,
+                    stepMs = step,
+                    targetDurationMs = result.durationMs,
+                    referenceDurationMs = reference.durationMs,
+                    yieldToLocal = yieldToLocal,
+                    onSlice = { seconds ->
+                        onStatus(referenceActivityToken(operation, seconds, season, reference.episode))
+                    },
+                    decode = { start, end -> decodeWindow(url, headers, identity, start, end) },
+                )
+            ) {
+                is ReferenceAlignment.Matched -> {
+                    updated = updated.copy(
+                        introStartMs = aligned.range.first,
+                        introEndMs = aligned.range.second,
+                        foundUsing = updated.foundUsing + ("intro" to reference.episode),
+                    )
                 }
+                is ReferenceAlignment.Partial -> {
+                    InAppLogger.info("Analysis", "reference partial reason=${aligned.reason} segment=intro")
+                    missing = true
+                }
+                ReferenceAlignment.Preempted -> preempted = true
+                ReferenceAlignment.Unreadable -> missing = true
             }
         }
         val credits = reference.credits
-        if (credits != null && result.creditsStartMs == null) {
-            if (referenceSampleWindow(credits.first, credits.second, PAD_MS).complete) {
-                onStatus(referenceActivityToken(operation, windowSeconds(credits), season, reference.episode))
-            }
-            when (val clip = readClip(url, headers, identity, decodeFingerprint(result.tailFingerprint), result.tailStartMs, step, credits, result.durationMs, reference.durationMs)) {
-                ClipRead.Missing -> missing = true
-                ClipRead.Skipped, ClipRead.Partial -> Unit
-                is ClipRead.Read -> {
-                    read = true
-                    clip.range?.let { (start, end) ->
-                        updated = updated.copy(creditsStartMs = start, creditsEndMs = end, foundUsing = updated.foundUsing + ("outro" to reference.episode))
-                    }
+        if (!preempted && credits != null && result.creditsStartMs == null) {
+            when (
+                val aligned = alignReferenceSegment(
+                    segmentStartMs = credits.first,
+                    segmentEndMs = credits.second,
+                    padMs = PAD_MS,
+                    frames = decodeFingerprint(result.tailFingerprint),
+                    framesOffsetMs = result.tailStartMs,
+                    stepMs = step,
+                    targetDurationMs = result.durationMs,
+                    referenceDurationMs = reference.durationMs,
+                    yieldToLocal = yieldToLocal,
+                    onSlice = { seconds ->
+                        onStatus(referenceActivityToken(operation, seconds, season, reference.episode))
+                    },
+                    decode = { start, end -> decodeWindow(url, headers, identity, start, end) },
+                )
+            ) {
+                is ReferenceAlignment.Matched -> {
+                    updated = updated.copy(
+                        creditsStartMs = aligned.range.first,
+                        creditsEndMs = aligned.range.second,
+                        foundUsing = updated.foundUsing + ("outro" to reference.episode),
+                    )
                 }
+                is ReferenceAlignment.Partial -> {
+                    InAppLogger.info("Analysis", "reference partial reason=${aligned.reason} segment=credits")
+                    missing = true
+                }
+                ReferenceAlignment.Preempted -> preempted = true
+                ReferenceAlignment.Unreadable -> missing = true
             }
         }
-        if (missing && !read) return unavailable(updated)
+        if (preempted) return SiblingClipOutcome(result, SiblingClipAttempt.Preempted)
+        if (missing) return unavailable(result)
         InAppLogger.info(
             "Analysis",
             "sibling clip e${reference.episode} for ${item.id}: intro=${updated.introStartMs}-${updated.introEndMs} " +
@@ -168,72 +248,30 @@ internal object SiblingClipReference {
         return finished(updated)
     }
 
-    private sealed interface ClipRead {
-        data object Missing : ClipRead
-        data object Skipped : ClipRead
-        data class Read(val range: Pair<Long, Long>?) : ClipRead
-        data object Partial : ClipRead
-    }
-
-    private fun windowSeconds(segment: Pair<Long, Long>): Int {
-        val window = referenceSampleWindow(segment.first, segment.second, PAD_MS)
-        val shown = if (window.complete) window.endMs - window.startMs else window.requestedMs
-        return (shown / 1_000L).toInt().coerceAtLeast(1)
-    }
-
-    private suspend fun readClip(
+    private suspend fun decodeWindow(
         url: String,
         headers: Map<String, String>,
         identity: String,
-        frames: IntArray,
-        framesOffsetMs: Long,
-        step: Long,
-        segment: Pair<Long, Long>,
-        targetDurationMs: Long,
-        referenceDurationMs: Long,
-    ): ClipRead {
-        if (frames.isEmpty()) return ClipRead.Skipped
-        val window = referenceSampleWindow(segment.first, segment.second, PAD_MS)
-        if (!window.complete) {
-            InAppLogger.info(
-                "Analysis",
-                "reference partial reason=requested-window-longer-than-budget requestedMs=${window.requestedMs}",
-            )
-            return ClipRead.Partial
-        }
-        val key = ReferenceFingerprintKey(identity, window.startMs, window.endMs, REFERENCE_FINGERPRINT_ALGORITHM)
-        val cached = clipCache.lookup(key)
-        val text = if (cached != null) {
-            cached.first
-        } else {
+        startMs: Long,
+        endMs: Long,
+    ): RawClipFingerprint? {
+        val key = ReferenceFingerprintKey(identity, startMs, endMs, REFERENCE_FINGERPRINT_ALGORITHM)
+        val text = clipCache.lookup(key)?.first ?: run {
             clipCache.beginDecode(identity)
-            val decoded = MediaAnalyzerPlatform.fingerprintClip(url, headers, window.startMs, window.endMs)
+            val hook = MediaAnalysisScheduler.fingerprintClipForTest
+            val decoded = if (hook != null) {
+                hook(url, startMs, endMs)
+            } else {
+                MediaAnalyzerPlatform.fingerprintClip(url, headers, startMs, endMs)
+            }
             if (decoded == null) {
                 clipCache.endDecode(identity)
-                return ClipRead.Missing
+                return null
             }
             clipCache.store(key, decoded)
             decoded
         }
-        val clip = runCatching { json.decodeFromString(RawClipFingerprint.serializer(), text) }.getOrNull()
-            ?: return ClipRead.Missing
-        if (!clip.windowComplete) return ClipRead.Partial
-        if (reportedClipExceedsBudget(clip.decodedFrames, clip.decodedSamples, window.endMs - window.startMs)) {
-            return ClipRead.Missing
-        }
-        if (clip.stepMs.toLong() != step) return ClipRead.Skipped
-        return ClipRead.Read(
-            locate(
-                frames,
-                framesOffsetMs,
-                decodeFingerprint(clip.fingerprint),
-                clip.startMs,
-                step,
-                segment,
-                targetDurationMs,
-                referenceDurationMs,
-            ),
-        )
+        return runCatching { json.decodeFromString(RawClipFingerprint.serializer(), text) }.getOrNull()
     }
 
     private data class LocalSiblingFile(val episode: Int, val fileName: String, val uri: String)
@@ -334,4 +372,65 @@ internal object SiblingClipReference {
         val end = framesOffsetMs + match.endA * step
         return if (end > start) start to end else null
     }
+}
+
+internal sealed interface ReferenceAlignment {
+    data class Matched(val range: Pair<Long, Long>) : ReferenceAlignment
+    data class Partial(val reason: String) : ReferenceAlignment
+    data object Preempted : ReferenceAlignment
+    data object Unreadable : ReferenceAlignment
+}
+
+/**
+ * Fingerprints bounded slices of a known segment and maps a verified offset back onto the full segment.
+ * The decoder is never asked for more than 50 seconds. A slice is not stored as the whole segment.
+ */
+internal suspend fun alignReferenceSegment(
+    segmentStartMs: Long,
+    segmentEndMs: Long,
+    padMs: Long,
+    frames: IntArray,
+    framesOffsetMs: Long,
+    stepMs: Long,
+    targetDurationMs: Long,
+    referenceDurationMs: Long,
+    yieldToLocal: () -> Boolean = { false },
+    onSlice: (seconds: Int) -> Unit = {},
+    decode: suspend (decodeStartMs: Long, decodeEndMs: Long) -> RawClipFingerprint?,
+): ReferenceAlignment {
+    if (frames.isEmpty() || stepMs <= 0L) return ReferenceAlignment.Unreadable
+    val slices = referenceDecodeSlices(segmentStartMs, segmentEndMs, padMs)
+    if (slices.isEmpty()) return ReferenceAlignment.Partial("no-slice")
+    val matches = mutableListOf<Pair<ReferenceSlice, Pair<Long, Long>>>()
+    for (slice in slices) {
+        if (yieldToLocal()) return ReferenceAlignment.Preempted
+        val windowMs = slice.decodeEndMs - slice.decodeStartMs
+        if (windowMs <= 0L || windowMs > REFERENCE_MAX_WINDOW_MS) {
+            return ReferenceAlignment.Partial("slice-over-budget")
+        }
+        onSlice((windowMs / 1_000L).toInt().coerceAtLeast(1))
+        val clip = decode(slice.decodeStartMs, slice.decodeEndMs)
+            ?: return if (yieldToLocal()) ReferenceAlignment.Preempted else ReferenceAlignment.Unreadable
+        if (!clipCoversRequestedWindow(clip.windowComplete, clip.stopReason)) {
+            return ReferenceAlignment.Partial(clip.stopReason ?: "incomplete-window")
+        }
+        if (reportedClipExceedsBudget(clip.decodedFrames, clip.decodedSamples, windowMs)) {
+            return ReferenceAlignment.Partial("over-budget")
+        }
+        if (clip.stepMs.toLong() != stepMs) return ReferenceAlignment.Partial("step-mismatch")
+        val range = SiblingClipReference.locate(
+            frames,
+            framesOffsetMs,
+            decodeFingerprint(clip.fingerprint),
+            clip.startMs,
+            stepMs,
+            slice.contentStartMs to slice.contentEndMs,
+            targetDurationMs,
+            referenceDurationMs,
+        ) ?: continue
+        matches += slice to range
+    }
+    val bounds = verifiedSegmentBounds(segmentStartMs, segmentEndMs, slices, matches)
+        ?: return ReferenceAlignment.Partial("unverified-slice")
+    return ReferenceAlignment.Matched(bounds)
 }

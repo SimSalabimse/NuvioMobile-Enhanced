@@ -181,6 +181,9 @@ internal class PlayerScreenRuntime(
     var playerControllerSourceUrl by mutableStateOf<String?>(null)
     val subtitleDrift: SubtitleDriftCorrection = SubtitleDriftCorrection(
         transport = object : SubtitleSyncTransport {
+            override val supportsSubtitleRate: Boolean
+                get() = playerController?.supportsSubtitleRate() ?: true
+
             override fun applyFit(speed: Double, fitDelayMs: Long) {
                 playerController?.applyFittedSubtitleSync(speed, fitDelayMs)
             }

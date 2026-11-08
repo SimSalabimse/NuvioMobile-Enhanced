@@ -3,6 +3,7 @@ package com.nuvio.app.features.player
 import com.nuvio.app.core.i18n.localizedNoSubtitleLinesFound
 import com.nuvio.app.core.i18n.localizedSubtitleLinesLoadError
 import com.nuvio.app.features.addons.httpGetTextWithHeaders
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import com.nuvio.app.features.autosync.AutoSyncPlayerController
 import com.nuvio.app.features.streams.StreamLinkCacheRepository
@@ -231,22 +232,15 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
             
             when (result) {
                 is SubtitleAutoSyncResult.Success -> {
-                    if (result.movesSubtitleDelay()) {
-                        subtitleDrift.correct(
-                            source = SubtitleObservationSource {
-                                listOf(
-                                    SubtitleMatchObservation(
-                                        videoMs = startPositionMs,
-                                        offsetMs = result.offsetMs.toLong(),
-                                        confident = true,
-                                    ),
-                                )
-                            },
-                            ticket = ticket,
-                            provider = subtitle.addonName,
-                            release = subtitle.label,
-                        )
-                    }
+                    applyCapturedSync(
+                        correction = subtitleDrift,
+                        result = result,
+                        videoMs = startPositionMs,
+                        ticket = ticket,
+                        provider = subtitle.addonName,
+                        release = subtitle.label,
+                        automatic = true,
+                    )
                     subtitleAutoSyncState = subtitleAutoSyncState.copy(
                         errorMessage = autoSyncSuccessMessage(
                             offsetMs = result.offsetMs,
@@ -258,19 +252,14 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
                     )
                 }
                 is SubtitleAutoSyncResult.LowConfidence -> {
-                    subtitleDrift.correct(
-                        source = SubtitleObservationSource {
-                            listOf(
-                                SubtitleMatchObservation(
-                                    videoMs = startPositionMs,
-                                    offsetMs = result.offsetMs.toLong(),
-                                    confident = false,
-                                ),
-                            )
-                        },
+                    applyCapturedSync(
+                        correction = subtitleDrift,
+                        result = result,
+                        videoMs = startPositionMs,
                         ticket = ticket,
                         provider = subtitle.addonName,
                         release = subtitle.label,
+                        automatic = true,
                     )
                     subtitleAutoSyncState = subtitleAutoSyncState.copy(
                         errorMessage = "${autoSyncLowConfidenceMessage(
@@ -293,6 +282,8 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
                     )
                 }
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             subtitleAutoSyncState = subtitleAutoSyncState.copy(
                 isLoading = false,

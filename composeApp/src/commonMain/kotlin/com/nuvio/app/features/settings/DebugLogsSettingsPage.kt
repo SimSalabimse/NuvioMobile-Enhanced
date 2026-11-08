@@ -38,6 +38,7 @@ import com.nuvio.app.features.analysis.AnalysisExportDocument
 import com.nuvio.app.features.analysis.AnalysisExportLog
 import com.nuvio.app.features.analysis.AnalysisExportStatus
 import com.nuvio.app.features.analysis.AnalysisLogShare
+import com.nuvio.app.features.player.clearSessionMessages
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.settings_debug_export_analysis_log
 import nuvio.composeapp.generated.resources.settings_debug_export_subtitle_sync
@@ -160,7 +161,7 @@ private fun DebugLogsSection(isTablet: Boolean) {
                 description = stringResource(Res.string.settings_advanced_debugging_clear_logs_description),
                 enabled = logEntries.isNotEmpty(),
                 isTablet = isTablet,
-                onClick = InAppLogger::clear,
+                onClick = { clearSessionMessages() },
             )
             SettingsGroupDivider(isTablet = isTablet)
             DebugLogTextPanel(

@@ -549,6 +549,7 @@ private final class ClipFingerprintRun {
         var missingTimestamps = 0
         var stuckTimestamps = 0
         var lastTimestamp: Int64 = Self.noPtsValue
+        var stopReason = "truncated"
         let windowMs = max(Int64(1), endMs - startMs)
         let maxFrames = Int(windowMs / 10) + 200
         let maxSamples = maxFrames * 4_000
@@ -565,27 +566,47 @@ private final class ClipFingerprintRun {
                     defer { av_frame_unref(frame) }
                     decodedFrames += 1
                     decodedSamples += Int(frame.pointee.nb_samples)
-                    if decodedFrames > maxFrames || decodedSamples > maxSamples { reachedEnd = true; break }
+                    if decodedFrames > maxFrames || decodedSamples > maxSamples {
+                        stopReason = decodedSamples > maxSamples ? "sample-budget" : "frame-budget"
+                        reachedEnd = true
+                        break
+                    }
                     let pts = frame.pointee.best_effort_timestamp
                     let frameMs = pts == Self.noPtsValue ? nil : av_rescale_q(pts - streamStart, timeBase, AVRational(num: 1, den: 1000))
                     guard let frameMs else {
                         missingTimestamps += 1
-                        if missingTimestamps > 60 { reachedEnd = true; break }
+                        if missingTimestamps > 60 {
+                            stopReason = "missing-timestamp"
+                            reachedEnd = true
+                            break
+                        }
                         continue
                     }
                     if frameMs < startMs {
                         // A bad seek that lands far before the window must not decode the prefix.
-                        if startMs - frameMs > 2_000 { reachedEnd = true; break }
+                        if startMs - frameMs > 2_000 {
+                            stopReason = "preroll-budget"
+                            reachedEnd = true
+                            break
+                        }
                         continue
                     }
                     if lastTimestamp != Self.noPtsValue && frameMs <= lastTimestamp {
                         stuckTimestamps += 1
-                        if stuckTimestamps > 60 { reachedEnd = true; break }
+                        if stuckTimestamps > 60 {
+                            stopReason = "timestamp-stuck"
+                            reachedEnd = true
+                            break
+                        }
                     } else {
                         stuckTimestamps = 0
                     }
                     lastTimestamp = frameMs
-                    if frameMs > endMs { reachedEnd = true; break }
+                    if frameMs > endMs {
+                        stopReason = "window-end"
+                        reachedEnd = true
+                        break
+                    }
                     if originMs < 0 { originMs = frameMs }
                     let rate = Int(frame.pointee.sample_rate)
                     let channels = Int(frame.pointee.ch_layout.nb_channels)
@@ -598,6 +619,7 @@ private final class ClipFingerprintRun {
             }
             av_packet_unref(packet)
         }
+        if abort.isSet { stopReason = "abort" }
         guard !abort.isSet, let acc = accumulator,
               let print = Fingerprinter.fingerprint(samples: acc.headSamples, rate: acc.fingerprintRate) else { return nil }
         let output: [String: Any] = [
@@ -606,7 +628,8 @@ private final class ClipFingerprintRun {
             "fingerprint": print,
             "decodedFrames": decodedFrames,
             "decodedSamples": decodedSamples,
-            "windowComplete": true,
+            "stopReason": stopReason,
+            "windowComplete": stopReason == "window-end",
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: output) else { return nil }
         log("clip done startMs=\(originMs) decodedMs=\(acc.decodedMs)")

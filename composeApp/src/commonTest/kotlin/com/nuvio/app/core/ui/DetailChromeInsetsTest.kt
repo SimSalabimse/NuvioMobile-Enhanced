@@ -31,6 +31,18 @@ class DetailChromeInsetsTest {
     }
 
     @Test
+    fun heroBackButtonIsAbsentWhenTheNativeBackIsShowing() {
+        assertEquals(false, detailHeroBackShown(nativeBackVisible = true))
+        assertEquals(true, detailHeroBackShown(nativeBackVisible = false))
+    }
+
+    @Test
+    fun heroBackPaddingDoesNotAddTheStatusBarWhenTheHostAlreadyDid() {
+        assertEquals(8f, detailHeroBackTopDp(hostRespectsTop = true, statusBarDp = 59f))
+        assertEquals(67f, detailHeroBackTopDp(hostRespectsTop = false, statusBarDp = 59f))
+    }
+
+    @Test
     fun navigationBarIsAddedOnlyWhenItOverlaysTheHero() {
         assertEquals(103f, immersiveTextTopInsetDp(59f, 44f, nativeBarOverlaysHero = true))
         assertEquals(59f, immersiveTextTopInsetDp(59f, 44f, nativeBarOverlaysHero = false))
