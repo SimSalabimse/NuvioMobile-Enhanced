@@ -64,6 +64,8 @@ import com.nuvio.app.features.offline.rememberItemPlayEnabled
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import com.nuvio.app.core.ui.spoilerBlur
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
@@ -920,6 +922,7 @@ private fun SeasonPosterScrollRow(
         items(seasons, key = { season -> season }) { season ->
             val seasonLongPress = onLongPress?.let { handler -> { handler(season) } }
             SeasonPosterButton(
+                season = season,
                 label = season.label(),
                 imageUrl = resolveSeasonPoster(
                     season = season,
@@ -957,6 +960,7 @@ private fun resolveSeasonPoster(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SeasonPosterButton(
+    season: Int,
     label: String,
     imageUrl: String?,
     isSelected: Boolean,
@@ -975,6 +979,8 @@ private fun SeasonPosterButton(
     Column(
         modifier = Modifier
             .width(posterWidth)
+            .testTag(com.nuvio.app.features.details.seasonPosterTag(season))
+            .semantics(mergeDescendants = true) { contentDescription = label }
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
@@ -1007,7 +1013,7 @@ private fun SeasonPosterButton(
             if (imageUrl != null) {
                 AsyncImage(
                     model = imageUrl,
-                    contentDescription = label,
+                    contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
                 )
@@ -1020,7 +1026,9 @@ private fun SeasonPosterButton(
                 ) {
                     Text(
                         text = label,
-                        modifier = Modifier.padding(horizontal = 12.dp),
+                        modifier = Modifier
+                            .padding(horizontal = 12.dp)
+                            .clearAndSetSemantics { },
                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -1045,7 +1053,9 @@ private fun SeasonPosterButton(
             maxLines = seasonCaptionMaxLines(fontScale),
             overflow = TextOverflow.Ellipsis,
             softWrap = true,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clearAndSetSemantics { },
         )
     }
 }

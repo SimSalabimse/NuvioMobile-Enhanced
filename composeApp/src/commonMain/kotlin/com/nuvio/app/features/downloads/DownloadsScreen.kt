@@ -315,7 +315,7 @@ fun DownloadsScreen(
             com.nuvio.app.features.details.seasonSheetEpisodes(
                 catalog = catalogMeta?.videos.orEmpty(),
                 ledger = com.nuvio.app.features.player.skip.OwnTheIntroDbLedger.load(
-                    com.nuvio.app.features.player.skip.currentTheIntroDbAccountScope(),
+                    com.nuvio.app.features.details.overviewLedgerScope(),
                 ),
                 showImdbIds = imdb,
                 season = overviewSeasonNumber,

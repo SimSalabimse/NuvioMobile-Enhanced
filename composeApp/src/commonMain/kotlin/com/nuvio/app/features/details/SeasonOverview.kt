@@ -225,7 +225,11 @@ internal fun UiFixture?.usesFixtureLedger(): Boolean =
     this == UiFixture.SeasonOverview ||
         this == UiFixture.SeasonOverviewLong ||
         this == UiFixture.DownloadsSeason ||
+        this == UiFixture.DetailsOnline ||
         this == UiFixture.DetailsMovieOffline
+
+/** Stable selector for a season poster. The visible caption can wrap; this id does not. */
+internal fun seasonPosterTag(season: Int): String = "season-poster-$season"
 
 internal fun overviewLedgerScope(fixture: UiFixture? = currentUiFixture()): String =
     if (fixture.usesFixtureLedger()) {

@@ -1,7 +1,12 @@
 package com.nuvio.app.core.uifixture
 
+import com.nuvio.app.features.details.SeasonEpisodeRef
+import com.nuvio.app.features.details.SegmentMark
+import com.nuvio.app.features.details.episodeSegmentOverview
 import com.nuvio.app.features.details.overviewLedgerScope
+import com.nuvio.app.features.details.seasonEpisodeContentKey
 import com.nuvio.app.features.details.seasonOverviewOpenedByFixture
+import com.nuvio.app.features.details.seasonPosterTag
 import com.nuvio.app.features.details.seasonSheetEpisodes
 import com.nuvio.app.features.details.showImdbIds
 import com.nuvio.app.features.details.usesFixtureLedger
@@ -11,6 +16,7 @@ import com.nuvio.app.features.player.skip.movieSegmentRows
 import com.nuvio.app.features.settings.SettingsPage
 import com.nuvio.app.navigation.DetailRoute
 import com.nuvio.app.navigation.DownloadShowRoute
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -198,8 +204,116 @@ class UiFixturesTest {
         assertNull(seasonOverviewOpenedByFixture(UiFixture.DetailsOnline, UiFixtureCatalog.SERIES_ID))
         assertEquals(1, seasonOverviewOpenedByFixture(UiFixture.SeasonOverview, UiFixtureCatalog.SERIES_ID))
         assertEquals(OwnTheIntroDbLedger.FIXTURE_SCOPE, overviewLedgerScope(UiFixture.DownloadsSeason))
+        assertEquals(OwnTheIntroDbLedger.FIXTURE_SCOPE, overviewLedgerScope(UiFixture.DetailsOnline))
         assertTrue(UiFixture.DownloadsSeason.usesFixtureLedger())
-        assertFalse(UiFixture.DetailsOnline.usesFixtureLedger())
+        assertTrue(UiFixture.DetailsOnline.usesFixtureLedger())
+    }
+
+    @Test
+    fun ledgerEpisodeNineStaysOnBothEntrancesAndIsNotPublic() {
+        val downloadsShow = UiFixtureCatalog.downloadsSeasonShow()
+        val downloadsMarks = UiFixtureCatalog.downloadsSeasonLedgerMarks()
+        val downloadsRows = seasonSheetEpisodes(
+            catalog = downloadsShow.videos,
+            ledger = downloadsMarks,
+            showImdbIds = showImdbIds(downloadsShow),
+            season = 1,
+        )
+        val detailsShow = UiFixtureCatalog.detailsOnlineShow()
+        val detailsMarks = UiFixtureCatalog.detailsShowLedgerMarks()
+        val detailsRows = seasonSheetEpisodes(
+            catalog = detailsShow.videos,
+            ledger = detailsMarks,
+            showImdbIds = showImdbIds(detailsShow),
+            season = 1,
+        )
+        assertEquals(listOf(1, 2, 3), downloadsShow.videos.map { it.episode })
+        assertEquals(listOf(1, 2, 3), detailsShow.videos.filter { it.season == 1 }.map { it.episode })
+        assertFalse(detailsShow.videos.any { it.season == 1 && it.episode == 9 })
+        assertFalse(UiFixtureCatalog.downloadsSeasonHasFile(9))
+        assertEquals(listOf(1, 2, 3, 9), downloadsRows.map { it.episode })
+        assertEquals(listOf(1, 2, 3, 9), detailsRows.map { it.episode })
+        assertEquals("", downloadsRows.last().title)
+        assertEquals(UiFixtureCatalog.DOWNLOADS_SEASON_IMDB, downloadsShow.imdbId)
+        assertEquals(UiFixtureCatalog.DETAILS_SHOW_IMDB, detailsShow.imdbId)
+        assertNotEquals(downloadsShow.imdbId, detailsShow.imdbId)
+
+        val downloadsNine = episodeSegmentOverview(
+            episode = SeasonEpisodeRef(
+                season = 1,
+                episode = 9,
+                title = "",
+                watched = false,
+                contentKey = seasonEpisodeContentKey(
+                    metaId = downloadsShow.id,
+                    imdbId = downloadsShow.imdbId,
+                    videoId = downloadsRows.last().id,
+                    videoImdbId = downloadsRows.last().imdbId,
+                    season = 1,
+                    episode = 9,
+                ),
+            ),
+            own = downloadsMarks,
+            detectedTypes = emptySet(),
+        )
+        assertEquals(setOf("recap"), downloadsNine.pending)
+        assertTrue(downloadsNine.submitted.isEmpty())
+        assertEquals(SegmentMark.Pending, downloadsNine.marks["recap"])
+        assertEquals(SegmentMark.Missing, downloadsNine.marks["intro"])
+
+        val detailsNine = episodeSegmentOverview(
+            episode = SeasonEpisodeRef(
+                season = 1,
+                episode = 9,
+                title = "",
+                watched = false,
+                contentKey = seasonEpisodeContentKey(
+                    metaId = detailsShow.id,
+                    imdbId = detailsShow.imdbId,
+                    videoId = detailsRows.last().id,
+                    videoImdbId = detailsRows.last().imdbId,
+                    season = 1,
+                    episode = 9,
+                ),
+            ),
+            own = detailsMarks,
+            detectedTypes = emptySet(),
+        )
+        assertEquals(setOf("recap"), detailsNine.pending)
+        assertTrue(detailsNine.submitted.isEmpty())
+        val downloadsOne = episodeSegmentOverview(
+            episode = SeasonEpisodeRef(
+                season = 1,
+                episode = 1,
+                title = "Episode 1",
+                watched = false,
+                contentKey = "${UiFixtureCatalog.DOWNLOADS_SEASON_IMDB}:1:1",
+            ),
+            own = downloadsMarks,
+            detectedTypes = emptySet(),
+        )
+        val detailsOne = episodeSegmentOverview(
+            episode = SeasonEpisodeRef(
+                season = 1,
+                episode = 1,
+                title = "Episode 1",
+                watched = false,
+                contentKey = "${UiFixtureCatalog.DETAILS_SHOW_IMDB}:1:1",
+            ),
+            own = detailsMarks,
+            detectedTypes = emptySet(),
+        )
+        assertEquals(setOf("intro"), downloadsOne.submitted)
+        assertTrue(detailsOne.submitted.isEmpty())
+        assertTrue(detailsOne.pending.isEmpty())
+
+        val downloadsScreen = sourceText("composeApp/src/commonMain/kotlin/com/nuvio/app/features/downloads/DownloadsScreen.kt")
+        val overview = downloadsScreen.substringAfter("val overviewEpisodes")
+        assertTrue(overview.contains("overviewLedgerScope()"))
+        assertFalse(overview.contains("currentTheIntroDbAccountScope()"))
+        val posters = sourceText("composeApp/src/commonMain/kotlin/com/nuvio/app/features/details/components/DetailSeriesContent.kt")
+        assertTrue(posters.contains("seasonPosterTag(season)"))
+        assertEquals("season-poster-1", seasonPosterTag(1))
     }
 
     @Test
@@ -240,5 +354,15 @@ class UiFixturesTest {
             "settings-debug-logs",
             parseUiFixtureRequest("$UI_FIXTURE_ARGUMENT settings-debug-logs")?.walkId,
         )
+    }
+
+    private fun sourceText(relative: String): String {
+        var dir = File(System.getProperty("user.dir") ?: ".")
+        repeat(6) {
+            val candidate = File(dir, relative)
+            if (candidate.isFile) return candidate.readText()
+            dir = dir.parentFile ?: return ""
+        }
+        return ""
     }
 }

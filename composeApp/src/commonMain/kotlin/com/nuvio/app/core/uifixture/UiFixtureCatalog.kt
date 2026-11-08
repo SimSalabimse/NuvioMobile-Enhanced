@@ -36,6 +36,8 @@ internal object UiFixtureCatalog {
     const val SEASON_OVERVIEW_LONG_EPISODE_COUNT = 25
     const val DOWNLOADS_SEASON_SHOW_ID = "fixture-series-railway"
     const val DOWNLOADS_SEASON_IMDB = "tt9000001"
+    /** Synthetic show id for the details season sheet. Not a public catalogue id. */
+    const val DETAILS_SHOW_IMDB = "tt9000003"
     const val MOVIE_FIXTURE_IMDB = "tt9000002"
     const val LONG_TITLE =
         "The Extraordinary and Completely Unabridged Account of a Very Long Evening on the Northern Coastal Railway"
@@ -91,9 +93,16 @@ internal object UiFixtureCatalog {
             },
         )
         when (fixture) {
-            UiFixture.DetailsOnline,
             UiFixture.DetailsOffline,
             -> MetaDetailsRepository.installFixture(series(seasonPosters = true))
+            UiFixture.DetailsOnline -> {
+                MetaDetailsRepository.installFixture(detailsOnlineShow())
+                val marks = detailsShowLedgerMarks()
+                OwnTheIntroDbLedger.saveFixture(
+                    confirmed = marks.confirmed,
+                    pending = marks.pending,
+                )
+            }
             UiFixture.DetailsTall -> MetaDetailsRepository.installFixture(
                 series(seasonPosters = true, tallHero = true),
             )
@@ -316,6 +325,18 @@ internal object UiFixtureCatalog {
     internal fun downloadsSeasonLedgerMarks(): OwnAccountMarks = OwnAccountMarks(
         confirmed = mapOf("$DOWNLOADS_SEASON_IMDB:1:1" to setOf("intro")),
         pending = mapOf("$DOWNLOADS_SEASON_IMDB:1:9" to setOf("recap")),
+    )
+
+    internal fun downloadsSeasonHasFile(episode: Int): Boolean =
+        downloadsSeason(0L).any { it.episodeNumber == episode }
+
+    /** Harbor Lane with a synthetic imdb so a ledger key can name an episode. */
+    internal fun detailsOnlineShow(): MetaDetails =
+        series(seasonPosters = true).copy(imdbId = DETAILS_SHOW_IMDB)
+
+    /** Episode 9 is pending on this account. Episodes 1–3 have no own mark. */
+    internal fun detailsShowLedgerMarks(): OwnAccountMarks = OwnAccountMarks(
+        pending = mapOf("$DETAILS_SHOW_IMDB:1:9" to setOf("recap")),
     )
 
     internal fun movieFixtureMarks(): OwnAccountMarks = OwnAccountMarks(
