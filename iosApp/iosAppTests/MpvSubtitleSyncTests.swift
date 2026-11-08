@@ -1,4 +1,5 @@
 import XCTest
+@testable import Nuvio
 
 final class MpvSubtitleSyncTests: XCTestCase {
     func testLateCueUsesSpeedBelowOneAndDelayIsSeconds() {
