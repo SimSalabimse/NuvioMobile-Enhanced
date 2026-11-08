@@ -85,6 +85,16 @@ class IosTestHostTest {
             assertTrue(!text.contains("import Nuvio_Enhanced"), file.name)
             assertTrue(!text.contains("import iosApp"), file.name)
         }
+        val playback = sources.first { it.name == "SubtitlePlaybackTests.swift" }.readText()
+        listOf(
+            "submitMode: false",
+            "privateSession: false",
+            "useNativeTabBar: false",
+            "useTabletFloatingTabBar: false",
+            "outlineBlur: 0",
+        ).forEach { argument ->
+            assertTrue(playback.contains(argument), argument)
+        }
         val sync = sources.first { it.name == "MpvSubtitleSyncTests.swift" }.readText()
         listOf(
             "testLateCueUsesSpeedBelowOneAndDelayIsSeconds",

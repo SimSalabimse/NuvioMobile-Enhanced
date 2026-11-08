@@ -33,7 +33,8 @@ final class SubtitlePlaybackTests: XCTestCase {
             pauseDescription: nil, providerName: "Local", providerAddonId: nil, contentType: nil, videoId: nil,
             parentMetaId: "subtitle-test", parentMetaType: "movie", torrentInfoHash: nil, torrentFileIdx: nil,
             torrentFilename: nil, torrentTrackers: [], initialPositionMs: 0, initialProgressFraction: nil,
-            contentLanguage: "en", subtitleExtras: nil, sourceFilename: nil, stream: nil
+            contentLanguage: "en", subtitleExtras: nil, sourceFilename: nil, stream: nil,
+            submitMode: false, privateSession: false
         )
         let launchId = PlayerLaunchStore.shared.put(launch: launch)
         let window = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first?.windows.first)
@@ -41,7 +42,11 @@ final class SubtitlePlaybackTests: XCTestCase {
         window.rootViewController = MainViewControllerKt.ScreenViewController(
             route: PlayerRoute(launchId: launchId, title: "Subtitle test"),
             onNavigate: { _, _ in }, onGoBack: {}, onReplace: { _ in }, onActivate: { _ in },
-            appGateController: AppGateController(), verticalBar: VerticalBar(), hinge: Hinge()
+            appGateController: AppGateController(),
+            useNativeTabBar: false,
+            useTabletFloatingTabBar: false,
+            verticalBar: VerticalBar(),
+            hinge: Hinge()
         )
         window.makeKeyAndVisible()
         defer {
@@ -104,7 +109,14 @@ final class SubtitlePlaybackTests: XCTestCase {
             outlineColor: 0xFF00000000000000, outlineEnabled: outline, outlineWidth: 2,
             bold: false, fontSizeSp: 28, bottomOffset: 20, stripSdh: false,
             useForcedSubtitles: false, showOnlyPreferredLanguages: false,
-            appearance: SubtitleAppearance(fontId: font, backgroundRadius: radius, shadowEnabled: true, shadowOpacity: 80, shadowSize: 3)
+            appearance: SubtitleAppearance(
+                fontId: font,
+                backgroundRadius: radius,
+                shadowEnabled: true,
+                shadowOpacity: 80,
+                shadowSize: 3,
+                outlineBlur: 0
+            )
         )
     }
 
