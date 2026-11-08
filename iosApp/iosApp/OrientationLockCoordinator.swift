@@ -151,6 +151,10 @@ final class OrientationLockCoordinator {
                 .flatMap(\.windows)
                 .forEach { window in
                     window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+                    // The player dialog layer is sized while the window is landscape. Laying the
+                    // window out again lets that layer follow the bounds Downloads is using now.
+                    window.setNeedsLayout()
+                    window.layoutIfNeeded()
                 }
         } else {
             if forceRotate {

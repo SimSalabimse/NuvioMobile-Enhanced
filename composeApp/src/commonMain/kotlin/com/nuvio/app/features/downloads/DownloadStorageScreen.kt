@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -409,6 +410,7 @@ internal fun DownloadStorageScreen(
     var reanalyzeTarget by remember { mutableStateOf<ReanalyzeTarget?>(null) }
     val specialsLabel = stringResource(Res.string.downloads_storage_specials)
 
+    Box(Modifier.fillMaxSize()) {
     NuvioScreen {
         stickyHeader {
             NuvioScreenHeader(
@@ -503,6 +505,7 @@ internal fun DownloadStorageScreen(
             },
             onDismiss = { pendingDelete = null },
         )
+    }
     }
 
 }
