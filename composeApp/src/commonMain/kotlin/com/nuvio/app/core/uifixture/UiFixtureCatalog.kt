@@ -11,6 +11,7 @@ import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.analysis.SkipSourceLedger
 import com.nuvio.app.features.downloads.SmartDownloadSettings
 import com.nuvio.app.features.downloads.SmartDownloads
+import com.nuvio.app.features.player.skip.OwnAccountMarks
 import com.nuvio.app.features.player.skip.OwnTheIntroDbLedger
 import com.nuvio.app.features.player.skip.SkipInterval
 import com.nuvio.app.features.player.skip.TheIntroDb
@@ -34,6 +35,8 @@ internal object UiFixtureCatalog {
     const val SEASON_OVERVIEW_IMDB = "tt0000101"
     const val SEASON_OVERVIEW_LONG_EPISODE_COUNT = 25
     const val DOWNLOADS_SEASON_SHOW_ID = "fixture-series-railway"
+    const val DOWNLOADS_SEASON_IMDB = "tt9000001"
+    const val MOVIE_FIXTURE_IMDB = "tt9000002"
     const val LONG_TITLE =
         "The Extraordinary and Completely Unabridged Account of a Very Long Evening on the Northern Coastal Railway"
 
@@ -117,7 +120,22 @@ internal object UiFixtureCatalog {
                 )
                 SmartDownloads.installFixtureGoalStatus(SERIES_ID, "Keeping 2 ready")
             }
-            UiFixture.DetailsMovieOffline -> MetaDetailsRepository.installFixture(movie())
+            UiFixture.DetailsMovieOffline -> {
+                MetaDetailsRepository.installFixture(movie().copy(imdbId = MOVIE_FIXTURE_IMDB))
+                val marks = movieFixtureMarks()
+                OwnTheIntroDbLedger.saveFixture(
+                    confirmed = marks.confirmed,
+                    pending = marks.pending,
+                )
+            }
+            UiFixture.DownloadsSeason -> {
+                MetaDetailsRepository.installFixture(downloadsSeasonShow())
+                val marks = downloadsSeasonLedgerMarks()
+                OwnTheIntroDbLedger.saveFixture(
+                    confirmed = marks.confirmed,
+                    pending = marks.pending,
+                )
+            }
             else -> Unit
         }
         UiFixtureSession.pendingRoute = fixture.launchRoute()
@@ -272,6 +290,37 @@ internal object UiFixtureCatalog {
             total = 1_200_000_000L,
             slot = 61,
         ),
+    )
+
+    internal fun downloadsSeasonShow(): MetaDetails {
+        val videos = (1..3).map { episode ->
+            MetaVideo(
+                id = "$DOWNLOADS_SEASON_IMDB:1:$episode",
+                title = "Episode $episode",
+                season = 1,
+                episode = episode,
+                available = true,
+                imdbId = DOWNLOADS_SEASON_IMDB,
+            )
+        }
+        return MetaDetails(
+            id = DOWNLOADS_SEASON_SHOW_ID,
+            type = SERIES_TYPE,
+            name = LONG_TITLE,
+            imdbId = DOWNLOADS_SEASON_IMDB,
+            videos = videos,
+        )
+    }
+
+    /** Episode 9 is ledger-only. It is not one of the downloaded files. */
+    internal fun downloadsSeasonLedgerMarks(): OwnAccountMarks = OwnAccountMarks(
+        confirmed = mapOf("$DOWNLOADS_SEASON_IMDB:1:1" to setOf("intro")),
+        pending = mapOf("$DOWNLOADS_SEASON_IMDB:1:9" to setOf("recap")),
+    )
+
+    internal fun movieFixtureMarks(): OwnAccountMarks = OwnAccountMarks(
+        confirmed = mapOf("$MOVIE_FIXTURE_IMDB:movie" to setOf("intro")),
+        pending = mapOf("$MOVIE_FIXTURE_IMDB:movie" to setOf("recap")),
     )
 
     private fun downloadsSeason(now: Long): List<DownloadItem> = listOf(

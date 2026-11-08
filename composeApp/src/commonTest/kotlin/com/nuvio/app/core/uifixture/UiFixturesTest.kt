@@ -1,8 +1,19 @@
 package com.nuvio.app.core.uifixture
 
+import com.nuvio.app.features.details.overviewLedgerScope
+import com.nuvio.app.features.details.seasonOverviewOpenedByFixture
+import com.nuvio.app.features.details.seasonSheetEpisodes
+import com.nuvio.app.features.details.showImdbIds
+import com.nuvio.app.features.details.usesFixtureLedger
+import com.nuvio.app.features.player.skip.OwnTheIntroDbLedger
+import com.nuvio.app.features.player.skip.PublicMediaStatus
+import com.nuvio.app.features.player.skip.movieSegmentRows
 import com.nuvio.app.features.settings.SettingsPage
+import com.nuvio.app.navigation.DetailRoute
+import com.nuvio.app.navigation.DownloadShowRoute
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -163,6 +174,71 @@ class UiFixturesTest {
         assertEquals(
             "fixture://art/wide/2/Harbor_Lane",
             fixtureArtUrl(slot = 2, wide = true, label = "Harbor Lane"),
+        )
+    }
+
+    @Test
+    fun downloadsAndDetailsStayClosedUntilTheSeasonOverviewControlIsTapped() {
+        val show = UiFixtureCatalog.downloadsSeasonShow()
+        val rows = seasonSheetEpisodes(
+            catalog = show.videos,
+            ledger = UiFixtureCatalog.downloadsSeasonLedgerMarks(),
+            showImdbIds = showImdbIds(show),
+            season = 1,
+        )
+        assertEquals(listOf(1, 2, 3, 9), rows.map { it.episode })
+        assertEquals(
+            DownloadShowRoute(
+                showId = UiFixtureCatalog.DOWNLOADS_SEASON_SHOW_ID,
+                title = UiFixtureCatalog.LONG_TITLE,
+            ),
+            UiFixture.DownloadsSeason.launchRoute(),
+        )
+        assertNull(seasonOverviewOpenedByFixture(UiFixture.DownloadsSeason, show.id))
+        assertNull(seasonOverviewOpenedByFixture(UiFixture.DetailsOnline, UiFixtureCatalog.SERIES_ID))
+        assertEquals(1, seasonOverviewOpenedByFixture(UiFixture.SeasonOverview, UiFixtureCatalog.SERIES_ID))
+        assertEquals(OwnTheIntroDbLedger.FIXTURE_SCOPE, overviewLedgerScope(UiFixture.DownloadsSeason))
+        assertTrue(UiFixture.DownloadsSeason.usesFixtureLedger())
+        assertFalse(UiFixture.DetailsOnline.usesFixtureLedger())
+    }
+
+    @Test
+    fun movieFixtureOwnMarksAreNotAPublicCount() {
+        val marks = UiFixtureCatalog.movieFixtureMarks()
+        val key = "${UiFixtureCatalog.MOVIE_FIXTURE_IMDB}:movie"
+        val rows = movieSegmentRows(
+            media = null,
+            publicStatus = PublicMediaStatus.NoSubmissions,
+            confirmed = marks.confirmed[key].orEmpty(),
+            pending = marks.pending[key].orEmpty(),
+            detected = emptySet(),
+        )
+        val intro = rows.first { it.type == "intro" }
+        val recap = rows.first { it.type == "recap" }
+        assertTrue(intro.ownConfirmed)
+        assertFalse(intro.publicAvailable)
+        assertTrue(intro.publicCount == null)
+        assertTrue(recap.ownPending)
+        assertFalse(recap.ownConfirmed)
+        assertEquals(
+            DetailRoute(
+                type = UiFixtureCatalog.MOVIE_TYPE,
+                id = UiFixtureCatalog.MOVIE_ID,
+                title = UiFixtureCatalog.MOVIE_TITLE,
+            ),
+            UiFixture.DetailsMovieOffline.launchRoute(),
+        )
+        assertEquals(OwnTheIntroDbLedger.FIXTURE_SCOPE, overviewLedgerScope(UiFixture.DetailsMovieOffline))
+    }
+
+    @Test
+    fun settingsWalkNamesOpenTheRealPages() {
+        assertEquals("settings-advanced", settingsWireName(SettingsPage.Advanced))
+        assertEquals("settings-debug-logs", settingsWireName(SettingsPage.DebugLogs))
+        assertEquals("settings-advanced", parseUiFixtureRequest("settings-advanced")?.walkId)
+        assertEquals(
+            "settings-debug-logs",
+            parseUiFixtureRequest("$UI_FIXTURE_ARGUMENT settings-debug-logs")?.walkId,
         )
     }
 }

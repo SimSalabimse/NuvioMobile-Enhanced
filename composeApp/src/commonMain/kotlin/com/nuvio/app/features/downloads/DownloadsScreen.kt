@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
@@ -713,7 +714,9 @@ private fun LazyListScope.downloadsShowContent(
                 ) {
                     TextButton(
                         onClick = { onOpenOverview(seasonNumber) },
-                        modifier = Modifier.heightIn(min = 44.dp),
+                        modifier = Modifier
+                            .heightIn(min = 44.dp)
+                            .testTag(com.nuvio.app.features.details.DOWNLOADS_SEASON_OVERVIEW_TAG),
                     ) {
                         Text(text = stringResource(Res.string.season_overview))
                     }

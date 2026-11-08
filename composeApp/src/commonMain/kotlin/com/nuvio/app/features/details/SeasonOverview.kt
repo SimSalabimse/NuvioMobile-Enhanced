@@ -1,6 +1,7 @@
 package com.nuvio.app.features.details
 
 import com.nuvio.app.core.uifixture.UiFixture
+import com.nuvio.app.core.uifixture.UiFixtureCatalog
 import com.nuvio.app.core.uifixture.currentUiFixture
 import com.nuvio.app.features.analysis.MediaAnalysisResult
 import com.nuvio.app.features.player.skip.OwnAccountMarks
@@ -213,12 +214,36 @@ internal fun localDetectionTypes(result: MediaAnalysisResult?): Set<String> {
     ).toSet()
 }
 
+/** Accessibility id for the Downloads show-page control. The sheet is not open until this is tapped. */
+internal const val DOWNLOADS_SEASON_OVERVIEW_TAG = "downloads-season-overview"
+
+/** Accessibility id for the details season menu row. The sheet is not open until this is tapped. */
+internal const val DETAILS_SEASON_OVERVIEW_TAG = "details-season-overview"
+
+/** Layout fixtures that read the fixture ledger instead of a signed-in account. */
+internal fun UiFixture?.usesFixtureLedger(): Boolean =
+    this == UiFixture.SeasonOverview ||
+        this == UiFixture.SeasonOverviewLong ||
+        this == UiFixture.DownloadsSeason ||
+        this == UiFixture.DetailsMovieOffline
+
 internal fun overviewLedgerScope(fixture: UiFixture? = currentUiFixture()): String =
-    if (fixture == UiFixture.SeasonOverview || fixture == UiFixture.SeasonOverviewLong) {
+    if (fixture.usesFixtureLedger()) {
         OwnTheIntroDbLedger.FIXTURE_SCOPE
     } else {
         currentTheIntroDbAccountScope()
     }
+
+/**
+ * Seasons the season-overview screenshot fixtures open by themselves.
+ * Details and Downloads stay closed until the season overview control is tapped.
+ */
+internal fun seasonOverviewOpenedByFixture(fixture: UiFixture?, metaId: String): Int? = when {
+    metaId != UiFixtureCatalog.SERIES_ID -> null
+    fixture == UiFixture.SeasonOverview -> 1
+    fixture == UiFixture.SeasonOverviewLong -> 2
+    else -> null
+}
 
 internal fun submittedCount(rows: List<EpisodeSegmentOverview>): Int = rows.sumOf { it.submitted.size }
 

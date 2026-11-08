@@ -22,6 +22,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -293,6 +294,7 @@ fun SeasonWatchedActionSheet(
             NuvioBottomSheetActionRow(
                 icon = Icons.Rounded.ViewList,
                 title = stringResource(Res.string.season_overview),
+                modifier = Modifier.testTag(com.nuvio.app.features.details.DETAILS_SEASON_OVERVIEW_TAG),
                 onClick = {
                     onOpenOverview()
                     coroutineScope.launch {

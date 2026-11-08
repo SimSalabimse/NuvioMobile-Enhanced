@@ -1178,6 +1178,21 @@ internal fun MovieSegmentStatusBlock(
     var rows by remember(contentKey) { mutableStateOf<List<MovieSegmentRow>?>(null) }
     var publicStatus by remember(contentKey) { mutableStateOf(PublicMediaStatus.Unavailable) }
     androidx.compose.runtime.LaunchedEffect(contentKey, imdbId, parentMetaId) {
+        val fixture = com.nuvio.app.core.uifixture.currentUiFixture()
+        if (fixture == com.nuvio.app.core.uifixture.UiFixture.DetailsMovieOffline) {
+            val marks = OwnTheIntroDbLedger.load(
+                com.nuvio.app.features.details.overviewLedgerScope(fixture),
+            )
+            publicStatus = PublicMediaStatus.NoSubmissions
+            rows = movieSegmentRows(
+                media = null,
+                publicStatus = PublicMediaStatus.NoSubmissions,
+                confirmed = marks.confirmed[contentKey].orEmpty(),
+                pending = marks.pending[contentKey].orEmpty(),
+                detected = emptySet(),
+            )
+            return@LaunchedEffect
+        }
         val media = TheIntroDb.getMedia(imdbId = imdbId.takeIf { it.startsWith("tt", ignoreCase = true) })
         val status = TheIntroDb.lastPublicStatus
         val marks = OwnTheIntroDbLedger.load(currentTheIntroDbAccountScope())

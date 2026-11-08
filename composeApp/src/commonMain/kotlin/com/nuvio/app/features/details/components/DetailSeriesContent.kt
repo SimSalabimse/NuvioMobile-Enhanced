@@ -63,6 +63,7 @@ import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.features.offline.rememberItemPlayEnabled
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import com.nuvio.app.core.ui.spoilerBlur
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
@@ -103,6 +104,9 @@ import com.nuvio.app.features.details.SeasonViewModeStorage
 import com.nuvio.app.features.details.formatRuntimeFromMinutes
 import com.nuvio.app.features.details.groupedEpisodesForDisplay
 import com.nuvio.app.features.details.preferredEpisodeNumberForSeason
+import com.nuvio.app.features.details.seasonCaptionMaxLines
+import com.nuvio.app.features.details.seasonHeaderStacks
+import com.nuvio.app.features.details.seasonPosterWidthDp
 import com.nuvio.app.features.details.seasonSortKey
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
@@ -635,24 +639,26 @@ private fun SeriesSeasonSelector(
             meta = meta,
         ) != null
     }
+    val stackSeasonHeader = seasonHeaderStacks(LocalDensity.current.fontScale)
     Column(
         modifier = Modifier.animateContentSize(animationSpec = tween(280)),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        val seasonTitle = @Composable {
             Text(
                 text = stringResource(Res.string.details_seasons),
-                modifier = Modifier.weight(1f),
+                modifier = if (stackSeasonHeader) Modifier.fillMaxWidth() else Modifier.weight(1f),
                 style = MaterialTheme.typography.titleLarge.copy(
                     fontSize = sizing.seasonHeaderSize,
                     fontWeight = FontWeight.SemiBold,
                 ),
                 color = MaterialTheme.colorScheme.onBackground,
+                maxLines = if (stackSeasonHeader) 2 else 1,
+                overflow = TextOverflow.Ellipsis,
+                softWrap = true,
             )
+        }
+        val seasonControls = @Composable {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -671,6 +677,24 @@ private fun SeriesSeasonSelector(
                 if (onDownloadSeason != null) {
                     SeasonDownloadIconButton(onClick = onDownloadSeason)
                 }
+            }
+        }
+        if (stackSeasonHeader) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                seasonTitle()
+                seasonControls()
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                seasonTitle()
+                seasonControls()
             }
         }
 
@@ -941,9 +965,16 @@ private fun SeasonPosterButton(
     onLongClick: (() -> Unit)?,
     longPressActions: List<com.nuvio.app.core.a11y.LongPressAccessibilityAction> = emptyList(),
 ) {
+    val fontScale = LocalDensity.current.fontScale
+    val posterWidth = seasonPosterWidthDp(
+        fontScale = fontScale,
+        defaultWidthDp = sizing.seasonPosterWidth.value,
+        caption = label,
+        captionBaseSp = sizing.seasonChipTextSize.value,
+    ).dp
     Column(
         modifier = Modifier
-            .width(sizing.seasonPosterWidth)
+            .width(posterWidth)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
@@ -1011,8 +1042,9 @@ private fun SeasonPosterButton(
                 MaterialTheme.colorScheme.onSurfaceVariant
             },
             textAlign = TextAlign.Center,
-            maxLines = 1,
+            maxLines = seasonCaptionMaxLines(fontScale),
             overflow = TextOverflow.Ellipsis,
+            softWrap = true,
             modifier = Modifier.fillMaxWidth(),
         )
     }
