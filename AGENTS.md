@@ -18,3 +18,5 @@ Open only the reference files the skill points at for the task. Provenance, lice
 The app target is Xcode 27.2. The checked-in Swift language version is still 5.0, with no strict-concurrency or default-actor setting in `iosApp/iosApp.xcodeproj/project.pbxproj`. Do not assume the Xcode 26 new-project defaults described in the concurrency skill.
 
 A short review of the build 206 Swift and iOS delta is in `.agents/skills/ios-build-206-review.md`. That note is a backlog. It is not a license to change the app in the same pass.
+
+Build cleanly and modularly with proper separation of concerns. Never bolt a feature on just because it was asked for: if it doesn't fit naturally, first refactor the part you touch so it does. If that refactor would be large, stop and propose a red-pen design draft instead.
