@@ -29,3 +29,27 @@ internal const val HOME_HERO_ART_TAG = "home-hero-art"
  */
 internal fun homeHeroTopPaddingDp(cardStyle: Boolean, contentTopDp: Float): Float =
     if (cardStyle) contentTopDp.coerceAtLeast(0f) else 0f
+
+/**
+ * Extra space above the title when the picture ends inside the unsafe band.
+ * A picture that already clears the inset adds nothing, so the column is not padded twice.
+ */
+internal fun homeInteractiveClearanceDp(artworkBottomDp: Float, safeTopDp: Float): Float =
+    (safeTopDp - artworkBottomDp).coerceAtLeast(0f)
+
+/** How the full-bleed banner meets the unsafe top. A card and a zero inset draw nothing. */
+internal enum class HomeTopEdgeKind { None, QuietFade, Solid }
+
+internal fun homeTopEdgeKind(
+    safeTopDp: Float,
+    cardStyle: Boolean,
+    reduceTransparency: Boolean,
+    increaseContrast: Boolean,
+): HomeTopEdgeKind = when {
+    cardStyle || safeTopDp <= 0f -> HomeTopEdgeKind.None
+    reduceTransparency || increaseContrast -> HomeTopEdgeKind.Solid
+    else -> HomeTopEdgeKind.QuietFade
+}
+
+/** The fade over the unsafe band. It is not the title. */
+internal const val HOME_HERO_TOP_EDGE_TAG = "home-hero-top-edge"

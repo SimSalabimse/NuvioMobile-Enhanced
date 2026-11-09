@@ -44,6 +44,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.runtime.snapshotFlow
@@ -62,10 +63,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import com.nuvio.app.core.ui.platformPhysicalTopInset
+import com.nuvio.app.core.ui.systemIncreaseContrastEnabled
+import com.nuvio.app.features.player.playerReduceTransparencyEnabled
 import com.nuvio.app.features.home.HOME_HERO_ART_TAG
 import com.nuvio.app.features.home.HOME_HERO_CONTENT_TAG
+import com.nuvio.app.features.home.HOME_HERO_TOP_EDGE_TAG
+import com.nuvio.app.features.home.HomeTopEdgeKind
 import com.nuvio.app.features.home.homeContentTopInsetDp
 import com.nuvio.app.features.home.homeHeroTopPaddingDp
+import com.nuvio.app.features.home.homeInteractiveClearanceDp
+import com.nuvio.app.features.home.homeTopEdgeKind
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -75,7 +82,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.hideFromAccessibility
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTag as semanticsTestTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -187,9 +196,24 @@ internal val HERO_CARD_CORNER_RADIUS = 28.dp
 internal val HERO_CARD_HORIZONTAL_PADDING = 12.dp
 internal val HERO_CARD_TOP_PADDING = 8.dp
 
+/**
+ * Test seam for the live top inset. Production leaves this null and reads the window.
+ * A provided value is the inset the hero must clear. It is not a stand-in for the picture height.
+ */
+internal val LocalHomeContentTopInset = compositionLocalOf<Dp?> { null }
+
+/** Test seam for Reduce Transparency and Increase Contrast. Production leaves both false. */
+internal data class HomeEdgeFlags(
+    val reduceTransparency: Boolean = false,
+    val increaseContrast: Boolean = false,
+)
+
+internal val LocalHomeEdgeFlags = compositionLocalOf { HomeEdgeFlags() }
+
 /** Status bar and window top, once. The tab host does not consume the top inset. */
 @Composable
 internal fun homeContentTopInset(): Dp {
+    LocalHomeContentTopInset.current?.let { return it.coerceAtLeast(0.dp) }
     val status = WindowInsets.statusBars.asPaddingValues().calculateTopPadding().value
     val windowTop = platformPhysicalTopInset().value
     return homeContentTopInsetDp(status, windowTop).dp
@@ -335,7 +359,6 @@ internal fun HomeHeroSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(cardInsetModifier)
-                .testTag(HOME_HERO_ART_TAG)
                 .homeHeroPagerGesture(
                     pagerState = pagerState,
                     itemCount = items.size,
@@ -498,11 +521,17 @@ internal fun HomeHeroSection(
                 layout.heroHeight
             }
 
+            val titleClearance = homeInteractiveClearanceDp(
+                artworkBottomDp = artworkSlotHeight.value,
+                safeTopDp = contentTopInset.value,
+            ).dp
+            Box(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.fillMaxWidth()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heroStretchHeight(artworkSlotHeight, stretchPx),
+                    .heroStretchHeight(artworkSlotHeight, stretchPx)
+                    .testTag(HOME_HERO_ART_TAG),
             ) {
                 HorizontalPager(
                     state = pagerState,
@@ -750,20 +779,26 @@ internal fun HomeHeroSection(
                                 },
                         )
                         if (!phonePortrait) {
-                            HomeHeroCopy(
-                                items = items,
-                                visiblePages = visiblePages,
-                                layout = layout,
-                                pagerState = pagerState,
-                                coroutineScope = coroutineScope,
-                                heroWidthPx = heroWidthPx,
-                                showImdbRating = showImdbRating,
-                                showMdbListRatings = showMdbListRatings,
-                                onItemClick = onItemClick,
+                            Box(
                                 modifier = Modifier
-                                    .align(Alignment.BottomCenter)
-                                    .testTag(HOME_HERO_CONTENT_TAG),
-                            )
+                                    .fillMaxSize()
+                                    .padding(top = contentTopInset),
+                            ) {
+                                HomeHeroCopy(
+                                    items = items,
+                                    visiblePages = visiblePages,
+                                    layout = layout,
+                                    pagerState = pagerState,
+                                    coroutineScope = coroutineScope,
+                                    heroWidthPx = heroWidthPx,
+                                    showImdbRating = showImdbRating,
+                                    showMdbListRatings = showMdbListRatings,
+                                    onItemClick = onItemClick,
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .testTag(HOME_HERO_CONTENT_TAG),
+                                )
+                            }
                         }
                     }
 
@@ -817,10 +852,16 @@ internal fun HomeHeroSection(
                     showMdbListRatings = showMdbListRatings,
                     onItemClick = onItemClick,
                     modifier = Modifier
-                        .padding(top = 4.dp)
+                        .padding(top = 4.dp + titleClearance)
                         .testTag(HOME_HERO_CONTENT_TAG),
                 )
             }
+            }
+            HomeTopEdge(
+                safeTop = contentTopInset,
+                cardStyle = isCardStyle,
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
             }
         }
 
@@ -833,6 +874,48 @@ internal fun HomeHeroSection(
             )
         }
     }
+}
+
+/**
+ * Soft edge over the unsafe band. It is not a bar: no blur, no hit target, and it is hidden
+ * from accessibility. Reduce Motion leaves it still. Reduce Transparency and Increase Contrast
+ * use a solid band of the same height so the fade is not the only way to see the edge.
+ */
+@Composable
+private fun HomeTopEdge(
+    safeTop: Dp,
+    cardStyle: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val forced = LocalHomeEdgeFlags.current
+    val kind = homeTopEdgeKind(
+        safeTopDp = safeTop.value,
+        cardStyle = cardStyle,
+        reduceTransparency = forced.reduceTransparency || playerReduceTransparencyEnabled(),
+        increaseContrast = forced.increaseContrast || systemIncreaseContrastEnabled(),
+    )
+    if (kind == HomeTopEdgeKind.None) return
+    val edge = MaterialTheme.colorScheme.background
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(safeTop)
+            .semantics {
+                semanticsTestTag = HOME_HERO_TOP_EDGE_TAG
+                hideFromAccessibility()
+            }
+            .drawBehind {
+                if (kind == HomeTopEdgeKind.Solid) {
+                    drawRect(edge)
+                } else {
+                    drawRect(
+                        Brush.verticalGradient(
+                            colors = listOf(edge, edge.copy(alpha = 0f)),
+                        ),
+                    )
+                }
+            },
+    )
 }
 
 @Composable

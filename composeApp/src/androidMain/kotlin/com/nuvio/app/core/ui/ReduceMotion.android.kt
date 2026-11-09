@@ -37,6 +37,9 @@ internal actual fun systemReduceMotionEnabled(): Boolean {
     return enabled
 }
 
+@Composable
+internal actual fun systemIncreaseContrastEnabled(): Boolean = false
+
 private fun readSystemReduceMotion(resolver: android.content.ContentResolver): Boolean {
     val animator = Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
     val transition = Settings.Global.getFloat(resolver, Settings.Global.TRANSITION_ANIMATION_SCALE, 1f)

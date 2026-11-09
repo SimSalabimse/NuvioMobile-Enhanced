@@ -804,7 +804,10 @@ internal object RecapDetector {
         }
         val inSpan = kept.filter { it.endMs > snapped.first && it.startMs < snapped.second }
         val oneClip = clipGroups(inSpan) <= 1
-        if (oneClip && speechEnergyHigh(episode.energy, episode.energyStepMs, snapped.first, snapped.second)) {
+        // Groups count start times, so one spoken opening shared by the season is still one clip.
+        // Dialog is a loud clip from a single sibling. Two siblings sharing it is the recap.
+        val shared = inSpan.map { it.sibling }.distinct().size >= 2
+        if (oneClip && !shared && speechEnergyHigh(episode.energy, episode.energyStepMs, snapped.first, snapped.second)) {
             return Found(hits = clips.size, kept = kept.size, dialog = true)
         }
         return Found(

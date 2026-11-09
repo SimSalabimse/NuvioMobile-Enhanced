@@ -18,4 +18,21 @@ class HomeInsetsTest {
         assertTrue(once < HOME_PRO_PORTRAIT_TOP_DP * 2)
         assertEquals(0f, homeContentTopInsetDp(-4f, -8f))
     }
+
+    @Test
+    fun theTitleMovesOnlyWhenThePictureEndsInsideTheUnsafeBand() {
+        assertEquals(0f, homeInteractiveClearanceDp(artworkBottomDp = 226f, safeTopDp = 59f))
+        assertEquals(174f, homeInteractiveClearanceDp(artworkBottomDp = 226f, safeTopDp = 400f))
+        assertEquals(0f, homeInteractiveClearanceDp(artworkBottomDp = 226f, safeTopDp = 0f))
+        assertEquals(0f, homeInteractiveClearanceDp(artworkBottomDp = 226f, safeTopDp = -8f))
+    }
+
+    @Test
+    fun theTopEdgeIsAQuietFadeUnlessContrastAsksForASolidBand() {
+        assertEquals(HomeTopEdgeKind.None, homeTopEdgeKind(0f, cardStyle = false, reduceTransparency = false, increaseContrast = false))
+        assertEquals(HomeTopEdgeKind.None, homeTopEdgeKind(59f, cardStyle = true, reduceTransparency = false, increaseContrast = false))
+        assertEquals(HomeTopEdgeKind.QuietFade, homeTopEdgeKind(59f, cardStyle = false, reduceTransparency = false, increaseContrast = false))
+        assertEquals(HomeTopEdgeKind.Solid, homeTopEdgeKind(59f, cardStyle = false, reduceTransparency = true, increaseContrast = false))
+        assertEquals(HomeTopEdgeKind.Solid, homeTopEdgeKind(59f, cardStyle = false, reduceTransparency = false, increaseContrast = true))
+    }
 }

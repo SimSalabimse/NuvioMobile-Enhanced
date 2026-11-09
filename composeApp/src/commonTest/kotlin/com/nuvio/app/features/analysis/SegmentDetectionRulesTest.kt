@@ -231,6 +231,58 @@ class SegmentDetectionRulesTest {
     }
 
     @Test
+    fun aSpokenOpeningSharedByTwoSiblingsIsKept() {
+        val narration = pattern(15, 150)
+        val episode = fingerprinted(
+            "spoken__s1e3",
+            noise(5, 6_000).also { narration.copyInto(it, 0) },
+            noise(7, TAIL_FRAMES),
+        ).copy(
+            energy = encodeEnergyLevels(IntArray(2_000) { DIALOG_OVERLAY_LEVEL }),
+            energyStepMs = 100,
+        )
+        val previous = fingerprinted(
+            "spoken__s1e2",
+            noise(8, 6_000).also { narration.copyInto(it, 0) },
+            noise(9, TAIL_FRAMES),
+        )
+        val earlier = fingerprinted(
+            "spoken__s1e1",
+            noise(10, 6_000).also { narration.copyInto(it, 0) },
+            noise(11, TAIL_FRAMES),
+        )
+        val trace = SegmentTrace()
+        assertEquals(0L to 15_000L, RecapDetector.detect(episode, listOf(previous, earlier), trace))
+        assertTrue(trace.decisions.single().why.startsWith("accepted-"))
+    }
+
+    @Test
+    fun aLoudClipFromOnlyThePreviousEpisodeStaysDialogWhenOtherSiblingsDoNotShareIt() {
+        val narration = pattern(16, 150)
+        val episode = fingerprinted(
+            "lone__s1e4",
+            noise(5, 6_000).also { narration.copyInto(it, 0) },
+            noise(7, TAIL_FRAMES),
+        ).copy(
+            energy = encodeEnergyLevels(IntArray(2_000) { DIALOG_OVERLAY_LEVEL }),
+            energyStepMs = 100,
+            introStartMs = 40_000L,
+            introEndMs = 80_000L,
+        )
+        val previous = fingerprinted(
+            "lone__s1e3",
+            noise(8, 6_000),
+            noise(9, TAIL_FRAMES).also { narration.copyInto(it, 0) },
+        )
+        val others = listOf(previous) + (1..2).map { index ->
+            fingerprinted("lone__s1e$index", noise(20 + index, 6_000), noise(30 + index, TAIL_FRAMES))
+        }
+        val trace = SegmentTrace()
+        assertNull(RecapDetector.detect(episode, others, trace))
+        assertEquals("rejected-dialog-overlay", trace.decisions.single().why)
+    }
+
+    @Test
     fun aPreviewMontageSitsAgainstTheCreditsAndAMiddleHitDoesNot() {
         val clips = listOf(pattern(11, 30), pattern(12, 30), pattern(13, 30))
         val tail = noise(1, TAIL_FRAMES)
