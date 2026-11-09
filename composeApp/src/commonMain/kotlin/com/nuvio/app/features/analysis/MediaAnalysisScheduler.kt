@@ -73,6 +73,41 @@ internal fun RawMediaAnalysis.toStoredResult(
     userSegments = userSegments,
 )
 
+/**
+ * A recaptured print is a new object. Known intro, credits, and recap ranges move with it.
+ * A later pass replaces a range only when the new detection is strictly better.
+ */
+internal fun MediaAnalysisResult.carryingKnownSegments(previous: MediaAnalysisResult?): MediaAnalysisResult {
+    if (previous == null) return this
+    if (previous.fileName != null && fileName != null && previous.fileName != fileName) return this
+    return copy(
+        introStartMs = previous.introStartMs,
+        introEndMs = previous.introEndMs,
+        introConfidence = previous.introConfidence,
+        introOutcome = previous.introOutcome,
+        creditsStartMs = previous.creditsStartMs,
+        creditsEndMs = previous.creditsEndMs,
+        creditsConfidence = previous.creditsConfidence,
+        creditsOutcome = previous.creditsOutcome,
+        recapStartMs = previous.recapStartMs,
+        recapEndMs = previous.recapEndMs,
+        recapOutcome = previous.recapOutcome,
+    )
+}
+
+/** Writes the intro, credits, and recap tokens from this pass. A finished pass also marks derived data current. */
+internal fun MediaAnalysisResult.withSegmentOutcomes(
+    decisions: List<SegmentDecision>,
+    finished: Boolean,
+): MediaAnalysisResult {
+    val next = copy(
+        introOutcome = introCreditsOutcomeToPersist("intro", introOutcome, decisions, finished),
+        creditsOutcome = introCreditsOutcomeToPersist("credits", creditsOutcome, decisions, finished),
+        recapOutcome = recapOutcomeToPersist(recapOutcome, decisions, finished),
+    )
+    return if (finished) next.copy(derivedVersion = MEDIA_ANALYSIS_DERIVED_VERSION) else next
+}
+
 /** Platform decoder (iOS: FFmpeg from the player's engine). */
 internal expect object MediaAnalyzerPlatform {
     val supported: Boolean
@@ -129,7 +164,6 @@ internal object MediaAnalysisScheduler {
     private const val START_DELAY_MS = 20_000L
     private const val PLAYBACK_POLL_MS = 15_000L
     private const val CHARGER_POLL_MS = 60_000L
-    private const val MAX_SIBLINGS = 4
     private const val THUMBNAIL_TARGET_COUNT = 400L
     private const val THUMBNAIL_MIN_INTERVAL_MS = 5_000L
     private const val THUMBNAIL_MAX_INTERVAL_MS = 20_000L
@@ -146,6 +180,9 @@ internal object MediaAnalysisScheduler {
 
     /** Test stand-in for a reference fingerprint. Null calls the platform decoder. */
     internal var fingerprintClipForTest: (suspend (url: String, startMs: Long, endMs: Long) -> String?)? = null
+
+    /** Test stand-in for the recap search. Null calls [RecapDetector.detect]. */
+    internal var recapSearchForTest: (suspend () -> Pair<Long, Long>?)? = null
 
     private val referenceCancel = atomic(false)
 
@@ -169,6 +206,7 @@ internal object MediaAnalysisScheduler {
         runAgain.value = false
         analyzeFileForTest = null
         fingerprintClipForTest = null
+        recapSearchForTest = null
         referenceCancel.value = false
         referenceSettled.clear()
         referenceAttempts.clear()
@@ -768,6 +806,7 @@ internal object MediaAnalysisScheduler {
         trace: SegmentTrace,
     ): Boolean {
         var result = base
+        try {
         val season = item.seasonNumber
         val episodeNumber = item.episodeNumber
         val introOn = MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.IntroDetection)
@@ -779,7 +818,7 @@ internal object MediaAnalysisScheduler {
             // only when that pass did not already record one and none is stored.
             if (introOn && !trace.has("intro") && result.introEndMs == null && siblings.isNotEmpty()) {
                 stage(AnalysisStage.Matching)
-                val capped = siblings.sortedByDescending { it.analyzedAtMs }.take(MAX_SIBLINGS)
+                val capped = siblingsWithinCap(siblings)
                 result = withContext(Dispatchers.Default) {
                     result.applyingSeasonDetection(capped, priors.intro, priors.credits, trace)
                 }
@@ -796,8 +835,13 @@ internal object MediaAnalysisScheduler {
                 }
                 else -> {
                     stage(AnalysisStage.Recap)
-                    val recap = withContext(Dispatchers.Default) {
-                        RecapDetector.detect(result, siblings, trace, priors.recap)
+                    val recapHook = recapSearchForTest
+                    val recap = if (recapHook != null) {
+                        recapHook()
+                    } else {
+                        withContext(Dispatchers.Default) {
+                            RecapDetector.detect(result, siblings, trace, priors.recap)
+                        }
                     }
                     // A chapter recap stays. Otherwise this is the same assignment as before,
                     // including clearing a recap the search did not find again.
@@ -873,21 +917,15 @@ internal object MediaAnalysisScheduler {
             }
         }
         val finished = scopeActive()
-        val outcome = recapOutcomeToPersist(result.recapOutcome, trace.decisions, finished)
-        if (!finished) {
-            // Stopped (the download is being deleted): keep the recap already found; the step
-            // counts as not done, so it runs again if the file comes back. The token is the
-            // decision from this pass, so an older completed miss does not stay behind.
-            MediaAnalysisStore.save(result.copy(recapOutcome = outcome))
-            return false
+        MediaAnalysisStore.save(result.withSegmentOutcomes(trace.decisions, finished))
+        return if (finished) thumbsOk else false
+        } catch (cancelled: CancellationException) {
+            MediaAnalysisStore.save(result.withSegmentOutcomes(trace.decisions, finished = false))
+            throw cancelled
+        } catch (failed: Exception) {
+            MediaAnalysisStore.save(result.withSegmentOutcomes(trace.decisions, finished = false))
+            throw failed
         }
-        MediaAnalysisStore.save(
-            result.copy(
-                derivedVersion = MEDIA_ANALYSIS_DERIVED_VERSION,
-                recapOutcome = outcome,
-            ),
-        )
-        return thumbsOk
     }
 
     private data class AudioPass(
@@ -965,22 +1003,15 @@ internal object MediaAnalysisScheduler {
             throttleLevelStart = raw.throttleLevelStart
             throttleYields = raw.throttleYields
             qos = raw.qos
-            MediaAnalysisResult(
+            raw.toStoredResult(
                 key = key,
-                analyzedAtMs = com.nuvio.app.features.streams.epochMs(),
-                durationMs = raw.durationMs,
                 fileName = item.fileName,
-                energyStepMs = raw.energyStepMs,
-                energy = raw.energy,
-                integratedLufs = raw.integratedLufs,
-                fingerprintStepMs = raw.fingerprintStepMs,
-                headFingerprint = raw.head,
-                tailFingerprint = raw.tail,
-                tailStartMs = raw.tailStartMs,
+                analyzedAtMs = com.nuvio.app.features.streams.epochMs(),
                 userSegments = previous?.userSegments.orEmpty(),
+            ).copy(
                 rejectedSegments = previous?.rejectedSegments.orEmpty(),
                 analysisAttempts = resolveAnalysisAttempts(previous, item.fileName),
-            )
+            ).carryingKnownSegments(previous)
         }
         var clipUnavailable = false
         val season = item.seasonNumber
@@ -989,9 +1020,7 @@ internal object MediaAnalysisScheduler {
             MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.IntroDetection)
         ) {
             val priors = cachedSegmentPriors(item.parentMetaId, season, episodeNumber, result.durationMs)
-            val siblings = MediaAnalysisStore.seasonSiblings(item.parentMetaId, season, key)
-                .sortedByDescending { it.analyzedAtMs }
-                .take(MAX_SIBLINGS)
+            val siblings = siblingsWithinCap(MediaAnalysisStore.seasonSiblings(item.parentMetaId, season, key))
             result = if (siblings.isNotEmpty()) {
                 stage(AnalysisStage.Matching)
                 val matchDetail = "siblings=${siblings.size} headChars=${result.headFingerprint?.length ?: 0} " +

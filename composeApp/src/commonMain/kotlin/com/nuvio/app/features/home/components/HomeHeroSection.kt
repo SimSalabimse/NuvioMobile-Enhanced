@@ -52,7 +52,6 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -109,7 +108,6 @@ import com.nuvio.app.core.ui.focusedAlignment
 import com.nuvio.app.core.ui.heroArtworkDecision
 import com.nuvio.app.core.ui.heroImageHeightFraction
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
-import com.nuvio.app.core.ui.portraitArtworkSlotHeight
 import com.nuvio.app.features.details.accessibilityTextSize
 import com.nuvio.app.features.details.accessibleHeroTitleStyle
 import com.nuvio.app.core.ui.portraitHeroFrame
@@ -513,19 +511,7 @@ internal fun HomeHeroSection(
                 }
             }
 
-            val artworkIsTall = remember { mutableStateMapOf<String, Boolean>() }
-            val currentArtworkUrl = heroArtworkUrl(currentItem, effectiveArtworkSource)
-            val tallArt = currentArtworkUrl?.let { artworkIsTall[it] } == true
-            val artworkSlotHeight = if (phonePortrait) {
-                portraitArtworkSlotHeight(heroFrameWidth, tallArt)
-            } else {
-                layout.heroHeight
-            }
-
-            val titleClearance = homeInteractiveClearanceDp(
-                artworkBottomDp = artworkSlotHeight.value,
-                safeTopDp = contentTopInset.value,
-            ).dp
+            val artworkSlotHeight = layout.heroHeight
             Box(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.fillMaxWidth()) {
             Box(
@@ -566,14 +552,14 @@ internal fun HomeHeroSection(
                                     frameWidth = heroFrameWidth.value,
                                     frameHeight = artworkSlotHeight.value,
                                     landscapeExtraScale = if (isCardStyle) 1f else HERO_BACKGROUND_SCALE,
-                                    portrait = portraitFrame,
+                                    portrait = portraitFrame && !phonePortrait,
                                 )
                                 val portrait = artwork.fit != HeroArtworkFit.CropLandscape
                                 val imageFraction = heroImageHeightFraction(
                                     artwork,
                                     heroFrameWidth.value,
                                     artworkSlotHeight.value,
-                                    portrait = portraitFrame,
+                                    portrait = portraitFrame && !phonePortrait,
                                 )
                                 val scrollScale = if (artwork.scrollScaleEnabled && !isCardStyle) {
                                     heroBackgroundScrollScale(scrollOffsetPx)
@@ -628,9 +614,6 @@ internal fun HomeHeroSection(
                                         val image = state.result.image
                                         artworkSize.onImageLoaded(image.width, image.height)
                                         backdropFocus.onImageLoaded(image)
-                                        if (artworkUrl != null && image.width > 0 && image.height > 0) {
-                                            artworkIsTall[artworkUrl] = image.height > image.width
-                                        }
                                     },
                                 )
                             }
@@ -713,7 +696,7 @@ internal fun HomeHeroSection(
                         }
                     }
 
-                    if (!isCardStyle && !phonePortrait) {
+                    if (!isCardStyle) {
                         val heroFadeColorState = LocalDynamicArtworkBackgroundColor.current
                         val themeBackground = MaterialTheme.colorScheme.background
                         Box(
@@ -746,23 +729,6 @@ internal fun HomeHeroSection(
                         )
                     }
 
-                    if (phonePortrait) {
-                        val edge = MaterialTheme.colorScheme.background
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(36.dp)
-                                .align(Alignment.BottomCenter)
-                                .drawBehind {
-                                    drawRect(
-                                        Brush.verticalGradient(
-                                            colors = listOf(edge.copy(alpha = 0f), edge),
-                                        ),
-                                    )
-                                },
-                        )
-                    }
-
                     if (isCardStyle) {
                         Box(
                             modifier = Modifier
@@ -779,8 +745,7 @@ internal fun HomeHeroSection(
                                     onItemClick?.invoke(currentItem)
                                 },
                         )
-                        if (!phonePortrait) {
-                            Box(
+                        Box(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .padding(top = contentTopInset),
@@ -841,23 +806,6 @@ internal fun HomeHeroSection(
                     }
                 }
             }
-            if (phonePortrait) {
-                HomeHeroCopy(
-                    items = items,
-                    visiblePages = visiblePages,
-                    layout = layout,
-                    pagerState = pagerState,
-                    coroutineScope = coroutineScope,
-                    heroWidthPx = heroWidthPx,
-                    showImdbRating = showImdbRating,
-                    showMdbListRatings = showMdbListRatings,
-                    onItemClick = onItemClick,
-                    modifier = Modifier
-                        .padding(top = 4.dp + titleClearance)
-                        .testTag(HOME_HERO_CONTENT_TAG),
-                )
-            }
-            }
             HomeTopEdge(
                 safeTop = contentTopInset,
                 artworkBottom = artworkSlotHeight,
@@ -879,10 +827,9 @@ internal fun HomeHeroSection(
 }
 
 /**
- * Soft edge over the status area. It is not a bar: no blur, no hit target, and it is hidden
- * from accessibility. The quiet fade stays opaque through the inset, then eases out, and it
- * stops before the title. Reduce Motion leaves it still. Reduce Transparency and Increase
- * Contrast use a solid band of the inset only.
+ * Soft scrim over the status area. The artwork stays visible under it. It is not a bar:
+ * no blur, no hit target, and it is hidden from accessibility. Reduce Motion leaves it still.
+ * Reduce Transparency and Increase Contrast use a solid band of the inset only.
  */
 @Composable
 private fun HomeTopEdge(
@@ -919,12 +866,10 @@ private fun HomeTopEdge(
                 if (solid) {
                     drawRect(edge)
                 } else {
-                    val hold = if (size.height <= 0f) 1f else (safeTop.toPx() / size.height).coerceIn(0f, 1f)
                     drawRect(
                         Brush.verticalGradient(
                             colorStops = arrayOf(
-                                0f to edge,
-                                hold to edge.copy(alpha = 0.94f),
+                                0f to edge.copy(alpha = 0.42f),
                                 1f to edge.copy(alpha = 0f),
                             ),
                         ),
@@ -1308,13 +1253,6 @@ private fun mobileHeroHeight(
     viewportHeightDp: Float?,
     mobileBelowSectionHeightHintDp: Float?,
 ): Dp {
-    val isPortraitViewport = viewportHeightDp?.let { it >= maxWidthDp } != false
-
-    if (isPortraitViewport) {
-        // Wide-band height. Tall art grows the live slot once the image size is known.
-        return portraitArtworkSlotHeight(maxWidthDp.dp, tallArt = false)
-    }
-
     val viewportDrivenHeight = viewportHeightDp?.let { (it * MOBILE_HERO_VIEWPORT_RATIO).dp }
     val widthFallbackHeight = (maxWidthDp * 1.16f).dp
     val baseHeight = viewportDrivenHeight ?: widthFallbackHeight

@@ -49,6 +49,13 @@ internal data class MediaAnalysisResult(
      * A missing time with a null token was not a completed "none" result.
      */
     val recapOutcome: String? = null,
+    /**
+     * Why the last intro pass ended. Null means that pass did not record a completed check.
+     * A missing time with a null token is "Not checked", the same rule as [recapOutcome].
+     */
+    val introOutcome: String? = null,
+    /** Why the last credits pass ended. Same rule as [introOutcome]. */
+    val creditsOutcome: String? = null,
     /** Derived data (recap, thumbnails) is up to date with [MEDIA_ANALYSIS_DERIVED_VERSION]. */
     val derivedVersion: Int = 0,
     /** Scrub-preview thumbnail sheets of this file (null: not made). */

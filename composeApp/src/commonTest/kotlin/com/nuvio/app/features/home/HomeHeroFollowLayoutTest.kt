@@ -7,8 +7,8 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Phone portrait hero is the 16:9 band (about 219dp on a 390dp phone), not a reserved
- * 1.5x slot. The viewport is the long side (844dp), so a row still fits under the artwork.
+ * Phone portrait hero fills most of the screen. The viewport is the long side (844dp),
+ * so a row still fits under the artwork.
  */
 class HomeHeroFollowLayoutTest {
     @Test

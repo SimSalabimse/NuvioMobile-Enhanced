@@ -34,21 +34,55 @@ internal fun recapOutcomeToStore(decisions: List<SegmentDecision>): String? =
     decisions.lastOrNull { it.type == "recap" }?.why
 
 /**
+ * Intro and credits tokens that mean the search ran and accepted nothing.
+ * A missing token, a cancel, or a failure is not in this set.
+ */
+internal val INTRO_CREDITS_CHECKED_NONE: Set<String> = setOf(
+    "rejected-no-cluster",
+    "rejected-cold-open",
+    "rejected-dialog-overlay",
+    "rejected-opening-credits",
+)
+
+/**
  * Token written with the analysis.
  * A finished pass keeps the recorded token, or the previous one when this pass recorded none.
- * A cancelled pass records what this pass actually decided. A previous completed miss is dropped
- * when this pass recorded nothing, so a stopped pass cannot keep claiming "no recap found".
+ * A cancelled or failed pass that recorded nothing drops a previous completed miss,
+ * so a stopped pass cannot keep claiming "none found".
  */
+internal fun segmentOutcomeToPersist(
+    previous: String?,
+    recorded: String?,
+    finished: Boolean,
+    checkedNone: Set<String>,
+): String? {
+    if (recorded != null) return recorded
+    if (!finished && previous in checkedNone) return null
+    return previous
+}
+
 internal fun recapOutcomeToPersist(
     previous: String?,
     decisions: List<SegmentDecision>,
     finished: Boolean,
-): String? {
-    val recorded = recapOutcomeToStore(decisions)
-    if (recorded != null) return recorded
-    if (!finished && previous in RECAP_CHECKED_NONE) return null
-    return previous
-}
+): String? = segmentOutcomeToPersist(
+    previous = previous,
+    recorded = recapOutcomeToStore(decisions),
+    finished = finished,
+    checkedNone = RECAP_CHECKED_NONE,
+)
+
+internal fun introCreditsOutcomeToPersist(
+    type: String,
+    previous: String?,
+    decisions: List<SegmentDecision>,
+    finished: Boolean,
+): String? = segmentOutcomeToPersist(
+    previous = previous,
+    recorded = decisions.lastOrNull { it.type == type }?.why,
+    finished = finished,
+    checkedNone = INTRO_CREDITS_CHECKED_NONE,
+)
 
 /**
  * A same-cut recap mark is Ready even when the stored end time was not copied yet.

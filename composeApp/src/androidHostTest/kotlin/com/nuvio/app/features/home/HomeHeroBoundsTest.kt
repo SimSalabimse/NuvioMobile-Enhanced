@@ -6,7 +6,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.click
 import androidx.compose.ui.test.getBoundsInRoot
@@ -91,8 +93,9 @@ class HomeHeroBoundsTest {
         val title = compose.onNodeWithTag(HOME_HERO_CONTENT_TAG).getBoundsInRoot()
         val edge = compose.onNodeWithTag(HOME_HERO_TOP_EDGE_TAG).getBoundsInRoot()
         assertEquals(background.top, art.top)
+        assertTrue(art.bottom - art.top >= 360.dp)
         assertTrue(title.top >= safeTop)
-        assertTrue(title.top < safeTop + 48.dp)
+        assertTrue(title.top < art.bottom)
         assertEquals(art.top, edge.top)
         assertTrue(edge.bottom <= title.top)
         assertTrue(edge.bottom - edge.top >= safeTop)
@@ -115,8 +118,9 @@ class HomeHeroBoundsTest {
         val title = compose.onNodeWithTag(HOME_HERO_CONTENT_TAG).getBoundsInRoot()
         compose.onNodeWithTag(HOME_HERO_TOP_EDGE_TAG).assertDoesNotExist()
         assertEquals(background.top, art.top)
-        assertTrue(title.top >= art.bottom)
-        assertTrue(title.top < art.bottom + 48.dp)
+        assertTrue(art.bottom - art.top >= 360.dp)
+        assertTrue(title.top > art.top)
+        assertTrue(title.bottom <= art.bottom + 1.dp)
     }
 
     @Test
@@ -137,10 +141,12 @@ class HomeHeroBoundsTest {
         val title = compose.onNodeWithTag(HOME_HERO_CONTENT_TAG).getBoundsInRoot()
         val edge = compose.onNodeWithTag(HOME_HERO_TOP_EDGE_TAG).getBoundsInRoot()
         assertEquals(0.dp, art.top)
+        assertTrue(art.bottom - art.top >= 360.dp)
+        assertTrue(art.bottom - art.top > 402.dp * 9f / 16f)
         assertTrue(edge.bottom - edge.top > safeTop)
         assertTrue(edge.bottom - edge.top <= safeTop + 28.dp)
         assertTrue(edge.bottom < title.top)
-        assertTrue(title.top >= art.bottom)
+        assertTrue(title.top < art.bottom)
         compose.onNodeWithTag("home-background").performTouchInput {
             click(Offset(width / 2f, 8f))
         }
@@ -177,6 +183,29 @@ class HomeHeroBoundsTest {
         }
         compose.waitForIdle()
         assertEquals(1, clicks)
+    }
+
+    @Test
+    fun aLargeTypeSizeKeepsTheTitleUnderTheScrim() {
+        val safeTop = HOME_PRO_PORTRAIT_TOP_DP.dp
+        compose.setContent {
+            CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 2f)) {
+                NuvioTheme {
+                    CompositionLocalProvider(LocalHomeContentTopInset provides safeTop) {
+                        Box(Modifier.fillMaxSize().testTag("home-background")) {
+                            hero()
+                        }
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        val art = compose.onNodeWithTag(HOME_HERO_ART_TAG).getBoundsInRoot()
+        val title = compose.onNodeWithTag(HOME_HERO_CONTENT_TAG).getBoundsInRoot()
+        val edge = compose.onNodeWithTag(HOME_HERO_TOP_EDGE_TAG).getBoundsInRoot()
+        assertTrue(art.bottom - art.top >= 360.dp)
+        assertTrue(title.top > edge.bottom)
+        assertTrue(title.top < art.bottom)
     }
 
     @androidx.compose.runtime.Composable

@@ -87,10 +87,9 @@ internal object FingerprintMatcher {
     }
 
     /**
-     * Exact alignment while both prints fit in [EXACT_PAIR_LIMIT]. Longer prints (a late title
-     * inside the extended head) use a stride-4 phase search, then the same per-shift scan on at
-     * most [MAX_REFINE_SHIFTS] alignments. The bound is the refinement count, not a second full
-     * pass over every shift.
+     * Exact alignment of the two prints. A head longer than [EXACT_PAIR_LIMIT] used to keep only
+     * [MAX_REFINE_SHIFTS] coarse shifts, and a real theme could be the one that was dropped.
+     * [forceCoarse] is the test hook for that coarse list. Production does not use it.
      */
     private fun collectRuns(
         a: IntArray,
@@ -101,10 +100,10 @@ internal object FingerprintMatcher {
         forceCoarse: Boolean,
     ): List<SharedSegment> {
         if (a.isEmpty() || b.isEmpty() || minFrames <= 0) return emptyList()
-        val shifts = if (!forceCoarse && a.size <= EXACT_PAIR_LIMIT && b.size <= EXACT_PAIR_LIMIT) {
-            null
-        } else {
+        val shifts = if (forceCoarse) {
             coarseShifts(a, b, minFrames, maxBitErrors, maxGapFrames)
+        } else {
+            null
         }
         val out = mutableListOf<SharedSegment>()
         if (shifts == null) {
@@ -829,14 +828,19 @@ internal object RecapDetector {
         return groups
     }
 
-    /** Clips that start near the opening and stay within a narration gap of each other. */
+    /**
+     * Clips that stay within a narration gap of each other.
+     * The skip is that span. A cold open can put the first clip after [SNAP_TO_START_MS],
+     * and the skip still starts at the first clip, not at 0.
+     */
     private fun chain(clips: List<Clip>, introStart: Long?): Pair<Long, Long>? {
         val sorted = clips.sortedWith(compareBy({ it.startMs }, { it.endMs }))
+        var start = -1L
         var cursor = -1L
         var end = -1L
         for (clip in sorted) {
             if (cursor < 0L) {
-                if (clip.startMs > SNAP_TO_START_MS) continue
+                start = clip.startMs
                 cursor = clip.endMs
                 end = clip.endMs
             } else if (clip.startMs <= cursor + NARRATION_GAP_MS && clip.endMs > end) {
@@ -844,11 +848,10 @@ internal object RecapDetector {
                 cursor = clip.endMs
             }
         }
-        if (end < 0L) return null
+        if (end < 0L || start < 0L) return null
         if (introStart != null && introStart >= end && introStart - end <= SNAP_TO_INTRO_MS) end = introStart
-        // The span always starts at 0, so end is the duration. A start other than 0 needs its own check.
-        if (end !in MIN_RECAP_MS..MAX_RECAP_MS) return null
-        return 0L to end
+        if (end - start !in MIN_RECAP_MS..MAX_RECAP_MS) return null
+        return start to end
     }
 
     /** Replaces frames in [startMs, endMs) (relative to [offsetMs]) with values that never match. */

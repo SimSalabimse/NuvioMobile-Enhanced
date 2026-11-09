@@ -63,6 +63,20 @@ class SeasonFingerprintPassTest {
     }
 
     @Test
+    fun theAudioVoteAndTheSeasonPassShareOneSiblingCap() {
+        assertEquals(16, SEASON_REFERENCE_CAP)
+        assertEquals(SEASON_REFERENCE_CAP, SEASON_PASS_REFERENCE_CAP)
+        val siblings = (1..20).map { number ->
+            MediaAnalysisResult(key = "show__s1e$number", analyzedAtMs = number.toLong(), durationMs = 1L)
+        }
+        val kept = siblingsWithinCap(siblings)
+        assertEquals(16, kept.size)
+        assertEquals(5L, kept.minOf { it.analyzedAtMs })
+        val five = siblings.take(5)
+        assertEquals(setOf(1L, 2L, 3L, 4L, 5L), siblingsWithinCap(five).map { it.analyzedAtMs }.toSet())
+    }
+
+    @Test
     fun aFifthEpisodeStillUpdatesAnOlderSiblingOutsideTheNewestFour() {
         val season = Season(9)
         val stored = (1..5).map { episode ->

@@ -215,14 +215,16 @@ object MediaAnalysisStatus {
             !isEpisode -> AnalysisPart.Off
             r.introEndMs != null -> AnalysisPart.Ready
             siblingsEmpty -> AnalysisPart.NeedsMoreEpisodes
-            else -> AnalysisPart.NotFound
+            r.introOutcome in INTRO_CREDITS_CHECKED_NONE -> AnalysisPart.NotFound
+            else -> AnalysisPart.NotChecked
         }
         val credits = when {
             !introOn -> AnalysisPart.Off
             r.creditsStartMs != null -> AnalysisPart.Ready
             !isEpisode -> AnalysisPart.NotFound
             siblingsEmpty -> AnalysisPart.NeedsMoreEpisodes
-            else -> AnalysisPart.NotFound
+            r.creditsOutcome in INTRO_CREDITS_CHECKED_NONE -> AnalysisPart.NotFound
+            else -> AnalysisPart.NotChecked
         }
         val recap = recapAnalysisPart(
             recapEnabled = on(MediaAnalysisSettings.Flag.RecapDetection),

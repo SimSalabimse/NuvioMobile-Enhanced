@@ -183,6 +183,23 @@ class SegmentDetectionRulesTest {
     }
 
     @Test
+    fun aRecapAfterTheColdOpenStartsAtTheClip() {
+        val clip = pattern(21, 150)
+        val head = noise(1, 6_000)
+        clip.copyInto(head, 210)
+        val tail = noise(2, TAIL_FRAMES)
+        clip.copyInto(tail, 100)
+        val episode = fingerprinted("afteropen__s1e2", head, noise(3, TAIL_FRAMES)).copy(
+            introStartMs = 90_000L,
+            introEndMs = 130_000L,
+        )
+        val previous = fingerprinted("afteropen__s1e1", noise(4, 6_000), tail)
+        val found = RecapDetector.detect(episode, listOf(previous))
+        assertEquals(21_000L, found?.first)
+        assertTrue((found?.second ?: 0L) > 21_000L)
+    }
+
+    @Test
     fun aRecapMontageJoinsClipsAndDoesNotCrossTheColdOpen() {
         val clips = listOf(pattern(1, 30), pattern(2, 30), pattern(3, 30))
         val head = noise(1, 6_000)
