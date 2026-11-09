@@ -135,6 +135,33 @@ class ReferenceYieldTest {
     }
 
     @Test
+    fun twoDisagreeingSlicesDoNotWriteTheLongerRun() = runTest {
+        UiFixtureSession.testFixture = null
+        val frames = IntArray(120) { openingLane(it, 14) }
+        for (index in 20 until 60) frames[index] = openingLane(index - 20, 6)
+        for (index in 80 until 100) frames[index] = openingLane(index - 80, 7)
+        MediaAnalysisScheduler.fingerprintClipForTest = { _, start, end ->
+            val count = ((end - start) / 1_000L).toInt().coerceAtLeast(1)
+            val values = IntArray(count) { index ->
+                val second = (start / 1_000L).toInt() + index
+                when {
+                    second in 20 until 60 -> openingLane(second - 20, 6)
+                    second in 80 until 100 -> openingLane(second - 80, 7)
+                    else -> openingLane(index, 2)
+                }
+            }
+            clipText(start, end, values)
+        }
+        storeTarget(encodeFingerprint(frames), null)
+        storeMarkedLongIntro()
+        DownloadsRepository.replaceItems(listOf(episode(5), episode(6)))
+        MediaAnalysisScheduler.runPending(fromBackgroundTask = false)
+        val stored = MediaAnalysisStore.load(MediaAnalysisStore.keyFor("show", 1, 5))
+        assertNull(stored?.introStartMs)
+        assertNull(stored?.introEndMs)
+    }
+
+    @Test
     fun anIncompleteReferenceWindowDoesNotWriteAnIntro() = runTest {
         UiFixtureSession.testFixture = null
         MediaAnalysisScheduler.fingerprintClipForTest = { _, start, end ->
@@ -182,6 +209,22 @@ class ReferenceYieldTest {
                 tailStartMs = 1_980_000L,
                 analysisAttempts = ANALYSIS_MAX_ATTEMPTS,
                 derivedVersion = MEDIA_ANALYSIS_DERIVED_VERSION,
+            ),
+        )
+    }
+
+    private fun storeMarkedLongIntro() {
+        MediaAnalysisStore.save(
+            MediaAnalysisResult(
+                key = MediaAnalysisStore.keyFor("show", 1, 6),
+                analyzedAtMs = 1L,
+                durationMs = 2_400_000L,
+                fileName = "e6.mkv",
+                analysisAttempts = ANALYSIS_MAX_ATTEMPTS,
+                derivedVersion = MEDIA_ANALYSIS_DERIVED_VERSION,
+                userSegments = mapOf(
+                    "intro" to UserSegment(20_000L, 100_000L, markedAtMs = 1L, durationMs = 2_400_000L),
+                ),
             ),
         )
     }

@@ -142,6 +142,52 @@ class ReferenceAlignmentTest {
     }
 
     @Test
+    fun twoLocatedSlicesThatDisagreeDoNotKeepTheLongerOne() = runBlocking {
+        val segmentStart = 20_000L
+        val segmentEnd = 100_000L
+        val slices = referenceDecodeSlices(segmentStart, segmentEnd, padMs = 5_000L)
+        assertEquals(2, slices.size)
+        assertEquals(20_000L to 60_000L, slices[0].contentStartMs to slices[0].contentEndMs)
+        assertEquals(60_000L to 100_000L, slices[1].contentStartMs to slices[1].contentEndMs)
+        val frames = disagreeFrames()
+        val first = SiblingClipReference.locate(
+            frames = frames,
+            framesOffsetMs = 0L,
+            clip = disagreeTone(slices[0].decodeStartMs, slices[0].decodeEndMs),
+            clipStartMs = slices[0].decodeStartMs,
+            step = 1_000L,
+            segment = slices[0].contentStartMs to slices[0].contentEndMs,
+            targetDurationMs = 2_400_000L,
+            referenceDurationMs = 2_400_000L,
+        )
+        val second = SiblingClipReference.locate(
+            frames = frames,
+            framesOffsetMs = 0L,
+            clip = disagreeTone(slices[1].decodeStartMs, slices[1].decodeEndMs),
+            clipStartMs = slices[1].decodeStartMs,
+            step = 1_000L,
+            segment = slices[1].contentStartMs to slices[1].contentEndMs,
+            targetDurationMs = 2_400_000L,
+            referenceDurationMs = 2_400_000L,
+        )
+        assertEquals(20_000L to 60_000L, first)
+        assertEquals(80_000L to 100_000L, second)
+        val aligned = alignReferenceSegment(
+            segmentStartMs = segmentStart,
+            segmentEndMs = segmentEnd,
+            padMs = 5_000L,
+            frames = frames,
+            framesOffsetMs = 0L,
+            stepMs = 1_000L,
+            targetDurationMs = 2_400_000L,
+            referenceDurationMs = 2_400_000L,
+            decode = { start, end -> fingerprint(start, disagreeTone(start, end)) },
+        )
+        assertTrue(aligned is ReferenceAlignment.Partial, "$aligned")
+        assertEquals("unverified-slice", (aligned as ReferenceAlignment.Partial).reason)
+    }
+
+    @Test
     fun aSharedRunShorterThanHalfTheMarkIsNotStored() = runBlocking {
         val segmentStart = 20_000L
         val segmentEnd = 80_000L
@@ -222,6 +268,29 @@ class ReferenceAlignmentTest {
     }
 
     private fun pattern(salt: Int, count: Int): IntArray = IntArray(count) { lane(it, salt) }
+
+    /**
+     * Two real runs on an 80 second mark. The first slice matches 20–60. The second matches 80–100.
+     * Synthetic tones. This is not a programme.
+     */
+    private fun disagreeFrames(): IntArray {
+        val frames = IntArray(120) { lane(it, 14) }
+        for (index in 20 until 60) frames[index] = lane(index - 20, 6)
+        for (index in 80 until 100) frames[index] = lane(index - 80, 7)
+        return frames
+    }
+
+    private fun disagreeTone(startMs: Long, endMs: Long): IntArray {
+        val count = ((endMs - startMs) / 1_000L).toInt()
+        return IntArray(count) { index ->
+            val second = (startMs / 1_000L).toInt() + index
+            when {
+                second in 20 until 60 -> lane(second - 20, 6)
+                second in 80 until 100 -> lane(second - 80, 7)
+                else -> lane(index, 2)
+            }
+        }
+    }
 
     /** Synthetic tones. The shared run is [themeStart, themeEnd) seconds. This is not a programme. */
     private fun tone(startMs: Long, endMs: Long, themeStart: Int = 45, themeEnd: Int = 80): IntArray {

@@ -183,7 +183,9 @@ internal fun verifiedSegmentBounds(
 
 /**
  * One shared run that already meets the same bar as a full-interval locate.
- * It is not widened to the marked interval. Two disagreeing runs store nothing.
+ * It is not widened to the marked interval.
+ * Another located range is the same run only when it sits inside this one.
+ * A second range outside it is a real disagreement, even when that range is too short to qualify.
  */
 internal fun provenSharedRun(
     segmentStartMs: Long,
@@ -192,11 +194,20 @@ internal fun provenSharedRun(
 ): Pair<Long, Long>? {
     val windowMs = (segmentEndMs - segmentStartMs).coerceAtLeast(0L)
     val minMs = maxOf(REFERENCE_MIN_MATCH_MS, windowMs / 2)
-    val qualified = matches.map { it.second }.filter { range ->
-        val run = range.second - range.first
-        run >= minMs && range.second > range.first
-    }
-    return qualified.singleOrNull()
+    val ranges = matches.map { it.second }.filter { it.second > it.first }
+    val qualified = ranges.filter { range -> range.second - range.first >= minMs }
+    val kept = qualified.singleOrNull() ?: return null
+    if (ranges.any { !locatedRunInside(it, kept) }) return null
+    return kept
+}
+
+/** [inner] is the same located run as [outer], including a slice that cut it short. */
+internal fun locatedRunInside(
+    inner: Pair<Long, Long>,
+    outer: Pair<Long, Long>,
+    toleranceMs: Long = 2_000L,
+): Boolean {
+    return inner.first >= outer.first - toleranceMs && inner.second <= outer.second + toleranceMs
 }
 
 /**
