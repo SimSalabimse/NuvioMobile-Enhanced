@@ -1,17 +1,14 @@
 package com.nuvio.app.features.details.components
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
@@ -27,35 +24,49 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.hideFromAccessibility
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.lerp
 import coil3.compose.AsyncImage
-import androidx.compose.ui.graphics.Brush
 import com.nuvio.app.core.ui.ArtworkBackdrop
+import com.nuvio.app.core.ui.LocalVerticalBarPadding
 import com.nuvio.app.core.ui.NuvioBackButton
+import com.nuvio.app.core.ui.SCROLL_EDGE_TAIL_DP
+import com.nuvio.app.core.ui.ScrollEdgeKind
 import com.nuvio.app.core.ui.atLeastIosHitTarget
 import com.nuvio.app.core.ui.detailChromeTopInset
+import com.nuvio.app.core.ui.scrollEdgeHeightDp
+import com.nuvio.app.core.ui.scrollEdgeKind
+import com.nuvio.app.core.ui.systemIncreaseContrastEnabled
 import com.nuvio.app.features.details.MetaDetails
-import com.nuvio.app.isIos
+import com.nuvio.app.features.player.playerReduceTransparencyEnabled
+import com.nuvio.app.navigation.LocalNativeNavigationBarHidden
 import com.nuvio.app.navigation.LocalUseNativeNavigation
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
-import com.kyant.backdrop.Backdrop
-import com.nuvio.app.core.ui.glass.liquidGlassSurface
+
+internal const val DETAIL_HEADER_TAG = "detail-header"
+internal const val DETAIL_HEADER_EDGE_TAG = "detail-header-edge"
+internal const val DETAIL_HEADER_BACK_TAG = "detail-header-back"
+internal const val DETAIL_HEADER_ACTION_TAG = "detail-header-action"
+internal const val DETAIL_HEADER_TITLE_TAG = "detail-header-title"
+
+private val DetailHeaderRowHeight = 56.dp
 
 @Composable
 internal fun detailFloatingHeaderHeight(): Dp {
-    return detailChromeTopInset() + 56.dp
+    return detailChromeTopInset() + DetailHeaderRowHeight
 }
 
 @Composable
@@ -68,16 +79,23 @@ fun DetailFloatingHeader(
     onBack: () -> Unit,
     onToggleSaved: () -> Unit,
     modifier: Modifier = Modifier,
-    glassBackdrop: Backdrop? = null,
 ) {
-    val useNativeNavigation = LocalUseNativeNavigation.current
+    val showComposeBack = !LocalUseNativeNavigation.current || LocalNativeNavigationBarHidden.current
     val headerTopPadding = detailChromeTopInset()
-    val interactive = progress > 0.05f
-    val surfaceColor = backgroundColor ?: if (isIos) {
-        MaterialTheme.colorScheme.surface.copy(alpha = 1.0f)
-    } else {
-        MaterialTheme.colorScheme.background
-    }
+    val showTitle = progress > 0.05f
+    val edgeColor = backgroundColor ?: MaterialTheme.colorScheme.background
+    val solidEdge = scrollEdgeKind(
+        safeTopDp = (headerTopPadding + DetailHeaderRowHeight).value,
+        suppressed = false,
+        reduceTransparency = playerReduceTransparencyEnabled(),
+        increaseContrast = systemIncreaseContrastEnabled(),
+    ) == ScrollEdgeKind.Solid
+    val rowBottom = headerTopPadding + DetailHeaderRowHeight
+    val edgeHeight = scrollEdgeHeightDp(
+        safeTopDp = rowBottom.value,
+        contentTopDp = rowBottom.value + SCROLL_EDGE_TAIL_DP,
+        solid = solidEdge,
+    ).dp
     var logoLoadError by remember(meta.id, meta.logo) {
         mutableStateOf(false)
     }
@@ -85,108 +103,99 @@ fun DetailFloatingHeader(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .graphicsLayer {
-                alpha = progress
-                translationY = lerp((-20).dp, 0.dp, progress).toPx()
-                shadowElevation = 4.dp.toPx()
-                shape = RectangleShape
-            },
+            .testTag(DETAIL_HEADER_TAG),
     ) {
         val logoWidth = (maxWidth * 0.6f).coerceAtMost(240.dp)
-
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clipToBounds()
-                .then(
-                    if (background == null) {
-                        Modifier.liquidGlassSurface(
-                            backdrop = glassBackdrop,
-                            shape = RectangleShape,
-                            tint = surfaceColor.copy(alpha = surfaceColor.alpha * 0.7f),
-                            fallback = surfaceColor,
-                            blurRadius = 24.dp,
-                            withHighlight = false,
-                        )
+                .height(edgeHeight)
+                .testTag(DETAIL_HEADER_EDGE_TAG)
+                .semantics { hideFromAccessibility() }
+                .drawBehind {
+                    if (solidEdge) {
+                        drawRect(edgeColor)
                     } else {
-                        Modifier
-                    },
-                ),
-        ) {
-            if (background != null) {
-                Box(modifier = Modifier.matchParentSize()) { background() }
-            }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = headerTopPadding, start = 16.dp, end = 16.dp)
-                    .height(56.dp)
-                    .graphicsLayer { alpha = progress },
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                val sideSlot = 40.dp.atLeastIosHitTarget()
-                if (interactive && !useNativeNavigation) {
-                    NuvioBackButton(
-                        onClick = onBack,
-                        modifier = Modifier.size(sideSlot),
-                        containerColor = Color.Transparent,
-                        contentColor = MaterialTheme.colorScheme.onBackground,
-                        buttonSize = sideSlot,
-                        iconSize = 24.dp,
-                    )
-                } else {
-                    // Native iOS navigation owns the back button, but retaining
-                    // this slot keeps the Compose logo centered as the floating
-                    // header replaces the hero while scrolling.
-                    Box(modifier = Modifier.size(sideSlot))
-                }
-
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 10.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (!meta.logo.isNullOrBlank() && !logoLoadError) {
-                        AsyncImage(
-                            model = meta.logo,
-                            contentDescription = stringResource(Res.string.detail_logo_content_description, meta.name),
-                            modifier = Modifier
-                                .width(logoWidth)
-                                .widthIn(max = 240.dp)
-                                .height(42.dp),
-                            onError = { logoLoadError = true },
-                        )
-                    } else {
-                        Text(
-                            text = meta.name,
-                            color = MaterialTheme.colorScheme.onBackground,
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleLarge,
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                        val heightPx = size.height
+                        val insetHold = if (heightPx <= 0f) 0f else (headerTopPadding.toPx() / heightPx).coerceIn(0f, 1f)
+                        val rowHold = if (heightPx <= 0f) 1f else (rowBottom.toPx() / heightPx).coerceIn(insetHold, 1f)
+                        drawRect(
+                            Brush.verticalGradient(
+                                colorStops = arrayOf(
+                                    0f to edgeColor,
+                                    insetHold to edgeColor.copy(alpha = 0.94f),
+                                    rowHold to edgeColor.copy(alpha = 0.45f),
+                                    1f to edgeColor.copy(alpha = 0f),
+                                ),
+                            ),
                         )
                     }
-                }
-
-                DetailFloatingHeaderAction(
-                    isSaved = isSaved,
-                    enabled = interactive,
-                    onClick = onToggleSaved,
-                )
-            }
-
-            if (isIos) {
-                Box(
+                },
+        )
+        if (background != null) {
+            Box(modifier = Modifier.matchParentSize()) { background() }
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(LocalVerticalBarPadding.current)
+                .padding(top = headerTopPadding, start = 16.dp, end = 16.dp)
+                .height(DetailHeaderRowHeight),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val sideSlot = 44.dp.atLeastIosHitTarget()
+            if (showComposeBack) {
+                NuvioBackButton(
+                    onClick = onBack,
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .height(0.5.dp)
-                        .background(Color.White.copy(alpha = 0.15f)),
+                        .size(sideSlot)
+                        .testTag(DETAIL_HEADER_BACK_TAG),
+                    containerColor = Color.Transparent,
+                    contentColor = MaterialTheme.colorScheme.onBackground,
+                    buttonSize = sideSlot,
+                    iconSize = 24.dp,
                 )
+            } else {
+                Box(modifier = Modifier.size(sideSlot))
             }
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 10.dp)
+                    .graphicsLayer { alpha = if (showTitle) 1f else 0f },
+                contentAlignment = Alignment.Center,
+            ) {
+                if (showTitle && !meta.logo.isNullOrBlank() && !logoLoadError) {
+                    AsyncImage(
+                        model = meta.logo,
+                        contentDescription = stringResource(Res.string.detail_logo_content_description, meta.name),
+                        modifier = Modifier
+                            .width(logoWidth)
+                            .widthIn(max = 240.dp)
+                            .height(42.dp)
+                            .testTag(DETAIL_HEADER_TITLE_TAG),
+                        onError = { logoLoadError = true },
+                    )
+                } else if (showTitle) {
+                    Text(
+                        text = meta.name,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleLarge,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag(DETAIL_HEADER_TITLE_TAG),
+                    )
+                }
+            }
+
+            DetailFloatingHeaderAction(
+                isSaved = isSaved,
+                onClick = onToggleSaved,
+            )
         }
     }
 }
@@ -211,13 +220,13 @@ internal fun CinematicHeaderBackdrop(
 @Composable
 private fun DetailFloatingHeaderAction(
     isSaved: Boolean,
-    enabled: Boolean,
     onClick: () -> Unit,
 ) {
     Box(
         modifier = Modifier
-            .size(40.dp.atLeastIosHitTarget())
-            .clickable(enabled = enabled, onClick = onClick),
+            .size(44.dp.atLeastIosHitTarget())
+            .testTag(DETAIL_HEADER_ACTION_TAG)
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         val contentDescription = if (isSaved) {

@@ -1,5 +1,9 @@
 package com.nuvio.app.features.home
 
+import com.nuvio.app.core.ui.SCROLL_EDGE_TAIL_DP
+import com.nuvio.app.core.ui.ScrollEdgeKind
+import com.nuvio.app.core.ui.scrollEdgeHeightDp
+import com.nuvio.app.core.ui.scrollEdgeKind
 import kotlin.math.max
 
 /**
@@ -45,11 +49,30 @@ internal fun homeTopEdgeKind(
     cardStyle: Boolean,
     reduceTransparency: Boolean,
     increaseContrast: Boolean,
-): HomeTopEdgeKind = when {
-    cardStyle || safeTopDp <= 0f -> HomeTopEdgeKind.None
-    reduceTransparency || increaseContrast -> HomeTopEdgeKind.Solid
-    else -> HomeTopEdgeKind.QuietFade
+): HomeTopEdgeKind = when (
+    scrollEdgeKind(
+        safeTopDp = safeTopDp,
+        suppressed = cardStyle,
+        reduceTransparency = reduceTransparency,
+        increaseContrast = increaseContrast,
+    )
+) {
+    ScrollEdgeKind.None -> HomeTopEdgeKind.None
+    ScrollEdgeKind.QuietFade -> HomeTopEdgeKind.QuietFade
+    ScrollEdgeKind.Solid -> HomeTopEdgeKind.Solid
 }
+
+/**
+ * The quiet fade covers the inset and eases past it by [SCROLL_EDGE_TAIL_DP].
+ * It stops where the title starts. A solid edge is only the inset.
+ */
+internal fun homeTopEdgeHeightDp(safeTopDp: Float, artworkBottomDp: Float, solid: Boolean): Float =
+    scrollEdgeHeightDp(
+        safeTopDp = safeTopDp,
+        contentTopDp = artworkBottomDp,
+        solid = solid,
+        tailDp = SCROLL_EDGE_TAIL_DP,
+    )
 
 /** The fade over the unsafe band. It is not the title. */
 internal const val HOME_HERO_TOP_EDGE_TAG = "home-hero-top-edge"

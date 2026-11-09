@@ -35,4 +35,12 @@ class HomeInsetsTest {
         assertEquals(HomeTopEdgeKind.Solid, homeTopEdgeKind(59f, cardStyle = false, reduceTransparency = true, increaseContrast = false))
         assertEquals(HomeTopEdgeKind.Solid, homeTopEdgeKind(59f, cardStyle = false, reduceTransparency = false, increaseContrast = true))
     }
+
+    @Test
+    fun theQuietFadeExtendsPastTheInsetAndStopsAtTheTitle() {
+        assertEquals(87f, homeTopEdgeHeightDp(safeTopDp = 59f, artworkBottomDp = 226f, solid = false))
+        assertEquals(400f, homeTopEdgeHeightDp(safeTopDp = 400f, artworkBottomDp = 226f, solid = false))
+        assertEquals(80f, homeTopEdgeHeightDp(safeTopDp = 80f, artworkBottomDp = 226f, solid = true))
+        assertEquals(0f, homeTopEdgeHeightDp(safeTopDp = 0f, artworkBottomDp = 226f, solid = false))
+    }
 }

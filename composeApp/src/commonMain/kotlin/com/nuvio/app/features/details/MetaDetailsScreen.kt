@@ -112,7 +112,6 @@ import com.nuvio.app.core.ui.TrackingListPickerDialog
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.core.ui.rememberArtworkBackdrop
 import com.nuvio.app.core.ui.rememberHeroStretchState
-import com.kyant.backdrop.Backdrop
 import com.nuvio.app.core.ui.glass.LocalLiquidGlassBackdrop
 import com.nuvio.app.core.ui.glass.nuvioBackdropSource
 import com.nuvio.app.core.ui.glass.rememberNuvioBackdrop
@@ -1680,7 +1679,6 @@ fun MetaDetailsScreen(
                             headerBackground = null,
                             onBack = onBackFromDetails,
                             onToggleSaved = toggleSaved,
-                            glassBackdrop = cinematicContentBackdrop.takeIf { cinematicGlassEnabled && it.isReady },
                         )
 
                         selectedEpisodeForActions
@@ -2295,7 +2293,6 @@ private fun DetailHeaderOverlay(
     headerBackground: (@Composable () -> Unit)?,
     onBack: () -> Unit,
     onToggleSaved: () -> Unit,
-    glassBackdrop: Backdrop? = null,
 ) {
     val headerTarget = if (isHeroCollapsed.value) 1f else 0f
     val headerProgress by animateFloatAsState(
@@ -2307,36 +2304,16 @@ private fun DetailHeaderOverlay(
         label = "detail_floating_header_progress",
     )
 
-    val nativeBackVisible = com.nuvio.app.navigation.LocalUseNativeNavigation.current &&
-        !com.nuvio.app.navigation.LocalNativeNavigationBarHidden.current
-    if (headerProgress <= 0.05f && com.nuvio.app.core.ui.detailHeroBackShown(nativeBackVisible)) {
-        NuvioBackButton(
-            onClick = onBack,
-            modifier = Modifier
-                .padding(LocalVerticalBarPadding.current)
-                .padding(
-                    start = 12.dp,
-                    top = com.nuvio.app.core.ui.detailChromeTopInset() + 8.dp,
-                )
-                .zIndex(2f),
-            containerColor = Color.Transparent,
-            contentColor = MaterialTheme.colorScheme.onBackground,
-        )
-    }
-
-    if (verticalBarWidth() == 0.dp) {
-        DetailFloatingHeader(
-            meta = meta,
-            isSaved = isSaved,
-            progress = headerProgress,
-            backgroundColor = backgroundColor,
-            background = headerBackground,
-            onBack = onBack,
+    DetailFloatingHeader(
+        meta = meta,
+        isSaved = isSaved,
+        progress = headerProgress,
+        backgroundColor = backgroundColor,
+        background = headerBackground,
+        onBack = onBack,
             onToggleSaved = onToggleSaved,
             modifier = Modifier.zIndex(2f),
-            glassBackdrop = glassBackdrop,
         )
-    }
 }
 
 private const val RATING_SHEET_OPEN_DELAY_MS = 350L

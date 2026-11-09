@@ -72,6 +72,7 @@ import com.nuvio.app.features.home.HomeTopEdgeKind
 import com.nuvio.app.features.home.homeContentTopInsetDp
 import com.nuvio.app.features.home.homeHeroTopPaddingDp
 import com.nuvio.app.features.home.homeInteractiveClearanceDp
+import com.nuvio.app.features.home.homeTopEdgeHeightDp
 import com.nuvio.app.features.home.homeTopEdgeKind
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
@@ -859,6 +860,7 @@ internal fun HomeHeroSection(
             }
             HomeTopEdge(
                 safeTop = contentTopInset,
+                artworkBottom = artworkSlotHeight,
                 cardStyle = isCardStyle,
                 modifier = Modifier.align(Alignment.TopCenter),
             )
@@ -877,13 +879,15 @@ internal fun HomeHeroSection(
 }
 
 /**
- * Soft edge over the unsafe band. It is not a bar: no blur, no hit target, and it is hidden
- * from accessibility. Reduce Motion leaves it still. Reduce Transparency and Increase Contrast
- * use a solid band of the same height so the fade is not the only way to see the edge.
+ * Soft edge over the status area. It is not a bar: no blur, no hit target, and it is hidden
+ * from accessibility. The quiet fade stays opaque through the inset, then eases out, and it
+ * stops before the title. Reduce Motion leaves it still. Reduce Transparency and Increase
+ * Contrast use a solid band of the inset only.
  */
 @Composable
 private fun HomeTopEdge(
     safeTop: Dp,
+    artworkBottom: Dp,
     cardStyle: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -895,22 +899,34 @@ private fun HomeTopEdge(
         increaseContrast = forced.increaseContrast || systemIncreaseContrastEnabled(),
     )
     if (kind == HomeTopEdgeKind.None) return
+    val solid = kind == HomeTopEdgeKind.Solid
+    val edgeHeight = homeTopEdgeHeightDp(
+        safeTopDp = safeTop.value,
+        artworkBottomDp = artworkBottom.value,
+        solid = solid,
+    ).dp
+    if (edgeHeight <= 0.dp) return
     val edge = MaterialTheme.colorScheme.background
     Box(
         modifier
             .fillMaxWidth()
-            .height(safeTop)
+            .height(edgeHeight)
             .semantics {
                 semanticsTestTag = HOME_HERO_TOP_EDGE_TAG
                 hideFromAccessibility()
             }
             .drawBehind {
-                if (kind == HomeTopEdgeKind.Solid) {
+                if (solid) {
                     drawRect(edge)
                 } else {
+                    val hold = if (size.height <= 0f) 1f else (safeTop.toPx() / size.height).coerceIn(0f, 1f)
                     drawRect(
                         Brush.verticalGradient(
-                            colors = listOf(edge, edge.copy(alpha = 0f)),
+                            colorStops = arrayOf(
+                                0f to edge,
+                                hold to edge.copy(alpha = 0.94f),
+                                1f to edge.copy(alpha = 0f),
+                            ),
                         ),
                     )
                 }

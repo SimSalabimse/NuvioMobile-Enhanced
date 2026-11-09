@@ -2,18 +2,31 @@ package com.nuvio.app.core.ui
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class DetailChromeInsetsTest {
     @Test
-    fun detailRouteKeepsTheHeroImageAndPageBelowTheStatusBar() {
-        assertEquals(true, hostRespectsTopSafeArea("detail"))
+    fun detailArtworkRunsUnderTheStatusAreaAndTheHeaderUsesTheInsetOnce() {
+        assertEquals(false, hostRespectsTopSafeArea("detail"))
         assertEquals(0f, detailHeroImageTopDp("detail"))
-        assertEquals(0f, detailChromeTopInsetDp(59f, 59f, hostRespectsTop = hostRespectsTopSafeArea("detail")))
+        assertEquals(59f, detailChromeTopInsetDp(59f, 59f, hostRespectsTop = hostRespectsTopSafeArea("detail")))
         assertEquals(false, hostRespectsTopSafeArea("stream"))
         assertEquals(false, hostRespectsTopSafeArea("player"))
         assertEquals(true, hostRespectsTopSafeArea("folder"))
         assertEquals(true, hostRespectsTopSafeArea("person"))
         assertEquals(true, hostRespectsTopSafeArea("catalog"))
+    }
+
+    @Test
+    fun theQuietFadeCoversTheInsetAndStopsBeforeTheTitle() {
+        assertEquals(87f, scrollEdgeHeightDp(safeTopDp = 59f, contentTopDp = 226f, solid = false))
+        assertEquals(400f, scrollEdgeHeightDp(safeTopDp = 400f, contentTopDp = 226f, solid = false))
+        assertEquals(80f, scrollEdgeHeightDp(safeTopDp = 80f, contentTopDp = 226f, solid = true))
+        assertEquals(0f, scrollEdgeHeightDp(safeTopDp = 0f, contentTopDp = 226f, solid = false))
+        assertTrue(scrollEdgeHeightDp(59f, 226f, solid = false) > 59f)
+        assertEquals(ScrollEdgeKind.QuietFade, scrollEdgeKind(59f, suppressed = false, reduceTransparency = false, increaseContrast = false))
+        assertEquals(ScrollEdgeKind.Solid, scrollEdgeKind(59f, suppressed = false, reduceTransparency = true, increaseContrast = false))
+        assertEquals(ScrollEdgeKind.None, scrollEdgeKind(0f, suppressed = false, reduceTransparency = false, increaseContrast = false))
     }
 
     @Test

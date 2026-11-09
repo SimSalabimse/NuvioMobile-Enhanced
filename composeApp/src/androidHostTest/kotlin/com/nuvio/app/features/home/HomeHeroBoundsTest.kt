@@ -120,6 +120,35 @@ class HomeHeroBoundsTest {
     }
 
     @Test
+    fun theQuietFadeCoversTheInsetAndEasesPastItWithoutCoveringTheTitle() {
+        val safeTop = HOME_PRO_PORTRAIT_TOP_DP.dp
+        var clicks = 0
+        compose.setContent {
+            NuvioTheme {
+                CompositionLocalProvider(LocalHomeContentTopInset provides safeTop) {
+                    Box(Modifier.fillMaxSize().testTag("home-background")) {
+                        hero(onItemClick = { clicks += 1 })
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        val art = compose.onNodeWithTag(HOME_HERO_ART_TAG).getBoundsInRoot()
+        val title = compose.onNodeWithTag(HOME_HERO_CONTENT_TAG).getBoundsInRoot()
+        val edge = compose.onNodeWithTag(HOME_HERO_TOP_EDGE_TAG).getBoundsInRoot()
+        assertEquals(0.dp, art.top)
+        assertTrue(edge.bottom - edge.top > safeTop)
+        assertTrue(edge.bottom - edge.top <= safeTop + 28.dp)
+        assertTrue(edge.bottom < title.top)
+        assertTrue(title.top >= art.bottom)
+        compose.onNodeWithTag("home-background").performTouchInput {
+            click(Offset(width / 2f, 8f))
+        }
+        compose.waitForIdle()
+        assertEquals(1, clicks)
+    }
+
+    @Test
     fun increaseContrastUsesASolidEdgeThatStillStopsAtTheTitle() {
         val safeTop = 80.dp
         var clicks = 0

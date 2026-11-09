@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -20,18 +21,58 @@ internal const val EXTREME_FONT_SCALE = 1.5f
 internal fun extremeAccessibilityText(fontScale: Float): Boolean = fontScale >= EXTREME_FONT_SCALE
 
 /**
- * The detail hero image and the page under it are content, so the host places them
- * below the status bar. Stream and player stay full-bleed. Every other pushed screen
- * is also placed below the top safe area by the host.
+ * Detail, stream, and player artwork run under the status area. The detail header
+ * clears the live inset itself. Every other pushed screen is placed below the top
+ * safe area by the host. Applying that inset again would leave a blank band.
  */
 internal fun hostRespectsTopSafeArea(routeKind: String?): Boolean = when (routeKind) {
-    null, "stream", "player" -> false
+    null, "stream", "player", "detail" -> false
     else -> true
 }
 
-/** Top of the detail hero image inside the Compose view. The host already applied its inset. */
+/** How far a quiet fade continues past the protected inset. A solid edge does not use it. */
+internal const val SCROLL_EDGE_TAIL_DP = 28f
+
+internal enum class ScrollEdgeKind { None, QuietFade, Solid }
+
+/** One protective edge. A card, or a zero inset, draws nothing. Contrast makes it solid. */
+internal fun scrollEdgeKind(
+    safeTopDp: Float,
+    suppressed: Boolean,
+    reduceTransparency: Boolean,
+    increaseContrast: Boolean,
+): ScrollEdgeKind = when {
+    suppressed || safeTopDp <= 0f -> ScrollEdgeKind.None
+    reduceTransparency || increaseContrast -> ScrollEdgeKind.Solid
+    else -> ScrollEdgeKind.QuietFade
+}
+
+/**
+ * Quiet fade height. It covers [safeTopDp] and eases past it, and it stops at the next
+ * title so the fade does not bury that title. A solid edge is only the inset.
+ */
+internal fun scrollEdgeHeightDp(
+    safeTopDp: Float,
+    contentTopDp: Float,
+    solid: Boolean,
+    tailDp: Float = SCROLL_EDGE_TAIL_DP,
+): Float {
+    val safe = safeTopDp.coerceAtLeast(0f)
+    if (safe <= 0f) return 0f
+    if (solid) return safe
+    val limit = max(contentTopDp.coerceAtLeast(0f), safe)
+    return (safe + tailDp).coerceAtMost(limit)
+}
+
+/** Test seam. Production leaves this unset and reads the window inset. */
+internal val LocalDetailChromeTopOverride = staticCompositionLocalOf<Dp?> { null }
+
+/**
+ * Top of the hero image inside the Compose view. Detail starts at the top of that view,
+ * under the status area. Other full-bleed routes are not placed by this helper.
+ */
 internal fun detailHeroImageTopDp(routeKind: String?): Float =
-    if (hostRespectsTopSafeArea(routeKind)) 0f else Float.NaN
+    if (routeKind == "detail" || hostRespectsTopSafeArea(routeKind)) 0f else Float.NaN
 
 /** The custom hero back button is absent while the native back button is on screen. */
 internal fun detailHeroBackShown(nativeBackVisible: Boolean): Boolean = !nativeBackVisible
@@ -76,6 +117,7 @@ internal fun immersiveTextTopInsetDp(
 
 @Composable
 internal fun detailChromeTopInset(): Dp {
+    LocalDetailChromeTopOverride.current?.let { return it }
     val physical = platformPhysicalTopInset().value
     val status = WindowInsets.statusBars.asPaddingValues().calculateTopPadding().value
     return detailChromeTopInsetDp(

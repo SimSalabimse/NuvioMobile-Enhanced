@@ -1730,10 +1730,11 @@ private struct DetailDestinationView: View {
         wrapper.route is DetailRoute || wrapper.route is StreamRoute
     }
 
-    /// Stream and player stay full-bleed. The detail hero image and the page under it
-    /// stay below the status bar, which this host owns. Compose does not add that inset again.
+    /// Stream, player, and detail artwork run under the status area. Detail draws one
+    /// header over that artwork. Compose applies the inset to the header once.
+    /// Every other pushed screen stays below the top safe area.
     private var artworkBleedsUnderStatusBar: Bool {
-        wrapper.route is StreamRoute || wrapper.route is PlayerRoute
+        wrapper.route is StreamRoute || wrapper.route is PlayerRoute || wrapper.route is DetailRoute
     }
 
     private var respectsNativeNavigationSafeArea: Bool {
