@@ -882,7 +882,9 @@ internal object RecapDetector {
         if (introStart != null && introStart < MIN_RECAP_MS) return Found()
         if (hits.isEmpty()) return Found()
         val indexByKey = HashMap<String, Int>()
-        others.forEachIndexed { index, other -> indexByKey.putIfAbsent(other.key, index) }
+        others.forEachIndexed { index, other ->
+            if (other.key !in indexByKey) indexByKey[other.key] = index
+        }
         val clips = hits.map { hit ->
             Clip(
                 startMs = hit.startMs,
