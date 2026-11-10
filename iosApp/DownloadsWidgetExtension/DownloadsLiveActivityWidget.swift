@@ -43,6 +43,11 @@ struct DownloadsLiveActivityWidget: Widget {
                     Image(systemName: "arrow.down")
                         .font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(appBlue)
+                        .nuvioSymbol(
+                            NuvioSymbolMotion.download(downloading: activityDownloading(context)),
+                            active: activityDownloading(context),
+                            trigger: activityDownloading(context)
+                        )
                         .frame(width: 28, height: 28)
                         .padding(.leading, 6)
                         .padding(.top, 4)
@@ -87,6 +92,7 @@ struct DownloadsLiveActivityWidget: Widget {
                                 Image(systemName: "moon.fill")
                                     .font(.system(size: 9, weight: .semibold))
                                     .foregroundStyle(.white.opacity(0.6))
+                                    .nuvioSymbol(NuvioSymbolMotion.still)
                                     .accessibilityLabel("in background")
                             }
                             Spacer(minLength: 6)
@@ -103,6 +109,11 @@ struct DownloadsLiveActivityWidget: Widget {
                 Image(systemName: "arrow.down")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(appBlue)
+                    .nuvioSymbol(
+                        NuvioSymbolMotion.download(downloading: activityDownloading(context)),
+                        active: activityDownloading(context),
+                        trigger: activityDownloading(context)
+                    )
                     .accessibilityLabel("Downloading")
             } compactTrailing: {
                 // About 40 pt: a ring with the estimate, otherwise "100%" fits at caption2.
@@ -182,7 +193,12 @@ private struct DownloadActivityStandByView: View {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Image(systemName: "arrow.down.circle.fill")
                     .font(.system(size: 34, weight: .semibold))
-                    .foregroundStyle(primary)
+                    .foregroundStyle(primary, primary.opacity(0.65))
+                    .nuvioSymbol(
+                        NuvioSymbolMotion.standby(downloading: !dimmed && activityDownloading(context)),
+                        active: !dimmed && activityDownloading(context),
+                        trigger: activityDownloading(context)
+                    )
                 VStack(alignment: .leading, spacing: 4) {
                     Text(context.attributes.title)
                         .font(.system(size: 30, weight: .bold))
@@ -237,6 +253,11 @@ private struct DownloadActivityLockScreenView: View {
                 Image(systemName: "arrow.down")
                     .font(.system(size: 24, weight: .semibold))
                     .foregroundStyle(Color(red: 30.0 / 255.0, green: 136.0 / 255.0, blue: 229.0 / 255.0))
+                    .nuvioSymbol(
+                        NuvioSymbolMotion.download(downloading: activityDownloading(context)),
+                        active: activityDownloading(context),
+                        trigger: activityDownloading(context)
+                    )
                     .frame(width: 28, height: 28)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(context.attributes.title)
@@ -271,6 +292,7 @@ private struct DownloadActivityLockScreenView: View {
                     Image(systemName: "moon.fill")
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.75))
+                        .nuvioSymbol(NuvioSymbolMotion.still)
                         .accessibilityLabel("in background")
                 }
                 Spacer(minLength: 0)
@@ -329,6 +351,11 @@ private func activityUnconfirmed(_ context: ActivityViewContext<DownloadsLiveAct
 @available(iOSApplicationExtension 16.1, *)
 private func activityStopped(_ context: ActivityViewContext<DownloadsLiveActivityAttributes>) -> Bool {
     context.state.status == "Failed" || context.state.status == "Waiting"
+}
+
+@available(iOSApplicationExtension 16.1, *)
+private func activityDownloading(_ context: ActivityViewContext<DownloadsLiveActivityAttributes>) -> Bool {
+    !activityStopped(context) && !activityUnconfirmed(context)
 }
 
 /// Short state for the narrow slots, or nil while it is running normally.
@@ -460,6 +487,11 @@ private struct ActivityMinimalView: View {
             Image(systemName: "arrow.down")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(tint)
+                .nuvioSymbol(
+                    NuvioSymbolMotion.download(downloading: activityDownloading(context)),
+                    active: activityDownloading(context),
+                    trigger: activityDownloading(context)
+                )
         }
     }
 }
