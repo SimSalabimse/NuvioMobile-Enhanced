@@ -257,6 +257,20 @@ class SegmentDetectionRulesTest {
     }
 
     @Test
+    fun aSharedStingDoesNotPassThePreviousEnding() {
+        val fixture = stingAndPreviousEndingFixture()
+        val trace = SegmentTrace()
+        val found = assertNotNull(
+            RecapDetector.detect(fixture.episode, fixture.others, trace),
+            "SYNTHETIC sting at 0 plus a previous ending",
+        )
+        assertEquals(2_000L, found.first)
+        assertEquals(17_000L, found.second)
+        assertEquals("accepted-previous-ending", trace.decisions.single().why)
+        assertTrue(trace.decisions.single().accepted)
+    }
+
+    @Test
     fun aDatabaseRecapTimeBlocksThatExtension() {
         val fixture = openingFixture(markEnds = listOf(34_000L, 70_000L))
         val trace = SegmentTrace()
@@ -664,6 +678,48 @@ class SegmentDetectionRulesTest {
             )
         }
         return OpeningFixture(episode, listOf(previous) + later)
+    }
+
+    /**
+     * A 2.5s sting at 0.0s is shared by three later siblings and by the previous episode.
+     * The previous episode's ending matches 2.0s–15.0s. The quiet run at 17s is the end.
+     * Two of those siblings carry longer opening marks. The cut at 33s is not the recap.
+     */
+    private fun stingAndPreviousEndingFixture(): OpeningFixture {
+        val sting = pattern(11, 25)
+        val ending = pattern(14, 130)
+        val head = noise(1, 6_000)
+        sting.copyInto(head, 0)
+        ending.copyInto(head, 20)
+        cutAt(head, 330)
+        val levels = IntArray(400) { 120 }
+        for (index in 0 until 20) levels[index] = 40
+        for (index in 170 until 174) levels[index] = 40
+        val episode = fingerprinted("stingtail__s1e8", head, noise(2, TAIL_FRAMES)).copy(
+            introStartMs = 754_000L,
+            introEndMs = 768_000L,
+            energy = encodeEnergyLevels(levels),
+            energyStepMs = 100,
+        )
+        val previousHead = noise(4, 6_000)
+        sting.copyInto(previousHead, 0)
+        val previousTail = noise(3, TAIL_FRAMES)
+        ending.copyInto(previousTail, 100)
+        val previous = fingerprinted("stingtail__s1e7", previousHead, previousTail)
+        val markEnds = listOf(34_000L, 70_000L).iterator()
+        val later = listOf(3, 5, 6).map { number ->
+            val siblingHead = noise(10 + number, 6_000)
+            sting.copyInto(siblingHead, 0)
+            val mark = if (markEnds.hasNext()) {
+                UserSegment(startMs = 0L, endMs = markEnds.next(), markedAtMs = 1L, durationMs = DURATION_MS)
+            } else {
+                null
+            }
+            fingerprinted("stingtail__s1e$number", siblingHead, noise(20 + number, TAIL_FRAMES)).copy(
+                userSegments = if (mark == null) emptyMap() else mapOf("recap" to mark),
+            )
+        }
+        return OpeningFixture(episode, later + previous)
     }
 
     private data class OpeningFixture(
