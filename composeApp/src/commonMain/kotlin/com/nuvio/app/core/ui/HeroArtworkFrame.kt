@@ -81,6 +81,22 @@ internal fun phonePortraitHeroArtwork(): HeroArtworkDecision = HeroArtworkDecisi
     horizontalFocus = true,
 )
 
+/**
+ * Extra height under the 16:9 band so a phone details logo and its genre line sit on the
+ * picture. The logo is 72% of the width at a 2.6 aspect, plus the genre line and its gaps.
+ */
+internal fun portraitDetailHeadingReserve(frameWidth: Dp): Dp {
+    val logo = frameWidth.value * 0.72f / 2.6f
+    return (logo + 44f).dp
+}
+
+/** Phone details hero. The picture fills the band and the heading, then the shared fade takes over. */
+internal fun portraitDetailHeroHeight(frameWidth: Dp, headingHeight: Dp): Dp {
+    val band = portraitArtworkSlotHeight(frameWidth, tallArt = false)
+    val heading = if (headingHeight > portraitDetailHeadingReserve(frameWidth)) headingHeight else portraitDetailHeadingReserve(frameWidth)
+    return band + heading
+}
+
 internal fun portraitArtworkSlotHeight(frameWidth: Dp, tallArt: Boolean): Dp {
     val width = frameWidth.value
     val height = if (tallArt) {

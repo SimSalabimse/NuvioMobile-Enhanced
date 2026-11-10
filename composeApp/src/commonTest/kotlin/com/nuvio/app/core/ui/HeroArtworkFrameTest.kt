@@ -31,6 +31,20 @@ class HeroArtworkFrameTest {
     }
 
     @Test
+    fun phonePortraitDetailsKeepsTheLogoOnThePicture() {
+        val width = 402.dp
+        val band = portraitArtworkSlotHeight(width, tallArt = false)
+        val slot = portraitDetailHeroHeight(width, 0.dp)
+        assertTrue(slot > band + 100.dp)
+        assertEquals(
+            1f,
+            heroImageHeightFraction(phonePortraitHeroArtwork(), width.value, slot.value, portrait = false),
+        )
+        val tallerHeading = band + 40.dp
+        assertEquals(band + tallerHeading, portraitDetailHeroHeight(width, tallerHeading))
+    }
+
+    @Test
     fun phonePortraitHomeFillsTheHeroBehindTheTitle() {
         val decision = phonePortraitHeroArtwork()
         assertEquals(HeroArtworkFit.CropLandscape, decision.fit)

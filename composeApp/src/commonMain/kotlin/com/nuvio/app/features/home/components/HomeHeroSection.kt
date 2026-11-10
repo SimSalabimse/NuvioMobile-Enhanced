@@ -64,6 +64,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
 import com.nuvio.app.core.ui.HOME_SOFT_EDGE_PEAK
+import com.nuvio.app.core.ui.SoftBottomFade
 import com.nuvio.app.core.ui.SoftTopEdge
 import com.nuvio.app.core.ui.platformPhysicalTopInset
 import com.nuvio.app.core.ui.systemIncreaseContrastEnabled
@@ -77,8 +78,6 @@ import com.nuvio.app.features.home.homeHeroTopPaddingDp
 import com.nuvio.app.features.home.homeInteractiveClearanceDp
 import com.nuvio.app.features.home.homeTopEdgeHeightDp
 import com.nuvio.app.features.home.homeTopEdgeKind
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -709,15 +708,10 @@ internal fun HomeHeroSection(
                         val heroFadeColorState = LocalDynamicArtworkBackgroundColor.current
                         val themeBackground = MaterialTheme.colorScheme.background
                         val copyHeight = with(LocalDensity.current) { heroCopyHeightPx.toDp() }
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .height((copyHeight + 88.dp).coerceAtLeast(layout.bottomFadeHeight))
-                                .drawBehind {
-                                    val fade = heroFadeColorState?.value ?: themeBackground
-                                    drawRect(heroBottomScrim(fade))
-                                },
+                        SoftBottomFade(
+                            height = (copyHeight + 88.dp).coerceAtLeast(layout.bottomFadeHeight),
+                            color = heroFadeColorState?.value ?: themeBackground,
+                            modifier = Modifier.align(Alignment.BottomCenter),
                         )
                     }
 
@@ -816,16 +810,6 @@ internal fun HomeHeroSection(
         }
     }
 }
-
-/** Soft fade under the logo and the page dots. The artwork above this stays clear. */
-private fun heroBottomScrim(color: Color): Brush = Brush.verticalGradient(
-    colorStops = arrayOf(
-        0f to color.copy(alpha = 0f),
-        0.18f to color.copy(alpha = 0.34f),
-        0.55f to color.copy(alpha = 0.78f),
-        1f to color,
-    ),
-)
 
 /**
  * Soft scrim over the status area. The artwork stays visible under it. It is not a bar:
