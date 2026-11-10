@@ -781,6 +781,7 @@ private enum NuvioNativeTabIcon {
 }
 
 @available(iOS 16.0, *)
+@MainActor
 final class NativeTabIconStore: ObservableObject {
     private static let chromeDidChange = Notification.Name("NuvioNativeTabChromeDidChange")
     private static let accentKey = "NuvioNativeTabAccentColor"
@@ -806,6 +807,12 @@ final class NativeTabIconStore: ObservableObject {
     )
 
     @Published private(set) var accentColors: [UIColor] = []
+
+    /// Rendered once per chrome change. `body` only looks these up.
+    private var baseImages: [NuvioAppTab: UIImage] = [:]
+    private var selectedImages: [NuvioAppTab: UIImage] = [:]
+    /// Profile name and colors are read live. This snapshot keeps the cached avatar in step.
+    private var settingsSnapshot = ""
 
     func accentStyle(opacity: CGFloat = 1) -> AnyShapeStyle {
         let colors = accentColors.isEmpty ? [accentColor] : accentColors
@@ -835,7 +842,10 @@ final class NativeTabIconStore: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.reload()
+            // `queue: .main` runs this block on the main thread, which is the main actor.
+            MainActor.assumeIsolated {
+                self?.reload()
+            }
         }
         reload()
     }
@@ -848,10 +858,60 @@ final class NativeTabIconStore: ObservableObject {
     }
 
     func image(for tab: NuvioAppTab, selected: Bool) -> UIImage {
+        if tab == .settings {
+            let snapshot = currentSettingsSnapshot()
+            if snapshot != settingsSnapshot {
+                settingsSnapshot = snapshot
+                baseImages[.settings] = renderImage(for: .settings, selected: false)
+                selectedImages[.settings] = renderImage(for: .settings, selected: true)
+            }
+        }
+        let cache = selected ? selectedImages : baseImages
+        if let cached = cache[tab] { return cached }
+        return renderImage(for: tab, selected: selected)
+    }
+
+    private func currentSettingsSnapshot() -> String {
+        let defaults = UserDefaults.standard
+        return [
+            defaults.string(forKey: Self.profileNameKey) ?? "",
+            defaults.string(forKey: Self.profileColorKey) ?? "",
+            defaults.string(forKey: Self.profileBackgroundKey) ?? "",
+            profileAvatarURL ?? "",
+            profileAvatarImage == nil ? "0" : "1",
+        ].joined(separator: "\u{1}")
+    }
+
+    private func publishChrome(
+        accent: UIColor,
+        colors: [UIColor]
+    ) {
+        baseImages = Dictionary(uniqueKeysWithValues: NuvioAppTab.allCases.map { tab in
+            (tab, renderImage(for: tab, selected: false, accent: accent, colors: colors))
+        })
+        selectedImages = Dictionary(uniqueKeysWithValues: NuvioAppTab.allCases.map { tab in
+            (tab, renderImage(for: tab, selected: true, accent: accent, colors: colors))
+        })
+        accentColor = accent
+        accentColors = colors
+        settingsSnapshot = currentSettingsSnapshot()
+        revision &+= 1
+    }
+
+    private func renderImage(for tab: NuvioAppTab, selected: Bool) -> UIImage {
+        renderImage(for: tab, selected: selected, accent: accentColor, colors: accentColors)
+    }
+
+    private func renderImage(
+        for tab: NuvioAppTab,
+        selected: Bool,
+        accent: UIColor,
+        colors: [UIColor]
+    ) -> UIImage {
         guard tab == .settings else {
             let icon = NuvioNativeTabIcon.image(for: tab)
-            guard selected, accentColors.count > 1 else { return icon }
-            return NuvioNativeTabIcon.gradientTinted(icon, colors: accentColors)
+            guard selected, colors.count > 1 else { return icon }
+            return NuvioNativeTabIcon.gradientTinted(icon, colors: colors)
         }
 
         let defaults = UserDefaults.standard
@@ -861,39 +921,40 @@ final class NativeTabIconStore: ObservableObject {
             backgroundColor: UIColor(hexString: defaults.string(forKey: Self.profileBackgroundKey)),
             avatarImage: profileAvatarImage,
             selected: selected,
-            accent: accentColor
+            accent: accent
         )
     }
 
     private func reload() {
         let defaults = UserDefaults.standard
-        accentColor = UIColor(hexString: defaults.string(forKey: Self.accentKey))
+        let nextAccent = UIColor(hexString: defaults.string(forKey: Self.accentKey))
             ?? UIColor(red: 0.96, green: 0.96, blue: 0.96, alpha: 1)
-        accentColors = (defaults.string(forKey: Self.accentGradientKey) ?? "")
+        let nextColors = (defaults.string(forKey: Self.accentGradientKey) ?? "")
             .split(separator: ",")
             .compactMap { UIColor(hexString: String($0).trimmingCharacters(in: .whitespaces)) }
 
         let nextURL = defaults.string(forKey: Self.profileURLKey)
-        guard nextURL != profileAvatarURL else {
-            revision &+= 1
-            return
+        let avatarChanged = nextURL != profileAvatarURL
+        if avatarChanged {
+            profileAvatarTask?.cancel()
+            profileAvatarTask = nil
+            profileAvatarURL = nextURL
+            profileAvatarImage = nil
         }
-
-        profileAvatarTask?.cancel()
-        profileAvatarTask = nil
-        profileAvatarURL = nextURL
-        profileAvatarImage = nil
-        revision &+= 1
-
-        guard let nextURL, let url = URL(string: nextURL) else { return }
+        publishChrome(accent: nextAccent, colors: nextColors)
+        guard avatarChanged, let nextURL, let url = URL(string: nextURL) else { return }
         // The stored avatar URL is the owner's. Automation must not fetch it.
         if Self.automationLaunchIsOn { return }
         profileAvatarTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data, let image = UIImage(data: data) else { return }
+            // `Data` crosses the session queue. Decode the bitmap on the main actor.
+            guard let data else { return }
             DispatchQueue.main.async {
-                guard let self, self.profileAvatarURL == nextURL else { return }
-                self.profileAvatarImage = image
-                self.revision &+= 1
+                MainActor.assumeIsolated {
+                    guard let self, self.profileAvatarURL == nextURL else { return }
+                    guard let image = UIImage(data: data) else { return }
+                    self.profileAvatarImage = image
+                    self.publishChrome(accent: self.accentColor, colors: self.accentColors)
+                }
             }
         }
         profileAvatarTask?.resume()
@@ -1644,6 +1705,7 @@ struct TabContentView: View {
     let usesTabletFloatingTabBar: Bool
     @ObservedObject var coordinator: TabNavigationCoordinator
     @ObservedObject var appCoordinator: AppNavigationCoordinator
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         NavigationStack(
@@ -1688,9 +1750,9 @@ struct TabContentView: View {
             for: .tabBar
         )
         .animation(
-            appCoordinator.tabBarBehavior == .autoHide
-                ? .easeInOut(duration: 0.18)
-                : nil,
+            reduceMotion || appCoordinator.tabBarBehavior != .autoHide
+                ? nil
+                : .easeInOut(duration: 0.18),
             value: appCoordinator.isNativeTabBarVisible
         )
     }
@@ -1984,7 +2046,7 @@ private struct NativeProfileSwitcherView: View {
                 .font(.headline)
 
             if model.isLoaded {
-                ScrollView(.horizontal, showsIndicators: false) {
+                ScrollView(.horizontal) {
                     HStack(alignment: .top, spacing: 14) {
                         ForEach(model.profiles) { profile in
                             Button {
@@ -2000,6 +2062,7 @@ private struct NativeProfileSwitcherView: View {
                                                     .foregroundStyle(.white)
                                                     .frame(width: 18, height: 18)
                                                     .background(.black.opacity(0.72), in: Circle())
+                                                    .accessibilityHidden(true)
                                             }
                                         }
 
@@ -2011,6 +2074,9 @@ private struct NativeProfileSwitcherView: View {
                             }
                             .buttonStyle(.plain)
                             .disabled(model.isSubmitting)
+                            .accessibilityLabel(
+                                profile.pinEnabled ? "\(profile.name), PIN locked" : profile.name
+                            )
                         }
 
                         if model.canAddProfile {
@@ -2022,6 +2088,7 @@ private struct NativeProfileSwitcherView: View {
                                         .font(.system(size: 19, weight: .semibold))
                                         .frame(width: 52, height: 52)
                                         .background(.secondary.opacity(0.12), in: Circle())
+                                        .accessibilityHidden(true)
                                     Text(addProfileTitle)
                                         .font(.caption)
                                         .multilineTextAlignment(.center)
@@ -2032,6 +2099,7 @@ private struct NativeProfileSwitcherView: View {
                         }
                     }
                 }
+                .scrollIndicators(.hidden, axes: .horizontal)
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity)
@@ -2120,27 +2188,26 @@ struct NativeNavContentView: View {
     @State private var mountedLegacyTabs: Set<NuvioAppTab> = []
 
     private var legacyTabs: some View {
-        ZStack {
-            ForEach(appCoordinator.availableTabs, id: \.self) { tab in
-                if mountedLegacyTabs.contains(tab) {
-                    TabContentView(
-                        tab: tab,
-                        usesNativeTabBar: usesNativeTabBar,
-                        usesTabletFloatingTabBar: usesTabletFloatingTabBar,
-                        coordinator: appCoordinator.coordinator(for: tab),
-                        appCoordinator: appCoordinator
-                    )
-                    .opacity(appCoordinator.selectedTab == tab ? 1 : 0)
-                    .allowsHitTesting(appCoordinator.selectedTab == tab)
-                    .accessibilityHidden(appCoordinator.selectedTab != tab)
-                    .zIndex(appCoordinator.selectedTab == tab ? 1 : 0)
-                }
+        let mountedTabs = appCoordinator.availableTabs.filter { mountedLegacyTabs.contains($0) }
+        return ZStack {
+            ForEach(mountedTabs, id: \.self) { tab in
+                TabContentView(
+                    tab: tab,
+                    usesNativeTabBar: usesNativeTabBar,
+                    usesTabletFloatingTabBar: usesTabletFloatingTabBar,
+                    coordinator: appCoordinator.coordinator(for: tab),
+                    appCoordinator: appCoordinator
+                )
+                .opacity(appCoordinator.selectedTab == tab ? 1 : 0)
+                .allowsHitTesting(appCoordinator.selectedTab == tab)
+                .accessibilityHidden(appCoordinator.selectedTab != tab)
+                .zIndex(appCoordinator.selectedTab == tab ? 1 : 0)
             }
         }
         .onAppear {
             mountedLegacyTabs.insert(appCoordinator.selectedTab)
         }
-        .onChange(of: appCoordinator.selectedTab) { newTab in
+        .onChangeAfterFirst(of: appCoordinator.selectedTab) { newTab in
             mountedLegacyTabs.insert(newTab)
         }
     }
@@ -2330,7 +2397,7 @@ struct ContentView: View {
         .sheet(isPresented: $diagnosticsIntro.shouldShowIntro) {
             DiagnosticsIntroSheet()
         }
-        .onChange(of: scenePhase) { phase in
+        .onChangeAfterFirst(of: scenePhase) { phase in
             if phase == .active {
                 DispatchQueue.main.async {
                     NotificationCenter.default.post(name: playerSceneDidActivateNotification, object: nil)
@@ -2340,6 +2407,26 @@ struct ContentView: View {
         }
         .onAppear {
             diagnosticsIntro.checkAndShowIntro()
+        }
+    }
+}
+
+private extension View {
+    /// iOS 17 replaced the single-parameter `onChange`. The fallback keeps the same
+    /// "new value only, not the first appearance" behavior on iOS 16.
+    @ViewBuilder
+    func onChangeAfterFirst<Value: Equatable>(
+        of value: Value,
+        perform action: @escaping (Value) -> Void
+    ) -> some View {
+        if #available(iOS 17.0, *) {
+            self.onChange(of: value) { _, newValue in
+                action(newValue)
+            }
+        } else {
+            self.onChange(of: value) { newValue in
+                action(newValue)
+            }
         }
     }
 }

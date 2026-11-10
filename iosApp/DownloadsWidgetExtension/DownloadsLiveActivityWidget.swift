@@ -183,6 +183,7 @@ private struct DownloadActivityStandByView: View {
                 Image(systemName: "arrow.down.circle.fill")
                     .font(.system(size: 34, weight: .semibold))
                     .foregroundStyle(primary)
+                    .accessibilityLabel("Downloading")
                 VStack(alignment: .leading, spacing: 4) {
                     Text(context.attributes.title)
                         .font(.system(size: 30, weight: .bold))
@@ -238,6 +239,7 @@ private struct DownloadActivityLockScreenView: View {
                     .font(.system(size: 24, weight: .semibold))
                     .foregroundStyle(Color(red: 30.0 / 255.0, green: 136.0 / 255.0, blue: 229.0 / 255.0))
                     .frame(width: 28, height: 28)
+                    .accessibilityLabel("Downloading")
                 VStack(alignment: .leading, spacing: 2) {
                     Text(context.attributes.title)
                         .font(.headline.weight(.semibold))
@@ -460,6 +462,7 @@ private struct ActivityMinimalView: View {
             Image(systemName: "arrow.down")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(tint)
+                .accessibilityLabel("Downloading")
         }
     }
 }
