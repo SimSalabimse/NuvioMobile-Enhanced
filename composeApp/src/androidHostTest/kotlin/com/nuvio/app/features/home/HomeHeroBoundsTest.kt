@@ -70,9 +70,40 @@ class HomeHeroBoundsTest {
         val title = compose.onNodeWithTag(HOME_HERO_CONTENT_TAG).getBoundsInRoot()
         assertEquals(background.top, art.top)
         assertTrue(art.bottom - art.top > HOME_PRO_PORTRAIT_TOP_DP.dp)
+        assertTrue(art.bottom - art.top > 402.dp * 9f / 16f + 160.dp)
         assertTrue(title.top >= art.top + HOME_PRO_PORTRAIT_TOP_DP.dp)
         assertTrue(title.top >= art.top + HOME_SMALL_PORTRAIT_TOP_DP.dp)
-        assertTrue(title.top < art.top + (HOME_PRO_PORTRAIT_TOP_DP * 2).dp + (art.bottom - art.top))
+        assertTrue(title.bottom > art.top + 402.dp * 9f / 16f)
+        assertTrue(title.bottom <= art.bottom + 1.dp)
+    }
+
+    @Test
+    fun thePageDotsSitOnTheArtworkRatherThanUnderAHardEdge() {
+        val safeTop = HOME_PRO_PORTRAIT_TOP_DP.dp
+        compose.setContent {
+            NuvioTheme {
+                CompositionLocalProvider(LocalHomeContentTopInset provides safeTop) {
+                    Box(Modifier.fillMaxSize().testTag("home-background")) {
+                        HomeHeroSection(
+                            items = listOf(preview("one"), preview("two")),
+                            viewportHeight = 874.dp,
+                            trailerPlaybackEnabled = false,
+                        )
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        val art = compose.onNodeWithTag(HOME_HERO_ART_TAG).getBoundsInRoot()
+        val title = compose.onNodeWithTag(HOME_HERO_CONTENT_TAG).getBoundsInRoot()
+        val edge = compose.onNodeWithTag(HOME_HERO_TOP_EDGE_TAG).getBoundsInRoot()
+        assertEquals(0.dp, art.top)
+        assertEquals(art.top, edge.top)
+        assertTrue(art.bottom - art.top > 402.dp * 9f / 16f + 160.dp)
+        assertTrue(title.top > edge.bottom)
+        assertTrue(title.bottom > art.top + 402.dp * 9f / 16f)
+        assertTrue(title.bottom <= art.bottom + 1.dp)
+        assertTrue(title.right <= art.right + 1.dp)
     }
 
     @Test
@@ -205,20 +236,23 @@ class HomeHeroBoundsTest {
         val edge = compose.onNodeWithTag(HOME_HERO_TOP_EDGE_TAG).getBoundsInRoot()
         assertTrue(art.bottom - art.top >= 360.dp)
         assertTrue(title.top > edge.bottom)
-        assertTrue(title.top < art.bottom)
+        assertTrue(title.bottom <= art.bottom + 1.dp)
+        assertTrue(title.bottom > art.top + 402.dp * 9f / 16f)
     }
+
+    private fun preview(id: String) = MetaPreview(
+        id = id,
+        type = "movie",
+        name = "Northwind",
+        description = "Synthetic layout title.",
+        releaseInfo = "2024",
+    )
 
     @androidx.compose.runtime.Composable
     private fun hero(onItemClick: ((MetaPreview) -> Unit)? = null) {
         HomeHeroSection(
             items = listOf(
-                MetaPreview(
-                    id = "fixture-preview-1",
-                    type = "movie",
-                    name = "Northwind",
-                    description = "Synthetic layout title.",
-                    releaseInfo = "2024",
-                ),
+                preview("fixture-preview-1"),
             ),
             viewportHeight = 874.dp,
             trailerPlaybackEnabled = false,

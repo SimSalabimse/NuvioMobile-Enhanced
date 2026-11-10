@@ -55,6 +55,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -1220,7 +1221,27 @@ internal fun MovieSegmentStatusList(
     rows: List<MovieSegmentRow>,
     publicStatus: PublicMediaStatus,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    if (movieSegmentCatalogueIsEmpty(rows)) {
+        Text(
+            text = if (publicStatus == PublicMediaStatus.Unavailable) {
+                stringResource(Res.string.movie_segment_heading)
+            } else {
+                stringResource(Res.string.movie_segment_public_missing)
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(MOVIE_SEGMENT_STATUS_TAG),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(MOVIE_SEGMENT_STATUS_TAG),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
         Text(
             text = if (publicStatus == PublicMediaStatus.NoSubmissions) {
                 stringResource(Res.string.movie_segment_public_missing)
@@ -1256,7 +1277,7 @@ private fun MovieSegmentStatusLine(row: MovieSegmentRow) {
         else -> null
     }
     Row(
-        modifier = Modifier.heightIn(min = 44.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -1270,6 +1291,7 @@ private fun MovieSegmentStatusLine(row: MovieSegmentRow) {
         }
         Text(
             text = listOfNotNull(publicText, ownText).joinToString(" · "),
+            modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )

@@ -128,7 +128,7 @@ import com.nuvio.app.features.details.components.hasEpisodeRatingMap
 import com.nuvio.app.features.details.components.CinematicHeaderBackdrop
 import com.nuvio.app.features.details.components.DetailFloatingHeader
 import com.nuvio.app.features.details.components.DetailHero
-import com.nuvio.app.features.details.components.DetailMetaInfo
+import com.nuvio.app.features.details.components.DetailOverviewSection
 import com.nuvio.app.features.details.components.DetailPosterRailSection
 import com.nuvio.app.features.details.components.DetailProductionSection
 import com.nuvio.app.features.details.components.DetailSeriesContent
@@ -2634,14 +2634,14 @@ private fun DetailSectionContainer(
     contentMaxWidth: Dp,
     content: @Composable () -> Unit,
 ) {
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = horizontalPadding)
             .padding(bottom = 20.dp),
-        contentAlignment = Alignment.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(
@@ -2651,7 +2651,7 @@ private fun DetailSectionContainer(
                         Modifier.widthIn(max = contentMaxWidth)
                     },
                 ),
-            contentAlignment = Alignment.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             CompositionLocalProvider(LocalVerticalBarPadding provides PaddingValues(), content)
         }
@@ -2791,25 +2791,26 @@ private fun ConfiguredMetaSections(
                 )
             }
             MetaScreenSectionKey.OVERVIEW -> {
-                DetailMetaInfo(
+                DetailOverviewSection(
                     meta = meta,
                     showOverallRatings = settings.showOverallRatings,
                     isMdbListActive = isMdbListActive,
                     horizontalScrollPadding = horizontalScrollPadding,
-                )
-                if (com.nuvio.app.features.player.skip.movieSegmentStatusAttached(
-                        com.nuvio.app.features.player.skip.MovieSegmentSurface.Details,
-                        meta.type.equals("movie", ignoreCase = true),
-                    )
                 ) {
-                    val imdb = meta.imdbId?.takeIf { it.startsWith("tt", ignoreCase = true) }
-                        ?: meta.id.takeIf { it.startsWith("tt", ignoreCase = true) }
-                        ?: ""
-                    com.nuvio.app.features.player.skip.MovieSegmentStatusBlock(
-                        imdbId = imdb,
-                        contentKey = com.nuvio.app.features.player.skip.flagSubmitContentKey(imdb, 0, 0, isMovie = true),
-                        parentMetaId = meta.id,
-                    )
+                    if (com.nuvio.app.features.player.skip.movieSegmentStatusAttached(
+                            com.nuvio.app.features.player.skip.MovieSegmentSurface.Details,
+                            meta.type.equals("movie", ignoreCase = true),
+                        )
+                    ) {
+                        val imdb = meta.imdbId?.takeIf { it.startsWith("tt", ignoreCase = true) }
+                            ?: meta.id.takeIf { it.startsWith("tt", ignoreCase = true) }
+                            ?: ""
+                        com.nuvio.app.features.player.skip.MovieSegmentStatusBlock(
+                            imdbId = imdb,
+                            contentKey = com.nuvio.app.features.player.skip.flagSubmitContentKey(imdb, 0, 0, isMovie = true),
+                            parentMetaId = meta.id,
+                        )
+                    }
                 }
             }
             MetaScreenSectionKey.PRODUCTION -> {

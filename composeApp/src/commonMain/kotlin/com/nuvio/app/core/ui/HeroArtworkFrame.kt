@@ -69,6 +69,18 @@ internal const val PORTRAIT_POSTER_WIDTH_FRACTION = 0.62f
  * Tall art is a 2:3 column at [PORTRAIT_POSTER_WIDTH_FRACTION] of the frame.
  * The title sits under this height. Nothing is reserved below the picture.
  */
+/**
+ * Home on a phone in portrait. The backdrop fills the hero, including the area
+ * behind the logo, the overview and the page dots. A 16:9 band would stop on a
+ * hard edge and leave that text on the flat background.
+ */
+internal fun phonePortraitHeroArtwork(): HeroArtworkDecision = HeroArtworkDecision(
+    fit = HeroArtworkFit.CropLandscape,
+    extraScale = 1f,
+    scrollScaleEnabled = false,
+    horizontalFocus = true,
+)
+
 internal fun portraitArtworkSlotHeight(frameWidth: Dp, tallArt: Boolean): Dp {
     val width = frameWidth.value
     val height = if (tallArt) {

@@ -52,6 +52,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -60,6 +61,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
 import com.nuvio.app.core.ui.platformPhysicalTopInset
 import com.nuvio.app.core.ui.systemIncreaseContrastEnabled
@@ -110,6 +112,7 @@ import com.nuvio.app.core.ui.heroImageHeightFraction
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.details.accessibilityTextSize
 import com.nuvio.app.features.details.accessibleHeroTitleStyle
+import com.nuvio.app.core.ui.phonePortraitHeroArtwork
 import com.nuvio.app.core.ui.portraitHeroFrame
 import com.nuvio.app.core.ui.rememberHeroArtworkSize
 import com.nuvio.app.core.ui.rememberBackdropFocusState
@@ -512,8 +515,7 @@ internal fun HomeHeroSection(
             }
 
             val artworkSlotHeight = layout.heroHeight
-            Box(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.fillMaxWidth()) {
+            var heroCopyHeightPx by remember { mutableFloatStateOf(0f) }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -546,21 +548,29 @@ internal fun HomeHeroSection(
                             key(effectiveArtworkSource, item.type, item.id, artworkUrl) {
                                 val backdropFocus = rememberBackdropFocusState(artworkUrl)
                                 val artworkSize = rememberHeroArtworkSize(artworkUrl)
-                                val artwork = heroArtworkDecision(
-                                    imageWidth = artworkSize.width,
-                                    imageHeight = artworkSize.height,
-                                    frameWidth = heroFrameWidth.value,
-                                    frameHeight = artworkSlotHeight.value,
-                                    landscapeExtraScale = if (isCardStyle) 1f else HERO_BACKGROUND_SCALE,
-                                    portrait = portraitFrame && !phonePortrait,
-                                )
+                                val artwork = if (phonePortrait) {
+                                    phonePortraitHeroArtwork()
+                                } else {
+                                    heroArtworkDecision(
+                                        imageWidth = artworkSize.width,
+                                        imageHeight = artworkSize.height,
+                                        frameWidth = heroFrameWidth.value,
+                                        frameHeight = artworkSlotHeight.value,
+                                        landscapeExtraScale = if (isCardStyle) 1f else HERO_BACKGROUND_SCALE,
+                                        portrait = portraitFrame,
+                                    )
+                                }
                                 val portrait = artwork.fit != HeroArtworkFit.CropLandscape
-                                val imageFraction = heroImageHeightFraction(
-                                    artwork,
-                                    heroFrameWidth.value,
-                                    artworkSlotHeight.value,
-                                    portrait = portraitFrame && !phonePortrait,
-                                )
+                                val imageFraction = if (phonePortrait) {
+                                    1f
+                                } else {
+                                    heroImageHeightFraction(
+                                        artwork,
+                                        heroFrameWidth.value,
+                                        artworkSlotHeight.value,
+                                        portrait = portraitFrame,
+                                    )
+                                }
                                 val scrollScale = if (artwork.scrollScaleEnabled && !isCardStyle) {
                                     heroBackgroundScrollScale(scrollOffsetPx)
                                 } else {
@@ -640,7 +650,9 @@ internal fun HomeHeroSection(
                                     .align(Alignment.TopCenter)
                                     .fillMaxWidth()
                                     .fillMaxHeight(
-                                        if (portraitFrame) {
+                                        if (phonePortrait || !portraitFrame) {
+                                            1f
+                                        } else {
                                             heroImageHeightFraction(
                                                 heroArtworkDecision(
                                                     imageWidth = 16,
@@ -654,8 +666,6 @@ internal fun HomeHeroSection(
                                                 artworkSlotHeight.value,
                                                 portrait = true,
                                             )
-                                        } else {
-                                            1f
                                         },
                                     )
                                     .graphicsLayer {
@@ -699,32 +709,15 @@ internal fun HomeHeroSection(
                     if (!isCardStyle) {
                         val heroFadeColorState = LocalDynamicArtworkBackgroundColor.current
                         val themeBackground = MaterialTheme.colorScheme.background
+                        val copyHeight = with(LocalDensity.current) { heroCopyHeightPx.toDp() }
                         Box(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .drawBehind {
-                                    val fade = heroFadeColorState?.value ?: themeBackground
-                                    drawRect(
-                                        Brush.verticalGradient(
-                                            colors = listOf(
-                                                fade.copy(alpha = 0.02f),
-                                                fade.copy(alpha = 0.12f),
-                                                fade.copy(alpha = 0.34f),
-                                                fade.copy(alpha = 0.78f),
-                                            ),
-                                        ),
-                                    )
-                                },
-                        )
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(layout.bottomFadeHeight)
                                 .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .height((copyHeight + 88.dp).coerceAtLeast(layout.bottomFadeHeight))
                                 .drawBehind {
                                     val fade = heroFadeColorState?.value ?: themeBackground
-                                    drawRect(Brush.verticalGradient(colors = listOf(fade.copy(alpha = 0f), fade)))
+                                    drawRect(heroBottomScrim(fade))
                                 },
                         )
                     }
@@ -762,6 +755,7 @@ internal fun HomeHeroSection(
                                     onItemClick = onItemClick,
                                     modifier = Modifier
                                         .align(Alignment.BottomCenter)
+                                        .onSizeChanged { heroCopyHeightPx = it.height.toFloat() }
                                         .testTag(HOME_HERO_CONTENT_TAG),
                                 )
                             }
@@ -805,7 +799,6 @@ internal fun HomeHeroSection(
                         }
                     }
                 }
-            }
             HomeTopEdge(
                 safeTop = contentTopInset,
                 artworkBottom = artworkSlotHeight,
@@ -813,7 +806,6 @@ internal fun HomeHeroSection(
                 modifier = Modifier.align(Alignment.TopCenter),
             )
             }
-        }
 
         if (isCardStyle && items.size > 1) {
             Spacer(modifier = Modifier.height(12.dp))
@@ -825,6 +817,16 @@ internal fun HomeHeroSection(
         }
     }
 }
+
+/** Soft fade under the logo and the page dots. The artwork above this stays clear. */
+private fun heroBottomScrim(color: Color): Brush = Brush.verticalGradient(
+    colorStops = arrayOf(
+        0f to color.copy(alpha = 0f),
+        0.18f to color.copy(alpha = 0.34f),
+        0.55f to color.copy(alpha = 0.78f),
+        1f to color,
+    ),
+)
 
 /**
  * Soft scrim over the status area. The artwork stays visible under it. It is not a bar:
