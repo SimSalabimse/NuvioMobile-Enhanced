@@ -48,6 +48,18 @@ internal data class MovieSegmentRow(
 
 internal val MOVIE_SEGMENT_TYPES: List<String> = listOf("intro", "recap", "outro", "preview")
 
+/** The catalogue block on a detail page. It is in the column, not drawn over the metadata. */
+internal const val MOVIE_SEGMENT_STATUS_TAG = "movie-segment-status"
+
+/** True when no type has a public range, a count, or anything from this account or this device. */
+internal fun movieSegmentCatalogueIsEmpty(rows: List<MovieSegmentRow>): Boolean = rows.all { row ->
+    !row.publicAvailable &&
+        row.publicCount == null &&
+        !row.ownConfirmed &&
+        !row.ownPending &&
+        !row.detected
+}
+
 internal fun movieSegmentRows(
     media: TheIntroDbMediaResponse?,
     publicStatus: PublicMediaStatus,

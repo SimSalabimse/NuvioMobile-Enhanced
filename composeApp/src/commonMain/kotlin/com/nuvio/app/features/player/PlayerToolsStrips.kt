@@ -256,6 +256,9 @@ internal fun SegmentMarkingLayer(
     labels: SubmitBarLabels? = null,
     clocksTouched: Boolean = true,
     modifier: Modifier = Modifier,
+    movieImdbId: String = "",
+    movieContentKey: String = "",
+    movieParentId: String = "",
 ) {
   CompositionLocalProvider(LocalSubmitBarLabels provides labels) {
     val range = markRangeStatus(segmentType, startSec, endSec, durationSec.takeIf { it > 0.0 })
@@ -299,6 +302,26 @@ internal fun SegmentMarkingLayer(
                 bottom = with(density) { window.getBottom(this).toDp().value },
             ),
         )
+        if (com.nuvio.app.features.player.skip.movieSegmentStatusAttached(
+                com.nuvio.app.features.player.skip.MovieSegmentSurface.PlayerSubmit,
+                isMovie,
+            )
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = topInset.dp, start = 16.dp, end = 16.dp)
+                    .testTag(com.nuvio.app.features.player.skip.movieSegmentTapPath(
+                        com.nuvio.app.features.player.skip.MovieSegmentSurface.PlayerSubmit,
+                    )),
+            ) {
+                com.nuvio.app.features.player.skip.MovieSegmentStatusBlock(
+                    imdbId = movieImdbId,
+                    contentKey = movieContentKey,
+                    parentMetaId = movieParentId,
+                )
+            }
+        }
         val showPopover = activePopover != null
         val popoverTop = (bounds.top - PopoverGapDp - PopoverHeightDp).coerceAtLeast(topInset)
         val chromeTop = if (showPopover) popoverTop else bounds.top

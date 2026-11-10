@@ -1,5 +1,7 @@
 package com.nuvio.app.core.uifixture
 
+import com.nuvio.app.core.automation.AUTOMATION_CLIP_BYTES
+import com.nuvio.app.core.automation.writeAutomationBytes
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.features.catalog.CatalogTarget
 import com.nuvio.app.features.details.MetaDetails
@@ -11,6 +13,7 @@ import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.analysis.SkipSourceLedger
 import com.nuvio.app.features.downloads.SmartDownloadSettings
 import com.nuvio.app.features.downloads.SmartDownloads
+import com.nuvio.app.features.player.skip.OwnAccountMarks
 import com.nuvio.app.features.player.skip.OwnTheIntroDbLedger
 import com.nuvio.app.features.player.skip.SkipInterval
 import com.nuvio.app.features.player.skip.TheIntroDb
@@ -34,6 +37,12 @@ internal object UiFixtureCatalog {
     const val SEASON_OVERVIEW_IMDB = "tt0000101"
     const val SEASON_OVERVIEW_LONG_EPISODE_COUNT = 25
     const val DOWNLOADS_SEASON_SHOW_ID = "fixture-series-railway"
+    const val DOWNLOADS_SEASON_IMDB = "tt9000001"
+    const val HOME_PLAY_VIDEO_ID = "fixture-cw-harbor"
+    const val LAYOUT_CLIP_FILE = "nuvio-layout-clip.mp4"
+    /** Synthetic show id for the details season sheet. Not a public catalogue id. */
+    const val DETAILS_SHOW_IMDB = "tt9000003"
+    const val MOVIE_FIXTURE_IMDB = "tt9000002"
     const val LONG_TITLE =
         "The Extraordinary and Completely Unabridged Account of a Very Long Evening on the Northern Coastal Railway"
 
@@ -78,19 +87,42 @@ internal object UiFixtureCatalog {
         } else {
             emptyList()
         }
-        WatchProgressRepository.installFixtureEntries(continueWatching(now, longTitles) + watchedForOverview)
+        val watching = continueWatching(now, longTitles) + watchedForOverview
+        WatchProgressRepository.installFixtureEntries(
+            if (fixture == UiFixture.HomePlay) watching.map { it.forHomeClip() } else {
+                watching
+            },
+        )
         DownloadsRepository.installFixtureItems(
             when (fixture) {
                 UiFixture.HomeOffline -> offlineCoverDownloads(now)
+                UiFixture.HomePlay -> listOf(playableHomeDownload(layoutClipFileUrl()))
                 UiFixture.Downloads -> downloadsList(now)
+                UiFixture.DownloadsPlay -> downloadsSeason(now).map { item ->
+                    if (item.episodeNumber == 1 && item.status == DownloadStatus.Completed) {
+                        item.withLayoutClip(
+                            videoId = "$DOWNLOADS_SEASON_IMDB:1:1",
+                            fileUrl = layoutClipFileUrl(),
+                        )
+                    } else {
+                        item
+                    }
+                }
                 UiFixture.DownloadsSeason -> downloadsSeason(now)
                 else -> emptyList()
             },
         )
         when (fixture) {
-            UiFixture.DetailsOnline,
             UiFixture.DetailsOffline,
             -> MetaDetailsRepository.installFixture(series(seasonPosters = true))
+            UiFixture.DetailsOnline -> {
+                MetaDetailsRepository.installFixture(detailsOnlineShow())
+                val marks = detailsShowLedgerMarks()
+                OwnTheIntroDbLedger.saveFixture(
+                    confirmed = marks.confirmed,
+                    pending = marks.pending,
+                )
+            }
             UiFixture.DetailsTall -> MetaDetailsRepository.installFixture(
                 series(seasonPosters = true, tallHero = true),
             )
@@ -117,7 +149,22 @@ internal object UiFixtureCatalog {
                 )
                 SmartDownloads.installFixtureGoalStatus(SERIES_ID, "Keeping 2 ready")
             }
-            UiFixture.DetailsMovieOffline -> MetaDetailsRepository.installFixture(movie())
+            UiFixture.DetailsMovieOffline -> {
+                MetaDetailsRepository.installFixture(movie().copy(imdbId = MOVIE_FIXTURE_IMDB))
+                val marks = movieFixtureMarks()
+                OwnTheIntroDbLedger.saveFixture(
+                    confirmed = marks.confirmed,
+                    pending = marks.pending,
+                )
+            }
+            UiFixture.DownloadsSeason, UiFixture.DownloadsPlay -> {
+                MetaDetailsRepository.installFixture(downloadsSeasonShow())
+                val marks = downloadsSeasonLedgerMarks()
+                OwnTheIntroDbLedger.saveFixture(
+                    confirmed = marks.confirmed,
+                    pending = marks.pending,
+                )
+            }
             else -> Unit
         }
         UiFixtureSession.pendingRoute = fixture.launchRoute()
@@ -272,6 +319,94 @@ internal object UiFixtureCatalog {
             total = 1_200_000_000L,
             slot = 61,
         ),
+    )
+
+    internal fun downloadsSeasonShow(): MetaDetails {
+        val videos = (1..3).map { episode ->
+            MetaVideo(
+                id = "$DOWNLOADS_SEASON_IMDB:1:$episode",
+                title = "Episode $episode",
+                season = 1,
+                episode = episode,
+                available = true,
+                imdbId = DOWNLOADS_SEASON_IMDB,
+            )
+        }
+        return MetaDetails(
+            id = DOWNLOADS_SEASON_SHOW_ID,
+            type = SERIES_TYPE,
+            name = LONG_TITLE,
+            imdbId = DOWNLOADS_SEASON_IMDB,
+            videos = videos,
+        )
+    }
+
+    /** Episode 9 is ledger-only. It is not one of the downloaded files. */
+    internal fun downloadsSeasonLedgerMarks(): OwnAccountMarks = OwnAccountMarks(
+        confirmed = mapOf("$DOWNLOADS_SEASON_IMDB:1:1" to setOf("intro")),
+        pending = mapOf("$DOWNLOADS_SEASON_IMDB:1:9" to setOf("recap")),
+    )
+
+    internal fun downloadsSeasonHasFile(episode: Int): Boolean =
+        downloadsSeason(0L).any { it.episodeNumber == episode }
+
+    /** Writes the bundled 8-second clip once and returns its file URL. */
+    internal fun layoutClipFileUrl(): String = writeAutomationBytes(LAYOUT_CLIP_FILE, AUTOMATION_CLIP_BYTES)
+
+    /**
+     * Episode 1 of the downloads show, with the clip as its local file.
+     * The video id matches the season-sheet row, so Watch privately finds this item.
+     */
+    internal fun playableDownloadsEpisode(fileUrl: String): DownloadItem =
+        downloadsSeason(0L).first { it.episodeNumber == 1 && it.status == DownloadStatus.Completed }
+            .withLayoutClip(videoId = "$DOWNLOADS_SEASON_IMDB:1:1", fileUrl = fileUrl)
+
+    /** The Home continue-watching episode, with the same clip. */
+    internal fun playableHomeDownload(fileUrl: String): DownloadItem = download(
+        now = 0L,
+        id = "fixture-dl-harbor",
+        title = SERIES_TITLE,
+        type = SERIES_TYPE,
+        parentId = SERIES_ID,
+        season = 1,
+        episode = 3,
+        episodeTitle = "The Night Ferry",
+        status = DownloadStatus.Completed,
+        downloaded = AUTOMATION_CLIP_BYTES.size.toLong(),
+        total = AUTOMATION_CLIP_BYTES.size.toLong(),
+        slot = 30,
+    ).withLayoutClip(videoId = HOME_PLAY_VIDEO_ID, fileUrl = fileUrl)
+
+    /** One second into the 8-second clip, so the player can still advance. */
+    internal fun WatchProgressEntry.forHomeClip(): WatchProgressEntry =
+        if (videoId == HOME_PLAY_VIDEO_ID) {
+            copy(lastPositionMs = 1_000L, durationMs = 8_000L, progressPercent = 12.5f)
+        } else {
+            this
+        }
+
+    private fun DownloadItem.withLayoutClip(videoId: String, fileUrl: String): DownloadItem = copy(
+        videoId = videoId,
+        localFileUri = fileUrl,
+        fileName = LAYOUT_CLIP_FILE,
+        sourceUrl = fileUrl,
+        downloadedBytes = AUTOMATION_CLIP_BYTES.size.toLong(),
+        totalBytes = AUTOMATION_CLIP_BYTES.size.toLong(),
+        status = DownloadStatus.Completed,
+    )
+
+    /** Harbor Lane with a synthetic imdb so a ledger key can name an episode. */
+    internal fun detailsOnlineShow(): MetaDetails =
+        series(seasonPosters = true).copy(imdbId = DETAILS_SHOW_IMDB)
+
+    /** Episode 9 is pending on this account. Episodes 1–3 have no own mark. */
+    internal fun detailsShowLedgerMarks(): OwnAccountMarks = OwnAccountMarks(
+        pending = mapOf("$DETAILS_SHOW_IMDB:1:9" to setOf("recap")),
+    )
+
+    internal fun movieFixtureMarks(): OwnAccountMarks = OwnAccountMarks(
+        confirmed = mapOf("$MOVIE_FIXTURE_IMDB:movie" to setOf("intro")),
+        pending = mapOf("$MOVIE_FIXTURE_IMDB:movie" to setOf("recap")),
     )
 
     private fun downloadsSeason(now: Long): List<DownloadItem> = listOf(

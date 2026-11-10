@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.Flag
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.DownloadDone
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadStatus
@@ -51,6 +52,7 @@ import nuvio.composeapp.generated.resources.cw_action_remove
 import nuvio.composeapp.generated.resources.cw_action_start_from_beginning
 import nuvio.composeapp.generated.resources.hero_mark_watched
 import nuvio.composeapp.generated.resources.play_manually
+import nuvio.composeapp.generated.resources.watch_privately
 import com.nuvio.app.features.player.ShowPlaybackMemory
 import org.jetbrains.compose.resources.stringResource
 
@@ -70,6 +72,7 @@ fun NuvioContinueWatchingActionSheet(
     onOpenDetails: () -> Unit,
     onStartFromBeginning: (() -> Unit)? = null,
     onPlayManually: (() -> Unit)? = null,
+    onWatchPrivately: (() -> Unit)? = null,
     onMarkWatched: (() -> Unit)? = null,
     onRemove: () -> Unit,
     downloadState: ContinueWatchingDownloadState = ContinueWatchingDownloadState.Unavailable,
@@ -123,6 +126,13 @@ fun NuvioContinueWatchingActionSheet(
                         stringResource(Res.string.hero_mark_watched)
                     },
                     onClick = { dismissAfter(onToggleWatched) },
+                )
+            }
+            if (onWatchPrivately != null) {
+                NuvioBottomSheetActionRow(
+                    icon = Icons.Rounded.Lock,
+                    title = stringResource(Res.string.watch_privately),
+                    onClick = { dismissAfter(onWatchPrivately) },
                 )
             }
             if (showManualPlayOption && onPlayManually != null) {

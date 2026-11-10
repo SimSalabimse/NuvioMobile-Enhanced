@@ -179,6 +179,26 @@ internal class PlayerScreenRuntime(
     var playbackSnapshotKey by mutableStateOf<PlaybackKey?>(null)
     var playerController by mutableStateOf<PlayerEngineController?>(null)
     var playerControllerSourceUrl by mutableStateOf<String?>(null)
+    val subtitleDrift: SubtitleDriftCorrection = SubtitleDriftCorrection(
+        transport = object : SubtitleSyncTransport {
+            override val supportsSubtitleRate: Boolean
+                get() = playerController?.supportsSubtitleRate() ?: true
+
+            override fun applyFit(speed: Double, fitDelayMs: Long) {
+                playerController?.applyFittedSubtitleSync(speed, fitDelayMs)
+            }
+
+            override fun applyUserDelay(delayMs: Long) {
+                playerController?.setSubtitleDelayMs(
+                    delayMs.toInt().coerceIn(SUBTITLE_DELAY_MIN_MS, SUBTITLE_DELAY_MAX_MS),
+                )
+            }
+
+            override fun resetFit() {
+                playerController?.applyFittedSubtitleSync(1.0, 0L)
+            }
+        },
+    )
     var errorMessage by mutableStateOf<String?>(null)
     var isScrubbingTimeline by mutableStateOf(false)
     var isTouchingTimeline by mutableStateOf(false)

@@ -3,6 +3,7 @@ package com.nuvio.app.features.player
 import com.nuvio.app.core.i18n.localizedNoSubtitleLinesFound
 import com.nuvio.app.core.i18n.localizedSubtitleLinesLoadError
 import com.nuvio.app.features.addons.httpGetTextWithHeaders
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import com.nuvio.app.features.autosync.AutoSyncPlayerController
 import com.nuvio.app.features.streams.StreamLinkCacheRepository
@@ -66,7 +67,7 @@ internal fun PlayerScreenRuntime.setSubtitleDelay(delayMs: Int) {
     val clamped = delayMs.coerceIn(SUBTITLE_DELAY_MIN_MS, SUBTITLE_DELAY_MAX_MS)
     subtitleDelayMs = clamped
     PlayerTrackPreferenceStorage.saveSubtitleDelayMs(playbackSession.videoId, clamped)
-    playerController?.setSubtitleDelayMs(clamped)
+    subtitleDrift.noteManualDelay(clamped.toLong())
 }
 
 internal fun PlayerScreenRuntime.loadSubtitleAutoSyncCues(force: Boolean = false, preserveLoadingState: Boolean = false) {
@@ -137,6 +138,7 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
         loadSubtitleAutoSyncCues(force = true, preserveLoadingState = true)
     }
     
+    val ticket = subtitleDrift.begin()
     scope.launch {
         try {
             // Wait for cues to load if needed
@@ -230,9 +232,15 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
             
             when (result) {
                 is SubtitleAutoSyncResult.Success -> {
-                    if (result.movesSubtitleDelay()) {
-                        setSubtitleDelay(result.offsetMs)
-                    }
+                    applyCapturedSync(
+                        correction = subtitleDrift,
+                        result = result,
+                        videoMs = startPositionMs,
+                        ticket = ticket,
+                        provider = subtitle.addonName,
+                        release = subtitle.label,
+                        automatic = true,
+                    )
                     subtitleAutoSyncState = subtitleAutoSyncState.copy(
                         errorMessage = autoSyncSuccessMessage(
                             offsetMs = result.offsetMs,
@@ -244,6 +252,15 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
                     )
                 }
                 is SubtitleAutoSyncResult.LowConfidence -> {
+                    applyCapturedSync(
+                        correction = subtitleDrift,
+                        result = result,
+                        videoMs = startPositionMs,
+                        ticket = ticket,
+                        provider = subtitle.addonName,
+                        release = subtitle.label,
+                        automatic = true,
+                    )
                     subtitleAutoSyncState = subtitleAutoSyncState.copy(
                         errorMessage = "${autoSyncLowConfidenceMessage(
                             offsetMs = result.offsetMs,
@@ -265,6 +282,8 @@ internal fun PlayerScreenRuntime.performAutomaticSubtitleSync() {
                     )
                 }
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             subtitleAutoSyncState = subtitleAutoSyncState.copy(
                 isLoading = false,

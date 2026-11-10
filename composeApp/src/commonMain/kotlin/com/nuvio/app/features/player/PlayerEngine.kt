@@ -58,6 +58,13 @@ interface PlayerEngineController {
      */
     fun setKeyboardShortcutHandler(handler: ((PlayerKeyboardShortcut) -> Unit)?) {}
     fun setSubtitleDelayMs(delayMs: Int) {}
+    /**
+     * Fitted subtitle speed and delay, kept apart from the user's delay.
+     * iOS mpv sets `sub-speed` and adds the user delay once. Android mpv does the same.
+     */
+    fun applyFittedSubtitleSync(speed: Double, fitDelayMs: Long) {}
+    /** ExoPlayer can apply a constant delay only. mpv can also change the subtitle rate. */
+    fun supportsSubtitleRate(): Boolean = true
     /** Whether [setAudioDelayMs] has an effect; the player hides the audio delay control otherwise. */
     val supportsAudioDelay: Boolean get() = false
     /** Plays the audio [delayMs] later than the video; negative values play it earlier. */

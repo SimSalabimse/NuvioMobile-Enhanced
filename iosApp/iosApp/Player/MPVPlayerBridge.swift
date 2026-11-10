@@ -214,6 +214,9 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
     func clearExternalSubtitle() { playerVC?.removeExternalSubtitles() }
     func clearExternalSubtitleAndSelect(trackId: Int32) { playerVC?.removeExternalSubtitlesAndSelect(Int(trackId)) }
     func setSubtitleDelayMs(delayMs: Int32) { playerVC?.setSubtitleDelayMs(Int(delayMs)) }
+    func setFittedSubtitleSync(speed: Double, delayMs: Int64) {
+        playerVC?.setFittedSubtitleSync(speed: speed, delayMs: delayMs)
+    }
     func setAudioDelayMs(delayMs: Int32) { playerVC?.setAudioDelayMs(Int(delayMs)) }
     func setAudioAmplificationDb(db: Int32) { playerVC?.setAudioAmplificationDb(Int(db)) }
     func setStereoDownmix(enabled: Bool) { playerVC?.setStereoDownmix(enabled) }
@@ -490,7 +493,7 @@ final class MPVPlayerViewController: UIViewController {
     private var nightModeFilter: (filter: String, label: String)?
     private var lastResizeMode: Int?
     private var lastVideoZoom: Double?
-    private var lastSubtitleDelayMs: Int?
+    private let subtitleTiming = SubtitleTimingGate()
     private var lastVolume: Float?
     private var lastMuted: Bool?
     private var lastSelectedAudioTrackId: Int?
@@ -1538,7 +1541,7 @@ final class MPVPlayerViewController: UIViewController {
         if let audioOutput = lastAudioOutput { setStringProperty("ao", audioOutput) }
         if let mode = lastResizeMode { setResize(mode) }
         if let zoom = lastVideoZoom { setVideoZoom(zoom) }
-        if let delay = lastSubtitleDelayMs { setSubtitleDelayMs(delay) }
+        if subtitleTiming.hasUserDelay { setSubtitleDelayMs(subtitleTiming.rememberedUserDelay) }
         if let style = lastSubtitleStyle {
             applySubtitleStyle(
                 textColor: style.textColor,
@@ -1763,11 +1766,17 @@ final class MPVPlayerViewController: UIViewController {
 
     func selectSubtitle(_ trackId: Int) {
         lastSelectedSubtitleTrackId = trackId
-        guard mpv != nil else { return }
-        if trackId < 0 {
-            setStringProperty("sid", "no")
-        } else {
-            setIntProperty("sid", Int64(trackId))
+        onMpvQueue { [weak self] in
+            guard let self else { return }
+            self.subtitleTiming.beginTrack()
+            let generation = self.subtitleTiming.captureGeneration()
+            guard self.mpv != nil else { return }
+            if trackId < 0 {
+                self.setStringProperty("sid", "no")
+            } else {
+                self.setIntProperty("sid", Int64(trackId))
+            }
+            self.writeSubtitleTiming(generation)
         }
     }
 
@@ -1785,12 +1794,21 @@ final class MPVPlayerViewController: UIViewController {
         // punctuation shows at the start of the sentence. Fix the file off the main
         // thread before handing it to mpv; fall back to the original URL otherwise.
         MPVSubtitleRtlFix.prepare(url: url, headers: headers) { [weak self] localPath, title in
-            guard let self, self.mpvGeneration == coreGeneration else { return }
-            if let localPath {
-                InAppLogBridge.shared.info(tag: "MPV/SubRtl", message: "using RTL-fixed subtitle copy")
-                self.command("sub-add", args: [localPath, "select", title])
-            } else {
-                self.command("sub-add", args: [url, "select"])
+            guard let self else { return }
+            let path = localPath
+            let remote = url
+            let addedTitle = title
+            self.onMpvQueue { [weak self] in
+                guard let self, self.mpvGeneration == coreGeneration, self.mpv != nil else { return }
+                self.subtitleTiming.beginTrack()
+                let generation = self.subtitleTiming.captureGeneration()
+                if let path {
+                    InAppLogBridge.shared.info(tag: "MPV/SubRtl", message: "using RTL-fixed subtitle copy")
+                    self.command("sub-add", args: [path, "select", addedTitle])
+                } else {
+                    self.command("sub-add", args: [remote, "select"])
+                }
+                self.writeSubtitleTiming(generation)
             }
         }
     }
@@ -1827,8 +1845,11 @@ final class MPVPlayerViewController: UIViewController {
         let coreGeneration = mpvGeneration
         onMpvQueue { [weak self] in
             guard let self, self.mpvGeneration == coreGeneration, self.mpv != nil else { return }
+            self.subtitleTiming.beginTrack()
+            let generation = self.subtitleTiming.captureGeneration()
             self.removeExternalSubtitleTracksOnMpvQueue()
             self.setStringProperty("sid", "no")
+            self.writeSubtitleTiming(generation)
         }
     }
 
@@ -1842,7 +1863,10 @@ final class MPVPlayerViewController: UIViewController {
             if trackId >= 0 {
                 self.selectSubtitle(trackId)
             } else {
+                self.subtitleTiming.beginTrack()
+                let generation = self.subtitleTiming.captureGeneration()
                 self.setStringProperty("sid", "no")
+                self.writeSubtitleTiming(generation)
             }
         }
     }
@@ -1864,9 +1888,33 @@ final class MPVPlayerViewController: UIViewController {
     }
 
     func setSubtitleDelayMs(_ delayMs: Int) {
-        lastSubtitleDelayMs = delayMs
-        guard mpv != nil else { return }
-        setDoubleProperty("sub-delay", Double(max(-60_000, min(60_000, delayMs))) / 1000.0)
+        let generation = subtitleTiming.captureGeneration()
+        onMpvQueue { [weak self] in
+            guard let self else { return }
+            guard self.subtitleTiming.setUserDelay(delayMs, capturedGeneration: generation) else { return }
+            self.writeSubtitleTiming(generation)
+        }
+    }
+
+    /// Fitted speed and delay stay separate from the user's delay. A track change clears the fit.
+    /// The generation is captured before the queue hop, so a fit for the previous track is dropped.
+    func setFittedSubtitleSync(speed: Double, delayMs: Int64) {
+        let generation = subtitleTiming.captureGeneration()
+        onMpvQueue { [weak self] in
+            guard let self else { return }
+            guard self.subtitleTiming.setFit(speed: speed, delayMs: delayMs, capturedGeneration: generation) else { return }
+            self.writeSubtitleTiming(generation)
+        }
+    }
+
+    private func writeSubtitleTiming(_ generation: UInt64) {
+        guard mpv != nil, let values = subtitleTiming.propertyValues(capturedGeneration: generation) else { return }
+        if let speed = values["sub-speed"] {
+            setDoubleProperty("sub-speed", speed)
+        }
+        if let delay = values["sub-delay"] {
+            setDoubleProperty("sub-delay", delay)
+        }
     }
 
     func setAudioDelayMs(_ delayMs: Int) {

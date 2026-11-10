@@ -477,12 +477,18 @@ private final class ClipFingerprintRun {
         self.url = url
         self.headers = headers
         self.startMs = startMs
-        self.endMs = min(endMs, startMs + MediaAnalysisRun.headMs)
+        self.endMs = endMs
         self.abort = abort
     }
 
     func run() -> String? {
-        guard endMs > startMs, let allocated = avformat_alloc_context() else { return nil }
+        guard endMs > startMs else { return nil }
+        if endMs - startMs > 50_000 {
+            // A longer known segment is not the first 50 seconds of that segment.
+            return json(["windowComplete": false, "decodedFrames": 0, "decodedSamples": 0])
+        }
+        if abort.isSet { return nil }
+        guard let allocated = avformat_alloc_context() else { return nil }
         allocated.pointee.interrupt_callback.callback = { opaque in
             guard let opaque else { return 0 }
             return Unmanaged<MediaAnalyzerAbortFlag>.fromOpaque(opaque).takeUnretainedValue().isSet ? 1 : 0
@@ -501,12 +507,16 @@ private final class ClipFingerprintRun {
         }
         if !headerLines.isEmpty { _ = av_dict_set(&options, "headers", headerLines, 0) }
         var contextPointer: UnsafeMutablePointer<AVFormatContext>? = allocated
-        guard avformat_open_input(&contextPointer, url, nil, &options) >= 0, let context = contextPointer else {
+        // Open, find-stream, seek, and read all share this context's interrupt callback.
+        // There is no whole-episode timeout. Cancellation and rw_timeout stop those calls.
+        guard !abort.isSet, avformat_open_input(&contextPointer, url, nil, &options) >= 0, let context = contextPointer else {
             log("clip open failed")
             return nil
         }
         defer { avformat_close_input(&contextPointer) }
+        if abort.isSet { return nil }
         _ = avformat_find_stream_info(context, nil)
+        if abort.isSet { return nil }
 
         let audioIndex = av_find_best_stream(context, AVMEDIA_TYPE_AUDIO, -1, -1, nil, 0)
         guard audioIndex >= 0, let stream = context.pointee.streams[Int(audioIndex)],
@@ -523,7 +533,7 @@ private final class ClipFingerprintRun {
 
         var seekTarget = startMs * 1000
         if context.pointee.start_time != Self.noPtsValue { seekTarget += context.pointee.start_time }
-        guard av_seek_frame(context, -1, seekTarget, AVSEEK_FLAG_BACKWARD) >= 0 else {
+        guard !abort.isSet, av_seek_frame(context, -1, seekTarget, AVSEEK_FLAG_BACKWARD) >= 0 else {
             log("clip seek failed")
             return nil
         }
@@ -534,6 +544,15 @@ private final class ClipFingerprintRun {
         var accumulator: MediaAnalyzerSampleLoop?
         var originMs: Int64 = -1
         var reachedEnd = false
+        var decodedFrames = 0
+        var decodedSamples = 0
+        var missingTimestamps = 0
+        var stuckTimestamps = 0
+        var lastTimestamp: Int64 = Self.noPtsValue
+        var stopReason = "truncated"
+        let windowMs = max(Int64(1), endMs - startMs)
+        let maxFrames = Int(windowMs / 10) + 200
+        let maxSamples = maxFrames * 4_000
         guard let packet = av_packet_alloc(), let frame = av_frame_alloc() else { return nil }
         var packetPointer: UnsafeMutablePointer<AVPacket>? = packet
         var framePointer: UnsafeMutablePointer<AVFrame>? = frame
@@ -545,14 +564,51 @@ private final class ClipFingerprintRun {
             if packet.pointee.stream_index == audioIndex, avcodec_send_packet(codecContext, packet) >= 0 {
                 while avcodec_receive_frame(codecContext, frame) >= 0 {
                     defer { av_frame_unref(frame) }
+                    decodedFrames += 1
+                    decodedSamples += Int(frame.pointee.nb_samples)
+                    if decodedFrames > maxFrames || decodedSamples > maxSamples {
+                        stopReason = decodedSamples > maxSamples ? "sample-budget" : "frame-budget"
+                        reachedEnd = true
+                        break
+                    }
                     let pts = frame.pointee.best_effort_timestamp
                     let frameMs = pts == Self.noPtsValue ? nil : av_rescale_q(pts - streamStart, timeBase, AVRational(num: 1, den: 1000))
-                    if let frameMs, frameMs > endMs { reachedEnd = true; break }
-                    if originMs < 0 {
-                        // Audio before the window (the seek lands on an earlier keyframe) is skipped.
-                        guard let frameMs, frameMs >= startMs else { continue }
-                        originMs = frameMs
+                    guard let frameMs else {
+                        missingTimestamps += 1
+                        if missingTimestamps > 60 {
+                            stopReason = "missing-timestamp"
+                            reachedEnd = true
+                            break
+                        }
+                        continue
                     }
+                    if frameMs < startMs {
+                        // A seek more than one reference window early is a different region.
+                        // A nearby keyframe is skipped. The frame budget still caps the prefix.
+                        if startMs - frameMs > 50_000 {
+                            stopReason = "preroll-budget"
+                            reachedEnd = true
+                            break
+                        }
+                        continue
+                    }
+                    if lastTimestamp != Self.noPtsValue && frameMs <= lastTimestamp {
+                        stuckTimestamps += 1
+                        if stuckTimestamps > 60 {
+                            stopReason = "timestamp-stuck"
+                            reachedEnd = true
+                            break
+                        }
+                    } else {
+                        stuckTimestamps = 0
+                    }
+                    lastTimestamp = frameMs
+                    if frameMs > endMs {
+                        stopReason = "window-end"
+                        reachedEnd = true
+                        break
+                    }
+                    if originMs < 0 { originMs = frameMs }
                     let rate = Int(frame.pointee.sample_rate)
                     let channels = Int(frame.pointee.ch_layout.nb_channels)
                     guard rate > 0, channels > 0 else { continue }
@@ -564,9 +620,18 @@ private final class ClipFingerprintRun {
             }
             av_packet_unref(packet)
         }
+        if abort.isSet { stopReason = "abort" }
         guard !abort.isSet, let acc = accumulator,
               let print = Fingerprinter.fingerprint(samples: acc.headSamples, rate: acc.fingerprintRate) else { return nil }
-        let output: [String: Any] = ["startMs": originMs, "stepMs": MediaAnalysisRun.stepMs, "fingerprint": print]
+        let output: [String: Any] = [
+            "startMs": originMs,
+            "stepMs": MediaAnalysisRun.stepMs,
+            "fingerprint": print,
+            "decodedFrames": decodedFrames,
+            "decodedSamples": decodedSamples,
+            "stopReason": stopReason,
+            "windowComplete": stopReason == "window-end",
+        ]
         guard let data = try? JSONSerialization.data(withJSONObject: output) else { return nil }
         log("clip done startMs=\(originMs) decodedMs=\(acc.decodedMs)")
         return String(data: data, encoding: .utf8)
@@ -574,6 +639,11 @@ private final class ClipFingerprintRun {
 
     private func log(_ message: String) {
         InAppLogBridge.shared.info(tag: "Analysis/iOS", message: message)
+    }
+
+    private func json(_ output: [String: Any]) -> String? {
+        guard let data = try? JSONSerialization.data(withJSONObject: output) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 }
 

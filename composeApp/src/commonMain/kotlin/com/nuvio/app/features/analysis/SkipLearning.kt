@@ -102,6 +102,43 @@ internal object SkipLearning {
     }
 
     /**
+     * Stores the user's "none of this segment" answer.
+     * It is not a skip range and it does not teach the season.
+     */
+    fun recordAbsent(
+        parentMetaId: String,
+        season: Int?,
+        episode: Int?,
+        type: String,
+        durationMs: Long,
+        imported: Boolean = false,
+    ): Boolean {
+        val category = canonicalType(type) ?: return false
+        if (parentMetaId.isBlank()) return false
+        val key = MediaAnalysisStore.keyFor(parentMetaId, season, episode)
+        val existing = MediaAnalysisStore.load(key)
+            ?: MediaAnalysisResult(key = key, analyzedAtMs = 0L, durationMs = durationMs)
+        val mark = UserSegment(
+            startMs = 0L,
+            endMs = 0L,
+            markedAtMs = com.nuvio.app.features.streams.epochMs(),
+            durationMs = durationMs,
+            absent = true,
+            imported = imported,
+        )
+        MediaAnalysisStore.save(
+            existing.copy(
+                userSegments = existing.userSegments + (category to mark),
+                learnedTypes = existing.learnedTypes - category,
+                chapterTypes = existing.chapterTypes - category,
+                durationMs = existing.durationMs.takeIf { it > 0L } ?: durationMs,
+            ).withUserSegmentsApplied(),
+        )
+        MediaAnalysisStatus.resultsChanged()
+        return true
+    }
+
+    /**
      * Stores an earlier mark (for example one of the user's TheIntroDB submissions) unless the
      * episode already has a mark of that type. Returns true when it was new.
      */

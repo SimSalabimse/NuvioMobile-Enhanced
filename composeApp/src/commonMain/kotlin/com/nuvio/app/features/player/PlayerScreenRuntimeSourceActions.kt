@@ -25,6 +25,7 @@ import com.nuvio.app.features.streams.YouTubeStreamResolver
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
+import com.nuvio.app.navigation.nextEpisodeCarry
 import com.nuvio.app.features.debrid.DebridSourceFallback
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -525,7 +526,7 @@ internal fun PlayerScreenRuntime.switchToEpisodeStream(
     flushWatchProgress()
     stopActiveP2pStream()
     val epVideoId = episode.id
-    val resume = serverResumeMs?.let { EpisodeResume(positionMs = it, fraction = null) } ?: resolveEpisodeResume(epVideoId, episode)
+    val resume = resolveEpisodeResume(epVideoId, episode, serverResumeMs)
     if (saveForReuse && playerSettingsUiState.streamReuseLastLinkEnabled) {
         saveDirectStreamForReuse(stream, url, epVideoId, episode.season, episode.episode)
     }
@@ -578,8 +579,8 @@ internal fun PlayerScreenRuntime.switchToDownloadedEpisode(downloadItem: Downloa
         playableBytes = DownloadsRepository.playableContiguousBytes(downloadItem.id),
         totalBytes = downloadItem.totalBytes,
     )
-    val epResumeFraction = savedResumeFraction.takeIf { resumeInsideFile }
-    val epResumePositionMs = if (resumeInsideFile) savedResumePositionMs else 0L
+    val epResumeFraction = if (persistsProgress) savedResumeFraction.takeIf { resumeInsideFile } else null
+    val epResumePositionMs = if (persistsProgress && resumeInsideFile) savedResumePositionMs else 0L
 
     externalSubtitles = DownloadSubtitles.localSubtitles(localFileUri)
     activeSourceUrl = localFileUri
@@ -618,7 +619,7 @@ internal fun PlayerScreenRuntime.switchToDownloadedEpisode(downloadItem: Downloa
 }
 
 internal fun PlayerScreenRuntime.playNextEpisode(automatic: Boolean = false) {
-    if (blocksAutoplay) return
+    if (nextEpisodeCarry(args.privateSession, args.submitMode, automatic) == null) return
     if (nextEpisodeAutoPlaySearching || nextEpisodeAutoPlayCountdown != null) return
     nextEpisodePreloadTriggered = false
     val playbackKey = activePlaybackKey
@@ -786,7 +787,13 @@ private fun PlayerScreenRuntime.episodeProgress(epVideoId: String, episode: Meta
 private suspend fun PlayerScreenRuntime.newerServerResumeMs(stream: StreamItem, episode: MetaVideo): Long? =
     ServerPlayback.newerResumePositionMs(stream.playableDirectUrl, episodeProgress(episode.id, episode)?.lastUpdatedEpochMs)
 
-private fun PlayerScreenRuntime.resolveEpisodeResume(epVideoId: String, episode: MetaVideo): EpisodeResume {
+private fun PlayerScreenRuntime.resolveEpisodeResume(
+    epVideoId: String,
+    episode: MetaVideo,
+    serverResumeMs: Long? = null,
+): EpisodeResume {
+    if (!persistsProgress) return EpisodeResume(positionMs = 0L, fraction = null)
+    if (serverResumeMs != null) return EpisodeResume(positionMs = serverResumeMs, fraction = null)
     val epEntry = episodeProgress(epVideoId, episode)?.takeIf { !it.isCompleted }
     val epResumeFraction = epEntry?.progressPercent
         ?.takeIf { it > 0f }

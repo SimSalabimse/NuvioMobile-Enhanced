@@ -147,16 +147,20 @@ internal fun MediaAnalysisResult.applyingChapterSegments(
 }
 
 /**
- * Recap fingerprint search. A recap that already came from chapters is kept, including when the
- * search finds nothing. With no chapter recap this is the previous assignment, including clearing
- * a recap the search did not repeat.
+ * Recap fingerprint search. A chapter recap and a same-cut mark are kept.
+ * A search that finds nothing does not wipe a recap already stored.
+ * A new range replaces that stored recap.
  */
-internal fun MediaAnalysisResult.withDetectedRecap(detected: Pair<Long, Long>?): MediaAnalysisResult =
-    if ("recap" in chapterTypes) {
-        this
-    } else {
-        copy(recapStartMs = detected?.first, recapEndMs = detected?.second)
+internal fun MediaAnalysisResult.withDetectedRecap(detected: Pair<Long, Long>?): MediaAnalysisResult {
+    if ("recap" in chapterTypes) return this
+    val mark = userSegments["recap"]
+    if (mark != null && mark.absent && com.nuvio.app.features.player.sameCut(mark.durationMs, durationMs)) {
+        return copy(recapStartMs = null, recapEndMs = null)
     }
+    if (mark != null && mark.endMs > mark.startMs && com.nuvio.app.features.player.sameCut(mark.durationMs, durationMs)) return this
+    if (detected == null) return this
+    return copy(recapStartMs = detected.first, recapEndMs = detected.second)
+}
 
 /**
  * Preview fingerprint search. A preview that already came from chapters is kept. A mark of this

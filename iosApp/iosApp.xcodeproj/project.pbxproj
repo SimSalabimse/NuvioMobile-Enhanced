@@ -13,6 +13,7 @@
 		5950F0BCA7E4790326ACD8ED /* captions.srt in Resources */ = {isa = PBXBuildFile; fileRef = E27F0F006756F30DE4E82AEC /* captions.srt */; };
 		7397CF462F80FE3A00AC0F84 /* MPVKit in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F6A7B8C9D0E1F2 /* MPVKit */; };
 		C775C0E7A7F486CE63FEB866 /* SubtitlePlaybackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2673A436033CC351728D43 /* SubtitlePlaybackTests.swift */; };
+		D2E7B4A18C6F4E3095DA1B77 /* MpvSubtitleSyncTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8A1C3E64B2D4F7091AB6C55 /* MpvSubtitleSyncTests.swift */; };
 		E13BB6F776079BECB1C385AE /* styled.ass in Resources */ = {isa = PBXBuildFile; fileRef = 392AF87E6B301A2EF4CDCAC6 /* styled.ass */; };
 /* End PBXBuildFile section */
 
@@ -51,6 +52,7 @@
 		07921B4E8F8546BEE682C2FE /* Nuvio.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Nuvio.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		0A1B2C3D4E5F60718293A4B5 /* DownloadsWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = DownloadsWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		1C2673A436033CC351728D43 /* SubtitlePlaybackTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SubtitlePlaybackTests.swift; sourceTree = "<group>"; };
+		F8A1C3E64B2D4F7091AB6C55 /* MpvSubtitleSyncTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MpvSubtitleSyncTests.swift; sourceTree = "<group>"; };
 		392AF87E6B301A2EF4CDCAC6 /* styled.ass */ = {isa = PBXFileReference; includeInIndex = 1; path = styled.ass; sourceTree = "<group>"; };
 		75DECEA6A716ACCF256DD05C /* SubtitleTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SubtitleTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		85E7C6938899908633B6C313 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
@@ -179,6 +181,7 @@
 		F7111404B2441FE544E0EE68 /* iosAppTests */ = {
 			isa = PBXGroup;
 			children = (
+				F8A1C3E64B2D4F7091AB6C55 /* MpvSubtitleSyncTests.swift */,
 				1C2673A436033CC351728D43 /* SubtitlePlaybackTests.swift */,
 			);
 			name = iosAppTests;
@@ -357,6 +360,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D2E7B4A18C6F4E3095DA1B77 /* MpvSubtitleSyncTests.swift in Sources */,
 				C775C0E7A7F486CE63FEB866 /* SubtitlePlaybackTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -493,6 +497,8 @@
 		};
 		2350CCF218BAC027835CE8AB /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = 69649F6DF5D3AF53A24CA9C3 /* Configuration */;
+			baseConfigurationReferenceRelativePath = Config.xcconfig;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CLANG_ENABLE_OBJC_WEAK = NO;
@@ -513,7 +519,7 @@
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Nuvio.app/Nuvio";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/$(NUVIO_APP_PRODUCT_NAME).app/$(NUVIO_APP_PRODUCT_NAME)";
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
@@ -560,6 +566,7 @@
 					CoreFoundation,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.nuvio.media;
+				PRODUCT_MODULE_NAME = Nuvio;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -608,6 +615,7 @@
 					CoreFoundation,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.nuvio.app;
+				PRODUCT_MODULE_NAME = Nuvio;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -681,6 +689,8 @@
 		};
 		B3B15BECA364B4F1A6C9C67A /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReferenceAnchor = 69649F6DF5D3AF53A24CA9C3 /* Configuration */;
+			baseConfigurationReferenceRelativePath = Config.xcconfig;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CLANG_ENABLE_OBJC_WEAK = NO;
@@ -701,7 +711,7 @@
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Nuvio.app/Nuvio";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/$(NUVIO_APP_PRODUCT_NAME).app/$(NUVIO_APP_PRODUCT_NAME)";
 			};
 			name = Debug;
 		};

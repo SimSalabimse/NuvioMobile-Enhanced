@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -113,12 +114,13 @@ internal fun continueWatchingHeroViewportReserveHeight(
     style: ContinueWatchingSectionStyle,
     layout: ContinueWatchingLayout,
     basePosterWidthDp: Int,
+    extremeText: Boolean = false,
 ): Dp {
     val bottomNavigationClearance = when (style) {
         ContinueWatchingSectionStyle.Card,
         ContinueWatchingSectionStyle.Wide -> NuvioTokens.Space.s24
-        ContinueWatchingSectionStyle.Poster -> 0.dp
-    }
+        ContinueWatchingSectionStyle.Poster -> if (extremeText) NuvioTokens.Space.s24 else 0.dp
+    } + if (extremeText) NuvioTokens.Space.s24 else 0.dp
     return continueWatchingSectionHeightEstimate(
         style = style,
         layout = layout,
@@ -919,7 +921,13 @@ private fun ContinueWatchingWideCard(
     Row(
         modifier = Modifier
             .width(layout.wideCardWidth)
-            .height(layout.wideCardHeight)
+            .then(
+                if (com.nuvio.app.core.ui.extremeAccessibilityText(androidx.compose.ui.platform.LocalDensity.current.fontScale)) {
+                    Modifier.heightIn(min = layout.wideCardHeight)
+                } else {
+                    Modifier.height(layout.wideCardHeight)
+                },
+            )
             .clip(RoundedCornerShape(cornerRadius))
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
             .border(
@@ -1150,10 +1158,19 @@ private fun ContinueWatchingPosterCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Top,
         ) {
+            val extremeTitle = com.nuvio.app.core.ui.extremeAccessibilityText(
+                androidx.compose.ui.platform.LocalDensity.current.fontScale,
+            )
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .height(layout.posterTitleBlockHeight),
+                    .then(
+                        if (extremeTitle) {
+                            Modifier.heightIn(min = layout.posterTitleBlockHeight)
+                        } else {
+                            Modifier.height(layout.posterTitleBlockHeight)
+                        },
+                    ),
             ) {
                 Text(
                     text = item.title,
@@ -1248,7 +1265,7 @@ private fun UpNextBadge(
                 fontWeight = FontWeight.Bold,
             ),
             color = Color.White,
-            maxLines = 1,
+            maxLines = if (com.nuvio.app.core.ui.extremeAccessibilityText(androidx.compose.ui.platform.LocalDensity.current.fontScale)) 3 else 1,
         )
     }
 }

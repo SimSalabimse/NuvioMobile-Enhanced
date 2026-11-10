@@ -78,6 +78,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.testTag
+import com.nuvio.app.core.uifixture.PLAYER_ELAPSED_TAG
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.material.icons.automirrored.rounded.Toc
@@ -1381,7 +1383,11 @@ internal fun PlayerSeekBar(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TimePill(text = formatPlaybackTime(positionMs), fontSize = metrics.timeSize)
+                TimePill(
+                    text = formatPlaybackTime(positionMs),
+                    fontSize = metrics.timeSize,
+                    modifier = Modifier.testTag(PLAYER_ELAPSED_TAG),
+                )
                 TimePill(text = formatPlaybackTime(durationMs), fontSize = metrics.timeSize)
             }
         }

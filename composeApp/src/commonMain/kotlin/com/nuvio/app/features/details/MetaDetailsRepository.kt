@@ -308,6 +308,7 @@ object MetaDetailsRepository {
     }
 
     fun peek(type: String, id: String): MetaDetails? {
+        fixtureMetas["$type:$id"]?.let { return it }
         bindProfile()
         val requestKey = "$type:$id"
         val currentMeta = _uiState.value.meta?.takeIf { it.type == type && it.id == id }

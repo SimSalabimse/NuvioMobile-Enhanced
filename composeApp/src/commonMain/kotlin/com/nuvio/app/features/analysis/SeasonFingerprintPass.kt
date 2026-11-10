@@ -2,8 +2,18 @@ package com.nuvio.app.features.analysis
 
 import com.nuvio.app.features.downloads.hasStoredFingerprint
 
-/** How many other stored fingerprints one episode is matched against. The episodes updated are not capped. */
-internal const val SEASON_PASS_REFERENCE_CAP = 16
+/**
+ * How many other stored fingerprints one episode is matched against.
+ * The audio pass and the season backfill both use this. The episodes updated are not capped.
+ */
+internal const val SEASON_REFERENCE_CAP = 16
+
+/** Newest fingerprints first, then the shared cap. One list for the audio vote and the season pass. */
+internal fun siblingsWithinCap(siblings: List<MediaAnalysisResult>): List<MediaAnalysisResult> =
+    siblings.sortedByDescending { it.analyzedAtMs }.take(SEASON_REFERENCE_CAP)
+
+/** Same cap as [SEASON_REFERENCE_CAP]. Kept so existing call sites stay source-compatible. */
+internal const val SEASON_PASS_REFERENCE_CAP = SEASON_REFERENCE_CAP
 
 /**
  * After a fingerprint is saved, fill intro, credits, recap, and preview on every stored episode

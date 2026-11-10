@@ -386,6 +386,79 @@ class SeasonOverviewTest {
     }
 
     @Test
+    fun theOverviewIsOnScreenOrDismissedAfterThePlayerReturns() {
+        val portraitWidth = 402
+        val portraitHeight = 874
+        val opened = overviewSheetFrameAfterReturn(
+            proposedLeft = 0,
+            proposedTop = 40,
+            proposedWidth = portraitWidth,
+            proposedHeight = 700,
+            windowWidth = portraitWidth,
+            windowHeight = portraitHeight,
+            deviceIsLandscape = false,
+        )
+        assertEquals("0,40,$portraitWidth,700", opened)
+
+        val landscapeWidth = portraitHeight
+        val landscapeHeight = portraitWidth
+        val duringPlay = overviewSheetFrameAfterReturn(
+            proposedLeft = 0,
+            proposedTop = 0,
+            proposedWidth = landscapeWidth,
+            proposedHeight = landscapeHeight,
+            windowWidth = landscapeWidth,
+            windowHeight = landscapeHeight,
+            deviceIsLandscape = true,
+        )
+        assertEquals("0,0,$landscapeWidth,$landscapeHeight", duringPlay)
+
+        // The window is still the player size. The phone is portrait, so the list window is swapped.
+        val stillLandscape = overviewSheetFrameAfterReturn(
+            proposedLeft = 0,
+            proposedTop = 0,
+            proposedWidth = landscapeWidth,
+            proposedHeight = landscapeHeight,
+            windowWidth = landscapeWidth,
+            windowHeight = landscapeHeight,
+            deviceIsLandscape = false,
+        )
+        assertEquals("", stillLandscape)
+        val portraitSheetWhileWindowIsLandscape = overviewSheetFrameAfterReturn(
+            proposedLeft = 0,
+            proposedTop = 40,
+            proposedWidth = portraitWidth,
+            proposedHeight = 700,
+            windowWidth = landscapeWidth,
+            windowHeight = landscapeHeight,
+            deviceIsLandscape = false,
+        )
+        assertEquals("0,40,$portraitWidth,700", portraitSheetWhileWindowIsLandscape)
+
+        val returned = overviewSheetFrameAfterReturn(
+            proposedLeft = 0,
+            proposedTop = 0,
+            proposedWidth = landscapeWidth,
+            proposedHeight = landscapeHeight,
+            windowWidth = portraitWidth,
+            windowHeight = portraitHeight,
+            deviceIsLandscape = false,
+        )
+        assertEquals("", returned)
+
+        val trailing = overviewSheetFrameAfterReturn(
+            proposedLeft = 472,
+            proposedTop = 0,
+            proposedWidth = portraitWidth,
+            proposedHeight = 700,
+            windowWidth = portraitWidth,
+            windowHeight = portraitHeight,
+            deviceIsLandscape = false,
+        )
+        assertEquals("", trailing)
+    }
+
+    @Test
     fun seasonMenuKeepsPriorRowsAndAddsOverview() {
         val facts = seasonLongPressFacts(
             seasonWatched = false,

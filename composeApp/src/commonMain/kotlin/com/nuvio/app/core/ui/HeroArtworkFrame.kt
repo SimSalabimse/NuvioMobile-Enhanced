@@ -69,6 +69,34 @@ internal const val PORTRAIT_POSTER_WIDTH_FRACTION = 0.62f
  * Tall art is a 2:3 column at [PORTRAIT_POSTER_WIDTH_FRACTION] of the frame.
  * The title sits under this height. Nothing is reserved below the picture.
  */
+/**
+ * Home on a phone in portrait. The backdrop fills the hero, including the area
+ * behind the logo, the overview and the page dots. A 16:9 band would stop on a
+ * hard edge and leave that text on the flat background.
+ */
+internal fun phonePortraitHeroArtwork(): HeroArtworkDecision = HeroArtworkDecision(
+    fit = HeroArtworkFit.CropLandscape,
+    extraScale = 1f,
+    scrollScaleEnabled = false,
+    horizontalFocus = true,
+)
+
+/**
+ * Extra height under the 16:9 band so a phone details logo and its genre line sit on the
+ * picture. The logo is 72% of the width at a 2.6 aspect, plus the genre line and its gaps.
+ */
+internal fun portraitDetailHeadingReserve(frameWidth: Dp): Dp {
+    val logo = frameWidth.value * 0.72f / 2.6f
+    return (logo + 44f).dp
+}
+
+/** Phone details hero. The picture fills the band and the heading, then the shared fade takes over. */
+internal fun portraitDetailHeroHeight(frameWidth: Dp, headingHeight: Dp): Dp {
+    val band = portraitArtworkSlotHeight(frameWidth, tallArt = false)
+    val heading = if (headingHeight > portraitDetailHeadingReserve(frameWidth)) headingHeight else portraitDetailHeadingReserve(frameWidth)
+    return band + heading
+}
+
 internal fun portraitArtworkSlotHeight(frameWidth: Dp, tallArt: Boolean): Dp {
     val width = frameWidth.value
     val height = if (tallArt) {

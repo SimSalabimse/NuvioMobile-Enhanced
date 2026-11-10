@@ -13,6 +13,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
@@ -72,6 +74,7 @@ import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.details.components.SeasonOverviewSheet
 import com.nuvio.app.features.settings.DownloadsSettingsScreen
+import com.nuvio.app.navigation.PlayEntry
 import com.nuvio.app.navigation.openEpisodeInSubmitMode
 import com.nuvio.app.navigation.openEpisodePrivately
 import nuvio.composeapp.generated.resources.*
@@ -150,6 +153,7 @@ fun DownloadsScreen(
     }
 
     com.nuvio.app.features.details.ChangedSurfaceTextScale {
+    Box(Modifier.fillMaxSize()) {
     var storageRefresh by remember { mutableStateOf(0) }
     val storageSummary = rememberDownloadStorageSummary(uiState.items, storageRefresh)
     // Health check of the finished files (sizes on disk, analysed lengths), off the main thread.
@@ -296,18 +300,49 @@ fun DownloadsScreen(
     val overviewSeasonNumber = overviewSeason
     val overviewShowId = selectedShowId
     if (overviewSeasonNumber != null && overviewShowId != null) {
-        val overview = downloadsSeasonOverviewContent(uiState.items, overviewShowId, overviewSeasonNumber)
-        if (overview != null) {
+        val showItems = uiState.items.filter { it.parentMetaId == overviewShowId }
+        val showType = showItems.firstOrNull()?.parentMetaType?.takeIf { it.isNotBlank() } ?: "series"
+        var catalogMeta by remember(overviewShowId, showType) { mutableStateOf<com.nuvio.app.features.details.MetaDetails?>(null) }
+        LaunchedEffect(overviewShowId, showType) {
+            catalogMeta = com.nuvio.app.features.details.MetaDetailsRepository.cachedMeta(showType, overviewShowId)
+                ?: com.nuvio.app.features.details.MetaDetailsRepository.fetch(showType, overviewShowId)
+        }
+        val downloadsOnline by com.nuvio.app.core.network.NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
+        val ledgerRevision by com.nuvio.app.features.player.skip.OwnTheIntroDbLedger.revision.collectAsStateWithLifecycle()
+        val overviewEpisodes = remember(catalogMeta, overviewShowId, overviewSeasonNumber, ledgerRevision, showItems) {
+            val imdb = buildSet {
+                if (overviewShowId.startsWith("tt", ignoreCase = true)) add(overviewShowId)
+                catalogMeta?.let { addAll(com.nuvio.app.features.details.showImdbIds(it)) }
+                showItems.forEach { item ->
+                    item.videoId.split(":").firstOrNull()?.let { add(it) }
+                }
+            }
+            com.nuvio.app.features.details.seasonSheetEpisodes(
+                catalog = catalogMeta?.videos.orEmpty(),
+                ledger = com.nuvio.app.features.player.skip.OwnTheIntroDbLedger.load(
+                    com.nuvio.app.features.details.overviewLedgerScope(),
+                ),
+                showImdbIds = imdb,
+                season = overviewSeasonNumber,
+            )
+        }
+        val overviewMeta = catalogMeta ?: com.nuvio.app.features.details.MetaDetails(
+            id = overviewShowId,
+            type = showType,
+            name = showItems.firstOrNull()?.title.orEmpty(),
+            imdbId = overviewShowId.takeIf { it.startsWith("tt", ignoreCase = true) },
+        )
+        if (overviewEpisodes.isNotEmpty()) {
             val seasonLabel = if (overviewSeasonNumber == 0) {
                 stringResource(Res.string.episodes_specials)
             } else {
                 stringResource(Res.string.episodes_season, overviewSeasonNumber)
             }
             SeasonOverviewSheet(
-                meta = overview.meta,
+                meta = overviewMeta,
                 season = overviewSeasonNumber,
                 seasonLabel = seasonLabel,
-                episodes = overview.episodes,
+                episodes = overviewEpisodes,
                 isWatched = { video ->
                     uiState.items.any { item ->
                         item.videoId == video.id &&
@@ -317,7 +352,7 @@ fun DownloadsScreen(
                     }
                 },
                 loading = false,
-                offline = true,
+                offline = !downloadsOnline.isOnline,
                 fromDownloads = true,
                 onDismiss = { overviewSeason = null },
                 onOpenEpisode = { video ->
@@ -336,7 +371,7 @@ fun DownloadsScreen(
                             candidate.seasonNumber == video.season &&
                             candidate.episodeNumber == video.episode
                     }
-                    if (item != null) openEpisodePrivately(item.toEpisodeSubmitRequest())
+                    if (item != null) openEpisodePrivately(item.toEpisodeSubmitRequest(), PlayEntry.SeasonRow)
                 },
             )
         }
@@ -374,6 +409,7 @@ fun DownloadsScreen(
             },
             onDismiss = { groupPendingCancel = null },
         )
+    }
     }
     }
 }
@@ -684,7 +720,9 @@ private fun LazyListScope.downloadsShowContent(
                 ) {
                     TextButton(
                         onClick = { onOpenOverview(seasonNumber) },
-                        modifier = Modifier.heightIn(min = 44.dp),
+                        modifier = Modifier
+                            .heightIn(min = 44.dp)
+                            .testTag(com.nuvio.app.features.details.DOWNLOADS_SEASON_OVERVIEW_TAG),
                     ) {
                         Text(text = stringResource(Res.string.season_overview))
                     }

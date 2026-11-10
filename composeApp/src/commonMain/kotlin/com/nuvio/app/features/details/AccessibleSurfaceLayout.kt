@@ -52,6 +52,44 @@ internal fun heroTitleBaseSp(
 /** True when the label and the count choices should stack instead of sharing one row. */
 internal fun smartDownloadPickerStacks(fontScale: Float): Boolean = accessibilityTextSize(fontScale)
 
+/** Seasons title and the Posters control share a row only below the accessibility range. */
+internal fun seasonHeaderStacks(fontScale: Float): Boolean = accessibilityTextSize(fontScale)
+
+/** One line at the normal size. At an accessibility size the caption may use a second line. */
+internal fun seasonCaptionMaxLines(fontScale: Float): Int =
+    if (accessibilityTextSize(fontScale)) 2 else 1
+
+/**
+ * Poster column width. Below the accessibility range this is [defaultWidthDp].
+ * Inside that range the column is at least wide enough for the longest word of [caption]
+ * at [captionBaseSp] after [fontScale]. The scale itself is not reduced.
+ */
+internal fun seasonPosterWidthDp(
+    fontScale: Float,
+    defaultWidthDp: Float,
+    caption: String,
+    captionBaseSp: Float,
+): Float {
+    if (!accessibilityTextSize(fontScale) || captionBaseSp <= 0f || captionBaseSp.isNaN()) {
+        return defaultWidthDp
+    }
+    val word = longestWordLength(caption).coerceAtLeast(1)
+    val needed = captionBaseSp * fontScale * HERO_TITLE_CHAR_EM * word + 4f
+    return maxOf(defaultWidthDp, needed)
+}
+
+/** True when [header] fits [availableDp] as one line after [fontScale]. */
+internal fun seasonHeaderFits(
+    fontScale: Float,
+    header: String,
+    availableDp: Float,
+    headerBaseSp: Float,
+): Boolean {
+    if (!accessibilityTextSize(fontScale) || headerBaseSp <= 0f || headerBaseSp.isNaN()) return true
+    val word = longestWordLength(header).coerceAtLeast(1)
+    return headerBaseSp * fontScale * HERO_TITLE_CHAR_EM * word <= availableDp + 0.5f
+}
+
 /**
  * Display style at normal sizes. At an accessibility size, a smaller base so the longest
  * word fits [contentWidthDp]. An unspecified font size is left alone.

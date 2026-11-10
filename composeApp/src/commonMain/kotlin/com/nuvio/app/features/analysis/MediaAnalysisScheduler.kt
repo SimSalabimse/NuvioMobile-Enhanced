@@ -1,6 +1,8 @@
 package com.nuvio.app.features.analysis
 
 import com.nuvio.app.core.logging.InAppLogger
+import com.nuvio.app.core.uifixture.currentUiFixture
+import com.nuvio.app.core.uifixture.playsBundledClip
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadStatus
 import com.nuvio.app.features.downloads.DownloadsRepository
@@ -71,6 +73,41 @@ internal fun RawMediaAnalysis.toStoredResult(
     userSegments = userSegments,
 )
 
+/**
+ * A recaptured print is a new object. Known intro, credits, and recap ranges move with it.
+ * A later pass replaces a range only when the new detection is strictly better.
+ */
+internal fun MediaAnalysisResult.carryingKnownSegments(previous: MediaAnalysisResult?): MediaAnalysisResult {
+    if (previous == null) return this
+    if (previous.fileName != null && fileName != null && previous.fileName != fileName) return this
+    return copy(
+        introStartMs = previous.introStartMs,
+        introEndMs = previous.introEndMs,
+        introConfidence = previous.introConfidence,
+        introOutcome = previous.introOutcome,
+        creditsStartMs = previous.creditsStartMs,
+        creditsEndMs = previous.creditsEndMs,
+        creditsConfidence = previous.creditsConfidence,
+        creditsOutcome = previous.creditsOutcome,
+        recapStartMs = previous.recapStartMs,
+        recapEndMs = previous.recapEndMs,
+        recapOutcome = previous.recapOutcome,
+    )
+}
+
+/** Writes the intro, credits, and recap tokens from this pass. A finished pass also marks derived data current. */
+internal fun MediaAnalysisResult.withSegmentOutcomes(
+    decisions: List<SegmentDecision>,
+    finished: Boolean,
+): MediaAnalysisResult {
+    val next = copy(
+        introOutcome = introCreditsOutcomeToPersist("intro", introOutcome, decisions, finished),
+        creditsOutcome = introCreditsOutcomeToPersist("credits", creditsOutcome, decisions, finished),
+        recapOutcome = recapOutcomeToPersist(recapOutcome, decisions, finished),
+    )
+    return if (finished) next.copy(derivedVersion = MEDIA_ANALYSIS_DERIVED_VERSION) else next
+}
+
 /** Platform decoder (iOS: FFmpeg from the player's engine). */
 internal expect object MediaAnalyzerPlatform {
     val supported: Boolean
@@ -98,7 +135,13 @@ internal expect object MediaAnalyzerPlatform {
 internal data class RawClipFingerprint(
     val startMs: Long = 0L,
     val stepMs: Int = 100,
+    val decodedFrames: Int = 0,
+    val decodedSamples: Int = 0,
     val fingerprint: String? = null,
+    /** False when the decoder refused a window longer than the budget instead of truncating it. */
+    val windowComplete: Boolean = true,
+    /** Why decoding stopped. Anything other than window-end means the fingerprint is not the whole window. */
+    val stopReason: String? = null,
 )
 
 @Serializable
@@ -121,7 +164,6 @@ internal object MediaAnalysisScheduler {
     private const val START_DELAY_MS = 20_000L
     private const val PLAYBACK_POLL_MS = 15_000L
     private const val CHARGER_POLL_MS = 60_000L
-    private const val MAX_SIBLINGS = 4
     private const val THUMBNAIL_TARGET_COUNT = 400L
     private const val THUMBNAIL_MIN_INTERVAL_MS = 5_000L
     private const val THUMBNAIL_MAX_INTERVAL_MS = 20_000L
@@ -135,6 +177,16 @@ internal object MediaAnalysisScheduler {
 
     /** Test stand-in for [MediaAnalyzerPlatform.analyze]. Null calls the platform. */
     internal var analyzeFileForTest: (suspend (String) -> String?)? = null
+
+    /** Test stand-in for a reference fingerprint. Null calls the platform decoder. */
+    internal var fingerprintClipForTest: (suspend (url: String, startMs: Long, endMs: Long) -> String?)? = null
+
+    /** Test stand-in for the recap search. Null calls [RecapDetector.detect]. */
+    internal var recapSearchForTest: (suspend () -> Pair<Long, Long>?)? = null
+
+    private val referenceCancel = atomic(false)
+
+    internal fun referenceCancelRequested(): Boolean = referenceCancel.value
 
     /** Test stand-in for [MediaAnalyzerPlatform.supported]. */
     internal var supportedOverride: Boolean? = null
@@ -153,6 +205,13 @@ internal object MediaAnalysisScheduler {
         retries.clear()
         runAgain.value = false
         analyzeFileForTest = null
+        fingerprintClipForTest = null
+        recapSearchForTest = null
+        referenceCancel.value = false
+        referenceSettled.clear()
+        referenceAttempts.clear()
+        referenceNotBefore.clear()
+        analyzerLane.finish()
         supportedOverride = null
         priorityItemId = null
         playbackStrainExemptId = null
@@ -166,16 +225,24 @@ internal object MediaAnalysisScheduler {
             MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.ScrubPreviews) ||
             MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.RecapDetection)
 
+    private fun requestReferenceCancel() {
+        if (!analyzerLane.referenceHeld) return
+        referenceCancel.value = true
+        MediaAnalyzerPlatform.cancel()
+    }
+
     /** Starts a pass over finished downloads unless one is already running. */
     fun kick(startDelayMs: Long = START_DELAY_MS) {
         if (!analyserSupported()) return
         if (!runMutex.tryLock()) {
             runAgain.value = true
+            requestReferenceCancel()
             return
         }
         runMutex.unlock()
         if (job?.isActive == true) {
             runAgain.value = true
+            requestReferenceCancel()
             return
         }
         startJob(startDelayMs)
@@ -212,6 +279,7 @@ internal object MediaAnalysisScheduler {
 
     /** Drops the stored results of [items] and analyses them again. */
     fun reanalyse(items: List<DownloadItem>) {
+        if (currentUiFixture().playsBundledClip()) return
         val runningId = (MediaAnalysisStatus.job.value as? AnalysisJobState.Running)?.itemId
         if (runningId != null && items.any { it.id == runningId }) cancel()
         items.forEach { item ->
@@ -286,6 +354,7 @@ internal object MediaAnalysisScheduler {
     }
 
     private suspend fun runPendingOnce(fromBackgroundTask: Boolean): Boolean {
+        if (currentUiFixture().playsBundledClip()) return true
         if (!analyserSupported() || !anyFeatureEnabled) return true
         DownloadsRepository.ensureLoaded()
         forgetDeletedFiles()
@@ -298,6 +367,7 @@ internal object MediaAnalysisScheduler {
                 if (MediaAnalysisStatus.job.value !is AnalysisJobState.WaitingForCharger) {
                     exportNote("-", "queue", "charger", "waiting")
                 }
+                noteWait("charger", true)
                 MediaAnalysisStatus.setJob(AnalysisJobState.WaitingForCharger)
                 // In the app, keep checking: nothing else starts the queue when the charger goes in.
                 if (fromBackgroundTask) return false
@@ -315,17 +385,33 @@ internal object MediaAnalysisScheduler {
                 if (MediaAnalysisStatus.job.value !is AnalysisJobState.WaitingForPlayback) {
                     exportNote("-", "queue", "playback", "waiting")
                 }
+                noteWait("playback", true)
                 MediaAnalysisStatus.setJob(AnalysisJobState.WaitingForPlayback)
                 delay(PLAYBACK_POLL_MS)
                 continue
             }
-            val item = nextPending() ?: run {
+            val localItem = nextPending()
+            if (localItem != null) analyzerLane.beginLocal()
+            val item = localItem ?: referenceNext() ?: run {
+                val waitingOnRetry = retries.isNotEmpty() || referenceNotBefore.isNotEmpty()
+                noteWait(if (waitingOnRetry) "retry-wait" else "idle", waitingOnRetry)
                 if (MediaAnalysisStatus.job.value !is AnalysisJobState.Idle) {
                     exportNote("-", "queue", "idle", "no-pending")
                 }
                 MediaAnalysisStatus.setJob(AnalysisJobState.Idle)
                 scheduleRetryKick()
                 return true
+            }
+            noteWait("retry-wait", false)
+            if (localItem == null) {
+                if (!analyzerLane.beginReference()) continue
+                referenceCancel.value = false
+                try {
+                    runReferenceOnly(item)
+                } finally {
+                    analyzerLane.finish()
+                }
+                continue
             }
             currentItem = item
             currentInBackground = fromBackgroundTask
@@ -340,6 +426,7 @@ internal object MediaAnalysisScheduler {
                 PassResult.Retry
             } finally {
                 currentItem = null
+                analyzerLane.finish()
                 MediaAnalysisStatus.setJob(AnalysisJobState.Idle)
                 MediaAnalysisStatus.resultsChanged()
             }
@@ -425,13 +512,20 @@ internal object MediaAnalysisScheduler {
     /** id -> (attempts so far, not before epoch ms). */
     private val retries = mutableMapOf<String, Pair<Int, Long>>()
     private var retryKick: Job? = null
+    private val waits = AnalysisWaitTracker()
+    private val referenceAttempts = mutableMapOf<String, Int>()
+    private val referenceNotBefore = mutableMapOf<String, Long>()
+    private val referenceSettled = mutableSetOf<String>()
+    private val analyzerLane = AnalysisLane()
 
     private fun isBackingOff(id: String): Boolean =
         (retries[id]?.second ?: 0L) > com.nuvio.app.features.streams.epochMs()
 
     /** Files waiting out a retry delay get a pass of their own when it is over. */
     private fun scheduleRetryKick() {
-        val next = retries.values.minOfOrNull { it.second } ?: return
+        val nextRetry = retries.values.minOfOrNull { it.second }
+        val nextReference = referenceNotBefore.values.minOrNull()
+        val next = listOfNotNull(nextRetry, nextReference).minOrNull() ?: return
         retryKick?.cancel()
         retryKick = scope.launch {
             delay((next - com.nuvio.app.features.streams.epochMs()).coerceAtLeast(1_000L))
@@ -518,6 +612,128 @@ internal object MediaAnalysisScheduler {
 
     private suspend fun scopeActive(): Boolean = kotlin.coroutines.coroutineContext.isActive
 
+    internal fun backgroundWait(entered: Boolean) {
+        noteWait("app-background", entered)
+    }
+
+    private fun noteWait(reason: String, waiting: Boolean) {
+        val now = com.nuvio.app.features.streams.epochMs()
+        if (!waiting) {
+            val released = waits.release(now) ?: return
+            AnalysisWaitStatus.clear()
+            InAppLogger.info("Analysis", "wait $released")
+            exportNote("-", "wait", "released", released)
+            return
+        }
+        val lines = waits.enter(reason, now)
+        val snap = waits.snapshot(now)
+        if (snap != null) AnalysisWaitStatus.show(snap.reason, snap.elapsedMs)
+        lines.forEach { line ->
+            InAppLogger.info("Analysis", "wait $line")
+            val kind = if (line.startsWith("released")) "released" else "entered"
+            exportNote("-", "wait", kind, line)
+        }
+    }
+
+    private fun referenceNext(): DownloadItem? {
+        if (!MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.IntroDetection)) return null
+        val now = com.nuvio.app.features.streams.epochMs()
+        return DownloadsRepository.uiState.value.items
+            .asSequence()
+            .filter { analysisAcceptsDownload(it.status) && it.id !in failedThisSession && it.id !in referenceSettled }
+            .filter { (referenceNotBefore[it.id] ?: 0L) <= now }
+            .filter { (referenceAttempts[it.id] ?: 0) < REFERENCE_MAX_ATTEMPTS }
+            .sortedWith(AnalysisOrder)
+            .firstOrNull { item ->
+                val season = item.seasonNumber ?: return@firstOrNull false
+                if (item.episodeNumber == null) return@firstOrNull false
+                val stored = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item)) ?: return@firstOrNull false
+                if (stored.fileName != item.fileName || !stored.hasStoredFingerprint()) return@firstOrNull false
+                if (stored.introEndMs != null && stored.creditsStartMs != null) return@firstOrNull false
+                val rank = analysisQueueRank(needsLocalWork = false, needsReference = true)
+                rank > analysisQueueRank(needsLocalWork = true, needsReference = false) &&
+                    MediaAnalysisStore.seasonSiblings(item.parentMetaId, season, stored.key).isEmpty()
+            }
+    }
+
+    private suspend fun runReferenceOnly(item: DownloadItem) {
+        currentItem = item
+        val key = MediaAnalysisStore.keyFor(item)
+        try {
+            val stored = MediaAnalysisStore.load(key) ?: run {
+                referenceSettled += item.id
+                return
+            }
+            val guard = referenceWriteGuard(stored)
+            val outcome = SiblingClipReference.apply(
+                item,
+                stored,
+                onStatus = { token ->
+                    val title = buildString {
+                        append(item.title)
+                        if (item.seasonNumber != null && item.episodeNumber != null) {
+                            append(" S${item.seasonNumber}E${item.episodeNumber}")
+                        }
+                    }
+                    MediaAnalysisStatus.setJob(
+                        AnalysisJobState.Running(
+                            item.id,
+                            title,
+                            AnalysisStage.Matching,
+                            -1.0,
+                            currentInBackground,
+                            activity = token,
+                            activitySinceEpochMs = com.nuvio.app.features.streams.epochMs(),
+                        ),
+                    )
+                    exportNote(item.id, "stage", "clip", token)
+                },
+                yieldToLocal = { nextPending() != null },
+            )
+            if (!scopeActive()) return
+            when (referenceDisposition(outcome.attempt, referenceAttempts[item.id] ?: 0, REFERENCE_MAX_ATTEMPTS)) {
+                ReferenceDisposition.Preempted -> {
+                    exportNote(item.id, "clip", "preempted", "local-work")
+                    return
+                }
+                ReferenceDisposition.Retry, ReferenceDisposition.GaveUp -> {
+                    val count = (referenceAttempts[item.id] ?: 0) + 1
+                    referenceAttempts[item.id] = count
+                    val delay = analysisRetryDelayMs(count.coerceAtMost(REFERENCE_MAX_ATTEMPTS))
+                    val gaveUp = referenceDisposition(outcome.attempt, count - 1, REFERENCE_MAX_ATTEMPTS) ==
+                        ReferenceDisposition.GaveUp || delay == null
+                    if (gaveUp) {
+                        referenceSettled += item.id
+                        exportNote(item.id, "clip", "gave-up", "attempts=$count")
+                    } else {
+                        referenceNotBefore[item.id] = com.nuvio.app.features.streams.epochMs() + delay
+                        exportNote(item.id, "clip", "retry", "attempt=$count")
+                    }
+                    return
+                }
+                ReferenceDisposition.Settled -> Unit
+            }
+            val current = MediaAnalysisStore.load(key)
+            val merged = current?.let {
+                mergeReferenceWrite(it, outcome.result, guard, cancelled = !scopeActive())
+            }
+            if (merged == null) {
+                exportNote(item.id, "clip", "dropped", "stale")
+            } else if (merged != current) {
+                MediaAnalysisStore.save(merged)
+            }
+            referenceSettled += item.id
+            referenceAttempts.remove(item.id)
+            referenceNotBefore.remove(item.id)
+        } finally {
+            currentItem = null
+            val job = MediaAnalysisStatus.job.value as? AnalysisJobState.Running
+            if (job?.itemId == item.id && job.activity.startsWith("ref:")) {
+                MediaAnalysisStatus.setJob(AnalysisJobState.Idle)
+            }
+        }
+    }
+
     private fun nextPending(): DownloadItem? = DownloadsRepository.uiState.value.items
         .filter { analysisAcceptsDownload(it.status) && it.id !in failedThisSession && !isBackingOff(it.id) }
         .sortedWith(compareBy<DownloadItem> { if (it.id == priorityItemId) 0 else 1 }.then(AnalysisOrder))
@@ -549,10 +765,14 @@ internal object MediaAnalysisScheduler {
     private suspend fun analyzeOne(item: DownloadItem): PassResult {
         exportNote(item.id, "queue", "start", "s=${item.seasonNumber ?: -1} e=${item.episodeNumber ?: -1}")
         val uri = DownloadsRepository.playableLocalFileUri(item) ?: run {
+            noteWait("download", true)
             MediaAnalysisStatus.recordFailure(item, "The file is not on this device")
             exportNote(item.id, "error", "file", "missing")
             return if (scopeActive()) PassResult.Retry else PassResult.Cancelled
         }
+        noteWait("download", false)
+        noteWait("charger", false)
+        noteWait("playback", false)
         if (!uri.startsWith("file:")) {
             MediaAnalysisStatus.recordFailure(item, "The file is not on this device")
             exportNote(item.id, "error", "file", "not-local")
@@ -586,6 +806,7 @@ internal object MediaAnalysisScheduler {
         trace: SegmentTrace,
     ): Boolean {
         var result = base
+        try {
         val season = item.seasonNumber
         val episodeNumber = item.episodeNumber
         val introOn = MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.IntroDetection)
@@ -597,7 +818,7 @@ internal object MediaAnalysisScheduler {
             // only when that pass did not already record one and none is stored.
             if (introOn && !trace.has("intro") && result.introEndMs == null && siblings.isNotEmpty()) {
                 stage(AnalysisStage.Matching)
-                val capped = siblings.sortedByDescending { it.analyzedAtMs }.take(MAX_SIBLINGS)
+                val capped = siblingsWithinCap(siblings)
                 result = withContext(Dispatchers.Default) {
                     result.applyingSeasonDetection(capped, priors.intro, priors.credits, trace)
                 }
@@ -608,11 +829,23 @@ internal object MediaAnalysisScheduler {
                 !recapOn -> trace.replace("recap", detectionOffDecision("recap"))
                 "recap" in result.chapterTypes ->
                     trace.replace("recap", chapterDecision("recap", result.recapStartMs, result.recapEndMs))
-                recapMark != null -> trace.replace("recap", userMarkDecision("recap", recapMark.startMs, recapMark.endMs))
+                recapMark != null && recapMark.absent -> {
+                    result = result.copy(recapStartMs = null, recapEndMs = null)
+                    trace.replace("recap", userMarkDecision("recap", recapMark.startMs, recapMark.endMs))
+                }
+                recapMark != null && recapMark.endMs > recapMark.startMs -> {
+                    result = result.copy(recapStartMs = recapMark.startMs, recapEndMs = recapMark.endMs)
+                    trace.replace("recap", userMarkDecision("recap", recapMark.startMs, recapMark.endMs))
+                }
                 else -> {
                     stage(AnalysisStage.Recap)
-                    val recap = withContext(Dispatchers.Default) {
-                        RecapDetector.detect(result, siblings, trace, priors.recap)
+                    val recapHook = recapSearchForTest
+                    val recap = if (recapHook != null) {
+                        recapHook()
+                    } else {
+                        withContext(Dispatchers.Default) {
+                            RecapDetector.detect(result, siblings, trace, priors.recap)
+                        }
                     }
                     // A chapter recap stays. Otherwise this is the same assignment as before,
                     // including clearing a recap the search did not find again.
@@ -687,14 +920,16 @@ internal object MediaAnalysisScheduler {
                 }
             }
         }
-        if (!scopeActive()) {
-            // Stopped (the download is being deleted): keep the recap already found; the step
-            // counts as not done, so it runs again if the file comes back.
-            MediaAnalysisStore.save(result)
-            return false
+        val finished = scopeActive()
+        MediaAnalysisStore.save(result.withSegmentOutcomes(trace.decisions, finished))
+        return if (finished) thumbsOk else false
+        } catch (cancelled: CancellationException) {
+            MediaAnalysisStore.save(result.withSegmentOutcomes(trace.decisions, finished = false))
+            throw cancelled
+        } catch (failed: Exception) {
+            MediaAnalysisStore.save(result.withSegmentOutcomes(trace.decisions, finished = false))
+            throw failed
         }
-        MediaAnalysisStore.save(result.copy(derivedVersion = MEDIA_ANALYSIS_DERIVED_VERSION))
-        return thumbsOk
     }
 
     private data class AudioPass(
@@ -772,22 +1007,15 @@ internal object MediaAnalysisScheduler {
             throttleLevelStart = raw.throttleLevelStart
             throttleYields = raw.throttleYields
             qos = raw.qos
-            MediaAnalysisResult(
+            raw.toStoredResult(
                 key = key,
-                analyzedAtMs = com.nuvio.app.features.streams.epochMs(),
-                durationMs = raw.durationMs,
                 fileName = item.fileName,
-                energyStepMs = raw.energyStepMs,
-                energy = raw.energy,
-                integratedLufs = raw.integratedLufs,
-                fingerprintStepMs = raw.fingerprintStepMs,
-                headFingerprint = raw.head,
-                tailFingerprint = raw.tail,
-                tailStartMs = raw.tailStartMs,
+                analyzedAtMs = com.nuvio.app.features.streams.epochMs(),
                 userSegments = previous?.userSegments.orEmpty(),
+            ).copy(
                 rejectedSegments = previous?.rejectedSegments.orEmpty(),
                 analysisAttempts = resolveAnalysisAttempts(previous, item.fileName),
-            )
+            ).carryingKnownSegments(previous)
         }
         var clipUnavailable = false
         val season = item.seasonNumber
@@ -796,9 +1024,7 @@ internal object MediaAnalysisScheduler {
             MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.IntroDetection)
         ) {
             val priors = cachedSegmentPriors(item.parentMetaId, season, episodeNumber, result.durationMs)
-            val siblings = MediaAnalysisStore.seasonSiblings(item.parentMetaId, season, key)
-                .sortedByDescending { it.analyzedAtMs }
-                .take(MAX_SIBLINGS)
+            val siblings = siblingsWithinCap(MediaAnalysisStore.seasonSiblings(item.parentMetaId, season, key))
             result = if (siblings.isNotEmpty()) {
                 stage(AnalysisStage.Matching)
                 val matchDetail = "siblings=${siblings.size} headChars=${result.headFingerprint?.length ?: 0} " +
@@ -830,18 +1056,8 @@ internal object MediaAnalysisScheduler {
                     withContext(Dispatchers.Default) { SkipLearning.learnFromReferences(result, references) }
                 }
             }
-            // No stored episode to match: fingerprint a clip of the nearest episode with known times.
-            if (siblings.isEmpty() && references.isEmpty()) {
-                stage(AnalysisStage.Matching, "clip")
-                val clipDetail = "headChars=${result.headFingerprint?.length ?: 0}"
-                InAppLogger.info("Analysis", "clip id=${item.id} $clipDetail")
-                exportNote(item.id, "stage", "clip", clipDetail)
-                val clip = timed({ clipMs += it }) {
-                    SiblingClipReference.apply(item, result)
-                }
-                result = clip.result
-                clipUnavailable = clip.attempt == SiblingClipAttempt.Unavailable
-            }
+            // A reference clip runs after this file is saved, and after other files that still
+            // need their own audio pass. It does not hold this pass or the queue.
         } else if (season != null && episodeNumber != null) {
             trace.add(detectionOffDecision("intro"))
             trace.add(detectionOffDecision("credits"))
@@ -980,12 +1196,14 @@ object MediaAnalysisBackground {
         backgroundJob?.cancel()
         backgroundJob = CoroutineScope(SupervisorJob() + Dispatchers.Main).launch {
             var finished = false
+            MediaAnalysisScheduler.backgroundWait(true)
             try {
                 com.nuvio.app.features.downloads.SmartDownloads.retryPending()
                 finished = MediaAnalysisScheduler.runPending(fromBackgroundTask = true)
             } catch (_: Throwable) {
                 finished = false
             } finally {
+                MediaAnalysisScheduler.backgroundWait(false)
                 MediaAnalysisStatus.backgroundRan(finished)
                 MediaAnalysisStatus.resultsChanged()
                 onDone(finished)
@@ -997,6 +1215,7 @@ object MediaAnalysisBackground {
     }
 
     fun expireBackgroundTask() {
+        MediaAnalysisScheduler.backgroundWait(false)
         backgroundJob?.cancel()
         backgroundJob = null
         MediaAnalysisScheduler.cancel()

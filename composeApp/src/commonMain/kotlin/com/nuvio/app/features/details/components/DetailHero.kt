@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.VolumeOff
@@ -34,12 +33,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -57,11 +57,16 @@ import com.nuvio.app.core.ui.HeroArtworkFit
 import com.nuvio.app.core.ui.focusedAlignment
 import com.nuvio.app.core.ui.heroArtworkDecision
 import com.nuvio.app.core.ui.heroImageHeightFraction
+import com.nuvio.app.core.ui.SoftBottomFade
+import com.nuvio.app.core.ui.phonePortraitHeroArtwork
 import com.nuvio.app.core.ui.portraitArtworkSlotHeight
+import com.nuvio.app.core.ui.portraitDetailHeroHeight
 import com.nuvio.app.core.ui.portraitHeroFrame
 import com.nuvio.app.core.ui.rememberBackdropFocusState
 import com.nuvio.app.core.ui.rememberHeroArtworkSize
 import com.nuvio.app.core.ui.featherArtwork
+import com.nuvio.app.core.ui.detailChromeTopInset
+import com.nuvio.app.core.ui.headingTopPaddingDp
 import com.nuvio.app.core.ui.heroStretchHeight
 import com.nuvio.app.core.ui.heroStretchZoom
 import com.nuvio.app.features.details.MetaDetails
@@ -70,6 +75,10 @@ import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 import com.nuvio.app.core.ui.LocalVerticalBarPadding
 import com.nuvio.app.core.ui.verticalBarWidth
+
+internal const val DETAIL_HERO_ART_TAG = "detail-hero-art"
+internal const val DETAIL_HERO_HEADING_TAG = "detail-hero-heading"
+internal const val DETAIL_HERO_FADE_TAG = "detail-hero-fade"
 
 @Composable
 fun DetailHero(
@@ -102,10 +111,15 @@ fun DetailHero(
         var loadedWidth by remember(meta.background, meta.poster) { mutableStateOf(0) }
         var loadedHeight by remember(meta.background, meta.poster) { mutableStateOf(0) }
         val tallArt = loadedWidth > 0 && loadedHeight > loadedWidth
-        val artworkFrameHeight = if (portraitPhone) {
-            portraitArtworkSlotHeight(heroFrameWidth, tallArt)
-        } else {
-            heroHeight
+        var headingHeightPx by remember { mutableFloatStateOf(0f) }
+        val headingHeight = with(LocalDensity.current) { headingHeightPx.toDp() }
+        // A wide phone backdrop fills the band and the logo. A 16:9 strip would stop on a hard
+        // cut and leave the logo on flat black. A poster stays a column with the title under it.
+        val fillBehindTitle = portraitPhone && !tallArt
+        val artworkFrameHeight = when {
+            fillBehindTitle -> portraitDetailHeroHeight(heroFrameWidth, headingHeight)
+            portraitPhone -> portraitArtworkSlotHeight(heroFrameWidth, tallArt)
+            else -> heroHeight
         }
         val portrait = portraitPhone || portraitHeroFrame(heroFrameWidth.value, artworkFrameHeight.value)
         val trailerAlpha by animateFloatAsState(
@@ -117,7 +131,8 @@ fun DetailHero(
         val trailerAudioLabel = stringResource(
             if (heroTrailerMuted) Res.string.compose_player_muted else Res.string.compose_player_volume,
         )
-        val heroChromeTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() +
+        val chromeTop = detailChromeTopInset()
+        val heroChromeTopPadding = chromeTop +
             8.dp +
             ((40.dp - muteIconSize) / 2)
         val bottomGradientColor = heroGradientColor ?: MaterialTheme.colorScheme.background
@@ -140,6 +155,7 @@ fun DetailHero(
             modifier = Modifier
                 .fillMaxWidth()
                 .heroStretchHeight(artworkFrameHeight, stretchPx)
+                .testTag(DETAIL_HERO_ART_TAG)
                 .graphicsLayer {
                     clip = true
                 },
@@ -158,20 +174,28 @@ fun DetailHero(
                     if (imageUrl != null) {
                         val backdropFocus = rememberBackdropFocusState(imageUrl)
                         val artworkSize = rememberHeroArtworkSize(imageUrl)
-                        val artwork = heroArtworkDecision(
-                            imageWidth = artworkSize.width,
-                            imageHeight = artworkSize.height,
-                            frameWidth = heroFrameWidth.value,
-                            frameHeight = artworkFrameHeight.value,
-                            landscapeExtraScale = DETAIL_LANDSCAPE_EXTRA_SCALE,
-                            portrait = portrait,
-                        )
-                        val imageFraction = heroImageHeightFraction(
-                            artwork,
-                            heroFrameWidth.value,
-                            artworkFrameHeight.value,
-                            portrait = portrait,
-                        )
+                        val artwork = if (fillBehindTitle) {
+                            phonePortraitHeroArtwork()
+                        } else {
+                            heroArtworkDecision(
+                                imageWidth = artworkSize.width,
+                                imageHeight = artworkSize.height,
+                                frameWidth = heroFrameWidth.value,
+                                frameHeight = artworkFrameHeight.value,
+                                landscapeExtraScale = DETAIL_LANDSCAPE_EXTRA_SCALE,
+                                portrait = portrait,
+                            )
+                        }
+                        val imageFraction = if (fillBehindTitle) {
+                            1f
+                        } else {
+                            heroImageHeightFraction(
+                                artwork,
+                                heroFrameWidth.value,
+                                artworkFrameHeight.value,
+                                portrait = portrait,
+                            )
+                        }
                         val imageHeight = artworkFrameHeight * imageFraction
                         AsyncImage(
                             model = imageUrl,
@@ -181,7 +205,7 @@ fun DetailHero(
                                 .fillMaxWidth(artwork.widthFraction)
                                 .height(imageHeight)
                                 .then(
-                                    if (portrait) {
+                                    if (artwork.fit != HeroArtworkFit.CropLandscape) {
                                         Modifier.background(MaterialTheme.colorScheme.background)
                                     } else {
                                         Modifier
@@ -234,19 +258,23 @@ fun DetailHero(
                                 .align(Alignment.TopCenter)
                                 .fillMaxWidth()
                                 .height(
-                                    artworkFrameHeight * heroImageHeightFraction(
-                                        heroArtworkDecision(
-                                            imageWidth = 16,
-                                            imageHeight = 9,
-                                            frameWidth = heroFrameWidth.value,
-                                            frameHeight = artworkFrameHeight.value,
-                                            landscapeExtraScale = DETAIL_LANDSCAPE_EXTRA_SCALE,
+                                    if (fillBehindTitle) {
+                                        artworkFrameHeight
+                                    } else {
+                                        artworkFrameHeight * heroImageHeightFraction(
+                                            heroArtworkDecision(
+                                                imageWidth = 16,
+                                                imageHeight = 9,
+                                                frameWidth = heroFrameWidth.value,
+                                                frameHeight = artworkFrameHeight.value,
+                                                landscapeExtraScale = DETAIL_LANDSCAPE_EXTRA_SCALE,
+                                                portrait = portrait,
+                                            ),
+                                            heroFrameWidth.value,
+                                            artworkFrameHeight.value,
                                             portrait = portrait,
-                                        ),
-                                        heroFrameWidth.value,
-                                        artworkFrameHeight.value,
-                                        portrait = portrait,
-                                    ),
+                                        )
+                                    },
                                 )
                                 .heroStretchZoom(stretchPx)
                                 .graphicsLayer {
@@ -307,41 +335,22 @@ fun DetailHero(
                     }
                 }
 
-                if (!cinematicBackground && portraitPhone) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(36.dp)
-                            .align(Alignment.BottomCenter)
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(Color.Transparent, bottomGradientColor),
-                                ),
-                            ),
-                    )
-                } else if (!cinematicBackground) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(if (isTablet) 360.dp else 320.dp)
-                            .align(Alignment.BottomCenter)
-                            .background(
-                                Brush.verticalGradient(
-                                    colorStops = arrayOf(
-                                        0.00f to Color.Transparent,
-                                        0.16f to bottomGradientColor.copy(alpha = 0.04f),
-                                        0.32f to bottomGradientColor.copy(alpha = 0.14f),
-                                        0.50f to bottomGradientColor.copy(alpha = 0.34f),
-                                        0.68f to bottomGradientColor.copy(alpha = 0.62f),
-                                        0.84f to bottomGradientColor.copy(alpha = 0.84f),
-                                        1.00f to bottomGradientColor,
-                                    ),
-                                ),
-                            ),
+                if (!cinematicBackground) {
+                    val fadeHeight = when {
+                        fillBehindTitle -> (headingHeight + 88.dp).coerceAtLeast(120.dp).coerceAtMost(artworkFrameHeight)
+                        portraitPhone -> 96.dp
+                        isTablet -> 360.dp
+                        else -> 320.dp
+                    }
+                    SoftBottomFade(
+                        height = fadeHeight,
+                        color = bottomGradientColor,
+                        tag = DETAIL_HERO_FADE_TAG,
+                        modifier = Modifier.align(Alignment.BottomCenter),
                     )
                 }
 
-                if (!portraitPhone) {
+                if (!portraitPhone || fillBehindTitle) {
                     DetailHeroHeading(
                         meta = meta,
                         logoUrl = logoUrl,
@@ -349,12 +358,16 @@ fun DetailHero(
                         onLogoError = { logoLoadError = true },
                         isTablet = isTablet,
                         contentMaxWidth = contentMaxWidth,
-                        modifier = Modifier.padding(bottom = 8.dp),
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .onSizeChanged { if (fillBehindTitle) headingHeightPx = it.height.toFloat() }
+                            .padding(bottom = 8.dp)
+                            .testTag(DETAIL_HERO_HEADING_TAG),
                     )
                 }
             }
         }
-        if (portraitPhone) {
+        if (portraitPhone && !fillBehindTitle) {
             DetailHeroHeading(
                 meta = meta,
                 logoUrl = logoUrl,
@@ -362,7 +375,12 @@ fun DetailHero(
                 onLogoError = { logoLoadError = true },
                 isTablet = false,
                 contentMaxWidth = contentMaxWidth,
-                modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
+                modifier = Modifier
+                    .padding(
+                        top = headingTopPaddingDp(artworkFrameHeight.value, chromeTop.value).dp,
+                        bottom = 8.dp,
+                    )
+                    .testTag(DETAIL_HERO_HEADING_TAG),
             )
         }
         }

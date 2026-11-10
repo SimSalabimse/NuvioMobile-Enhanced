@@ -12,7 +12,7 @@ import UIKit
             guard let presenter = topmostViewController() else { return }
 
             let hostingController = UIHostingController(rootView: DiagnosticsSettingsView())
-            hostingController.title = "Diagnostics"
+            hostingController.title = "Device error log"
             hostingController.navigationItem.rightBarButtonItem = UIBarButtonItem(
                 systemItem: .done,
                 primaryAction: UIAction { [weak hostingController] _ in
@@ -46,13 +46,14 @@ import UIKit
     /// Share sheet for the analysis log only. Does not write diagnostics.jsonl and does not upload.
     @objc public static func shareAnalysisLog(_ text: String) {
         DispatchQueue.main.async {
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("nuvio-analysis-log.txt")
+            guard let presenter = topmostViewController() else { return }
+            let name = "nuvio-share-\(UUID().uuidString).txt"
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
             do {
                 try text.write(to: url, atomically: true, encoding: .utf8)
             } catch {
                 return
             }
-            guard let presenter = topmostViewController() else { return }
             let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
             if let popover = controller.popoverPresentationController {
                 popover.sourceView = presenter.view

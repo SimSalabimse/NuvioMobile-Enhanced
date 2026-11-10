@@ -109,9 +109,32 @@ class ChapterSkipPriorityTest {
         val replaced = base().copy(recapStartMs = 1L, recapEndMs = 2L).withDetectedRecap(3L to 4L)
         assertEquals(3L, replaced.recapStartMs)
         assertEquals(4L, replaced.recapEndMs)
-        val cleared = base().copy(recapStartMs = 1L, recapEndMs = 2L).withDetectedRecap(null)
-        assertNull(cleared.recapStartMs)
-        assertNull(cleared.recapEndMs)
+        val keptKnown = base().copy(recapStartMs = 1L, recapEndMs = 2L).withDetectedRecap(null)
+        assertEquals(1L, keptKnown.recapStartMs)
+        assertEquals(2L, keptKnown.recapEndMs)
+    }
+
+    @Test
+    fun aRecapturedPrintKeepsKnownIntroCreditsAndRecap() {
+        val previous = base().copy(
+            fileName = "episode.mkv",
+            introStartMs = 10_000L,
+            introEndMs = 40_000L,
+            introConfidence = SegmentConfidence(agreeingSiblings = 2),
+            creditsStartMs = 40_000L,
+            creditsEndMs = 48_000L,
+            recapStartMs = 0L,
+            recapEndMs = 15_000L,
+            recapOutcome = "rejected-no-match",
+        )
+        val fresh = base().copy(fileName = "episode.mkv", headFingerprint = "new")
+        val carried = fresh.carryingKnownSegments(previous)
+        assertEquals(10_000L, carried.introStartMs)
+        assertEquals(40_000L, carried.introEndMs)
+        assertEquals(40_000L, carried.creditsStartMs)
+        assertEquals(0L, carried.recapStartMs)
+        assertEquals(15_000L, carried.recapEndMs)
+        assertEquals("new", carried.headFingerprint)
     }
 
     @Test

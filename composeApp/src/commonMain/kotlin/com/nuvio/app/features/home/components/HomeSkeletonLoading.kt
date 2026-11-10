@@ -6,6 +6,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import com.nuvio.app.features.home.HomeHeroStyle
+import com.nuvio.app.features.home.homeHeroTopPaddingDp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -71,15 +72,16 @@ internal fun HomeSkeletonHero(
 ) {
     val brush = rememberHomeSkeletonBrush()
     val isCardStyle = heroStyle == HomeHeroStyle.CARD
-    val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val contentTopInset = homeContentTopInset()
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
+            .padding(top = homeHeroTopPaddingDp(isCardStyle, contentTopInset.value).dp)
             .then(
                 if (isCardStyle) {
                     Modifier.padding(
-                        top = statusBarTopPadding + HERO_CARD_TOP_PADDING,
+                        top = HERO_CARD_TOP_PADDING,
                         start = HERO_CARD_HORIZONTAL_PADDING,
                         end = HERO_CARD_HORIZONTAL_PADDING,
                     )

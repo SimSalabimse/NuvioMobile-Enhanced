@@ -53,6 +53,8 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
+import com.nuvio.app.core.uifixture.currentUiFixture
+import com.nuvio.app.core.uifixture.playsBundledClip
 import com.nuvio.app.core.uifixture.withLocalizedSettingsWalkTitle
 import com.nuvio.app.core.ui.LocalPosterClickAnchor
 import com.nuvio.app.core.ui.LocalVerticalBarPadding
@@ -91,6 +93,7 @@ import com.nuvio.app.core.ui.continueWatchingDownloadState
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.Flag
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.DownloadDone
 import com.nuvio.app.core.ui.NuvioFloatingPrompt
 import com.nuvio.app.core.ui.NuvioPosterZoomActionOverlay
@@ -173,7 +176,7 @@ import com.nuvio.app.features.player.recordExternalPlaybackProgress
 import com.nuvio.app.features.player.ExternalPlayerPlatform
 import com.nuvio.app.features.player.PlayerLaunch
 import com.nuvio.app.features.player.PlayerLaunchStore
-import com.nuvio.app.features.player.applyingIsolatedPlayback
+import com.nuvio.app.navigation.carrying
 import com.nuvio.app.navigation.IsolatedPlayback
 import com.nuvio.app.navigation.launchPlayer
 import com.nuvio.app.features.player.PlayerSettingsRepository
@@ -937,6 +940,7 @@ internal fun MainAppContent(
                                 type = deepLink.type,
                                 id = deepLink.id,
                                 title = routeTitle,
+                                privateSession = deepLink.privateSession,
                             )
                         ) {
                             launchSingleTop = true
@@ -1122,6 +1126,7 @@ internal fun MainAppContent(
             resumePositionMs: Long? = null,
             resumeProgressFraction: Float? = null,
             startFromBeginning: Boolean = false,
+            play: CarriedPlay = carriedPlay(PlayEntry.ContinueWatching, privateSession = false),
         ): Boolean {
             return when (
                 val resolved = CloudLibraryRepository.resolvePlayback(
@@ -1148,8 +1153,8 @@ internal fun MainAppContent(
                         parentMetaType = CloudLibraryContentType,
                         initialPositionMs = if (startFromBeginning) 0L else (resumePositionMs ?: 0L),
                         initialProgressFraction = if (startFromBeginning) null else resumeProgressFraction,
-                    )
-                    if (playerSettingsUiState.externalPlayerEnabled) {
+                    ).carrying(play)
+                    if (playerSettingsUiState.externalPlayerEnabled && playerLaunch.persistsProgress) {
                         openExternalPlayback(playerLaunch)
                         true
                     } else {
@@ -1182,10 +1187,9 @@ internal fun MainAppContent(
             startFromBeginning: Boolean,
             downloadMode: Boolean = false,
             forceExternalPlayer: Boolean = false,
-            submitMode: Boolean = false,
-            privateSession: Boolean = false,
+            play: CarriedPlay = carriedPlay(PlayEntry.Details, privateSession = false),
         ) {
-            val isolated = submitMode || privateSession
+            val isolated = play.isolated
             val targetResumePositionMs = if (startFromBeginning || isolated) 0L else (resumePositionMs ?: 0L)
             val targetResumeProgressFraction = if (startFromBeginning || isolated) null else resumeProgressFraction
 
@@ -1232,9 +1236,10 @@ internal fun MainAppContent(
                         parentMetaType = parentMetaType,
                         initialPositionMs = targetResumePositionMs,
                         initialProgressFraction = targetResumeProgressFraction,
-                    ).applyingIsolatedPlayback(submitMode, privateSession)
+                    ).carrying(play)
                     if (
                         !isolated &&
+                        !currentUiFixture().playsBundledClip() &&
                         (forceExternalPlayer || playerSettingsUiState.externalPlayerEnabled) &&
                         !isLoopbackPartialPlaybackUrl(localSourceUrl)
                     ) {
@@ -1275,9 +1280,7 @@ internal fun MainAppContent(
                     startFromBeginning = startFromBeginning || isolated,
                     downloadMode = downloadMode,
                     forceExternalPlayer = forceExternalPlayer && !isolated,
-                    submitMode = submitMode,
-                    privateSession = privateSession,
-                ),
+                ).carrying(play),
             )
             navController.navigate(
                 StreamRoute(launchId = streamLaunchId, title = title),
@@ -1285,7 +1288,7 @@ internal fun MainAppContent(
         }
 
         SideEffect {
-            installEpisodeSubmitLauncher { request, kind ->
+            installEpisodeSubmitLauncher { request, entry, kind ->
                 launchPlaybackWithDownloadPreference(
                     type = request.type,
                     videoId = request.videoId,
@@ -1304,8 +1307,11 @@ internal fun MainAppContent(
                     resumeProgressFraction = null,
                     manualSelection = false,
                     startFromBeginning = true,
-                    submitMode = kind == IsolatedPlayback.Submit,
-                    privateSession = kind == IsolatedPlayback.Private,
+                    play = carriedPlay(
+                        entry = entry,
+                        privateSession = kind == IsolatedPlayback.Private,
+                        submitMode = kind == IsolatedPlayback.Submit,
+                    ),
                 )
             }
         }
@@ -1552,7 +1558,11 @@ internal fun MainAppContent(
             !item.isCloudLibraryContinueWatchingItem() &&
                 playbackAvailability.canStream(item.parentMetaType, item.videoId)
 
-        val openContinueWatching: (ContinueWatchingItem, Boolean, Boolean) -> Unit = { item, manualSelection, startFromBeginning ->
+        val openContinueWatching: (ContinueWatchingItem, Boolean, Boolean, Boolean) -> Unit = { item, manualSelection, startFromBeginning, privateSession ->
+            val play = carriedPlay(
+                entry = if (item.isNextUp) PlayEntry.NextUp else PlayEntry.ContinueWatching,
+                privateSession = privateSession,
+            )
             resumePromptItem = null
             if (item.isCloudLibraryContinueWatchingItem()) {
                 coroutineScope.launch {
@@ -1568,7 +1578,8 @@ internal fun MainAppContent(
                                 file = lookup.target.file,
                                 resumePositionMs = item.resumePositionMs,
                                 resumeProgressFraction = item.resumeProgressFraction,
-                                startFromBeginning = startFromBeginning,
+                                startFromBeginning = startFromBeginning || privateSession,
+                                play = play,
                             )
                             if (!launched) {
                                 NuvioToastController.show(cloudLibraryPlayFailedText)
@@ -1613,20 +1624,25 @@ internal fun MainAppContent(
                     resumeProgressFraction = item.resumeProgressFraction,
                     manualSelection = manualSelection,
                     startFromBeginning = startFromBeginning,
+                    play = play,
                 )
             }
         }
 
         val onContinueWatchingClick: (ContinueWatchingItem) -> Unit = { item ->
-            openContinueWatching(item, false, false)
+            openContinueWatching(item, false, false, false)
         }
 
         val onContinueWatchingStartFromBeginning: (ContinueWatchingItem) -> Unit = { item ->
-            openContinueWatching(item, false, true)
+            openContinueWatching(item, false, true, false)
         }
 
         val onContinueWatchingPlayManually: (ContinueWatchingItem) -> Unit = { item ->
-            openContinueWatching(item, true, false)
+            openContinueWatching(item, true, false, false)
+        }
+
+        val onContinueWatchingPrivately: (ContinueWatchingItem) -> Unit = { item ->
+            openContinueWatching(item, false, true, true)
         }
 
         // Enhanced: Download from the Continue Watching / Next Up hold menu. Same flow as a
@@ -1783,6 +1799,17 @@ internal fun MainAppContent(
                     LocalNuvioBottomNavigationOverlayPadding provides settingsRouteBottomOverlay,
                     LocalPosterClickAnchor provides if (posterNavigationEnabled) posterNavigation::prepare else null,
                     LocalUseNativeNavigation provides useNativeNavigation,
+                    LocalHostRespectsTopSafeArea provides (
+                        useNativeNavigation && com.nuvio.app.core.ui.hostRespectsTopSafeArea(
+                            when (currentRoute) {
+                                is DetailRoute -> "detail"
+                                is StreamRoute -> "stream"
+                                is PlayerRoute -> "player"
+                                null -> null
+                                else -> "other"
+                            },
+                        )
+                    ),
                     LocalNativeNavigationBarHidden provides (currentRoute?.hidesNavigationBar == true),
                     LocalVerticalBarPadding provides if (drawsUnderVerticalBar) verticalBarPadding else PaddingValues(),
                 ) {
@@ -2538,6 +2565,16 @@ internal fun MainAppContent(
                                         },
                                     ),
                                 )
+                                if (canPlayContinueWatching(item)) {
+                                    add(
+                                        PosterZoomOverlayAction(
+                                            icon = Icons.Rounded.Lock,
+                                            label = stringResource(Res.string.watch_privately),
+                                            enabled = localPlayEnabled,
+                                            onSelected = { onContinueWatchingPrivately(item) },
+                                        ),
+                                    )
+                                }
                                 if (showManualPlayOption) {
                                     add(
                                         PosterZoomOverlayAction(
@@ -2691,6 +2728,9 @@ internal fun MainAppContent(
                     ?.let { item -> { onContinueWatchingStartFromBeginning(item) } },
                 onPlayManually = selectedContinueWatchingForActions
                     ?.let { item -> { onContinueWatchingPlayManually(item) } },
+                onWatchPrivately = selectedContinueWatchingForActions
+                    ?.takeIf { canPlayContinueWatching(it) }
+                    ?.let { item -> { onContinueWatchingPrivately(item) } },
                 goalPinned = selectedContinueWatchingForActions
                     ?.takeIf { it.seasonNumber != null }
                     ?.let { SmartDownloadSettings.isGoal(it.parentMetaType, it.parentMetaId) },
@@ -2850,7 +2890,7 @@ internal fun MainAppContent(
                 onAction = {
                     val item = resumePromptItem ?: return@NuvioFloatingPrompt
                     resumePromptItem = null
-                    openContinueWatching(item, false, false)
+                    openContinueWatching(item, false, false, false)
                 },
                 onDismiss = { resumePromptItem = null },
                 modifier = Modifier

@@ -11,6 +11,36 @@ import kotlin.test.assertTrue
 class FingerprintMatcherTest {
     private fun noise(random: Random, size: Int) = IntArray(size) { random.nextInt() }
 
+    /** Values that do not collide with a different salt, so a long pair cannot invent a run. */
+    private fun lane(index: Int, salt: Int): Int {
+        var mixed = 0x12345678 xor (index * 0x45D9F3B) xor (salt * 0x6C8E9CF5.toInt())
+        mixed = mixed xor (mixed ushr 16)
+        mixed *= 0x7FEB352D
+        mixed = mixed xor (mixed ushr 15)
+        mixed *= 0x846CA68B.toInt()
+        mixed = mixed xor (mixed ushr 16)
+        return mixed or 1
+    }
+
+    @Test
+    fun aLongOpeningKeepsAThemeTheCoarseListDrops() {
+        val frames = 8_100
+        val a = IntArray(frames) { lane(it, 1) }
+        val b = IntArray(frames) { lane(it, 2) }
+        repeat(24) { index ->
+            val decoy = IntArray(180) { lane(it, 100 + index) }
+            decoy.copyInto(a, index * 200)
+            decoy.copyInto(b, 2_500 + index * 180)
+        }
+        val theme = IntArray(160) { lane(it, 900) }
+        theme.copyInto(a, 7_200)
+        theme.copyInto(b, 100)
+        val runs = FingerprintMatcher.topSharedSegments(a, b, minFrames = 150, limit = 30)
+        assertTrue(runs.any { it.startA == 7_200 && it.length == 160 })
+        val coarse = FingerprintMatcher.topSharedSegments(a, b, minFrames = 150, limit = 30, forceCoarse = true)
+        assertFalse(coarse.any { it.startA == 7_200 && it.length == 160 })
+    }
+
     @Test
     fun findsSharedIntroAtDifferentOffsets() {
         val random = Random(7)

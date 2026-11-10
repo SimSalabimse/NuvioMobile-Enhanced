@@ -271,7 +271,10 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
     }
 
     LaunchedEffect(playbackSession.videoId) {
-        subtitleDelayMs = PlayerTrackPreferenceStorage.loadSubtitleDelayMs(playbackSession.videoId) ?: 0
+        subtitleDrift.noteTrackOrStreamChanged()
+        val storedDelay = PlayerTrackPreferenceStorage.loadSubtitleDelayMs(playbackSession.videoId) ?: 0
+        subtitleDelayMs = storedDelay
+        subtitleDrift.noteManualDelay(storedDelay.toLong())
         subtitleAutoSyncState = SubtitleAutoSyncUiState()
     }
 
@@ -283,6 +286,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
     BindAudioAmplificationEffects()
 
     LaunchedEffect(selectedAddonSubtitleId, useCustomSubtitles, activeSourceUrl) {
+        subtitleDrift.noteTrackOrStreamChanged()
         subtitleAutoSyncState = SubtitleAutoSyncUiState()
     }
 

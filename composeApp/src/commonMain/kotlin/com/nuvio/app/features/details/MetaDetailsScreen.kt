@@ -112,7 +112,6 @@ import com.nuvio.app.core.ui.TrackingListPickerDialog
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.core.ui.rememberArtworkBackdrop
 import com.nuvio.app.core.ui.rememberHeroStretchState
-import com.kyant.backdrop.Backdrop
 import com.nuvio.app.core.ui.glass.LocalLiquidGlassBackdrop
 import com.nuvio.app.core.ui.glass.nuvioBackdropSource
 import com.nuvio.app.core.ui.glass.rememberNuvioBackdrop
@@ -129,7 +128,7 @@ import com.nuvio.app.features.details.components.hasEpisodeRatingMap
 import com.nuvio.app.features.details.components.CinematicHeaderBackdrop
 import com.nuvio.app.features.details.components.DetailFloatingHeader
 import com.nuvio.app.features.details.components.DetailHero
-import com.nuvio.app.features.details.components.DetailMetaInfo
+import com.nuvio.app.features.details.components.DetailOverviewSection
 import com.nuvio.app.features.details.components.DetailPosterRailSection
 import com.nuvio.app.features.details.components.DetailProductionSection
 import com.nuvio.app.features.details.components.DetailSeriesContent
@@ -139,6 +138,7 @@ import com.nuvio.app.features.details.components.rememberEpisodeNavigatorState
 import com.nuvio.app.features.details.components.DetailTrailersSection
 import com.nuvio.app.features.details.components.EpisodeWatchedActionSheet
 import com.nuvio.app.navigation.EpisodeSubmitRequest
+import com.nuvio.app.navigation.PlayEntry
 import com.nuvio.app.navigation.openEpisodeInSubmitMode
 import com.nuvio.app.navigation.openEpisodePrivately
 import com.nuvio.app.features.details.components.SeasonOverviewSheet
@@ -215,6 +215,7 @@ fun MetaDetailsScreen(
     fallbackTitle: String? = null,
     initialSeasonNumber: Int? = null,
     initialEpisodeNumber: Int? = null,
+    openedPrivately: Boolean = false,
     onBack: () -> Unit,
     onPlay: ((type: String, videoId: String, parentMetaId: String, parentMetaType: String, title: String, logo: String?, poster: String?, background: String?, seasonNumber: Int?, episodeNumber: Int?, episodeTitle: String?, episodeThumbnail: String?, pauseDescription: String?, resumePositionMs: Long?) -> Unit)? = null,
     onPlayManually: ((type: String, videoId: String, parentMetaId: String, parentMetaType: String, title: String, logo: String?, poster: String?, background: String?, seasonNumber: Int?, episodeNumber: Int?, episodeTitle: String?, episodeThumbnail: String?, pauseDescription: String?, resumePositionMs: Long?) -> Unit)? = null,
@@ -916,41 +917,79 @@ fun MetaDetailsScreen(
                     when {
                         shufflePoolEmpty -> showShuffle = true
                         (meta.type == "series" || hasEpisodes) && seriesAction != null -> {
-                            onPlay?.invoke(
-                                meta.type,
-                                seriesStreamVideoId ?: seriesAction.videoId,
-                                meta.id,
-                                meta.type,
-                                meta.name,
-                                meta.logo,
-                                meta.poster,
-                                meta.background,
-                                seriesAction.seasonNumber,
-                                seriesAction.episodeNumber,
-                                seriesAction.episodeTitle,
-                                seriesAction.episodeThumbnail,
-                                seriesPauseDescription,
-                                seriesAction.resumePositionMs,
-                            )
+                            if (openedPrivately) {
+                                openEpisodePrivately(
+                                    EpisodeSubmitRequest(
+                                        type = meta.type,
+                                        videoId = seriesStreamVideoId ?: seriesAction.videoId,
+                                        parentMetaId = meta.id,
+                                        parentMetaType = meta.type,
+                                        title = meta.name,
+                                        logo = meta.logo,
+                                        poster = meta.poster,
+                                        background = meta.background,
+                                        seasonNumber = seriesAction.seasonNumber,
+                                        episodeNumber = seriesAction.episodeNumber,
+                                        episodeTitle = seriesAction.episodeTitle,
+                                        episodeThumbnail = seriesAction.episodeThumbnail,
+                                        pauseDescription = seriesPauseDescription,
+                                    ),
+                                    PlayEntry.DeepLink,
+                                )
+                            } else {
+                                onPlay?.invoke(
+                                    meta.type,
+                                    seriesStreamVideoId ?: seriesAction.videoId,
+                                    meta.id,
+                                    meta.type,
+                                    meta.name,
+                                    meta.logo,
+                                    meta.poster,
+                                    meta.background,
+                                    seriesAction.seasonNumber,
+                                    seriesAction.episodeNumber,
+                                    seriesAction.episodeTitle,
+                                    seriesAction.episodeThumbnail,
+                                    seriesPauseDescription,
+                                    seriesAction.resumePositionMs,
+                                )
+                            }
                         }
 
                         else -> {
-                            onPlay?.invoke(
-                                meta.type,
-                                meta.id,
-                                meta.id,
-                                meta.type,
-                                meta.name,
-                                meta.logo,
-                                meta.poster,
-                                meta.background,
-                                null,
-                                null,
-                                null,
-                                null,
-                                meta.description,
-                                movieProgress?.lastPositionMs,
-                            )
+                            if (openedPrivately) {
+                                openEpisodePrivately(
+                                    EpisodeSubmitRequest(
+                                        type = meta.type,
+                                        videoId = meta.id,
+                                        parentMetaId = meta.id,
+                                        parentMetaType = meta.type,
+                                        title = meta.name,
+                                        logo = meta.logo,
+                                        poster = meta.poster,
+                                        background = meta.background,
+                                        pauseDescription = meta.description,
+                                    ),
+                                    PlayEntry.DeepLink,
+                                )
+                            } else {
+                                onPlay?.invoke(
+                                    meta.type,
+                                    meta.id,
+                                    meta.id,
+                                    meta.type,
+                                    meta.name,
+                                    meta.logo,
+                                    meta.poster,
+                                    meta.background,
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    meta.description,
+                                    movieProgress?.lastPositionMs,
+                                )
+                            }
                         }
                     }
                 }
@@ -1106,6 +1145,42 @@ fun MetaDetailsScreen(
                         {
                             stopHeroTrailerForNavigation()
                             when {
+                                openedPrivately && (meta.type == "series" || hasEpisodes) && seriesAction != null -> {
+                                    openEpisodePrivately(
+                                        EpisodeSubmitRequest(
+                                            type = meta.type,
+                                            videoId = seriesStreamVideoId ?: seriesAction.videoId,
+                                            parentMetaId = meta.id,
+                                            parentMetaType = meta.type,
+                                            title = meta.name,
+                                            logo = meta.logo,
+                                            poster = meta.poster,
+                                            background = meta.background,
+                                            seasonNumber = seriesAction.seasonNumber,
+                                            episodeNumber = seriesAction.episodeNumber,
+                                            episodeTitle = seriesAction.episodeTitle,
+                                            episodeThumbnail = seriesAction.episodeThumbnail,
+                                            pauseDescription = seriesPauseDescription,
+                                        ),
+                                        PlayEntry.SourceSheet,
+                                    )
+                                }
+                                openedPrivately -> {
+                                    openEpisodePrivately(
+                                        EpisodeSubmitRequest(
+                                            type = meta.type,
+                                            videoId = meta.id,
+                                            parentMetaId = meta.id,
+                                            parentMetaType = meta.type,
+                                            title = meta.name,
+                                            logo = meta.logo,
+                                            poster = meta.poster,
+                                            background = meta.background,
+                                            pauseDescription = meta.description,
+                                        ),
+                                        PlayEntry.SourceSheet,
+                                    )
+                                }
                                 (meta.type == "series" || hasEpisodes) && seriesAction != null -> {
                                     manualPlay(
                                         meta.type,
@@ -1175,22 +1250,26 @@ fun MetaDetailsScreen(
                     )
                         ?.takeUnless { it.isCompleted }
                     stopHeroTrailerForNavigation()
-                    onPlay?.invoke(
-                        meta.type,
-                        streamVideoId,
-                        meta.id,
-                        meta.type,
-                        meta.name,
-                        meta.logo,
-                        meta.poster,
-                        meta.background,
-                        season,
-                        episode,
-                        video.title,
-                        video.thumbnail,
-                        video.overview,
-                        savedProgress?.lastPositionMs,
-                    )
+                    if (openedPrivately) {
+                        openEpisodePrivately(meta.toEpisodeSubmitRequest(video), PlayEntry.EpisodeList)
+                    } else {
+                        onPlay?.invoke(
+                            meta.type,
+                            streamVideoId,
+                            meta.id,
+                            meta.type,
+                            meta.name,
+                            meta.logo,
+                            meta.poster,
+                            meta.background,
+                            season,
+                            episode,
+                            video.title,
+                            video.thumbnail,
+                            video.overview,
+                            savedProgress?.lastPositionMs,
+                        )
+                    }
                 }
                 val onEpisodeManualPlayClick: (MetaVideo) -> Unit = onEpisodeManualPlay@{ video ->
                     if (!networkActionsEnabled) return@onEpisodeManualPlay
@@ -1211,22 +1290,26 @@ fun MetaDetailsScreen(
                     )
                         ?.takeUnless { it.isCompleted }
                     stopHeroTrailerForNavigation()
-                    onPlayManually?.invoke(
-                        meta.type,
-                        streamVideoId,
-                        meta.id,
-                        meta.type,
-                        meta.name,
-                        meta.logo,
-                        meta.poster,
-                        meta.background,
-                        season,
-                        episode,
-                        video.title,
-                        video.thumbnail,
-                        video.overview,
-                        savedProgress?.lastPositionMs,
-                    )
+                    if (openedPrivately) {
+                        openEpisodePrivately(meta.toEpisodeSubmitRequest(video), PlayEntry.SourceSheet)
+                    } else {
+                        onPlayManually?.invoke(
+                            meta.type,
+                            streamVideoId,
+                            meta.id,
+                            meta.type,
+                            meta.name,
+                            meta.logo,
+                            meta.poster,
+                            meta.background,
+                            season,
+                            episode,
+                            video.title,
+                            video.thumbnail,
+                            video.overview,
+                            savedProgress?.lastPositionMs,
+                        )
+                    }
                 }
                 if (showShuffle && showShuffleButton) {
                     EpisodeShuffleSheet(
@@ -1680,7 +1763,6 @@ fun MetaDetailsScreen(
                             headerBackground = null,
                             onBack = onBackFromDetails,
                             onToggleSaved = toggleSaved,
-                            glassBackdrop = cinematicContentBackdrop.takeIf { cinematicGlassEnabled && it.isReady },
                         )
 
                         selectedEpisodeForActions
@@ -1789,7 +1871,7 @@ fun MetaDetailsScreen(
                                 },
                                 onWatchPrivately = {
                                     stopHeroTrailerForNavigation()
-                                    openEpisodePrivately(meta.toEpisodeSubmitRequest(selectedEpisode))
+                                    openEpisodePrivately(meta.toEpisodeSubmitRequest(selectedEpisode), PlayEntry.EpisodeList)
                                 },
                                 onRate = if (canRateEpisode && episodeRatingTarget != null) {
                                     {
@@ -1891,22 +1973,24 @@ fun MetaDetailsScreen(
                             )
                         }
 
-                        val seasonOverviewFixtureSeason = when {
-                            meta.id != UiFixtureCatalog.SERIES_ID -> null
-                            currentUiFixture() == UiFixture.SeasonOverview -> 1
-                            currentUiFixture() == UiFixture.SeasonOverviewLong -> 2
-                            else -> null
-                        }
+                        val seasonOverviewFixtureSeason = seasonOverviewOpenedByFixture(
+                            currentUiFixture(),
+                            meta.id,
+                        )
                         androidx.compose.runtime.LaunchedEffect(seasonOverviewFixtureSeason) {
                             if (seasonOverviewFixtureSeason != null) {
                                 seasonOverviewSeason = seasonOverviewFixtureSeason
                             }
                         }
                         seasonOverviewSeason?.let { overviewSeason ->
-                            val overviewEpisodes = remember(meta, overviewSeason) {
-                                meta.videos
-                                    .filter { video -> (video.season ?: 0) == overviewSeason && video.episode != null }
-                                    .sortedBy { it.episode }
+                            val ledgerRevision by com.nuvio.app.features.player.skip.OwnTheIntroDbLedger.revision.collectAsStateWithLifecycle()
+                            val overviewEpisodes = remember(meta, overviewSeason, ledgerRevision) {
+                                seasonSheetEpisodes(
+                                    catalog = meta.videos,
+                                    ledger = com.nuvio.app.features.player.skip.OwnTheIntroDbLedger.load(overviewLedgerScope()),
+                                    showImdbIds = showImdbIds(meta),
+                                    season = overviewSeason,
+                                )
                             }
                             SeasonOverviewSheet(
                                 meta = meta,
@@ -1930,7 +2014,7 @@ fun MetaDetailsScreen(
                                 },
                                 onWatchPrivately = { episode ->
                                     stopHeroTrailerForNavigation()
-                                    openEpisodePrivately(meta.toEpisodeSubmitRequest(episode))
+                                    openEpisodePrivately(meta.toEpisodeSubmitRequest(episode), PlayEntry.SeasonRow)
                                 },
                             )
                         }
@@ -2078,15 +2162,19 @@ fun MetaDetailsScreen(
         }
 
         if (displayedMeta == null) {
+            val nativeBackVisible = com.nuvio.app.navigation.LocalUseNativeNavigation.current &&
+                !com.nuvio.app.navigation.LocalNativeNavigationBarHidden.current
+            if (com.nuvio.app.core.ui.detailHeroBackShown(nativeBackVisible)) {
             NuvioBackButton(
                 onClick = onBack,
                 modifier = Modifier.padding(
                     start = 12.dp,
-                    top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp,
+                    top = com.nuvio.app.core.ui.detailChromeTopInset() + 8.dp,
                 ),
                 containerColor = Color.Transparent,
                 contentColor = MaterialTheme.colorScheme.onBackground,
             )
+            }
         }
         }
 
@@ -2238,31 +2326,38 @@ fun MetaDetailsScreen(
                                 label = stringResource(Res.string.play_manually),
                                 enabled = !networkStatusUiState.isOfflineLike,
                                 onSelected = {
-                                    val playbackVideoId = buildPlaybackVideoId(
-                                        parentMetaId = meta.id,
-                                        seasonNumber = selectedEpisode.season,
-                                        episodeNumber = selectedEpisode.episode,
-                                        fallbackVideoId = selectedEpisode.id,
-                                    )
-                                    val streamVideoId = selectedEpisode.id.takeIf { it.isNotBlank() } ?: playbackVideoId
-                                    val savedProgress = progressByVideoId[streamVideoId]
-                                        ?.takeUnless { it.isCompleted }
-                                    onPlayManually.invoke(
-                                        meta.type,
-                                        streamVideoId,
-                                        meta.id,
-                                        meta.type,
-                                        meta.name,
-                                        meta.logo,
-                                        meta.poster,
-                                        meta.background,
-                                        selectedEpisode.season,
-                                        selectedEpisode.episode,
-                                        selectedEpisode.title,
-                                        selectedEpisode.thumbnail,
-                                        selectedEpisode.overview,
-                                        savedProgress?.lastPositionMs,
-                                    )
+                                    if (openedPrivately) {
+                                        openEpisodePrivately(
+                                            meta.toEpisodeSubmitRequest(selectedEpisode),
+                                            PlayEntry.SourceSheet,
+                                        )
+                                    } else {
+                                        val playbackVideoId = buildPlaybackVideoId(
+                                            parentMetaId = meta.id,
+                                            seasonNumber = selectedEpisode.season,
+                                            episodeNumber = selectedEpisode.episode,
+                                            fallbackVideoId = selectedEpisode.id,
+                                        )
+                                        val streamVideoId = selectedEpisode.id.takeIf { it.isNotBlank() } ?: playbackVideoId
+                                        val savedProgress = progressByVideoId[streamVideoId]
+                                            ?.takeUnless { it.isCompleted }
+                                        onPlayManually.invoke(
+                                            meta.type,
+                                            streamVideoId,
+                                            meta.id,
+                                            meta.type,
+                                            meta.name,
+                                            meta.logo,
+                                            meta.poster,
+                                            meta.background,
+                                            selectedEpisode.season,
+                                            selectedEpisode.episode,
+                                            selectedEpisode.title,
+                                            selectedEpisode.thumbnail,
+                                            selectedEpisode.overview,
+                                            savedProgress?.lastPositionMs,
+                                        )
+                                    }
                                 },
                             ),
                         )
@@ -2289,10 +2384,9 @@ private fun DetailHeaderOverlay(
     headerBackground: (@Composable () -> Unit)?,
     onBack: () -> Unit,
     onToggleSaved: () -> Unit,
-    glassBackdrop: Backdrop? = null,
 ) {
     val headerTarget = if (isHeroCollapsed.value) 1f else 0f
-    val headerProgress by animateFloatAsState(
+    val headerProgress = animateFloatAsState(
         targetValue = headerTarget,
         animationSpec = tween(
             durationMillis = if (headerTarget > 0f) 150 else 100,
@@ -2301,34 +2395,16 @@ private fun DetailHeaderOverlay(
         label = "detail_floating_header_progress",
     )
 
-    if (headerProgress <= 0.05f) {
-        NuvioBackButton(
-            onClick = onBack,
-            modifier = Modifier
-                .padding(LocalVerticalBarPadding.current)
-                .padding(
-                    start = 12.dp,
-                    top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp,
-                )
-                .zIndex(2f),
-            containerColor = Color.Transparent,
-            contentColor = MaterialTheme.colorScheme.onBackground,
-        )
-    }
-
-    if (verticalBarWidth() == 0.dp) {
-        DetailFloatingHeader(
-            meta = meta,
-            isSaved = isSaved,
-            progress = headerProgress,
-            backgroundColor = backgroundColor,
-            background = headerBackground,
-            onBack = onBack,
+    DetailFloatingHeader(
+        meta = meta,
+        isSaved = isSaved,
+        progress = headerProgress,
+        backgroundColor = backgroundColor,
+        background = headerBackground,
+        onBack = onBack,
             onToggleSaved = onToggleSaved,
             modifier = Modifier.zIndex(2f),
-            glassBackdrop = glassBackdrop,
         )
-    }
 }
 
 private const val RATING_SHEET_OPEN_DELAY_MS = 350L
@@ -2649,14 +2725,14 @@ private fun DetailSectionContainer(
     contentMaxWidth: Dp,
     content: @Composable () -> Unit,
 ) {
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = horizontalPadding)
             .padding(bottom = 20.dp),
-        contentAlignment = Alignment.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(
@@ -2666,7 +2742,7 @@ private fun DetailSectionContainer(
                         Modifier.widthIn(max = contentMaxWidth)
                     },
                 ),
-            contentAlignment = Alignment.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             CompositionLocalProvider(LocalVerticalBarPadding provides PaddingValues(), content)
         }
@@ -2806,12 +2882,27 @@ private fun ConfiguredMetaSections(
                 )
             }
             MetaScreenSectionKey.OVERVIEW -> {
-                DetailMetaInfo(
+                DetailOverviewSection(
                     meta = meta,
                     showOverallRatings = settings.showOverallRatings,
                     isMdbListActive = isMdbListActive,
                     horizontalScrollPadding = horizontalScrollPadding,
-                )
+                ) {
+                    if (com.nuvio.app.features.player.skip.movieSegmentStatusAttached(
+                            com.nuvio.app.features.player.skip.MovieSegmentSurface.Details,
+                            meta.type.equals("movie", ignoreCase = true),
+                        )
+                    ) {
+                        val imdb = meta.imdbId?.takeIf { it.startsWith("tt", ignoreCase = true) }
+                            ?: meta.id.takeIf { it.startsWith("tt", ignoreCase = true) }
+                            ?: ""
+                        com.nuvio.app.features.player.skip.MovieSegmentStatusBlock(
+                            imdbId = imdb,
+                            contentKey = com.nuvio.app.features.player.skip.flagSubmitContentKey(imdb, 0, 0, isMovie = true),
+                            parentMetaId = meta.id,
+                        )
+                    }
+                }
             }
             MetaScreenSectionKey.PRODUCTION -> {
                 if (hasProductionSection) {

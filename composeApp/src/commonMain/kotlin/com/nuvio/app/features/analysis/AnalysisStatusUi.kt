@@ -9,6 +9,8 @@ import nuvio.composeapp.generated.resources.analysis_stage_previews
 import nuvio.composeapp.generated.resources.analysis_status_queued
 import nuvio.composeapp.generated.resources.analysis_status_running
 import nuvio.composeapp.generated.resources.analysis_activity_clip
+import nuvio.composeapp.generated.resources.analysis_activity_reference_fetch
+import nuvio.composeapp.generated.resources.analysis_activity_reference_read
 import nuvio.composeapp.generated.resources.analysis_activity_teach
 import nuvio.composeapp.generated.resources.analysis_activity_backfill
 import nuvio.composeapp.generated.resources.analysis_activity_preview
@@ -26,6 +28,9 @@ import nuvio.composeapp.generated.resources.analysis_part_state_needs_episodes
 import nuvio.composeapp.generated.resources.analysis_part_state_pending
 import nuvio.composeapp.generated.resources.analysis_part_recap
 import nuvio.composeapp.generated.resources.analysis_part_recap_none
+import nuvio.composeapp.generated.resources.analysis_part_recap_you_marked
+import nuvio.composeapp.generated.resources.analysis_part_recap_suggestion
+import nuvio.composeapp.generated.resources.analysis_part_recap_unchecked
 import nuvio.composeapp.generated.resources.analysis_part_subtitle_sync
 import nuvio.composeapp.generated.resources.analysis_part_loudness
 import nuvio.composeapp.generated.resources.analysis_part_previews
@@ -111,12 +116,22 @@ private fun stageLabel(stage: AnalysisStage): String = when (stage) {
 private fun percent(value: Double): Int = (value.coerceIn(0.0, 1.0) * 100).toInt()
 
 @Composable
-private fun activityLabel(activity: String, stage: AnalysisStage): String = when (activity) {
-    "clip" -> stringResource(Res.string.analysis_activity_clip)
-    "teach" -> stringResource(Res.string.analysis_activity_teach)
-    "backfill" -> stringResource(Res.string.analysis_activity_backfill)
-    "preview" -> stringResource(Res.string.analysis_activity_preview)
-    else -> stageLabel(stage)
+private fun activityLabel(activity: String, stage: AnalysisStage): String {
+    parseReferenceActivity(activity)?.let { ref ->
+        val name = if (ref.operation == "read") {
+            Res.string.analysis_activity_reference_read
+        } else {
+            Res.string.analysis_activity_reference_fetch
+        }
+        return stringResource(name, ref.seconds, ref.season, ref.episode)
+    }
+    return when (activity) {
+        "clip" -> stringResource(Res.string.analysis_activity_clip)
+        "teach" -> stringResource(Res.string.analysis_activity_teach)
+        "backfill" -> stringResource(Res.string.analysis_activity_backfill)
+        "preview" -> stringResource(Res.string.analysis_activity_preview)
+        else -> stageLabel(stage)
+    }
 }
 
 /** Wall clock for a running step. It does not change the percent. */
@@ -232,6 +247,9 @@ private fun stateWord(part: AnalysisPart): String = when (part) {
     AnalysisPart.NotFound -> stringResource(Res.string.analysis_part_state_not_found)
     AnalysisPart.NeedsMoreEpisodes -> stringResource(Res.string.analysis_part_state_needs_episodes)
     AnalysisPart.Pending -> stringResource(Res.string.analysis_part_state_pending)
+    AnalysisPart.NotChecked -> stringResource(Res.string.analysis_part_recap_unchecked)
+    AnalysisPart.UserMarkedNone -> stringResource(Res.string.analysis_part_recap_you_marked)
+    AnalysisPart.Suggested -> stringResource(Res.string.analysis_part_recap_suggestion)
     AnalysisPart.Off -> ""
 }
 
@@ -243,6 +261,9 @@ private fun PartChips(item: DownloadItem, parts: AnalysisParts) {
     val ledger by SkipSourceLedger.revision.collectAsStateWithLifecycle()
     val external = remember(item.id, item.fileName, parts, ledger) { externalSkipSources(item) }
     val noRecapText = stringResource(Res.string.analysis_part_recap_none)
+    val youMarkedRecapText = stringResource(Res.string.analysis_part_recap_you_marked)
+    val suggestionText = stringResource(Res.string.analysis_part_recap_suggestion)
+    val notCheckedText = stringResource(Res.string.analysis_part_recap_unchecked)
     val readyWord = stringResource(Res.string.analysis_part_state_ready)
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
@@ -268,9 +289,20 @@ private fun PartChips(item: DownloadItem, parts: AnalysisParts) {
                 )
                 return@forEach
             }
-            if (kind == AnalysisChipKind.Recap && part == AnalysisPart.NotFound) {
+            val recapSentence = if (kind == AnalysisChipKind.Recap) {
+                when (recapChipSentence(part)) {
+                    RecapChipSentence.SeasonSuggestion -> suggestionText
+                    RecapChipSentence.YouMarkedNone -> youMarkedRecapText
+                    RecapChipSentence.NoRecapFound -> noRecapText
+                    RecapChipSentence.NotChecked -> notCheckedText
+                    RecapChipSentence.Ready, RecapChipSentence.Other -> null
+                }
+            } else {
+                null
+            }
+            if (recapSentence != null) {
                 Text(
-                    text = noRecapText,
+                    text = recapSentence,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
@@ -286,6 +318,9 @@ private fun PartChips(item: DownloadItem, parts: AnalysisParts) {
                 AnalysisPart.NotFound -> stringResource(Res.string.analysis_part_none) to false
                 AnalysisPart.NeedsMoreEpisodes -> stringResource(Res.string.analysis_part_needs_episodes) to false
                 AnalysisPart.Pending -> "…" to false
+                AnalysisPart.NotChecked -> notCheckedText to false
+                AnalysisPart.UserMarkedNone -> youMarkedRecapText to false
+                AnalysisPart.Suggested -> suggestionText to false
                 AnalysisPart.Off -> "" to false
             }
             PartChip("$label $suffix", ready, spoken)
@@ -329,6 +364,7 @@ internal fun AnalysisSummarySection(isTablet: Boolean) {
         DownloadsRepository.uiState
     }.collectAsStateWithLifecycle()
     val job by MediaAnalysisStatus.job.collectAsStateWithLifecycle()
+    val wait by AnalysisWaitStatus.snapshot.collectAsStateWithLifecycle()
     val failures by MediaAnalysisStatus.failures.collectAsStateWithLifecycle()
     val revision by MediaAnalysisStatus.revision.collectAsStateWithLifecycle()
     val background by MediaAnalysisStatus.background.collectAsStateWithLifecycle()
@@ -377,7 +413,8 @@ internal fun AnalysisSummarySection(isTablet: Boolean) {
                         stringResource(Res.string.analysis_summary_idle_waiting, summary.queued.size)
                     }
                 }
-                Text(stateText, style = MaterialTheme.typography.bodyMedium, color = textColor)
+                val waitClock = wait?.let { " · " + analysisWaitClock(it.elapsedMs) }.orEmpty()
+                Text(stateText + waitClock, style = MaterialTheme.typography.bodyMedium, color = textColor)
                 (job as? AnalysisJobState.Running)?.let { j ->
                     LinearProgressIndicator(
                         progress = { j.overall.toFloat().coerceIn(0f, 1f) },

@@ -31,6 +31,40 @@ class HeroArtworkFrameTest {
     }
 
     @Test
+    fun phonePortraitDetailsKeepsTheLogoOnThePicture() {
+        val width = 402.dp
+        val band = portraitArtworkSlotHeight(width, tallArt = false)
+        val slot = portraitDetailHeroHeight(width, 0.dp)
+        assertTrue(slot > band + 100.dp)
+        assertEquals(
+            1f,
+            heroImageHeightFraction(phonePortraitHeroArtwork(), width.value, slot.value, portrait = false),
+        )
+        val tallerHeading = band + 40.dp
+        assertEquals(band + tallerHeading, portraitDetailHeroHeight(width, tallerHeading))
+    }
+
+    @Test
+    fun phonePortraitHomeFillsTheHeroBehindTheTitle() {
+        val decision = phonePortraitHeroArtwork()
+        assertEquals(HeroArtworkFit.CropLandscape, decision.fit)
+        assertEquals(1f, decision.extraScale)
+        assertEquals(1f, decision.widthFraction)
+        assertFalse(decision.scrollScaleEnabled)
+        val frameWidth = 402f
+        val frameHeight = 874f * 0.82f
+        assertEquals(1f, heroImageHeightFraction(decision, frameWidth, frameHeight, portrait = false))
+        val band = heroImageHeightFraction(
+            heroArtworkDecision(1920, 1080, frameWidth, frameHeight, HOME_LANDSCAPE_EXTRA_SCALE, portrait = true),
+            frameWidth,
+            frameHeight,
+            portrait = true,
+        )
+        assertTrue(band < 0.5f)
+        assertTrue(frameHeight > frameWidth / PORTRAIT_WIDE_BAND_ASPECT + 200f)
+    }
+
+    @Test
     fun wideArtUsesAFullBleedBandOnAPortraitPhone() {
         val wide = 1920
         val tall = 1080

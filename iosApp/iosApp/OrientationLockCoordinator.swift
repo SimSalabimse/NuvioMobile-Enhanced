@@ -151,7 +151,19 @@ final class OrientationLockCoordinator {
                 .flatMap(\.windows)
                 .forEach { window in
                     window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+                    // The player dialog layer is sized while the window is landscape. Laying the
+                    // window out again lets that layer follow the bounds Downloads is using now.
+                    window.setNeedsLayout()
+                    window.layoutIfNeeded()
                 }
+            // Locking rotates into the player. Unlocking is the return to the list. A sheet
+            // whose frame is still the landscape window is dismissed there, not left off to the side.
+            if !forceRotate {
+                dismissSheetsThatDoNotFitTheWindow()
+                DispatchQueue.main.async { [weak self] in
+                    self?.dismissSheetsThatDoNotFitTheWindow()
+                }
+            }
         } else {
             if forceRotate {
                 UIDevice.current.setValue(preferredLandscapeOrientation.rawValue, forKey: "orientation")
@@ -159,6 +171,41 @@ final class OrientationLockCoordinator {
                 UIDevice.current.setValue(UIInterfaceOrientation.portrait.rawValue, forKey: "orientation")
             }
             UIViewController.attemptRotationToDeviceOrientation()
+            if !forceRotate {
+                dismissSheetsThatDoNotFitTheWindow()
+            }
+        }
+    }
+
+    private func dismissSheetsThatDoNotFitTheWindow() {
+        let deviceIsLandscape = UIDevice.current.orientation == .landscapeLeft
+            || UIDevice.current.orientation == .landscapeRight
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        for scene in scenes {
+            for window in scene.windows {
+                var misfits: [UIViewController] = []
+                var controller = window.rootViewController
+                while let presented = controller?.presentedViewController {
+                    let frame = presented.view.convert(presented.view.bounds, to: window)
+                    let decision = SeasonOverviewKt.overviewSheetFrameAfterReturn(
+                        proposedLeft: Int32(frame.origin.x.rounded()),
+                        proposedTop: Int32(frame.origin.y.rounded()),
+                        proposedWidth: Int32(frame.size.width.rounded()),
+                        proposedHeight: Int32(frame.size.height.rounded()),
+                        windowWidth: Int32(window.bounds.width.rounded()),
+                        windowHeight: Int32(window.bounds.height.rounded()),
+                        deviceIsLandscape: deviceIsLandscape
+                    )
+                    if decision.isEmpty {
+                        misfits.append(presented)
+                    }
+                    controller = presented
+                }
+                for presented in misfits.reversed() {
+                    presented.view.transform = .identity
+                    presented.dismiss(animated: false)
+                }
+            }
         }
     }
 

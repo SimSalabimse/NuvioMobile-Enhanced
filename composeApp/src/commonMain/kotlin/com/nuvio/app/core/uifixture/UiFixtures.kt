@@ -28,6 +28,13 @@ enum class UiFixture(
     DetailsTall("details-tall", startsOnline = true),
     Downloads("downloads", startsOnline = true),
     DownloadsSeason("downloads-season", startsOnline = true),
+    /**
+     * The finished episode is the bundled colour-bars clip on the real private player route.
+     * Analysis, download transfers, and account writes stay off.
+     */
+    DownloadsPlay("downloads-play", startsOnline = true),
+    /** Home continue-watching uses the same clip and returns to Home. */
+    HomePlay("home-play", startsOnline = true),
     LongTitles("long-titles", startsOnline = true),
     SmartDownloads("smart-downloads", startsOnline = true),
     PlayerSubmitBar("player-submit-bar", startsOnline = true),
@@ -45,7 +52,7 @@ enum class UiFixture(
     ;
 
     fun launchRoute(): AppRoute? = when (this) {
-        HomeOnline, HomeOffline, HomeTall, LongTitles, PlayerSubmitBar, PlayerSubmitBarLong,
+        HomeOnline, HomeOffline, HomeTall, HomePlay, LongTitles, PlayerSubmitBar, PlayerSubmitBarLong,
         PlayerSubmitBarFresh, PlayerSubmitBarTouchedInvalid,
         -> null
         DetailsOnline, DetailsOffline, DetailsTall, SmartDownloads, SeasonOverview, SeasonOverviewLong -> DetailRoute(
@@ -59,7 +66,7 @@ enum class UiFixture(
             title = UiFixtureCatalog.MOVIE_TITLE,
         )
         Downloads -> DownloadsRoute()
-        DownloadsSeason -> DownloadShowRoute(
+        DownloadsSeason, DownloadsPlay -> DownloadShowRoute(
             showId = UiFixtureCatalog.DOWNLOADS_SEASON_SHOW_ID,
             title = UiFixtureCatalog.LONG_TITLE,
         )
@@ -185,7 +192,16 @@ object UiFixtureSession {
     var pendingRoute: AppRoute? = null
     var submitBarWidthDp: Int? = null
     var walkId: String? = null
+    /** Tests only. Production leaves this null and reads the launch argument. */
+    var testFixture: UiFixture? = null
 }
+
+/** The bundled clip fixtures. They do not analyse, download, or write an account. */
+internal fun UiFixture?.playsBundledClip(): Boolean =
+    this == UiFixture.DownloadsPlay || this == UiFixture.HomePlay
+
+/** Elapsed time on the real player. The visible text moves while the clip plays. */
+internal const val PLAYER_ELAPSED_TAG = "player-elapsed"
 
 expect fun activeUiFixture(): UiFixture?
 
@@ -193,6 +209,6 @@ internal expect fun startConnectivityFixturePoller()
 
 private val capturedFixture: UiFixture? by lazy { activeUiFixture() }
 
-fun currentUiFixture(): UiFixture? = capturedFixture
+fun currentUiFixture(): UiFixture? = UiFixtureSession.testFixture ?: capturedFixture
 
 fun uiFixturesActive(): Boolean = currentUiFixture() != null

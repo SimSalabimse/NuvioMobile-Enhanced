@@ -8,7 +8,7 @@ struct DiagnosticsSettingsView: View {
     var body: some View {
         List {
             Section {
-                Toggle("Save diagnostics log", isOn: $viewModel.isEnabled)
+                Toggle("Save device error log", isOn: $viewModel.isEnabled)
                     .tint(.accentColor)
                 
                 Text("Stays on this phone. Nothing is uploaded.")
@@ -59,14 +59,14 @@ struct DiagnosticsSettingsView: View {
                 }
             }
         }
-        .navigationTitle("Diagnostics")
+        .navigationTitle("Device error log")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $viewModel.showingShareSheet) {
             if let url = viewModel.logURL {
                 ShareSheet(items: [url])
             }
         }
-        .alert("Clear diagnostics log?", isPresented: $viewModel.showingClearConfirmation) {
+        .alert("Clear device error log?", isPresented: $viewModel.showingClearConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Clear", role: .destructive) {
                 viewModel.clearLog()
@@ -108,10 +108,18 @@ final class DiagnosticsViewModel: ObservableObject {
     }
     
     func shareLog() {
-        logURL = DiagnosticsManager.shared.exportLog()
-        if logURL != nil {
-            showingShareSheet = true
+        guard let source = DiagnosticsManager.shared.exportLog() else { return }
+        let copy = FileManager.default.temporaryDirectory.appendingPathComponent("nuvio-device-error-\(UUID().uuidString).txt")
+        do {
+            if FileManager.default.fileExists(atPath: copy.path) {
+                try FileManager.default.removeItem(at: copy)
+            }
+            try FileManager.default.copyItem(at: source, to: copy)
+        } catch {
+            return
         }
+        logURL = copy
+        showingShareSheet = true
     }
     
     func clearLog() {

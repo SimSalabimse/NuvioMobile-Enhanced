@@ -93,6 +93,38 @@ class MovieSegmentStatusTest {
     }
 
     @Test
+    fun anEmptyCatalogueIsOneLineAndALocalMarkKeepsTheRows() {
+        val empty = movieSegmentRows(
+            media = null,
+            publicStatus = PublicMediaStatus.NoSubmissions,
+            confirmed = emptySet(),
+            pending = emptySet(),
+            detected = emptySet(),
+        )
+        assertEquals(MOVIE_SEGMENT_TYPES, empty.map { it.type })
+        assertTrue(movieSegmentCatalogueIsEmpty(empty))
+        val withIntro = movieSegmentRows(
+            media = null,
+            publicStatus = PublicMediaStatus.NoSubmissions,
+            confirmed = setOf("intro"),
+            pending = emptySet(),
+            detected = emptySet(),
+        )
+        assertFalse(movieSegmentCatalogueIsEmpty(withIntro))
+        assertFalse(
+            movieSegmentCatalogueIsEmpty(
+                movieSegmentRows(
+                    media = null,
+                    publicStatus = PublicMediaStatus.Unavailable,
+                    confirmed = emptySet(),
+                    pending = emptySet(),
+                    detected = setOf("preview"),
+                ),
+            ),
+        )
+    }
+
+    @Test
     fun fixtureRowsKeepAPublicCountOffTheConfirmedCheck() {
         val rows = movieSegmentFixtureRows()
         assertEquals(MOVIE_SEGMENT_TYPES, rows.map { it.type })

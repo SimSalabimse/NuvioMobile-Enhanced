@@ -54,6 +54,34 @@ internal fun MediaAnalysisResult.snappingEdges(detected: DetectedSegments): Dete
     )
 }
 
+/**
+ * Quiet-run starts, black-run starts, and fingerprint cuts strictly after [timeMs], through [untilMs].
+ * The recap chain uses the first of these as the end of a stitched opening.
+ */
+internal fun MediaAnalysisResult.edgesAfter(timeMs: Long, untilMs: Long): List<Long> {
+    if (untilMs <= timeMs) return emptyList()
+    val candidates = ArrayList<Long>()
+    for (range in silentRanges) if (range.startMs > timeMs) candidates += range.startMs
+    for (range in blackRanges) if (range.startMs > timeMs) candidates += range.startMs
+    for (cut in sceneChangeTimes()) if (cut > timeMs) candidates += cut
+    return candidates.filter { it <= untilMs }.sorted()
+}
+
+/** The first edge in (timeMs, timeMs + withinMs]. */
+internal fun MediaAnalysisResult.nextEdgeAfter(timeMs: Long, withinMs: Long): Long? {
+    if (withinMs <= 0L) return null
+    return edgesAfter(timeMs, timeMs + withinMs).firstOrNull()
+}
+
+/**
+ * Fingerprint cuts strictly after [timeMs], through [untilMs].
+ * A season mark follows the cut where the recap ends, not a pause inside the matched audio.
+ */
+internal fun MediaAnalysisResult.sceneChangesAfter(timeMs: Long, untilMs: Long): List<Long> {
+    if (untilMs <= timeMs) return emptyList()
+    return sceneChangeTimes().filter { it > timeMs && it <= untilMs }
+}
+
 /** Snaps one detected range. Does not apply the rejection list; the caller does. */
 internal fun MediaAnalysisResult.snapSegmentEdges(startMs: Long, endMs: Long): Pair<Long, Long>? {
     val scenes = sceneChangeTimes()

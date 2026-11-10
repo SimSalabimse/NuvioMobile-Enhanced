@@ -44,6 +44,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.runtime.snapshotFlow
@@ -51,7 +52,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -60,15 +61,29 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.testTag
+import com.nuvio.app.core.ui.HOME_SOFT_EDGE_PEAK
+import com.nuvio.app.core.ui.SoftBottomFade
+import com.nuvio.app.core.ui.SoftTopEdge
+import com.nuvio.app.core.ui.platformPhysicalTopInset
+import com.nuvio.app.core.ui.systemIncreaseContrastEnabled
+import com.nuvio.app.features.player.playerReduceTransparencyEnabled
+import com.nuvio.app.features.home.HOME_HERO_ART_TAG
+import com.nuvio.app.features.home.HOME_HERO_CONTENT_TAG
+import com.nuvio.app.features.home.HOME_HERO_TOP_EDGE_TAG
+import com.nuvio.app.features.home.HomeTopEdgeKind
+import com.nuvio.app.features.home.homeContentTopInsetDp
+import com.nuvio.app.features.home.homeHeroTopPaddingDp
+import com.nuvio.app.features.home.homeInteractiveClearanceDp
+import com.nuvio.app.features.home.homeTopEdgeHeightDp
+import com.nuvio.app.features.home.homeTopEdgeKind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -93,9 +108,9 @@ import com.nuvio.app.core.ui.focusedAlignment
 import com.nuvio.app.core.ui.heroArtworkDecision
 import com.nuvio.app.core.ui.heroImageHeightFraction
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
-import com.nuvio.app.core.ui.portraitArtworkSlotHeight
 import com.nuvio.app.features.details.accessibilityTextSize
 import com.nuvio.app.features.details.accessibleHeroTitleStyle
+import com.nuvio.app.core.ui.phonePortraitHeroArtwork
 import com.nuvio.app.core.ui.portraitHeroFrame
 import com.nuvio.app.core.ui.rememberHeroArtworkSize
 import com.nuvio.app.core.ui.rememberBackdropFocusState
@@ -180,6 +195,29 @@ private const val CARD_WIDE_MAX_VIEWPORT_FRACTION = 0.72f
 internal val HERO_CARD_CORNER_RADIUS = 28.dp
 internal val HERO_CARD_HORIZONTAL_PADDING = 12.dp
 internal val HERO_CARD_TOP_PADDING = 8.dp
+
+/**
+ * Test seam for the live top inset. Production leaves this null and reads the window.
+ * A provided value is the inset the hero must clear. It is not a stand-in for the picture height.
+ */
+internal val LocalHomeContentTopInset = compositionLocalOf<Dp?> { null }
+
+/** Test seam for Reduce Transparency and Increase Contrast. Production leaves both false. */
+internal data class HomeEdgeFlags(
+    val reduceTransparency: Boolean = false,
+    val increaseContrast: Boolean = false,
+)
+
+internal val LocalHomeEdgeFlags = compositionLocalOf { HomeEdgeFlags() }
+
+/** Status bar and window top, once. The tab host does not consume the top inset. */
+@Composable
+internal fun homeContentTopInset(): Dp {
+    LocalHomeContentTopInset.current?.let { return it.coerceAtLeast(0.dp) }
+    val status = WindowInsets.statusBars.asPaddingValues().calculateTopPadding().value
+    val windowTop = platformPhysicalTopInset().value
+    return homeContentTopInsetDp(status, windowTop).dp
+}
 
 internal fun heroUsesWideArtwork(
     maxWidth: Dp,
@@ -295,10 +333,10 @@ internal fun HomeHeroSection(
     }
 
     val isCardStyle = heroStyle == HomeHeroStyle.CARD
-    val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val contentTopInset = homeContentTopInset()
     val cardInsetModifier = if (isCardStyle) {
         Modifier.padding(
-            top = statusBarTopPadding + HERO_CARD_TOP_PADDING,
+            top = HERO_CARD_TOP_PADDING,
             start = HERO_CARD_HORIZONTAL_PADDING,
             end = HERO_CARD_HORIZONTAL_PADDING,
         )
@@ -312,7 +350,9 @@ internal fun HomeHeroSection(
     }
 
     Column(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = homeHeroTopPaddingDp(isCardStyle, contentTopInset.value).dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         BoxWithConstraints(
@@ -472,20 +512,13 @@ internal fun HomeHeroSection(
                 }
             }
 
-            val artworkIsTall = remember { mutableStateMapOf<String, Boolean>() }
-            val currentArtworkUrl = heroArtworkUrl(currentItem, effectiveArtworkSource)
-            val tallArt = currentArtworkUrl?.let { artworkIsTall[it] } == true
-            val artworkSlotHeight = if (phonePortrait) {
-                portraitArtworkSlotHeight(heroFrameWidth, tallArt)
-            } else {
-                layout.heroHeight
-            }
-
-            Column(modifier = Modifier.fillMaxWidth()) {
+            val artworkSlotHeight = layout.heroHeight
+            var heroCopyHeightPx by remember { mutableFloatStateOf(0f) }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heroStretchHeight(artworkSlotHeight, stretchPx),
+                    .heroStretchHeight(artworkSlotHeight, stretchPx)
+                    .testTag(HOME_HERO_ART_TAG),
             ) {
                 HorizontalPager(
                     state = pagerState,
@@ -513,21 +546,29 @@ internal fun HomeHeroSection(
                             key(effectiveArtworkSource, item.type, item.id, artworkUrl) {
                                 val backdropFocus = rememberBackdropFocusState(artworkUrl)
                                 val artworkSize = rememberHeroArtworkSize(artworkUrl)
-                                val artwork = heroArtworkDecision(
-                                    imageWidth = artworkSize.width,
-                                    imageHeight = artworkSize.height,
-                                    frameWidth = heroFrameWidth.value,
-                                    frameHeight = artworkSlotHeight.value,
-                                    landscapeExtraScale = if (isCardStyle) 1f else HERO_BACKGROUND_SCALE,
-                                    portrait = portraitFrame,
-                                )
+                                val artwork = if (phonePortrait) {
+                                    phonePortraitHeroArtwork()
+                                } else {
+                                    heroArtworkDecision(
+                                        imageWidth = artworkSize.width,
+                                        imageHeight = artworkSize.height,
+                                        frameWidth = heroFrameWidth.value,
+                                        frameHeight = artworkSlotHeight.value,
+                                        landscapeExtraScale = if (isCardStyle) 1f else HERO_BACKGROUND_SCALE,
+                                        portrait = portraitFrame,
+                                    )
+                                }
                                 val portrait = artwork.fit != HeroArtworkFit.CropLandscape
-                                val imageFraction = heroImageHeightFraction(
-                                    artwork,
-                                    heroFrameWidth.value,
-                                    artworkSlotHeight.value,
-                                    portrait = portraitFrame,
-                                )
+                                val imageFraction = if (phonePortrait) {
+                                    1f
+                                } else {
+                                    heroImageHeightFraction(
+                                        artwork,
+                                        heroFrameWidth.value,
+                                        artworkSlotHeight.value,
+                                        portrait = portraitFrame,
+                                    )
+                                }
                                 val scrollScale = if (artwork.scrollScaleEnabled && !isCardStyle) {
                                     heroBackgroundScrollScale(scrollOffsetPx)
                                 } else {
@@ -581,9 +622,6 @@ internal fun HomeHeroSection(
                                         val image = state.result.image
                                         artworkSize.onImageLoaded(image.width, image.height)
                                         backdropFocus.onImageLoaded(image)
-                                        if (artworkUrl != null && image.width > 0 && image.height > 0) {
-                                            artworkIsTall[artworkUrl] = image.height > image.width
-                                        }
                                     },
                                 )
                             }
@@ -610,7 +648,9 @@ internal fun HomeHeroSection(
                                     .align(Alignment.TopCenter)
                                     .fillMaxWidth()
                                     .fillMaxHeight(
-                                        if (portraitFrame) {
+                                        if (phonePortrait || !portraitFrame) {
+                                            1f
+                                        } else {
                                             heroImageHeightFraction(
                                                 heroArtworkDecision(
                                                     imageWidth = 16,
@@ -624,8 +664,6 @@ internal fun HomeHeroSection(
                                                 artworkSlotHeight.value,
                                                 portrait = true,
                                             )
-                                        } else {
-                                            1f
                                         },
                                     )
                                     .graphicsLayer {
@@ -666,53 +704,14 @@ internal fun HomeHeroSection(
                         }
                     }
 
-                    if (!isCardStyle && !phonePortrait) {
+                    if (!isCardStyle) {
                         val heroFadeColorState = LocalDynamicArtworkBackgroundColor.current
                         val themeBackground = MaterialTheme.colorScheme.background
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .drawBehind {
-                                    val fade = heroFadeColorState?.value ?: themeBackground
-                                    drawRect(
-                                        Brush.verticalGradient(
-                                            colors = listOf(
-                                                fade.copy(alpha = 0.02f),
-                                                fade.copy(alpha = 0.12f),
-                                                fade.copy(alpha = 0.34f),
-                                                fade.copy(alpha = 0.78f),
-                                            ),
-                                        ),
-                                    )
-                                },
-                        )
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(layout.bottomFadeHeight)
-                                .align(Alignment.BottomCenter)
-                                .drawBehind {
-                                    val fade = heroFadeColorState?.value ?: themeBackground
-                                    drawRect(Brush.verticalGradient(colors = listOf(fade.copy(alpha = 0f), fade)))
-                                },
-                        )
-                    }
-
-                    if (phonePortrait) {
-                        val edge = MaterialTheme.colorScheme.background
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(36.dp)
-                                .align(Alignment.BottomCenter)
-                                .drawBehind {
-                                    drawRect(
-                                        Brush.verticalGradient(
-                                            colors = listOf(edge.copy(alpha = 0f), edge),
-                                        ),
-                                    )
-                                },
+                        val copyHeight = with(LocalDensity.current) { heroCopyHeightPx.toDp() }
+                        SoftBottomFade(
+                            height = (copyHeight + 88.dp).coerceAtLeast(layout.bottomFadeHeight),
+                            color = heroFadeColorState?.value ?: themeBackground,
+                            modifier = Modifier.align(Alignment.BottomCenter),
                         )
                     }
 
@@ -732,19 +731,27 @@ internal fun HomeHeroSection(
                                     onItemClick?.invoke(currentItem)
                                 },
                         )
-                        if (!phonePortrait) {
-                            HomeHeroCopy(
-                                items = items,
-                                visiblePages = visiblePages,
-                                layout = layout,
-                                pagerState = pagerState,
-                                coroutineScope = coroutineScope,
-                                heroWidthPx = heroWidthPx,
-                                showImdbRating = showImdbRating,
-                                showMdbListRatings = showMdbListRatings,
-                                onItemClick = onItemClick,
-                                modifier = Modifier.align(Alignment.BottomCenter),
-                            )
+                        Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(top = contentTopInset),
+                            ) {
+                                HomeHeroCopy(
+                                    items = items,
+                                    visiblePages = visiblePages,
+                                    layout = layout,
+                                    pagerState = pagerState,
+                                    coroutineScope = coroutineScope,
+                                    heroWidthPx = heroWidthPx,
+                                    showImdbRating = showImdbRating,
+                                    showMdbListRatings = showMdbListRatings,
+                                    onItemClick = onItemClick,
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .onSizeChanged { heroCopyHeightPx = it.height.toFloat() }
+                                        .testTag(HOME_HERO_CONTENT_TAG),
+                                )
+                            }
                         }
                     }
 
@@ -761,7 +768,7 @@ internal fun HomeHeroSection(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
                                 .padding(
-                                    top = statusBarTopPadding + 12.dp,
+                                    top = 12.dp + if (isCardStyle) 0.dp else contentTopInset,
                                     end = if (layout.isTablet) 32.dp else 18.dp,
                                 )
                                 .size((muteIconSize + 16.dp).atLeastIosHitTarget())
@@ -785,23 +792,13 @@ internal fun HomeHeroSection(
                         }
                     }
                 }
+            HomeTopEdge(
+                safeTop = contentTopInset,
+                artworkBottom = artworkSlotHeight,
+                cardStyle = isCardStyle,
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
             }
-            if (phonePortrait) {
-                HomeHeroCopy(
-                    items = items,
-                    visiblePages = visiblePages,
-                    layout = layout,
-                    pagerState = pagerState,
-                    coroutineScope = coroutineScope,
-                    heroWidthPx = heroWidthPx,
-                    showImdbRating = showImdbRating,
-                    showMdbListRatings = showMdbListRatings,
-                    onItemClick = onItemClick,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
-            }
-        }
 
         if (isCardStyle && items.size > 1) {
             Spacer(modifier = Modifier.height(12.dp))
@@ -812,6 +809,42 @@ internal fun HomeHeroSection(
             )
         }
     }
+}
+
+/**
+ * Soft scrim over the status area. The artwork stays visible under it. It is not a bar:
+ * no blur, no hit target, and it is hidden from accessibility. Reduce Motion leaves it still.
+ * Reduce Transparency and Increase Contrast use a solid band of the inset only.
+ */
+@Composable
+private fun HomeTopEdge(
+    safeTop: Dp,
+    artworkBottom: Dp,
+    cardStyle: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val forced = LocalHomeEdgeFlags.current
+    val kind = homeTopEdgeKind(
+        safeTopDp = safeTop.value,
+        cardStyle = cardStyle,
+        reduceTransparency = forced.reduceTransparency || playerReduceTransparencyEnabled(),
+        increaseContrast = forced.increaseContrast || systemIncreaseContrastEnabled(),
+    )
+    if (kind == HomeTopEdgeKind.None) return
+    val solid = kind == HomeTopEdgeKind.Solid
+    val edgeHeight = homeTopEdgeHeightDp(
+        safeTopDp = safeTop.value,
+        artworkBottomDp = artworkBottom.value,
+        solid = solid,
+    ).dp
+    if (edgeHeight <= 0.dp) return
+    SoftTopEdge(
+        height = edgeHeight,
+        peakAlpha = HOME_SOFT_EDGE_PEAK,
+        solid = solid,
+        tag = HOME_HERO_TOP_EDGE_TAG,
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -949,15 +982,16 @@ internal fun HomeHeroReservedSpace(
     heroStyle: HomeHeroStyle = HomeHeroStyle.FULL_BLEED,
 ) {
     val isCardStyle = heroStyle == HomeHeroStyle.CARD
-    val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val contentTopInset = homeContentTopInset()
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
+            .padding(top = homeHeroTopPaddingDp(isCardStyle, contentTopInset.value).dp)
             .then(
                 if (isCardStyle) {
                     Modifier.padding(
-                        top = statusBarTopPadding + HERO_CARD_TOP_PADDING,
+                        top = HERO_CARD_TOP_PADDING,
                         start = HERO_CARD_HORIZONTAL_PADDING,
                         end = HERO_CARD_HORIZONTAL_PADDING,
                     )
@@ -1187,13 +1221,6 @@ private fun mobileHeroHeight(
     viewportHeightDp: Float?,
     mobileBelowSectionHeightHintDp: Float?,
 ): Dp {
-    val isPortraitViewport = viewportHeightDp?.let { it >= maxWidthDp } != false
-
-    if (isPortraitViewport) {
-        // Wide-band height. Tall art grows the live slot once the image size is known.
-        return portraitArtworkSlotHeight(maxWidthDp.dp, tallArt = false)
-    }
-
     val viewportDrivenHeight = viewportHeightDp?.let { (it * MOBILE_HERO_VIEWPORT_RATIO).dp }
     val widthFallbackHeight = (maxWidthDp * 1.16f).dp
     val baseHeight = viewportDrivenHeight ?: widthFallbackHeight

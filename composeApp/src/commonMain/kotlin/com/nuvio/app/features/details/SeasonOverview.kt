@@ -1,6 +1,7 @@
 package com.nuvio.app.features.details
 
 import com.nuvio.app.core.uifixture.UiFixture
+import com.nuvio.app.core.uifixture.UiFixtureCatalog
 import com.nuvio.app.core.uifixture.currentUiFixture
 import com.nuvio.app.features.analysis.MediaAnalysisResult
 import com.nuvio.app.features.player.skip.OwnAccountMarks
@@ -137,6 +138,40 @@ internal fun overviewSessionAfterEpisodeOpen(): OverviewSession = OverviewSessio
 
 internal fun overviewCanOpenAgain(session: OverviewSession): Boolean = !session.overlayVisible
 
+/**
+ * The sheet after the player gives the window back.
+ * The window passed in can still be the landscape size, because the rotation has not landed.
+ * On a phone that is not lying landscape, the list window is that size turned portrait.
+ * A frame that fits the list window is kept. A frame taken from the landscape window,
+ * including one that starts in the trailing half, does not fit and is dismissed.
+ * An empty result means dismiss. Otherwise the result is left, top, width, height.
+ */
+fun overviewSheetFrameAfterReturn(
+    proposedLeft: Int,
+    proposedTop: Int,
+    proposedWidth: Int,
+    proposedHeight: Int,
+    windowWidth: Int,
+    windowHeight: Int,
+    deviceIsLandscape: Boolean,
+): String {
+    if (windowWidth <= 0 || windowHeight <= 0 || proposedWidth <= 0 || proposedHeight <= 0) return ""
+    val returnWidth: Int
+    val returnHeight: Int
+    if (!deviceIsLandscape && windowWidth > windowHeight) {
+        returnWidth = windowHeight
+        returnHeight = windowWidth
+    } else {
+        returnWidth = windowWidth
+        returnHeight = windowHeight
+    }
+    val right = proposedLeft + proposedWidth
+    val bottom = proposedTop + proposedHeight
+    val inside = proposedLeft >= 0 && proposedTop >= 0 && right <= returnWidth && bottom <= returnHeight
+    if (!inside) return ""
+    return "$proposedLeft,$proposedTop,$proposedWidth,$proposedHeight"
+}
+
 internal fun seasonEpisodeContentKey(
     metaId: String,
     imdbId: String?,
@@ -213,12 +248,41 @@ internal fun localDetectionTypes(result: MediaAnalysisResult?): Set<String> {
     ).toSet()
 }
 
+/** Accessibility id for the Downloads show-page control. The sheet is not open until this is tapped. */
+internal const val DOWNLOADS_SEASON_OVERVIEW_TAG = "downloads-season-overview"
+
+/** Accessibility id for the details season menu row. The sheet is not open until this is tapped. */
+internal const val DETAILS_SEASON_OVERVIEW_TAG = "details-season-overview"
+
+/** Layout fixtures that read the fixture ledger instead of a signed-in account. */
+internal fun UiFixture?.usesFixtureLedger(): Boolean =
+    this == UiFixture.SeasonOverview ||
+        this == UiFixture.SeasonOverviewLong ||
+        this == UiFixture.DownloadsSeason ||
+        this == UiFixture.DownloadsPlay ||
+        this == UiFixture.DetailsOnline ||
+        this == UiFixture.DetailsMovieOffline
+
+/** Stable selector for a season poster. The visible caption can wrap; this id does not. */
+internal fun seasonPosterTag(season: Int): String = "season-poster-$season"
+
 internal fun overviewLedgerScope(fixture: UiFixture? = currentUiFixture()): String =
-    if (fixture == UiFixture.SeasonOverview || fixture == UiFixture.SeasonOverviewLong) {
+    if (fixture.usesFixtureLedger()) {
         OwnTheIntroDbLedger.FIXTURE_SCOPE
     } else {
         currentTheIntroDbAccountScope()
     }
+
+/**
+ * Seasons the season-overview screenshot fixtures open by themselves.
+ * Details and Downloads stay closed until the season overview control is tapped.
+ */
+internal fun seasonOverviewOpenedByFixture(fixture: UiFixture?, metaId: String): Int? = when {
+    metaId != UiFixtureCatalog.SERIES_ID -> null
+    fixture == UiFixture.SeasonOverview -> 1
+    fixture == UiFixture.SeasonOverviewLong -> 2
+    else -> null
+}
 
 internal fun submittedCount(rows: List<EpisodeSegmentOverview>): Int = rows.sumOf { it.submitted.size }
 

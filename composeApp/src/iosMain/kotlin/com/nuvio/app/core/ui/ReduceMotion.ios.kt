@@ -7,6 +7,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import platform.Foundation.NSNotificationCenter
+import platform.UIKit.UIAccessibilityDarkerSystemColorsEnabled
+import platform.UIKit.UIAccessibilityDarkerSystemColorsStatusDidChangeNotification
 import platform.UIKit.UIAccessibilityIsReduceMotionEnabled
 import platform.UIKit.UIAccessibilityReduceMotionStatusDidChangeNotification
 
@@ -20,6 +22,24 @@ internal actual fun systemReduceMotionEnabled(): Boolean {
             queue = null,
         ) { _ ->
             enabled = UIAccessibilityIsReduceMotionEnabled()
+        }
+        onDispose {
+            NSNotificationCenter.defaultCenter.removeObserver(observer)
+        }
+    }
+    return enabled
+}
+
+@Composable
+internal actual fun systemIncreaseContrastEnabled(): Boolean {
+    var enabled by remember { mutableStateOf<Boolean>(UIAccessibilityDarkerSystemColorsEnabled()) }
+    DisposableEffect(Unit) {
+        val observer = NSNotificationCenter.defaultCenter.addObserverForName(
+            name = UIAccessibilityDarkerSystemColorsStatusDidChangeNotification,
+            `object` = null,
+            queue = null,
+        ) { _ ->
+            enabled = UIAccessibilityDarkerSystemColorsEnabled()
         }
         onDispose {
             NSNotificationCenter.defaultCenter.removeObserver(observer)

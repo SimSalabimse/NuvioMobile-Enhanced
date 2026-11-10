@@ -85,7 +85,7 @@ class DeleteDownloadWhenFinishedTest {
         val stored = seedCompletedDownload()
         DownloadsSettingsRepository.setDeleteWhenFinished(true)
         FinishedDownloadDeletion.playbackOpened(videoId, stored.localFileUri!!)
-        WatchingActions.onProgressEntryUpdated(completedEntry())
+        reportPlayback(completedEntry(), completedEntry().durationMs)
 
         assertTrue(videoFile().isFile)
         assertEquals(stored.id, DownloadsRepository.uiState.value.items.single().id)
@@ -100,19 +100,21 @@ class DeleteDownloadWhenFinishedTest {
     }
 
     @Test
-    fun scrubbingBackKeepsTheFileUntilPlaybackLeaves(): Unit = runBlocking {
+    fun scrubbingBackBeforeTheEndKeepsTheFinishedFile(): Unit = runBlocking {
         val stored = seedCompletedDownload()
         DownloadsSettingsRepository.setDeleteWhenFinished(true)
+        val entry = completedEntry()
         FinishedDownloadDeletion.playbackOpened(videoId, stored.localFileUri!!)
-        WatchingActions.onProgressEntryUpdated(completedEntry())
-        WatchingActions.onProgressEntryUpdated(completedEntry().copy(isCompleted = false, lastPositionMs = 1_000L))
+        reportPlayback(entry, entry.durationMs)
+        reportPlayback(entry.copy(isCompleted = false, lastPositionMs = 1_000L), 1_000L)
 
         assertTrue(videoFile().isFile)
         assertEquals(stored.id, DownloadsRepository.uiState.value.items.single().id)
 
         FinishedDownloadDeletion.playbackEnded(videoId)
-        awaitRemoval(stored)
-        assertTrue(DownloadsRepository.uiState.value.items.isEmpty())
+        assertTrue(videoFile().isFile)
+        assertTrue(partFile().isFile)
+        assertEquals(stored.id, DownloadsRepository.uiState.value.items.single().id)
     }
 
     @Test
@@ -120,7 +122,7 @@ class DeleteDownloadWhenFinishedTest {
         val stored = seedCompletedDownload()
         DownloadsSettingsRepository.setDeleteWhenFinished(true)
         FinishedDownloadDeletion.playbackOpened(videoId, stored.localFileUri!!)
-        WatchingActions.onProgressEntryUpdated(completedEntry())
+        reportPlayback(completedEntry(), completedEntry().durationMs)
 
         FinishedDownloadDeletion.playbackOpened("tt123:1:2", "https://example.com/next.mkv")
         // Kept until the next episode is actually playing.
@@ -172,7 +174,7 @@ class DeleteDownloadWhenFinishedTest {
 
         val finished = seedCompletedDownload(id = "early-download")
         FinishedDownloadDeletion.playbackSourceChanged(videoId, finished.localFileUri!!)
-        WatchingActions.onProgressEntryUpdated(completedEntry())
+        reportPlayback(completedEntry(), completedEntry().durationMs)
         assertTrue(videoFile().isFile)
 
         FinishedDownloadDeletion.playbackEnded(videoId)
@@ -384,6 +386,11 @@ class DeleteDownloadWhenFinishedTest {
         )
         DownloadsRepository.replaceItems(listOf(item))
         return DownloadsRepository.uiState.value.items.single()
+    }
+
+    /** The position the player reports. [WatchingActions.onProgressEntryUpdated] no longer queues a file. */
+    private fun reportPlayback(entry: WatchProgressEntry, positionMs: Long) {
+        FinishedDownloadDeletion.onLocalProgress(entry, positionMs, entry.durationMs)
     }
 
     private fun completedEntry() = WatchProgressEntry(

@@ -70,6 +70,7 @@ import com.nuvio.app.features.home.components.HomeContinueWatchingSection
 import com.nuvio.app.features.home.components.HomeEmptyStateCard
 import com.nuvio.app.features.home.components.HomeHeroReservedSpace
 import com.nuvio.app.features.home.components.HomeHeroSection
+import com.nuvio.app.features.home.components.homeContentTopInset
 import com.nuvio.app.features.home.components.HomeSkeletonHero
 import com.nuvio.app.features.home.components.HomeSkeletonRow
 import com.nuvio.app.features.home.components.HomeContinueWatchingSectionBottomPadding
@@ -1087,6 +1088,9 @@ fun HomeScreen(
             } else {
                 0.dp
             }
+        val extremeText = com.nuvio.app.core.ui.extremeAccessibilityText(
+            androidx.compose.ui.platform.LocalDensity.current.fontScale,
+        )
         val mobileHeroBelowSectionHeightHint = remember(
             maxWidth.value,
             continueWatchingPreferences.isVisible,
@@ -1095,6 +1099,7 @@ fun HomeScreen(
             continueWatchingLayout,
             posterCardStyle.widthDp,
             nativeBottomNavigationOverlayHeight,
+            extremeText,
         ) {
             if (
                 maxWidth.value < 600f &&
@@ -1105,6 +1110,7 @@ fun HomeScreen(
                     style = continueWatchingPreferences.style,
                     layout = continueWatchingLayout,
                     basePosterWidthDp = posterCardStyle.widthDp,
+                    extremeText = extremeText,
                 ) + nativeBottomNavigationOverlayHeight
             } else {
                 null
@@ -1127,7 +1133,7 @@ fun HomeScreen(
             NuvioScreen(
                 modifier = Modifier.fillMaxSize().then(heroStretchModifier),
                 horizontalPadding = 0.dp,
-                topPadding = if (showHeroSlot) 0.dp else null,
+                topPadding = if (showHeroSlot) 0.dp else homeContentTopInset(),
                 listState = homeListState,
                 autoHidesNativeTabBar = true,
             ) {
