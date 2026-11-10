@@ -73,6 +73,15 @@ internal fun MediaAnalysisResult.nextEdgeAfter(timeMs: Long, withinMs: Long): Lo
     return edgesAfter(timeMs, timeMs + withinMs).firstOrNull()
 }
 
+/**
+ * Fingerprint cuts strictly after [timeMs], through [untilMs].
+ * A season mark follows the cut where the recap ends, not a pause inside the matched audio.
+ */
+internal fun MediaAnalysisResult.sceneChangesAfter(timeMs: Long, untilMs: Long): List<Long> {
+    if (untilMs <= timeMs) return emptyList()
+    return sceneChangeTimes().filter { it > timeMs && it <= untilMs }
+}
+
 /** Snaps one detected range. Does not apply the rejection list; the caller does. */
 internal fun MediaAnalysisResult.snapSegmentEdges(startMs: Long, endMs: Long): Pair<Long, Long>? {
     val scenes = sceneChangeTimes()

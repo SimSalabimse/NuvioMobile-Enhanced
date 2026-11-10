@@ -777,7 +777,7 @@ internal object RecapDetector {
         /** The search did not compare a clip. An empty or too-short print is not a completed miss. */
         val unchecked: Boolean = false,
         val uncheckedWhy: String? = null,
-        /** The span starts on a sting shared by at least two siblings. */
+        /** The span starts in the opening: a shared sting, or a previous-episode match. */
         val sharedOpening: Boolean = false,
         /** The end was moved from the audio clips using sibling marks. Not an audio find. */
         val seasonPattern: Boolean = false,
@@ -849,8 +849,24 @@ internal object RecapDetector {
             hits = clips.size,
             kept = kept.size,
             fromPrevious = inSpan.any { it.previous },
-            sharedOpening = sting != null && snapped.first <= OPENING_STING_START_MS,
+            sharedOpening = openingForSeason(chained, sting, kept),
         )
+    }
+
+    /**
+     * The chain starts in the opening window, before a quiet or black run can snap the start
+     * a couple of seconds later. A sting shared by the season counts, and so does a
+     * previous-episode match that only covers the tail of the recap.
+     */
+    private fun openingForSeason(chained: Pair<Long, Long>, sting: Clip?, kept: List<Clip>): Boolean {
+        if (chained.first > SNAP_TO_START_MS) return false
+        if (sting != null) return true
+        return kept.any { clip ->
+            clip.previous &&
+                clip.startMs <= SNAP_TO_START_MS &&
+                clip.endMs > chained.first &&
+                clip.startMs < chained.second
+        }
     }
 
     /** Two or more siblings sharing a clip that starts at the opening. */
@@ -885,8 +901,9 @@ internal object RecapDetector {
     }
 
     /**
-     * Extends a shared opening to the first cut at or before the shortest sibling mark,
-     * and never past the longest. No extension when fewer than two marks qualify.
+     * Extends an opening match to the fingerprint cut at or before the shortest sibling mark,
+     * and never past the longest. A pause after the matched tail is not that cut.
+     * No extension when fewer than two marks qualify.
      */
     private fun withSeasonPattern(
         episode: MediaAnalysisResult,
@@ -918,9 +935,9 @@ internal object RecapDetector {
         val shortest = marks.minOf { it.endMs }
         val longest = marks.maxOf { it.endMs }
         if (shortest <= audio.second) return null
-        val edges = episode.rememberingSilentRanges().edgesAfter(audio.second, longest)
-        edges.firstOrNull { it <= shortest }?.let { return it }
-        edges.firstOrNull { it <= longest }?.let { return it }
+        val cuts = episode.rememberingSilentRanges().sceneChangesAfter(audio.second, longest)
+        cuts.firstOrNull { it <= shortest }?.let { return it }
+        cuts.firstOrNull { it <= longest }?.let { return it }
         return shortest
     }
 

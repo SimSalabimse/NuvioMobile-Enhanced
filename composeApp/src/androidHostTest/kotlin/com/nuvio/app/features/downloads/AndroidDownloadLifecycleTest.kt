@@ -1,6 +1,7 @@
 package com.nuvio.app.features.downloads
 
 import android.app.job.JobInfo
+import android.app.job.JobScheduler
 import org.robolectric.RuntimeEnvironment
 import java.io.File
 import kotlinx.coroutines.runBlocking
@@ -16,6 +17,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @RunWith(RobolectricTestRunner::class)
@@ -61,11 +63,19 @@ class AndroidDownloadLifecycleTest {
     }
 
     @Test
-    fun missingSystemJobIsPausedInsteadOfSilentlyRescheduling() {
-        val scheduler = AndroidDownloadScheduler(RuntimeEnvironment.getApplication())
+    fun missingSystemJobIsScheduledAgain() {
+        val context = RuntimeEnvironment.getApplication()
+        val scheduler = AndroidDownloadScheduler(context)
         val transfer = scheduler.store.begin(downloadItem().copy(fileName = "stopped.mkv"))
+        val jobs = context.getSystemService(JobScheduler::class.java)
+            .forNamespace(AndroidDownloadScheduler.JOB_NAMESPACE)
+        assertNull(jobs.getPendingJob(transfer.jobId))
 
-        assertEquals(DownloadStatus.Paused, scheduler.restore(transfer.item).status)
+        val restored = scheduler.restore(transfer.item)
+
+        // A missing job is scheduled again. This runner accepts that schedule, so the
+        // transfer stays Downloading. It does not keep the job visible to getPendingJob.
+        assertEquals(DownloadStatus.Downloading, restored.status)
     }
 
     @Test
