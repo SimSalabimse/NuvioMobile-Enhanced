@@ -27,10 +27,10 @@ internal enum class IsolatedPlayback {
     Private,
 }
 
-private var episodeSubmitLauncher: ((EpisodeSubmitRequest, IsolatedPlayback) -> Unit)? = null
+private var episodeSubmitLauncher: ((EpisodeSubmitRequest, PlayEntry, IsolatedPlayback) -> Unit)? = null
 
 /** Installed by the app shell while it is composed. */
-internal fun installEpisodeSubmitLauncher(launcher: ((EpisodeSubmitRequest, IsolatedPlayback) -> Unit)?) {
+internal fun installEpisodeSubmitLauncher(launcher: ((EpisodeSubmitRequest, PlayEntry, IsolatedPlayback) -> Unit)?) {
     episodeSubmitLauncher = launcher
 }
 
@@ -45,7 +45,7 @@ internal fun installEpisodeSubmitLauncher(launcher: ((EpisodeSubmitRequest, Isol
  * The shell installs the launcher while it is on screen. A call before that does nothing.
  */
 fun openEpisodeInSubmitMode(request: EpisodeSubmitRequest) {
-    episodeSubmitLauncher?.invoke(request, IsolatedPlayback.Submit)
+    openIsolatedEpisode(request, PlayEntry.Details, IsolatedPlayback.Submit)
 }
 
 /**
@@ -56,5 +56,18 @@ fun openEpisodeInSubmitMode(request: EpisodeSubmitRequest) {
  * in the player still sends a segment.
  */
 fun openEpisodePrivately(request: EpisodeSubmitRequest) {
-    episodeSubmitLauncher?.invoke(request, IsolatedPlayback.Private)
+    openIsolatedEpisode(request, PlayEntry.Details, IsolatedPlayback.Private)
+}
+
+/** Same open as [openEpisodePrivately], with the entry that started it. */
+internal fun openEpisodePrivately(request: EpisodeSubmitRequest, entry: PlayEntry) {
+    openIsolatedEpisode(request, entry, IsolatedPlayback.Private)
+}
+
+private fun openIsolatedEpisode(
+    request: EpisodeSubmitRequest,
+    entry: PlayEntry,
+    kind: IsolatedPlayback,
+) {
+    episodeSubmitLauncher?.invoke(request, entry, kind)
 }

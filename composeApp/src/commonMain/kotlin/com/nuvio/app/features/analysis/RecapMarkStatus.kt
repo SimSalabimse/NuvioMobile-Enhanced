@@ -19,13 +19,16 @@ internal val RECAP_CHECKED_NONE: Set<String> = setOf(
 internal enum class RecapChipSentence {
     Ready,
     NoRecapFound,
+    YouMarkedNone,
     NotChecked,
     Other,
 }
 
+/** The chip sentence. A user "none" is [YouMarkedNone], never the detector's miss. */
 internal fun recapChipSentence(part: AnalysisPart): RecapChipSentence = when (part) {
     AnalysisPart.Ready -> RecapChipSentence.Ready
     AnalysisPart.NotFound -> RecapChipSentence.NoRecapFound
+    AnalysisPart.UserMarkedNone -> RecapChipSentence.YouMarkedNone
     AnalysisPart.NotChecked -> RecapChipSentence.NotChecked
     else -> RecapChipSentence.Other
 }
@@ -102,8 +105,11 @@ internal fun recapAnalysisPart(
 ): AnalysisPart {
     if (!recapEnabled) return AnalysisPart.Off
     if (!isEpisode) return AnalysisPart.NotFound
-    if (!derivedCurrent) return AnalysisPart.Pending
     val mark = userRecap
+    if (mark != null && mark.absent && sameCut(mark.durationMs, durationMs)) {
+        return AnalysisPart.UserMarkedNone
+    }
+    if (!derivedCurrent) return AnalysisPart.Pending
     val markRange = mark != null && mark.endMs > mark.startMs
     val markKept = mark != null && markRange && sameCut(mark.durationMs, durationMs)
     if (recapEndMs != null || markKept) return AnalysisPart.Ready

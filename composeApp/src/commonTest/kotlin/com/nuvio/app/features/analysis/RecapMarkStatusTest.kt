@@ -181,6 +181,40 @@ class RecapMarkStatusTest {
         assertEquals(RecapChipSentence.Ready, recapChipSentence(part))
     }
 
+    @Test
+    fun aUserNoneBeatsTheDetectorMiss() {
+        val mark = UserSegment(
+            startMs = 0L,
+            endMs = 0L,
+            markedAtMs = 9L,
+            durationMs = 1_200_000L,
+            absent = true,
+        )
+        val part = recapAnalysisPart(
+            recapEnabled = true,
+            isEpisode = true,
+            derivedCurrent = true,
+            recapEndMs = 80_000L,
+            userRecap = mark,
+            durationMs = 1_200_000L,
+            siblingsEmpty = false,
+            outcome = "rejected-no-match",
+        )
+        assertEquals(AnalysisPart.UserMarkedNone, part)
+        assertEquals(RecapChipSentence.YouMarkedNone, recapChipSentence(part))
+        val stored = MediaAnalysisResult(
+            key = "marked__s1e3",
+            analyzedAtMs = 1L,
+            durationMs = 1_200_000L,
+            recapStartMs = 10_000L,
+            recapEndMs = 80_000L,
+            recapOutcome = "rejected-no-match",
+            userSegments = mapOf("recap" to mark),
+        ).withUserSegmentsApplied()
+        assertEquals(null, stored.recapStartMs)
+        assertEquals(null, stored.recapEndMs)
+    }
+
     private fun episode(frames: Int, episode: Int) = MediaAnalysisResult(
         key = "show__s3e$episode",
         analyzedAtMs = 1L,

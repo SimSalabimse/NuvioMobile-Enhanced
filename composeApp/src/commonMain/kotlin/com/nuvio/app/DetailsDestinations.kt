@@ -93,6 +93,7 @@ internal fun DetailsDestination(
         fallbackTitle = route.title,
         initialSeasonNumber = route.initialSeasonNumber,
         initialEpisodeNumber = route.initialEpisodeNumber,
+        openedPrivately = route.privateSession,
         onBack = onBack,
         onPlay = onPlay,
         onPlayManually = onPlayManually,

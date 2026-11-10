@@ -2,6 +2,7 @@ package com.nuvio.app.features.details
 
 import android.app.Application
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -13,6 +14,7 @@ import com.nuvio.app.core.ui.NuvioTheme
 import com.nuvio.app.features.details.components.DETAIL_HEADER_ACTION_TAG
 import com.nuvio.app.features.details.components.DETAIL_HEADER_BACK_TAG
 import com.nuvio.app.features.details.components.DETAIL_HEADER_EDGE_TAG
+import com.nuvio.app.features.details.components.DETAIL_HEADER_TAG
 import com.nuvio.app.features.details.components.DETAIL_HEADER_TITLE_TAG
 import com.nuvio.app.features.details.components.DetailFloatingHeader
 import com.nuvio.app.navigation.LocalNativeNavigationBarHidden
@@ -50,7 +52,7 @@ class DetailHeaderEdgeTest {
                     DetailFloatingHeader(
                         meta = MetaDetails(id = "fixture-1", type = "series", name = "Northwind"),
                         isSaved = false,
-                        progress = 0f,
+                        progress = mutableFloatStateOf(0f),
                         onBack = {},
                         onToggleSaved = { saves += 1 },
                     )
@@ -61,7 +63,10 @@ class DetailHeaderEdgeTest {
         val back = compose.onNodeWithTag(DETAIL_HEADER_BACK_TAG).getBoundsInRoot()
         val action = compose.onNodeWithTag(DETAIL_HEADER_ACTION_TAG).getBoundsInRoot()
         val edge = compose.onNodeWithTag(DETAIL_HEADER_EDGE_TAG).getBoundsInRoot()
-        compose.onNodeWithTag(DETAIL_HEADER_TITLE_TAG).assertDoesNotExist()
+        val title = compose.onNodeWithTag(DETAIL_HEADER_TITLE_TAG).getBoundsInRoot()
+        assertTrue(title.top < back.bottom)
+        assertTrue(title.bottom > back.top)
+        assertEquals(0f, com.nuvio.app.features.details.components.detailHeaderTitleAlpha(0f))
         assertTrue(back.top >= safeTop)
         assertTrue(back.bottom - back.top >= 44.dp)
         assertTrue(action.bottom - action.top >= 44.dp)
@@ -87,7 +92,7 @@ class DetailHeaderEdgeTest {
                     DetailFloatingHeader(
                         meta = MetaDetails(id = "fixture-1", type = "series", name = "Northwind"),
                         isSaved = true,
-                        progress = 1f,
+                        progress = mutableFloatStateOf(1f),
                         onBack = {},
                         onToggleSaved = {},
                     )
@@ -100,5 +105,30 @@ class DetailHeaderEdgeTest {
         assertTrue(title.top < back.bottom)
         assertTrue(title.bottom > back.top)
         assertTrue(title.top >= safeTop)
+        assertEquals(1f, com.nuvio.app.features.details.components.detailHeaderTitleAlpha(1f))
+    }
+
+    @Test
+    fun fadingTheTitleInDoesNotResizeTheHeader() {
+        val safeTop = 59.dp
+        val progress = mutableFloatStateOf(0f)
+        compose.setContent {
+            NuvioTheme {
+                CompositionLocalProvider(LocalDetailChromeTopOverride provides safeTop) {
+                    DetailFloatingHeader(
+                        meta = MetaDetails(id = "fixture-1", type = "series", name = "Northwind"),
+                        isSaved = false,
+                        progress = progress,
+                        onBack = {},
+                        onToggleSaved = {},
+                    )
+                }
+            }
+        }
+        compose.waitForIdle()
+        val before = compose.onNodeWithTag(DETAIL_HEADER_TAG).getBoundsInRoot()
+        progress.floatValue = 1f
+        compose.waitForIdle()
+        assertEquals(before, compose.onNodeWithTag(DETAIL_HEADER_TAG).getBoundsInRoot())
     }
 }

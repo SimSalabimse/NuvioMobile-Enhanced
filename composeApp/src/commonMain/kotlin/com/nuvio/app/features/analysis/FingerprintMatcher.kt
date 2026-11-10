@@ -273,7 +273,9 @@ internal fun List<RejectedSegment>.covers(type: String, startMs: Long?, endMs: L
  * unless the new score is strictly higher. A range the user already moved off is dropped.
  */
 internal fun MediaAnalysisResult.applyingDetection(detected: DetectedSegments): MediaAnalysisResult {
-    val intro = appliedMark("intro")?.let { mark ->
+    val intro = if (userSaidNone("intro")) {
+        SegmentChoice(null, null, null)
+    } else appliedMark("intro")?.let { mark ->
         val changed = introStartMs != mark.startMs || introEndMs != mark.endMs
         SegmentChoice(mark.startMs, mark.endMs, if (changed) null else introConfidence)
     } ?: chooseSegment(
@@ -285,7 +287,9 @@ internal fun MediaAnalysisResult.applyingDetection(detected: DetectedSegments): 
         detectedConfidence = detected.introConfidence,
         storedIsRejected = rejectedSegments.covers("intro", introStartMs, introEndMs),
     )
-    val credits = appliedMark("outro")?.let { mark ->
+    val credits = if (userSaidNone("outro")) {
+        SegmentChoice(null, null, null)
+    } else appliedMark("outro")?.let { mark ->
         val changed = creditsStartMs != mark.startMs || creditsEndMs != mark.endMs
         SegmentChoice(mark.startMs, mark.endMs, if (changed) null else creditsConfidence)
     } ?: chooseSegment(
@@ -340,8 +344,14 @@ private fun chooseSegment(
     return SegmentChoice(currentStart, currentEnd, currentConfidence)
 }
 
+private fun MediaAnalysisResult.userSaidNone(type: String): Boolean {
+    val mark = userSegments[type] ?: return false
+    return mark.absent && sameCut(mark.durationMs, durationMs)
+}
+
 private fun MediaAnalysisResult.appliedMark(type: String): UserSegment? {
     val mark = userSegments[type] ?: return null
+    if (mark.absent || mark.endMs <= mark.startMs) return null
     return mark.takeIf { sameCut(it.durationMs, durationMs) }
 }
 
@@ -832,26 +842,31 @@ internal object RecapDetector {
      * Clips that stay within a narration gap of each other.
      * The skip is that span. A cold open can put the first clip after [SNAP_TO_START_MS],
      * and the skip still starts at the first clip, not at 0.
+     * A bumper before the recap is its own short cluster. It does not erase a later cluster
+     * that is long enough to be a recap.
      */
     private fun chain(clips: List<Clip>, introStart: Long?): Pair<Long, Long>? {
         val sorted = clips.sortedWith(compareBy({ it.startMs }, { it.endMs }))
-        var start = -1L
-        var cursor = -1L
-        var end = -1L
-        for (clip in sorted) {
-            if (cursor < 0L) {
-                start = clip.startMs
-                cursor = clip.endMs
-                end = clip.endMs
-            } else if (clip.startMs <= cursor + NARRATION_GAP_MS && clip.endMs > end) {
-                end = clip.endMs
-                cursor = clip.endMs
+        var index = 0
+        while (index < sorted.size) {
+            val start = sorted[index].startMs
+            var end = sorted[index].endMs
+            var cursor = end
+            index++
+            while (index < sorted.size && sorted[index].startMs <= cursor + NARRATION_GAP_MS) {
+                if (sorted[index].endMs > end) {
+                    end = sorted[index].endMs
+                    cursor = end
+                }
+                index++
             }
+            var spanEnd = end
+            if (introStart != null && introStart >= spanEnd && introStart - spanEnd <= SNAP_TO_INTRO_MS) {
+                spanEnd = introStart
+            }
+            if (spanEnd - start in MIN_RECAP_MS..MAX_RECAP_MS) return start to spanEnd
         }
-        if (end < 0L || start < 0L) return null
-        if (introStart != null && introStart >= end && introStart - end <= SNAP_TO_INTRO_MS) end = introStart
-        if (end - start !in MIN_RECAP_MS..MAX_RECAP_MS) return null
-        return start to end
+        return null
     }
 
     /** Replaces frames in [startMs, endMs) (relative to [offsetMs]) with values that never match. */

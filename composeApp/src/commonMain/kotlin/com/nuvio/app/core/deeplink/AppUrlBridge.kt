@@ -15,6 +15,7 @@ internal sealed interface AppDeepLink {
     data class Meta(
         val type: String,
         val id: String,
+        val privateSession: Boolean = false,
     ) : AppDeepLink
 
     data class AddonInstall(
@@ -91,15 +92,15 @@ internal fun parseAppDeepLink(url: String): AppDeepLink? {
     return when (host) {
         "meta" -> {
             parseMetaFromParameters(parsedUrl)
-                ?: parseMetaFromPath(pathSegments)
+                ?: parseMetaFromPath(pathSegments, parsedUrl)
         }
 
-        "detail", "details", "open", "watch" -> parseMetaFromPath(pathSegments)
+        "detail", "details", "open", "watch" -> parseMetaFromPath(pathSegments, parsedUrl)
 
         "movie", "movies", "series", "show", "shows", "tv" -> {
             val type = normalizeDeepLinkMediaType(host)
             val id = pathSegments.firstOrNull()?.let(::normalizeDeepLinkId).orEmpty()
-            if (type.isBlank() || id.isBlank()) null else AppDeepLink.Meta(type = type, id = id)
+            if (type.isBlank() || id.isBlank()) null else metaLink(type, id, parsedUrl)
         }
 
         "imdb", "tmdb" -> parseProviderMetaDeepLink(host, pathSegments, parsedUrl)
@@ -134,14 +135,14 @@ private fun parseMetaFromParameters(parsedUrl: Url): AppDeepLink.Meta? {
         ?: firstParameter(parsedUrl, "tmdb", "tmdbId", "tmdb_id")
             ?.let { "tmdb:${it.removePrefix("tmdb:").trim()}" }
         ?: ""
-    return if (type.isBlank() || id.isBlank()) null else AppDeepLink.Meta(type = type, id = id)
+    return if (type.isBlank() || id.isBlank()) null else metaLink(type, id, parsedUrl)
 }
 
-private fun parseMetaFromPath(pathSegments: List<String>): AppDeepLink.Meta? {
+private fun parseMetaFromPath(pathSegments: List<String>, parsedUrl: Url): AppDeepLink.Meta? {
     if (pathSegments.size < 2) return null
     val type = normalizeDeepLinkMediaType(pathSegments[0])
     val id = normalizeDeepLinkId(pathSegments[1])
-    return if (type.isBlank() || id.isBlank()) null else AppDeepLink.Meta(type = type, id = id)
+    return if (type.isBlank() || id.isBlank()) null else metaLink(type, id, parsedUrl)
 }
 
 private fun parseProviderMetaDeepLink(
@@ -161,8 +162,15 @@ private fun parseProviderMetaDeepLink(
         "tmdb" -> rawId.removePrefix("tmdb:").trim().takeIf(String::isNotBlank)?.let { "tmdb:$it" }
         else -> normalizeDeepLinkId(rawId).takeIf(String::isNotBlank)
     }.orEmpty()
-    return if (type.isBlank() || id.isBlank()) null else AppDeepLink.Meta(type = type, id = id)
+    return if (type.isBlank() || id.isBlank()) null else metaLink(type, id, parsedUrl)
 }
+
+private fun metaLink(type: String, id: String, parsedUrl: Url): AppDeepLink.Meta =
+    AppDeepLink.Meta(
+        type = type,
+        id = id,
+        privateSession = firstParameter(parsedUrl, "private") == "1",
+    )
 
 private fun firstParameter(parsedUrl: Url, vararg keys: String): String? =
     keys.firstNotNullOfOrNull { key ->

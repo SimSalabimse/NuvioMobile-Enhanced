@@ -40,6 +40,7 @@ data class DetailRoute(
     override val title: String? = null,
     val initialSeasonNumber: Int? = null,
     val initialEpisodeNumber: Int? = null,
+    val privateSession: Boolean = false,
 ) : AppRoute {
     /** The page draws one header. The native bar would be a second opaque row. */
     override val hidesNavigationBar: Boolean

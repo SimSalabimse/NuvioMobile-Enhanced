@@ -59,7 +59,7 @@ data class AnalysisBackgroundInfo(
 )
 
 /** Readiness of one analysis output for a file. */
-enum class AnalysisPart { Ready, NotFound, NeedsMoreEpisodes, Off, Pending, NotChecked }
+enum class AnalysisPart { Ready, NotFound, NeedsMoreEpisodes, Off, Pending, NotChecked, UserMarkedNone }
 
 /** One chip on a downloaded item. Intro is episodes only; movies show Credits. */
 enum class AnalysisChipKind { Intro, Credits, Recap, SubtitleSync, Loudness, Previews }

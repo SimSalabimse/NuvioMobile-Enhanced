@@ -63,6 +63,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
+import com.nuvio.app.core.ui.HOME_SOFT_EDGE_PEAK
+import com.nuvio.app.core.ui.SoftTopEdge
 import com.nuvio.app.core.ui.platformPhysicalTopInset
 import com.nuvio.app.core.ui.systemIncreaseContrastEnabled
 import com.nuvio.app.features.player.playerReduceTransparencyEnabled
@@ -84,9 +86,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.hideFromAccessibility
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.testTag as semanticsTestTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -855,29 +854,12 @@ private fun HomeTopEdge(
         solid = solid,
     ).dp
     if (edgeHeight <= 0.dp) return
-    val edge = MaterialTheme.colorScheme.background
-    Box(
-        modifier
-            .fillMaxWidth()
-            .height(edgeHeight)
-            .semantics {
-                semanticsTestTag = HOME_HERO_TOP_EDGE_TAG
-                hideFromAccessibility()
-            }
-            .drawBehind {
-                if (solid) {
-                    drawRect(edge)
-                } else {
-                    drawRect(
-                        Brush.verticalGradient(
-                            colorStops = arrayOf(
-                                0f to edge.copy(alpha = 0.42f),
-                                1f to edge.copy(alpha = 0f),
-                            ),
-                        ),
-                    )
-                }
-            },
+    SoftTopEdge(
+        height = edgeHeight,
+        peakAlpha = HOME_SOFT_EDGE_PEAK,
+        solid = solid,
+        tag = HOME_HERO_TOP_EDGE_TAG,
+        modifier = modifier,
     )
 }
 

@@ -154,7 +154,10 @@ internal fun MediaAnalysisResult.applyingChapterSegments(
 internal fun MediaAnalysisResult.withDetectedRecap(detected: Pair<Long, Long>?): MediaAnalysisResult {
     if ("recap" in chapterTypes) return this
     val mark = userSegments["recap"]
-    if (mark != null && com.nuvio.app.features.player.sameCut(mark.durationMs, durationMs)) return this
+    if (mark != null && mark.absent && com.nuvio.app.features.player.sameCut(mark.durationMs, durationMs)) {
+        return copy(recapStartMs = null, recapEndMs = null)
+    }
+    if (mark != null && mark.endMs > mark.startMs && com.nuvio.app.features.player.sameCut(mark.durationMs, durationMs)) return this
     if (detected == null) return this
     return copy(recapStartMs = detected.first, recapEndMs = detected.second)
 }

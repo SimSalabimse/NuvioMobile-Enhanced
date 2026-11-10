@@ -27,7 +27,9 @@ import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.p2p.P2pConsentDialog
 import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.player.PlayerLaunch
-import com.nuvio.app.features.player.applyingIsolatedPlayback
+import com.nuvio.app.navigation.PlayEntry
+import com.nuvio.app.navigation.carriedPlay
+import com.nuvio.app.navigation.carrying
 import com.nuvio.app.navigation.launchPlayer
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.SubtitleRequestExtras
@@ -250,7 +252,7 @@ internal fun StreamDestination(
             contentLanguage = resolveLaunchContentLanguage(),
             sourceFilename = stream.behaviorHints.filename,
             stream = stream,
-        ).applyingIsolatedPlayback(launch.submitMode, launch.privateSession)
+        ).carrying(carriedPlay(PlayEntry.SourceSheet, launch.privateSession, launch.submitMode))
 
         autoPlayNavigationStarted = replaceStreamRoute
         StreamsRepository.cancelLoading()
@@ -386,7 +388,7 @@ internal fun StreamDestination(
                         bingeGroup = cached.bingeGroup,
                     ),
                 ),
-            ).applyingIsolatedPlayback(launch.submitMode, launch.privateSession)
+            ).carrying(carriedPlay(PlayEntry.SourceSheet, launch.privateSession, launch.submitMode))
             if (playerSettings.externalPlayerEnabled && playerLaunch.persistsProgress) {
                 openExternalPlayback(playerLaunch)
                 StreamsRepository.cancelLoading()
@@ -547,7 +549,7 @@ internal fun StreamDestination(
             contentLanguage = resolveLaunchContentLanguage(),
             sourceFilename = stream.behaviorHints.filename,
             stream = stream,
-        ).applyingIsolatedPlayback(launch.submitMode, launch.privateSession)
+        ).carrying(carriedPlay(PlayEntry.SourceSheet, launch.privateSession, launch.submitMode))
         if (playerSettings.externalPlayerEnabled && stream.serverTarget == null && playerLaunch.persistsProgress) {
             openExternalPlayback(playerLaunch)
             StreamsRepository.consumeAutoPlay()
@@ -741,7 +743,7 @@ internal fun StreamDestination(
             contentLanguage = resolveLaunchContentLanguage(),
             sourceFilename = stream.behaviorHints.filename,
             stream = stream,
-        ).applyingIsolatedPlayback(launch.submitMode, launch.privateSession)
+        ).carrying(carriedPlay(PlayEntry.SourceSheet, launch.privateSession, launch.submitMode))
 
         if (!forceInternal && (forceExternal || playerSettings.externalPlayerEnabled) && playerLaunch.persistsProgress) {
             streamRouteScope.launch {

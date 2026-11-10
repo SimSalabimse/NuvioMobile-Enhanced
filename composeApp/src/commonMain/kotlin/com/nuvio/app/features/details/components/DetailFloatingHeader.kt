@@ -18,20 +18,18 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.hideFromAccessibility
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,7 +37,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.ui.ArtworkBackdrop
+import com.nuvio.app.core.ui.DETAIL_SOFT_EDGE_PEAK
 import com.nuvio.app.core.ui.LocalVerticalBarPadding
+import com.nuvio.app.core.ui.SoftTopEdge
 import com.nuvio.app.core.ui.NuvioBackButton
 import com.nuvio.app.core.ui.SCROLL_EDGE_TAIL_DP
 import com.nuvio.app.core.ui.ScrollEdgeKind
@@ -64,6 +64,13 @@ internal const val DETAIL_HEADER_TITLE_TAG = "detail-header-title"
 
 private val DetailHeaderRowHeight = 56.dp
 
+/**
+ * Draw-phase alpha for the title that joins the top row.
+ * Callers read this only inside [graphicsLayer], so the scroll across the
+ * threshold does not insert a child or remeasure the page.
+ */
+internal fun detailHeaderTitleAlpha(progress: Float): Float = progress.coerceIn(0f, 1f)
+
 @Composable
 internal fun detailFloatingHeaderHeight(): Dp {
     return detailChromeTopInset() + DetailHeaderRowHeight
@@ -73,7 +80,7 @@ internal fun detailFloatingHeaderHeight(): Dp {
 fun DetailFloatingHeader(
     meta: MetaDetails,
     isSaved: Boolean,
-    progress: Float,
+    progress: State<Float>,
     backgroundColor: Color? = null,
     background: (@Composable () -> Unit)? = null,
     onBack: () -> Unit,
@@ -82,7 +89,6 @@ fun DetailFloatingHeader(
 ) {
     val showComposeBack = !LocalUseNativeNavigation.current || LocalNativeNavigationBarHidden.current
     val headerTopPadding = detailChromeTopInset()
-    val showTitle = progress > 0.05f
     val edgeColor = backgroundColor ?: MaterialTheme.colorScheme.background
     val solidEdge = scrollEdgeKind(
         safeTopDp = (headerTopPadding + DetailHeaderRowHeight).value,
@@ -106,31 +112,12 @@ fun DetailFloatingHeader(
             .testTag(DETAIL_HEADER_TAG),
     ) {
         val logoWidth = (maxWidth * 0.6f).coerceAtMost(240.dp)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(edgeHeight)
-                .testTag(DETAIL_HEADER_EDGE_TAG)
-                .semantics { hideFromAccessibility() }
-                .drawBehind {
-                    if (solidEdge) {
-                        drawRect(edgeColor)
-                    } else {
-                        val heightPx = size.height
-                        val insetHold = if (heightPx <= 0f) 0f else (headerTopPadding.toPx() / heightPx).coerceIn(0f, 1f)
-                        val rowHold = if (heightPx <= 0f) 1f else (rowBottom.toPx() / heightPx).coerceIn(insetHold, 1f)
-                        drawRect(
-                            Brush.verticalGradient(
-                                colorStops = arrayOf(
-                                    0f to edgeColor,
-                                    insetHold to edgeColor.copy(alpha = 0.94f),
-                                    rowHold to edgeColor.copy(alpha = 0.45f),
-                                    1f to edgeColor.copy(alpha = 0f),
-                                ),
-                            ),
-                        )
-                    }
-                },
+        SoftTopEdge(
+            height = edgeHeight,
+            peakAlpha = DETAIL_SOFT_EDGE_PEAK,
+            solid = solidEdge,
+            tag = DETAIL_HEADER_EDGE_TAG,
+            color = edgeColor,
         )
         if (background != null) {
             Box(modifier = Modifier.matchParentSize()) { background() }
@@ -164,10 +151,10 @@ fun DetailFloatingHeader(
                 modifier = Modifier
                     .weight(1f)
                     .padding(horizontal = 10.dp)
-                    .graphicsLayer { alpha = if (showTitle) 1f else 0f },
+                    .graphicsLayer { alpha = detailHeaderTitleAlpha(progress.value) },
                 contentAlignment = Alignment.Center,
             ) {
-                if (showTitle && !meta.logo.isNullOrBlank() && !logoLoadError) {
+                if (!meta.logo.isNullOrBlank() && !logoLoadError) {
                     AsyncImage(
                         model = meta.logo,
                         contentDescription = stringResource(Res.string.detail_logo_content_description, meta.name),
@@ -178,7 +165,7 @@ fun DetailFloatingHeader(
                             .testTag(DETAIL_HEADER_TITLE_TAG),
                         onError = { logoLoadError = true },
                     )
-                } else if (showTitle) {
+                } else {
                     Text(
                         text = meta.name,
                         color = MaterialTheme.colorScheme.onBackground,

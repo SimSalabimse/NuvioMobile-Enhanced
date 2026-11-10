@@ -183,7 +183,7 @@ class SubmitModeProgressTest {
     fun openEpisodeInSubmitModeReachesTheInstalledLauncher() {
         var seen: EpisodeSubmitRequest? = null
         var kind: IsolatedPlayback? = null
-        installEpisodeSubmitLauncher { request, playback ->
+        installEpisodeSubmitLauncher { request, _, playback ->
             seen = request
             kind = playback
         }

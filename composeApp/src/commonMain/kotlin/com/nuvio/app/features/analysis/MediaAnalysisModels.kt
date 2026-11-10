@@ -145,10 +145,12 @@ internal data class UserSegment(
     val imported: Boolean = false,
     /** Length of the video the mark was made on (0: unknown). */
     val durationMs: Long = 0L,
+    /** The user submitted that this episode has none of this segment. */
+    val absent: Boolean = false,
 )
 
-/** A mark with no file length can belong to another cut, so it never teaches other episodes. */
-internal val UserSegment.canTeach: Boolean get() = durationMs > 0L
+/** A mark with no file length, or a "none" answer, never teaches other episodes. */
+internal val UserSegment.canTeach: Boolean get() = !absent && endMs > startMs && durationMs > 0L
 
 /** The user's marks override what was detected for this episode. */
 internal fun MediaAnalysisResult.withUserSegmentsApplied(): MediaAnalysisResult {
@@ -156,11 +158,30 @@ internal fun MediaAnalysisResult.withUserSegmentsApplied(): MediaAnalysisResult 
     var r = this
     // A mark made on another cut of the episode doesn't replace what was found in this file.
     val marks = userSegments.filterValues { com.nuvio.app.features.player.sameCut(it.durationMs, durationMs) }
-    marks["intro"]?.let { r = r.copy(introStartMs = it.startMs, introEndMs = it.endMs) }
-    marks["outro"]?.let { r = r.copy(creditsStartMs = it.startMs, creditsEndMs = it.endMs) }
-    marks["recap"]?.let { r = r.copy(recapStartMs = it.startMs, recapEndMs = it.endMs) }
-    marks["preview"]?.let { r = r.copy(previewStartMs = it.startMs, previewEndMs = it.endMs) }
+    marks["intro"]?.let { r = r.applyingStoredMark(it, intro = true) }
+    marks["outro"]?.let { r = r.applyingStoredMark(it, outro = true) }
+    marks["recap"]?.let { r = r.applyingStoredMark(it, recap = true) }
+    marks["preview"]?.let { r = r.applyingStoredMark(it, preview = true) }
     return r
+}
+
+/** A "none" answer clears the stored range. A timed mark replaces it. */
+private fun MediaAnalysisResult.applyingStoredMark(
+    mark: UserSegment,
+    intro: Boolean = false,
+    outro: Boolean = false,
+    recap: Boolean = false,
+    preview: Boolean = false,
+): MediaAnalysisResult = when {
+    intro && mark.absent -> copy(introStartMs = null, introEndMs = null)
+    intro -> copy(introStartMs = mark.startMs, introEndMs = mark.endMs)
+    outro && mark.absent -> copy(creditsStartMs = null, creditsEndMs = null)
+    outro -> copy(creditsStartMs = mark.startMs, creditsEndMs = mark.endMs)
+    recap && mark.absent -> copy(recapStartMs = null, recapEndMs = null)
+    recap -> copy(recapStartMs = mark.startMs, recapEndMs = mark.endMs)
+    preview && mark.absent -> copy(previewStartMs = null, previewEndMs = null)
+    preview -> copy(previewStartMs = mark.startMs, previewEndMs = mark.endMs)
+    else -> this
 }
 
 /**

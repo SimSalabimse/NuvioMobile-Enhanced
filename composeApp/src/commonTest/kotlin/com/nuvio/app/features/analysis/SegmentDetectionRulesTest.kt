@@ -4,6 +4,7 @@ import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -180,6 +181,32 @@ class SegmentDetectionRulesTest {
         )
         assertEquals(90_000L, quiet.introStartMs)
         assertEquals(130_000L, quiet.introEndMs)
+    }
+
+    @Test
+    fun aRecapAfterALeadingBumperStartsAtTheLaterClip() {
+        val bumper = pattern(8, 40)
+        val recap = pattern(21, 300)
+        val head = noise(1, 6_000)
+        bumper.copyInto(head, 0)
+        recap.copyInto(head, 450)
+        val previousHead = noise(4, 6_000)
+        bumper.copyInto(previousHead, 0)
+        val previousTail = noise(2, TAIL_FRAMES)
+        recap.copyInto(previousTail, 200)
+        val episode = fingerprinted("bumperlate__s1e2", head, noise(3, TAIL_FRAMES)).copy(
+            introStartMs = 90_000L,
+            introEndMs = 130_000L,
+        )
+        val previous = fingerprinted("bumperlate__s1e1", previousHead, previousTail)
+        val found = assertNotNull(
+            RecapDetector.detect(episode, listOf(previous)),
+            "SYNTHETIC bumper then a recap after 20s",
+        )
+        assertTrue(found.first >= 40_000L, "recap start ${found.first}")
+        assertTrue(found.first < 90_000L)
+        val span = found.second - found.first
+        assertTrue(span in 5_000L..1_200_000L, "span $span")
     }
 
     @Test

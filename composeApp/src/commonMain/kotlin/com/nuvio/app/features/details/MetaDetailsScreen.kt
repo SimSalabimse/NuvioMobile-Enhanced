@@ -138,6 +138,7 @@ import com.nuvio.app.features.details.components.rememberEpisodeNavigatorState
 import com.nuvio.app.features.details.components.DetailTrailersSection
 import com.nuvio.app.features.details.components.EpisodeWatchedActionSheet
 import com.nuvio.app.navigation.EpisodeSubmitRequest
+import com.nuvio.app.navigation.PlayEntry
 import com.nuvio.app.navigation.openEpisodeInSubmitMode
 import com.nuvio.app.navigation.openEpisodePrivately
 import com.nuvio.app.features.details.components.SeasonOverviewSheet
@@ -214,6 +215,7 @@ fun MetaDetailsScreen(
     fallbackTitle: String? = null,
     initialSeasonNumber: Int? = null,
     initialEpisodeNumber: Int? = null,
+    openedPrivately: Boolean = false,
     onBack: () -> Unit,
     onPlay: ((type: String, videoId: String, parentMetaId: String, parentMetaType: String, title: String, logo: String?, poster: String?, background: String?, seasonNumber: Int?, episodeNumber: Int?, episodeTitle: String?, episodeThumbnail: String?, pauseDescription: String?, resumePositionMs: Long?) -> Unit)? = null,
     onPlayManually: ((type: String, videoId: String, parentMetaId: String, parentMetaType: String, title: String, logo: String?, poster: String?, background: String?, seasonNumber: Int?, episodeNumber: Int?, episodeTitle: String?, episodeThumbnail: String?, pauseDescription: String?, resumePositionMs: Long?) -> Unit)? = null,
@@ -915,41 +917,79 @@ fun MetaDetailsScreen(
                     when {
                         shufflePoolEmpty -> showShuffle = true
                         (meta.type == "series" || hasEpisodes) && seriesAction != null -> {
-                            onPlay?.invoke(
-                                meta.type,
-                                seriesStreamVideoId ?: seriesAction.videoId,
-                                meta.id,
-                                meta.type,
-                                meta.name,
-                                meta.logo,
-                                meta.poster,
-                                meta.background,
-                                seriesAction.seasonNumber,
-                                seriesAction.episodeNumber,
-                                seriesAction.episodeTitle,
-                                seriesAction.episodeThumbnail,
-                                seriesPauseDescription,
-                                seriesAction.resumePositionMs,
-                            )
+                            if (openedPrivately) {
+                                openEpisodePrivately(
+                                    EpisodeSubmitRequest(
+                                        type = meta.type,
+                                        videoId = seriesStreamVideoId ?: seriesAction.videoId,
+                                        parentMetaId = meta.id,
+                                        parentMetaType = meta.type,
+                                        title = meta.name,
+                                        logo = meta.logo,
+                                        poster = meta.poster,
+                                        background = meta.background,
+                                        seasonNumber = seriesAction.seasonNumber,
+                                        episodeNumber = seriesAction.episodeNumber,
+                                        episodeTitle = seriesAction.episodeTitle,
+                                        episodeThumbnail = seriesAction.episodeThumbnail,
+                                        pauseDescription = seriesPauseDescription,
+                                    ),
+                                    PlayEntry.DeepLink,
+                                )
+                            } else {
+                                onPlay?.invoke(
+                                    meta.type,
+                                    seriesStreamVideoId ?: seriesAction.videoId,
+                                    meta.id,
+                                    meta.type,
+                                    meta.name,
+                                    meta.logo,
+                                    meta.poster,
+                                    meta.background,
+                                    seriesAction.seasonNumber,
+                                    seriesAction.episodeNumber,
+                                    seriesAction.episodeTitle,
+                                    seriesAction.episodeThumbnail,
+                                    seriesPauseDescription,
+                                    seriesAction.resumePositionMs,
+                                )
+                            }
                         }
 
                         else -> {
-                            onPlay?.invoke(
-                                meta.type,
-                                meta.id,
-                                meta.id,
-                                meta.type,
-                                meta.name,
-                                meta.logo,
-                                meta.poster,
-                                meta.background,
-                                null,
-                                null,
-                                null,
-                                null,
-                                meta.description,
-                                movieProgress?.lastPositionMs,
-                            )
+                            if (openedPrivately) {
+                                openEpisodePrivately(
+                                    EpisodeSubmitRequest(
+                                        type = meta.type,
+                                        videoId = meta.id,
+                                        parentMetaId = meta.id,
+                                        parentMetaType = meta.type,
+                                        title = meta.name,
+                                        logo = meta.logo,
+                                        poster = meta.poster,
+                                        background = meta.background,
+                                        pauseDescription = meta.description,
+                                    ),
+                                    PlayEntry.DeepLink,
+                                )
+                            } else {
+                                onPlay?.invoke(
+                                    meta.type,
+                                    meta.id,
+                                    meta.id,
+                                    meta.type,
+                                    meta.name,
+                                    meta.logo,
+                                    meta.poster,
+                                    meta.background,
+                                    null,
+                                    null,
+                                    null,
+                                    null,
+                                    meta.description,
+                                    movieProgress?.lastPositionMs,
+                                )
+                            }
                         }
                     }
                 }
@@ -1174,22 +1214,26 @@ fun MetaDetailsScreen(
                     )
                         ?.takeUnless { it.isCompleted }
                     stopHeroTrailerForNavigation()
-                    onPlay?.invoke(
-                        meta.type,
-                        streamVideoId,
-                        meta.id,
-                        meta.type,
-                        meta.name,
-                        meta.logo,
-                        meta.poster,
-                        meta.background,
-                        season,
-                        episode,
-                        video.title,
-                        video.thumbnail,
-                        video.overview,
-                        savedProgress?.lastPositionMs,
-                    )
+                    if (openedPrivately) {
+                        openEpisodePrivately(meta.toEpisodeSubmitRequest(video), PlayEntry.EpisodeList)
+                    } else {
+                        onPlay?.invoke(
+                            meta.type,
+                            streamVideoId,
+                            meta.id,
+                            meta.type,
+                            meta.name,
+                            meta.logo,
+                            meta.poster,
+                            meta.background,
+                            season,
+                            episode,
+                            video.title,
+                            video.thumbnail,
+                            video.overview,
+                            savedProgress?.lastPositionMs,
+                        )
+                    }
                 }
                 val onEpisodeManualPlayClick: (MetaVideo) -> Unit = onEpisodeManualPlay@{ video ->
                     if (!networkActionsEnabled) return@onEpisodeManualPlay
@@ -1210,22 +1254,26 @@ fun MetaDetailsScreen(
                     )
                         ?.takeUnless { it.isCompleted }
                     stopHeroTrailerForNavigation()
-                    onPlayManually?.invoke(
-                        meta.type,
-                        streamVideoId,
-                        meta.id,
-                        meta.type,
-                        meta.name,
-                        meta.logo,
-                        meta.poster,
-                        meta.background,
-                        season,
-                        episode,
-                        video.title,
-                        video.thumbnail,
-                        video.overview,
-                        savedProgress?.lastPositionMs,
-                    )
+                    if (openedPrivately) {
+                        openEpisodePrivately(meta.toEpisodeSubmitRequest(video), PlayEntry.SourceSheet)
+                    } else {
+                        onPlayManually?.invoke(
+                            meta.type,
+                            streamVideoId,
+                            meta.id,
+                            meta.type,
+                            meta.name,
+                            meta.logo,
+                            meta.poster,
+                            meta.background,
+                            season,
+                            episode,
+                            video.title,
+                            video.thumbnail,
+                            video.overview,
+                            savedProgress?.lastPositionMs,
+                        )
+                    }
                 }
                 if (showShuffle && showShuffleButton) {
                     EpisodeShuffleSheet(
@@ -1787,7 +1835,7 @@ fun MetaDetailsScreen(
                                 },
                                 onWatchPrivately = {
                                     stopHeroTrailerForNavigation()
-                                    openEpisodePrivately(meta.toEpisodeSubmitRequest(selectedEpisode))
+                                    openEpisodePrivately(meta.toEpisodeSubmitRequest(selectedEpisode), PlayEntry.EpisodeList)
                                 },
                                 onRate = if (canRateEpisode && episodeRatingTarget != null) {
                                     {
@@ -1930,7 +1978,7 @@ fun MetaDetailsScreen(
                                 },
                                 onWatchPrivately = { episode ->
                                     stopHeroTrailerForNavigation()
-                                    openEpisodePrivately(meta.toEpisodeSubmitRequest(episode))
+                                    openEpisodePrivately(meta.toEpisodeSubmitRequest(episode), PlayEntry.SeasonRow)
                                 },
                             )
                         }
@@ -2295,7 +2343,7 @@ private fun DetailHeaderOverlay(
     onToggleSaved: () -> Unit,
 ) {
     val headerTarget = if (isHeroCollapsed.value) 1f else 0f
-    val headerProgress by animateFloatAsState(
+    val headerProgress = animateFloatAsState(
         targetValue = headerTarget,
         animationSpec = tween(
             durationMillis = if (headerTarget > 0f) 150 else 100,

@@ -306,6 +306,14 @@ internal fun PlayerScreenRuntime.noteMarkingSubmitted(result: IntroSubmitResult)
     val saved = submittedSkipMarkToSave(result)
     if (saved != null) {
         saveUserSkipMark(saved.segmentType, saved.startSec, saved.endSec, submit = false)
+    } else if (result.absentSegment) {
+        com.nuvio.app.features.analysis.SkipLearning.recordAbsent(
+            parentMetaId = parentMetaId,
+            season = activeSeasonNumber,
+            episode = activeEpisodeNumber,
+            type = result.segmentType,
+            durationMs = playbackSnapshot.durationMs,
+        )
     }
     markSent = true
     markSubmitError = null
