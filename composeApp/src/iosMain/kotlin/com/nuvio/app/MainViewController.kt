@@ -10,7 +10,6 @@ import com.nuvio.app.core.ui.LocalFold
 import com.nuvio.app.core.ui.LocalVerticalBarPadding
 import com.nuvio.app.core.ui.NativeProfileSwitcherController
 import com.nuvio.app.features.profiles.ProfileBiometricAuth
-import com.nuvio.app.features.autosync.AutoSyncPreferencesIos
 import com.nuvio.app.navigation.AppRoute
 import platform.UIKit.UIColor
 import platform.UIKit.UIViewController
@@ -134,7 +133,6 @@ private fun nuvioComposeViewController(
     content: @androidx.compose.runtime.Composable () -> Unit,
 ): UIViewController {
     com.nuvio.app.core.perf.PerformanceMetrics.markProcessStart()
-    AutoSyncPreferencesIos.initialize()
     return ComposeUIViewController(
         configure = { onFocusBehavior = OnFocusBehavior.DoNothing },
         content = {

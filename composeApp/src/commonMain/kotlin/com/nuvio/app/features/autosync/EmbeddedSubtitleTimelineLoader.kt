@@ -3,8 +3,9 @@ package com.nuvio.app.features.autosync
 import kotlinx.coroutines.CoroutineScope
 
 /**
- * Android loads embedded subtitle timing with the existing Media3 container parser.
- * iOS has no embedded index yet, so AutoSync keeps its live path there.
+ * Android loads embedded subtitle timing with the Media3 container parser.
+ * The iOS player does not call this. Its actual returns null so the shared
+ * declaration compiles, and iOS Auto Sync stays on the audio-energy path.
  */
 internal expect object EmbeddedSubtitleTimelineLoader {
     fun prefetch(

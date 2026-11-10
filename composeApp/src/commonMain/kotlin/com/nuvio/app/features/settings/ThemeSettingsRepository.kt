@@ -137,8 +137,7 @@ object ThemeSettingsRepository {
         _navBarStyle.value = NavBarStyle.ADAPTIVE
         _navBarPosition.value = NavBarPosition.BOTTOM
         _navBarGlass.value = LiquidGlassStyle.Default
-        LiquidGlassSettings.userChoice = null
-        _liquidGlassEffectsEnabled.value = LiquidGlassSettings.enabled
+        applyLiquidGlassEffectsEnabled(true)
     }
 
     private fun loadFromDisk() {

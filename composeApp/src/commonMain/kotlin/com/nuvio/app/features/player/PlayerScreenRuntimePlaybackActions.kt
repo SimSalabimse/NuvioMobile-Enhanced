@@ -321,6 +321,7 @@ internal fun PlayerScreenRuntime.resetIdentityStateIfNeeded() {
 
 internal val PlayerScreenRuntime.submitMode: Boolean
     get() = args.submitMode
+
 internal fun PlayerScreenRuntime.resetAddonSubtitlesIfSourceChanged() {
     val sourceIdentity = sourcePlaybackKey
     if (lastAddonSubtitleSourceIdentity == sourceIdentity) return
