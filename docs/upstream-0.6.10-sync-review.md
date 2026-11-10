@@ -74,6 +74,8 @@ Image-memory trim on the iOS surface (`trimImageMemoryForPlayback`, `collectAfte
 
 Upstream did not replace these paths.
 
+After that check, `3a4a87765` landed on `cursor/batch12-build207-e33c` and was merged here. It is the only reason `features/analysis/` differs from `2e76ccee1`. A short previous-episode opening now counts as an opening, and the season extension follows the next fingerprint cut rather than a pause inside the matched audio. `SegmentDetectionRulesTest.aShortTailMatchReachesTheFollowingCut` covers that. The same commit updates three download host tests to the scheduler and delete-when-finished behavior already on the fork. `git diff 2e76ccee1 9d5d91c86` is empty for analysis, downloads, the skip package, the Home hero, and diagnostics, so the 0.6.10 merge did not write those lines.
+
 ## 4. Swift export
 
 Upstream added two Kotlin members that Swift implements. Both are in `SwiftExportEntryPoints.requiredEntryPoints`, and the host generate task wrote them into `composeApp/build/generated/swift-export/entry-points.txt`:
@@ -96,7 +98,7 @@ No other new Swift-called Kotlin symbol showed up in the `PlayerBridge.kt` diff.
 | `iosApp/iosApp/Info.plist` | Does not hardcode a version. That is the generated-plist setup above, not a second number. |
 | `iosApp/DownloadsWidgetExtension/Info.plist` | `CFBundleShortVersionString` is `$(MARKETING_VERSION)`. `CFBundleVersion` is `$(CURRENT_PROJECT_VERSION)`. |
 | `composeApp/build.gradle.kts` and `androidApp/build.gradle.kts` | Read `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` from `Version.xcconfig`. |
-| Generated `AppVersionConfig.kt` from the host compile of `9d5d91c86` | `VERSION_NAME = "0.6.10.1"`, `VERSION_CODE = 211` |
+| Generated `AppVersionConfig.kt` from the host compile of this tree | `VERSION_NAME = "0.6.10.1"`, `VERSION_CODE = 211`. `GIT_REVISION` is the compile's short hash, not a version. |
 | About | `RunningVersionLine` formats `AppVersionConfig.VERSION_NAME` and `VERSION_CODE` with `compose_about_version_format`. |
 | `changelog.json` | Top release is `0.6.10.1`, build `211`. The `0.6.9.1` entry under it is the previous release note. |
 
@@ -109,3 +111,23 @@ No other new Swift-called Kotlin symbol showed up in the `PlayerBridge.kt` diff.
 3. `IosAutoSyncCallSiteTest` locks the iOS call site on the host.
 
 The auto-fetched subtitle flag stays on `sourcePlaybackKey`. Moving it back onto `activePlaybackKey` failed `switchingEngineKeepsAddonSubtitlesForTheSameSource`.
+
+## Host suite after these fixes
+
+Machine: Linux 6.12.113+ x86_64. Commit measured: `be22f53b2` (the Part H merge). The lines in this section were added after those runs and do not change the suite. Android SDK: `/home/ubuntu/android-sdk`. iOS build, app size, and FPS: not measured.
+
+Command:
+
+`./gradlew :composeApp:testAndroidHostTest --no-daemon --console=plain -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=512m -Dfile.encoding=UTF-8" -Pkotlin.daemon.jvmargs="-Xmx6g -XX:MaxMetaspaceSize=1g"`
+
+A green `testAndroidHostTest` is restored from the build cache, so runs 2 and 3 deleted the test-result directory and added `--no-build-cache`. Compile tasks stayed up to date. The counts come from the JUnit XML (`tests`, `failures`, `skipped`), because a successful run does not print the summary line.
+
+| Run | Wall clock | Exit | Tests | Failed | Skipped | Log |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 4m 20s | 0 | 3130 | 0 | 8 | `/opt/cursor/artifacts/sync-0610-review/run-1.log` |
+| 2 | 1m 16s | 0 | 3130 | 0 | 8 | `/opt/cursor/artifacts/sync-0610-review/run-2.log` |
+| 3 | 1m 17s | 0 | 3130 | 0 | 8 | `/opt/cursor/artifacts/sync-0610-review/run-3.log` |
+
+Median: 3130 tests, 0 failed, 8 skipped. Wall-clock median: 1m 17s.
+
+The eight skips are `PlayerNowPlayingServiceTest` on SDK 26 and 34, the same four tests, because the foreground-service flag is false on this host. Before this review the suite on `9d5d91c86` was 3127 tests, 7 failed, 8 skipped. The three new tests are `IosAutoSyncCallSiteTest` (two) and `SegmentDetectionRulesTest.aShortTailMatchReachesTheFollowingCut` from Part H. The seven failures were the download host tests Part H rewrote to the current scheduler and delete-when-finished behavior. They pass now.
