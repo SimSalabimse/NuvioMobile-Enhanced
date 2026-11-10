@@ -1439,7 +1439,7 @@ object WatchedRepository {
                 lastSuccessfulPushEpochMs = lastSuccessfulPushEpochMs,
                 deltaCursorEventId = deltaCursorEventId,
                 deltaInitialized = deltaInitialized,
-                dirtyWatchedKeys = dirtyNuvioKeys.toSet(),
+                dirtyWatchedKeys = copyDirtyWatchedKeys(dirtyNuvioKeys),
                 providerPayloads = providerIds.associate { providerId ->
                     val items = providerItems[providerId]
                         .orEmpty()
@@ -1451,7 +1451,7 @@ object WatchedRepository {
                         extraWatchedKeyGroups = compactExtraWatchedKeys(
                             providerExtraWatchedKeys[providerId].orEmpty(),
                         ),
-                        dirtyWatchedKeys = dirtyProviderKeys[providerId].orEmpty(),
+                        dirtyWatchedKeys = copyDirtyWatchedKeys(dirtyProviderKeys[providerId].orEmpty()),
                     )
                 },
             )
@@ -1655,6 +1655,8 @@ internal fun acknowledgeSuccessfulWatchedPush(
         }
     return remainingDirtyKeys
 }
+
+internal fun <T> copyDirtyWatchedKeys(keys: Set<T>): Set<T> = keys.toSet()
 
 internal fun effectiveWatchedSource(
     requestedSource: WatchProgressSource,

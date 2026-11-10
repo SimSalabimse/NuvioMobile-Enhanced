@@ -1,6 +1,16 @@
 {
   "releases": [
     {
+      "version": "0.6.10.1",
+      "build": 211,
+      "date": "2026-11-10",
+      "new": [],
+      "improved": [
+        "Playback keeps the fork's player tools and brings in the 0.6.10 subtitle, crash, and iOS player fixes. Anime upscaling stays off, with no badge or settings block."
+      ],
+      "fixed": []
+    },
+    {
       "version": "0.6.9.1",
       "build": 207,
       "date": "2026-11-08",
