@@ -184,6 +184,66 @@ class SegmentDetectionRulesTest {
     }
 
     @Test
+    fun aSharedOpeningKeepsTheOneClipThatFollowsIt() {
+        val fixture = openingFixture(markEnds = emptyList())
+        val trace = SegmentTrace()
+        val found = assertNotNull(
+            RecapDetector.detect(fixture.episode, fixture.others, trace),
+            "SYNTHETIC opening sting plus one later clip",
+        )
+        assertEquals(0L, found.first)
+        assertTrue(found.second >= 15_000L, "end ${found.second}")
+        assertTrue(found.second < 20_000L, "end ${found.second}")
+        val why = trace.decisions.single().why
+        assertTrue(why == "accepted-previous-ending" || why == "accepted-montage", why)
+    }
+
+    @Test
+    fun markedOpeningsExtendThatRecapToTheCut() {
+        val fixture = openingFixture(markEnds = listOf(34_000L, 70_000L))
+        val trace = SegmentTrace()
+        val found = assertNotNull(
+            RecapDetector.detect(fixture.episode, fixture.others, trace),
+            "SYNTHETIC season marks on the opening",
+        )
+        assertEquals(0L, found.first)
+        assertTrue(found.second >= 32_000L && found.second < 34_000L, "end ${found.second}")
+        assertEquals("season-pattern", trace.decisions.single().why)
+        assertEquals("season-pattern", trace.decisions.single().signal)
+        assertFalse(trace.decisions.single().accepted)
+    }
+
+    @Test
+    fun oneMarkedOpeningDoesNotExtendTheClip() {
+        val fixture = openingFixture(markEnds = listOf(34_000L))
+        val trace = SegmentTrace()
+        val found = assertNotNull(RecapDetector.detect(fixture.episode, fixture.others, trace))
+        assertEquals(0L, found.first)
+        assertTrue(found.second < 20_000L, "end ${found.second}")
+        assertTrue(trace.decisions.single().why != "season-pattern")
+    }
+
+    @Test
+    fun oneForeignClipWithoutAnOpeningIsRejected() {
+        val fixture = openingFixture(markEnds = emptyList(), sting = false)
+        val trace = SegmentTrace()
+        assertNull(RecapDetector.detect(fixture.episode, fixture.others, trace), "SYNTHETIC lone clip")
+        assertEquals("rejected-agreement", trace.decisions.single().why)
+    }
+
+    @Test
+    fun aDatabaseRecapTimeBlocksThatExtension() {
+        val fixture = openingFixture(markEnds = listOf(34_000L, 70_000L))
+        val trace = SegmentTrace()
+        val found = assertNotNull(
+            RecapDetector.detect(fixture.episode, fixture.others, trace, prior = 0L to 28_000L),
+        )
+        assertEquals(0L, found.first)
+        assertTrue(found.second < 20_000L, "end ${found.second}")
+        assertTrue(trace.decisions.single().why != "season-pattern", trace.decisions.single().why)
+    }
+
+    @Test
     fun aRecapAfterALeadingBumperStartsAtTheLaterClip() {
         val bumper = pattern(8, 40)
         val recap = pattern(21, 300)
@@ -492,6 +552,61 @@ class SegmentDetectionRulesTest {
         headFingerprint = encodeFingerprint(IntArray(headFrames)),
         tailFingerprint = encodeFingerprint(IntArray(tailFrames)),
         tailStartMs = (durationMs - tailFrames * 100L).coerceAtLeast(0L),
+    )
+
+    /**
+     * Opening sting of 2.5s shared by four siblings, then one 3.2s clip at 11.8s
+     * that only one other episode carries. A quiet run starts at 15.3s.
+     * A fingerprint cut sits at 33s. Marks, when supplied, start at 0.
+     */
+    private fun openingFixture(markEnds: List<Long>, sting: Boolean = true): OpeningFixture {
+        val stingFrames = pattern(11, 25)
+        val clip = pattern(12, 32)
+        val head = noise(1, 6_000)
+        if (sting) stingFrames.copyInto(head, 0)
+        clip.copyInto(head, 118)
+        cutAt(head, 330)
+        val episode = fingerprinted("geometry__s1e8", head, noise(2, TAIL_FRAMES)).copy(
+            introStartMs = 754_000L,
+            introEndMs = 768_000L,
+            energy = quietDipAt(153),
+            energyStepMs = 100,
+        )
+        val marked = markEnds.iterator()
+        val sharers = listOf(3, 5, 6, 7).map { number ->
+            val siblingHead = noise(10 + number, 6_000)
+            if (sting) stingFrames.copyInto(siblingHead, 0)
+            val mark = if (marked.hasNext()) {
+                UserSegment(startMs = 0L, endMs = marked.next(), markedAtMs = 1L, durationMs = DURATION_MS)
+            } else {
+                null
+            }
+            fingerprinted("geometry__s1e$number", siblingHead, noise(30 + number, TAIL_FRAMES)).copy(
+                userSegments = if (mark == null) emptyMap() else mapOf("recap" to mark),
+            )
+        }
+        val early = noise(40, 6_000)
+        clip.copyInto(early, 5_000)
+        val first = fingerprinted("geometry__s1e1", early, noise(41, TAIL_FRAMES))
+        return OpeningFixture(episode, sharers + first)
+    }
+
+    private fun cutAt(frames: IntArray, frame: Int) {
+        val base = 0x11111111
+        val from = (frame - 6).coerceAtLeast(0)
+        for (index in from until frame) frames[index] = base
+        if (frame < frames.size) frames[frame] = base xor -1
+    }
+
+    private fun quietDipAt(sample: Int): String {
+        val levels = IntArray(400) { 120 }
+        for (index in sample until (sample + 4).coerceAtMost(levels.size)) levels[index] = 40
+        return encodeEnergyLevels(levels)
+    }
+
+    private data class OpeningFixture(
+        val episode: MediaAnalysisResult,
+        val others: List<MediaAnalysisResult>,
     )
 
     private fun headWith(seed: Int, clip: IntArray, at: Int): IntArray {

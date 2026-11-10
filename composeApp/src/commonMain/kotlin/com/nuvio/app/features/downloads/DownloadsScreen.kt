@@ -74,6 +74,7 @@ import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.details.components.SeasonOverviewSheet
 import com.nuvio.app.features.settings.DownloadsSettingsScreen
+import com.nuvio.app.navigation.PlayEntry
 import com.nuvio.app.navigation.openEpisodeInSubmitMode
 import com.nuvio.app.navigation.openEpisodePrivately
 import nuvio.composeapp.generated.resources.*
@@ -370,7 +371,7 @@ fun DownloadsScreen(
                             candidate.seasonNumber == video.season &&
                             candidate.episodeNumber == video.episode
                     }
-                    if (item != null) openEpisodePrivately(item.toEpisodeSubmitRequest())
+                    if (item != null) openEpisodePrivately(item.toEpisodeSubmitRequest(), PlayEntry.SeasonRow)
                 },
             )
         }

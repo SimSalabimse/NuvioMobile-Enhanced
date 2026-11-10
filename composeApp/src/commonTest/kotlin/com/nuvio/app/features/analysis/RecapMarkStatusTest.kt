@@ -182,6 +182,74 @@ class RecapMarkStatusTest {
     }
 
     @Test
+    fun aSeasonPatternIsASuggestion() {
+        val part = recapAnalysisPart(
+            recapEnabled = true,
+            isEpisode = true,
+            derivedCurrent = true,
+            recapEndMs = 33_000L,
+            userRecap = null,
+            durationMs = 1_200_000L,
+            siblingsEmpty = false,
+            outcome = "season-pattern",
+        )
+        assertEquals(AnalysisPart.Suggested, part)
+        assertEquals(RecapChipSentence.SeasonSuggestion, recapChipSentence(part))
+        val audio = recapAnalysisPart(
+            recapEnabled = true,
+            isEpisode = true,
+            derivedCurrent = true,
+            recapEndMs = 15_300L,
+            userRecap = null,
+            durationMs = 1_200_000L,
+            siblingsEmpty = false,
+            outcome = "accepted-previous-ending",
+        )
+        assertEquals(AnalysisPart.Ready, audio)
+        assertEquals(RecapChipSentence.Ready, recapChipSentence(audio))
+    }
+
+    @Test
+    fun aUserNoneBeatsASeasonSuggestion() {
+        val mark = UserSegment(
+            startMs = 0L,
+            endMs = 0L,
+            markedAtMs = 9L,
+            durationMs = 1_200_000L,
+            absent = true,
+        )
+        val part = recapAnalysisPart(
+            recapEnabled = true,
+            isEpisode = true,
+            derivedCurrent = true,
+            recapEndMs = 33_000L,
+            userRecap = mark,
+            durationMs = 1_200_000L,
+            siblingsEmpty = false,
+            outcome = "season-pattern",
+        )
+        assertEquals(AnalysisPart.UserMarkedNone, part)
+        assertEquals(RecapChipSentence.YouMarkedNone, recapChipSentence(part))
+    }
+
+    @Test
+    fun aSameCutMarkStaysReadyWhenTheSuggestionIsStored() {
+        val mark = UserSegment(startMs = 0L, endMs = 80_000L, markedAtMs = 5L, durationMs = 1_200_000L)
+        val part = recapAnalysisPart(
+            recapEnabled = true,
+            isEpisode = true,
+            derivedCurrent = true,
+            recapEndMs = 33_000L,
+            userRecap = mark,
+            durationMs = 1_200_000L,
+            siblingsEmpty = false,
+            outcome = "season-pattern",
+        )
+        assertEquals(AnalysisPart.Ready, part)
+        assertEquals(RecapChipSentence.Ready, recapChipSentence(part))
+    }
+
+    @Test
     fun aUserNoneBeatsTheDetectorMiss() {
         val mark = UserSegment(
             startMs = 0L,

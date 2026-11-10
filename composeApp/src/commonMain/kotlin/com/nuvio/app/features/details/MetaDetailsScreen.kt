@@ -1145,6 +1145,42 @@ fun MetaDetailsScreen(
                         {
                             stopHeroTrailerForNavigation()
                             when {
+                                openedPrivately && (meta.type == "series" || hasEpisodes) && seriesAction != null -> {
+                                    openEpisodePrivately(
+                                        EpisodeSubmitRequest(
+                                            type = meta.type,
+                                            videoId = seriesStreamVideoId ?: seriesAction.videoId,
+                                            parentMetaId = meta.id,
+                                            parentMetaType = meta.type,
+                                            title = meta.name,
+                                            logo = meta.logo,
+                                            poster = meta.poster,
+                                            background = meta.background,
+                                            seasonNumber = seriesAction.seasonNumber,
+                                            episodeNumber = seriesAction.episodeNumber,
+                                            episodeTitle = seriesAction.episodeTitle,
+                                            episodeThumbnail = seriesAction.episodeThumbnail,
+                                            pauseDescription = seriesPauseDescription,
+                                        ),
+                                        PlayEntry.SourceSheet,
+                                    )
+                                }
+                                openedPrivately -> {
+                                    openEpisodePrivately(
+                                        EpisodeSubmitRequest(
+                                            type = meta.type,
+                                            videoId = meta.id,
+                                            parentMetaId = meta.id,
+                                            parentMetaType = meta.type,
+                                            title = meta.name,
+                                            logo = meta.logo,
+                                            poster = meta.poster,
+                                            background = meta.background,
+                                            pauseDescription = meta.description,
+                                        ),
+                                        PlayEntry.SourceSheet,
+                                    )
+                                }
                                 (meta.type == "series" || hasEpisodes) && seriesAction != null -> {
                                     manualPlay(
                                         meta.type,
@@ -2290,31 +2326,38 @@ fun MetaDetailsScreen(
                                 label = stringResource(Res.string.play_manually),
                                 enabled = !networkStatusUiState.isOfflineLike,
                                 onSelected = {
-                                    val playbackVideoId = buildPlaybackVideoId(
-                                        parentMetaId = meta.id,
-                                        seasonNumber = selectedEpisode.season,
-                                        episodeNumber = selectedEpisode.episode,
-                                        fallbackVideoId = selectedEpisode.id,
-                                    )
-                                    val streamVideoId = selectedEpisode.id.takeIf { it.isNotBlank() } ?: playbackVideoId
-                                    val savedProgress = progressByVideoId[streamVideoId]
-                                        ?.takeUnless { it.isCompleted }
-                                    onPlayManually.invoke(
-                                        meta.type,
-                                        streamVideoId,
-                                        meta.id,
-                                        meta.type,
-                                        meta.name,
-                                        meta.logo,
-                                        meta.poster,
-                                        meta.background,
-                                        selectedEpisode.season,
-                                        selectedEpisode.episode,
-                                        selectedEpisode.title,
-                                        selectedEpisode.thumbnail,
-                                        selectedEpisode.overview,
-                                        savedProgress?.lastPositionMs,
-                                    )
+                                    if (openedPrivately) {
+                                        openEpisodePrivately(
+                                            meta.toEpisodeSubmitRequest(selectedEpisode),
+                                            PlayEntry.SourceSheet,
+                                        )
+                                    } else {
+                                        val playbackVideoId = buildPlaybackVideoId(
+                                            parentMetaId = meta.id,
+                                            seasonNumber = selectedEpisode.season,
+                                            episodeNumber = selectedEpisode.episode,
+                                            fallbackVideoId = selectedEpisode.id,
+                                        )
+                                        val streamVideoId = selectedEpisode.id.takeIf { it.isNotBlank() } ?: playbackVideoId
+                                        val savedProgress = progressByVideoId[streamVideoId]
+                                            ?.takeUnless { it.isCompleted }
+                                        onPlayManually.invoke(
+                                            meta.type,
+                                            streamVideoId,
+                                            meta.id,
+                                            meta.type,
+                                            meta.name,
+                                            meta.logo,
+                                            meta.poster,
+                                            meta.background,
+                                            selectedEpisode.season,
+                                            selectedEpisode.episode,
+                                            selectedEpisode.title,
+                                            selectedEpisode.thumbnail,
+                                            selectedEpisode.overview,
+                                            savedProgress?.lastPositionMs,
+                                        )
+                                    }
                                 },
                             ),
                         )

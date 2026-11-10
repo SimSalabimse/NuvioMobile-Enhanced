@@ -29,6 +29,7 @@ import nuvio.composeapp.generated.resources.analysis_part_state_pending
 import nuvio.composeapp.generated.resources.analysis_part_recap
 import nuvio.composeapp.generated.resources.analysis_part_recap_none
 import nuvio.composeapp.generated.resources.analysis_part_recap_you_marked
+import nuvio.composeapp.generated.resources.analysis_part_recap_suggestion
 import nuvio.composeapp.generated.resources.analysis_part_recap_unchecked
 import nuvio.composeapp.generated.resources.analysis_part_subtitle_sync
 import nuvio.composeapp.generated.resources.analysis_part_loudness
@@ -248,6 +249,7 @@ private fun stateWord(part: AnalysisPart): String = when (part) {
     AnalysisPart.Pending -> stringResource(Res.string.analysis_part_state_pending)
     AnalysisPart.NotChecked -> stringResource(Res.string.analysis_part_recap_unchecked)
     AnalysisPart.UserMarkedNone -> stringResource(Res.string.analysis_part_recap_you_marked)
+    AnalysisPart.Suggested -> stringResource(Res.string.analysis_part_recap_suggestion)
     AnalysisPart.Off -> ""
 }
 
@@ -260,6 +262,7 @@ private fun PartChips(item: DownloadItem, parts: AnalysisParts) {
     val external = remember(item.id, item.fileName, parts, ledger) { externalSkipSources(item) }
     val noRecapText = stringResource(Res.string.analysis_part_recap_none)
     val youMarkedRecapText = stringResource(Res.string.analysis_part_recap_you_marked)
+    val suggestionText = stringResource(Res.string.analysis_part_recap_suggestion)
     val notCheckedText = stringResource(Res.string.analysis_part_recap_unchecked)
     val readyWord = stringResource(Res.string.analysis_part_state_ready)
     FlowRow(
@@ -286,35 +289,20 @@ private fun PartChips(item: DownloadItem, parts: AnalysisParts) {
                 )
                 return@forEach
             }
-            if (kind == AnalysisChipKind.Recap && recapChipSentence(part) == RecapChipSentence.YouMarkedNone) {
-                Text(
-                    text = youMarkedRecapText,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                        .clearAndSetSemantics { contentDescription = spoken },
-                )
-                return@forEach
+            val recapSentence = if (kind == AnalysisChipKind.Recap) {
+                when (recapChipSentence(part)) {
+                    RecapChipSentence.SeasonSuggestion -> suggestionText
+                    RecapChipSentence.YouMarkedNone -> youMarkedRecapText
+                    RecapChipSentence.NoRecapFound -> noRecapText
+                    RecapChipSentence.NotChecked -> notCheckedText
+                    RecapChipSentence.Ready, RecapChipSentence.Other -> null
+                }
+            } else {
+                null
             }
-            if (kind == AnalysisChipKind.Recap && recapChipSentence(part) == RecapChipSentence.NoRecapFound) {
+            if (recapSentence != null) {
                 Text(
-                    text = noRecapText,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                        .clearAndSetSemantics { contentDescription = spoken },
-                )
-                return@forEach
-            }
-            if (kind == AnalysisChipKind.Recap && recapChipSentence(part) == RecapChipSentence.NotChecked) {
-                Text(
-                    text = notCheckedText,
+                    text = recapSentence,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
@@ -332,6 +320,7 @@ private fun PartChips(item: DownloadItem, parts: AnalysisParts) {
                 AnalysisPart.Pending -> "…" to false
                 AnalysisPart.NotChecked -> notCheckedText to false
                 AnalysisPart.UserMarkedNone -> youMarkedRecapText to false
+                AnalysisPart.Suggested -> suggestionText to false
                 AnalysisPart.Off -> "" to false
             }
             PartChip("$label $suffix", ready, spoken)

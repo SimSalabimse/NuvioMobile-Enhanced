@@ -21,6 +21,7 @@ internal enum class RecapChipSentence {
     NoRecapFound,
     YouMarkedNone,
     NotChecked,
+    SeasonSuggestion,
     Other,
 }
 
@@ -30,6 +31,7 @@ internal fun recapChipSentence(part: AnalysisPart): RecapChipSentence = when (pa
     AnalysisPart.NotFound -> RecapChipSentence.NoRecapFound
     AnalysisPart.UserMarkedNone -> RecapChipSentence.YouMarkedNone
     AnalysisPart.NotChecked -> RecapChipSentence.NotChecked
+    AnalysisPart.Suggested -> RecapChipSentence.SeasonSuggestion
     else -> RecapChipSentence.Other
 }
 
@@ -112,7 +114,9 @@ internal fun recapAnalysisPart(
     if (!derivedCurrent) return AnalysisPart.Pending
     val markRange = mark != null && mark.endMs > mark.startMs
     val markKept = mark != null && markRange && sameCut(mark.durationMs, durationMs)
-    if (recapEndMs != null || markKept) return AnalysisPart.Ready
+    if (markKept) return AnalysisPart.Ready
+    if (outcome == "season-pattern" && recapEndMs != null) return AnalysisPart.Suggested
+    if (recapEndMs != null) return AnalysisPart.Ready
     if (mark != null && markRange && !sameCut(mark.durationMs, durationMs)) {
         return AnalysisPart.NotChecked
     }

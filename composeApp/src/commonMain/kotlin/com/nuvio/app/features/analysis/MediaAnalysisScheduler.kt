@@ -829,7 +829,11 @@ internal object MediaAnalysisScheduler {
                 !recapOn -> trace.replace("recap", detectionOffDecision("recap"))
                 "recap" in result.chapterTypes ->
                     trace.replace("recap", chapterDecision("recap", result.recapStartMs, result.recapEndMs))
-                recapMark != null -> {
+                recapMark != null && recapMark.absent -> {
+                    result = result.copy(recapStartMs = null, recapEndMs = null)
+                    trace.replace("recap", userMarkDecision("recap", recapMark.startMs, recapMark.endMs))
+                }
+                recapMark != null && recapMark.endMs > recapMark.startMs -> {
                     result = result.copy(recapStartMs = recapMark.startMs, recapEndMs = recapMark.endMs)
                     trace.replace("recap", userMarkDecision("recap", recapMark.startMs, recapMark.endMs))
                 }
