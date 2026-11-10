@@ -232,6 +232,30 @@ class SegmentDetectionRulesTest {
     }
 
     @Test
+    fun aShortTailMatchReachesTheFollowingCut() {
+        val audioOnly = shortTailFixture(markEnds = emptyList())
+        val audioTrace = SegmentTrace()
+        val audio = assertNotNull(
+            RecapDetector.detect(audioOnly.episode, audioOnly.others, audioTrace),
+            "SYNTHETIC short previous-ending match",
+        )
+        assertEquals(2_000L, audio.first)
+        assertTrue(audio.second < 20_000L, "end ${audio.second}")
+        assertEquals("accepted-previous-ending", audioTrace.decisions.single().why)
+
+        val fixture = shortTailFixture(markEnds = listOf(34_000L, 70_000L))
+        val trace = SegmentTrace()
+        val found = assertNotNull(
+            RecapDetector.detect(fixture.episode, fixture.others, trace),
+            "SYNTHETIC short tail with two opening marks",
+        )
+        assertEquals(2_000L, found.first)
+        assertTrue(found.second >= 32_000L && found.second < 34_000L, "end ${found.second}")
+        assertEquals("season-pattern", trace.decisions.single().why)
+        assertFalse(trace.decisions.single().accepted)
+    }
+
+    @Test
     fun aDatabaseRecapTimeBlocksThatExtension() {
         val fixture = openingFixture(markEnds = listOf(34_000L, 70_000L))
         val trace = SegmentTrace()
@@ -602,6 +626,43 @@ class SegmentDetectionRulesTest {
         val levels = IntArray(400) { 120 }
         for (index in sample until (sample + 4).coerceAtMost(levels.size)) levels[index] = 40
         return encodeEnergyLevels(levels)
+    }
+
+    /**
+     * One previous episode matches 2.0s–15.0s. A quiet run at 16s is what a snap would
+     * stop on, and another at 18s sits just after it. The fingerprint cut is at 33s.
+     * Two later siblings carry opening marks and none of this audio.
+     */
+    private fun shortTailFixture(markEnds: List<Long>): OpeningFixture {
+        val tail = pattern(14, 130)
+        val head = noise(1, 6_000)
+        tail.copyInto(head, 20)
+        cutAt(head, 330)
+        val levels = IntArray(400) { 120 }
+        for (sample in intArrayOf(160, 180)) {
+            for (index in sample until (sample + 4).coerceAtMost(levels.size)) levels[index] = 40
+        }
+        val episode = fingerprinted("shorttail__s1e8", head, noise(2, TAIL_FRAMES)).copy(
+            introStartMs = 754_000L,
+            introEndMs = 768_000L,
+            energy = encodeEnergyLevels(levels),
+            energyStepMs = 100,
+        )
+        val previousTail = noise(3, TAIL_FRAMES)
+        tail.copyInto(previousTail, 100)
+        val previous = fingerprinted("shorttail__s1e7", noise(4, 6_000), previousTail)
+        val marked = markEnds.iterator()
+        val later = listOf(5, 6).map { number ->
+            val mark = if (marked.hasNext()) {
+                UserSegment(startMs = 0L, endMs = marked.next(), markedAtMs = 1L, durationMs = DURATION_MS)
+            } else {
+                null
+            }
+            fingerprinted("shorttail__s1e$number", noise(10 + number, 6_000), noise(20 + number, TAIL_FRAMES)).copy(
+                userSegments = if (mark == null) emptyMap() else mapOf("recap" to mark),
+            )
+        }
+        return OpeningFixture(episode, listOf(previous) + later)
     }
 
     private data class OpeningFixture(
