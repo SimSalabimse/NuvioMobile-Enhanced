@@ -133,3 +133,17 @@ A green `testAndroidHostTest` is restored from the build cache, so runs 2 and 3 
 Median: 3130 tests, 0 failed, 8 skipped. Wall-clock median: 1m 17s.
 
 The eight skips are `PlayerNowPlayingServiceTest` on SDK 26 and 34, the same four tests, because the foreground-service flag is false on this host. Before this review the suite on `9d5d91c86` was 3127 tests, 7 failed, 8 skipped. The three new tests are `IosAutoSyncCallSiteTest` (two) and `SegmentDetectionRulesTest.aShortTailMatchReachesTheFollowingCut` from Part H. The seven failures were the download host tests Part H rewrote to the current scheduler and delete-when-finished behavior. They pass now.
+
+## Host suite on build 212
+
+Machine: Linux 6.12.113+ x86_64. Commit measured: `5aa5b5d49`. Android SDK: `/home/ubuntu/android-sdk`. iOS build, app size, and FPS: not measured. No IPA.
+
+Same command as above. Runs 2 and 3 deleted the test-result directory and added `--no-build-cache` so a green task was not restored from cache. Counts are the JUnit XML totals.
+
+| Run | Wall clock | Exit | Tests | Failed | Skipped | Log |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 4m 50s | 0 | 3135 | 0 | 8 | `/opt/cursor/artifacts/sync-0610-build212/run-1.log` |
+| 2 | 1m 20s | 0 | 3135 | 0 | 8 | `/opt/cursor/artifacts/sync-0610-build212/run-2.log` |
+| 3 | 1m 15s | 0 | 3135 | 0 | 8 | `/opt/cursor/artifacts/sync-0610-build212/run-3.log` |
+
+Median: 3135 tests, 0 failed, 8 skipped. Wall-clock median: 1m 20s. `aShortTailMatchStopsAtTheQuietRun` passed. The eight skips are the same now-playing tests.
