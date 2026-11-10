@@ -108,8 +108,13 @@ internal fun recapAnalysisPart(
     if (!recapEnabled) return AnalysisPart.Off
     if (!isEpisode) return AnalysisPart.NotFound
     val mark = userRecap
-    if (mark != null && mark.absent && sameCut(mark.durationMs, durationMs)) {
-        return AnalysisPart.UserMarkedNone
+    if (mark != null && mark.absent) {
+        // A none answer is this episode's mark. A different cut is not the detector's miss.
+        return if (sameCut(mark.durationMs, durationMs)) {
+            AnalysisPart.UserMarkedNone
+        } else {
+            AnalysisPart.NotChecked
+        }
     }
     if (!derivedCurrent) return AnalysisPart.Pending
     val markRange = mark != null && mark.endMs > mark.startMs

@@ -307,13 +307,19 @@ internal fun PlayerScreenRuntime.noteMarkingSubmitted(result: IntroSubmitResult)
     if (saved != null) {
         saveUserSkipMark(saved.segmentType, saved.startSec, saved.endSec, submit = false)
     } else if (result.absentSegment) {
-        com.nuvio.app.features.analysis.SkipLearning.recordAbsent(
-            parentMetaId = parentMetaId,
-            season = activeSeasonNumber,
-            episode = activeEpisodeNumber,
-            type = result.segmentType,
-            durationMs = playbackSnapshot.durationMs,
-        )
+        val downloadShowId = com.nuvio.app.features.downloads.downloadOpenedBySource(
+            activeSourceUrl.trim(),
+            com.nuvio.app.features.downloads.DownloadsRepository.uiState.value.items,
+        )?.parentMetaId
+        com.nuvio.app.features.player.skip.absentMarkShowIds(parentMetaId, downloadShowId).forEach { showId ->
+            com.nuvio.app.features.analysis.SkipLearning.recordAbsent(
+                parentMetaId = showId,
+                season = activeSeasonNumber,
+                episode = activeEpisodeNumber,
+                type = result.segmentType,
+                durationMs = playbackSnapshot.durationMs,
+            )
+        }
     }
     markSent = true
     markSubmitError = null

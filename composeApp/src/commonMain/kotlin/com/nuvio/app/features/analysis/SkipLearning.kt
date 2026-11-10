@@ -111,6 +111,7 @@ internal object SkipLearning {
         episode: Int?,
         type: String,
         durationMs: Long,
+        imported: Boolean = false,
     ): Boolean {
         val category = canonicalType(type) ?: return false
         if (parentMetaId.isBlank()) return false
@@ -123,6 +124,7 @@ internal object SkipLearning {
             markedAtMs = com.nuvio.app.features.streams.epochMs(),
             durationMs = durationMs,
             absent = true,
+            imported = imported,
         )
         MediaAnalysisStore.save(
             existing.copy(

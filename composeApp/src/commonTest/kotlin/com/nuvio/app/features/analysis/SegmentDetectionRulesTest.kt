@@ -232,7 +232,7 @@ class SegmentDetectionRulesTest {
     }
 
     @Test
-    fun aShortTailMatchReachesTheFollowingCut() {
+    fun aShortTailMatchStopsAtTheQuietRun() {
         val audioOnly = shortTailFixture(markEnds = emptyList())
         val audioTrace = SegmentTrace()
         val audio = assertNotNull(
@@ -240,8 +240,9 @@ class SegmentDetectionRulesTest {
             "SYNTHETIC short previous-ending match",
         )
         assertEquals(2_000L, audio.first)
-        assertTrue(audio.second < 20_000L, "end ${audio.second}")
+        assertEquals(17_000L, audio.second)
         assertEquals("accepted-previous-ending", audioTrace.decisions.single().why)
+        assertTrue(audioTrace.decisions.single().accepted)
 
         val fixture = shortTailFixture(markEnds = listOf(34_000L, 70_000L))
         val trace = SegmentTrace()
@@ -250,9 +251,9 @@ class SegmentDetectionRulesTest {
             "SYNTHETIC short tail with two opening marks",
         )
         assertEquals(2_000L, found.first)
-        assertTrue(found.second >= 32_000L && found.second < 34_000L, "end ${found.second}")
-        assertEquals("season-pattern", trace.decisions.single().why)
-        assertFalse(trace.decisions.single().accepted)
+        assertEquals(17_000L, found.second)
+        assertEquals("accepted-previous-ending", trace.decisions.single().why)
+        assertTrue(trace.decisions.single().accepted)
     }
 
     @Test
@@ -629,9 +630,9 @@ class SegmentDetectionRulesTest {
     }
 
     /**
-     * One previous episode matches 2.0s–15.0s. A quiet run at 16s is what a snap would
-     * stop on, and another at 18s sits just after it. The fingerprint cut is at 33s.
-     * Two later siblings carry opening marks and none of this audio.
+     * One previous episode matches 2.0s–15.0s. The quiet run at 17s is the end.
+     * Another at 19s sits too far to win, and the fingerprint cut at 33s is not the recap.
+     * Two later siblings carry longer opening marks and none of this audio.
      */
     private fun shortTailFixture(markEnds: List<Long>): OpeningFixture {
         val tail = pattern(14, 130)
@@ -639,7 +640,7 @@ class SegmentDetectionRulesTest {
         tail.copyInto(head, 20)
         cutAt(head, 330)
         val levels = IntArray(400) { 120 }
-        for (sample in intArrayOf(160, 180)) {
+        for (sample in intArrayOf(170, 190)) {
             for (index in sample until (sample + 4).coerceAtMost(levels.size)) levels[index] = 40
         }
         val episode = fingerprinted("shorttail__s1e8", head, noise(2, TAIL_FRAMES)).copy(

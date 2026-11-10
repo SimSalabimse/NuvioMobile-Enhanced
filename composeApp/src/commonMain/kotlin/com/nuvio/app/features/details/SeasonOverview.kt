@@ -138,6 +138,40 @@ internal fun overviewSessionAfterEpisodeOpen(): OverviewSession = OverviewSessio
 
 internal fun overviewCanOpenAgain(session: OverviewSession): Boolean = !session.overlayVisible
 
+/**
+ * The sheet after the player gives the window back.
+ * The window passed in can still be the landscape size, because the rotation has not landed.
+ * On a phone that is not lying landscape, the list window is that size turned portrait.
+ * A frame that fits the list window is kept. A frame taken from the landscape window,
+ * including one that starts in the trailing half, does not fit and is dismissed.
+ * An empty result means dismiss. Otherwise the result is left, top, width, height.
+ */
+fun overviewSheetFrameAfterReturn(
+    proposedLeft: Int,
+    proposedTop: Int,
+    proposedWidth: Int,
+    proposedHeight: Int,
+    windowWidth: Int,
+    windowHeight: Int,
+    deviceIsLandscape: Boolean,
+): String {
+    if (windowWidth <= 0 || windowHeight <= 0 || proposedWidth <= 0 || proposedHeight <= 0) return ""
+    val returnWidth: Int
+    val returnHeight: Int
+    if (!deviceIsLandscape && windowWidth > windowHeight) {
+        returnWidth = windowHeight
+        returnHeight = windowWidth
+    } else {
+        returnWidth = windowWidth
+        returnHeight = windowHeight
+    }
+    val right = proposedLeft + proposedWidth
+    val bottom = proposedTop + proposedHeight
+    val inside = proposedLeft >= 0 && proposedTop >= 0 && right <= returnWidth && bottom <= returnHeight
+    if (!inside) return ""
+    return "$proposedLeft,$proposedTop,$proposedWidth,$proposedHeight"
+}
+
 internal fun seasonEpisodeContentKey(
     metaId: String,
     imdbId: String?,

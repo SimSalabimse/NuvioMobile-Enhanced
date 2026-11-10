@@ -681,10 +681,12 @@ private fun List<TimedMatch>.outranks(other: List<TimedMatch>): Boolean {
  * Clips join while the gap between them stays inside [NARRATION_GAP_MS]. The span snaps to the
  * intro only across a short transition, not across a cold open. Clips from the middle of earlier
  * episodes are not stored, so a recap made only of those is not found.
- * When at least two siblings carry a user recap that starts at the opening, and this episode has
- * that same sting, the end may move to the first cut at or before the shortest of those marks,
- * and never past the longest. The token for that extension is season-pattern: a suggestion, not
- * an audio find. A TheIntroDB time does not create a range and blocks that suggestion.
+ * When at least two siblings carry a user recap that starts at a sting shared by the season, the
+ * end may move to the first cut at or before the shortest of those marks, and never past the
+ * longest. A match of only the previous episode stays on the audio, including the quiet run it
+ * snaps to. It is not stretched to a later cut. The token for a shared-sting extension is
+ * season-pattern: a suggestion, not an audio find. A TheIntroDB time does not create a range and
+ * blocks that suggestion.
  */
 internal object RecapDetector {
     private const val MIN_CLIP_MS = 2_000L
@@ -777,7 +779,7 @@ internal object RecapDetector {
         /** The search did not compare a clip. An empty or too-short print is not a completed miss. */
         val unchecked: Boolean = false,
         val uncheckedWhy: String? = null,
-        /** The span starts in the opening: a shared sting, or a previous-episode match. */
+        /** The span starts on a sting shared by the season, inside the opening window. */
         val sharedOpening: Boolean = false,
         /** The end was moved from the audio clips using sibling marks. Not an audio find. */
         val seasonPattern: Boolean = false,
@@ -849,25 +851,17 @@ internal object RecapDetector {
             hits = clips.size,
             kept = kept.size,
             fromPrevious = inSpan.any { it.previous },
-            sharedOpening = openingForSeason(chained, sting, kept),
+            sharedOpening = openingForSeason(chained, sting),
         )
     }
 
     /**
-     * The chain starts in the opening window, before a quiet or black run can snap the start
-     * a couple of seconds later. A sting shared by the season counts, and so does a
-     * previous-episode match that only covers the tail of the recap.
+     * A sting shared by the season, starting in the opening window, before a quiet or black run
+     * can snap the start. A previous-episode match is the recap itself. Sibling marks do not
+     * stretch it to the next cut.
      */
-    private fun openingForSeason(chained: Pair<Long, Long>, sting: Clip?, kept: List<Clip>): Boolean {
-        if (chained.first > SNAP_TO_START_MS) return false
-        if (sting != null) return true
-        return kept.any { clip ->
-            clip.previous &&
-                clip.startMs <= SNAP_TO_START_MS &&
-                clip.endMs > chained.first &&
-                clip.startMs < chained.second
-        }
-    }
+    private fun openingForSeason(chained: Pair<Long, Long>, sting: Clip?): Boolean =
+        sting != null && chained.first <= OPENING_STING_START_MS
 
     /** Two or more siblings sharing a clip that starts at the opening. */
     private fun openingSting(clips: List<Clip>): Clip? {
