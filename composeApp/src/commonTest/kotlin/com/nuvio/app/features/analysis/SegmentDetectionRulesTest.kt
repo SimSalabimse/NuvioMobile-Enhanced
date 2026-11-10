@@ -9,9 +9,10 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Synthetic fingerprints only. No media files and no measured times for any titled show.
+ * Synthetic fingerprints only. No media files and no titled show.
  * A late title means the shared pattern sits late inside a long head print, which is the
  * shape a long first act leaves behind. It is not a result from a real episode.
+ * One test replays a stored clip list, identified by episode keys, through the same end choice.
  */
 class SegmentDetectionRulesTest {
     @Test
@@ -198,13 +199,32 @@ class SegmentDetectionRulesTest {
         assertTrue(why == "accepted-previous-ending" || why == "accepted-montage", why)
     }
 
+    /**
+     * This fixture is a 2.5s sting that the previous episode also carries, then one later clip.
+     * It used to be markedOpeningsExtendThatRecapToTheCut and expected the cut near 33s.
+     * That 0:34 end was the wrong result for a short sting, so the audio end stands.
+     */
     @Test
-    fun markedOpeningsExtendThatRecapToTheCut() {
+    fun aShortStingWithAPreviousClipStaysOnTheAudio() {
         val fixture = openingFixture(markEnds = listOf(34_000L, 70_000L))
         val trace = SegmentTrace()
         val found = assertNotNull(
             RecapDetector.detect(fixture.episode, fixture.others, trace),
-            "SYNTHETIC season marks on the opening",
+            "SYNTHETIC short sting plus a previous-episode clip",
+        )
+        assertEquals(0L, found.first)
+        assertTrue(found.second >= 15_000L && found.second < 20_000L, "end ${found.second}")
+        assertEquals("accepted-previous-ending", trace.decisions.single().why)
+        assertTrue(trace.decisions.single().accepted)
+    }
+
+    @Test
+    fun aLongSharedOpeningStillReachesTheCut() {
+        val fixture = openingFixture(markEnds = listOf(34_000L, 70_000L), stingFrames = 80)
+        val trace = SegmentTrace()
+        val found = assertNotNull(
+            RecapDetector.detect(fixture.episode, fixture.others, trace),
+            "SYNTHETIC long shared opening",
         )
         assertEquals(0L, found.first)
         assertTrue(found.second >= 32_000L && found.second < 34_000L, "end ${found.second}")
@@ -268,6 +288,56 @@ class SegmentDetectionRulesTest {
         assertEquals(17_000L, found.second)
         assertEquals("accepted-previous-ending", trace.decisions.single().why)
         assertTrue(trace.decisions.single().accepted)
+    }
+
+    /**
+     * The stored clip list, unchanged. Opening clips are the short stings at 0.
+     * The quiet run is at 16.0s: the attached result rows do not print it, and the
+     * audio-only pass ended at 16s. A fingerprint cut sits near 33–34s.
+     * The six-row summary names one opening mark, 0–55s on the previous episode.
+     * A season-pattern end at that cut needs a second opening mark, so one more
+     * sibling carries 0–70s. Any second end at or after the cut yields the same stretch.
+     */
+    @Test
+    fun aStoredClipListWithOnlyShortStingsStaysOnTheAudioEnd() {
+        val dump = parseRecapClipDump(STORED_RECAP_CLIPS)
+        assertEquals("tt9055008__s1e8", dump.selfKey)
+        assertEquals("tt9055008__s1e7", dump.previousKey)
+        assertEquals(
+            listOf(
+                "tt9055008__s1e4",
+                "tt9055008__s1e5",
+                "tt9055008__s1e2",
+                "tt9055008__s1e3",
+                "tt9055008__s1e1",
+                "tt9055008__s1e6",
+                "tt9055008__s1e7",
+            ),
+            dump.siblingKeys,
+        )
+        assertEquals(
+            listOf(
+                ListedRecapClip(0L, 2_200L, "tt9055008__s1e5", fromHead = true, sourceOffsetMs = 0L, bits = 0.63, previous = false),
+                ListedRecapClip(0L, 2_100L, "tt9055008__s1e3", fromHead = true, sourceOffsetMs = 0L, bits = 0.90, previous = false),
+                ListedRecapClip(11_800L, 15_000L, "tt9055008__s1e1", fromHead = true, sourceOffsetMs = 500_600L, bits = 3.67, previous = false),
+                ListedRecapClip(100L, 2_200L, "tt9055008__s1e6", fromHead = true, sourceOffsetMs = 0L, bits = 0.61, previous = false),
+                ListedRecapClip(0L, 2_500L, "tt9055008__s1e7", fromHead = true, sourceOffsetMs = 0L, bits = 1.04, previous = true),
+            ),
+            dump.hits,
+        )
+        val episode = storedClipEpisode(dump.selfKey)
+        val others = storedClipSiblings(dump)
+        assertEquals(dump.previousKey, siblingByDelta(episode, others, -1)?.key)
+        val trace = SegmentTrace()
+        val found = assertNotNull(
+            RecapDetector.decideListed(episode, others, dump.hits, trace),
+            "stored clip list",
+        )
+        val decision = trace.decisions.single()
+        assertEquals(2_000L, found.first, "why=${decision.why} accepted=${decision.accepted} end=${found.second}")
+        assertEquals(16_000L, found.second, "why=${decision.why} accepted=${decision.accepted}")
+        assertEquals("accepted-previous-ending", decision.why)
+        assertTrue(decision.accepted)
     }
 
     @Test
@@ -594,15 +664,16 @@ class SegmentDetectionRulesTest {
     )
 
     /**
-     * Opening sting of 2.5s shared by four siblings, then one 3.2s clip at 11.8s
+     * Opening sting shared by four siblings, then one 3.2s clip at 11.8s
      * that only one other episode carries. A quiet run starts at 15.3s.
      * A fingerprint cut sits at 33s. Marks, when supplied, start at 0.
+     * The default sting is 2.5s. A longer one is a shared opening, not a sting.
      */
-    private fun openingFixture(markEnds: List<Long>, sting: Boolean = true): OpeningFixture {
-        val stingFrames = pattern(11, 25)
+    private fun openingFixture(markEnds: List<Long>, sting: Boolean = true, stingFrames: Int = 25): OpeningFixture {
+        val stingPattern = pattern(11, stingFrames)
         val clip = pattern(12, 32)
         val head = noise(1, 6_000)
-        if (sting) stingFrames.copyInto(head, 0)
+        if (sting) stingPattern.copyInto(head, 0)
         clip.copyInto(head, 118)
         cutAt(head, 330)
         val episode = fingerprinted("geometry__s1e8", head, noise(2, TAIL_FRAMES)).copy(
@@ -614,7 +685,7 @@ class SegmentDetectionRulesTest {
         val marked = markEnds.iterator()
         val sharers = listOf(3, 5, 6, 7).map { number ->
             val siblingHead = noise(10 + number, 6_000)
-            if (sting) stingFrames.copyInto(siblingHead, 0)
+            if (sting) stingPattern.copyInto(siblingHead, 0)
             val mark = if (marked.hasNext()) {
                 UserSegment(startMs = 0L, endMs = marked.next(), markedAtMs = 1L, durationMs = DURATION_MS)
             } else {
@@ -722,6 +793,80 @@ class SegmentDetectionRulesTest {
         return OpeningFixture(episode, later + previous)
     }
 
+    private fun storedClipEpisode(key: String): MediaAnalysisResult {
+        val head = noise(1, 6_000)
+        cutAt(head, 330)
+        val levels = IntArray(400) { 120 }
+        for (index in 0 until 20) levels[index] = 40
+        for (index in 160 until 164) levels[index] = 40
+        return fingerprinted(key, head, noise(2, TAIL_FRAMES)).copy(
+            durationMs = 2_517_000L,
+            introStartMs = 754_000L,
+            introEndMs = 768_000L,
+            creditsStartMs = 2_489_000L,
+            creditsEndMs = 2_517_000L,
+            energy = encodeEnergyLevels(levels),
+            energyStepMs = 100,
+        )
+    }
+
+    private fun storedClipSiblings(dump: StoredClipDump): List<MediaAnalysisResult> {
+        return dump.siblingKeys.map { key ->
+            val duration = if (key == dump.previousKey) 2_567_000L else 2_500_000L
+            val mark = when (key) {
+                dump.previousKey -> UserSegment(startMs = 0L, endMs = 55_000L, markedAtMs = 1L, durationMs = duration)
+                "tt9055008__s1e4" -> UserSegment(startMs = 0L, endMs = 70_000L, markedAtMs = 1L, durationMs = duration)
+                else -> null
+            }
+            fingerprinted(key, noise(key.hashCode(), 64), noise(key.hashCode() + 7, 64)).copy(
+                durationMs = duration,
+                userSegments = if (mark == null) emptyMap() else mapOf("recap" to mark),
+            )
+        }
+    }
+
+    private data class StoredClipDump(
+        val selfKey: String,
+        val previousKey: String?,
+        val siblingKeys: List<String>,
+        val hits: List<ListedRecapClip>,
+    )
+
+    private fun parseRecapClipDump(text: String): StoredClipDump {
+        val header = text.lineSequence().first { it.startsWith("self=") }
+        fun field(name: String): String {
+            val match = Regex("""(?:^|\s)$name=(\S+)""").find(header) ?: error("missing $name")
+            return match.groupValues[1]
+        }
+        val siblings = Regex("""siblings=\[(.*?)]""").find(header)?.groupValues?.get(1)
+            .orEmpty()
+            .split(',')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        val clip = Regex(
+            """clip (\S+)-(\S+) from (\S+) (head|tail) at (\S+) bits=([0-9.]+) prev=(true|false)""",
+        )
+        val hits = text.lineSequence().mapNotNull { line ->
+            val match = clip.find(line.trim()) ?: return@mapNotNull null
+            ListedRecapClip(
+                startMs = secondsToken(match.groupValues[1]),
+                endMs = secondsToken(match.groupValues[2]),
+                sourceKey = match.groupValues[3],
+                fromHead = match.groupValues[4] == "head",
+                sourceOffsetMs = secondsToken(match.groupValues[5]),
+                bits = match.groupValues[6].toDouble(),
+                previous = match.groupValues[7].toBoolean(),
+            )
+        }.toList()
+        val previous = field("previous").takeUnless { it == "null" }
+        return StoredClipDump(field("self"), previous, siblings, hits)
+    }
+
+    private fun secondsToken(token: String): Long {
+        val seconds = token.removeSuffix("s").toDouble()
+        return kotlin.math.round(seconds * 1_000.0).toLong()
+    }
+
     private data class OpeningFixture(
         val episode: MediaAnalysisResult,
         val others: List<MediaAnalysisResult>,
@@ -753,6 +898,15 @@ class SegmentDetectionRulesTest {
     }
 
     private companion object {
+        val STORED_RECAP_CLIPS = """
+            self=tt9055008__s1e8 intro=null previous=tt9055008__s1e7 siblings=[tt9055008__s1e4, tt9055008__s1e5, tt9055008__s1e2, tt9055008__s1e3, tt9055008__s1e1, tt9055008__s1e6, tt9055008__s1e7]
+            clip 0.0s-2.2s from tt9055008__s1e5 head at 0.0s bits=0.63 prev=false
+            clip 0.0s-2.1s from tt9055008__s1e3 head at 0.0s bits=0.90 prev=false
+            clip 11.8s-15.0s from tt9055008__s1e1 head at 500.6s bits=3.67 prev=false
+            clip 0.1s-2.2s from tt9055008__s1e6 head at 0.0s bits=0.61 prev=false
+            clip 0.0s-2.5s from tt9055008__s1e7 head at 0.0s bits=1.04 prev=true
+        """.trimIndent()
+
         const val STEP_MS = 100L
         const val DURATION_MS = 2_400_000L
         const val HEAD_FRAMES = 15_000
