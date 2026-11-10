@@ -138,6 +138,26 @@ class ChapterSkipPriorityTest {
     }
 
     @Test
+    fun aRecapturedPrintKeepsTheStoredIntroAndCreditsOutcomes() {
+        val previous = base().copy(
+            fileName = "episode.mkv",
+            introOutcome = "rejected-no-cluster",
+            creditsOutcome = "rejected-opening-credits",
+            recapOutcome = "rejected-no-match",
+        )
+        val fresh = base().copy(fileName = "episode.mkv", headFingerprint = "new")
+        val carried = fresh.carryingKnownSegments(previous)
+        assertEquals("rejected-no-cluster", carried.introOutcome)
+        assertEquals("rejected-opening-credits", carried.creditsOutcome)
+        assertEquals("rejected-no-match", carried.recapOutcome)
+        assertEquals("new", carried.headFingerprint)
+        val otherFile = fresh.copy(fileName = "other.mkv")
+        assertNull(otherFile.carryingKnownSegments(previous).introOutcome)
+        assertNull(otherFile.carryingKnownSegments(previous).creditsOutcome)
+        assertNull(otherFile.carryingKnownSegments(previous).recapOutcome)
+    }
+
+    @Test
     fun detectedPreviewDoesNotClearAChapterPreview() {
         val chaptered = base().copy(previewStartMs = 2_370_000L, previewEndMs = runtimeMs, chapterTypes = setOf("preview"))
         val kept = chaptered.withDetectedPreview(null)

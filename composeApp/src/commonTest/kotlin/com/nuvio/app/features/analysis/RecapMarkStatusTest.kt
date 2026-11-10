@@ -165,6 +165,30 @@ class RecapMarkStatusTest {
     }
 
     @Test
+    fun aCancelledIntroOrCreditsPassDropsACompletedMiss() {
+        for (why in INTRO_CREDITS_CHECKED_NONE) {
+            assertEquals(null, introCreditsOutcomeToPersist("intro", why, emptyList(), finished = false))
+            assertEquals(null, introCreditsOutcomeToPersist("credits", why, emptyList(), finished = false))
+            assertEquals(why, introCreditsOutcomeToPersist("intro", why, emptyList(), finished = true))
+            assertEquals(why, introCreditsOutcomeToPersist("credits", why, emptyList(), finished = true))
+        }
+        val recorded = listOf(decision("intro", "accepted-theme"))
+        assertEquals(
+            "accepted-theme",
+            introCreditsOutcomeToPersist("intro", "rejected-no-cluster", recorded, finished = false),
+        )
+        val creditsOnly = listOf(decision("credits", "rejected-no-cluster"))
+        assertEquals(
+            null,
+            introCreditsOutcomeToPersist("intro", "rejected-cold-open", creditsOnly, finished = false),
+        )
+        assertEquals(
+            "accepted-theme",
+            introCreditsOutcomeToPersist("intro", "accepted-theme", emptyList(), finished = false),
+        )
+    }
+
+    @Test
     fun aSameCutMarkStaysReadyWhenTheSearchRecordedAMiss() {
         val mark = UserSegment(startMs = 0L, endMs = 80_000L, markedAtMs = 5L, durationMs = 1_200_000L)
         val part = recapAnalysisPart(
@@ -282,6 +306,18 @@ class RecapMarkStatusTest {
         assertEquals(null, stored.recapStartMs)
         assertEquals(null, stored.recapEndMs)
     }
+
+    private fun decision(type: String, why: String) = SegmentDecision(
+        type = type,
+        candidates = 1,
+        signal = "audio",
+        accepted = why.startsWith("accepted-"),
+        startMs = null,
+        endMs = null,
+        confidence = "none",
+        why = why,
+        thresholds = "none",
+    )
 
     private fun episode(frames: Int, episode: Int) = MediaAnalysisResult(
         key = "show__s3e$episode",
