@@ -104,13 +104,23 @@ internal fun skipSourcesFor(item: DownloadItem): List<Pair<String, String>> {
 }
 
 /**
+ * "Your mark" for a same-cut range or a same-cut none answer.
+ * A none answer has no end time, so a check that requires end after start hides it and the
+ * detector's "none" chip stays on screen.
+ */
+internal fun userMarkSource(mark: UserSegment?, durationMs: Long): String? {
+    if (mark == null || !com.nuvio.app.features.player.sameCut(mark.durationMs, durationMs)) return null
+    if (!mark.absent && mark.endMs <= mark.startMs) return null
+    return skipSourceLabel(if (mark.imported) SkipLearning.PROVIDER_IMPORTED else SkipLearning.PROVIDER)
+}
+
+/**
  * The non-on-device source of one kind's times for an episode: your mark (typed or imported from
  * your TheIntroDB submissions), else the online provider the player last used. Stored data only.
  */
 private fun externalSkipSource(key: String, result: MediaAnalysisResult?, kind: String): String? {
-    val mark = result?.userSegments?.get(kind)
-        ?.takeIf { it.endMs > it.startMs && com.nuvio.app.features.player.sameCut(it.durationMs, result.durationMs) }
-    if (mark != null) return skipSourceLabel(if (mark.imported) SkipLearning.PROVIDER_IMPORTED else SkipLearning.PROVIDER)
+    val mark = userMarkSource(result?.userSegments?.get(kind), result?.durationMs ?: 0L)
+    if (mark != null) return mark
     val online = SkipSourceLedger.online(key)[kind] ?: return null
     return skipSourceLabel(online) ?: online
 }

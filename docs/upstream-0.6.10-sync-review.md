@@ -48,7 +48,7 @@ Image-memory trim on the iOS surface (`trimImageMemoryForPlayback`, `collectAfte
 | `ThemeSettingsRepository.kt` | `clearLocalState` again calls `applyLiquidGlassEffectsEnabled(true)`, as on `2e76ccee1`. `applyLiquidGlassEffectsEnabled` writes `LiquidGlassSettings.userChoice` because `enabled` is now a getter (`userChoice ?: !glassUiActive`). Load still uses `forkNavBarGlassMigration`. `onGlassUiActiveChanged` is new and is called from `AppBackgroundHost`. After a stored choice, the getter ignores `glassUiActive`. | The migration is the fork rule and was the conflict resolution. The `clearLocalState` rewrite was an automatic edit and is reverted. The getter change is required by the new `LiquidGlassSettings` type. An explicit choice still wins. The solid fallback in `LiquidGlass.kt` was put back, so an unsupported or off glass surface is not the new static glass layer. |
 | `MainViewController.kt` | Back to `PerformanceMetrics.markProcessStart()` only. | Yes. See section 1. |
 | `PlayerEngine.ios.kt` | Memory trim remains. The Auto Sync wrapper does not. | Yes. See section 1. |
-| `Version.xcconfig` | `211` and `0.6.10.1`, from `210` and `0.6.9.1`. | Yes. |
+| `Version.xcconfig` | `212` and `0.6.10.1`. The base head took `211`. | Yes. Marketing stays `0.6.10.1`. |
 | `store.json` | No diff. | Yes. |
 | `AutoSyncDelayPreflight.kt` | Moved from androidMain to commonMain. File body matches `2e76ccee1`. | Yes. |
 | `AutoSyncSampledReferenceAligner.kt` | Same move, body matches. | Yes. |
@@ -74,7 +74,7 @@ Image-memory trim on the iOS surface (`trimImageMemoryForPlayback`, `collectAfte
 
 Upstream did not replace these paths.
 
-After that check, `3a4a87765` landed on `cursor/batch12-build207-e33c` and was merged here. It is the only reason `features/analysis/` differs from `2e76ccee1`. A short previous-episode opening now counts as an opening, and the season extension follows the next fingerprint cut rather than a pause inside the matched audio. `SegmentDetectionRulesTest.aShortTailMatchReachesTheFollowingCut` covers that. The same commit updates three download host tests to the scheduler and delete-when-finished behavior already on the fork. `git diff 2e76ccee1 9d5d91c86` is empty for analysis, downloads, the skip package, the Home hero, and diagnostics, so the 0.6.10 merge did not write those lines.
+After that check, `3a4a87765` landed on `cursor/batch12-build207-e33c` and was merged here. It updated three download host tests to the scheduler and delete-when-finished behavior already on the fork. `bd01771c8` then removed the previous-episode stretch: a short match of the previous episode stays on the quiet run, and sibling marks do not pull it to the next cut. `SegmentDetectionRulesTest.aShortTailMatchStopsAtTheQuietRun` keeps `shorttail__s1e8` at 2.0s–17.0s with `accepted-previous-ending`. A shared season sting can still extend. The same commit shows a user's own none as `Your mark`, and dismisses a season sheet whose frame does not fit after the player returns the window. `git diff 2e76ccee1 9d5d91c86` is empty for analysis, downloads, the skip package, the Home hero, and diagnostics, so the 0.6.10 merge did not write those lines.
 
 ## 4. Swift export
 
@@ -88,19 +88,21 @@ Upstream added two Kotlin members that Swift implements. Both are in `SwiftExpor
 
 No other new Swift-called Kotlin symbol showed up in the `PlayerBridge.kt` diff. The iOS player does not call `replaceExternalSubtitle` after section 1. The method stays on the protocol so the Swift implementation still typechecks.
 
-## 5. Version 0.6.10.1 / 211
+## 5. Version 0.6.10.1 / 212
+
+Build 211 is the base head `bd01771c8`. This branch is 212. Marketing stays `0.6.10.1`.
 
 | Place | What it says |
 | --- | --- |
-| `iosApp/Configuration/Version.xcconfig` | `CURRENT_PROJECT_VERSION = 211`, `MARKETING_VERSION=0.6.10.1` |
+| `iosApp/Configuration/Version.xcconfig` | `CURRENT_PROJECT_VERSION = 212`, `MARKETING_VERSION=0.6.10.1` |
 | `iosApp/Configuration/Config.xcconfig` | `#include? "Version.xcconfig"` |
 | `iosApp/iosApp.xcodeproj/project.pbxproj` | App configurations use `baseConfigurationReferenceRelativePath = Config.xcconfig`. They do not override the version. `GENERATE_INFOPLIST_FILE = YES` with `INFOPLIST_FILE = iosApp/Info.plist`, so the built short version and bundle version come from those settings. |
 | `iosApp/iosApp/Info.plist` | Does not hardcode a version. That is the generated-plist setup above, not a second number. |
 | `iosApp/DownloadsWidgetExtension/Info.plist` | `CFBundleShortVersionString` is `$(MARKETING_VERSION)`. `CFBundleVersion` is `$(CURRENT_PROJECT_VERSION)`. |
 | `composeApp/build.gradle.kts` and `androidApp/build.gradle.kts` | Read `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` from `Version.xcconfig`. |
-| Generated `AppVersionConfig.kt` from the host compile of this tree | `VERSION_NAME = "0.6.10.1"`, `VERSION_CODE = 211`. `GIT_REVISION` is the compile's short hash, not a version. |
+| Generated `AppVersionConfig.kt` from the host compile of this tree | `VERSION_NAME = "0.6.10.1"`, `VERSION_CODE = 212`. `GIT_REVISION` is the compile's short hash, not a version. |
 | About | `RunningVersionLine` formats `AppVersionConfig.VERSION_NAME` and `VERSION_CODE` with `compose_about_version_format`. |
-| `changelog.json` | Top release is `0.6.10.1`, build `211`. The `0.6.9.1` entry under it is the previous release note. |
+| `changelog.json` | Top release is `0.6.10.1`, build `212`. The `0.6.9.1` entry under it is the previous release note. |
 
 `store.json` is still the pre-merge file. It is the store listing, not the app version.
 

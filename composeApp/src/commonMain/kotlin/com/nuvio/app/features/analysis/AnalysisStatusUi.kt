@@ -280,7 +280,7 @@ private fun PartChips(item: DownloadItem, parts: AnalysisParts) {
                 AnalysisChipKind.Credits -> external.credits
                 AnalysisChipKind.Recap -> external.recap
                 else -> null
-            }?.takeIf { part != AnalysisPart.Ready && part != AnalysisPart.UserMarkedNone }
+            }?.takeIf { part != AnalysisPart.Ready }
             if (externalSource != null) {
                 PartChip(
                     text = "$label · $externalSource ✓",

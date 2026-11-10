@@ -1,5 +1,7 @@
 package com.nuvio.app.features.analysis
 
+import com.nuvio.app.features.player.skip.absentMarkShowIds
+import com.nuvio.app.features.player.skip.listedSubmissionMark
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -247,6 +249,77 @@ class RecapMarkStatusTest {
         )
         assertEquals(AnalysisPart.Ready, part)
         assertEquals(RecapChipSentence.Ready, recapChipSentence(part))
+    }
+
+    @Test
+    fun aListedNoneIsNotTheWholeFile() {
+        val missing = listedSubmissionMark(startMs = null, endMs = null, videoDurationMs = 2_400_000L)
+        assertEquals(true, missing?.absent)
+        assertEquals(0L, missing?.endMs)
+        val zeros = listedSubmissionMark(startMs = 0L, endMs = 0L, videoDurationMs = 2_400_000L)
+        assertEquals(true, zeros?.absent)
+        val timed = listedSubmissionMark(startMs = 0L, endMs = 55_000L, videoDurationMs = 2_400_000L)
+        assertEquals(false, timed?.absent)
+        assertEquals(55_000L, timed?.endMs)
+        val toTheEnd = listedSubmissionMark(startMs = 12_000L, endMs = null, videoDurationMs = 2_400_000L)
+        assertEquals(false, toTheEnd?.absent)
+        assertEquals(2_400_000L, toTheEnd?.endMs)
+    }
+
+    @Test
+    fun aNoneIsStoredOnThePlayerShowAndTheDownloadShow() {
+        assertEquals(listOf("tt0000001", "catalog-1"), absentMarkShowIds("tt0000001", "catalog-1"))
+        assertEquals(listOf("tt0000001"), absentMarkShowIds("tt0000001", "tt0000001"))
+        assertEquals(listOf("catalog-1"), absentMarkShowIds("", "catalog-1"))
+    }
+
+    @Test
+    fun aSubmittedNoneShowsAsYourMark() {
+        val mark = UserSegment(
+            startMs = 0L,
+            endMs = 0L,
+            markedAtMs = 9L,
+            durationMs = 1_200_000L,
+            absent = true,
+        )
+        val part = recapAnalysisPart(
+            recapEnabled = true,
+            isEpisode = true,
+            derivedCurrent = true,
+            recapEndMs = null,
+            userRecap = mark,
+            durationMs = 1_200_000L,
+            siblingsEmpty = false,
+            outcome = "rejected-no-match",
+        )
+        assertEquals(AnalysisPart.UserMarkedNone, part)
+        assertEquals("Your mark", userMarkSource(mark, 1_200_000L))
+        val timed = UserSegment(startMs = 0L, endMs = 55_000L, markedAtMs = 4L, durationMs = 1_200_000L)
+        assertEquals("Your mark", userMarkSource(timed, 1_200_000L))
+        assertEquals(null, userMarkSource(null, 1_200_000L))
+    }
+
+    @Test
+    fun aNoneOnAnotherCutIsNotTheDetectorMiss() {
+        val mark = UserSegment(
+            startMs = 0L,
+            endMs = 0L,
+            markedAtMs = 9L,
+            durationMs = 2_400_000L,
+            absent = true,
+        )
+        val part = recapAnalysisPart(
+            recapEnabled = true,
+            isEpisode = true,
+            derivedCurrent = true,
+            recapEndMs = null,
+            userRecap = mark,
+            durationMs = 1_200_000L,
+            siblingsEmpty = false,
+            outcome = "rejected-no-match",
+        )
+        assertEquals(AnalysisPart.NotChecked, part)
+        assertEquals(null, userMarkSource(mark, 1_200_000L))
     }
 
     @Test
