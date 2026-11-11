@@ -683,11 +683,22 @@ private fun List<TimedMatch>.outranks(other: List<TimedMatch>): Boolean {
  * episodes are not stored, so a recap made only of those is not found.
  * When at least two siblings carry a user recap that starts at a sting shared by the season, the
  * end may move to the first cut at or before the shortest of those marks, and never past the
- * longest. A match of only the previous episode stays on the audio, including the quiet run it
- * snaps to. It is not stretched to a later cut. The token for a shared-sting extension is
- * season-pattern: a suggestion, not an audio find. A TheIntroDB time does not create a range and
- * blocks that suggestion.
+ * longest. That move does not happen when a previous-episode clip, from its head or its tail,
+ * already sits inside the span and every opening clip is only a short sting. The audio end,
+ * including the quiet run it snapped to, stands. A longer shared opening can still reach the cut.
+ * The token for that extension is season-pattern: a suggestion, not an audio find. A TheIntroDB
+ * time does not create a range and blocks that suggestion.
  */
+internal data class ListedRecapClip(
+    val startMs: Long,
+    val endMs: Long,
+    val sourceKey: String,
+    val fromHead: Boolean,
+    val sourceOffsetMs: Long,
+    val bits: Double,
+    val previous: Boolean,
+)
+
 internal object RecapDetector {
     private const val MIN_CLIP_MS = 2_000L
     private const val MIN_RECAP_MS = 5_000L
@@ -703,6 +714,8 @@ internal object RecapDetector {
     private const val STITCH_GAP_MS = 10_000L
     /** How far past the last stitched clip to look for the next quiet run or cut. */
     private const val AUDIO_TAIL_MS = 4_000L
+    /** An opening clip no longer than this is a sting. A longer shared opening can still extend. */
+    private const val SHORT_OPENING_STING_MS = 2_500L
     /** A sibling mark starts at the opening when it begins inside this window. */
     private const val SEASON_MARK_START_MS = 2_000L
 
@@ -714,6 +727,33 @@ internal object RecapDetector {
     ): Pair<Long, Long>? {
         val audio = search(episode, others)
         val found = if (prior == null) withSeasonPattern(episode, others, audio) else audio
+        record(trace, episode, others, found, prior)
+        return found.range
+    }
+
+    /**
+     * The same end choice as [detect], starting from clips that were already matched.
+     * [ListedRecapClip.bits] and [ListedRecapClip.sourceOffsetMs] stay with the clip.
+     * Matching already used them; the end choice does not look at them again.
+     */
+    fun decideListed(
+        episode: MediaAnalysisResult,
+        others: List<MediaAnalysisResult>,
+        hits: List<ListedRecapClip>,
+        trace: SegmentTrace? = null,
+    ): Pair<Long, Long>? {
+        val found = withSeasonPattern(episode, others, fromListed(episode, others, hits))
+        record(trace, episode, others, found, prior = null)
+        return found.range
+    }
+
+    private fun record(
+        trace: SegmentTrace?,
+        episode: MediaAnalysisResult,
+        others: List<MediaAnalysisResult>,
+        found: Found,
+        prior: Pair<Long, Long>?,
+    ) {
         val why = when {
             found.unchecked -> found.uncheckedWhy ?: "not-checked-no-print"
             found.range != null && found.seasonPattern -> "season-pattern"
@@ -741,7 +781,6 @@ internal object RecapDetector {
                 prior = prior,
             ),
         )
-        return found.range
     }
 
     private fun recapLine(
@@ -765,7 +804,8 @@ internal object RecapDetector {
             why = why,
             thresholds = "minClipMs=$MIN_CLIP_MS,minMs=$MIN_RECAP_MS,maxMs=$MAX_RECAP_MS," +
                 "snapStartMs=$SNAP_TO_START_MS,snapIntroMs=$SNAP_TO_INTRO_MS,gapMs=$NARRATION_GAP_MS," +
-                "stitchMs=$STITCH_GAP_MS,tailMs=$AUDIO_TAIL_MS,noIntroWindowMs=$NO_INTRO_WINDOW_MS",
+                "stitchMs=$STITCH_GAP_MS,tailMs=$AUDIO_TAIL_MS,shortStingMs=$SHORT_OPENING_STING_MS," +
+                "noIntroWindowMs=$NO_INTRO_WINDOW_MS",
         )
     }
 
@@ -781,11 +821,21 @@ internal object RecapDetector {
         val uncheckedWhy: String? = null,
         /** The span starts on a sting shared by the season, inside the opening window. */
         val sharedOpening: Boolean = false,
+        /**
+         * A previous-episode clip is inside the span and the opening clips are only short stings.
+         * The audio end stands.
+         */
+        val audioEndStands: Boolean = false,
         /** The end was moved from the audio clips using sibling marks. Not an audio find. */
         val seasonPattern: Boolean = false,
     )
 
-    private data class Clip(val startMs: Long, val endMs: Long, val sibling: Int, val previous: Boolean)
+    private data class Clip(
+        val startMs: Long,
+        val endMs: Long,
+        val sibling: Int,
+        val previous: Boolean,
+    )
 
     private fun search(episode: MediaAnalysisResult, others: List<MediaAnalysisResult>): Found {
         val step = episode.fingerprintStepMs.coerceAtLeast(1).toLong()
@@ -820,6 +870,34 @@ internal object RecapDetector {
                 }
             }
         }
+        return assemble(episode, clips, comparable)
+    }
+
+    private fun fromListed(
+        episode: MediaAnalysisResult,
+        others: List<MediaAnalysisResult>,
+        hits: List<ListedRecapClip>,
+    ): Found {
+        val introStart = episode.introStartMs
+        if (introStart != null && introStart < MIN_RECAP_MS) return Found()
+        if (hits.isEmpty()) return Found()
+        val indexByKey = HashMap<String, Int>()
+        others.forEachIndexed { index, other ->
+            if (other.key !in indexByKey) indexByKey[other.key] = index
+        }
+        val clips = hits.map { hit ->
+            Clip(
+                startMs = hit.startMs,
+                endMs = hit.endMs,
+                sibling = indexByKey[hit.sourceKey] ?: -1,
+                previous = hit.previous,
+            )
+        }
+        return assemble(episode, clips, comparable = others.size)
+    }
+
+    private fun assemble(episode: MediaAnalysisResult, clips: List<Clip>, comparable: Int): Found {
+        val introStart = episode.introStartMs
         if (clips.isEmpty()) return Found()
         val sting = openingSting(clips)
         val kept = clips.filter { clip ->
@@ -852,16 +930,28 @@ internal object RecapDetector {
             kept = kept.size,
             fromPrevious = inSpan.any { it.previous },
             sharedOpening = openingForSeason(chained, sting),
+            audioEndStands = shortStingKeepsTheAudioEnd(snapped, kept),
         )
     }
 
     /**
      * A sting shared by the season, starting in the opening window, before a quiet or black run
-     * can snap the start. A previous-episode match is the recap itself. Sibling marks do not
-     * stretch it to the next cut.
+     * can snap the start.
      */
     private fun openingForSeason(chained: Pair<Long, Long>, sting: Clip?): Boolean =
         sting != null && chained.first <= OPENING_STING_START_MS
+
+    /**
+     * The chain's opening clips are only short stings, and a previous-episode clip still
+     * overlaps the snapped span. A snap that lands on the end of the sting keeps that sting
+     * as an opening clip. Head or tail, either previous clip counts.
+     */
+    private fun shortStingKeepsTheAudioEnd(span: Pair<Long, Long>, kept: List<Clip>): Boolean {
+        val opening = kept.filter { it.startMs <= OPENING_STING_START_MS }
+        if (opening.isEmpty()) return false
+        if (opening.any { it.endMs - it.startMs > SHORT_OPENING_STING_MS }) return false
+        return kept.any { it.previous && it.endMs > span.first && it.startMs < span.second }
+    }
 
     /** Two or more siblings sharing a clip that starts at the opening. */
     private fun openingSting(clips: List<Clip>): Clip? {
@@ -905,7 +995,7 @@ internal object RecapDetector {
         found: Found,
     ): Found {
         val range = found.range ?: return found
-        if (!found.sharedOpening) return found
+        if (found.audioEndStands || !found.sharedOpening) return found
         val end = seasonPatternEnd(episode, others, range) ?: return found
         if (end <= range.second) return found
         if (end - range.first !in MIN_RECAP_MS..MAX_RECAP_MS) return found
