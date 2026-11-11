@@ -418,8 +418,14 @@ object ThemeSettingsRepository {
     }
 
     private fun applyLiquidGlassEffectsEnabled(enabled: Boolean) {
-        _liquidGlassEffectsEnabled.value = enabled
-        LiquidGlassSettings.enabled = enabled
+        LiquidGlassSettings.userChoice = enabled
+        _liquidGlassEffectsEnabled.value = LiquidGlassSettings.enabled
+    }
+
+    fun onGlassUiActiveChanged(active: Boolean) {
+        if (LiquidGlassSettings.glassUiActive == active) return
+        LiquidGlassSettings.glassUiActive = active
+        _liquidGlassEffectsEnabled.value = LiquidGlassSettings.enabled
     }
 
     private fun observeMembership() {

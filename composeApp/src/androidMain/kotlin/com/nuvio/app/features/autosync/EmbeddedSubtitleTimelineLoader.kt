@@ -41,7 +41,7 @@ import kotlin.math.max
  * AutoSync falls back to the existing live Media3 observation path.
  */
 @OptIn(UnstableApi::class)
-internal object EmbeddedSubtitleTimelineLoader {
+internal actual object EmbeddedSubtitleTimelineLoader {
     private const val TOTAL_TIMEOUT_MS = 7_000L
     private const val INITIAL_PROBE_BYTES = 512 * 1024
     private const val HEADER_PROBE_BYTES = 64
@@ -133,17 +133,17 @@ internal object EmbeddedSubtitleTimelineLoader {
      * Starts loading the index in [scope] so a later [load] finds it cached or joins the
      * in-flight download instead of starting from zero when AutoSync runs.
      */
-    fun prefetch(
+    actual fun prefetch(
         scope: CoroutineScope,
         sourceUrl: String,
-        sourceHeaders: Map<String, String> = emptyMap(),
+        sourceHeaders: Map<String, String>,
     ) {
         scope.launch { load(sourceUrl, sourceHeaders) }
     }
 
-    suspend fun load(
+    actual suspend fun load(
         sourceUrl: String,
-        sourceHeaders: Map<String, String> = emptyMap(),
+        sourceHeaders: Map<String, String>,
     ): IndexedEmbeddedTimeline? {
         if (!sourceUrl.startsWith("http://", ignoreCase = true) &&
             !sourceUrl.startsWith("https://", ignoreCase = true)
@@ -1768,13 +1768,3 @@ internal object EmbeddedSubtitleTimelineLoader {
         val estimatedEndStartsMs: Set<Long>,
     )
 }
-
-internal data class IndexedEmbeddedTimeline(
-    val tracks: List<ReferenceTrack>,
-    val source: String,
-    val bytesDownloaded: Long,
-    val rangeRequests: Int,
-    val loadMs: Long,
-    val skipLiveFallbackWait: Boolean = false,
-    val noSubtitleTracks: Boolean = false,
-)

@@ -1178,7 +1178,7 @@ private fun addPlaybackRows(
             row.title,
             row.description,
             pageLabel,
-            section,
+            row.sectionOverride ?: section,
             "",
         )
     }

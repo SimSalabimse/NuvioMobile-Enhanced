@@ -8,7 +8,8 @@ import java.nio.charset.CodingErrorAction
 import java.nio.charset.StandardCharsets
 import kotlin.math.min
 
-internal object SubtitleCharsetDetector {
+/** Test-only copy of the Android detector before it moved to common code, used as the parity reference. */
+internal object LegacySubtitleCharsetDetector {
 
     private fun safeCharset(name: String, fallback: Charset = StandardCharsets.UTF_8): Charset {
         return try {
@@ -153,10 +154,7 @@ internal object SubtitleCharsetDetector {
                 lang == "eng" || lang == "en" || lang.startsWith("english") ||
                 lang == "dan" || lang == "da" || lang.startsWith("danish") ||
                 lang == "swe" || lang == "sv" || lang.startsWith("swedish") ||
-                lang == "nor" || lang == "no" || lang == "nb" || lang == "nob" ||
-                lang == "nn" || lang == "nno" ||
-                lang.startsWith("norwegian") || lang.startsWith("nynorsk") || lang.startsWith("norsk") ||
-                lang.startsWith("bokmal") || lang.startsWith("bokmål") ||
+                lang == "nor" || lang == "no" || lang.startsWith("norwegian") ||
                 lang == "fin" || lang == "fi" || lang.startsWith("finnish") ||
                 lang == "cat" || lang == "ca" || lang.startsWith("catalan") ||
                 lang == "glg" || lang == "gl" || lang.startsWith("galician") ||
