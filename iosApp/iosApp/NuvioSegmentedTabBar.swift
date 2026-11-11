@@ -81,8 +81,13 @@ struct NuvioSegmentedTabBar: UIViewRepresentable {
 private final class CollapsedTabAccessibilityElement: UIAccessibilityElement {
     var onActivate: () -> Void = {}
 
-    init() {
+    override init() {
         super.init(accessibilityContainer: NSNull())
+    }
+
+    // Designated initializer. A subclass that declares `init()` has to provide it too.
+    override init(accessibilityContainer container: Any) {
+        super.init(accessibilityContainer: container)
     }
 
     override func accessibilityActivate() -> Bool {
