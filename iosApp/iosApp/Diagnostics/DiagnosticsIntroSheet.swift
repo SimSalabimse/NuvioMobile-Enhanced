@@ -12,6 +12,7 @@ struct DiagnosticsIntroSheet: View {
                 Image(systemName: "stethoscope")
                     .font(.system(size: 60))
                     .foregroundStyle(.blue)
+                    .nuvioSymbol(NuvioSymbolMotion.still)
                     .padding(.bottom, 8)
                 
                 Text("Diagnostics log")
@@ -65,6 +66,7 @@ struct DiagnosticsIntroSheet: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 20))
                 .foregroundStyle(.blue)
+                .nuvioSymbol(NuvioSymbolMotion.still)
             
             Text(text)
                 .font(.body)

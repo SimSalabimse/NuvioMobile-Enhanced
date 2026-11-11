@@ -676,7 +676,7 @@ private enum NuvioNativeTabIcon {
             }.withRenderingMode(.alwaysTemplate)
         }
 
-        return (UIImage(systemName: tab.fallbackSystemImage) ?? UIImage())
+        return NuvioSymbolImage.hierarchical(systemName: tab.fallbackSystemImage)
             .withRenderingMode(.alwaysTemplate)
     }
 
@@ -1998,6 +1998,7 @@ private struct NativeProfileSwitcherView: View {
                                                 Image(systemName: "lock.fill")
                                                     .font(.system(size: 9, weight: .bold))
                                                     .foregroundStyle(.white)
+                                                    .nuvioSymbol(NuvioSymbolMotion.still)
                                                     .frame(width: 18, height: 18)
                                                     .background(.black.opacity(0.72), in: Circle())
                                             }
@@ -2020,6 +2021,7 @@ private struct NativeProfileSwitcherView: View {
                                 VStack(spacing: 6) {
                                     Image(systemName: "plus")
                                         .font(.system(size: 19, weight: .semibold))
+                                        .nuvioSymbol(NuvioSymbolMotion.add, trigger: model.profiles.count)
                                         .frame(width: 52, height: 52)
                                         .background(.secondary.opacity(0.12), in: Circle())
                                     Text(addProfileTitle)

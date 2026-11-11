@@ -76,9 +76,13 @@ class IosTestHostTest {
         assertTrue(project.contains("PRODUCT_NAME=Nuvio Enhanced") || locate("iosApp/Configuration/Config.xcconfig").readText().contains("NUVIO_APP_PRODUCT_NAME=Nuvio Enhanced"))
         assertTrue(project.contains("MpvSubtitleSyncTests.swift in Sources"))
         assertTrue(project.contains("SubtitlePlaybackTests.swift in Sources"))
+        assertTrue(project.contains("SymbolMotionTests.swift in Sources"))
         val tests = locate("iosApp/iosAppTests")
         val sources = tests.listFiles { file -> file.extension == "swift" }.orEmpty().sortedBy { it.name }
-        assertEquals(listOf("MpvSubtitleSyncTests.swift", "SubtitlePlaybackTests.swift"), sources.map { it.name })
+        assertEquals(
+            listOf("MpvSubtitleSyncTests.swift", "SubtitlePlaybackTests.swift", "SymbolMotionTests.swift"),
+            sources.map { it.name },
+        )
         sources.forEach { file ->
             val text = file.readText()
             assertTrue(text.contains("@testable import Nuvio"), file.name)

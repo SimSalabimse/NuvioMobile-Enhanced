@@ -37,6 +37,7 @@ struct DiagnosticsSettingsView: View {
                         viewModel.shareLog()
                     } label: {
                         Label("Export log", systemImage: "square.and.arrow.up")
+                            .nuvioSymbol(NuvioSymbolMotion.still)
                     }
                     .disabled(!viewModel.hasLog)
                     
@@ -44,6 +45,7 @@ struct DiagnosticsSettingsView: View {
                         viewModel.showingClearConfirmation = true
                     } label: {
                         Label("Clear log", systemImage: "trash")
+                            .nuvioSymbol(NuvioSymbolMotion.still)
                     }
                     .disabled(!viewModel.hasLog)
                 }
