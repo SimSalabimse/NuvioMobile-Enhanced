@@ -47,6 +47,8 @@ import com.nuvio.app.features.player.skip.TheIntroDbAlreadySubmittedMessage
 import com.nuvio.app.features.player.skip.defaultIntroSubmitService
 import com.nuvio.app.features.player.skip.flagChecksForTitle
 import com.nuvio.app.features.player.skip.flagSubmitContentKey
+import com.nuvio.app.features.player.skip.loadSegments
+import com.nuvio.app.features.player.skip.segmentRows
 import com.nuvio.app.features.player.skip.introSubmitBlockReason
 import com.nuvio.app.features.player.skip.introSubmitKeySatisfied
 import com.nuvio.app.features.player.skip.prepareIntroSubmitKey
@@ -202,6 +204,7 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
             )
             var remoteTypes by remember(contentKey) { mutableStateOf<Set<String>?>(null) }
             var rejectedTypes by remember(contentKey) { mutableStateOf<Set<String>>(emptySet()) }
+            var remoteCounts by remember(contentKey) { mutableStateOf<Map<String, Int>>(emptyMap()) }
             val theIntroDbKey = settings.theIntroDbApiKey
             val introDbKey = settings.introDbApiKey
             LaunchedEffect(contentKey, theIntroDbKey, introDbKey, activeVideoId, activeSeasonNumber, activeEpisodeNumber, isMoviePlayback) {
@@ -239,9 +242,14 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                     confirmed = buckets.confirmed,
                     pending = buckets.pending,
                     rejected = buckets.rejected,
+                    confirmedRows = buckets.confirmedRows,
+                    pendingRows = buckets.pendingRows,
                 )
                 remoteTypes = accepted
                 rejectedTypes = rejected
+                remoteCounts = listOf("intro", "recap", "outro", "preview").associateWith { type ->
+                    (buckets.confirmedRows + buckets.pendingRows).count { it.type == type }
+                }
             }
             val sessionTypes = submittedSegmentTypesByVideoId[activeVideoId.orEmpty()].orEmpty()
             val accountScope = accountScopeForService(IntroSubmitService.THE_INTRODB, introDbKey, theIntroDbKey)
@@ -251,6 +259,16 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 remoteTypes = remoteTypes,
                 rejectedTypes = rejectedTypes,
             )
+            val ledgerRows = OwnTheIntroDbLedger.load(accountScope).segmentRows(contentKey)
+            val flagSegments = com.nuvio.app.features.player.skip.FlagSubmitLedger.loadSegments(contentKey)
+            val submissionCounts = listOf("intro", "recap", "outro", "preview").associateWith { type ->
+                com.nuvio.app.features.player.skip.combinedSubmissionCount(
+                    type,
+                    ledgerRows,
+                    flagSegments,
+                    remoteCounts[type] ?: 0,
+                )
+            }
             SegmentMarkingLayer(
                 movieImdbId = imdbId,
                 movieContentKey = contentKey,
@@ -292,6 +310,7 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                     setMarkClock(start, next, showTenth = nudgeKeepsTenth(delta, showing))
                 },
                 submittedTypes = submittedTypes,
+                submissionCounts = submissionCounts,
                 autoSyncedTypes = autoSyncedSubmitTypes(),
                 clocksTouched = markSegmentId(submitIntroSegmentType) in submitIntroUserEdited,
                 onStartAtZero = { if (!submitting) setMarkClock(true, 0.0) },
@@ -303,6 +322,11 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 onAddKey = { showKeyDialog = true },
                 onSubmit = {
                     if (submitting || markSent) return@SegmentMarkingLayer
+                    val typeNow = markSegmentId(submitIntroSegmentType)
+                    if (!com.nuvio.app.features.player.skip.canAcceptSubmission(submissionCounts[typeNow] ?: 0)) {
+                        markSubmitError = "This episode already has 3 of that segment."
+                        return@SegmentMarkingLayer
+                    }
                     val generation = markSubmitGeneration
                     val snapshot = markSubmitSnapshot(
                         segmentType = submitIntroSegmentType,
@@ -392,6 +416,7 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                                         endSec = times.second,
                                         absentSegment = snapshot.absent,
                                     ),
+                                    countSubmission = posted == MarkPost.Sent,
                                 )
                                 if (shouldRecordOwnTheIntroDb(service, succeeded = true)) {
                                     val status = if (posted == MarkPost.AlreadySubmitted) {
@@ -679,6 +704,17 @@ private suspend fun PlayerScreenRuntime.postMark(
             },
         )
     }
+    val contentKey = flagSubmitContentKey(imdbId, season ?: 0, episode ?: 0, isMovie)
+    val settingsNow = PlayerSettingsRepository.uiState.value
+    val already = com.nuvio.app.features.player.skip.combinedSubmissionCount(
+        type = segmentType,
+        ledgerRows = OwnTheIntroDbLedger.load(
+            accountScopeForService(IntroSubmitService.THE_INTRODB, settingsNow.introDbApiKey, settingsNow.theIntroDbApiKey),
+        ).segmentRows(contentKey),
+        flagLedger = com.nuvio.app.features.player.skip.FlagSubmitLedger.loadSegments(contentKey),
+        remoteCount = 0,
+    )
+    if (!com.nuvio.app.features.player.skip.canAcceptSubmission(already)) return MarkPost.AlreadySubmitted
     val (sentSeason, sentEpisode) = movieSubmitSeasonEpisode(isMovie, season, episode)
     val sent = submitManualSkipSegment(
         imdbId = imdbId,

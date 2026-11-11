@@ -146,26 +146,20 @@ internal fun PlayerScreenRuntime.autoSyncedSubmitTypes(): Set<String> =
 internal fun PlayerScreenRuntime.userMarkedSkipIntervals(): List<SkipInterval> =
     com.nuvio.app.features.analysis.SkipLearning.userMarks(parentMetaId, activeSeasonNumber, activeEpisodeNumber)
         .filter { (_, mark) -> mark.endMs > mark.startMs && sameCut(mark.durationMs, playbackSnapshot.durationMs) }
-        .map { (type, mark) ->
+        .map { (key, mark) ->
             SkipInterval(
                 mark.startMs / 1000.0,
                 mark.endMs / 1000.0,
-                type,
+                mark.type.ifBlank { key },
                 if (mark.imported) com.nuvio.app.features.analysis.SkipLearning.PROVIDER_IMPORTED
                 else com.nuvio.app.features.analysis.SkipLearning.PROVIDER,
             )
         }
 
-private fun skipCategory(type: String): String = when (type.lowercase()) {
-    "intro", "op", "mixed-op", "opening" -> "intro"
-    "recap" -> "recap"
-    "outro", "ed", "mixed-ed", "credits", "ending", "movie-credits" -> "outro"
-    else -> type.lowercase()
-}
-
 /**
  * The allowed online segments, plus on-device ones for each kind (intro, recap, credits) the
  * online sources did not cover. A detected range for the open segment fills Submit Timestamps.
+ * A user's mark replaces a TheIntroDB segment only where the ranges overlap.
  */
 internal fun PlayerScreenRuntime.withOnDeviceSkips(online: List<SkipInterval>): List<SkipInterval> =
     mergeOnDeviceSkips(online).also { used ->
@@ -175,15 +169,16 @@ internal fun PlayerScreenRuntime.withOnDeviceSkips(online: List<SkipInterval>): 
     }
 
 private fun PlayerScreenRuntime.mergeOnDeviceSkips(online: List<SkipInterval>): List<SkipInterval> {
-    // The user's own marks for this episode replace every other source of that kind.
-    val mine = userMarkedSkipIntervals()
-    val mineCovered = mine.map { skipCategory(it.type) }.toSet()
-    val allowed = (online.filter { skipCategory(it.type) !in mineCovered } + mine).sortedBy { it.startTime }
-    val covered = allowed.map { skipCategory(it.type) }.toSet()
-    val extra = onDeviceSkipIntervals().filter { skipCategory(it.type) !in covered }
-    if (extra.isEmpty()) return allowed
-    InAppLogger.info("Analysis", "on-device skip intervals ${extra.joinToString { "${it.type} ${it.startTime}-${it.endTime}" }}")
-    return (allowed + extra).sortedBy { it.startTime }
+    val device = onDeviceSkipIntervals()
+    val resolved = com.nuvio.app.features.player.skip.resolvePlaybackSkips(online, userMarkedSkipIntervals(), device)
+    val added = device.filter { interval ->
+        resolved.any { it.provider == interval.provider && it.type == interval.type && it.startTime == interval.startTime } &&
+            online.none { it.provider == interval.provider && it.type == interval.type && it.startTime == interval.startTime }
+    }
+    if (added.isNotEmpty()) {
+        InAppLogger.info("Analysis", "on-device skip intervals ${added.joinToString { "${it.type} ${it.startTime}-${it.endTime}" }}")
+    }
+    return resolved
 }
 
 /** Seek preview from the thumbnail sheets of the downloaded file on screen, when there are any. */

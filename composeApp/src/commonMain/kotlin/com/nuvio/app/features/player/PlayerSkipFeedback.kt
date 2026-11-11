@@ -25,6 +25,11 @@ import com.nuvio.app.features.player.skip.OwnMarkStatus
 import com.nuvio.app.features.player.skip.accountScopeForService
 import com.nuvio.app.features.player.skip.shouldRecordOwnTheIntroDb
 import com.nuvio.app.features.player.skip.withStatus
+import com.nuvio.app.features.player.skip.canAcceptSubmission
+import com.nuvio.app.features.player.skip.combinedSubmissionCount
+import com.nuvio.app.features.player.skip.resolvePlaybackSkips
+import com.nuvio.app.features.player.skip.loadSegments
+import com.nuvio.app.features.player.skip.segmentRows
 import com.nuvio.app.features.player.skip.submitManualSkipSegment
 import kotlinx.coroutines.launch
 
@@ -52,7 +57,13 @@ internal const val SKIP_FEEDBACK_DELAY_MS = 4_000L
  * season learn from it, uses it right away, and submits it when submitting is on. With
  * "TheIntroDB only" the submission goes to TheIntroDB.
  */
-internal fun PlayerScreenRuntime.saveUserSkipMark(type: String, startSec: Double, endSec: Double, submit: Boolean) {
+internal fun PlayerScreenRuntime.saveUserSkipMark(
+    type: String,
+    startSec: Double,
+    endSec: Double,
+    submit: Boolean,
+    additional: Boolean = false,
+) {
     val category = SkipLearning.canonicalType(type) ?: return
     if (endSec <= startSec) return
     val season = activeSeasonNumber
@@ -65,24 +76,39 @@ internal fun PlayerScreenRuntime.saveUserSkipMark(type: String, startSec: Double
         ?: metaId.takeIf { it.startsWith("tt") }
         ?: metaUiState.meta?.id?.takeIf { it.startsWith("tt") }
         ?: metaUiState.meta?.imdbId?.takeIf { it.startsWith("tt") }
-    val alreadySubmitted = submittedSegmentTypesByVideoId[videoKey]?.contains(category) == true
+    val contentKey = flagSubmitContentKey(imdbId.orEmpty(), season ?: 0, episode ?: 0, isMovie)
+    val settingsNow = PlayerSettingsRepository.uiState.value
+    val scopeNow = accountScopeForService(IntroSubmitService.THE_INTRODB, settingsNow.introDbApiKey, settingsNow.theIntroDbApiKey)
+    val alreadyCount = combinedSubmissionCount(
+        type = category,
+        ledgerRows = OwnTheIntroDbLedger.load(scopeNow).segmentRows(contentKey),
+        flagLedger = com.nuvio.app.features.player.skip.FlagSubmitLedger.loadSegments(contentKey),
+        remoteCount = 0,
+    )
     scope.launch {
-        val taught = SkipLearning.recordMark(
-            parentMetaId = metaId,
-            season = season,
-            episode = episode,
-            type = category,
-            startMs = (startSec * 1000).toLong(),
-            endMs = (endSec * 1000).toLong(),
-            durationMs = durationMs.takeIf {
-                activeSeasonNumber == season && activeEpisodeNumber == episode && parentMetaId == metaId
-            } ?: 0L,
-        )
-        // Use the mark at once in this episode.
+        val durationForMark = durationMs.takeIf {
+            activeSeasonNumber == season && activeEpisodeNumber == episode && parentMetaId == metaId
+        } ?: 0L
+        val startMs = (startSec * 1000).toLong()
+        val endMs = (endSec * 1000).toLong()
+        val hasPrimary = SkipLearning.userMarks(metaId, season, episode)[category] != null
+        val taught = if (additional && hasPrimary) {
+            if (SkipLearning.addSegment(metaId, season, episode, category, startMs, endMs, durationForMark)) 0 else return@launch
+        } else {
+            SkipLearning.recordMark(
+                parentMetaId = metaId,
+                season = season,
+                episode = episode,
+                type = category,
+                startMs = startMs,
+                endMs = endMs,
+                durationMs = durationForMark,
+            )
+        }
+        // Use the mark at once. It wins only where it overlaps a TheIntroDB segment.
         if (activeSeasonNumber == season && activeEpisodeNumber == episode && parentMetaId == metaId) {
-            val mine = SkipInterval(startSec, endSec, category, SkipLearning.PROVIDER)
-            skipIntervals = (skipIntervals.filter { SkipLearning.canonicalType(it.type) != category } + mine)
-                .sortedBy { it.startTime }
+            val online = skipIntervals.filter { !SkipLearning.isUserProvider(it.provider) }
+            skipIntervals = resolvePlaybackSkips(online, userMarkedSkipIntervals(), emptyList())
         }
         var outcome: ManualSkipSubmitOutcome? = null
         val settings = PlayerSettingsRepository.uiState.value
@@ -93,7 +119,8 @@ internal fun PlayerScreenRuntime.saveUserSkipMark(type: String, startSec: Double
         } else {
             defaultIntroSubmitService(settings.introDbApiKey, settings.theIntroDbApiKey)
         }
-        if (submit && maySend && settings.introSubmitEnabled && !alreadySubmitted) {
+        val sessionBlocked = !additional && submittedSegmentTypesByVideoId[videoKey]?.contains(category) == true
+        if (submit && maySend && settings.introSubmitEnabled && canAcceptSubmission(alreadyCount) && !sessionBlocked) {
             logIntroLengthWarning(category, startSec, endSec, durationSec)
             val posted = runCatching {
                 submitManualSkipSegment(

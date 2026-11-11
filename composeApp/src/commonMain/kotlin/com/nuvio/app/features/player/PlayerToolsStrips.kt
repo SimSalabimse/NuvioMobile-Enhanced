@@ -249,6 +249,7 @@ internal fun SegmentMarkingLayer(
     onAddKey: () -> Unit,
     onSubmit: () -> Unit,
     submittedTypes: Set<String> = emptySet(),
+    submissionCounts: Map<String, Int> = emptyMap(),
     onStartAtZero: () -> Unit = {},
     onRunsToEnd: () -> Unit = {},
     onPreview: () -> Unit = {},
@@ -400,6 +401,7 @@ internal fun SegmentMarkingLayer(
                                 isMovie = isMovie,
                                 enabled = editable,
                                 submittedTypes = submittedTypes,
+                                submissionCounts = submissionCounts,
                                 chipHeight = chipHeight.dp,
                                 labelSize = labelSize,
                                 hPad = hPad,
@@ -608,6 +610,7 @@ private fun SegmentTabs(
     isMovie: Boolean,
     enabled: Boolean,
     submittedTypes: Set<String>,
+    submissionCounts: Map<String, Int>,
     chipHeight: Dp,
     labelSize: androidx.compose.ui.unit.TextUnit,
     hPad: Dp,
@@ -619,7 +622,13 @@ private fun SegmentTabs(
         markSegmentTypes(isMovie).forEach { type ->
             val selected = markSegmentId(segmentType) == type
             val label = markSegmentLabel(type)
-            val submitted = markSegmentId(type) in submittedTypes
+            val id = markSegmentId(type)
+            val count = submissionCounts[id] ?: 0
+            val mark = when {
+                count > 0 -> com.nuvio.app.features.player.skip.submitChipMark(count)
+                id in submittedTypes -> com.nuvio.app.features.player.skip.SubmitChipMark.Full
+                else -> com.nuvio.app.features.player.skip.SubmitChipMark.Open
+            }
             val shape = RoundedCornerShape(12.dp)
             Box(
                 modifier = Modifier
@@ -643,7 +652,15 @@ private fun SegmentTabs(
                         maxLines = 1,
                         softWrap = false,
                     )
-                    if (submitted) {
+                    if (mark == com.nuvio.app.features.player.skip.SubmitChipMark.Another) {
+                        Text(
+                            text = count.toString(),
+                            color = if (selected) tokens.colors.onAccent else MarkOk,
+                            fontSize = labelSize,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(start = 3.dp),
+                        )
+                    } else if (mark == com.nuvio.app.features.player.skip.SubmitChipMark.Full) {
                         Icon(
                             imageVector = Icons.Rounded.Check,
                             contentDescription = "$label $sentLabel",

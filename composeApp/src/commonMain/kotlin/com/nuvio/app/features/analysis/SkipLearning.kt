@@ -1,6 +1,7 @@
 package com.nuvio.app.features.analysis
 
 import com.nuvio.app.core.logging.InAppLogger
+import com.nuvio.app.features.player.skip.MAX_SUBMISSIONS_PER_TYPE
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -170,6 +171,51 @@ internal object SkipLearning {
         return added
     }
 
+    /**
+     * Stores another mark of a type this episode already has.
+     * The first mark of that type stays the one detection teaches from.
+     * Returns false when the episode already has [MAX_SUBMISSIONS_PER_TYPE] of that type,
+     * or the same range is already stored.
+     */
+    fun addSegment(
+        parentMetaId: String,
+        season: Int?,
+        episode: Int?,
+        type: String,
+        startMs: Long,
+        endMs: Long,
+        durationMs: Long = 0L,
+        imported: Boolean = false,
+    ): Boolean {
+        val category = canonicalType(type) ?: return false
+        if (parentMetaId.isBlank() || endMs <= startMs || startMs < 0L) return false
+        val key = MediaAnalysisStore.keyFor(parentMetaId, season, episode)
+        var added = false
+        MediaAnalysisStore.update(key) { stored ->
+            val existing = stored ?: MediaAnalysisResult(key = key, analyzedAtMs = 0L, durationMs = 0L)
+            val marks = existing.storedUserMarks()
+            if (marks.any { it.type == category && it.startMs == startMs && it.endMs == endMs }) return@update null
+            if (marks.count { it.type == category } >= MAX_SUBMISSIONS_PER_TYPE) return@update null
+            val mapKey = nextUserSegmentKey(category, existing.userSegments.keys)
+            added = true
+            existing.copy(
+                userSegments = existing.userSegments + (
+                    mapKey to UserSegment(
+                        startMs = startMs,
+                        endMs = endMs,
+                        markedAtMs = if (imported) 0L else com.nuvio.app.features.streams.epochMs(),
+                        imported = imported,
+                        durationMs = durationMs,
+                        type = category,
+                        id = mapKey,
+                    )
+                    ),
+            )
+        }
+        if (added) MediaAnalysisStatus.resultsChanged()
+        return added
+    }
+
     /** Re-matches every other episode of the season against the marks of [referenceKey]. */
     suspend fun teachSeason(parentMetaId: String, season: Int, referenceKey: String): Int {
         val reference = MediaAnalysisStore.load(referenceKey) ?: return 0
@@ -265,4 +311,12 @@ internal object SkipLearning {
         if (!isIntro && target.durationMs > 0L && target.durationMs - end < END_SNAP_MS) end = target.durationMs
         return Triple(start, end, segment.length)
     }
+}
+
+/** The first mark keeps the type as its key. Later marks of that type get `intro-2`, `intro-3`. */
+internal fun nextUserSegmentKey(type: String, keys: Set<String>): String {
+    if (type !in keys) return type
+    var n = 2
+    while ("$type-$n" in keys) n += 1
+    return "$type-$n"
 }

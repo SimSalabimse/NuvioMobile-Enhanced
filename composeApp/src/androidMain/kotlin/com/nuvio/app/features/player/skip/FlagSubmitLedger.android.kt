@@ -14,13 +14,13 @@ internal actual object FlagSubmitLedger {
         preferences = context.applicationContext.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
     }
 
-    actual fun loadAll(): Map<String, Set<String>> {
+    actual fun loadAll(): Map<String, List<String>> {
         val raw = preferences?.getString(ProfileScopedKey.of(keyBase), null) ?: memory
-        return decodeFlagSubmitLedger(raw)
+        return decodeFlagSubmitSegments(raw)
     }
 
-    actual fun saveAll(entries: Map<String, Set<String>>) {
-        val encoded = encodeFlagSubmitLedger(entries)
+    actual fun saveAll(entries: Map<String, List<String>>) {
+        val encoded = encodeFlagSubmitSegments(entries)
         memory = encoded
         preferences?.edit()?.putString(ProfileScopedKey.of(keyBase), encoded)?.commit()
     }

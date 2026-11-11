@@ -594,6 +594,9 @@ internal fun TheIntroDbUserSubmission.toFlagRecord(listedForTmdbId: Int): FlagSu
         episode = episode,
         segment = segmentName,
         status = status.orEmpty(),
+        submissionId = this.id.orEmpty(),
+        startMs = startMs,
+        endMs = endMs,
     )
 }
 
