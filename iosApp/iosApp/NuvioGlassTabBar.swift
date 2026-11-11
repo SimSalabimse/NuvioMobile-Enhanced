@@ -129,7 +129,7 @@ struct NuvioGlassTabBar: View {
             .offset(y: isHidden ? NuvioSegmentedTabBar.height(compact: true) + bottomInset + 24 : 0)
             .opacity(isHidden ? 0 : 1)
             .allowsHitTesting(!isHidden)
-            .animation(.easeInOut(duration: 0.22), value: isHidden)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: isHidden)
             .ignoresSafeArea(.container, edges: .bottom)
     }
 

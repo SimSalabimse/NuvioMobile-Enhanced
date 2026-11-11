@@ -13,6 +13,7 @@ struct DiagnosticsIntroSheet: View {
                     .font(.system(size: 60))
                     .foregroundStyle(.blue)
                     .padding(.bottom, 8)
+                    .accessibilityHidden(true)
                 
                 Text("Diagnostics log")
                     .font(.title2.bold())
@@ -43,7 +44,7 @@ struct DiagnosticsIntroSheet: View {
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
                     .background(Color(.systemGray6))
-                    .cornerRadius(12)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
             }
             .padding(24)
             .navigationBarTitleDisplayMode(.inline)
@@ -65,6 +66,7 @@ struct DiagnosticsIntroSheet: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 20))
                 .foregroundStyle(.blue)
+                .accessibilityHidden(true)
             
             Text(text)
                 .font(.body)
@@ -76,13 +78,23 @@ struct DiagnosticsIntroSheet: View {
 @MainActor
 final class DiagnosticsIntroCoordinator: ObservableObject {
     @Published var shouldShowIntro = false
-    
+    private var introTask: Task<Void, Never>?
+
     func checkAndShowIntro() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-            guard let self = self else { return }
+        // onAppear and the active scene phase both call this. One wait is enough;
+        // a second call must not stack another unstructured timer.
+        guard introTask == nil else { return }
+        introTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.introTask = nil
             if !DiagnosticsManager.shared.hasSeenIntro {
                 self.shouldShowIntro = true
             }
         }
+    }
+
+    deinit {
+        introTask?.cancel()
     }
 }

@@ -7,6 +7,31 @@ import ActivityKit
 private let downloadsLiveStatusUpdatedNotification = Notification.Name("NuvioDownloadsLiveStatusUpdated")
 private let downloadsLiveStatusPayloadKey = "nuvio.downloads.live_status.payload"
 
+/// One background-task id shared by the apply task and UIKit's expiration handler.
+/// The lock is not held across an await. `Mutex` is iOS 18+; this ticket still runs on iOS 16.
+private final class LiveActivitySyncTicket: @unchecked Sendable {
+    private let lock = NSLock()
+    private var id: UIBackgroundTaskIdentifier = .invalid
+
+    func begin() {
+        let created = UIApplication.shared.beginBackgroundTask(withName: "DownloadsLiveActivitySync") { [weak self] in
+            self?.end()
+        }
+        lock.lock()
+        id = created
+        lock.unlock()
+    }
+
+    func end() {
+        lock.lock()
+        let ending = id
+        id = .invalid
+        lock.unlock()
+        guard ending != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(ending)
+    }
+}
+
 final class DownloadsLiveActivityManager {
     static let shared = DownloadsLiveActivityManager()
 
@@ -59,21 +84,15 @@ final class DownloadsLiveActivityManager {
 #if canImport(ActivityKit) && os(iOS) && !targetEnvironment(macCatalyst)
         guard #available(iOS 16.1, *) else { return }
 
-        var backgroundTaskId: UIBackgroundTaskIdentifier = .invalid
-        backgroundTaskId = UIApplication.shared.beginBackgroundTask(withName: "DownloadsLiveActivitySync") {
-            UIApplication.shared.endBackgroundTask(backgroundTaskId)
-            backgroundTaskId = .invalid
-        }
+        let ticket = LiveActivitySyncTicket()
+        ticket.begin()
 
         let previous = applyChain
         applyChain = Task { @MainActor in
             await previous?.value
             // Read the payload now, not when the notification arrived, so the last state wins.
             await self.apply(self.loadPayload())
-            if backgroundTaskId != .invalid {
-                UIApplication.shared.endBackgroundTask(backgroundTaskId)
-                backgroundTaskId = .invalid
-            }
+            ticket.end()
         }
 #endif
     }

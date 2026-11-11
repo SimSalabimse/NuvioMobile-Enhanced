@@ -69,6 +69,7 @@ final class OrientationLockAppDelegate: NSObject, UIApplicationDelegate, UNUserN
     }
 }
 
+@MainActor
 final class OrientationLockCoordinator {
     static let shared = OrientationLockCoordinator()
 
@@ -86,22 +87,23 @@ final class OrientationLockCoordinator {
         let center = NotificationCenter.default
         observers.append(
             center.addObserver(forName: lockPlayerToLandscapeNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.setLandscapeLock(enabled: true)
+                // `queue: .main` runs this block on the main thread, which is the main actor.
+                MainActor.assumeIsolated { self?.setLandscapeLock(enabled: true) }
             }
         )
         observers.append(
             center.addObserver(forName: unlockPlayerOrientationNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.setLandscapeLock(enabled: false)
+                MainActor.assumeIsolated { self?.setLandscapeLock(enabled: false) }
             }
         )
         observers.append(
             center.addObserver(forName: preferPlayerPortraitNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.setPlayerPrefersPortrait(true)
+                MainActor.assumeIsolated { self?.setPlayerPrefersPortrait(true) }
             }
         )
         observers.append(
             center.addObserver(forName: preferPlayerLandscapeNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.setPlayerPrefersPortrait(false)
+                MainActor.assumeIsolated { self?.setPlayerPrefersPortrait(false) }
             }
         )
     }

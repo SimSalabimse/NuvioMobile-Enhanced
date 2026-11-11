@@ -66,9 +66,33 @@ struct NuvioSegmentedTabBar: UIViewRepresentable {
         view.onCollapsedLongPress = { onLongPress(selectedIndex) }
         if items.indices.contains(selectedIndex) {
             let item = items[selectedIndex]
-            view.setCollapsedIcon(item.accentImage, tinted: item.tintsAccentImage, tint: accentColor)
+            view.setCollapsedIcon(
+                item.accentImage,
+                tinted: item.tintsAccentImage,
+                tint: accentColor,
+                title: item.title
+            )
         }
         view.setExpanded(isExpanded)
+    }
+}
+
+@available(iOS 26.0, *)
+private final class CollapsedTabAccessibilityElement: UIAccessibilityElement {
+    var onActivate: () -> Void = {}
+
+    override init() {
+        super.init(accessibilityContainer: NSNull())
+    }
+
+    // Designated initializer. A subclass that declares `init()` has to provide it too.
+    override init(accessibilityContainer container: Any) {
+        super.init(accessibilityContainer: container)
+    }
+
+    override func accessibilityActivate() -> Bool {
+        onActivate()
+        return true
     }
 }
 
@@ -86,6 +110,8 @@ final class NuvioSegmentedTabBarView: UIView {
 
     private let glassView: UIVisualEffectView
     private let collapsedIcon = UIImageView()
+    private var collapsedTitle = ""
+    private let collapsedAccessibilityElement = CollapsedTabAccessibilityElement()
     private var isExpanded = true
     private var isCompact = false
     private var hasLaidOut = false
@@ -117,6 +143,11 @@ final class NuvioSegmentedTabBarView: UIView {
         collapsedIcon.translatesAutoresizingMaskIntoConstraints = false
         collapsedIcon.contentMode = .scaleAspectFit
         collapsedIcon.alpha = 0
+        collapsedIcon.isAccessibilityElement = false
+        collapsedAccessibilityElement.accessibilityContainer = self
+        collapsedAccessibilityElement.onActivate = { [weak self] in
+            self?.onCollapsedTap()
+        }
 
         leadingConstraint = glassView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.expandedInset)
         widthConstraint = glassView.widthAnchor.constraint(equalToConstant: 300)
@@ -151,9 +182,11 @@ final class NuvioSegmentedTabBarView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func setCollapsedIcon(_ image: UIImage, tinted: Bool, tint: UIColor) {
+    func setCollapsedIcon(_ image: UIImage, tinted: Bool, tint: UIColor, title: String) {
         collapsedIcon.image = tinted ? image.withRenderingMode(.alwaysTemplate) : image.withRenderingMode(.alwaysOriginal)
         collapsedIcon.tintColor = tint
+        collapsedTitle = title
+        updateCollapsedAccessibility()
     }
 
     func setCompact(_ compact: Bool) {
@@ -174,6 +207,11 @@ final class NuvioSegmentedTabBarView: UIView {
         isExpanded = expanded
         guard hasLaidOut, window != nil else {
             applyState()
+            return
+        }
+        guard !UIAccessibility.isReduceMotionEnabled else {
+            applyState()
+            layoutIfNeeded()
             return
         }
         layoutIfNeeded()
@@ -202,11 +240,28 @@ final class NuvioSegmentedTabBarView: UIView {
         segmentedControl.isUserInteractionEnabled = isExpanded
         collapsedTap.isEnabled = !isExpanded
         collapsedLongPress.isEnabled = !isExpanded
+        updateCollapsedAccessibility()
+    }
+
+    /// Collapsed, the pill is one icon with a tap gesture. Expanded, the segments keep their titles.
+    private func updateCollapsedAccessibility() {
+        guard !isExpanded else {
+            accessibilityElements = nil
+            return
+        }
+        collapsedAccessibilityElement.accessibilityLabel = collapsedTitle
+        collapsedAccessibilityElement.accessibilityTraits = .button
+        collapsedAccessibilityElement.accessibilityFrameInContainerSpace = glassView.frame
+        collapsedAccessibilityElement.accessibilityContainer = self
+        accessibilityElements = [collapsedAccessibilityElement]
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         glassView.cornerConfiguration = .capsule()
+        if !isExpanded {
+            collapsedAccessibilityElement.accessibilityFrameInContainerSpace = glassView.frame
+        }
         let expanded = expandedFrame
         if !hasLaidOut
             || (isExpanded && (widthConstraint.constant != expanded.width || leadingConstraint.constant != expanded.leading))
