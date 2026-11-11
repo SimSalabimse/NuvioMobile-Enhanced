@@ -147,7 +147,36 @@ internal data class UserSegment(
     val durationMs: Long = 0L,
     /** The user submitted that this episode has none of this segment. */
     val absent: Boolean = false,
+    /**
+     * Playback type when this mark is not the only one of its kind.
+     * Empty on a mark stored before a second segment of the same type was possible:
+     * the map key is the type, and that one entry is one segment.
+     */
+    val type: String = "",
+    /** Stable id. Empty means the map key is the id. */
+    val id: String = "",
 )
+
+/**
+ * One stored mark. A legacy map entry is one segment: the key is the id and the type.
+ * A later mark of the same type keeps its own id and does not replace the first.
+ */
+internal data class StoredUserMark(
+    val id: String,
+    val type: String,
+    val startMs: Long,
+    val endMs: Long,
+)
+
+internal fun MediaAnalysisResult.storedUserMarks(): List<StoredUserMark> =
+    userSegments.map { (key, mark) ->
+        StoredUserMark(
+            id = mark.id.ifBlank { key },
+            type = mark.type.ifBlank { key },
+            startMs = mark.startMs,
+            endMs = mark.endMs,
+        )
+    }
 
 /** A mark with no file length, or a "none" answer, never teaches other episodes. */
 internal val UserSegment.canTeach: Boolean get() = !absent && endMs > startMs && durationMs > 0L

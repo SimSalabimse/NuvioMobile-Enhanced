@@ -283,16 +283,8 @@ object SkipIntroRepository {
         }
     }
 
-    private fun mergeByPriority(vararg providerResults: List<SkipInterval>): List<SkipInterval> {
-        val chosen = LinkedHashMap<String, SkipInterval>()
-        for (result in providerResults) {
-            for (interval in result) {
-                val category = segmentCategory(interval.type) ?: continue
-                if (category !in chosen) chosen[category] = interval
-            }
-        }
-        return chosen.values.toList()
-    }
+    private fun mergeByPriority(vararg providerResults: List<SkipInterval>): List<SkipInterval> =
+        mergeSkipProviders(providerResults.toList())
 
     private fun List<SkipInterval>.hasOpeningSegment(): Boolean = any { interval ->
         segmentCategory(interval.type) == "opening"

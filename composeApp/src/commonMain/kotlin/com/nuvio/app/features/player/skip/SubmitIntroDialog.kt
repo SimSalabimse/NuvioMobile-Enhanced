@@ -51,7 +51,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -217,12 +216,13 @@ fun SubmitIntroDialog(
     }
     
     val contentKey = flagSubmitContentKey(imdbId, season, episode, isMovie)
-    val latestSubmittedTypes by rememberUpdatedState(submittedTypesInSession)
-    var localTypes by remember(contentKey, submittedTypesInSession) {
-        mutableStateOf(flagTypesShownForContent(contentKey, submittedTypesInSession))
-    }
-    var remoteTypes by remember(contentKey) {
-        mutableStateOf(remoteFlagTypesByContentKey[contentKey].orEmpty())
+    var remoteCounts by remember(contentKey) { mutableStateOf<Map<String, Int>>(emptyMap()) }
+    var submissionRevision by remember(contentKey) { androidx.compose.runtime.mutableIntStateOf(0) }
+    val submissionCounts = remember(contentKey, submissionRevision, remoteCounts, submittedTypesInSession) {
+        val rows = OwnTheIntroDbLedger.load(currentTheIntroDbAccountScope()).segmentRows(contentKey)
+        listOf("intro", "recap", "outro", "preview").associateWith { type ->
+            accountSubmissionCount(rows, type, remoteCounts[type] ?: 0)
+        }
     }
     /** Null until listed (no TheIntroDB key, or the title has no TMDB id): the button stays hidden. */
     var mySubmissions by remember(contentKey) { mutableStateOf<List<TheIntroDbUserSubmission>?>(null) }
@@ -274,13 +274,6 @@ fun SubmitIntroDialog(
             season = season,
             episode = episode,
         )
-        val rejected = rejectedFlagTypesForTitle(
-            records = records,
-            tmdbId = tmdbId,
-            isMovie = isMovie,
-            season = season,
-            episode = episode,
-        )
         val buckets = ownListBucketsForTitle(records, tmdbId, isMovie, season, episode)
         if (contentKey.isNotEmpty()) {
             remoteFlagTypesByContentKey[contentKey] = types
@@ -294,12 +287,16 @@ fun SubmitIntroDialog(
                 confirmed = buckets.confirmed,
                 pending = buckets.pending,
                 rejected = buckets.rejected,
+                confirmedRows = buckets.confirmedRows,
+                pendingRows = buckets.pendingRows,
             )
-            localTypes = flagTypesShownForContent(contentKey, latestSubmittedTypes)
+            remoteCounts = listOf("intro", "recap", "outro", "preview").associateWith { type ->
+                (buckets.confirmedRows + buckets.pendingRows).count { it.type == type }
+            }
+            submissionRevision += 1
         }
-        remoteTypes = types
     }
-    val disabledTypes = localTypes + remoteTypes
+    val disabledTypes = submissionCounts.filterValues { !canAcceptSubmission(it) }.keys
 
     val availableTypes = remember(disabledTypes) {
         listOf("intro", "recap", "outro", "preview").filterNot { it in disabledTypes }
@@ -313,6 +310,11 @@ fun SubmitIntroDialog(
 
     fun beginSubmit(absentSegment: Boolean) {
         dismissKeyboard()
+        val capped = canonicalFlagSegmentType(segmentType)
+        if (capped != null && !canAcceptSubmission(submissionCounts[capped] ?: 0)) {
+            errorMessage = TheIntroDbSegmentCapMessage
+            return
+        }
         val times = resolveIntroSubmitTimes(
             service = selectedService,
             absentSegment = absentSegment,
@@ -366,6 +368,31 @@ fun SubmitIntroDialog(
                     }
                     IntroSubmitKeyPrepareResult.Ready -> Unit
                 }
+                val reserve = if (service == IntroSubmitService.THE_INTRODB) {
+                    OwnTheIntroDbLedger.reserveSegment(
+                        scope = accountScopeForService(
+                            service,
+                            PlayerSettingsRepository.uiState.value.introDbApiKey,
+                            PlayerSettingsRepository.uiState.value.theIntroDbApiKey,
+                        ),
+                        contentKey = flagSubmitContentKey(imdbId, season, episode, isMovie),
+                        segmentType = segmentType,
+                        status = OwnMarkStatus.Pending,
+                        startMs = (start * 1000).toLong(),
+                        endMs = (end * 1000).toLong(),
+                        remoteCount = submissionCounts[canonicalFlagSegmentType(segmentType) ?: segmentType] ?: 0,
+                    )
+                } else {
+                    null
+                }
+                if (service == IntroSubmitService.THE_INTRODB && reserve == null) {
+                    errorMessage = TheIntroDbSegmentCapMessage
+                    return@launch
+                }
+                if (reserve != null && !reserve.created) {
+                    errorMessage = TheIntroDbAlreadySubmittedMessage
+                    return@launch
+                }
                 val result = submitManualSkipSegment(
                     imdbId = imdbId,
                     season = season,
@@ -381,24 +408,25 @@ fun SubmitIntroDialog(
                 )
                 if (result.recorded) {
                     val submittedKey = flagSubmitContentKey(imdbId, season, episode, isMovie)
-                    FlagSubmitLedger.rememberType(submittedKey, segmentType)
-                    if (shouldRecordOwnTheIntroDb(service, succeeded = true)) {
-                        val status = if (result == ManualSkipSubmitOutcome.ALREADY_SUBMITTED) {
-                            OwnMarkStatus.Confirmed
-                        } else {
-                            OwnMarkStatus.Pending
-                        }
-                        OwnTheIntroDbLedger.remember(
+                    val duplicate = result == ManualSkipSubmitOutcome.ALREADY_SUBMITTED
+                    val canonical = canonicalFlagSegmentType(segmentType)
+                    val alreadyListed = canonical != null && canonical in FlagSubmitLedger.loadSegments(submittedKey)
+                    if (!duplicate || !alreadyListed) {
+                        FlagSubmitLedger.rememberType(submittedKey, segmentType)
+                    }
+                    val reserved = reserve?.segment
+                    if (reserve?.created == true && reserved != null && duplicate) {
+                        OwnTheIntroDbLedger.confirmSegment(
                             accountScopeForService(
                                 service,
                                 PlayerSettingsRepository.uiState.value.introDbApiKey,
                                 PlayerSettingsRepository.uiState.value.theIntroDbApiKey,
                             ),
                             submittedKey,
-                            segmentType,
-                            status,
+                            reserved,
                         )
                     }
+                    if (reserve != null) submissionRevision += 1
                     canonicalFlagSegmentType(segmentType)?.let { type ->
                         if (submittedKey.isNotEmpty()) {
                             remoteFlagTypesByContentKey[submittedKey] =
@@ -411,6 +439,18 @@ fun SubmitIntroDialog(
                     }
                     onSuccess()
                 } else {
+                    val reserved = reserve?.segment
+                    if (reserve?.created == true && reserved != null) {
+                        OwnTheIntroDbLedger.dropSegment(
+                            accountScopeForService(
+                                service,
+                                PlayerSettingsRepository.uiState.value.introDbApiKey,
+                                PlayerSettingsRepository.uiState.value.theIntroDbApiKey,
+                            ),
+                            flagSubmitContentKey(imdbId, season, episode, isMovie),
+                            reserved.id,
+                        )
+                    }
                     errorMessage = if (keyWasNew) {
                         keySavedSubmitFailedMessage
                     } else {
@@ -644,6 +684,7 @@ fun SubmitIntroDialog(
                                 selected = segmentType == "intro",
                                 onClick = { onSegmentTypeChange("intro") },
                                 disabled = "intro" in disabledTypes,
+                                count = submissionCounts["intro"] ?: 0,
                                 modifier = Modifier.weight(1f),
                             )
                             SegmentTypeButton(
@@ -652,6 +693,7 @@ fun SubmitIntroDialog(
                                 selected = segmentType == "recap",
                                 onClick = { onSegmentTypeChange("recap") },
                                 disabled = "recap" in disabledTypes,
+                                count = submissionCounts["recap"] ?: 0,
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -665,6 +707,7 @@ fun SubmitIntroDialog(
                                 selected = segmentType == "outro",
                                 onClick = { onSegmentTypeChange("outro") },
                                 disabled = "outro" in disabledTypes,
+                                count = submissionCounts["outro"] ?: 0,
                                 modifier = Modifier.weight(1f),
                             )
                             SegmentTypeButton(
@@ -673,6 +716,7 @@ fun SubmitIntroDialog(
                                 selected = segmentType == "preview",
                                 onClick = { onSegmentTypeChange("preview") },
                                 disabled = "preview" in disabledTypes,
+                                count = submissionCounts["preview"] ?: 0,
                                 modifier = Modifier.weight(1f),
                             )
                         }
@@ -688,6 +732,7 @@ fun SubmitIntroDialog(
                             selected = segmentType == "intro",
                             onClick = { onSegmentTypeChange("intro") },
                             disabled = "intro" in disabledTypes,
+                                count = submissionCounts["intro"] ?: 0,
                             modifier = Modifier.weight(1f),
                         )
                         SegmentTypeButton(
@@ -696,6 +741,7 @@ fun SubmitIntroDialog(
                             selected = segmentType == "recap",
                             onClick = { onSegmentTypeChange("recap") },
                             disabled = "recap" in disabledTypes,
+                                count = submissionCounts["recap"] ?: 0,
                             modifier = Modifier.weight(1f),
                         )
                         SegmentTypeButton(
@@ -704,6 +750,7 @@ fun SubmitIntroDialog(
                             selected = segmentType == "outro",
                             onClick = { onSegmentTypeChange("outro") },
                             disabled = "outro" in disabledTypes,
+                                count = submissionCounts["outro"] ?: 0,
                             modifier = Modifier.weight(1f),
                         )
                         SegmentTypeButton(
@@ -712,6 +759,7 @@ fun SubmitIntroDialog(
                             selected = segmentType == "preview",
                             onClick = { onSegmentTypeChange("preview") },
                             disabled = "preview" in disabledTypes,
+                                count = submissionCounts["preview"] ?: 0,
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -1103,6 +1151,7 @@ private fun SegmentTypeButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     disabled: Boolean = false,
+    count: Int = 0,
 ) {
     val backgroundColor = when {
         disabled -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
@@ -1135,7 +1184,7 @@ private fun SegmentTypeButton(
                 modifier = Modifier.size(14.dp)
             )
             Text(
-                text = label,
+                text = if (count in 1 until MAX_SUBMISSIONS_PER_TYPE) "$label $count" else label,
                 color = contentColor,
                 style = MaterialTheme.typography.labelMedium,
                 fontWeight = FontWeight.SemiBold,
@@ -1148,13 +1197,6 @@ private fun SegmentTypeButton(
 }
 
 private val remoteFlagTypesByContentKey = mutableMapOf<String, Set<String>>()
-
-private fun flagTypesShownForContent(contentKey: String, sessionTypes: Set<String>): Set<String> {
-    val stored = ownSentTypes(OwnTheIntroDbLedger.load(currentTheIntroDbAccountScope()), contentKey)
-    return (stored + sessionTypes)
-        .mapNotNull { canonicalFlagSegmentType(it) }
-        .toSet()
-}
 
 private fun normalizeSegmentTypeForSubmit(type: String): String? {
     return when (type.trim().lowercase()) {

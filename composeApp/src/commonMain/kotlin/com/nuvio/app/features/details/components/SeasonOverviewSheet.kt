@@ -257,6 +257,8 @@ internal fun SeasonOverviewSheet(
                     confirmed = buckets.confirmed,
                     pending = buckets.pending,
                     rejected = buckets.rejected,
+                    confirmedRows = buckets.confirmedRows,
+                    pendingRows = buckets.pendingRows,
                 )
             }
         }

@@ -2,6 +2,8 @@ package com.nuvio.app.features.player
 
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.features.player.skip.FlagSubmitLedger
+import com.nuvio.app.features.player.skip.loadSegments
+import com.nuvio.app.features.player.skip.segmentRows
 import com.nuvio.app.features.player.skip.rememberType
 import com.nuvio.app.features.player.skip.SkipInterval
 import com.nuvio.app.features.player.skip.flagSubmitContentKey
@@ -290,8 +292,17 @@ private fun PlayerScreenRuntime.showSegmentClocks(
     markEndShowsTenth = tenths?.second == true
 }
 
-internal fun PlayerScreenRuntime.noteMarkingSubmitted(result: IntroSubmitResult) {
-    FlagSubmitLedger.rememberType(flagSubmitContentKey(), result.segmentType)
+internal fun PlayerScreenRuntime.noteMarkingSubmitted(
+    result: IntroSubmitResult,
+    countSubmission: Boolean = true,
+    recordSharedFlagList: Boolean = true,
+) {
+    val contentKey = flagSubmitContentKey()
+    val canonical = com.nuvio.app.features.player.skip.canonicalFlagSegmentType(result.segmentType)
+    val alreadyListed = canonical != null && canonical in FlagSubmitLedger.loadSegments(contentKey)
+    if (recordSharedFlagList && (countSubmission || !alreadyListed)) {
+        FlagSubmitLedger.rememberType(contentKey, result.segmentType)
+    }
     InAppLogger.info(
         "Player/SkipIntro",
         "submit success videoId=${activeVideoId.orEmpty()} s=${activeSeasonNumber ?: 0} " +
@@ -305,7 +316,18 @@ internal fun PlayerScreenRuntime.noteMarkingSubmitted(result: IntroSubmitResult)
     }
     val saved = submittedSkipMarkToSave(result)
     if (saved != null) {
-        saveUserSkipMark(saved.segmentType, saved.startSec, saved.endSec, submit = false)
+        val category = com.nuvio.app.features.analysis.SkipLearning.canonicalType(saved.segmentType)
+        val hasPrimary = category != null &&
+            com.nuvio.app.features.analysis.SkipLearning.userMarks(parentMetaId, activeSeasonNumber, activeEpisodeNumber)[category] != null
+        if (countSubmission || !hasPrimary) {
+            saveUserSkipMark(
+                saved.segmentType,
+                saved.startSec,
+                saved.endSec,
+                submit = false,
+                additional = countSubmission && hasPrimary,
+            )
+        }
     } else if (result.absentSegment) {
         val downloadShowId = com.nuvio.app.features.downloads.downloadOpenedBySource(
             activeSourceUrl.trim(),
@@ -321,7 +343,27 @@ internal fun PlayerScreenRuntime.noteMarkingSubmitted(result: IntroSubmitResult)
             )
         }
     }
-    markSent = true
+    val sentType = markSegmentId(result.segmentType)
+    val sentCount = com.nuvio.app.features.player.skip.accountSubmissionCount(
+        ledgerRows = com.nuvio.app.features.player.skip.OwnTheIntroDbLedger.load(
+            com.nuvio.app.features.player.skip.accountScopeForService(
+                com.nuvio.app.features.player.skip.IntroSubmitService.THE_INTRODB,
+                PlayerSettingsRepository.uiState.value.introDbApiKey,
+                PlayerSettingsRepository.uiState.value.theIntroDbApiKey,
+            ),
+        ).segmentRows(flagSubmitContentKey()),
+        type = sentType,
+        remoteCount = 0,
+    )
+    if (com.nuvio.app.features.player.skip.canAcceptSubmission(sentCount)) {
+        markSent = false
+        submitIntroUserEdited += sentType
+        submitIntroDrafts[sentType] = "" to ""
+        submitIntroTenthDrafts.remove(sentType)
+        refreshSegmentClocks()
+    } else {
+        markSent = true
+    }
     markSubmitError = null
 }
 

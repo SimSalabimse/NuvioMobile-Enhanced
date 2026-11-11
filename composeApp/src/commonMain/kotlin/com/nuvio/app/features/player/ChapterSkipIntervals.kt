@@ -120,16 +120,12 @@ internal fun mergeSkipIntervals(
     if (chapterIntervals.isEmpty()) return apiIntervals
     if (apiIntervals.isEmpty()) return chapterIntervals
     if (isMovie && apiIntervals.isNotEmpty()) return apiIntervals
-    val chosen = LinkedHashMap<String, SkipInterval>()
-    for (interval in apiIntervals) {
-        val category = segmentCategory(interval.type) ?: continue
-        chosen.getOrPut(category) { interval }
+    val apiCategories = apiIntervals.mapNotNull { segmentCategory(it.type) }.toSet()
+    val fromApi = apiIntervals.filter { segmentCategory(it.type) != null }
+    val fromChapters = chapterIntervals.filter { interval ->
+        val category = segmentCategory(interval.type) ?: return@filter false
+        category !in apiCategories
     }
-    for (interval in chapterIntervals) {
-        val category = segmentCategory(interval.type) ?: continue
-        chosen.getOrPut(category) { interval }
-    }
-    val uncategorized = (chapterIntervals + apiIntervals)
-        .filter { segmentCategory(it.type) == null }
-    return chosen.values.toList() + uncategorized
+    val uncategorized = (chapterIntervals + apiIntervals).filter { segmentCategory(it.type) == null }
+    return fromApi + fromChapters + uncategorized
 }

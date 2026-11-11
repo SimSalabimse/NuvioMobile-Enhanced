@@ -32,7 +32,6 @@ import com.nuvio.app.features.player.skip.PlayerNextEpisodeRules
 import com.nuvio.app.features.player.skip.SkipIntroRepository
 import com.nuvio.app.features.player.skip.SkipInterval
 import com.nuvio.app.features.player.skip.SkipUndo
-import com.nuvio.app.features.player.skip.segmentCategory
 import com.nuvio.app.features.player.skip.shouldAutoSkip
 import com.nuvio.app.features.player.skip.internalSkipAction
 import com.nuvio.app.features.player.skip.intervalsAtSeekPositions
@@ -899,8 +898,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
             val inside = eligible.firstOrNull { positionSec >= it.startTime && positionSec < it.endTime }
             val current = inside ?: eligible.firstOrNull()
             if (current != activeSkipInterval) {
-                val keepDismissed = current != null && activeSkipInterval != null &&
-                    segmentCategory(activeSkipInterval?.type ?: "") == segmentCategory(current.type)
+                val keepDismissed = com.nuvio.app.features.player.skip.keepSkipDismissed(activeSkipInterval, current)
                 activeSkipInterval = current
                 if (current != null && !keepDismissed) skipIntervalDismissed = false
                 if (current == null) skipIntervalDismissed = false

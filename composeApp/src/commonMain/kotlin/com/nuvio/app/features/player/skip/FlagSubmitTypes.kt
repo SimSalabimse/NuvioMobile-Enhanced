@@ -29,6 +29,9 @@ internal data class FlagSubmissionRecord(
     val episode: Int?,
     val segment: String,
     val status: String,
+    val submissionId: String = "",
+    val startMs: Long? = null,
+    val endMs: Long? = null,
 )
 
 /**
@@ -65,6 +68,8 @@ internal data class OwnListBuckets(
     val confirmed: Set<String> = emptySet(),
     val pending: Set<String> = emptySet(),
     val rejected: Set<String> = emptySet(),
+    val confirmedRows: List<AccountSegment> = emptyList(),
+    val pendingRows: List<AccountSegment> = emptyList(),
 )
 
 /** This account's rows for one title, split by review status. Community data is not an input. */
@@ -79,22 +84,39 @@ internal fun ownListBucketsForTitle(
     val confirmed = linkedSetOf<String>()
     val pending = linkedSetOf<String>()
     val rejected = linkedSetOf<String>()
+    val confirmedRows = mutableListOf<AccountSegment>()
+    val pendingRows = mutableListOf<AccountSegment>()
     records.forEach { record ->
         if (record.tmdbId != tmdbId) return@forEach
         val movie = record.type.equals("movie", ignoreCase = true)
         if (movie != isMovie) return@forEach
         if (!isMovie && (record.season != season || record.episode != episode)) return@forEach
         val type = canonicalFlagSegmentType(record.segment) ?: return@forEach
+        val segment = AccountSegment(
+            id = record.submissionId.ifBlank { nextSubmissionId(type, confirmedRows + pendingRows) },
+            type = type,
+            startMs = record.startMs,
+            endMs = record.endMs,
+        )
         when (listStatusBucket(record.status)) {
-            ListStatusBucket.Confirmed -> confirmed += type
-            ListStatusBucket.Pending -> pending += type
+            ListStatusBucket.Confirmed -> {
+                confirmed += type
+                confirmedRows += segment
+            }
+            ListStatusBucket.Pending -> {
+                pending += type
+                pendingRows += segment
+            }
             ListStatusBucket.Rejected -> rejected += type
         }
     }
+    val surviving = (confirmedRows.map { it.type } + pendingRows.map { it.type }).toSet()
     return OwnListBuckets(
-        confirmed = confirmed - rejected,
-        pending = pending - confirmed - rejected,
-        rejected = rejected,
+        confirmed = confirmed,
+        pending = pending - confirmed,
+        rejected = rejected.filter { it !in surviving }.toSet(),
+        confirmedRows = confirmedRows,
+        pendingRows = pendingRows.filter { row -> confirmedRows.none { it.id == row.id } },
     )
 }
 
@@ -159,6 +181,33 @@ internal fun replaceFlagSubmitLedgerTypes(
     val next = entries.toMutableMap()
     if (canonical.isEmpty()) next.remove(contentKey) else next[contentKey] = canonical
     return next
+}
+
+internal fun encodeFlagSubmitSegments(entries: Map<String, List<String>>): String {
+    return entries.entries
+        .sortedBy { it.key }
+        .mapNotNull { (key, types) ->
+            val cleanKey = key.trim()
+            if (cleanKey.isEmpty() || cleanKey.contains('\n') || cleanKey.contains('=')) return@mapNotNull null
+            val cleanTypes = types.mapNotNull { canonicalFlagSegmentType(it) }
+            if (cleanTypes.isEmpty()) return@mapNotNull null
+            "$cleanKey=${cleanTypes.joinToString(",")}"
+        }
+        .joinToString("\n")
+}
+
+internal fun decodeFlagSubmitSegments(raw: String): Map<String, List<String>> {
+    if (raw.isBlank()) return emptyMap()
+    val out = linkedMapOf<String, List<String>>()
+    raw.lineSequence().forEach { line ->
+        val parts = line.split('=', limit = 2)
+        if (parts.size != 2) return@forEach
+        val key = parts[0].trim()
+        if (key.isEmpty()) return@forEach
+        val types = parts[1].split(',').mapNotNull { canonicalFlagSegmentType(it.trim()) }
+        if (types.isNotEmpty()) out[key] = types
+    }
+    return out
 }
 
 internal fun encodeFlagSubmitLedger(entries: Map<String, Set<String>>): String {
