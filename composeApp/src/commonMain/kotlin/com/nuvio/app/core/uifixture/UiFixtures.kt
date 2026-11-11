@@ -43,6 +43,7 @@ enum class UiFixture(
     PlayerSubmitBarTouchedInvalid("player-submit-bar-touched-invalid", startsOnline = true),
     SeasonOverview("season-overview", startsOnline = true),
     SeasonOverviewLong("season-overview-long", startsOnline = true),
+    SeasonPoster("season-poster", startsOnline = true),
     /**
      * Carrier for the UI walk. The screen id lives on [UiFixtureRequest.walkId]
      * and is registered in `UiWalkScreens`, so another fixture can be appended
@@ -55,7 +56,7 @@ enum class UiFixture(
         HomeOnline, HomeOffline, HomeTall, HomePlay, LongTitles, PlayerSubmitBar, PlayerSubmitBarLong,
         PlayerSubmitBarFresh, PlayerSubmitBarTouchedInvalid,
         -> null
-        DetailsOnline, DetailsOffline, DetailsTall, SmartDownloads, SeasonOverview, SeasonOverviewLong -> DetailRoute(
+        DetailsOnline, DetailsOffline, DetailsTall, SmartDownloads, SeasonOverview, SeasonOverviewLong, SeasonPoster -> DetailRoute(
             type = UiFixtureCatalog.SERIES_TYPE,
             id = UiFixtureCatalog.SERIES_ID,
             title = UiFixtureCatalog.SERIES_TITLE,

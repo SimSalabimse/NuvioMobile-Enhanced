@@ -114,6 +114,7 @@ internal object UiFixtureCatalog {
         )
         when (fixture) {
             UiFixture.DetailsOffline,
+            UiFixture.SeasonPoster,
             -> MetaDetailsRepository.installFixture(series(seasonPosters = true))
             UiFixture.DetailsOnline -> {
                 MetaDetailsRepository.installFixture(detailsOnlineShow())
@@ -252,11 +253,7 @@ internal object UiFixtureCatalog {
                     overview = "A synthetic episode used for layout checks.",
                     runtime = 42,
                     thumbnail = fixtureArtUrl(40 + season * 10 + episode, wide = true, label = "S$season E$episode"),
-                    seasonPoster = if (seasonPosters) {
-                        fixtureArtUrl(50 + season, wide = false, label = "Season $season")
-                    } else {
-                        null
-                    },
+                    seasonPoster = if (seasonPosters) fixtureSeasonPosterUrl(season) else null,
                 )
             }
         }
@@ -271,7 +268,7 @@ internal object UiFixtureCatalog {
             genres = listOf("Drama"),
             videos = videos,
             seasonPosters = if (seasonPosters) {
-                (1..3).associateWith { season -> fixtureArtUrl(50 + season, wide = false, label = "Season $season") }
+                (1..3).associateWith(::fixtureSeasonPosterUrl)
             } else {
                 emptyMap()
             },
