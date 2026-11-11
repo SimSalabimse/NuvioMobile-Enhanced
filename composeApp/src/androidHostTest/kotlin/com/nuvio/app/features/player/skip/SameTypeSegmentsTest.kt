@@ -19,6 +19,8 @@ import org.robolectric.annotation.Config
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -155,6 +157,122 @@ class SameTypeSegmentsTest {
         assertTrue(markSegmentTypes(isMovie = false).contains("preview"))
         assertEquals("00:00:40", formatSecondsToHms(40.0))
         assertEquals("0:00:40.000", formatMarkTimestamp(40.0))
+    }
+
+    @Test
+    fun partialOverlapKeepsTheRemoteTail() {
+        val remote = SkipInterval(0.0, 90.0, "intro", TheIntroDb.PROVIDER)
+        val mine = SkipInterval(40.0, 50.0, "intro", "you")
+        val playback = resolvePlaybackSkips(listOf(remote), listOf(mine), emptyList())
+        assertEquals(0.0, playback.first().startTime)
+        assertEquals(90.0, playback.last().endTime)
+        assertTrue(playback.any { it.startTime < 40.0 })
+        assertTrue(playback.any { it.endTime > 50.0 })
+    }
+
+    @Test
+    fun movieCreditsMarkWinsWhereItOverlaps() {
+        val remote = SkipInterval(100.0, 200.0, "movie-credits", TheIntroDb.PROVIDER)
+        val scene = SkipInterval(210.0, 230.0, "post-credits", TheIntroDb.PROVIDER)
+        val mine = SkipInterval(100.0, 200.0, "outro", "you")
+        val playback = resolvePlaybackSkips(listOf(remote, scene), listOf(mine), emptyList())
+        assertTrue(playback.any { it.provider == "you" && it.startTime == 100.0 })
+        assertFalse(playback.any { it.type == "movie-credits" })
+        assertTrue(playback.any { it.type == "post-credits" && it.startTime == 210.0 })
+    }
+
+    @Test
+    fun everyMovieCreditsRangeIsASkip() {
+        val media = TheIntroDbMediaResponse(
+            credits = listOf(
+                TheIntroDbSegment(startMs = 100_000L, endMs = 130_000L),
+                TheIntroDbSegment(startMs = 200_000L, endMs = 230_000L),
+            ),
+        )
+        val intervals = media.movieSkipIntervals()
+        assertEquals(2, intervals.size)
+        assertTrue(intervals.all { it.type == "movie-credits" })
+        assertNotNull(intervals[0].internalSkipAction(intervals))
+        assertNotNull(intervals[1].internalSkipAction(intervals))
+        val scene = SkipInterval(240.0, 260.0, "post-credits", "introdb")
+        assertNull(scene.internalSkipAction(intervals + scene))
+    }
+
+    @Test
+    fun oneRejectedIntroDoesNotDropTheOtherConfirmedIntros() {
+        val buckets = ownListBucketsForTitle(
+            records = listOf(
+                FlagSubmissionRecord(7, "tv", 1, 1, "intro", "approved", submissionId = "a"),
+                FlagSubmissionRecord(7, "tv", 1, 1, "intro", "approved", submissionId = "b"),
+                FlagSubmissionRecord(7, "tv", 1, 1, "intro", "rejected", submissionId = "c"),
+            ),
+            tmdbId = 7,
+            isMovie = false,
+            season = 1,
+            episode = 1,
+        )
+        assertEquals(setOf("a", "b"), buckets.confirmedRows.map { it.id }.toSet())
+        assertEquals(setOf("intro"), buckets.confirmed)
+        assertFalse("intro" in buckets.rejected)
+    }
+
+    @Test
+    fun setOnlyListingKeepsTimedRows() {
+        val stored = OwnAccountMarks().withSegment(
+            "tt1:1:1",
+            AccountSegment("intro", "intro", startMs = 1_000L, endMs = 5_000L),
+            OwnMarkStatus.Pending,
+        )
+        val listed = applyAccountListing(
+            marks = stored,
+            contentKey = "tt1:1:1",
+            confirmed = setOf("intro"),
+            pending = emptySet(),
+            rejected = emptySet(),
+        )
+        val row = listed.segmentRows("tt1:1:1").single { it.type == "intro" }
+        assertEquals(1_000L, row.startMs)
+        assertEquals(5_000L, row.endMs)
+    }
+
+    @Test
+    fun threeAccountSendsRefuseTheFourthAndIgnoreTheSharedFlagList() {
+        var marks = OwnAccountMarks()
+        repeat(3) { index ->
+            val written = recordSubmittedSegment(
+                marks = marks,
+                contentKey = "tt1:1:1",
+                segmentType = "intro",
+                status = OwnMarkStatus.Pending,
+                startMs = index * 20_000L,
+                endMs = index * 20_000L + 5_000L,
+                remoteCount = 0,
+            )
+            assertTrue(written.accepted)
+            marks = written.marks
+        }
+        val fourth = recordSubmittedSegment(
+            marks = marks,
+            contentKey = "tt1:1:1",
+            segmentType = "intro",
+            status = OwnMarkStatus.Pending,
+            startMs = 80_000L,
+            endMs = 85_000L,
+            remoteCount = 0,
+        )
+        assertFalse(fourth.accepted)
+        assertEquals(3, fourth.marks.segmentRows("tt1:1:1").count { it.type == "intro" })
+        val otherAccount = recordSubmittedSegment(
+            marks = OwnAccountMarks(),
+            contentKey = "tt1:1:1",
+            segmentType = "intro",
+            status = OwnMarkStatus.Pending,
+            startMs = 0L,
+            endMs = 5_000L,
+            remoteCount = 0,
+        )
+        assertTrue(otherAccount.accepted)
+        assertEquals(0, accountSubmissionCount(emptyList(), "intro", 0))
     }
 
     @Test

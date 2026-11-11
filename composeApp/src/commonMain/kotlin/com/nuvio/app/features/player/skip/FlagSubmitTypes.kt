@@ -110,13 +110,13 @@ internal fun ownListBucketsForTitle(
             ListStatusBucket.Rejected -> rejected += type
         }
     }
-    val rejectedTypes = rejected.toSet()
+    val surviving = (confirmedRows.map { it.type } + pendingRows.map { it.type }).toSet()
     return OwnListBuckets(
-        confirmed = confirmed - rejectedTypes,
-        pending = pending - confirmed - rejectedTypes,
-        rejected = rejected,
-        confirmedRows = confirmedRows.filter { it.type !in rejectedTypes },
-        pendingRows = pendingRows.filter { it.type !in rejectedTypes },
+        confirmed = confirmed,
+        pending = pending - confirmed,
+        rejected = rejected.filter { it !in surviving }.toSet(),
+        confirmedRows = confirmedRows,
+        pendingRows = pendingRows.filter { row -> confirmedRows.none { it.id == row.id } },
     )
 }
 

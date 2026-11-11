@@ -70,32 +70,32 @@ internal object SkipLearning {
         val category = canonicalType(type) ?: return 0
         if (parentMetaId.isBlank() || endMs <= startMs || startMs < 0L) return 0
         val key = MediaAnalysisStore.keyFor(parentMetaId, season, episode)
-        val existing = MediaAnalysisStore.load(key)
-            ?: MediaAnalysisResult(key = key, analyzedAtMs = 0L, durationMs = 0L)
-        val previous = when (category) {
-            "intro" -> existing.introStartMs to existing.introEndMs
-            "outro" -> existing.creditsStartMs to existing.creditsEndMs
-            "recap" -> existing.recapStartMs to existing.recapEndMs
-            else -> null to null
+        MediaAnalysisStore.update(key) { stored ->
+            val existing = stored ?: MediaAnalysisResult(key = key, analyzedAtMs = 0L, durationMs = 0L)
+            val previous = when (category) {
+                "intro" -> existing.introStartMs to existing.introEndMs
+                "outro" -> existing.creditsStartMs to existing.creditsEndMs
+                "recap" -> existing.recapStartMs to existing.recapEndMs
+                else -> null to null
+            }
+            val rejection = rejectedRangeForCorrection(category, previous.first, previous.second, startMs, endMs)
+            val rejected = if (rejection == null || rejection in existing.rejectedSegments) {
+                existing.rejectedSegments
+            } else {
+                existing.rejectedSegments + rejection
+            }
+            existing.copy(
+                userSegments = existing.userSegments +
+                    (category to UserSegment(startMs, endMs, com.nuvio.app.features.streams.epochMs(), durationMs = durationMs)),
+                learnedTypes = existing.learnedTypes - category,
+                rejectedSegments = rejected,
+                introConfidence = if (category == "intro") null else existing.introConfidence,
+                creditsConfidence = if (category == "outro") null else existing.creditsConfidence,
+                chapterTypes = existing.chapterTypes - category,
+                // A new intro bounds the recap search, so run it again.
+                derivedVersion = if (category == "intro") 0 else existing.derivedVersion,
+            )
         }
-        val rejection = rejectedRangeForCorrection(category, previous.first, previous.second, startMs, endMs)
-        val rejected = if (rejection == null || rejection in existing.rejectedSegments) {
-            existing.rejectedSegments
-        } else {
-            existing.rejectedSegments + rejection
-        }
-        val updated = existing.copy(
-            userSegments = existing.userSegments +
-                (category to UserSegment(startMs, endMs, com.nuvio.app.features.streams.epochMs(), durationMs = durationMs)),
-            learnedTypes = existing.learnedTypes - category,
-            rejectedSegments = rejected,
-            introConfidence = if (category == "intro") null else existing.introConfidence,
-            creditsConfidence = if (category == "outro") null else existing.creditsConfidence,
-            chapterTypes = existing.chapterTypes - category,
-            // A new intro bounds the recap search, so run it again.
-            derivedVersion = if (category == "intro") 0 else existing.derivedVersion,
-        )
-        MediaAnalysisStore.save(updated)
         InAppLogger.info("SkipLearning", "mark key=$key type=$category ${startMs}-${endMs}")
         val taught = if (season != null && episode != null) teachSeason(parentMetaId, season, key) else 0
         MediaAnalysisStatus.resultsChanged()

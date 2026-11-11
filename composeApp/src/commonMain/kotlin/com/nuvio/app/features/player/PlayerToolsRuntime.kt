@@ -340,8 +340,7 @@ internal fun PlayerScreenRuntime.noteMarkingSubmitted(result: IntroSubmitResult,
         }
     }
     val sentType = markSegmentId(result.segmentType)
-    val sentCount = com.nuvio.app.features.player.skip.combinedSubmissionCount(
-        type = sentType,
+    val sentCount = com.nuvio.app.features.player.skip.accountSubmissionCount(
         ledgerRows = com.nuvio.app.features.player.skip.OwnTheIntroDbLedger.load(
             com.nuvio.app.features.player.skip.accountScopeForService(
                 com.nuvio.app.features.player.skip.IntroSubmitService.THE_INTRODB,
@@ -349,7 +348,7 @@ internal fun PlayerScreenRuntime.noteMarkingSubmitted(result: IntroSubmitResult,
                 PlayerSettingsRepository.uiState.value.theIntroDbApiKey,
             ),
         ).segmentRows(flagSubmitContentKey()),
-        flagLedger = FlagSubmitLedger.loadSegments(flagSubmitContentKey()),
+        type = sentType,
         remoteCount = 0,
     )
     if (com.nuvio.app.features.player.skip.canAcceptSubmission(sentCount)) {

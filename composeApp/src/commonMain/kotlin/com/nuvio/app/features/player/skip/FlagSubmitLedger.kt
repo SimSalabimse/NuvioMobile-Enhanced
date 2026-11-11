@@ -26,9 +26,15 @@ internal fun FlagSubmitLedger.rememberType(contentKey: String, segmentType: Stri
 internal fun FlagSubmitLedger.replaceTypes(contentKey: String, remoteTypes: Set<String>) {
     if (contentKey.isEmpty()) return
     val current = loadAll()
-    val canonical = remoteTypes.mapNotNull { canonicalFlagSegmentType(it) }.distinct()
+    val canonical = remoteTypes.mapNotNull { canonicalFlagSegmentType(it) }.toSet()
     val next = current.toMutableMap()
-    if (canonical.isEmpty()) next.remove(contentKey) else next[contentKey] = canonical
+    if (canonical.isEmpty()) {
+        next.remove(contentKey)
+    } else {
+        val kept = current[contentKey].orEmpty().filter { it in canonical }
+        val missing = canonical.filter { type -> kept.none { it == type } }
+        next[contentKey] = kept + missing
+    }
     if (next == current) return
     saveAll(next)
 }

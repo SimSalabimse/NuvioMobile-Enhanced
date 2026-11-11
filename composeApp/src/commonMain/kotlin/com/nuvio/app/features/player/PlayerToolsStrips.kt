@@ -623,9 +623,10 @@ private fun SegmentTabs(
             val selected = markSegmentId(segmentType) == type
             val label = markSegmentLabel(type)
             val id = markSegmentId(type)
+            val counted = id in submissionCounts
             val count = submissionCounts[id] ?: 0
             val mark = when {
-                count > 0 -> com.nuvio.app.features.player.skip.submitChipMark(count)
+                counted -> com.nuvio.app.features.player.skip.submitChipMark(count)
                 id in submittedTypes -> com.nuvio.app.features.player.skip.SubmitChipMark.Full
                 else -> com.nuvio.app.features.player.skip.SubmitChipMark.Open
             }

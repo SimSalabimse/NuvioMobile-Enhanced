@@ -2,6 +2,8 @@ package com.nuvio.app.features.player.skip
 
 import com.nuvio.app.features.downloads.DownloadsSettingsStorage
 import com.nuvio.app.features.player.PlayerSettingsRepository
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,16 +35,17 @@ internal object OwnTheIntroDbLedger {
     const val FIXTURE_SCOPE = "fixture"
     private const val STORE_KEY = "own_theintrodb_submissions_v2"
     private var cached: Map<String, OwnAccountMarks>? = null
+    private val lock = SynchronizedObject()
     private val _revision = MutableStateFlow(0)
     val revision: StateFlow<Int> = _revision.asStateFlow()
 
-    fun load(scope: String): OwnAccountMarks {
-        if (scope.isBlank()) return OwnAccountMarks()
-        return read()[scope] ?: OwnAccountMarks()
+    fun load(scope: String): OwnAccountMarks = synchronized(lock) {
+        if (scope.isBlank()) return@synchronized OwnAccountMarks()
+        read()[scope] ?: OwnAccountMarks()
     }
 
-    fun remember(scope: String, contentKey: String, segmentType: String, status: OwnMarkStatus) {
-        if (scope.isBlank()) return
+    fun remember(scope: String, contentKey: String, segmentType: String, status: OwnMarkStatus) = synchronized(lock) {
+        if (scope.isBlank()) return@synchronized
         val next = read().toMutableMap()
         next[scope] = (next[scope] ?: OwnAccountMarks()).withStatus(contentKey, segmentType, status)
         write(next)
@@ -56,19 +59,71 @@ internal object OwnTheIntroDbLedger {
         status: OwnMarkStatus,
         startMs: Long? = null,
         endMs: Long? = null,
-    ) {
-        if (scope.isBlank()) return
-        val type = canonicalFlagSegmentType(segmentType) ?: return
+    ) = synchronized(lock) {
+        if (scope.isBlank()) return@synchronized
         val next = read().toMutableMap()
-        val marks = next[scope] ?: OwnAccountMarks()
-        val rows = marks.segmentRows(contentKey)
-        val sameRange = rows.firstOrNull { it.type == type && startMs != null && it.startMs == startMs && it.endMs == endMs }
-        val segment = when {
-            sameRange != null -> sameRange
-            rows.none { it.type == type } && startMs == null -> AccountSegment.legacy(type)
-            else -> AccountSegment(id = nextSubmissionId(type, rows), type = type, startMs = startMs, endMs = endMs)
-        }
-        next[scope] = marks.withSegment(contentKey, segment, status)
+        val written = recordSubmittedSegment(
+            marks = next[scope] ?: OwnAccountMarks(),
+            contentKey = contentKey,
+            segmentType = segmentType,
+            status = status,
+            startMs = startMs,
+            endMs = endMs,
+            remoteCount = 0,
+        )
+        if (!written.accepted) return@synchronized
+        next[scope] = written.marks
+        write(next)
+    }
+
+    /**
+     * One locked read of this account's rows, then the new segment, then the write.
+     * Null when this account already has [MAX_SUBMISSIONS_PER_TYPE] of that type,
+     * counting this account's remote rows and not the shared profile flag list.
+     */
+    fun reserveSegment(
+        scope: String,
+        contentKey: String,
+        segmentType: String,
+        status: OwnMarkStatus,
+        startMs: Long?,
+        endMs: Long?,
+        remoteCount: Int,
+    ): SubmittedSegmentWrite? = synchronized(lock) {
+        if (scope.isBlank()) return@synchronized null
+        val next = read().toMutableMap()
+        val written = recordSubmittedSegment(
+            marks = next[scope] ?: OwnAccountMarks(),
+            contentKey = contentKey,
+            segmentType = segmentType,
+            status = status,
+            startMs = startMs,
+            endMs = endMs,
+            remoteCount = remoteCount,
+        )
+        if (!written.accepted) return@synchronized null
+        next[scope] = written.marks
+        write(next)
+        written
+    }
+
+    fun confirmSegment(scope: String, contentKey: String, segment: AccountSegment) = synchronized(lock) {
+        if (scope.isBlank()) return@synchronized
+        val next = read().toMutableMap()
+        next[scope] = (next[scope] ?: OwnAccountMarks()).withSegment(contentKey, segment, OwnMarkStatus.Confirmed)
+        write(next)
+    }
+
+    fun dropSegment(scope: String, contentKey: String, id: String) = synchronized(lock) {
+        if (scope.isBlank() || id.isEmpty()) return@synchronized
+        val marks = read()[scope] ?: return@synchronized
+        val hasRows = contentKey in marks.confirmedRows || contentKey in marks.pendingRows
+        val confirmedList = (if (hasRows) marks.confirmedRows[contentKey].orEmpty() else marks.confirmed[contentKey].orEmpty().map { AccountSegment.legacy(it) })
+            .filter { it.id != id }
+        val pendingList = (if (hasRows) marks.pendingRows[contentKey].orEmpty() else marks.pending[contentKey].orEmpty().map { AccountSegment.legacy(it) })
+            .filter { it.id != id }
+        val next = read().toMutableMap()
+        next[scope] = marks.publishSegmentRows(contentKey, confirmedList, pendingList)
         write(next)
     }
 
@@ -80,8 +135,8 @@ internal object OwnTheIntroDbLedger {
         rejected: Set<String>,
         confirmedRows: List<AccountSegment>? = null,
         pendingRows: List<AccountSegment>? = null,
-    ) {
-        if (scope.isBlank()) return
+    ) = synchronized(lock) {
+        if (scope.isBlank()) return@synchronized
         val next = read().toMutableMap()
         next[scope] = applyAccountListing(
             marks = next[scope] ?: OwnAccountMarks(),
@@ -104,7 +159,7 @@ internal object OwnTheIntroDbLedger {
     fun saveFixture(
         confirmed: Map<String, Set<String>>,
         pending: Map<String, Set<String>> = emptyMap(),
-    ) {
+    ) = synchronized(lock) {
         fun canon(entries: Map<String, Set<String>>) = entries.mapValues { (_, types) ->
             types.mapNotNullTo(linkedSetOf()) { canonicalFlagSegmentType(it) }
         }.filterValues { it.isNotEmpty() }
@@ -238,10 +293,55 @@ private fun OwnAccountMarks.publishSegmentRows(
     )
 }
 
+internal data class SubmittedSegmentWrite(
+    val marks: OwnAccountMarks,
+    val accepted: Boolean,
+    val created: Boolean,
+    val segment: AccountSegment?,
+)
+
+/**
+ * Adds one segment for this account, or refuses when the account already has three.
+ * [remoteCount] is this account's rows for the episode. The profile flag list is not an input.
+ * The same start and end updates that row and does not take another slot.
+ */
+internal fun recordSubmittedSegment(
+    marks: OwnAccountMarks,
+    contentKey: String,
+    segmentType: String,
+    status: OwnMarkStatus,
+    startMs: Long?,
+    endMs: Long?,
+    remoteCount: Int,
+): SubmittedSegmentWrite {
+    val type = canonicalFlagSegmentType(segmentType) ?: return SubmittedSegmentWrite(marks, false, false, null)
+    if (contentKey.isEmpty()) return SubmittedSegmentWrite(marks, false, false, null)
+    val rows = marks.segmentRows(contentKey).filter { it.type == type }
+    val same = rows.firstOrNull { startMs != null && it.startMs == startMs && it.endMs == endMs }
+    if (same != null) {
+        return SubmittedSegmentWrite(marks.withSegment(contentKey, same, status), true, false, same)
+    }
+    if (!canAcceptSubmission(accountSubmissionCount(rows, type, remoteCount))) {
+        return SubmittedSegmentWrite(marks, false, false, null)
+    }
+    val segment = if (rows.isEmpty() && startMs == null) {
+        AccountSegment.legacy(type)
+    } else {
+        AccountSegment(
+            id = nextSubmissionId(type, marks.segmentRows(contentKey)),
+            type = type,
+            startMs = startMs,
+            endMs = endMs,
+        )
+    }
+    return SubmittedSegmentWrite(marks.withSegment(contentKey, segment, status), true, true, segment)
+}
+
 /**
  * Listing rows for this account and this episode.
  * A remote pending status is not confirmed. A silent type keeps the cached row
  * so an offline or partial list does not wipe it. Rejected rows are dropped.
+ * A null row list leaves stored start and end in place.
  */
 internal fun applyAccountListing(
     marks: OwnAccountMarks,
@@ -265,9 +365,18 @@ internal fun applyAccountListing(
         if (nextPending.isEmpty()) pendingMap.remove(contentKey) else pendingMap[contentKey] = nextPending
         return marks.copy(confirmed = confirmedMap, pending = pendingMap)
     }
-    val local = marks.segmentRows(contentKey).filter { it.type !in rejectedTypes }
-    val remoteConfirmedRows = (confirmedRows ?: remoteConfirmed.map { AccountSegment.legacy(it) }).filter { it.type !in rejectedTypes }
-    val remotePendingRows = (pendingRows ?: remotePending.map { AccountSegment.legacy(it) }).filter { it.type !in rejectedTypes && it.type !in remoteConfirmed }
+    if (confirmedRows == null && pendingRows == null) {
+        val local = marks.segmentRows(contentKey)
+        val keptConfirmed = local.filter { it.type in nextConfirmed }
+        val keptPending = local.filter { row -> row.type in nextPending && keptConfirmed.none { it.id == row.id } }
+        val extraConfirmed = (nextConfirmed - keptConfirmed.map { it.type }.toSet()).map { AccountSegment.legacy(it) }
+        val extraPending = (nextPending - keptPending.map { it.type }.toSet()).map { AccountSegment.legacy(it) }
+        return marks.publishSegmentRows(contentKey, keptConfirmed + extraConfirmed, keptPending + extraPending)
+    }
+    val remoteConfirmedRows = confirmedRows.orEmpty().filter { it.type !in rejectedTypes }
+    val remotePendingRows = pendingRows.orEmpty().filter { it.type !in rejectedTypes && it.type !in remoteConfirmed }
+    val keptTypes = (remoteConfirmedRows + remotePendingRows).map { it.type }.toSet()
+    val local = marks.segmentRows(contentKey).filter { it.type !in (rejectedTypes - keptTypes) }
     val keptConfirmed = longerPerType(local.filter { it.type in nextConfirmed }, remoteConfirmedRows)
     val keptPending = longerPerType(local.filter { it.type in nextPending }, remotePendingRows)
         .filter { row -> keptConfirmed.none { it.id == row.id } }

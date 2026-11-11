@@ -47,7 +47,6 @@ import com.nuvio.app.features.player.skip.TheIntroDbAlreadySubmittedMessage
 import com.nuvio.app.features.player.skip.defaultIntroSubmitService
 import com.nuvio.app.features.player.skip.flagChecksForTitle
 import com.nuvio.app.features.player.skip.flagSubmitContentKey
-import com.nuvio.app.features.player.skip.loadSegments
 import com.nuvio.app.features.player.skip.segmentRows
 import com.nuvio.app.features.player.skip.introSubmitBlockReason
 import com.nuvio.app.features.player.skip.introSubmitKeySatisfied
@@ -260,12 +259,10 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                 rejectedTypes = rejectedTypes,
             )
             val ledgerRows = OwnTheIntroDbLedger.load(accountScope).segmentRows(contentKey)
-            val flagSegments = com.nuvio.app.features.player.skip.FlagSubmitLedger.loadSegments(contentKey)
             val submissionCounts = listOf("intro", "recap", "outro", "preview").associateWith { type ->
-                com.nuvio.app.features.player.skip.combinedSubmissionCount(
-                    type,
+                com.nuvio.app.features.player.skip.accountSubmissionCount(
                     ledgerRows,
-                    flagSegments,
+                    type,
                     remoteCounts[type] ?: 0,
                 )
             }
@@ -387,6 +384,7 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                             service = service,
                             savedKey = savedKey,
                             times = times,
+                            remoteCount = submissionCounts[markSegmentId(snapshot.segmentType)] ?: 0,
                             segmentType = snapshot.segmentType,
                             season = seasonNow,
                             episode = episodeNow,
@@ -418,23 +416,11 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                                     ),
                                     countSubmission = posted == MarkPost.Sent,
                                 )
-                                if (shouldRecordOwnTheIntroDb(service, succeeded = true)) {
-                                    val status = if (posted == MarkPost.AlreadySubmitted) {
-                                        OwnMarkStatus.Confirmed
-                                    } else {
-                                        OwnMarkStatus.Pending
-                                    }
-                                    OwnTheIntroDbLedger.remember(
-                                        accountScopeForService(service, introDbKey, theIntroDbKey),
-                                        contentKey,
-                                        snapshot.segmentType,
-                                        status,
-                                    )
-                                }
                                 if (posted == MarkPost.AlreadySubmitted) {
                                     NuvioToastController.show(TheIntroDbAlreadySubmittedMessage)
                                 }
                             }
+                            MarkPost.AtCap -> markSubmitError = "This episode already has 3 of that segment."
                             is MarkPost.Blocked -> markSubmitError = introSubmitBlockMessage(
                                 posted.reason,
                                 requiredKeyMessage,
@@ -673,6 +659,7 @@ private fun introSubmitBlockMessage(
 private sealed interface MarkPost {
     data object Sent : MarkPost
     data object AlreadySubmitted : MarkPost
+    data object AtCap : MarkPost
     data class Blocked(val reason: IntroSubmitBlockReason) : MarkPost
     data object InvalidKey : MarkPost
     data object Failed : MarkPost
@@ -682,6 +669,7 @@ private suspend fun PlayerScreenRuntime.postMark(
     service: IntroSubmitService,
     savedKey: String,
     times: Pair<Double, Double>,
+    remoteCount: Int = 0,
     segmentType: String,
     season: Int?,
     episode: Int?,
@@ -706,15 +694,22 @@ private suspend fun PlayerScreenRuntime.postMark(
     }
     val contentKey = flagSubmitContentKey(imdbId, season ?: 0, episode ?: 0, isMovie)
     val settingsNow = PlayerSettingsRepository.uiState.value
-    val already = com.nuvio.app.features.player.skip.combinedSubmissionCount(
-        type = segmentType,
-        ledgerRows = OwnTheIntroDbLedger.load(
-            accountScopeForService(IntroSubmitService.THE_INTRODB, settingsNow.introDbApiKey, settingsNow.theIntroDbApiKey),
-        ).segmentRows(contentKey),
-        flagLedger = com.nuvio.app.features.player.skip.FlagSubmitLedger.loadSegments(contentKey),
-        remoteCount = 0,
-    )
-    if (!com.nuvio.app.features.player.skip.canAcceptSubmission(already)) return MarkPost.AlreadySubmitted
+    val scope = accountScopeForService(service, settingsNow.introDbApiKey, settingsNow.theIntroDbApiKey)
+    val reserve = if (service == IntroSubmitService.THE_INTRODB) {
+        OwnTheIntroDbLedger.reserveSegment(
+            scope = scope,
+            contentKey = contentKey,
+            segmentType = segmentType,
+            status = OwnMarkStatus.Pending,
+            startMs = (times.first * 1000).toLong(),
+            endMs = (times.second * 1000).toLong(),
+            remoteCount = remoteCount,
+        )
+    } else {
+        null
+    }
+    if (service == IntroSubmitService.THE_INTRODB && reserve == null) return MarkPost.AtCap
+    if (reserve != null && !reserve.created) return MarkPost.AlreadySubmitted
     val (sentSeason, sentEpisode) = movieSubmitSeasonEpisode(isMovie, season, episode)
     val sent = submitManualSkipSegment(
         imdbId = imdbId,
@@ -729,6 +724,14 @@ private suspend fun PlayerScreenRuntime.postMark(
         parentMetaType = parentMetaType,
         service = service,
     )
+    val reserved = reserve?.segment
+    if (reserve?.created == true && reserved != null) {
+        when (sent) {
+            ManualSkipSubmitOutcome.FAILED -> OwnTheIntroDbLedger.dropSegment(scope, contentKey, reserved.id)
+            ManualSkipSubmitOutcome.ALREADY_SUBMITTED -> OwnTheIntroDbLedger.confirmSegment(scope, contentKey, reserved)
+            ManualSkipSubmitOutcome.SENT -> Unit
+        }
+    }
     return when (sent) {
         ManualSkipSubmitOutcome.SENT -> MarkPost.Sent
         ManualSkipSubmitOutcome.ALREADY_SUBMITTED -> MarkPost.AlreadySubmitted

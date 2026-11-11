@@ -220,9 +220,8 @@ fun SubmitIntroDialog(
     var submissionRevision by remember(contentKey) { androidx.compose.runtime.mutableIntStateOf(0) }
     val submissionCounts = remember(contentKey, submissionRevision, remoteCounts, submittedTypesInSession) {
         val rows = OwnTheIntroDbLedger.load(currentTheIntroDbAccountScope()).segmentRows(contentKey)
-        val flags = FlagSubmitLedger.loadSegments(contentKey)
         listOf("intro", "recap", "outro", "preview").associateWith { type ->
-            combinedSubmissionCount(type, rows, flags, remoteCounts[type] ?: 0)
+            accountSubmissionCount(rows, type, remoteCounts[type] ?: 0)
         }
     }
     /** Null until listed (no TheIntroDB key, or the title has no TMDB id): the button stays hidden. */
@@ -369,6 +368,31 @@ fun SubmitIntroDialog(
                     }
                     IntroSubmitKeyPrepareResult.Ready -> Unit
                 }
+                val reserve = if (service == IntroSubmitService.THE_INTRODB) {
+                    OwnTheIntroDbLedger.reserveSegment(
+                        scope = accountScopeForService(
+                            service,
+                            PlayerSettingsRepository.uiState.value.introDbApiKey,
+                            PlayerSettingsRepository.uiState.value.theIntroDbApiKey,
+                        ),
+                        contentKey = flagSubmitContentKey(imdbId, season, episode, isMovie),
+                        segmentType = segmentType,
+                        status = OwnMarkStatus.Pending,
+                        startMs = (start * 1000).toLong(),
+                        endMs = (end * 1000).toLong(),
+                        remoteCount = submissionCounts[canonicalFlagSegmentType(segmentType) ?: segmentType] ?: 0,
+                    )
+                } else {
+                    null
+                }
+                if (service == IntroSubmitService.THE_INTRODB && reserve == null) {
+                    errorMessage = "This episode already has 3 of that segment."
+                    return@launch
+                }
+                if (reserve != null && !reserve.created) {
+                    errorMessage = TheIntroDbAlreadySubmittedMessage
+                    return@launch
+                }
                 val result = submitManualSkipSegment(
                     imdbId = imdbId,
                     season = season,
@@ -390,26 +414,19 @@ fun SubmitIntroDialog(
                     if (!duplicate || !alreadyListed) {
                         FlagSubmitLedger.rememberType(submittedKey, segmentType)
                     }
-                    if (shouldRecordOwnTheIntroDb(service, succeeded = true)) {
-                        val scope = accountScopeForService(
-                            service,
-                            PlayerSettingsRepository.uiState.value.introDbApiKey,
-                            PlayerSettingsRepository.uiState.value.theIntroDbApiKey,
+                    val reserved = reserve?.segment
+                    if (reserve?.created == true && reserved != null && duplicate) {
+                        OwnTheIntroDbLedger.confirmSegment(
+                            accountScopeForService(
+                                service,
+                                PlayerSettingsRepository.uiState.value.introDbApiKey,
+                                PlayerSettingsRepository.uiState.value.theIntroDbApiKey,
+                            ),
+                            submittedKey,
+                            reserved,
                         )
-                        if (duplicate) {
-                            OwnTheIntroDbLedger.remember(scope, submittedKey, segmentType, OwnMarkStatus.Confirmed)
-                        } else {
-                            OwnTheIntroDbLedger.rememberSegment(
-                                scope = scope,
-                                contentKey = submittedKey,
-                                segmentType = segmentType,
-                                status = OwnMarkStatus.Pending,
-                                startMs = (start * 1000).toLong(),
-                                endMs = (end * 1000).toLong(),
-                            )
-                        }
-                        submissionRevision += 1
                     }
+                    if (reserve != null) submissionRevision += 1
                     canonicalFlagSegmentType(segmentType)?.let { type ->
                         if (submittedKey.isNotEmpty()) {
                             remoteFlagTypesByContentKey[submittedKey] =
@@ -422,6 +439,18 @@ fun SubmitIntroDialog(
                     }
                     onSuccess()
                 } else {
+                    val reserved = reserve?.segment
+                    if (reserve?.created == true && reserved != null) {
+                        OwnTheIntroDbLedger.dropSegment(
+                            accountScopeForService(
+                                service,
+                                PlayerSettingsRepository.uiState.value.introDbApiKey,
+                                PlayerSettingsRepository.uiState.value.theIntroDbApiKey,
+                            ),
+                            flagSubmitContentKey(imdbId, season, episode, isMovie),
+                            reserved.id,
+                        )
+                    }
                     errorMessage = if (keyWasNew) {
                         keySavedSubmitFailedMessage
                     } else {

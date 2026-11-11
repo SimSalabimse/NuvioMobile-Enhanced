@@ -530,11 +530,10 @@ internal fun TheIntroDbMediaResponse.tvSkipIntervals(): List<SkipInterval> = bui
 
 internal fun TheIntroDbMediaResponse.movieSkipIntervals(): List<SkipInterval> {
     val creditIntervals = credits.toTheIntroDbIntervals("movie-credits")
-    val firstCredits = creditIntervals.firstOrNull()
-    val laterCredits = creditIntervals.drop(1).map { it.copy(type = "post-credits") }
     val introIntervals = intro.toTheIntroDbIntervals("intro")
-    // Every segment type TheIntroDB has gets its own Skip button, movies included.
-    return listOfNotNull(firstCredits) + laterCredits + introIntervals +
+    // Every credits range TheIntroDB returns is its own skip. A post-credits scene
+    // stays a landing point only when a separate segment says so.
+    return creditIntervals + introIntervals +
         recap.toTheIntroDbIntervals("recap") + preview.toTheIntroDbIntervals("preview")
 }
 

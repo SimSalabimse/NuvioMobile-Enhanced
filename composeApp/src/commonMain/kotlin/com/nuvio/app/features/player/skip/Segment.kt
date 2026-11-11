@@ -68,16 +68,15 @@ internal fun nextSubmissionId(type: String, existing: List<AccountSegment>): Str
     return "$type-$n"
 }
 
-internal fun combinedSubmissionCount(
-    type: String,
+/**
+ * How many of [type] this account already has.
+ * The profile flag list is not an input: it is shared by every key and by IntroDB.
+ */
+internal fun accountSubmissionCount(
     ledgerRows: List<AccountSegment>,
-    flagLedger: List<String>,
+    type: String,
     remoteCount: Int,
-): Int = maxOf(
-    ledgerRows.count { it.type == type },
-    flagLedger.count { it == type },
-    remoteCount,
-)
+): Int = maxOf(ledgerRows.count { it.type == type }, remoteCount)
 
 /**
  * Providers are in priority order. The first provider to offer a category keeps
@@ -105,18 +104,55 @@ internal fun rangesOverlap(a: SkipInterval, b: SkipInterval): Boolean =
     a.startTime < b.endTime && b.startTime < a.endTime
 
 /**
- * A user's mark replaces a TheIntroDB segment only when the two ranges overlap.
- * A TheIntroDB segment that does not overlap is still a skip.
- * Any other source of that type is replaced by the mark, which is the previous rule
- * for providers that store one segment per type.
+ * Type used when a mark meets an interval.
+ * A credits mark is stored as outro, and movie credits are that same mark.
+ * Post-credits stays its own type, and [skipTypeKey] is unchanged for joining skips.
+ */
+internal fun markMatchKey(type: String): String = when (type.trim().lowercase()) {
+    "movie-credits", "outro", "ed", "mixed-ed", "credits", "ending" -> "outro"
+    else -> skipTypeKey(type)
+}
+
+/** Pieces of [interval] that sit outside every overlapping [marks] range. */
+internal fun subtractRange(interval: SkipInterval, marks: List<SkipInterval>): List<SkipInterval> {
+    var pieces = listOf(interval)
+    for (mark in marks.sortedBy { it.startTime }) {
+        val next = mutableListOf<SkipInterval>()
+        for (piece in pieces) {
+            if (!rangesOverlap(piece, mark)) {
+                next += piece
+                continue
+            }
+            if (piece.startTime < mark.startTime) {
+                val left = piece.copy(endTime = mark.startTime)
+                if (left.endTime > left.startTime) next += left
+            }
+            if (piece.endTime > mark.endTime) {
+                val right = piece.copy(startTime = mark.endTime)
+                if (right.endTime > right.startTime) next += right
+            }
+        }
+        pieces = next
+    }
+    return pieces
+}
+
+/**
+ * A user's mark covers a TheIntroDB segment only where the ranges overlap.
+ * The rest of that segment stays a skip. A segment that does not overlap stays whole.
+ * Any other source of that type is replaced by the mark.
  */
 internal fun applyOwnMarks(online: List<SkipInterval>, own: List<SkipInterval>): List<SkipInterval> {
     if (own.isEmpty()) return online
-    val ownByType = own.groupBy { skipTypeKey(it.type) }
-    val kept = online.filter { interval ->
-        val marks = ownByType[skipTypeKey(interval.type)].orEmpty()
-        if (marks.isEmpty()) return@filter true
-        if (interval.provider == TheIntroDb.PROVIDER) marks.none { rangesOverlap(it, interval) } else false
+    val ownByType = own.groupBy { markMatchKey(it.type) }
+    val kept = mutableListOf<SkipInterval>()
+    for (interval in online) {
+        val marks = ownByType[markMatchKey(interval.type)].orEmpty()
+        if (marks.isEmpty()) {
+            kept += interval
+        } else if (interval.provider == TheIntroDb.PROVIDER) {
+            kept += subtractRange(interval, marks)
+        }
     }
     return (kept + own).sortedBy { it.startTime }
 }

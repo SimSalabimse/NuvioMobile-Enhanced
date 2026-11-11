@@ -25,11 +25,8 @@ import com.nuvio.app.features.player.skip.OwnMarkStatus
 import com.nuvio.app.features.player.skip.accountScopeForService
 import com.nuvio.app.features.player.skip.shouldRecordOwnTheIntroDb
 import com.nuvio.app.features.player.skip.withStatus
-import com.nuvio.app.features.player.skip.canAcceptSubmission
-import com.nuvio.app.features.player.skip.combinedSubmissionCount
+import com.nuvio.app.features.player.skip.recordSubmittedSegment
 import com.nuvio.app.features.player.skip.resolvePlaybackSkips
-import com.nuvio.app.features.player.skip.loadSegments
-import com.nuvio.app.features.player.skip.segmentRows
 import com.nuvio.app.features.player.skip.submitManualSkipSegment
 import kotlinx.coroutines.launch
 
@@ -77,14 +74,6 @@ internal fun PlayerScreenRuntime.saveUserSkipMark(
         ?: metaUiState.meta?.id?.takeIf { it.startsWith("tt") }
         ?: metaUiState.meta?.imdbId?.takeIf { it.startsWith("tt") }
     val contentKey = flagSubmitContentKey(imdbId.orEmpty(), season ?: 0, episode ?: 0, isMovie)
-    val settingsNow = PlayerSettingsRepository.uiState.value
-    val scopeNow = accountScopeForService(IntroSubmitService.THE_INTRODB, settingsNow.introDbApiKey, settingsNow.theIntroDbApiKey)
-    val alreadyCount = combinedSubmissionCount(
-        type = category,
-        ledgerRows = OwnTheIntroDbLedger.load(scopeNow).segmentRows(contentKey),
-        flagLedger = com.nuvio.app.features.player.skip.FlagSubmitLedger.loadSegments(contentKey),
-        remoteCount = 0,
-    )
     scope.launch {
         val durationForMark = durationMs.takeIf {
             activeSeasonNumber == season && activeEpisodeNumber == episode && parentMetaId == metaId
@@ -119,8 +108,22 @@ internal fun PlayerScreenRuntime.saveUserSkipMark(
         } else {
             defaultIntroSubmitService(settings.introDbApiKey, settings.theIntroDbApiKey)
         }
-        val sessionBlocked = !additional && submittedSegmentTypesByVideoId[videoKey]?.contains(category) == true
-        if (submit && maySend && settings.introSubmitEnabled && canAcceptSubmission(alreadyCount) && !sessionBlocked) {
+        val reserve = if (submit && maySend && settings.introSubmitEnabled && service == IntroSubmitService.THE_INTRODB) {
+            OwnTheIntroDbLedger.reserveSegment(
+                scope = accountScopeForService(service, settings.introDbApiKey, settings.theIntroDbApiKey),
+                contentKey = contentKey,
+                segmentType = category,
+                status = OwnMarkStatus.Pending,
+                startMs = startMs,
+                endMs = endMs,
+                remoteCount = 0,
+            )
+        } else {
+            null
+        }
+        val capped = submit && maySend && settings.introSubmitEnabled && service == IntroSubmitService.THE_INTRODB && reserve == null
+        val sameRange = reserve != null && !reserve.created
+        if (submit && maySend && settings.introSubmitEnabled && !capped && (service != IntroSubmitService.THE_INTRODB || reserve?.created == true)) {
             logIntroLengthWarning(category, startSec, endSec, durationSec)
             val posted = runCatching {
                 submitManualSkipSegment(
@@ -144,25 +147,13 @@ internal fun PlayerScreenRuntime.saveUserSkipMark(
             if (posted.recorded && videoKey.isNotBlank()) {
                 submittedSegmentTypesByVideoId.getOrPut(videoKey) { mutableSetOf() }.add(category)
             }
-            if (posted.recorded && shouldRecordOwnTheIntroDb(service, succeeded = true)) {
-                val contentKey = flagSubmitContentKey(imdbId.orEmpty(), season ?: 0, episode ?: 0, isMovie)
+            val reserved = reserve?.segment
+            if (reserve?.created == true && reserved != null && service == IntroSubmitService.THE_INTRODB) {
                 val scope = accountScopeForService(service, settings.introDbApiKey, settings.theIntroDbApiKey)
-                val current = OwnTheIntroDbLedger.load(scope)
-                val remembered = skipFeedbackOwnLedger(
-                    marks = current,
-                    contentKey = contentKey,
-                    segmentType = category,
-                    service = service,
-                    sent = true,
-                    duplicate = posted == ManualSkipSubmitOutcome.ALREADY_SUBMITTED,
-                )
-                if (remembered != current) {
-                    val status = if (posted == ManualSkipSubmitOutcome.ALREADY_SUBMITTED) {
-                        OwnMarkStatus.Confirmed
-                    } else {
-                        OwnMarkStatus.Pending
-                    }
-                    OwnTheIntroDbLedger.remember(scope, contentKey, category, status)
+                when (posted) {
+                    ManualSkipSubmitOutcome.FAILED -> OwnTheIntroDbLedger.dropSegment(scope, contentKey, reserved.id)
+                    ManualSkipSubmitOutcome.ALREADY_SUBMITTED -> OwnTheIntroDbLedger.confirmSegment(scope, contentKey, reserved)
+                    ManualSkipSubmitOutcome.SENT -> Unit
                 }
             }
             InAppLogger.info(
@@ -172,14 +163,15 @@ internal fun PlayerScreenRuntime.saveUserSkipMark(
         }
         val message = buildString {
             append(
-                when (outcome) {
-                    ManualSkipSubmitOutcome.ALREADY_SUBMITTED -> TheIntroDbAlreadySubmittedMessage
-                    ManualSkipSubmitOutcome.SENT -> "Saved and sent. Thanks!"
-                    ManualSkipSubmitOutcome.FAILED ->
+                when {
+                    capped -> "This episode already has 3 of that segment."
+                    sameRange || outcome == ManualSkipSubmitOutcome.ALREADY_SUBMITTED -> TheIntroDbAlreadySubmittedMessage
+                    outcome == ManualSkipSubmitOutcome.SENT -> "Saved and sent. Thanks!"
+                    outcome == ManualSkipSubmitOutcome.FAILED ->
                         TheIntroDb.lastSubmitError
                             ?.takeIf { service == IntroSubmitService.THE_INTRODB && it == TheIntroDbRateLimitMessage }
                             ?: "Saved on this phone"
-                    null -> "Saved on this phone"
+                    else -> "Saved on this phone"
                 },
             )
             if (taught > 0 && outcome != ManualSkipSubmitOutcome.ALREADY_SUBMITTED) {
@@ -242,5 +234,13 @@ internal fun skipFeedbackOwnLedger(
 ): OwnAccountMarks {
     if (!shouldRecordOwnTheIntroDb(service, sent)) return marks
     val status = if (duplicate) OwnMarkStatus.Confirmed else OwnMarkStatus.Pending
-    return marks.withStatus(contentKey, segmentType, status)
+    return recordSubmittedSegment(
+        marks = marks,
+        contentKey = contentKey,
+        segmentType = segmentType,
+        status = status,
+        startMs = null,
+        endMs = null,
+        remoteCount = 0,
+    ).marks
 }

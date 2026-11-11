@@ -165,6 +165,8 @@ internal fun mergeOwnListing(
             confirmed = buckets.confirmed,
             pending = buckets.pending,
             rejected = buckets.rejected,
+            confirmedRows = buckets.confirmedRows,
+            pendingRows = buckets.pendingRows,
         )
     }
     return next to other
