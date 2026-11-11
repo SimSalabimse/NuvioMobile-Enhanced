@@ -17,6 +17,7 @@ import com.nuvio.app.features.player.skip.SkipFeedbackPrompt
 import com.nuvio.app.features.player.skip.SkipInterval
 import com.nuvio.app.features.player.skip.TheIntroDb
 import com.nuvio.app.features.player.skip.TheIntroDbAlreadySubmittedMessage
+import com.nuvio.app.features.player.skip.TheIntroDbSegmentCapMessage
 import com.nuvio.app.features.player.skip.TheIntroDbRateLimitMessage
 import com.nuvio.app.features.player.skip.defaultIntroSubmitService
 import com.nuvio.app.features.player.skip.flagSubmitContentKey
@@ -164,7 +165,7 @@ internal fun PlayerScreenRuntime.saveUserSkipMark(
         val message = buildString {
             append(
                 when {
-                    capped -> "This episode already has 3 of that segment."
+                    capped -> TheIntroDbSegmentCapMessage
                     sameRange || outcome == ManualSkipSubmitOutcome.ALREADY_SUBMITTED -> TheIntroDbAlreadySubmittedMessage
                     outcome == ManualSkipSubmitOutcome.SENT -> "Saved and sent. Thanks!"
                     outcome == ManualSkipSubmitOutcome.FAILED ->

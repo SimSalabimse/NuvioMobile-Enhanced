@@ -623,13 +623,11 @@ private fun SegmentTabs(
             val selected = markSegmentId(segmentType) == type
             val label = markSegmentLabel(type)
             val id = markSegmentId(type)
-            val counted = id in submissionCounts
+            val mark = com.nuvio.app.features.player.skip.shownSubmitChip(
+                count = if (id in submissionCounts) submissionCounts[id] ?: 0 else null,
+                alreadySubmitted = id in submittedTypes,
+            )
             val count = submissionCounts[id] ?: 0
-            val mark = when {
-                counted -> com.nuvio.app.features.player.skip.submitChipMark(count)
-                id in submittedTypes -> com.nuvio.app.features.player.skip.SubmitChipMark.Full
-                else -> com.nuvio.app.features.player.skip.SubmitChipMark.Open
-            }
             val shape = RoundedCornerShape(12.dp)
             Box(
                 modifier = Modifier

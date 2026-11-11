@@ -32,6 +32,18 @@ internal fun submitChipMark(count: Int): SubmitChipMark = when {
     else -> SubmitChipMark.Full
 }
 
+/**
+ * A count of 0 is still open. The full check is only for a missing count on a type
+ * that was already submitted, so an omitted count map can still show Sent.
+ */
+internal fun shownSubmitChip(count: Int?, alreadySubmitted: Boolean): SubmitChipMark = when {
+    count != null -> submitChipMark(count)
+    alreadySubmitted -> SubmitChipMark.Full
+    else -> SubmitChipMark.Open
+}
+
+internal const val TheIntroDbSegmentCapMessage = "This episode already has 3 of that segment."
+
 /** Stable playback type. Movie credits stay distinct from a later post-credits scene. */
 internal fun skipTypeKey(type: String): String = when (type.trim().lowercase()) {
     "intro", "op", "mixed-op", "opening" -> "intro"

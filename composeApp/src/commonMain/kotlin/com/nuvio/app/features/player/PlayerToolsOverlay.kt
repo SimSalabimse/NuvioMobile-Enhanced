@@ -321,7 +321,7 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                     if (submitting || markSent) return@SegmentMarkingLayer
                     val typeNow = markSegmentId(submitIntroSegmentType)
                     if (!com.nuvio.app.features.player.skip.canAcceptSubmission(submissionCounts[typeNow] ?: 0)) {
-                        markSubmitError = "This episode already has 3 of that segment."
+                        markSubmitError = com.nuvio.app.features.player.skip.TheIntroDbSegmentCapMessage
                         return@SegmentMarkingLayer
                     }
                     val generation = markSubmitGeneration
@@ -415,12 +415,13 @@ internal fun PlayerScreenRuntime.PlayerToolsOverlay() {
                                         absentSegment = snapshot.absent,
                                     ),
                                     countSubmission = posted == MarkPost.Sent,
+                                    recordSharedFlagList = service == IntroSubmitService.THE_INTRODB,
                                 )
                                 if (posted == MarkPost.AlreadySubmitted) {
                                     NuvioToastController.show(TheIntroDbAlreadySubmittedMessage)
                                 }
                             }
-                            MarkPost.AtCap -> markSubmitError = "This episode already has 3 of that segment."
+                            MarkPost.AtCap -> markSubmitError = com.nuvio.app.features.player.skip.TheIntroDbSegmentCapMessage
                             is MarkPost.Blocked -> markSubmitError = introSubmitBlockMessage(
                                 posted.reason,
                                 requiredKeyMessage,

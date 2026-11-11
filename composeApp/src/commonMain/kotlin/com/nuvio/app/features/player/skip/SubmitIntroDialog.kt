@@ -312,7 +312,7 @@ fun SubmitIntroDialog(
         dismissKeyboard()
         val capped = canonicalFlagSegmentType(segmentType)
         if (capped != null && !canAcceptSubmission(submissionCounts[capped] ?: 0)) {
-            errorMessage = "This episode already has 3 of that segment."
+            errorMessage = TheIntroDbSegmentCapMessage
             return
         }
         val times = resolveIntroSubmitTimes(
@@ -386,7 +386,7 @@ fun SubmitIntroDialog(
                     null
                 }
                 if (service == IntroSubmitService.THE_INTRODB && reserve == null) {
-                    errorMessage = "This episode already has 3 of that segment."
+                    errorMessage = TheIntroDbSegmentCapMessage
                     return@launch
                 }
                 if (reserve != null && !reserve.created) {

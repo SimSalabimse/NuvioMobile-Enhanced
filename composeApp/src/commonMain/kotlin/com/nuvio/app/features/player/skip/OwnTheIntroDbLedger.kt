@@ -51,7 +51,12 @@ internal object OwnTheIntroDbLedger {
         write(next)
     }
 
-    /** A later range of the same type is a new row. The first row of a type stays the legacy id. */
+    /**
+     * The one recorder for Good/Save, the submit bar, and the submit dialog.
+     * Stores this range under its own id. Refuses a fourth of this type for this account,
+     * counting this account's remote rows and not the shared profile flag list.
+     * Null when the account is already full or the scope is blank.
+     */
     fun rememberSegment(
         scope: String,
         contentKey: String,
@@ -59,36 +64,7 @@ internal object OwnTheIntroDbLedger {
         status: OwnMarkStatus,
         startMs: Long? = null,
         endMs: Long? = null,
-    ) = synchronized(lock) {
-        if (scope.isBlank()) return@synchronized
-        val next = read().toMutableMap()
-        val written = recordSubmittedSegment(
-            marks = next[scope] ?: OwnAccountMarks(),
-            contentKey = contentKey,
-            segmentType = segmentType,
-            status = status,
-            startMs = startMs,
-            endMs = endMs,
-            remoteCount = 0,
-        )
-        if (!written.accepted) return@synchronized
-        next[scope] = written.marks
-        write(next)
-    }
-
-    /**
-     * One locked read of this account's rows, then the new segment, then the write.
-     * Null when this account already has [MAX_SUBMISSIONS_PER_TYPE] of that type,
-     * counting this account's remote rows and not the shared profile flag list.
-     */
-    fun reserveSegment(
-        scope: String,
-        contentKey: String,
-        segmentType: String,
-        status: OwnMarkStatus,
-        startMs: Long?,
-        endMs: Long?,
-        remoteCount: Int,
+        remoteCount: Int = 0,
     ): SubmittedSegmentWrite? = synchronized(lock) {
         if (scope.isBlank()) return@synchronized null
         val next = read().toMutableMap()
@@ -106,6 +82,25 @@ internal object OwnTheIntroDbLedger {
         write(next)
         written
     }
+
+    /** Same locked write as [rememberSegment]. */
+    fun reserveSegment(
+        scope: String,
+        contentKey: String,
+        segmentType: String,
+        status: OwnMarkStatus,
+        startMs: Long?,
+        endMs: Long?,
+        remoteCount: Int,
+    ): SubmittedSegmentWrite? = rememberSegment(
+        scope = scope,
+        contentKey = contentKey,
+        segmentType = segmentType,
+        status = status,
+        startMs = startMs,
+        endMs = endMs,
+        remoteCount = remoteCount,
+    )
 
     fun confirmSegment(scope: String, contentKey: String, segment: AccountSegment) = synchronized(lock) {
         if (scope.isBlank()) return@synchronized

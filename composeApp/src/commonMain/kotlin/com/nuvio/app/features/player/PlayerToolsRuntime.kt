@@ -292,11 +292,15 @@ private fun PlayerScreenRuntime.showSegmentClocks(
     markEndShowsTenth = tenths?.second == true
 }
 
-internal fun PlayerScreenRuntime.noteMarkingSubmitted(result: IntroSubmitResult, countSubmission: Boolean = true) {
+internal fun PlayerScreenRuntime.noteMarkingSubmitted(
+    result: IntroSubmitResult,
+    countSubmission: Boolean = true,
+    recordSharedFlagList: Boolean = true,
+) {
     val contentKey = flagSubmitContentKey()
     val canonical = com.nuvio.app.features.player.skip.canonicalFlagSegmentType(result.segmentType)
     val alreadyListed = canonical != null && canonical in FlagSubmitLedger.loadSegments(contentKey)
-    if (countSubmission || !alreadyListed) {
+    if (recordSharedFlagList && (countSubmission || !alreadyListed)) {
         FlagSubmitLedger.rememberType(contentKey, result.segmentType)
     }
     InAppLogger.info(
