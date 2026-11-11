@@ -141,9 +141,7 @@ private struct NuvioAppliedSymbol<Trigger: Equatable, Symbol: View>: View {
         case (.none, .bounce):
             symbol.symbolEffect(.bounce, value: trigger)
         case (.none, .replace):
-            symbol
-                .contentTransition(.symbolEffect(.replace))
-                .symbolEffect(.replace, value: trigger)
+            symbol.contentTransition(.symbolEffect(.replace))
         case (.pulse, .none):
             symbol.symbolEffect(.pulse, isActive: active)
         case (.pulse, .bounce):
@@ -153,7 +151,6 @@ private struct NuvioAppliedSymbol<Trigger: Equatable, Symbol: View>: View {
         case (.pulse, .replace):
             symbol
                 .contentTransition(.symbolEffect(.replace))
-                .symbolEffect(.replace, value: trigger)
                 .symbolEffect(.pulse, isActive: active)
         case (.variableColor, .none):
             symbol.symbolEffect(.variableColor, isActive: active)
@@ -164,7 +161,6 @@ private struct NuvioAppliedSymbol<Trigger: Equatable, Symbol: View>: View {
         case (.variableColor, .replace):
             symbol
                 .contentTransition(.symbolEffect(.replace))
-                .symbolEffect(.replace, value: trigger)
                 .symbolEffect(.variableColor, isActive: active)
         }
     }
