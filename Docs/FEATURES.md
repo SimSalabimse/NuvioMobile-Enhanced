@@ -136,6 +136,7 @@ Upstream 0.6.9-beta, taken the same way: audio delay, amplification and downmix 
 - Episode Shuffle (random episode): details page, Settings › Layout › Detail Page › Shuffle. 188.
 - Cast search: Search. 180.
 - Detail page layout (background mode, poster transition, tab layout, blur unwatched): Settings › Layout › Detail Page. Upstream.
+- Double-tap a season poster on the series page to open it full size on a dimmed backdrop. A single tap still selects that season, after the 300 ms double-tap window, so a double-tap does not change the selection. Tap or swipe down closes it. Long-press opens the season menu, unchanged. A season with no poster does nothing. Reduce Motion fades the open instead of zooming, and swaps to the full poster instead of cross-fading.
 - Search with recent searches: Search tab, Settings › Content & Discovery. Upstream.
 - Addons, plugins, media servers: Settings › Content & Discovery. Upstream.
 - TMDB enrichment modules, MDBList and OMDb ratings: Settings › Integrations. Upstream.

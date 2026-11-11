@@ -287,14 +287,20 @@ internal fun streamCardLongPressFacts(
 internal fun Modifier.installLongPressAccessibility(
     actions: List<LongPressAccessibilityAction>,
     onLongPress: () -> Unit,
+): Modifier = installLongPressAccessibility(actions, onLongPress, emptyList())
+
+internal fun Modifier.installLongPressAccessibility(
+    actions: List<LongPressAccessibilityAction>,
+    onLongPress: () -> Unit,
+    extraActions: List<CustomAccessibilityAction>,
 ): Modifier {
-    if (actions.isEmpty()) return this
+    if (actions.isEmpty() && extraActions.isEmpty()) return this
     return semantics {
         customActions = actions.map { action ->
             CustomAccessibilityAction(action.label) {
                 onLongPress()
                 true
             }
-        }
+        } + extraActions
     }
 }
