@@ -2,9 +2,18 @@ package com.nuvio.app.core.ui
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class DetailChromeInsetsTest {
+    @Test
+    fun largerTextFromOneAndAHalfWrapsAndTheDefaultSizeDoesNot() {
+        assertFalse(extremeAccessibilityText(1f))
+        assertFalse(extremeAccessibilityText(1.49f))
+        assertTrue(extremeAccessibilityText(EXTREME_FONT_SCALE))
+        assertTrue(extremeAccessibilityText(3.12f))
+    }
+
     @Test
     fun detailArtworkRunsUnderTheStatusAreaAndTheHeaderUsesTheInsetOnce() {
         assertEquals(false, hostRespectsTopSafeArea("detail"))

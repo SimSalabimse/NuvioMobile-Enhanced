@@ -28,16 +28,16 @@ class AppUrlBridgeTest {
     @Test
     fun `parses direct nuvio addon install deeplink`() {
         assertEquals(
-            AppDeepLink.AddonInstall("https://free.nebulapro.xyz/sports/i/free/manifest.json"),
-            parseAppDeepLink("nuvio://free.nebulapro.xyz/sports/i/free/manifest.json"),
+            AppDeepLink.AddonInstall("https://addon.example/sports/i/free/manifest.json"),
+            parseAppDeepLink("nuvio://addon.example/sports/i/free/manifest.json"),
         )
     }
 
     @Test
     fun `parses stremio addon install deeplink`() {
         assertEquals(
-            AppDeepLink.AddonInstall("https://free.nebulapro.xyz/sports/i/free/manifest.json"),
-            parseAppDeepLink("stremio://free.nebulapro.xyz/sports/i/free/manifest.json"),
+            AppDeepLink.AddonInstall("https://addon.example/sports/i/free/manifest.json"),
+            parseAppDeepLink("stremio://addon.example/sports/i/free/manifest.json"),
         )
     }
 
