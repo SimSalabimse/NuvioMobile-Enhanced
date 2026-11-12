@@ -41,6 +41,10 @@ scripts/*
 !scripts/builds_page/
 !scripts/builds_page/**
 !scripts/check-ios-objc-export.sh
+!scripts/ci-local.sh
+!scripts/ci/
+!scripts/ci/**
+scripts/ci/__pycache__/
 !scripts/objc-export-check/
 !scripts/objc-export-check/**
 iosApp/Configuration/DeviceSigning.local.json
