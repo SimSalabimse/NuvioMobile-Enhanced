@@ -219,6 +219,35 @@ class ReferenceAlignmentTest {
     }
 
     @Test
+    fun localWorkThatAppearsDuringTheCompareIsNotKept() = runBlocking {
+        val creditsStart = 2_200_000L
+        val creditsEnd = 2_220_000L
+        var decoded = false
+        val aligned = alignReferenceSegment(
+            segmentStartMs = creditsStart,
+            segmentEndMs = creditsEnd,
+            padMs = 5_000L,
+            frames = IntArray(30) { index -> if (index in 4..23) lane(index - 4, 6) else lane(index, 14) },
+            framesOffsetMs = creditsStart,
+            stepMs = 1_000L,
+            targetDurationMs = 2_400_000L,
+            referenceDurationMs = 2_400_000L,
+            yieldToLocal = { decoded },
+            decode = { start, end ->
+                decoded = true
+                fingerprint(
+                    startMs = start,
+                    values = IntArray(((end - start) / 1_000L).toInt()) { index ->
+                        val contentIndex = index - 5
+                        if (contentIndex in 0..19) lane(contentIndex, 6) else lane(index, 2)
+                    },
+                )
+            },
+        )
+        assertTrue(aligned is ReferenceAlignment.Preempted, "$aligned")
+    }
+
+    @Test
     fun localWorkPreemptsAReferenceAndAnUnreadWindowIsNotFinished() {
         val lane = AnalysisLane()
         assertTrue(lane.beginReference())

@@ -36,7 +36,34 @@ class SmartDownloadRuleChangeTest {
         assertTrue(decision.startsNow)
         assertTrue(decision.keepPending)
         assertEquals("Queued 2 episodes", decision.message)
+        assertEquals("Queued 0 episodes", smartDownloadRuleQueued(0))
+        assertEquals("Queued 0 episodes", smartDownloadRuleQueued(-2))
+        assertEquals("Queued 1 episode", smartDownloadRuleQueued(1))
+        assertEquals(
+            "Queued 0 episodes · 2 waiting for Wi-Fi",
+            smartDownloadPassMessage(queued = 0, waiting = 2, waitingReason = "Wi-Fi"),
+        )
+        assertEquals(
+            "Queued 1 episode · 1 waiting for charging",
+            smartDownloadPassMessage(queued = 1, waiting = 1, waitingReason = "charging"),
+        )
+        assertEquals(
+            "Downloading S1E2 · Queued 1 episode",
+            smartDownloadPassMessage(queued = 1, goalLines = listOf("Downloading S1E2")),
+        )
         assertEquals("Looking for the next 2 episodes", smartDownloadRuleSearching(2))
+        val feedback = smartDownloadSettingsFeedback(
+            listOf(
+                "show-a" to decision,
+                "show-b" to evaluateSmartDownloadRuleChange(show().copy(onWifi = false)),
+            ),
+        )
+        assertEquals("Queued 2 episodes", feedback.message)
+        assertEquals(listOf("show-a"), feedback.showsToStart)
+        assertEquals(
+            "Queued 0 episodes",
+            smartDownloadSettingsFeedback(listOf("show-b" to evaluateSmartDownloadRuleChange(show().copy(onWifi = false)))).message,
+        )
         assertEquals(listOf("S1E2", "S1E3"), decision.episodeCodes)
         assertEquals(1, decision.anchorSeason)
         assertEquals(1, decision.anchorEpisode)

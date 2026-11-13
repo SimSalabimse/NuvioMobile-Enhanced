@@ -21,6 +21,10 @@ import com.nuvio.app.features.player.skip.TheIntroDb
 import com.nuvio.app.features.player.skip.resolveSkipImdbId
 import com.nuvio.app.features.streams.StreamLinkCacheRepository
 import com.nuvio.app.core.serialization.LenientJson
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 
 /** Known intro (and credits, when there are any) of another episode of the season, in ms. */
 internal data class SiblingTimes(
@@ -175,6 +179,9 @@ internal object SiblingClipReference {
         var readFailed = false
         var matched = false
         var preempted = false
+        fun report(op: String): (Int) -> Unit = { seconds ->
+            onStatus(referenceActivityToken(op, seconds, season, reference.episode))
+        }
         if (result.introStartMs == null) {
             when (
                 val aligned = alignReferenceSegment(
@@ -187,9 +194,8 @@ internal object SiblingClipReference {
                     targetDurationMs = result.durationMs,
                     referenceDurationMs = reference.durationMs,
                     yieldToLocal = yieldToLocal,
-                    onSlice = { seconds ->
-                        onStatus(referenceActivityToken(operation, seconds, season, reference.episode))
-                    },
+                    onSlice = report(operation),
+                    onCompare = report("compare"),
                     decode = { start, end -> decodeWindow(url, headers, identity, start, end) },
                 )
             ) {
@@ -222,9 +228,8 @@ internal object SiblingClipReference {
                     targetDurationMs = result.durationMs,
                     referenceDurationMs = reference.durationMs,
                     yieldToLocal = yieldToLocal,
-                    onSlice = { seconds ->
-                        onStatus(referenceActivityToken(operation, seconds, season, reference.episode))
-                    },
+                    onSlice = report(operation),
+                    onCompare = report("compare"),
                     decode = { start, end -> decodeWindow(url, headers, identity, start, end) },
                 )
             ) {
@@ -364,14 +369,19 @@ internal object SiblingClipReference {
         segment: Pair<Long, Long>,
         targetDurationMs: Long = 0L,
         referenceDurationMs: Long = 0L,
+        shouldStop: () -> Boolean = { false },
     ): Pair<Long, Long>? {
         if (targetDurationMs > 0L && referenceDurationMs > 0L && !sameCut(referenceDurationMs, targetDurationMs)) {
             return null
         }
         val windowMs = (segment.second - segment.first).coerceAtLeast(0L)
         val minMs = maxOf(REFERENCE_MIN_MATCH_MS, windowMs / 2)
-        val match = FingerprintMatcher.longestSharedSegment(frames, clip, minFrames = (minMs / step).toInt().coerceAtLeast(1))
-            ?: return null
+        val match = FingerprintMatcher.longestSharedSegment(
+            frames,
+            clip,
+            minFrames = (minMs / step).toInt().coerceAtLeast(1),
+            shouldStop = shouldStop,
+        ) ?: return null
         val windowFrames = (windowMs / step).toInt()
         if (windowFrames > 0 && match.length * 2 < windowFrames) return null
         val start = framesOffsetMs + match.startA * step
@@ -402,6 +412,7 @@ internal suspend fun alignReferenceSegment(
     referenceDurationMs: Long,
     yieldToLocal: () -> Boolean = { false },
     onSlice: (seconds: Int) -> Unit = {},
+    onCompare: (seconds: Int) -> Unit = {},
     decode: suspend (decodeStartMs: Long, decodeEndMs: Long) -> RawClipFingerprint?,
 ): ReferenceAlignment {
     if (frames.isEmpty() || stepMs <= 0L) return ReferenceAlignment.Unreadable
@@ -424,16 +435,32 @@ internal suspend fun alignReferenceSegment(
             return ReferenceAlignment.Partial("over-budget")
         }
         if (clip.stepMs.toLong() != stepMs) return ReferenceAlignment.Partial("step-mismatch")
-        val range = SiblingClipReference.locate(
-            frames,
-            framesOffsetMs,
-            decodeFingerprint(clip.fingerprint),
-            clip.startMs,
-            stepMs,
-            slice.contentStartMs to slice.contentEndMs,
-            targetDurationMs,
-            referenceDurationMs,
-        ) ?: continue
+        val seconds = (windowMs / 1_000L).toInt().coerceAtLeast(1)
+        onCompare(seconds)
+        if (yieldToLocal()) return ReferenceAlignment.Preempted
+        val caller = currentCoroutineContext()
+        val range = try {
+            compareReferenceOffCaller {
+                SiblingClipReference.locate(
+                    frames,
+                    framesOffsetMs,
+                    decodeFingerprint(clip.fingerprint),
+                    clip.startMs,
+                    stepMs,
+                    slice.contentStartMs to slice.contentEndMs,
+                    targetDurationMs,
+                    referenceDurationMs,
+                    shouldStop = {
+                        caller.ensureActive()
+                        yieldToLocal()
+                    },
+                )
+            }
+        } catch (_: ReferenceStop) {
+            return ReferenceAlignment.Preempted
+        }
+        if (yieldToLocal()) return ReferenceAlignment.Preempted
+        if (range == null) continue
         matches += slice to range
     }
     val bounds = verifiedSegmentBounds(segmentStartMs, segmentEndMs, slices, matches)
@@ -442,6 +469,13 @@ internal suspend fun alignReferenceSegment(
         ?: return ReferenceAlignment.Partial("unverified-slice")
     return ReferenceAlignment.Matched(shared)
 }
+
+/** The fingerprint match leaves the caller. Decode stays on the platform's own background queue. */
+internal suspend fun <T> compareReferenceOffCaller(block: () -> T): T =
+    withContext(Dispatchers.Default) {
+        ensureActive()
+        block()
+    }
 
 /** A finished comparison that found no shared run is not a failed read. */
 internal fun referenceReadFailed(reason: String): Boolean =

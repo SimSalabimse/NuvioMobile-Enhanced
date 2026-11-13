@@ -9,6 +9,7 @@ import nuvio.composeapp.generated.resources.analysis_stage_previews
 import nuvio.composeapp.generated.resources.analysis_status_queued
 import nuvio.composeapp.generated.resources.analysis_status_running
 import nuvio.composeapp.generated.resources.analysis_activity_clip
+import nuvio.composeapp.generated.resources.analysis_activity_reference_compare
 import nuvio.composeapp.generated.resources.analysis_activity_reference_fetch
 import nuvio.composeapp.generated.resources.analysis_activity_reference_read
 import nuvio.composeapp.generated.resources.analysis_activity_teach
@@ -116,15 +117,18 @@ private fun stageLabel(stage: AnalysisStage): String = when (stage) {
 private fun percent(value: Double): Int = (value.coerceIn(0.0, 1.0) * 100).toInt()
 
 @Composable
-private fun activityLabel(activity: String, stage: AnalysisStage): String {
-    parseReferenceActivity(activity)?.let { ref ->
-        val name = if (ref.operation == "read") {
-            Res.string.analysis_activity_reference_read
-        } else {
-            Res.string.analysis_activity_reference_fetch
-        }
-        return stringResource(name, ref.seconds, ref.season, ref.episode)
+internal fun referenceActivityLabel(activity: ReferenceActivity): String {
+    val name = when (activity.operation) {
+        "read" -> Res.string.analysis_activity_reference_read
+        "compare" -> Res.string.analysis_activity_reference_compare
+        else -> Res.string.analysis_activity_reference_fetch
     }
+    return stringResource(name, activity.seconds, activity.season, activity.episode)
+}
+
+@Composable
+private fun activityLabel(activity: String, stage: AnalysisStage): String {
+    parseReferenceActivity(activity)?.let { return referenceActivityLabel(it) }
     return when (activity) {
         "clip" -> stringResource(Res.string.analysis_activity_clip)
         "teach" -> stringResource(Res.string.analysis_activity_teach)

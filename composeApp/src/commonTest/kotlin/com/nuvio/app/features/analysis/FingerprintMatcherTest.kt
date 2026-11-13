@@ -444,6 +444,22 @@ class FingerprintMatcherTest {
         return head
     }
 
+    @Test
+    fun aLongCompareStopsWhenLocalWorkAppears() {
+        val frames = 4_000
+        val a = IntArray(frames) { lane(it, 1) }
+        val b = IntArray(frames) { lane(it, 1) }
+        var checks = 0
+        val error = runCatching {
+            FingerprintMatcher.longestSharedSegment(a, b, minFrames = 8, shouldStop = {
+                checks += 1
+                checks >= 3
+            })
+        }.exceptionOrNull()
+        assertTrue(error is ReferenceStop, "$error")
+        assertTrue(checks < 20, "checks=$checks")
+    }
+
     private fun shortPattern() = noise(200, 200)
     private fun longPattern() = noise(800, 800)
     private fun noise(seed: Int, size: Int): IntArray {

@@ -1,9 +1,13 @@
 name: PR Full Debug Build
 
+# GitHub Actions billing is off, so this workflow does not run on pull requests.
+# Restore the pull_request trigger to turn it back on:
+# on:
+#   pull_request:
+#     types: [opened, synchronize, reopened, ready_for_review]
+#     branches: [enhanced]
+#   workflow_dispatch:
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    branches: [enhanced]
   workflow_dispatch:
 
 permissions:

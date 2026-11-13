@@ -77,7 +77,7 @@ class SubmitPanelTest {
         compose.onNodeWithText("No intro").assertIsDisplayed()
         compose.onNodeWithText("0:03:29", substring = true).assertIsDisplayed()
         compose.onNodeWithText("0:03:51", substring = true).assertIsDisplayed()
-        compose.onNodeWithText("22 s ✓").assertIsDisplayed()
+        compose.onNodeWithText("0:00:22 ✓").assertIsDisplayed()
         compose.onNodeWithText("Submit").assertIsEnabled()
         compose.onAllNodesWithText("Set to now").assertCountEquals(0)
         compose.onAllNodesWithText("\u22125").assertCountEquals(0)
@@ -145,29 +145,29 @@ class SubmitPanelTest {
         start.value = 0.0
         end.value = 4.9
         compose.waitForIdle()
-        compose.onNodeWithText("4.9 s · Intro must be 5–300 s").assertIsDisplayed()
+        compose.onNodeWithText("0:00:04.9 · Intro must be 0:00:05–0:05:00").assertIsDisplayed()
         compose.onNodeWithText("Submit").assertIsNotEnabled()
 
         end.value = 17.0
         duration.value = 12.0
         compose.waitForIdle()
-        compose.onNodeWithText("17 s · Past the end of the video").assertIsDisplayed()
+        compose.onNodeWithText("0:00:17 · Past the end of the video").assertIsDisplayed()
         compose.onNodeWithText("Submit").assertIsNotEnabled()
 
         end.value = 12.0
         compose.waitForIdle()
-        compose.onNodeWithText("12 s ✓").assertIsDisplayed()
+        compose.onNodeWithText("0:00:12 ✓").assertIsDisplayed()
         compose.onNodeWithText("Submit").assertIsEnabled()
-        compose.onNodeWithText("0:00:12", substring = true).assertIsDisplayed()
+        compose.onAllNodesWithText("0:00:12", substring = true).assertCountEquals(2)
 
         end.value = 12.001
         compose.waitForIdle()
-        compose.onNodeWithText("12 s ✓").assertIsDisplayed()
+        compose.onNodeWithText("0:00:12 ✓").assertIsDisplayed()
         compose.onAllNodesWithText("Past the end of the video").assertCountEquals(0)
 
         end.value = 12.0 + MarkDurationSlopSec
         compose.waitForIdle()
-        compose.onNodeWithText("12 s ✓").assertIsDisplayed()
+        compose.onNodeWithText("0:00:12 ✓").assertIsDisplayed()
         compose.onNodeWithText("Submit").assertIsEnabled()
     }
 

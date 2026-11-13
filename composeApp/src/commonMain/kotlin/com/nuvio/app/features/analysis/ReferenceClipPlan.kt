@@ -155,7 +155,10 @@ internal fun mergeReferenceWrite(
 }
 
 internal fun referenceActivityToken(operation: String, seconds: Int, season: Int, episode: Int): String {
-    val op = if (operation == "read") "read" else "fetch"
+    val op = when (operation) {
+        "read", "compare" -> operation
+        else -> "fetch"
+    }
     return "ref:$op:${seconds.coerceAtLeast(0)}:${season.coerceAtLeast(0)}:${episode.coerceAtLeast(0)}"
 }
 
@@ -170,7 +173,7 @@ internal fun parseReferenceActivity(token: String): ReferenceActivity? {
     val parts = token.split(":")
     if (parts.size != 5 || parts[0] != "ref") return null
     val operation = parts[1]
-    if (operation != "read" && operation != "fetch") return null
+    if (operation != "read" && operation != "fetch" && operation != "compare") return null
     val seconds = parts[2].toIntOrNull() ?: return null
     val season = parts[3].toIntOrNull() ?: return null
     val episode = parts[4].toIntOrNull() ?: return null

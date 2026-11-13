@@ -50,11 +50,61 @@ internal const val SMART_DOWNLOAD_RULE_UNAIRED = "Next episode has not aired yet
 internal const val SMART_DOWNLOAD_RULE_PRIVATE = "Not queued while Private Viewing is on"
 internal const val SMART_DOWNLOAD_RULE_LOAD_FAILED = "Couldn't load this show"
 
-internal fun smartDownloadRuleQueued(count: Int): String =
-    if (count == 1) "Queued 1 episode" else "Queued $count episodes"
+internal fun smartDownloadRuleQueued(count: Int): String {
+    val queued = count.coerceAtLeast(0)
+    return when (queued) {
+        0 -> "Queued 0 episodes"
+        1 -> "Queued 1 episode"
+        else -> "Queued $queued episodes"
+    }
+}
+
+internal data class SmartDownloadSettingsFeedback(
+    val message: String,
+    val showsToStart: List<String>,
+)
+
+/** One line for a settings change. [decisions] are show id to that show's rule. */
+internal fun smartDownloadSettingsFeedback(
+    decisions: List<Pair<String, SmartDownloadRuleDecision>>,
+): SmartDownloadSettingsFeedback {
+    val starting = decisions.filter { (_, decision) -> decision.startsNow }
+    return SmartDownloadSettingsFeedback(
+        message = smartDownloadRuleQueued(starting.sumOf { it.second.episodeCodes.size }),
+        showsToStart = starting.map { it.first },
+    )
+}
 
 internal fun smartDownloadRuleSearching(count: Int): String =
     if (count == 1) "Looking for the next episode" else "Looking for the next $count episodes"
+
+/** "Wi-Fi" or "charging" when [message] is a gate block. Null for every other reason. */
+internal fun smartDownloadGateLabel(message: String): String? = when {
+    message.startsWith("Waiting for Wi-Fi") -> "Wi-Fi"
+    message == "Waiting for charging" -> "charging"
+    else -> null
+}
+
+/**
+ * Settings-pass line. [queued] is files that started. [waiting] episodes stay on the same
+ * pending list as a series save, and the goal sentences from this pass stay in front.
+ */
+internal fun smartDownloadPassMessage(
+    queued: Int,
+    waiting: Int = 0,
+    waitingReason: String? = null,
+    goalLines: List<String> = emptyList(),
+): String {
+    val queue = smartDownloadRuleQueued(queued)
+    val held = waiting.coerceAtLeast(0)
+    val body = if (held > 0 && !waitingReason.isNullOrBlank()) {
+        val wait = if (held == 1) "1 waiting" else "$held waiting"
+        "$queue · $wait for $waitingReason"
+    } else {
+        queue
+    }
+    return if (goalLines.isEmpty()) body else goalLines.joinToString(" · ") + " · " + body
+}
 
 /** A plain next-episode request, not an exact unaired queue and not a Finish-a-series goal. */
 internal fun isPlainSmartRequest(exact: Boolean, count: Int?): Boolean = !exact && count == null

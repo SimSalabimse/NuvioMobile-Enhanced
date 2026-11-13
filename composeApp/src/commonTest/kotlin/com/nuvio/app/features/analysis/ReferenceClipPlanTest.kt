@@ -87,5 +87,8 @@ class ReferenceClipPlanTest {
         val token = referenceActivityToken("fetch", 40, 3, 4)
         assertEquals(ReferenceActivity("fetch", 40, 3, 4), parseReferenceActivity(token))
         assertEquals(null, parseReferenceActivity("clip"))
+        val compare = parseReferenceActivity(referenceActivityToken("compare", 40, 3, 4))
+        assertEquals(ReferenceActivity("compare", 40, 3, 4), compare)
+        assertEquals(ReferenceActivity("read", 40, 3, 4), parseReferenceActivity(referenceActivityToken("read", 40, 3, 4)))
     }
 }

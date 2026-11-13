@@ -11,6 +11,9 @@ import kotlin.math.abs
  * A frame matches when the two 32-bit sub-fingerprints differ in at most [maxBitErrors] bits;
  * short dropouts of up to [maxGapFrames] are bridged.
  */
+/** The compare loop noticed cancellation or local work and should not keep a match. */
+internal class ReferenceStop : RuntimeException()
+
 internal object FingerprintMatcher {
     data class SharedSegment(
         val startA: Int,
@@ -32,8 +35,9 @@ internal object FingerprintMatcher {
         maxGapFrames: Int = 5,
         keepEnd: Boolean = false,
         forceCoarse: Boolean = false,
+        shouldStop: () -> Boolean = { false },
     ): SharedSegment? {
-        val runs = collectRuns(a, b, minFrames, maxBitErrors, maxGapFrames, forceCoarse)
+        val runs = collectRuns(a, b, minFrames, maxBitErrors, maxGapFrames, forceCoarse, shouldStop)
         var best: SharedSegment? = null
         for (run in runs) {
             if (run.length < minFrames) continue
@@ -98,6 +102,7 @@ internal object FingerprintMatcher {
         maxBitErrors: Int,
         maxGapFrames: Int,
         forceCoarse: Boolean,
+        shouldStop: () -> Boolean = { false },
     ): List<SharedSegment> {
         if (a.isEmpty() || b.isEmpty() || minFrames <= 0) return emptyList()
         val shifts = if (forceCoarse) {
@@ -106,12 +111,21 @@ internal object FingerprintMatcher {
             null
         }
         val out = mutableListOf<SharedSegment>()
+        var seen = 0
+        fun stopIfNeeded() {
+            seen += 1
+            if (seen % STOP_EVERY == 0 && shouldStop()) throw ReferenceStop()
+        }
         if (shifts == null) {
             for (shift in -(a.size - 1) until b.size) {
-                out += runsOnShift(a, b, shift, minFrames, maxBitErrors, maxGapFrames)
+                stopIfNeeded()
+                out += runsOnShift(a, b, shift, minFrames, maxBitErrors, maxGapFrames, shouldStop)
             }
         } else {
-            for (shift in shifts) out += runsOnShift(a, b, shift, minFrames, maxBitErrors, maxGapFrames)
+            for (shift in shifts) {
+                stopIfNeeded()
+                out += runsOnShift(a, b, shift, minFrames, maxBitErrors, maxGapFrames, shouldStop)
+            }
         }
         return out
     }
@@ -124,6 +138,7 @@ internal object FingerprintMatcher {
         minFrames: Int,
         maxBitErrors: Int,
         maxGapFrames: Int,
+        shouldStop: () -> Boolean = { false },
     ): List<SharedSegment> {
         val startI = maxOf(0, -shift)
         val endI = minOf(a.size, b.size - shift)
@@ -153,6 +168,7 @@ internal object FingerprintMatcher {
         }
         var i = startI
         while (i < endI) {
+            if (i % STOP_EVERY == 0 && shouldStop()) throw ReferenceStop()
             val diff = (a[i] xor b[i + shift]).countOneBits()
             if (diff <= maxBitErrors) {
                 if (runStart < 0 || i - lastMatch > maxGapFrames + 1) {
@@ -222,6 +238,7 @@ internal object FingerprintMatcher {
     }
 
     private const val EXACT_PAIR_LIMIT = 8_000
+    private const val STOP_EVERY = 32
     private const val COARSE_STRIDE = 4
     private const val MAX_REFINE_SHIFTS = 24
 }

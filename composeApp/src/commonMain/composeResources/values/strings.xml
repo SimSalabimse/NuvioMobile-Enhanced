@@ -3236,8 +3236,9 @@
     <string name="analysis_status_queued">Analysis queued</string>
     <string name="analysis_status_running">Analysing %1$d% · %2$s</string>
     <string name="analysis_activity_clip">reading a reference clip</string>
-    <string name="analysis_activity_reference_fetch">Fetching %1$ds S%2$d E%3$d audio</string>
-    <string name="analysis_activity_reference_read">Reading %1$ds S%2$d E%3$d audio</string>
+    <string name="analysis_activity_reference_fetch">Fetching %1$ds of S%2$d E%3$d</string>
+    <string name="analysis_activity_reference_read">Reading the downloaded episode, %1$ds of S%2$d E%3$d</string>
+    <string name="analysis_activity_reference_compare">Comparing %1$ds of S%2$d E%3$d</string>
     <string name="analysis_activity_teach">teaching the season</string>
     <string name="analysis_activity_backfill">filling the season</string>
     <string name="analysis_activity_preview">finding a preview</string>
@@ -3419,7 +3420,7 @@
     <string name="player_tools_credits">Credits</string>
     <string name="player_tools_end_after_start">End must be after the start</string>
     <string name="player_tools_past_video">Past the end of the video</string>
-    <string name="player_tools_limit">%1$s must be %2$d–%3$d s</string>
+    <string name="player_tools_limit">%1$s must be %2$s–%3$s</string>
     <string name="player_tools_reset_video">Reset video settings</string>
     <string name="player_tools_tone_map">Tone-map HDR</string>
     <string name="player_tools_aspect">Aspect</string>
