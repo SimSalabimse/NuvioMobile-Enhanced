@@ -22,11 +22,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.nuvio
@@ -37,6 +41,8 @@ import com.nuvio.app.features.streams.epochMs
 import androidx.compose.ui.platform.LocalClipboardManager
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_settings_root_sync_description
+import nuvio.composeapp.generated.resources.settings_sync_backup_failed
+import nuvio.composeapp.generated.resources.settings_sync_backup_saved
 import nuvio.composeapp.generated.resources.settings_sync_back
 import nuvio.composeapp.generated.resources.settings_sync_copied
 import nuvio.composeapp.generated.resources.settings_sync_copy_code
@@ -83,7 +89,7 @@ private fun AnalyzedSyncSettings(isTablet: Boolean) {
     var passphrase by remember { mutableStateOf("") }
     var joinCode by remember { mutableStateOf("") }
     var confirmLeave by remember { mutableStateOf(false) }
-    var copied by remember { mutableStateOf(false) }
+    var notice by remember { mutableStateOf<String?>(null) }
     val reduceMotion = playerReduceMotionEnabled()
     val clipboard = LocalClipboardManager.current
     LaunchedEffect(Unit) { AnalyzedSyncCoordinator.reload() }
@@ -117,7 +123,7 @@ private fun AnalyzedSyncSettings(isTablet: Boolean) {
                     if (device.label == "This phone") stringResource(Res.string.settings_sync_this_phone) to device.seenAtMs else device.label to device.seenAtMs
                 },
                 confirmLeave = confirmLeave,
-                copied = copied,
+                notice = notice,
                 onMarks = AnalyzedSyncCoordinator::setMarks,
                 onDetections = AnalyzedSyncCoordinator::setDetections,
                 onSubmissions = AnalyzedSyncCoordinator::setSubmissions,
@@ -125,11 +131,10 @@ private fun AnalyzedSyncSettings(isTablet: Boolean) {
                 onCopyCode = {
                     val code = AnalyzedSyncCoordinator.joinCodeText() ?: return@EnrolledSync
                     clipboard.setText(AnnotatedString(code))
-                    copied = true
+                    notice = "copied"
                 },
                 onExport = {
-                    clipboard.setText(AnnotatedString(AnalyzedSyncCoordinator.backupText()))
-                    copied = true
+                    notice = if (AnalyzedSyncCoordinator.saveBackup()) "saved" else "failed"
                 },
                 onLeave = {
                     if (!confirmLeave) confirmLeave = true else AnalyzedSyncCoordinator.forget()
@@ -145,9 +150,19 @@ private fun AnalyzedSyncSettings(isTablet: Boolean) {
                 onBack = { pane = SyncPane.Choice },
                 onSubmit = { AnalyzedSyncCoordinator.create(url, enrollSecret, passphrase) },
             ) {
-                SyncField(stringResource(Res.string.settings_sync_server), url, secret = false) { url = it }
-                SyncField(stringResource(Res.string.settings_sync_enroll), enrollSecret, secret = true) { enrollSecret = it }
-                SyncField(stringResource(Res.string.settings_sync_passphrase), passphrase, secret = true) { passphrase = it }
+                SyncField(stringResource(Res.string.settings_sync_server), url) { url = it }
+                SettingsSecretTextField(
+                    value = enrollSecret,
+                    onValueChange = { enrollSecret = it },
+                    label = stringResource(Res.string.settings_sync_enroll),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                SettingsSecretTextField(
+                    value = passphrase,
+                    onValueChange = { passphrase = it },
+                    label = stringResource(Res.string.settings_sync_passphrase),
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
             pane == SyncPane.Join -> SyncForm(
                 isTablet = isTablet,
@@ -159,9 +174,14 @@ private fun AnalyzedSyncSettings(isTablet: Boolean) {
                 onBack = { pane = SyncPane.Choice },
                 onSubmit = { AnalyzedSyncCoordinator.join(url, joinCode, passphrase) },
             ) {
-                SyncField(stringResource(Res.string.settings_sync_server), url, secret = false) { url = it }
-                SyncField(stringResource(Res.string.settings_sync_join_code), joinCode, secret = false) { joinCode = it }
-                SyncField(stringResource(Res.string.settings_sync_passphrase), passphrase, secret = true) { passphrase = it }
+                SyncField(stringResource(Res.string.settings_sync_server), url) { url = it }
+                SyncField(stringResource(Res.string.settings_sync_join_code), joinCode) { joinCode = it }
+                SettingsSecretTextField(
+                    value = passphrase,
+                    onValueChange = { passphrase = it },
+                    label = stringResource(Res.string.settings_sync_passphrase),
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
             else -> SettingsGroup(isTablet = isTablet) {
                 SettingsNavigationRow(
@@ -194,7 +214,7 @@ private fun EnrolledSync(
     syncSubmissions: Boolean,
     devices: List<Pair<String, Long>>,
     confirmLeave: Boolean,
-    copied: Boolean,
+    notice: String?,
     onMarks: (Boolean) -> Unit,
     onDetections: (Boolean) -> Unit,
     onSubmissions: (Boolean) -> Unit,
@@ -208,20 +228,30 @@ private fun EnrolledSync(
     Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(16.dp)) {
         SettingsSection(title = stringResource(Res.string.settings_sync_server), isTablet = isTablet) {
             SettingsGroup(isTablet = isTablet) {
+                val syncingLabel = stringResource(Res.string.settings_sync_syncing)
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                    modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 44.dp).padding(horizontal = 16.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(text = status, style = MaterialTheme.typography.bodyLarge, color = tokens.colors.textPrimary)
+                        Text(
+                            text = status,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = tokens.colors.textPrimary,
+                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                        )
                         Text(text = baseUrl, style = MaterialTheme.typography.bodyMedium, color = tokens.colors.textMuted)
                     }
                     if (syncing) {
                         Spacer(modifier = Modifier.width(12.dp))
                         if (reduceMotion) {
-                            Text(text = stringResource(Res.string.settings_sync_syncing), color = tokens.colors.textMuted)
+                            Text(text = syncingLabel, color = tokens.colors.textMuted)
                         } else {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = tokens.colors.accent)
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp).semantics { contentDescription = syncingLabel },
+                                strokeWidth = 2.dp,
+                                color = tokens.colors.accent,
+                            )
                         }
                     }
                 }
@@ -269,7 +299,7 @@ private fun EnrolledSync(
                     devices.forEachIndexed { index, (label, seen) ->
                         if (index > 0) SettingsGroupDivider(isTablet = isTablet)
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                            modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 44.dp).padding(horizontal = 16.dp, vertical = 14.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             val recent = now - seen < 7L * 86_400_000L
@@ -298,11 +328,17 @@ private fun EnrolledSync(
                 onClick = onLeave,
             )
         }
-        if (copied) {
+        if (notice != null) {
+            val noticeText = when (notice) {
+                "saved" -> stringResource(Res.string.settings_sync_backup_saved)
+                "failed" -> stringResource(Res.string.settings_sync_backup_failed)
+                else -> stringResource(Res.string.settings_sync_copied)
+            }
             Text(
-                text = stringResource(Res.string.settings_sync_copied),
+                text = noticeText,
                 style = MaterialTheme.typography.bodyMedium,
                 color = tokens.colors.textMuted,
+                modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
             )
         }
     }
@@ -359,14 +395,13 @@ private fun SyncForm(
 }
 
 @Composable
-private fun SyncField(label: String, value: String, secret: Boolean, onValue: (String) -> Unit) {
+private fun SyncField(label: String, value: String, onValue: (String) -> Unit) {
     OutlinedTextField(
         value = value,
         onValueChange = onValue,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().semantics { contentDescription = label },
         singleLine = true,
         label = { Text(label) },
-        visualTransformation = if (secret) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
-        keyboardOptions = KeyboardOptions(keyboardType = if (secret) KeyboardType.Password else KeyboardType.Uri),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
     )
 }

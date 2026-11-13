@@ -116,7 +116,7 @@ private fun JsonValue?.text(): String? = (this as? JsonValue.Str)?.value
 
 internal fun normalizeSyncUrl(raw: String): String? {
     val trimmed = raw.trim().trimEnd('/')
-    if (!trimmed.startsWith("https://") && !trimmed.startsWith("http://")) return null
+    if (!trimmed.startsWith("https://")) return null
     if (trimmed.length !in 12..200 || ' ' in trimmed) return null
     return trimmed
 }

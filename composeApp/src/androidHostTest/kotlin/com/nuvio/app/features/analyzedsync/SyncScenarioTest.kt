@@ -1,6 +1,7 @@
 package com.nuvio.app.features.analyzedsync
 
 import com.nuvio.app.features.analysis.MediaAnalysisResult
+import com.nuvio.app.features.analysis.analysisWorkPending
 import com.nuvio.app.features.analyzedsync.clock.Hlc
 import com.nuvio.app.features.analyzedsync.crypto.RoutingAad
 import com.nuvio.app.features.analyzedsync.crypto.associatedData
@@ -14,14 +15,25 @@ import com.nuvio.app.features.analyzedsync.engine.bearer
 import com.nuvio.app.features.analyzedsync.json.canonicalJson
 import com.nuvio.app.features.analyzedsync.json.toSyncJson
 import com.nuvio.app.features.analyzedsync.merge.mergeRecords
+import com.nuvio.app.features.analyzedsync.record.AliasRecord
 import com.nuvio.app.features.analyzedsync.record.DetectionRecord
 import com.nuvio.app.features.analyzedsync.record.MarkRecord
+import com.nuvio.app.features.analyzedsync.record.TombstoneRecord
 import com.nuvio.app.features.analyzedsync.record.detectionId
 import com.nuvio.app.features.analyzedsync.record.noneId
 import com.nuvio.app.features.analyzedsync.store.AnalysisTextFiles
+import com.nuvio.app.features.analyzedsync.session.normalizeSyncUrl
 import com.nuvio.app.features.analyzedsync.store.EpisodeJsonSyncStore
+import com.nuvio.app.features.analyzedsync.store.LocalRecord
 import com.nuvio.app.features.analyzedsync.store.MemoryAnalysisSyncPort
+import com.nuvio.app.features.analyzedsync.store.backupJson
+import com.nuvio.app.features.analyzedsync.store.backupJsonIsSafe
+import com.nuvio.app.features.analyzedsync.transport.BlobEnvelope
 import com.nuvio.app.features.analyzedsync.transport.CreateSpaceBody
+import com.nuvio.app.features.analyzedsync.transport.PullPage
+import com.nuvio.app.features.analyzedsync.transport.PulledBlob
+import com.nuvio.app.features.analyzedsync.transport.PushResult
+import com.nuvio.app.features.analyzedsync.transport.SyncTransport
 import com.nuvio.app.features.analyzedsync.transport.TransportResponse
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -194,6 +206,259 @@ class SyncScenarioTest {
         assertEquals(setOf("intro"), afterNone.userNoneTypes)
         assertEquals("AAAA", afterNone.headFingerprint)
     }
+
+    @Test
+    fun aStoredRangeBecomesATombstoneWhenThePersonRemovesItAndNoneIsNotInferred() {
+        val files = MapFiles()
+        val mark = rangeMark()
+        files.write("tmdb_100__s1e8", episodeJson(sync = canonicalJson(com.nuvio.app.features.analyzedsync.json.JsonValue.Arr(listOf(mark.toWire())))))
+        val read = EpisodeJsonSyncStore(files).readLocal()
+        assertTrue(read.any { it.needsStamp && (it.record as? TombstoneRecord)?.id == mark.id })
+        assertTrue(read.none { (it.record as? MarkRecord)?.presence == "none" })
+        assertTrue(read.none { (it.record as? MarkRecord)?.presence == "range" && !it.record.deleted })
+    }
+
+    @Test
+    fun noneHereAfterSyncReplacesTheRangeAndNotFoundStaysADetection() {
+        val files = MapFiles()
+        val mark = rangeMark()
+        files.write(
+            "tmdb_100__s1e8",
+            episodeJson(
+                userNone = true,
+                sync = canonicalJson(com.nuvio.app.features.analyzedsync.json.JsonValue.Arr(listOf(mark.toWire()))),
+            ),
+        )
+        val read = EpisodeJsonSyncStore(files).readLocal()
+        assertTrue(read.any { it.needsStamp && (it.record as? MarkRecord)?.presence == "none" })
+        assertTrue(read.any { (it.record as? MarkRecord)?.id == mark.id && !it.record.deleted })
+        assertTrue(read.none { it.record is TombstoneRecord })
+        assertTrue(read.none { (it.record as? DetectionRecord)?.outcome == "not_found" })
+    }
+
+    @Test
+    fun aTombstoneDoesNotComeBackOutOfTheEpisodeFile() {
+        val files = MapFiles()
+        val found = foundDetection()
+        files.write(
+            "tmdb_100__s1e8",
+            episodeJson(
+                intro = "10000",
+                introEnd = "20000",
+                sync = canonicalJson(com.nuvio.app.features.analyzedsync.json.JsonValue.Arr(listOf(found.toWire()))),
+            ),
+        )
+        val store = EpisodeJsonSyncStore(files)
+        store.replaceRecords(listOf(TombstoneRecord("detection", found.id, Hlc(1_700_000_000_000L, 1, "device-a"))), 1_700_000_000_000L)
+        val after = decodeEpisode(files.read("tmdb_100__s1e8") ?: error("missing"))
+        assertEquals("AAAA", after.headFingerprint)
+        assertNull(after.introStartMs)
+        assertEquals("[]", after.syncRecordsJson)
+        val again = store.readLocal()
+        assertTrue(again.none { it.record is DetectionRecord && !it.record.deleted })
+        assertTrue(again.any { (it.record as? TombstoneRecord)?.id == found.id })
+    }
+
+    @Test
+    fun anEmptySyncLeavesTheAliasFileAndASyncedAliasKeepsTheOwner() {
+        val files = MapFiles()
+        files.write("show-aliases", """{"tmdb#100":"tmdb_100"}""")
+        files.write("tmdb_100__s1e8", episodeJson())
+        val store = EpisodeJsonSyncStore(files)
+        store.replaceRecords(emptyList(), 1_700_000_000_000L)
+        assertEquals("""{"tmdb#100":"tmdb_100"}""", files.read("show-aliases"))
+        assertEquals("AAAA", decodeEpisode(files.read("tmdb_100__s1e8") ?: error("missing")).headFingerprint)
+
+        store.replaceRecords(
+            listOf(AliasRecord("alias/imdb:tt0000100", Hlc(1_700_000_000_000L, 0, "device-a"), "imdb:tt0000100", "tmdb:100")),
+            1_700_000_000_000L,
+        )
+        val alias = files.read("show-aliases") ?: error("alias")
+        assertTrue(alias.contains("\"tmdb#100\":\"tmdb_100\""))
+        assertTrue(alias.contains("tt0000100"))
+        assertEquals("AAAA", decodeEpisode(files.read("tmdb_100__s1e8") ?: error("missing")).headFingerprint)
+    }
+
+    @Test
+    fun aMarkInTheEpisodeFileBeatsANewerDetection() {
+        val files = MapFiles()
+        val store = EpisodeJsonSyncStore(files)
+        files.write("tmdb_100__s1e8", episodeJson())
+        store.replaceRecords(listOf(rangeMark(), foundDetection(start = 10_000, end = 20_000, wall = 1_700_000_100_000L)), 1_700_000_200_000L)
+        val after = decodeEpisode(files.read("tmdb_100__s1e8") ?: error("missing"))
+        assertEquals(42_000L, after.userSegments["intro"]?.startMs)
+        assertEquals("AAAA", after.headFingerprint)
+        assertTrue(after.introStartMs != 10_000L)
+        assertTrue(after.userNoneTypes.isEmpty())
+    }
+
+    @Test
+    fun pullFailureDoesNotAdvanceTheCursorOrTouchLocalRecords() = runBlocking {
+        val port = MemoryAnalysisSyncPort()
+        val transport = object : SyncTransport by unusedTransport() {
+            var pulls = 0
+            override suspend fun pull(baseUrl: String, spaceId: String, bearerToken: String, cursor: Long, limit: Int): TransportResponse<PullPage> {
+                pulls += 1
+                if (pulls > 1) return TransportResponse.Failed(500, "internal")
+                return TransportResponse.Ok(
+                    PullPage(
+                        blobs = listOf(PulledBlob(5, "22222222-2222-4222-8222-222222222222", 1, "mark", "device-b", "AAAA", "AAAA", 1)),
+                        cursor = 5,
+                        hasMore = true,
+                    ),
+                )
+            }
+        }
+        val run = AnalyzedSyncEngine(transport, port, counterRandom(1)).sync(sampleConfig(), SyncSessionState(pullCursor = 4), 1_700_000_000_000L)
+        assertEquals("Sync failed (500).", run.error)
+        assertEquals(4L, run.state.pullCursor)
+        assertTrue(port.readLocal().isEmpty())
+    }
+
+    @Test
+    fun rateLimitWaitsForRetryAfterAndThenPulls() = runBlocking {
+        val waits = mutableListOf<Long>()
+        val transport = object : SyncTransport by unusedTransport() {
+            var pulls = 0
+            override suspend fun pull(baseUrl: String, spaceId: String, bearerToken: String, cursor: Long, limit: Int): TransportResponse<PullPage> {
+                pulls += 1
+                if (pulls == 1) return TransportResponse.Failed(429, "rate_limited", retryAfterSeconds = 2)
+                return TransportResponse.Ok(PullPage(emptyList(), cursor, false))
+            }
+        }
+        val run = AnalyzedSyncEngine(transport, MemoryAnalysisSyncPort(), counterRandom(1), sleep = { waits += it })
+            .sync(sampleConfig(), SyncSessionState(), 1_700_000_000_000L)
+        assertNull(run.error)
+        assertEquals(listOf(2_000L), waits)
+        assertEquals(2, transport.pulls)
+    }
+
+    @Test
+    fun aNonceConflictIsRetriedWithANewNonce() = runBlocking {
+        val crypto = Json.parseToJsonElement(vectorText("crypto.json")).jsonObject
+        val encKey = decodeHex(crypto.string("encKeyHex")) ?: error("enc")
+        val auth = decodeHex(crypto.string("authTokenHex")) ?: error("auth")
+        val server = FakeSyncServer(enrollSecret = "enroll-secret-test")
+        assertTrue(
+            server.createSpace(
+                "https://sync.example",
+                "enroll-secret-test",
+                bearer(auth),
+                CreateSpaceBody(crypto.string("spaceId"), crypto.string("saltBase64"), crypto.string("keyCheckBase64")),
+            ) is TransportResponse.Ok,
+        )
+        val nonces = mutableListOf<String>()
+        val transport = object : SyncTransport by server {
+            var pushes = 0
+            override suspend fun push(baseUrl: String, spaceId: String, bearerToken: String, deviceId: String, blobs: List<BlobEnvelope>): TransportResponse<List<PushResult>> {
+                pushes += 1
+                nonces += blobs.map { it.nonce }
+                if (pushes == 1) return TransportResponse.Failed(409, "conflict")
+                return server.push(baseUrl, spaceId, bearerToken, deviceId, blobs)
+            }
+        }
+        val port = MemoryAnalysisSyncPort().also { it.replaceRecords(listOf(rangeMark()), 1_700_000_200_000L) }
+        val run = AnalyzedSyncEngine(transport, port, counterRandom(1)).sync(
+            SyncConfig("https://sync.example", crypto.string("spaceId"), "device-a", encKey, auth),
+            SyncSessionState(),
+            1_700_000_200_000L,
+        )
+        assertNull(run.error)
+        assertEquals(2, transport.pushes)
+        assertEquals(2, nonces.distinct().size)
+        val page = (server.pull("https://sync.example", crypto.string("spaceId"), bearer(auth), 0, 100) as TransportResponse.Ok).value
+        assertEquals(1, page.blobs.size)
+    }
+
+    @Test
+    fun backupJsonHasNoKeysAndHttpIsNotASyncUrl() {
+        val json = backupJson(listOf(LocalRecord(rangeMark(), needsStamp = false)))
+        assertTrue(backupJsonIsSafe(json))
+        assertFalse(json.contains("passphrase"))
+        assertFalse(json.contains("encKey"))
+        assertFalse(json.contains("authToken"))
+        assertFalse(backupJsonIsSafe("""{"passphrase":"secret"}"""))
+        assertNull(normalizeSyncUrl("http://sync.example"))
+        assertEquals("https://sync.example", normalizeSyncUrl("https://sync.example/"))
+    }
+
+    @Test
+    fun aCoveredEpisodeIsNotAnalysedAgain() {
+        val projected = MediaAnalysisResult(key = "tmdb_100__movie", analyzedAtMs = 0, durationMs = 0, fileName = null)
+        assertFalse(analysisWorkPending(projected, "movie.mkv", covered = true, needsDerivedWork = true))
+        val local = projected.copy(fileName = "movie.mkv", analyzedAtMs = 5, derivedVersion = 2)
+        assertFalse(analysisWorkPending(local, "movie.mkv", covered = true, needsDerivedWork = false))
+        assertTrue(analysisWorkPending(local, "movie.mkv", covered = true, needsDerivedWork = true))
+        assertTrue(analysisWorkPending(null, "movie.mkv", covered = false, needsDerivedWork = false))
+    }
+}
+
+private fun episodeJson(
+    intro: String? = null,
+    introEnd: String? = null,
+    userNone: Boolean = false,
+    sync: String = "",
+): String {
+    val result = MediaAnalysisResult(
+        key = "tmdb_100__s1e8",
+        analyzedAtMs = 1,
+        durationMs = 3_600_000,
+        headFingerprint = "AAAA",
+        introStartMs = intro?.toLong(),
+        introEndMs = introEnd?.toLong(),
+        userNoneTypes = if (userNone) setOf("intro") else emptySet(),
+        syncRecordsJson = sync,
+    )
+    return com.nuvio.app.core.serialization.LenientDefaultsJson.encodeToString(MediaAnalysisResult.serializer(), result)
+}
+
+private fun rangeMark() = MarkRecord(
+    id = "mark/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa01",
+    hlc = Hlc(1_700_000_000_000L, 0, "device-a"),
+    showId = "tmdb:100",
+    season = 1,
+    episode = 8,
+    segmentType = "intro",
+    presence = "range",
+    segmentIndex = 0,
+    startMs = 42_000,
+    endMs = 92_000,
+    durationMs = 3_600_000,
+)
+
+private fun foundDetection(start: Long = 10_000, end: Long = 20_000, wall: Long = 1_700_000_000_000L) = DetectionRecord(
+    id = detectionId("tmdb:100", "s1e8", "intro", 0, 3_600_000, 1),
+    hlc = Hlc(wall, 0, "device-b"),
+    showId = "tmdb:100",
+    season = 1,
+    episode = 8,
+    segmentType = "intro",
+    segmentIndex = 0,
+    outcome = "found",
+    startMs = start,
+    endMs = end,
+    durationMs = 3_600_000,
+    algorithm = "nuvio-analysis-1",
+    algorithmVersion = 1,
+    releaseId = null,
+)
+
+private fun sampleConfig() = SyncConfig(
+    baseUrl = "https://sync.example",
+    spaceId = "11111111-1111-4111-8111-111111111111",
+    deviceId = "device-a",
+    encKey = ByteArray(32),
+    authToken = ByteArray(32),
+)
+
+private fun unusedTransport(): SyncTransport = object : SyncTransport {
+    override suspend fun createSpace(baseUrl: String, enrollSecret: String, bearerToken: String, body: CreateSpaceBody) =
+        TransportResponse.Failed(500, "internal")
+    override suspend fun join(baseUrl: String, spaceId: String, bearerToken: String) = TransportResponse.Failed(500, "internal")
+    override suspend fun push(baseUrl: String, spaceId: String, bearerToken: String, deviceId: String, blobs: List<BlobEnvelope>) =
+        TransportResponse.Failed(500, "internal")
+    override suspend fun pull(baseUrl: String, spaceId: String, bearerToken: String, cursor: Long, limit: Int) =
+        TransportResponse.Failed(500, "internal")
 }
 
 private class MapFiles : AnalysisTextFiles {

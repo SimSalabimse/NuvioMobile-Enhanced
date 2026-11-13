@@ -1,12 +1,14 @@
 package com.nuvio.app.features.analyzedsync.session
 
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.get
+import kotlinx.cinterop.usePinned
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
-import kotlinx.cinterop.refTo
 import kotlinx.cinterop.reinterpret
+import kotlinx.cinterop.UByteVar
 import kotlinx.cinterop.value
 import platform.CoreFoundation.CFDataCreate
 import platform.CoreFoundation.CFDataGetBytePtr
@@ -93,11 +95,14 @@ internal actual object AnalyzedSyncVault {
             check(status == errSecSuccess || status == errSecItemNotFound)
             return@keychainQuery
         }
-        val bytes = value.encodeToByteArray().toUByteArray()
-        val data = CFDataCreate(null, bytes.refTo(0), bytes.size.toLong()) ?: error("keychain")
+        val bytes = value.encodeToByteArray()
+        val data = bytes.usePinned { pinned ->
+            CFDataCreate(null, pinned.addressOf(0).reinterpret<UByteVar>(), bytes.size.toLong())
+        } ?: error("keychain")
         val attributes = dictionary()
         try {
             CFDictionarySetValue(attributes, kSecValueData, data)
+            CFDictionarySetValue(attributes, kSecAttrAccessible, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
             val update = SecItemUpdate(query, attributes)
             if (update == errSecItemNotFound) {
                 CFDictionarySetValue(query, kSecValueData, data)

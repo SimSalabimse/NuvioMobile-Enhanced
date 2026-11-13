@@ -13,6 +13,12 @@ internal data class LocalRecord(val record: SyncRecord, val needsStamp: Boolean)
 internal interface AnalysisSyncPort {
     fun readLocal(): List<LocalRecord>
     fun replaceRecords(records: List<SyncRecord>, nowMs: Long)
+
+    /** Plaintext sync records only. Implementations must refuse a body that carries key material. */
+    fun writeBackup(json: String): Boolean = false
+
+    /** Runs [block] without another writer changing the analysis files in the middle. */
+    fun <T> exclusive(block: () -> T): T = block()
 }
 
 internal expect fun analysisSyncPort(): AnalysisSyncPort

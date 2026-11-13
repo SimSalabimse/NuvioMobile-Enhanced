@@ -1,5 +1,6 @@
 package com.nuvio.app.features.analyzedsync.crypto
 
+import com.nuvio.app.features.plugins.cryptointerop.CCCryptorGCMAddIV
 import com.nuvio.app.features.plugins.cryptointerop.CCCryptorGCMAddAAD
 import com.nuvio.app.features.plugins.cryptointerop.CCCryptorGCMDecrypt
 import com.nuvio.app.features.plugins.cryptointerop.CCCryptorGCMEncrypt
@@ -27,11 +28,12 @@ import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.ptr
-import kotlinx.cinterop.refTo
 import kotlinx.cinterop.reinterpret
 import kotlinx.cinterop.usePinned
 import kotlinx.cinterop.value
+import kotlinx.cinterop.BetaInteropApi
 import platform.Foundation.NSString
+import platform.Foundation.create
 import platform.Foundation.precomposedStringWithCanonicalMapping
 import platform.Security.SecRandomCopyBytes
 import platform.Security.kSecRandomDefault
@@ -109,17 +111,20 @@ internal actual object SyncCryptoPlatform {
     actual fun randomBytes(count: Int): ByteArray {
         if (count == 0) return ByteArray(0)
         val bytes = ByteArray(count)
-        val status = SecRandomCopyBytes(kSecRandomDefault, count.toULong(), bytes.refTo(0))
-        check(status == 0) { "CSPRNG failed" }
+        bytes.usePinned { pinned ->
+            val status = SecRandomCopyBytes(kSecRandomDefault, count.toULong(), pinned.addressOf(0))
+            check(status == 0) { "CSPRNG failed" }
+        }
         return bytes
     }
 
+    @OptIn(BetaInteropApi::class)
     actual fun normalizeNfc(text: String): String =
-        (text as NSString).precomposedStringWithCanonicalMapping
+        NSString.create(string = text).precomposedStringWithCanonicalMapping
 
     private fun crypt(encrypt: Boolean, key: ByteArray, nonce: ByteArray, aad: ByteArray, input: ByteArray): ByteArray {
         val ciphertext = if (encrypt) input else input.copyOfRange(0, input.size - 16)
-        val tagIn = if (encrypt) null else input.copyOfRange(input.size - 16, input.size)
+        val expectedTag = if (encrypt) null else input.copyOfRange(input.size - 16, input.size)
         var produced: ByteArray? = null
         memScoped {
             val cryptorRefVar = alloc<CCCryptorRefVar>()
@@ -131,7 +136,7 @@ internal actual object SyncCryptoPlatform {
                             mode = kCCModeGCM,
                             alg = kCCAlgorithmAES,
                             padding = ccNoPadding,
-                            iv = pinnedNonce.addressOf(0),
+                            iv = null,
                             key = pinnedKey.addressOf(0),
                             keyLength = key.size.toULong(),
                             tweak = null,
@@ -143,6 +148,12 @@ internal actual object SyncCryptoPlatform {
                         check(status == kCCSuccess) { "AES-GCM init failed" }
                         val cryptor = cryptorRefVar.value ?: error("AES-GCM init failed")
                         try {
+                            val ivStatus = CCCryptorGCMAddIV(
+                                cryptor,
+                                if (nonce.isEmpty()) null else pinnedNonce.addressOf(0),
+                                nonce.size.toULong(),
+                            )
+                            check(ivStatus == kCCSuccess) { "AES-GCM nonce failed" }
                             if (aad.isNotEmpty()) {
                                 aad.usePinned { pinnedAad ->
                                     val aadStatus = CCCryptorGCMAddAAD(
@@ -172,13 +183,14 @@ internal actual object SyncCryptoPlatform {
                                 }
                                 check(dataStatus == kCCSuccess) { "AES-GCM failed" }
                             }
-                            val tag = tagIn ?: ByteArray(16)
+                            val tag = expectedTag?.copyOf() ?: ByteArray(16)
                             val tagLength = alloc<platform.posix.size_tVar>()
                             tagLength.value = 16UL
                             tag.usePinned { pinnedTag ->
                                 val finalStatus = CCCryptorGCMFinal(cryptor, pinnedTag.addressOf(0), tagLength.ptr)
                                 check(finalStatus == kCCSuccess) { "AES-GCM tag failed" }
                             }
+                            if (expectedTag != null && !constantTimeEquals(tag, expectedTag)) error("AES-GCM tag failed")
                             produced = if (encrypt) plainOrCipher + tag else plainOrCipher
                         } finally {
                             CCCryptorRelease(cryptor)
@@ -189,4 +201,11 @@ internal actual object SyncCryptoPlatform {
         }
         return produced ?: error("AES-GCM failed")
     }
+}
+
+private fun constantTimeEquals(left: ByteArray, right: ByteArray): Boolean {
+    if (left.size != right.size) return false
+    var diff = 0
+    for (index in left.indices) diff = diff or (left[index].toInt() xor right[index].toInt())
+    return diff == 0
 }

@@ -35,7 +35,11 @@ internal data class CreateSpaceBody(
 
 internal sealed interface TransportResponse<out T> {
     data class Ok<T>(val value: T) : TransportResponse<T>
-    data class Failed(val status: Int, val code: String) : TransportResponse<Nothing>
+    data class Failed(
+        val status: Int,
+        val code: String,
+        val retryAfterSeconds: Int? = null,
+    ) : TransportResponse<Nothing>
 }
 
 internal interface SyncTransport {

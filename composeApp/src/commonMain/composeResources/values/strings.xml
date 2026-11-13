@@ -578,6 +578,8 @@
     <string name="settings_sync_join_action">Join</string>
     <string name="settings_sync_back">Back</string>
     <string name="settings_sync_copied">Copied</string>
+    <string name="settings_sync_backup_saved">Backup saved on this phone</string>
+    <string name="settings_sync_backup_failed">Backup could not be saved</string>
     <string name="settings_sync_not_yet">Not synced yet</string>
     <string name="compose_settings_page_plugins">Plugins</string>
     <string name="compose_settings_page_poster_customization">Poster Card Style</string>

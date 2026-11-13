@@ -226,6 +226,7 @@ internal object MediaAnalysisScheduler {
             if (!scopeActive()) return false
             if (ok) MediaAnalysisStatus.clearFailure(item.id)
             if (ok) retries -= item.id
+            if (ok) com.nuvio.app.features.analyzedsync.session.AnalyzedSyncCoordinator.onLocalStoreChanged()
             if (!ok) {
                 // Try again later instead of skipping the file for the rest of the session: it
                 // used to stay "partly analysed, queued for more" until Analyse now was tapped.
@@ -295,16 +296,12 @@ internal object MediaAnalysisScheduler {
         .sortedWith(compareBy<DownloadItem> { if (it.id == priorityItemId) 0 else 1 }.then(AnalysisOrder))
         .firstOrNull { item ->
             val existing = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item))
-            if (
-                existing != null &&
-                (existing.fileName == null || existing.fileName == item.fileName) &&
-                !needsDerived(existing) &&
-                syncedEpisodeCovered(item, existing)
-            ) {
-                false
-            } else {
-                existing == null || existing.fileName != item.fileName || needsDerived(existing)
-            }
+            analysisWorkPending(
+                existing = existing,
+                downloadFileName = item.fileName,
+                covered = existing != null && syncedEpisodeCovered(item, existing),
+                needsDerivedWork = existing?.let(::needsDerived) == true,
+            )
         }
 
     private fun needsDerived(result: MediaAnalysisResult): Boolean =
@@ -531,6 +528,23 @@ object MediaAnalysisBackground {
 
     fun requiresExternalPower(): Boolean =
         MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.OnlyWhileCharging)
+}
+
+/**
+ * A projected sync file has no local file name yet. When the synced cut already covers it,
+ * the analyzer stays idle. Thumbnails still run once this phone has analysed that file.
+ */
+internal fun analysisWorkPending(
+    existing: MediaAnalysisResult?,
+    downloadFileName: String,
+    covered: Boolean,
+    needsDerivedWork: Boolean,
+): Boolean {
+    val sameFile = existing != null && (existing.fileName == null || existing.fileName == downloadFileName)
+    if (existing != null && sameFile && covered) {
+        return existing.fileName == downloadFileName && needsDerivedWork
+    }
+    return existing == null || existing.fileName != downloadFileName || needsDerivedWork
 }
 
 private fun syncedEpisodeCovered(item: DownloadItem, existing: MediaAnalysisResult): Boolean {

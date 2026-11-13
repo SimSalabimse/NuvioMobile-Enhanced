@@ -39,6 +39,7 @@ import com.nuvio.app.features.analyzedsync.transport.PulledBlob
 import com.nuvio.app.features.analyzedsync.transport.SyncTransport
 import com.nuvio.app.features.analyzedsync.transport.TransportResponse
 import com.nuvio.app.features.analyzedsync.transport.honestSyncStatus
+import kotlinx.coroutines.delay
 import kotlinx.serialization.json.Json
 
 internal data class SyncConfig(
@@ -69,6 +70,9 @@ internal class AnalyzedSyncEngine(
     private val transport: SyncTransport,
     private val port: AnalysisSyncPort,
     private val random: (Int) -> ByteArray,
+    private val sleep: suspend (Long) -> Unit = { delay(it) },
+    private val onClock: (Long, Int) -> Unit = { _, _ -> },
+    private val stillCurrent: () -> Boolean = { true },
 ) {
     suspend fun sync(config: SyncConfig, state: SyncSessionState, nowMs: Long): SyncRun {
         val mode = syncMode(state.lastSuccessfulSyncMs, nowMs)
@@ -79,14 +83,14 @@ internal class AnalyzedSyncEngine(
         var pages = 0
         while (pages < 250) {
             pages += 1
-            val page = when (val response = transport.pull(config.baseUrl, config.spaceId, bearer(config.authToken), cursor, SYNC_PULL_LIMIT)) {
+            val page = when (val response = rateLimited { transport.pull(config.baseUrl, config.spaceId, bearer(config.authToken), cursor, SYNC_PULL_LIMIT) }) {
                 is TransportResponse.Ok -> response.value
-                is TransportResponse.Failed -> return SyncRun(state.copy(pullCursor = cursor, clockWallMs = clock.wallMs, clockCounter = clock.counter, seenDevices = seen), honestSyncStatus(response))
+                is TransportResponse.Failed -> return SyncRun(state, honestSyncStatus(response))
             }
             val advanced = try {
                 advancePullCursor(cursor, PullCursorPage(page.cursor, page.blobs.map { it.seq }))
             } catch (_: Exception) {
-                return SyncRun(state.copy(seenDevices = seen), "The server sent a page this phone could not follow.")
+                return SyncRun(state, "The server sent a page this phone could not follow.")
             }
             for (blob in page.blobs) {
                 seen[blob.deviceId] = maxOf(seen[blob.deviceId] ?: 0L, blob.receivedAtMs)
@@ -98,24 +102,40 @@ internal class AnalyzedSyncEngine(
             cursor = advanced
             if (!page.hasMore) break
         }
-        val local = port.readLocal()
-        val active = local.filter { kindEnabled(config, it.record.kind) }
-        val held = local.filter { !kindEnabled(config, it.record.kind) }.map { it.record }
-        val stamped = try {
-            stampLocal(active, clock, nowMs, config.deviceId, random)
-        } catch (_: Exception) {
-            return SyncRun(state.copy(pullCursor = cursor, seenDevices = seen), "This phone is writing faster than its clock. Wait a moment and sync again.")
+        if (!stillCurrent()) return SyncRun(state, null)
+        var applied = false
+        var failure: String? = null
+        var uploadable = emptyList<SyncRecord>()
+        var episodeCount = 0
+        port.exclusive {
+            if (!stillCurrent()) return@exclusive
+            val local = port.readLocal()
+            val active = local.filter { kindEnabled(config, it.record.kind) }
+            val held = local.filter { !kindEnabled(config, it.record.kind) }.map { it.record }
+            val stamped = try {
+                stampLocal(active, clock, nowMs, config.deviceId, random)
+            } catch (_: Exception) {
+                failure = "This phone is writing faster than its clock. Wait a moment and sync again."
+                return@exclusive
+            }
+            clock = stamped.second
+            uploadable = recordsToUpload(stamped.first, state.lastSuccessfulSyncMs, nowMs)
+            val mergedInputs = if (mode == SyncMode.FullResync) remote + uploadable else remote + stamped.first
+            val kept = keepLatest(mergedInputs, nowMs)
+            if (!stillCurrent()) return@exclusive
+            onClock(clock.wallMs, clock.counter)
+            port.replaceRecords(kept + held, nowMs)
+            episodeCount = mergeRecords(kept.map { it.toWire() }, nowMs).shows.sumOf { it.episodes.size }
+            applied = true
         }
-        clock = stamped.second
-        val uploadable = recordsToUpload(stamped.first, state.lastSuccessfulSyncMs, nowMs)
-        val mergedInputs = if (mode == SyncMode.FullResync) remote + uploadable else remote + stamped.first
-        val kept = keepLatest(mergedInputs, nowMs)
-        port.replaceRecords(kept + held, nowMs)
+        if (!applied) {
+            if (!stillCurrent()) return SyncRun(state, null)
+            return SyncRun(state, failure ?: "Sync failed.")
+        }
         val remoteCanonical = remote.map { canonicalJson(it.toWire()) }.toSet()
         val toPush = uploadable.filter { canonicalJson(it.toWire()) !in remoteCanonical }
         for (batch in toPush.chunked(SYNC_BATCH_LIMIT)) {
-            val blobs = batch.map { seal(config, it, random) }
-            val pushed = pushBatch(config, blobs)
+            val pushed = pushRecords(config, batch)
             if (pushed is TransportResponse.Failed) {
                 return SyncRun(
                     state.copy(pullCursor = cursor, clockWallMs = clock.wallMs, clockCounter = clock.counter, seenDevices = seen),
@@ -123,7 +143,6 @@ internal class AnalyzedSyncEngine(
                 )
             }
         }
-        val episodeCount = mergeRecords(kept.map { it.toWire() }, nowMs).shows.sumOf { it.episodes.size }
         return SyncRun(
             SyncSessionState(
                 pullCursor = cursor,
@@ -137,15 +156,29 @@ internal class AnalyzedSyncEngine(
         )
     }
 
-    private suspend fun pushBatch(config: SyncConfig, blobs: List<BlobEnvelope>): TransportResponse<Unit> {
-        var attempt = transport.push(config.baseUrl, config.spaceId, bearer(config.authToken), config.deviceId, blobs)
+    private suspend fun pushRecords(config: SyncConfig, records: List<SyncRecord>): TransportResponse<Unit> {
+        var blobs = records.map { seal(config, it, random) }
+        var attempt = rateLimited { transport.push(config.baseUrl, config.spaceId, bearer(config.authToken), config.deviceId, blobs) }
         if (attempt is TransportResponse.Failed && attempt.code == "conflict") {
-            attempt = transport.push(config.baseUrl, config.spaceId, bearer(config.authToken), config.deviceId, blobs)
+            blobs = records.map { seal(config, it, random) }
+            attempt = rateLimited { transport.push(config.baseUrl, config.spaceId, bearer(config.authToken), config.deviceId, blobs) }
         }
         return when (attempt) {
             is TransportResponse.Ok -> TransportResponse.Ok(Unit)
             is TransportResponse.Failed -> attempt
         }
+    }
+
+    private suspend fun <T> rateLimited(block: suspend () -> TransportResponse<T>): TransportResponse<T> {
+        var attempt = block()
+        var tries = 0
+        while (attempt is TransportResponse.Failed && attempt.code == "rate_limited" && tries < 3) {
+            val seconds = (attempt.retryAfterSeconds ?: 1).coerceIn(1, 600)
+            sleep(seconds * 1000L)
+            tries += 1
+            attempt = block()
+        }
+        return attempt
     }
 }
 

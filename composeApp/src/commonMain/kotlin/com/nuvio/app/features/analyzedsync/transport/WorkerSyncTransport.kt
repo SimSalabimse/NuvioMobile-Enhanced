@@ -179,7 +179,13 @@ internal class WorkerSyncTransport(private val client: HttpClient) : SyncTranspo
             429 -> "rate_limited"
             else -> "internal"
         }
-        return TransportResponse.Failed(response.status, code)
+        val retryAfterSeconds = if (response.status == 429) retryAfterSeconds(response.retryAfter) else null
+        return TransportResponse.Failed(response.status, code, retryAfterSeconds)
+    }
+
+    private fun retryAfterSeconds(header: String?): Int {
+        val parsed = header?.trim()?.toIntOrNull()
+        return (parsed ?: 1).coerceIn(1, 600)
     }
 
     private fun parseObject(body: String): JsonObject? =

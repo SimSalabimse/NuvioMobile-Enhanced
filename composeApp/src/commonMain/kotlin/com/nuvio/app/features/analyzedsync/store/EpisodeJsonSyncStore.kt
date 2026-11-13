@@ -30,7 +30,7 @@ import kotlinx.serialization.json.Json
  * `show-aliases` file. Fingerprints, energy, and thumbnail sheets stay in the episode file and
  * are never copied into a sync record.
  */
-internal class EpisodeJsonSyncStore(private val files: AnalysisTextFiles) : AnalysisSyncPort {
+internal open class EpisodeJsonSyncStore(private val files: AnalysisTextFiles) : AnalysisSyncPort {
     override fun readLocal(): List<LocalRecord> {
         val records = mutableListOf<LocalRecord>()
         records += readStored(files, TOMBSTONES_FILE)
@@ -53,8 +53,11 @@ internal class EpisodeJsonSyncStore(private val files: AnalysisTextFiles) : Anal
         writeStored(files, TOMBSTONES_FILE, tombstones)
         writeStored(files, SUBMISSIONS_FILE, live.filterIsInstance<SubmissionRecord>() + tombstones.filter { it.kind == "submission" })
         val aliasLive = live.filterIsInstance<AliasRecord>()
-        writeStored(files, ALIASES_SYNC_FILE, aliasLive + tombstones.filter { it.kind == "alias" })
-        writeAliasMap(files, aliasMapFrom(aliasLive))
+        val aliasTombs = tombstones.filter { it.kind == "alias" }
+        writeStored(files, ALIASES_SYNC_FILE, aliasLive + aliasTombs)
+        if (aliasLive.isNotEmpty() || aliasTombs.isNotEmpty()) {
+            writeAliasMap(files, mergeAliasMap(readAliasMap(files), aliasLive, aliasTombs, files))
+        }
         val state = mergeRecords(records.map { it.toWire() }, nowMs)
         val existing = episodeFiles(files)
         val used = mutableSetOf<String>()
@@ -72,33 +75,110 @@ internal class EpisodeJsonSyncStore(private val files: AnalysisTextFiles) : Anal
             }
         }
         for ((key, episode) in existing) {
-            if (key in used || episode.syncRecordsJson.isEmpty()) continue
-            files.write(key, encodeEpisode(episode.copy(userSegments = emptyMap(), userNoneTypes = emptySet(), syncRecordsJson = "")))
+            if (key in used || episode.syncRecordsJson.isBlank()) continue
+            val storedIds = decodeRecords(episode.syncRecordsJson).map { it.id }.toSet()
+            if (storedIds.isEmpty()) continue
+            if (live.any { it.id in storedIds }) continue
+            files.write(
+                key,
+                encodeEpisode(
+                    episode.copy(
+                        userSegments = emptyMap(),
+                        userNoneTypes = emptySet(),
+                        learnedTypes = emptySet(),
+                        foundUsing = emptyMap(),
+                        introStartMs = null,
+                        introEndMs = null,
+                        creditsStartMs = null,
+                        creditsEndMs = null,
+                        recapStartMs = null,
+                        recapEndMs = null,
+                        syncRecordsJson = "[]",
+                    ),
+                ),
+            )
         }
     }
 
+    override fun writeBackup(json: String): Boolean {
+        if (!backupJsonIsSafe(json)) return false
+        files.write(BACKUP_FILE, json)
+        return true
+    }
+
     private fun recordsFromEpisode(episode: MediaAnalysisResult, showId: String, season: Long?, episodeNumber: Long?): List<LocalRecord> {
-        val stored = decodeRecords(episode.syncRecordsJson)
-        if (stored.isEmpty()) return legacyRecords(episode, showId, season, episodeNumber)
+        if (episode.syncRecordsJson.isBlank()) return legacyRecords(episode, showId, season, episodeNumber)
+        return reconcile(episode, decodeRecords(episode.syncRecordsJson), showId, season, episodeNumber)
+    }
+
+    /**
+     * The episode file is the person's current marks and the analyzer's latest times.
+     * Stored sync records are what we last merged. A blank [MediaAnalysisResult.syncRecordsJson]
+     * is a file from before sync and uses [legacyRecords]. "[]" means sync already owns the file
+     * and there is nothing to resurrect, including an inferred not_found.
+     */
+    private fun reconcile(
+        episode: MediaAnalysisResult,
+        stored: List<SyncRecord>,
+        showId: String,
+        season: Long?,
+        episodeNumber: Long?,
+    ): List<LocalRecord> {
         val fresh = mutableListOf<LocalRecord>()
         val kept = stored.map { LocalRecord(it, needsStamp = false) }.toMutableList()
+        val marked = mutableSetOf<String>()
         for ((localType, segment) in episode.userSegments) {
             val wire = wireType(localType) ?: continue
-            val match = stored.filterIsInstance<MarkRecord>().find {
-                it.presence == "range" && it.segmentType == wire && (it.segmentIndex ?: 0) == 0 &&
-                    it.startMs == segment.startMs && it.endMs == segment.endMs && it.durationMs == segment.durationMs
+            if (segment.endMs <= segment.startMs) continue
+            marked += wire
+            val previous = stored.filterIsInstance<MarkRecord>().find {
+                it.presence == "range" && it.segmentType == wire && (it.segmentIndex ?: 0) == 0
             }
-            if (match == null) {
-                val previous = stored.filterIsInstance<MarkRecord>().find {
-                    it.presence == "range" && it.segmentType == wire && (it.segmentIndex ?: 0) == 0
-                }
-                fresh += LocalRecord(
-                    rangeMark(previous?.id.orEmpty(), showId, season, episodeNumber, wire, segment),
-                    needsStamp = true,
-                )
-                if (previous != null) kept.removeAll { it.record.id == previous.id && it.record.kind == "mark" }
-            }
+            val same = previous != null && previous.startMs == segment.startMs &&
+                previous.endMs == segment.endMs && previous.durationMs == segment.durationMs
+            if (same) continue
+            fresh += LocalRecord(rangeMark(previous?.id.orEmpty(), showId, season, episodeNumber, wire, segment), needsStamp = true)
+            if (previous != null) kept.removeAll { it.record.id == previous.id && it.record.kind == "mark" && !it.record.deleted }
         }
+        for (mark in stored.filterIsInstance<MarkRecord>()) {
+            if (mark.presence != "range" || (mark.segmentIndex ?: 0) != 0) continue
+            val local = localType(mark.segmentType)
+            if (local in episode.userSegments || local in episode.userNoneTypes) continue
+            kept.removeAll { it.record.id == mark.id && it.record.kind == "mark" && !it.record.deleted }
+            fresh += LocalRecord(TombstoneRecord("mark", mark.id, placeholderClock()), needsStamp = true)
+        }
+        for (localType in episode.userNoneTypes) {
+            val wire = wireType(localType) ?: continue
+            marked += wire
+            if (stored.filterIsInstance<MarkRecord>().any { it.presence == "none" && it.segmentType == wire }) continue
+            val key = episodeKey(season, episodeNumber) ?: continue
+            fresh += LocalRecord(
+                MarkRecord(
+                    id = noneId(showId, key, wire),
+                    hlc = placeholderClock(),
+                    showId = showId,
+                    season = season,
+                    episode = episodeNumber,
+                    segmentType = wire,
+                    presence = "none",
+                    segmentIndex = null,
+                    startMs = null,
+                    endMs = null,
+                    durationMs = 0,
+                ),
+                needsStamp = true,
+            )
+        }
+        for (mark in stored.filterIsInstance<MarkRecord>()) {
+            if (mark.presence != "none") continue
+            val local = localType(mark.segmentType)
+            if (local in episode.userNoneTypes || local in episode.userSegments) continue
+            kept.removeAll { it.record.id == mark.id && !it.record.deleted }
+            fresh += LocalRecord(TombstoneRecord("mark", mark.id, placeholderClock()), needsStamp = true)
+        }
+        syncDetection(episode, stored, showId, season, episodeNumber, "intro", episode.introStartMs, episode.introEndMs, marked, kept, fresh)
+        syncDetection(episode, stored, showId, season, episodeNumber, "credits", episode.creditsStartMs, episode.creditsEndMs, marked, kept, fresh)
+        syncDetection(episode, stored, showId, season, episodeNumber, "recap", episode.recapStartMs, episode.recapEndMs, marked, kept, fresh)
         return kept + fresh
     }
 
@@ -210,6 +290,7 @@ private const val TOMBSTONES_FILE = "tombstones-sync"
 private const val SUBMISSIONS_FILE = "submissions-sync"
 private const val ALIASES_SYNC_FILE = "aliases-sync"
 private const val SHOW_ALIASES_FILE = "show-aliases"
+private const val BACKUP_FILE = "analyzed-sync-backup"
 private val json = LenientDefaultsJson
 
 private fun readStored(files: AnalysisTextFiles, name: String): List<LocalRecord> =
@@ -374,15 +455,82 @@ private fun aliasRecordsFromMap(map: Map<String, String>): List<LocalRecord> {
     return records
 }
 
-private fun aliasMapFrom(records: List<AliasRecord>): Map<String, String> {
-    val map = linkedMapOf<String, String>()
+private fun syncDetection(
+    episode: MediaAnalysisResult,
+    stored: List<SyncRecord>,
+    showId: String,
+    season: Long?,
+    episodeNumber: Long?,
+    type: String,
+    start: Long?,
+    end: Long?,
+    marked: Set<String>,
+    kept: MutableList<LocalRecord>,
+    fresh: MutableList<LocalRecord>,
+) {
+    if (type in marked) return
+    val key = episodeKey(season, episodeNumber) ?: return
+    val found = start != null && end != null && end > start
+    if (!found) {
+        if (type == "recap" && episode.derivedVersion <= 0) return
+        val previous = stored.filterIsInstance<DetectionRecord>()
+            .filter { it.segmentType == type && it.segmentIndex == 0 && it.outcome == "found" }
+            .maxByOrNull { it.hlc.wallMs }
+            ?: return
+        if (episode.analyzedAtMs <= previous.hlc.wallMs) return
+        kept.removeAll { it.record.id == previous.id && it.record.kind == "detection" && !it.record.deleted }
+        fresh += LocalRecord(
+            detection(showId, season, episodeNumber, key, type, "not_found", null, null, previous.durationMs),
+            needsStamp = true,
+        )
+        return
+    }
+    val duration = episode.durationMs.coerceAtLeast(0)
+    val id = detectionId(showId, key, type, 0, duration, MEDIA_ANALYSIS_VERSION)
+    val previous = stored.filterIsInstance<DetectionRecord>().find { it.id == id }
+    if (previous != null && previous.outcome == "found" && previous.startMs == start && previous.endMs == end) return
+    if (previous != null) kept.removeAll { it.record.id == id && it.record.kind == "detection" && !it.record.deleted }
+    fresh += LocalRecord(detection(showId, season, episodeNumber, key, type, "found", start, end, duration), needsStamp = true)
+}
+
+/**
+ * Adds synced alias links beside the ids already stored. An empty sync does not rewrite the file.
+ * The first id that already owns the title stays the owner, so episode files keep their names.
+ */
+private fun mergeAliasMap(
+    existing: Map<String, String>,
+    records: List<AliasRecord>,
+    tombstones: List<TombstoneRecord>,
+    files: AnalysisTextFiles,
+): Map<String, String> {
+    val map = existing.toMutableMap()
+    for (tomb in tombstones) {
+        if (!tomb.id.startsWith("alias/")) continue
+        val disk = syncIdToDisk(tomb.id.removePrefix("alias/")) ?: continue
+        if (map[disk]?.startsWith("tmdb#") == true) map.remove(disk)
+    }
     for (alias in records) {
-        val tmdb = listOf(alias.from, alias.to).firstOrNull { it.startsWith("tmdb:") } ?: continue
+        val tmdb = listOf(alias.from, alias.to).firstOrNull { it.startsWith("tmdb:") && isShowId(it) } ?: continue
         val other = if (alias.from == tmdb) alias.to else alias.from
+        if (!isShowId(other) || other == tmdb) continue
         val group = "tmdb#${tmdb.removePrefix("tmdb:")}"
         val disk = syncIdToDisk(other) ?: continue
-        if (group !in map) map[group] = disk
-        if (disk != map[group]) map[disk] = group
+        if (group !in map) {
+            val tmdbDisk = syncIdToDisk(tmdb)
+            map[group] = if (tmdbDisk != null && files.list("${tmdbDisk}__").isNotEmpty()) tmdbDisk else disk
+        }
+        val owner = map[group]
+        if (owner != null && disk != owner) map[disk] = group
     }
     return map
+}
+
+internal fun backupJson(records: List<com.nuvio.app.features.analyzedsync.store.LocalRecord>): String =
+    records.joinToString(prefix = "[", postfix = "]", separator = ",") {
+        canonicalJson(it.record.toWire())
+    }
+
+internal fun backupJsonIsSafe(json: String): Boolean {
+    if (!json.startsWith("[") || !json.endsWith("]")) return false
+    return listOf("\"passphrase\"", "\"encKey\"", "\"authToken\"", "\"enrollSecret\"", "\"master\"").none { it in json }
 }

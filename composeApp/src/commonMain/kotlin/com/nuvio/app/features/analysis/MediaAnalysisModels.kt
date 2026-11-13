@@ -93,6 +93,18 @@ internal fun MediaAnalysisResult.withUserSegmentsApplied(): MediaAnalysisResult 
 }
 
 /**
+ * "None here" is a person's statement. A detection, including one from a later analysis pass,
+ * does not fill that type back in. A range mark on the same type still wins.
+ */
+internal fun MediaAnalysisResult.withNonesClearingUnmarkedTypes(): MediaAnalysisResult {
+    var result = this
+    if ("intro" in userNoneTypes && "intro" !in userSegments) result = result.copy(introStartMs = null, introEndMs = null)
+    if ("outro" in userNoneTypes && "outro" !in userSegments) result = result.copy(creditsStartMs = null, creditsEndMs = null)
+    if ("recap" in userNoneTypes && "recap" !in userSegments) result = result.copy(recapStartMs = null, recapEndMs = null)
+    return result
+}
+
+/**
  * Thumbnails every [intervalMs], [columns] x [rows] tiles per JPEG sheet, sheets stored as
  * `<key>_thumbs_<n>.jpg` next to the analysis JSON.
  */
