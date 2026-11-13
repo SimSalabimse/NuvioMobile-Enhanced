@@ -6,7 +6,6 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -59,7 +58,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -134,6 +132,10 @@ import com.nuvio.app.features.details.components.DetailEpisodeRatingMap
 import com.nuvio.app.features.details.components.hasEpisodeRatingMap
 import com.nuvio.app.features.details.components.CinematicHeaderBackdrop
 import com.nuvio.app.features.details.components.DetailFloatingHeader
+import com.nuvio.app.features.details.components.DetailHeaderOcclusion
+import com.nuvio.app.features.details.components.LocalDetailHeaderOcclusion
+import com.nuvio.app.features.details.components.rememberDetailHeaderCoverProgress
+import com.nuvio.app.features.details.components.reportDetailHeaderListOrigin
 import com.nuvio.app.features.details.components.DetailHero
 import com.nuvio.app.features.details.components.DetailOverviewSection
 import com.nuvio.app.features.details.components.DetailPosterRailSection
@@ -1419,6 +1421,12 @@ fun MetaDetailsScreen(
                             (listState.firstVisibleItemIndex > 0 || detailScrollOffsetPx() > thresholdPx)
                     }
                 }
+                val headerOcclusion = remember(listState, detailScrollOffsetPx) {
+                    DetailHeaderOcclusion(
+                        scrollOffsetPx = detailScrollOffsetPx,
+                        heroScrolledOff = { listState.firstVisibleItemIndex > 0 },
+                    )
+                }
                 val heroTrailerSourceUrl = heroTrailerPlaybackSource
                     ?.videoUrl
                     ?.takeIf { it.isNotBlank() && heroTrailerPlaybackEnabled && !heroTrailerFinished && !isLeavingDetails }
@@ -1426,6 +1434,7 @@ fun MetaDetailsScreen(
                     ?.audioUrl
                     ?.takeIf { heroTrailerSourceUrl != null && it.isNotBlank() }
 
+                CompositionLocalProvider(LocalDetailHeaderOcclusion provides headerOcclusion) {
                 BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                     val colorScheme = MaterialTheme.colorScheme
                     val useTabletLayout = minOf(maxWidth, maxHeight) >= 600.dp
@@ -1547,6 +1556,7 @@ fun MetaDetailsScreen(
                                         .fillMaxSize()
                                         .nestedScroll(heroStretchState.nestedScrollConnection)
                                         .dismissKeyboardOnScrollOrTap()
+                                        .reportDetailHeaderListOrigin()
                                         .zIndex(1f),
                                 ) {
                                     item(key = "detail-hero") {
@@ -1797,7 +1807,6 @@ fun MetaDetailsScreen(
                         DetailHeaderOverlay(
                             meta = meta,
                             isSaved = isSaved,
-                            isHeroCollapsed = isHeroCollapsed,
                             backgroundColor = dominantBackdropColor.takeIf { dominantColorEnabled },
                             headerBackground = null,
                             onBack = onBackFromDetails,
@@ -2197,6 +2206,7 @@ fun MetaDetailsScreen(
                         }
                     }
                 }
+                }
             }
         }
 
@@ -2424,32 +2434,21 @@ fun MetaDetailsScreen(
 private fun DetailHeaderOverlay(
     meta: MetaDetails,
     isSaved: Boolean,
-    isHeroCollapsed: State<Boolean>,
     backgroundColor: Color?,
     headerBackground: (@Composable () -> Unit)?,
     onBack: () -> Unit,
     onToggleSaved: () -> Unit,
 ) {
-    val headerTarget = if (isHeroCollapsed.value) 1f else 0f
-    val headerProgress = animateFloatAsState(
-        targetValue = headerTarget,
-        animationSpec = tween(
-            durationMillis = if (headerTarget > 0f) 150 else 100,
-            easing = LinearOutSlowInEasing,
-        ),
-        label = "detail_floating_header_progress",
-    )
-
     DetailFloatingHeader(
         meta = meta,
         isSaved = isSaved,
-        progress = headerProgress,
+        progress = rememberDetailHeaderCoverProgress(),
         backgroundColor = backgroundColor,
         background = headerBackground,
         onBack = onBack,
-            onToggleSaved = onToggleSaved,
-            modifier = Modifier.zIndex(2f),
-        )
+        onToggleSaved = onToggleSaved,
+        modifier = Modifier.zIndex(2f),
+    )
 }
 
 private const val RATING_SHEET_OPEN_DELAY_MS = 350L

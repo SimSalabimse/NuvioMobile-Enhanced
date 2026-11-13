@@ -12,8 +12,20 @@ import kotlin.math.max
  * A portrait return whose status bar is still 0 uses the window top.
  * The same number from both sources is not added twice.
  */
-internal fun homeContentTopInsetDp(statusBarDp: Float, windowTopDp: Float): Float =
-    max(statusBarDp.coerceAtLeast(0f), windowTopDp.coerceAtLeast(0f))
+internal fun homeContentTopInsetDp(
+    statusBarDp: Float,
+    windowTopDp: Float,
+    safeDrawingDp: Float = 0f,
+): Float = max(
+    max(statusBarDp.coerceAtLeast(0f), windowTopDp.coerceAtLeast(0f)),
+    safeDrawingDp.coerceAtLeast(0f),
+)
+
+/** Space under the status inset before Home foreground. A zero inset adds none. */
+internal const val HOME_FOREGROUND_GAP_DP = 12f
+
+internal fun homeForegroundTopDp(contentTopDp: Float, gapDp: Float = HOME_FOREGROUND_GAP_DP): Float =
+    if (contentTopDp <= 0f) 0f else contentTopDp + gapDp
 
 /** iPhone 16 Pro portrait safe top, in points. Tests only. The layout reads the live inset. */
 internal const val HOME_PRO_PORTRAIT_TOP_DP = 59f

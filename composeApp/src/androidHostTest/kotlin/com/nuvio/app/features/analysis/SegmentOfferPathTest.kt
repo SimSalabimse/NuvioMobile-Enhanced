@@ -78,8 +78,8 @@ class SegmentOfferPathTest {
         assertEquals(2_370_000L, stored?.previewEndMs)
 
         val sources = skipSourcesFor(item).toMap()
-        assertEquals("On-device", sources["Recap"])
-        assertEquals("On-device", sources["Preview"])
+        assertEquals("Detected", sources["Recap"])
+        assertEquals("Detected", sources["Preview"])
 
         val status = assertIs<ItemAnalysisStatus.Done>(MediaAnalysisStatus.statusFor(item))
         assertEquals(AnalysisPart.Ready, status.parts.recap)

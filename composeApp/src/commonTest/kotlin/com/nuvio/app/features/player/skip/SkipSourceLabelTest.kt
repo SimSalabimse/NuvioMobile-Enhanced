@@ -9,10 +9,10 @@ import kotlin.test.assertNull
 
 class SkipSourceLabelTest {
     @Test fun yourMark() = assertEquals("Your mark", skipSourceLabel(SkipLearning.PROVIDER))
-    @Test fun yourTheIntroDbSubmission() = assertEquals("TheIntroDB (yours)", skipSourceLabel(SkipLearning.PROVIDER_IMPORTED))
+    @Test fun importedWithoutTheLedgerIsNotYourMark() = assertEquals(null, skipSourceLabel(SkipLearning.PROVIDER_IMPORTED))
     @Test fun theIntroDb() = assertEquals("TheIntroDB", skipSourceLabel(TheIntroDb.PROVIDER))
-    @Test fun onDevice() = assertEquals("On-device", skipSourceLabel(ON_DEVICE_SKIP_PROVIDER))
-    @Test fun chapters() = assertEquals("Chapters", skipSourceLabel(CHAPTER_SKIP_PROVIDER))
+    @Test fun onDevice() = assertEquals("Detected", skipSourceLabel(ON_DEVICE_SKIP_PROVIDER))
+    @Test fun chapters() = assertEquals("Detected", skipSourceLabel(CHAPTER_SKIP_PROVIDER))
     @Test fun introDb() = assertEquals("IntroDB", skipSourceLabel("introdb"))
     @Test fun aniSkip() = assertEquals("AniSkip", skipSourceLabel("aniskip"))
     @Test fun animeSkip() = assertEquals("Anime-Skip", skipSourceLabel("animeskip"))

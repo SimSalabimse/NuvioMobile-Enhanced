@@ -2,13 +2,17 @@
   "releases": [
     {
       "version": "0.6.10.1",
-      "build": 212,
-      "date": "2026-11-10",
+      "build": 217,
+      "date": "2026-11-13",
       "new": [],
       "improved": [
         "Playback keeps the fork's player tools and brings in the 0.6.10 subtitle, crash, and iOS player fixes. Anime upscaling stays off, with no badge or settings block."
       ],
-      "fixed": []
+      "fixed": [
+        "Your mark is only a segment you submitted or set yourself. A public TheIntroDB time stays TheIntroDB, and an on-device detection stays Detected.",
+        "Home hero text and the show page header sit below the status bar. Scrolling the show page keeps the play button under that header.",
+        "A Continue Watching card asks again when a just-aired episode had no artwork cached, then tries the episode still, the show backdrop, and the poster."
+      ]
     },
     {
       "version": "0.6.9.1",
