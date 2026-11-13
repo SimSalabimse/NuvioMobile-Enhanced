@@ -11,11 +11,8 @@ import com.nuvio.app.nativebridge.NuvioSeasonOverviewBind
 import com.nuvio.app.nativebridge.NuvioSeasonOverviewRootView
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ByteVar
-import kotlinx.cinterop.CFunction
 import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.ExperimentalForeignApi
-import kotlinx.cinterop.cstr
-import kotlinx.cinterop.memScoped
 import kotlinx.cinterop.staticCFunction
 import kotlinx.cinterop.toKString
 import platform.UIKit.UIView
@@ -53,9 +50,7 @@ internal actual fun SeasonOverviewNativeListHost(
             seasonOverviewOnDownload,
             seasonOverviewOnCancel,
         )
-        memScoped {
-            NuvioSeasonOverviewApply(payload.cstr.ptr)
-        }
+        NuvioSeasonOverviewApply(payload)
     }
     DisposableEffect(Unit) {
         onDispose { SeasonOverviewNativeActions.clear() }
@@ -108,11 +103,11 @@ private val seasonOverviewOnSelecting = staticCFunction<Int, Unit> { flag ->
 }
 
 @OptIn(ExperimentalForeignApi::class)
-private val seasonOverviewOnDownload: CPointer<CFunction<() -> Unit>> = staticCFunction {
+private val seasonOverviewOnDownload = staticCFunction<Unit> {
     SeasonOverviewNativeActions.onDownload()
 }
 
 @OptIn(ExperimentalForeignApi::class)
-private val seasonOverviewOnCancel: CPointer<CFunction<() -> Unit>> = staticCFunction {
+private val seasonOverviewOnCancel = staticCFunction<Unit> {
     SeasonOverviewNativeActions.onCancel()
 }
