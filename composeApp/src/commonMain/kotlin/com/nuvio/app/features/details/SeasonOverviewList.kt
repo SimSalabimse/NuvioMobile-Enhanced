@@ -287,6 +287,7 @@ internal fun seasonOverviewListUi(
                 row = row,
                 facts = facts[row.contentKey],
                 included = row.contentKey in selectedKeys,
+                selecting = selecting && downloadOffered,
                 copy = copy,
             )
         }
@@ -323,6 +324,7 @@ private fun seasonOverviewRowUi(
     row: EpisodeSegmentOverview,
     facts: EpisodeCatalogFacts?,
     included: Boolean,
+    selecting: Boolean,
     copy: SeasonOverviewCopy,
 ): SeasonOverviewRowUi {
     val publicLine = seasonOverviewPublicLine(
@@ -331,7 +333,7 @@ private fun seasonOverviewRowUi(
         copy = copy,
     )
     val symbols = seasonOverviewSymbols(row.marks, copy)
-    val spoken = buildString {
+    val spokenBody = buildString {
         append(if (row.watched) copy.watched else row.episode.toString())
         append(", ")
         append(row.title)
@@ -341,6 +343,12 @@ private fun seasonOverviewRowUi(
             append(". ")
             append(symbol.accessibility)
         }
+    }
+    val spoken = if (selecting) {
+        val mark = if (included) copy.removeDownload else copy.includeDownload
+        "$mark. $spokenBody"
+    } else {
+        spokenBody
     }
     return SeasonOverviewRowUi(
         contentKey = row.contentKey,
@@ -375,6 +383,23 @@ private fun seasonOverviewSymbolAccessibility(
     },
     label,
 )
+
+/** AX1 and above, including AX5, put the four symbols on their own line. */
+internal fun seasonOverviewWrapsSymbols(fontScale: Float): Boolean =
+    accessibilityTextSize(fontScale)
+
+/** Symbol replace and variable-color effects. Reduce Motion turns them off. The swipe stays. */
+internal fun seasonOverviewPlaysSymbolEffects(reduceMotion: Boolean): Boolean = !reduceMotion
+
+/**
+ * Compose sheets, including Liquid Glass, keep the partial detent.
+ * The system sheet does not read this. It already offers medium and large.
+ */
+internal fun seasonOverviewSkipsPartialDetent(): Boolean = false
+
+/** The system sheet gives the list a real height. Fill that detent, and nowhere else. */
+internal fun seasonOverviewFillsNativeDetent(nativeList: Boolean, nativeSheet: Boolean): Boolean =
+    nativeList && nativeSheet
 
 internal fun formatCount(template: String, count: Int): String =
     template.replace("%1\$d", count.toString()).replace("%d", count.toString())

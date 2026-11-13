@@ -2,6 +2,7 @@ package com.nuvio.app.features.details.components
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -30,6 +31,7 @@ import com.nuvio.app.core.ui.dismissPresentedNuvioBottomSheet
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.core.ui.systemReduceMotionEnabled
 import com.nuvio.app.core.ui.usesNativeNuvioBottomSheet
+import com.nuvio.app.core.ui.background.isGlassUiActive
 import com.nuvio.app.core.uifixture.currentUiFixture
 import com.nuvio.app.features.analysis.MediaAnalysisStatus
 import com.nuvio.app.features.analysis.MediaAnalysisStore
@@ -51,11 +53,13 @@ import com.nuvio.app.features.details.overviewLedgerScope
 import com.nuvio.app.features.details.productionPublicEpisode
 import com.nuvio.app.features.details.seasonCatalogReloadKey
 import com.nuvio.app.features.details.seasonEpisodeContentKey
+import com.nuvio.app.features.details.seasonOverviewFillsNativeDetent
 import com.nuvio.app.features.details.seasonOverviewFontScale
 import com.nuvio.app.features.details.seasonOverviewListUi
 import com.nuvio.app.features.details.seasonOverviewModel
 import com.nuvio.app.features.details.seasonOverviewNativeList
 import com.nuvio.app.features.details.seasonOverviewPayload
+import com.nuvio.app.features.details.seasonOverviewSkipsPartialDetent
 import com.nuvio.app.features.details.seasonPublicCache
 import com.nuvio.app.features.details.seasonSegmentOverview
 import com.nuvio.app.features.details.usesFixtureLedger
@@ -91,7 +95,9 @@ internal fun SeasonOverviewSheet(
     onOpenEpisode: (MetaVideo) -> Unit,
     onWatchPrivately: (MetaVideo) -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = seasonOverviewSkipsPartialDetent(),
+    )
     val coroutineScope = rememberCoroutineScope()
     val analysisRevision by MediaAnalysisStatus.revision.collectAsStateWithLifecycle()
     val ownRevision by OwnTheIntroDbLedger.revision.collectAsStateWithLifecycle()
@@ -320,8 +326,16 @@ internal fun SeasonOverviewSheet(
                 modifier = modifier,
             )
         }
-        if (seasonOverviewNativeList) {
+        val hostedOnNativeSheet = usesNativeNuvioBottomSheet && !isGlassUiActive()
+        if (seasonOverviewFillsNativeDetent(seasonOverviewNativeList, hostedOnNativeSheet)) {
             actions(Modifier.fillMaxSize())
+        } else if (seasonOverviewNativeList) {
+            actions(
+                Modifier
+                    .fillMaxWidth()
+                    .height(sheetCap)
+                    .padding(bottom = nuvioSafeBottomPadding(16.dp)),
+            )
         } else {
             CompositionLocalProvider(
                 LocalDensity provides Density(density = density.density, fontScale = fontScale),
