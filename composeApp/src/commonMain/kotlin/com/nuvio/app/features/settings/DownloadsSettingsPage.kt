@@ -103,7 +103,7 @@ internal fun LazyListScope.downloadsSettingsContent(
                     description = stringResource(Res.string.smart_downloads_description),
                     checked = smart.enabled,
                     isTablet = isTablet,
-                    onCheckedChange = SmartDownloadSettings::setEnabled,
+                    onCheckedChange = SmartDownloadSettings::changeEnabled,
                 )
                 if (smart.enabled) {
                     SettingsGroupDivider(isTablet = isTablet)
@@ -111,7 +111,7 @@ internal fun LazyListScope.downloadsSettingsContent(
                         title = stringResource(Res.string.smart_downloads_count_title),
                         description = stringResource(Res.string.smart_downloads_count_value, smart.count),
                         isTablet = isTablet,
-                        onClick = { SmartDownloadSettings.setCount(if (smart.count >= 3) 1 else smart.count + 1) },
+                        onClick = { SmartDownloadSettings.changeCount(if (smart.count >= 3) 1 else smart.count + 1) },
                     )
                 }
                 SettingsGroupDivider(isTablet = isTablet)
@@ -120,7 +120,7 @@ internal fun LazyListScope.downloadsSettingsContent(
                     description = stringResource(Res.string.smart_downloads_charging_description),
                     checked = smart.onlyWhileCharging,
                     isTablet = isTablet,
-                    onCheckedChange = SmartDownloadSettings::setOnlyWhileCharging,
+                    onCheckedChange = SmartDownloadSettings::changeOnlyWhileCharging,
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 val waiting by SmartDownloads.waitReason.collectAsStateWithLifecycle()
@@ -130,7 +130,7 @@ internal fun LazyListScope.downloadsSettingsContent(
                         ?: "Smart downloads, queued episodes and Finish a series wait for Wi-Fi.",
                     checked = smart.onlyOnWifi,
                     isTablet = isTablet,
-                    onCheckedChange = SmartDownloadSettings::setOnlyOnWifi,
+                    onCheckedChange = SmartDownloadSettings::changeOnlyOnWifi,
                 )
                 SettingsGroupDivider(isTablet = isTablet)
                 SettingsSwitchRow(

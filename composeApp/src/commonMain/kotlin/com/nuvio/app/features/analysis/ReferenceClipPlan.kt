@@ -155,7 +155,10 @@ internal fun mergeReferenceWrite(
 }
 
 internal fun referenceActivityToken(operation: String, seconds: Int, season: Int, episode: Int): String {
-    val op = if (operation == "read") "read" else "fetch"
+    val op = when (operation) {
+        "read", "compare" -> operation
+        else -> "fetch"
+    }
     return "ref:$op:${seconds.coerceAtLeast(0)}:${season.coerceAtLeast(0)}:${episode.coerceAtLeast(0)}"
 }
 
@@ -170,11 +173,24 @@ internal fun parseReferenceActivity(token: String): ReferenceActivity? {
     val parts = token.split(":")
     if (parts.size != 5 || parts[0] != "ref") return null
     val operation = parts[1]
-    if (operation != "read" && operation != "fetch") return null
+    if (operation != "read" && operation != "fetch" && operation != "compare") return null
     val seconds = parts[2].toIntOrNull() ?: return null
     val season = parts[3].toIntOrNull() ?: return null
     val episode = parts[4].toIntOrNull() ?: return null
     return ReferenceActivity(operation, seconds, season, episode)
+}
+
+/**
+ * Status line for a reference step.
+ * [ReferenceActivity.operation] `read` is a downloaded episode. `compare` is the match itself.
+ */
+internal fun referenceActivitySentence(activity: ReferenceActivity): String {
+    val place = "S${activity.season} E${activity.episode}"
+    return when (activity.operation) {
+        "read" -> "Reading the downloaded episode, ${activity.seconds}s of $place"
+        "compare" -> "Comparing ${activity.seconds}s of $place"
+        else -> "Fetching ${activity.seconds}s of $place"
+    }
 }
 
 /** Local analysis ranks ahead of a reference read so one clip cannot hold the queue. */

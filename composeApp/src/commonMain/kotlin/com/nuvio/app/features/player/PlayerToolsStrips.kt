@@ -1049,8 +1049,8 @@ private fun markProblemText(problem: MarkProblem, segmentType: String, segmentLa
         MarkProblem.TooShort, MarkProblem.TooLong -> stringResource(
             Res.string.player_tools_limit,
             segmentLabel,
-            limits.minSec.toInt(),
-            limits.maxSec.toInt(),
+            formatMarkClock(limits.minSec),
+            formatMarkClock(limits.maxSec),
         )
     }
 }

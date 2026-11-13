@@ -9,8 +9,6 @@ import nuvio.composeapp.generated.resources.analysis_stage_previews
 import nuvio.composeapp.generated.resources.analysis_status_queued
 import nuvio.composeapp.generated.resources.analysis_status_running
 import nuvio.composeapp.generated.resources.analysis_activity_clip
-import nuvio.composeapp.generated.resources.analysis_activity_reference_fetch
-import nuvio.composeapp.generated.resources.analysis_activity_reference_read
 import nuvio.composeapp.generated.resources.analysis_activity_teach
 import nuvio.composeapp.generated.resources.analysis_activity_backfill
 import nuvio.composeapp.generated.resources.analysis_activity_preview
@@ -117,14 +115,7 @@ private fun percent(value: Double): Int = (value.coerceIn(0.0, 1.0) * 100).toInt
 
 @Composable
 private fun activityLabel(activity: String, stage: AnalysisStage): String {
-    parseReferenceActivity(activity)?.let { ref ->
-        val name = if (ref.operation == "read") {
-            Res.string.analysis_activity_reference_read
-        } else {
-            Res.string.analysis_activity_reference_fetch
-        }
-        return stringResource(name, ref.seconds, ref.season, ref.episode)
-    }
+    parseReferenceActivity(activity)?.let { return referenceActivitySentence(it) }
     return when (activity) {
         "clip" -> stringResource(Res.string.analysis_activity_clip)
         "teach" -> stringResource(Res.string.analysis_activity_teach)

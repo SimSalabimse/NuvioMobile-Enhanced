@@ -186,12 +186,9 @@ internal fun markRangeStatus(
 internal fun showEndAfterStartMessage(clocksTouched: Boolean, problem: MarkProblem?): Boolean =
     clocksTouched && problem == MarkProblem.EndNotAfterStart
 
-internal fun markStatusLengthLabel(lengthSec: Double): String {
-    val tenths = (lengthSec * 10.0).roundToInt()
-    val whole = tenths / 10
-    val frac = tenths % 10
-    return if (frac == 0) "$whole s" else "$whole.$frac s"
-}
+/** Same H:MM:SS clock as Mark start / Mark end. A tenth shows only when the length is not a whole second. */
+internal fun markStatusLengthLabel(lengthSec: Double): String =
+    formatMarkClock(lengthSec, showTenth = true)
 
 /**
  * Half of one displayed tenth. Rounding a clock onto a 0.1 s grid, or a
@@ -271,16 +268,8 @@ internal fun logIntroLengthWarning(
     InAppLogger.info("Player/TheIntroDB", "intro length ${length.toInt()}s is above 200s")
 }
 
-/** "88.6 s" — one decimal, matching the marking strip. */
-internal fun markLengthLabel(lengthSec: Double): String {
-    val tenths = (lengthSec * 10.0).roundToInt() / 10.0
-    val text = if (tenths == tenths.toInt().toDouble()) {
-        "${tenths.toInt()}.0"
-    } else {
-        tenths.toString()
-    }
-    return "$text s"
-}
+/** Same clock as [markStatusLengthLabel]. */
+internal fun markLengthLabel(lengthSec: Double): String = markStatusLengthLabel(lengthSec)
 
 /**
  * Clock shown on Mark start / Mark end. Whole seconds (`0:44:08`), the same
