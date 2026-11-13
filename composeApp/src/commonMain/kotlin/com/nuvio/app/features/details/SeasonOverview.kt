@@ -115,8 +115,12 @@ internal data class SeasonOverviewModel(
 /** Call sites of the season overview entry. Nothing else opens it. */
 internal val seasonOverviewCallers: List<String> = listOf(
     "MetaDetailsScreen.SeasonWatchedActionSheet",
+    "DetailSeriesContent.SeasonsHeader",
     "DownloadsScreen.ShowSeason",
 )
+
+/** Accessibility id for the Seasons header control. The long-press row keeps its own id. */
+internal const val DETAILS_SEASON_OVERVIEW_HEADER_TAG = "details-season-overview-header"
 
 /** Actions removed to add the overview. */
 internal val seasonOverviewRemovalList: List<String> = emptyList()

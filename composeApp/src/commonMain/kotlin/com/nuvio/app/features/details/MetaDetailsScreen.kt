@@ -120,6 +120,7 @@ import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.DownloadsSettingsRepository
 import com.nuvio.app.features.downloads.downloadLogicalContentKey
 import com.nuvio.app.features.details.components.DetailActions
+import com.nuvio.app.features.details.components.LocalOpenSeasonOverview
 import com.nuvio.app.features.details.components.LocalSeasonPosterPlacement
 import com.nuvio.app.features.details.components.LocalSeasonPosterPreview
 import com.nuvio.app.features.details.components.SeasonPosterPlacement
@@ -522,6 +523,11 @@ fun MetaDetailsScreen(
             seasonPosterPreview = request
         },
         LocalSeasonPosterPlacement provides seasonPosterPlacement,
+        LocalOpenSeasonOverview provides if (type == "series") {
+            { season -> seasonOverviewSeason = season }
+        } else {
+            null
+        },
     ) {
     Box(
         modifier = modifier
