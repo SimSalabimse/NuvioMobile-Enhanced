@@ -44,6 +44,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.ViewList
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -63,6 +64,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -117,6 +119,7 @@ import com.nuvio.app.features.details.seasonPosterAccessibilityId
 import com.nuvio.app.features.details.seasonPosterScrollDelayMillis
 import com.nuvio.app.features.downloads.SeasonDownloadSheet
 import com.nuvio.app.features.downloads.downloadLogicalContentKey
+import com.nuvio.app.features.details.DETAILS_SEASON_OVERVIEW_HEADER_TAG
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaPerson
 import com.nuvio.app.features.details.EpisodeRatingsVisibility
@@ -281,6 +284,7 @@ fun DetailSeriesContent(
                             } else {
                                 seasonForContent.label()
                             },
+                            season = seasonForContent,
                             onDownload = openSeasonDownload?.let { open -> { open(seasonForContent) } },
                         )
                     }
@@ -473,9 +477,11 @@ fun DetailSeriesContent(
 @Composable
 private fun SeasonHeaderTitle(
     title: String,
+    season: Int,
     onDownload: (() -> Unit)?,
 ) {
-    if (onDownload == null) {
+    val openOverview = LocalOpenSeasonOverview.current
+    if (onDownload == null && openOverview == null) {
         DetailSectionTitle(title = title)
         return
     }
@@ -489,7 +495,30 @@ private fun SeasonHeaderTitle(
             fullWidth = false,
             modifier = Modifier.weight(1f),
         )
-        SeasonDownloadIconButton(onClick = onDownload)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (openOverview != null) {
+                SeasonOverviewHeaderButton(onClick = { openOverview(season) })
+            }
+            if (onDownload != null) {
+                SeasonDownloadIconButton(onClick = onDownload)
+            }
+        }
+    }
+}
+
+internal val LocalOpenSeasonOverview = staticCompositionLocalOf<((Int) -> Unit)?> { null }
+
+@Composable
+private fun SeasonOverviewHeaderButton(onClick: () -> Unit) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.testTag(DETAILS_SEASON_OVERVIEW_HEADER_TAG),
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.ViewList,
+            contentDescription = stringResource(Res.string.season_overview),
+            tint = MaterialTheme.colorScheme.onBackground,
+        )
     }
 }
 
@@ -544,6 +573,7 @@ internal fun DetailSeriesListHeader(
                     } else {
                         currentSeason.label()
                     },
+                    season = currentSeason,
                     onDownload = null,
                 )
             }
@@ -697,6 +727,10 @@ private fun SeriesSeasonSelector(
                             SeasonViewModeStorage.save(next)
                         },
                     )
+                }
+                val openOverview = LocalOpenSeasonOverview.current
+                if (openOverview != null) {
+                    SeasonOverviewHeaderButton(onClick = { openOverview(currentSeason) })
                 }
                 if (onDownloadSeason != null) {
                     SeasonDownloadIconButton(onClick = onDownloadSeason)

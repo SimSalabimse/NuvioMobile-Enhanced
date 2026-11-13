@@ -502,6 +502,7 @@ class SeasonOverviewTest {
         assertEquals(
             listOf(
                 "MetaDetailsScreen.SeasonWatchedActionSheet",
+                "DetailSeriesContent.SeasonsHeader",
                 "DownloadsScreen.ShowSeason",
             ),
             seasonOverviewCallers,

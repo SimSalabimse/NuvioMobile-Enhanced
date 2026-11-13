@@ -479,6 +479,12 @@ kotlin {
                     // is compiled into the klib instead of leaving the previous one in place.
                     header(cinteropDir.file("DiagnosticsInterop.h"))
                 }
+                create("seasonoverview") {
+                    val cinteropDir = project.layout.projectDirectory.dir("src/nativeInterop/cinterop")
+                    defFile(cinteropDir.file("seasonoverview.def"))
+                    compilerOpts("-I${cinteropDir.asFile.absolutePath}")
+                    header(cinteropDir.file("SeasonOverviewListInterop.h"))
+                }
                 if (iosDistribution == "full") {
                     check(nuvioEngineSliceDirectory.resolve("libCNuvioEngine.a").isFile) {
                         "Build the local Nuvio Engine Apple XCFramework before compiling iOS Full."

@@ -1,0 +1,3 @@
+headers = SeasonOverviewListInterop.h
+package = com.nuvio.app.nativebridge
+linkerOpts = -framework UIKit
