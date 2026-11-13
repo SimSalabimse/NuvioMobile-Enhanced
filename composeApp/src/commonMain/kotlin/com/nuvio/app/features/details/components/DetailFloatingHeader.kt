@@ -75,6 +75,9 @@ private val DetailHeaderRowHeight = 56.dp
  */
 internal fun detailHeaderTitleAlpha(progress: Float): Float = progress.coerceIn(0f, 1f)
 
+/** The opaque header is absent at rest, so the hero stays full-bleed. It fades in as the page scrolls. */
+internal fun detailHeaderCoverAlpha(progress: Float): Float = progress.coerceIn(0f, 1f)
+
 @Composable
 internal fun detailFloatingHeaderHeight(): Dp {
     return detailChromeTopInset() + DetailHeaderRowHeight
@@ -95,15 +98,17 @@ fun DetailFloatingHeader(
     val headerTopPadding = detailChromeTopInset()
     val edgeColor = backgroundColor ?: MaterialTheme.colorScheme.background
     val solidEdge = scrollEdgeKind(
-        safeTopDp = (headerTopPadding + DetailHeaderRowHeight).value,
+        safeTopDp = headerTopPadding.value,
         suppressed = false,
         reduceTransparency = playerReduceTransparencyEnabled(),
         increaseContrast = systemIncreaseContrastEnabled(),
     ) == ScrollEdgeKind.Solid
     val rowBottom = headerTopPadding + DetailHeaderRowHeight
+    val coverAlpha = detailHeaderCoverAlpha(progress.value)
+    // At rest this wash is only the status inset, the same idea as Home. The full bar is the cover.
     val edgeHeight = scrollEdgeHeightDp(
-        safeTopDp = rowBottom.value,
-        contentTopDp = rowBottom.value + SCROLL_EDGE_TAIL_DP,
+        safeTopDp = headerTopPadding.value,
+        contentTopDp = headerTopPadding.value + SCROLL_EDGE_TAIL_DP,
         solid = solidEdge,
     ).dp
     var logoLoadError by remember(meta.id, meta.logo) {
@@ -116,28 +121,33 @@ fun DetailFloatingHeader(
             .testTag(DETAIL_HEADER_TAG),
     ) {
         val logoWidth = (maxWidth * 0.6f).coerceAtMost(240.dp)
-        SoftTopEdge(
-            height = edgeHeight,
-            peakAlpha = DETAIL_SOFT_EDGE_PEAK,
-            solid = solidEdge,
-            tag = DETAIL_HEADER_EDGE_TAG,
-            color = edgeColor,
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(rowBottom)
-                .background(edgeColor)
-                .pointerInput(Unit) {
-                    awaitEachGesture {
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            event.changes.forEach { change -> change.consume() }
+        if (coverAlpha <= 0f) {
+            SoftTopEdge(
+                height = edgeHeight,
+                peakAlpha = DETAIL_SOFT_EDGE_PEAK,
+                solid = solidEdge,
+                tag = DETAIL_HEADER_EDGE_TAG,
+                color = edgeColor,
+            )
+        }
+        if (coverAlpha > 0f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(rowBottom)
+                    .graphicsLayer { alpha = coverAlpha }
+                    .background(edgeColor)
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                event.changes.forEach { change -> change.consume() }
+                            }
                         }
                     }
-                }
-                .testTag(DETAIL_HEADER_COVER_TAG),
-        )
+                    .testTag(DETAIL_HEADER_COVER_TAG),
+            )
+        }
         if (background != null) {
             Box(modifier = Modifier.matchParentSize()) { background() }
         }

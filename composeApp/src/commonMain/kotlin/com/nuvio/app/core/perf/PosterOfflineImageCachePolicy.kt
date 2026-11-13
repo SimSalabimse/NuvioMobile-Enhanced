@@ -114,6 +114,13 @@ internal object PosterOfflineImageCachePolicy {
     fun parseIndex(text: String): List<PosterOfflineImageIndexRow> =
         text.split('\n').mapNotNull(::parseIndexLine)
 
+    /** Keys named by an index.v1 file. A line that is not a cache key is ignored. */
+    fun legacyIndexKeys(text: String): Set<String> =
+        text.split('\n').mapNotNullTo(linkedSetOf()) { line ->
+            val key = line.substringBefore('\t').trim()
+            key.takeIf { it.length == 64 && it.all { char -> char in '0'..'9' || char in 'a'..'f' } }
+        }
+
     fun indexText(rows: Collection<PosterOfflineImageIndexRow>): String =
         rows.joinToString("\n") { row ->
             val kind = if (row.kind == PosterImageEntryKind.Miss) "miss" else "image"

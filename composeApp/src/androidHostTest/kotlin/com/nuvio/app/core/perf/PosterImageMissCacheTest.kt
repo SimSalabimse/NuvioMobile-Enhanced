@@ -71,6 +71,35 @@ class PosterImageMissCacheTest {
     }
 
     @Test
+    fun aLegacyIndexAndItsImagesAreRemovedOnce() = runBlocking {
+        val directory = Files.createTempDirectory("poster-legacy-cleanup").toFile()
+        try {
+            val cache = PosterOfflineImageDiskCache(OkioPosterOfflineImageBlobStore(directory.absolutePath))
+            val kept = ByteArray(48) { 4 }
+            assertTrue(cache.store("kept", kept, freshUntilMillis = 50_000L, nowMillis = 10L, contentType = "image/jpeg"))
+            val keptKey = posterOfflineImageFileKey("kept")
+            val oldKey = posterOfflineImageFileKey("old")
+            java.io.File(directory, "index.v1").writeText(
+                "$oldKey\t40\t999999\t1\timage/jpeg\n$keptKey\t48\t999999\t2\timage/jpeg\n",
+            )
+            java.io.File(directory, "index.v1.tmp").writeText("partial")
+            java.io.File(directory, "$oldKey.bin").writeBytes(ByteArray(40) { 1 })
+            java.io.File(directory, "notes.txt").writeText("leave this")
+            val reloaded = PosterOfflineImageDiskCache(OkioPosterOfflineImageBlobStore(directory.absolutePath))
+            assertEquals(PosterImageEntryKind.Image, reloaded.open("kept", nowMillis = 11L)?.kind)
+            assertNull(reloaded.open("old", nowMillis = 12L))
+            assertFalse(java.io.File(directory, "index.v1").exists())
+            assertFalse(java.io.File(directory, "index.v1.tmp").exists())
+            assertFalse(java.io.File(directory, "$oldKey.bin").exists())
+            assertTrue(java.io.File(directory, "$keptKey.bin").exists())
+            assertEquals("leave this", java.io.File(directory, "notes.txt").readText())
+            assertTrue(java.io.File(directory, "index.v2").exists())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun aLegacyEmptyEntryIsNotServed() = runBlocking {
         val directory = Files.createTempDirectory("poster-legacy").toFile()
         try {

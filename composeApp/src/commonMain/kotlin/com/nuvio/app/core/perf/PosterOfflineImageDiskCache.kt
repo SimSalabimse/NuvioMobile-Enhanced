@@ -28,6 +28,9 @@ internal interface PosterOfflineImageBlobStore {
     fun writeBlob(key: String, bytes: ByteArray)
     fun deleteBlob(key: String)
     fun deleteUnknownBlobs(knownKeys: Set<String>)
+
+    /** Deletes index.v1 and returns the image keys it named. Empty when there is no legacy file. */
+    fun retireLegacyIndex(): Set<String> = emptySet()
 }
 
 internal class PosterOfflineImageDiskCache(
@@ -146,6 +149,7 @@ internal class PosterOfflineImageDiskCache(
 
     private fun ensureLoaded() {
         if (loaded) return
+        val legacyKeys = blobs.retireLegacyIndex()
         val rows = blobs.loadIndex().sortedBy { it.lastAccessMillis }
         var dropped = false
         rows.forEach { row ->
@@ -161,6 +165,9 @@ internal class PosterOfflineImageDiskCache(
                 return@forEach
             }
             entries[row.key] = row
+        }
+        legacyKeys.forEach { key ->
+            if (key !in entries) blobs.deleteBlob(key)
         }
         blobs.deleteUnknownBlobs(entries.keys)
         if (dropped) persistLocked()
@@ -244,6 +251,21 @@ internal class OkioPosterOfflineImageBlobStore(
         if (fileSystem.exists(path)) fileSystem.delete(path)
     }
 
+    override fun retireLegacyIndex(): Set<String> {
+        if (!fileSystem.exists(directory)) return emptySet()
+        val legacy = directory / LegacyIndexFileName
+        val keys = if (fileSystem.exists(legacy)) {
+            val text = runCatching { fileSystem.read(legacy) { readUtf8() } }.getOrNull().orEmpty()
+            PosterOfflineImageCachePolicy.legacyIndexKeys(text)
+        } else {
+            emptySet()
+        }
+        if (fileSystem.exists(legacy)) fileSystem.delete(legacy)
+        val temporary = directory / "$LegacyIndexFileName.tmp"
+        if (fileSystem.exists(temporary)) fileSystem.delete(temporary)
+        return keys
+    }
+
     override fun deleteUnknownBlobs(knownKeys: Set<String>) {
         if (!fileSystem.exists(directory)) return
         val listed = runCatching { fileSystem.list(directory) }.getOrNull() ?: return
@@ -273,6 +295,7 @@ internal class OkioPosterOfflineImageBlobStore(
 
     private companion object {
         const val IndexFileName = "index.v2"
+        const val LegacyIndexFileName = "index.v1"
     }
 }
 
