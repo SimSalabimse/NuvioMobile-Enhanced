@@ -4,7 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalConfiguration
 
 @Composable
-internal actual fun seasonOverviewFontScale(): Float = 1f
+internal actual fun seasonOverviewFontScale(): Float = changedSurfaceFontScale()
 
 @Composable
 internal actual fun changedSurfaceFontScale(): Float =

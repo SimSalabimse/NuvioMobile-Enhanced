@@ -215,6 +215,8 @@ class SeasonOverviewListTest {
             reduceMotion = true,
         )
         assertTrue(ui.reduceMotion)
+        assertFalse(seasonOverviewPlaysSymbolEffects(ui.reduceMotion))
+        assertTrue(seasonOverviewPlaysSymbolEffects(reduceMotion = false))
         assertTrue(ui.swipeActionsInstalled)
         assertTrue(ui.rows.all { it.swipeWatchPrivately })
         assertEquals(listOf("open", "watchPrivately", "includeInDownload"), ui.contextActions)
@@ -286,6 +288,39 @@ class SeasonOverviewListTest {
         assertEquals(SeasonMarkSymbolState.OwnConfirmed, ui.rows.single().symbols.first().state)
         assertEquals("Public: Credits", ui.rows.single().publicLine)
         assertFalse(ui.rows.single().spoken.contains("Yours"))
+        ui.rows.single().symbols.forEach { symbol ->
+            assertTrue(ui.rows.single().spoken.contains(symbol.accessibility))
+        }
+    }
+
+    @Test
+    fun accessibilityScaleWrapsAndTheSheetKeepsBothHeights() {
+        assertTrue(seasonOverviewWrapsSymbols(3.12f))
+        assertTrue(seasonOverviewWrapsSymbols(1.5f))
+        assertFalse(seasonOverviewWrapsSymbols(1f))
+        assertFalse(seasonOverviewSkipsPartialDetent())
+        assertTrue(seasonOverviewFillsNativeDetent(nativeList = true, nativeSheet = true))
+        assertFalse(seasonOverviewFillsNativeDetent(nativeList = true, nativeSheet = false))
+        assertFalse(seasonOverviewFillsNativeDetent(nativeList = false, nativeSheet = true))
+
+        val selecting = seasonOverviewListUi(
+            title = "Season 1",
+            state = SeasonOverviewUiState.Partial,
+            rows = listOf(row(episode = 1, own = OwnAccountMarks(), detected = emptySet())),
+            facts = mapOf(key(1) to facts(key(1), CatalogRead.None, emptySet(), emptySet())),
+            selecting = true,
+            hasSelection = true,
+            selectedCount = 1,
+            episodeCount = 1,
+            running = false,
+            reduceMotion = false,
+            fromDownloads = false,
+            downloadAllowed = true,
+            selectedKeys = setOf(key(1)),
+            copy = copy,
+        )
+        assertTrue(selecting.rows.single().spoken.startsWith("Remove from download. "))
+        assertEquals("Download 1", selecting.downloadLabel)
     }
 
     private fun listUi(

@@ -36,10 +36,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.SwipeToDismissBox
@@ -52,6 +52,8 @@ import com.nuvio.app.features.details.SeasonOverviewNativeListHost
 import com.nuvio.app.features.details.SeasonOverviewRowUi
 import com.nuvio.app.features.details.SeasonOverviewSymbolUi
 import com.nuvio.app.features.details.seasonOverviewNativeList
+import com.nuvio.app.features.details.seasonOverviewPlaysSymbolEffects
+import com.nuvio.app.features.details.seasonOverviewWrapsSymbols
 import com.nuvio.app.features.details.seasonSwipeRevealsAction
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_cancel
@@ -154,6 +156,7 @@ internal fun SeasonOverviewSheetContent(
                 text = status,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .heightIn(min = 44.dp)
                     .padding(horizontal = 16.dp, vertical = 12.dp)
                     .testTag("season-overview-status"),
                 style = MaterialTheme.typography.bodyLarge,
@@ -227,7 +230,7 @@ private fun SeasonOverviewToolbar(
                 enabled = list.buttonEnabled,
                 modifier = Modifier.testTag("season-overview-download"),
             ) {
-                if (list.running) {
+                if (list.running && seasonOverviewPlaysSymbolEffects(list.reduceMotion)) {
                     CircularProgressIndicator(
                         modifier = Modifier.padding(end = 8.dp).size(16.dp),
                         strokeWidth = 2.dp,
@@ -287,56 +290,40 @@ private fun SeasonOverviewComposeRow(
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surfaceContainerLow),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 44.dp)
-                    .combinedClickable(
-                        onClick = { if (list.selecting) onInclude() else onOpen() },
-                        onLongClick = { menu = true },
-                    )
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .semantics { contentDescription = row.spoken }
-                    .testTag("season-overview-row-${row.contentKey}"),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (list.selecting) {
-                    SeasonSelectMark(included = row.included)
-                }
-                if (row.watched) {
-                    androidx.compose.material3.Icon(
-                        imageVector = Icons.Filled.Check,
-                        contentDescription = list.watchedLabel,
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(20.dp),
-                    )
-                } else {
-                    Text(
-                        text = row.episodeNumber.toString(),
-                        style = MaterialTheme.typography.bodyLarge.copy(fontFeatureSettings = "tnum"),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+            val rowModifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 44.dp)
+                .combinedClickable(
+                    onClick = { if (list.selecting) onInclude() else onOpen() },
+                    onLongClick = { menu = true },
+                )
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .clearAndSetSemantics { contentDescription = row.spoken }
+                .testTag("season-overview-row-${row.contentKey}")
+            if (seasonOverviewWrapsSymbols(LocalDensity.current.fontScale)) {
                 Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = rowModifier,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text(
-                        text = row.title,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        text = row.publicLine,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    row.symbols.forEach { symbol ->
-                        SeasonMarkGlyph(symbol)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        SeasonOverviewLeading(row, list)
+                        SeasonOverviewText(row, Modifier.weight(1f))
                     }
+                    SeasonOverviewSymbols(row)
+                }
+            } else {
+                Row(
+                    modifier = rowModifier,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SeasonOverviewLeading(row, list)
+                    SeasonOverviewText(row, Modifier.weight(1f))
+                    SeasonOverviewSymbols(row)
                 }
             }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -364,6 +351,60 @@ private fun SeasonOverviewComposeRow(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SeasonOverviewLeading(row: SeasonOverviewRowUi, list: SeasonOverviewListUi) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (list.selecting) {
+            SeasonSelectMark(included = row.included)
+        }
+        if (row.watched) {
+            androidx.compose.material3.Icon(
+                imageVector = Icons.Filled.Check,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.size(20.dp),
+            )
+        } else {
+            Text(
+                text = row.episodeNumber.toString(),
+                style = MaterialTheme.typography.bodyLarge.copy(fontFeatureSettings = "tnum"),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SeasonOverviewText(row: SeasonOverviewRowUi, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            text = row.title,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = row.publicLine,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun SeasonOverviewSymbols(row: SeasonOverviewRowUi) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        row.symbols.forEach { symbol ->
+            SeasonMarkGlyph(symbol)
         }
     }
 }
