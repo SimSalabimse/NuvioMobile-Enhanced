@@ -173,6 +173,12 @@ Upstream Nuvio has no Live TV. This fork adds the whole feature.
 | **Skia graphics engine** — rebuild graphics engine for animated artwork rendering with shared codecs and bounded memory. Fixed crash on large animated collection, support animated avatar and badge | — | — |
 | **Bundle CJK Font** — fixed Chinese subtitle rendering | — | — |
 
+### Sync
+
+| Feature | Where | Default |
+|---|---|---|
+| **Analyzed details sync format** — shared v1 records for your marks (including “none here”), detected segment times, and the TheIntroDB submissions list under a hashed account scope. A Cloudflare Worker stores ciphertext; the same blobs can live as files in a sync folder. Fingerprints, keys, addon URLs, and watch progress stay on the device. The apps do not sync yet. | `docs/sync/SYNC_FORMAT_v1.md`, `sync-worker/` | Off |
+
 ### Performance
 
 - **Faster startup** *(Android)* — saved data is loaded in the background while the splash screen is up.
