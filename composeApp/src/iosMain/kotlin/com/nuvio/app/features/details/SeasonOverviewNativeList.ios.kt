@@ -1,6 +1,7 @@
 package com.nuvio.app.features.details
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -8,6 +9,7 @@ import androidx.compose.ui.interop.UIKitView
 import com.nuvio.app.nativebridge.NuvioSeasonOverviewApply
 import com.nuvio.app.nativebridge.NuvioSeasonOverviewBind
 import com.nuvio.app.nativebridge.NuvioSeasonOverviewRootView
+import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.CFunction
 import kotlinx.cinterop.CPointer
@@ -24,7 +26,7 @@ internal actual val seasonOverviewNativeList: Boolean = true
  * The system sheet already on screen hosts this view.
  * Kotlin pushes a read-only payload. Swift calls the same actions back.
  */
-@OptIn(ExperimentalForeignApi::class)
+@OptIn(ExperimentalForeignApi::class, BetaInteropApi::class)
 @Composable
 internal actual fun SeasonOverviewNativeListHost(
     payload: String,
@@ -55,6 +57,9 @@ internal actual fun SeasonOverviewNativeListHost(
             NuvioSeasonOverviewApply(payload.cstr.ptr)
         }
     }
+    DisposableEffect(Unit) {
+        onDispose { SeasonOverviewNativeActions.clear() }
+    }
     UIKitView(
         factory = { NuvioSeasonOverviewRootView() ?: UIView() },
         modifier = modifier,
@@ -71,6 +76,15 @@ internal object SeasonOverviewNativeActions {
     var onSelecting: (Boolean) -> Unit = {}
     var onDownload: () -> Unit = {}
     var onCancel: () -> Unit = {}
+
+    fun clear() {
+        onOpen = {}
+        onWatch = {}
+        onInclude = {}
+        onSelecting = {}
+        onDownload = {}
+        onCancel = {}
+    }
 }
 
 @OptIn(ExperimentalForeignApi::class)

@@ -200,15 +200,30 @@ private enum SeasonOverviewBridge {
     static func open(_ id: String) { call(onOpen, id) }
     static func watch(_ id: String) { call(onWatch, id) }
     static func include(_ id: String) { call(onInclude, id) }
-    static func selecting(_ on: Bool) { onSelecting?(on ? 1 : 0) }
-    static func download() { onDownload?() }
-    static func cancel() { onCancel?() }
+    static func selecting(_ on: Bool) {
+        let flag: Int32 = on ? 1 : 0
+        runOnMain { onSelecting?(flag) }
+    }
+    static func download() { runOnMain { onDownload?() } }
+    static func cancel() { runOnMain { onCancel?() } }
 
+    /// Copy the string, then call on the main thread while `withCString` is still in scope.
     private static func call(
         _ function: (@convention(c) (UnsafePointer<CChar>?) -> Void)?,
         _ value: String
     ) {
-        value.withCString { function?($0) }
+        let owned = value
+        runOnMain {
+            owned.withCString { function?($0) }
+        }
+    }
+
+    private static func runOnMain(_ body: @escaping () -> Void) {
+        if Thread.isMainThread {
+            body()
+        } else {
+            DispatchQueue.main.async(execute: body)
+        }
     }
 }
 
@@ -321,6 +336,9 @@ private struct SeasonOverviewEpisodeRow: View {
             }
         }
         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(row.spoken)
+        .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("season-overview-row-\(row.id)")
     }
 }
@@ -334,19 +352,19 @@ private struct SeasonOverviewEpisodeLabel: View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .center, spacing: 8) {
                 leading
-                textBlock
+                textBlock(fillsWidth: false)
                 symbols
             }
+            .fixedSize(horizontal: true, vertical: false)
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     leading
-                    textBlock
+                    textBlock(fillsWidth: true)
                 }
                 symbols
             }
         }
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-        .accessibilityElement(children: .combine)
     }
 
     private var leading: some View {
@@ -370,23 +388,23 @@ private struct SeasonOverviewEpisodeLabel: View {
         }
     }
 
-    private var textBlock: some View {
+    private func textBlock(fillsWidth: Bool) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(row.title)
                 .font(.body)
                 .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: fillsWidth ? CGFloat.infinity : nil, alignment: .leading)
             Text(row.publicLine)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: fillsWidth ? CGFloat.infinity : nil, alignment: .leading)
         }
     }
 
     private var symbols: some View {
         HStack(spacing: 8) {
-            ForEach(Array(row.symbols.enumerated()), id: \.offset) { _, symbol in
-                MarkGlyph(symbol: symbol, reduceMotion: reduceMotion)
+            ForEach(row.symbols.indices, id: \.self) { index in
+                MarkGlyph(symbol: row.symbols[index], reduceMotion: reduceMotion)
             }
         }
     }
@@ -432,17 +450,11 @@ private struct MarkImage: View {
     let dashed: Bool
 
     var body: some View {
-        let image = Image(systemName: systemName)
-            .font(.body)
-            .foregroundStyle(tint)
-            .symbolRenderingMode(dashed ? .monochrome : .hierarchical)
         Group {
             if reduceMotion {
-                image
-            } else if #available(iOS 17.0, *) {
-                image.symbolEffect(.replace, options: .nonRepeating, value: token)
+                styled
             } else {
-                image
+                ReplacingMark(systemName: systemName, token: token, tint: tint, dashed: dashed)
             }
         }
         .overlay {
@@ -454,6 +466,36 @@ private struct MarkImage: View {
             }
         }
     }
+
+    private var styled: some View {
+        Image(systemName: systemName)
+            .font(.body)
+            .foregroundStyle(tint)
+            .symbolRenderingMode(dashed ? .monochrome : .hierarchical)
+    }
+}
+
+/// Availability stays in this view's body so the list type-checks on the iOS 16 deployment target.
+private struct ReplacingMark: View {
+    let systemName: String
+    let token: String
+    let tint: Color
+    let dashed: Bool
+
+    var body: some View {
+        if #available(iOS 17.0, *) {
+            styled.symbolEffect(.replace, options: .nonRepeating, value: token)
+        } else {
+            styled
+        }
+    }
+
+    private var styled: some View {
+        Image(systemName: systemName)
+            .font(.body)
+            .foregroundStyle(tint)
+            .symbolRenderingMode(dashed ? .monochrome : .hierarchical)
+    }
 }
 
 private struct DownloadGlyph: View {
@@ -461,13 +503,21 @@ private struct DownloadGlyph: View {
     let reduceMotion: Bool
 
     var body: some View {
-        let image = Image(systemName: "arrow.down.circle")
         if reduceMotion || !running {
-            image
-        } else if #available(iOS 17.0, *) {
-            image.symbolEffect(.variableColor.iterative, isActive: running)
+            Image(systemName: "arrow.down.circle")
         } else {
-            image
+            AnimatedDownloadGlyph()
+        }
+    }
+}
+
+private struct AnimatedDownloadGlyph: View {
+    var body: some View {
+        if #available(iOS 17.0, *) {
+            Image(systemName: "arrow.down.circle")
+                .symbolEffect(.variableColor.iterative, isActive: true)
+        } else {
+            Image(systemName: "arrow.down.circle")
         }
     }
 }
@@ -486,21 +536,34 @@ private final class SeasonOverviewContainer: UIView {
         addSubview(controller.view)
     }
 
-    @available(*, unavailable)
     required init?(coder: NSCoder) {
-        nil
+        fatalError("init(coder:) has not been implemented")
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         controller.view.frame = bounds
+        guard window != nil, controller.parent == nil, let parent = nearestViewController() else { return }
+        parent.addChild(controller)
+        controller.didMove(toParent: parent)
     }
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        if window == nil {
+            detachHostingController()
+            return
+        }
         guard let parent = nearestViewController(), controller.parent !== parent else { return }
+        detachHostingController()
         parent.addChild(controller)
         controller.didMove(toParent: parent)
+    }
+
+    private func detachHostingController() {
+        guard controller.parent != nil else { return }
+        controller.willMove(toParent: nil)
+        controller.removeFromParent()
     }
 
     private func nearestViewController() -> UIViewController? {
