@@ -37,6 +37,7 @@ class SmartDownloadRuleChangeTest {
         assertTrue(decision.keepPending)
         assertEquals("Queued 2 episodes", decision.message)
         assertEquals("Queued 0 episodes", smartDownloadRuleQueued(0))
+        assertEquals("Queued 0 episodes", smartDownloadRuleQueued(-2))
         assertEquals("Queued 1 episode", smartDownloadRuleQueued(1))
         assertEquals("Looking for the next 2 episodes", smartDownloadRuleSearching(2))
         val feedback = smartDownloadSettingsFeedback(

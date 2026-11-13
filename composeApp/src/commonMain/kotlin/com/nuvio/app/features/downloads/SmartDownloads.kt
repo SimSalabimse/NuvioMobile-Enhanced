@@ -375,6 +375,11 @@ internal object SmartDownloads {
     /** Why waiting automatic downloads (goals, queued, smart) can't start right now; null when they can or none wait. */
     val waitReason: StateFlow<String?> = _waitReason.asStateFlow()
 
+    /** Host tests pin the Wi-Fi bit. Null reads [DownloadNetworkGuard]. */
+    internal var onWifiForTest: Boolean? = null
+
+    private fun onWifiNow(): Boolean = onWifiForTest ?: DownloadNetworkGuard.isOnWifi()
+
     private var fixtureGoalHeld = false
     private val _goalStatus = MutableStateFlow<Map<String, String>>(emptyMap())
     /** What each Finish a series goal is doing ("Waiting for Wi-Fi", ...), by show id; shown on its chip. */
@@ -547,18 +552,21 @@ internal object SmartDownloads {
                 .map { it.parentMetaId }
                 .distinct()
                 .toList()
-            if (ids.isEmpty()) {
-                NuvioToastController.show(smartDownloadRuleQueued(0))
-                return@launch
+            val outbox = mutableListOf<SmartDownloadRequest>()
+            ids.forEach { id -> applySavedSeriesCount(id, announce = false, queueOut = outbox) }
+            val tally = DownloadTally()
+            runPending(tally, prepend = outbox)
+            if (tally.queued > 0 || !tally.spoke) {
+                NuvioToastController.show(smartDownloadRuleQueued(tally.queued))
             }
-            val decisions = ids.mapNotNull { id ->
-                applySavedSeriesCount(id, announce = false)?.let { id to it }
-            }
-            NuvioToastController.show(smartDownloadSettingsFeedback(decisions).message)
         }
     }
 
-    private suspend fun applySavedSeriesCount(seriesId: String, announce: Boolean = true): SmartDownloadRuleDecision? {
+    private suspend fun applySavedSeriesCount(
+        seriesId: String,
+        announce: Boolean = true,
+        queueOut: MutableList<SmartDownloadRequest>? = null,
+    ): SmartDownloadRuleDecision? {
         PlayerSettingsRepository.ensureLoaded()
         SmartDownloadSettings.ensureLoaded()
         val settings = SmartDownloadSettings.snapshot()
@@ -575,7 +583,7 @@ internal object SmartDownloads {
                     privateViewing = privateViewing,
                 ),
             )
-            publishRuleDecision(seriesId, "series", decision, announce)
+            publishRuleDecision(seriesId, "series", decision, announce, queueOut)
             return decision
         }
         DownloadsRepository.ensureLoaded()
@@ -586,7 +594,7 @@ internal object SmartDownloads {
             val decision = evaluateSmartDownloadRuleChange(
                 SmartDownloadRuleInput(globalEnabled = true, effectiveCount = effective, hasShowDownload = false),
             )
-            publishRuleDecision(seriesId, "series", decision, announce)
+            publishRuleDecision(seriesId, "series", decision, announce, queueOut)
             return decision
         }
         val parentType = showItems.first().parentMetaType.ifBlank { "series" }
@@ -633,7 +641,7 @@ internal object SmartDownloads {
                 globalEnabled = settings.enabled,
                 effectiveCount = effective,
                 onlyOnWifi = settings.onlyOnWifi,
-                onWifi = DownloadNetworkGuard.isOnWifi(),
+                onWifi = onWifiNow(),
                 onlyWhileCharging = settings.onlyWhileCharging,
                 charging = MediaAnalyzerPlatform.isCharging(),
                 analyserSupported = MediaAnalyzerPlatform.supported,
@@ -654,7 +662,7 @@ internal object SmartDownloads {
                     },
             ),
         )
-        publishRuleDecision(seriesId, meta.type.ifBlank { parentType }, decision, announce)
+        publishRuleDecision(seriesId, meta.type.ifBlank { parentType }, decision, announce, queueOut)
         return decision
     }
 
@@ -663,6 +671,7 @@ internal object SmartDownloads {
         parentType: String,
         decision: SmartDownloadRuleDecision,
         announce: Boolean = true,
+        queueOut: MutableList<SmartDownloadRequest>? = null,
     ) {
         if (decision.dropPlainPending) {
             mutex.withLock {
@@ -673,7 +682,7 @@ internal object SmartDownloads {
         }
         val spaceToastFromFulfil = decision.keepPending && !decision.startsNow && decision.message == SMART_DOWNLOADS_NO_SPACE
         val immediate = when {
-            !announce -> ""
+            queueOut != null || !announce -> ""
             decision.startsNow -> smartDownloadRuleSearching(decision.episodeCodes.size.coerceAtLeast(1))
             spaceToastFromFulfil -> ""
             else -> decision.message
@@ -682,16 +691,19 @@ internal object SmartDownloads {
         val season = decision.anchorSeason
         val episode = decision.anchorEpisode
         if (decision.keepPending && season != null && episode != null) {
-            add(
-                SmartDownloadRequest(
-                    parentMetaId = seriesId,
-                    parentMetaType = parentType,
-                    season = season,
-                    episode = episode,
-                    quiet = decision.startsNow,
-                    resultAnnounced = decision.startsNow && !announce,
-                ),
+            val request = SmartDownloadRequest(
+                parentMetaId = seriesId,
+                parentMetaType = parentType,
+                season = season,
+                episode = episode,
+                quiet = decision.startsNow,
+                resultAnnounced = decision.startsNow && !announce,
             )
+            when {
+                queueOut == null -> add(request)
+                decision.startsNow -> queueOut += request.copy(quiet = true, resultAnnounced = true)
+                !decisionBlockedByGate(decision.message) -> queueOut += request
+            }
         }
     }
 
@@ -801,15 +813,25 @@ internal object SmartDownloads {
         val settings = SmartDownloadSettings.snapshot()
         return smartDownloadWaitReason(
             onlyOnWifi = settings.onlyOnWifi,
-            onWifi = DownloadNetworkGuard.isOnWifi(),
+            onWifi = onWifiNow(),
             onlyWhileCharging = settings.onlyWhileCharging,
             charging = MediaAnalyzerPlatform.isCharging(),
             analyserSupported = MediaAnalyzerPlatform.supported,
         )
     }
 
-    private suspend fun runPending() {
+    private suspend fun runPending(
+        tally: DownloadTally? = null,
+        prepend: List<SmartDownloadRequest> = emptyList(),
+    ) {
         mutex.withLock {
+            if (prepend.isNotEmpty()) {
+                var staged = loadPending()
+                prepend.forEach { request ->
+                    staged = listOf(request) + staged.filterNot { it.sameTarget(request) }
+                }
+                savePending(staged)
+            }
             val pending = loadPending()
             val wait = waitReason().takeIf { pending.isNotEmpty() }
             _waitReason.value = wait
@@ -819,7 +841,7 @@ internal object SmartDownloads {
                 scheduleRetry()
                 return
             }
-            val left = pending.mapNotNull { request -> runCatching { fulfil(request) }.getOrDefault(request) }
+            val left = pending.mapNotNull { request -> runCatching { fulfil(request, tally) }.getOrDefault(request) }
             savePending(left)
             if (left.isNotEmpty()) scheduleRetry()
         }
@@ -834,7 +856,7 @@ internal object SmartDownloads {
     }
 
     /** The request to keep for later (maybe with a later start), or null when it is done. */
-    private suspend fun fulfil(request: SmartDownloadRequest): SmartDownloadRequest? {
+    private suspend fun fulfil(request: SmartDownloadRequest, tally: DownloadTally? = null): SmartDownloadRequest? {
         val settings = SmartDownloadSettings.snapshot()
         // Plain smart downloads follow the switch; queued and goal episodes were asked for directly.
         if (!settings.enabled && !request.exact && request.count == null) return null
@@ -879,7 +901,10 @@ internal object SmartDownloads {
         }
         // Disk nearly full: don't ask the addons for streams that could not be saved anyway.
         val free = DownloadDiskInfo.volumeSpace()?.availableBytes
-        if (free != null && free < SMART_DOWNLOAD_MIN_FREE_BYTES) return noSpace(request)
+        if (free != null && free < SMART_DOWNLOAD_MIN_FREE_BYTES) {
+            tally?.spoke = true
+            return noSpace(request)
+        }
         val reference = items
             .filter { it.parentMetaId == meta.id && it.isEpisode }
             .maxByOrNull { it.updatedAtEpochMs }
@@ -906,28 +931,35 @@ internal object SmartDownloads {
                     (size - item.downloadedBytes).coerceAtLeast(0L)
                 },
         )
-        if (fit.isEmpty()) return noSpace(request)
+        if (fit.isEmpty()) {
+            tally?.spoke = true
+            return noSpace(request)
+        }
         if (request.goalDropped()) return null
         val result = enqueueSeasonDownloads(meta, fit, startedByUser = false)
-        if (result.queued > 0 && !request.resultAnnounced) {
+        if (tally != null) tally.queued += result.queued
+        if (result.queued > 0 && request.count != null) {
             val codes = fit.take(result.queued).joinToString(", ") { "S${it.video.season}E${it.video.episode}" }
-            if (request.count != null) {
-                announceGoals.remove(request.parentMetaId)
-                reportGoal(request.parentMetaId, "Downloading $codes")
-            }
+            announceGoals.remove(request.parentMetaId)
+            reportGoal(request.parentMetaId, "Downloading $codes")
+        }
+        if (tally == null && result.queued > 0 && !request.resultAnnounced) {
             val announced = if (request.quiet) {
                 smartDownloadRuleQueued(result.queued)
             } else {
                 smartDownloadsQueuedMessage(result.queued, meta.name)
             }
             NuvioToastController.show(announced)
-        } else if (result.queued == 0 && request.quiet && !request.resultAnnounced) {
+        } else if (tally == null && result.queued == 0 && request.quiet && !request.resultAnnounced) {
             NuvioToastController.show(smartDownloadRuleQueued(0))
         }
         smartDownloadRetryAfterEnqueue(result, fit.size, EpisodeReleaseDatePlatform.nowEpochMs()) { message ->
             com.nuvio.app.core.logging.InAppLogger.warn("SmartDownloads", "${request.parentMetaId}: $message")
             request.report(message)
-            NuvioToastController.show(message)
+            if (tally == null || tally.queued == 0) {
+                tally?.spoke = true
+                NuvioToastController.show(message)
+            }
         }?.let { return request.copy(notBeforeEpochMs = it) }
         // Kept pending while some episodes did not fit, so it runs again once space frees.
         return if (fit.size == missing.size && picked.size == missing.size) later else request
@@ -978,6 +1010,44 @@ internal object SmartDownloads {
             if (list.isEmpty()) null else json.encodeToString(ListSerializer(SmartDownloadRequest.serializer()), list),
         )
     }
+
+    internal fun installPendingForTest(showId: String, season: Int, episode: Int) {
+        savePending(
+            listOf(
+                SmartDownloadRequest(
+                    parentMetaId = showId,
+                    parentMetaType = "series",
+                    season = season,
+                    episode = episode,
+                ),
+            ),
+        )
+    }
+
+    internal fun pendingShowIdsForTest(): List<String> = loadPending().map { it.parentMetaId }
+}
+
+private class DownloadTally {
+    var queued: Int = 0
+    var spoke: Boolean = false
+}
+
+private fun decisionBlockedByGate(message: String): Boolean {
+    val wifi = smartDownloadWaitReason(
+        onlyOnWifi = true,
+        onWifi = false,
+        onlyWhileCharging = false,
+        charging = false,
+        analyserSupported = false,
+    )
+    val charging = smartDownloadWaitReason(
+        onlyOnWifi = false,
+        onWifi = true,
+        onlyWhileCharging = true,
+        charging = false,
+        analyserSupported = true,
+    )
+    return message == wifi || message == charging
 }
 
 private fun nextEpisodeFacts(

@@ -50,10 +50,13 @@ internal const val SMART_DOWNLOAD_RULE_UNAIRED = "Next episode has not aired yet
 internal const val SMART_DOWNLOAD_RULE_PRIVATE = "Not queued while Private Viewing is on"
 internal const val SMART_DOWNLOAD_RULE_LOAD_FAILED = "Couldn't load this show"
 
-internal fun smartDownloadRuleQueued(count: Int): String = when (count) {
-    0 -> "Queued 0 episodes"
-    1 -> "Queued 1 episode"
-    else -> "Queued $count episodes"
+internal fun smartDownloadRuleQueued(count: Int): String {
+    val queued = count.coerceAtLeast(0)
+    return when (queued) {
+        0 -> "Queued 0 episodes"
+        1 -> "Queued 1 episode"
+        else -> "Queued $queued episodes"
+    }
 }
 
 internal data class SmartDownloadSettingsFeedback(

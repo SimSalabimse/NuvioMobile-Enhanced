@@ -283,6 +283,7 @@ internal fun formatMarkClock(seconds: Double, showTenth: Boolean = false): Strin
     val base = formatMarkHms(whole)
     if (!showTenth || ms == 0) return base
     val tenths = (ms + 50) / 100
+    if (tenths <= 0) return base
     if (tenths >= 10) return formatMarkHms(whole + 1)
     return "$base.$tenths"
 }

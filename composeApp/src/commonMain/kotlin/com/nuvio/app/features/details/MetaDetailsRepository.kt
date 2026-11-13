@@ -337,6 +337,7 @@ object MetaDetailsRepository {
     fun clear() {
         boundProfileKey = null
         activeRequestKey = null
+        fixtureMetas.clear()
         cachedMetaByRequestKey.clear()
         synchronized(savedAtLock) { savedAtMsByRequestKey.clear() }
         refreshing.clear()
@@ -388,8 +389,9 @@ object MetaDetailsRepository {
         cacheResult: Boolean = true,
         useCache: Boolean = true,
     ): MetaFetch {
-        bindProfile()
         val requestKey = "$type:$id"
+        fixtureMetas[requestKey]?.let { return MetaFetch(it) }
+        bindProfile()
         if (useCache) {
             cachedMetaByRequestKey[requestKey]?.let { cached ->
                 refreshIfStale(type, id, requestKey, updateUi = false)

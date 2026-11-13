@@ -22,6 +22,7 @@ import com.nuvio.app.features.player.skip.resolveSkipImdbId
 import com.nuvio.app.features.streams.StreamLinkCacheRepository
 import com.nuvio.app.core.serialization.LenientJson
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 /** Known intro (and credits, when there are any) of another episode of the season, in ms. */
@@ -430,6 +431,7 @@ internal suspend fun alignReferenceSegment(
         if (clip.stepMs.toLong() != stepMs) return ReferenceAlignment.Partial("step-mismatch")
         val seconds = (windowMs / 1_000L).toInt().coerceAtLeast(1)
         onCompare(seconds)
+        if (yieldToLocal()) return ReferenceAlignment.Preempted
         val range = compareReferenceOffCaller {
             SiblingClipReference.locate(
                 frames,
@@ -441,7 +443,9 @@ internal suspend fun alignReferenceSegment(
                 targetDurationMs,
                 referenceDurationMs,
             )
-        } ?: continue
+        }
+        if (yieldToLocal()) return ReferenceAlignment.Preempted
+        if (range == null) continue
         matches += slice to range
     }
     val bounds = verifiedSegmentBounds(segmentStartMs, segmentEndMs, slices, matches)
@@ -453,7 +457,10 @@ internal suspend fun alignReferenceSegment(
 
 /** The fingerprint match leaves the caller. Decode stays on the platform's own background queue. */
 internal suspend fun <T> compareReferenceOffCaller(block: () -> T): T =
-    withContext(Dispatchers.Default) { block() }
+    withContext(Dispatchers.Default) {
+        ensureActive()
+        block()
+    }
 
 /** A finished comparison that found no shared run is not a failed read. */
 internal fun referenceReadFailed(reason: String): Boolean =
