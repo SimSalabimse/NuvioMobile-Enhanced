@@ -57,6 +57,13 @@ internal data class MediaAnalysisResult(
     val learnedTypes: Set<String> = emptySet(),
     /** Segment types found from a clip of another episode ([SiblingClipReference]): type to episode. */
     val foundUsing: Map<String, Int> = emptyMap(),
+    /** Segment types the user marked "none here". A missing detection is not this set. */
+    val userNoneTypes: Set<String> = emptySet(),
+    /**
+     * Canonical JSON array of the sync records for this episode (marks, detections, tombstones).
+     * Empty on files written before sync. Fingerprints are not in it.
+     */
+    val syncRecordsJson: String = "",
 )
 
 @Serializable
@@ -83,6 +90,18 @@ internal fun MediaAnalysisResult.withUserSegmentsApplied(): MediaAnalysisResult 
     marks["outro"]?.let { r = r.copy(creditsStartMs = it.startMs, creditsEndMs = it.endMs) }
     marks["recap"]?.let { r = r.copy(recapStartMs = it.startMs, recapEndMs = it.endMs) }
     return r
+}
+
+/**
+ * "None here" is a person's statement. A detection, including one from a later analysis pass,
+ * does not fill that type back in. A range mark on the same type still wins.
+ */
+internal fun MediaAnalysisResult.withNonesClearingUnmarkedTypes(): MediaAnalysisResult {
+    var result = this
+    if ("intro" in userNoneTypes && "intro" !in userSegments) result = result.copy(introStartMs = null, introEndMs = null)
+    if ("outro" in userNoneTypes && "outro" !in userSegments) result = result.copy(creditsStartMs = null, creditsEndMs = null)
+    if ("recap" in userNoneTypes && "recap" !in userSegments) result = result.copy(recapStartMs = null, recapEndMs = null)
+    return result
 }
 
 /**

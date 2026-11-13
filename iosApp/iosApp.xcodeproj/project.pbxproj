@@ -52,6 +52,10 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				Sync/Package.swift,
+				Sync/Package.resolved,
+				Sync/.build,
+				Sync/Tests/AnalyzedSyncAesGcmTests/AnalyzedSyncAesGcmTests.swift,
 			);
 			target = E1B229BC363ABB711AF255E3 /* iosApp */;
 		};

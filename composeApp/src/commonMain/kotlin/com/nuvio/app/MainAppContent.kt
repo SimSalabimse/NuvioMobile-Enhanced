@@ -807,6 +807,9 @@ internal fun MainAppContent(
         }
         try {
             AppForegroundMonitor.events().collect { visibility ->
+                com.nuvio.app.features.analyzedsync.session.AnalyzedSyncCoordinator.onAppVisibility(
+                    visibility == com.nuvio.app.core.sync.AppVisibility.Foreground,
+                )
                 when (visibility) {
                     AppVisibility.Foreground -> {
                         InAppLogger.debug("App/Foreground", "foreground event: refreshing network status")

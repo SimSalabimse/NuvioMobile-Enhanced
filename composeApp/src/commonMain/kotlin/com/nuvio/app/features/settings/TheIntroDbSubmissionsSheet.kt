@@ -119,6 +119,7 @@ internal fun TheIntroDbSubmissionsSheet(apiKey: String, onDismiss: () -> Unit) {
     LaunchedEffect(apiKey, reload) {
         loading = true
         rows = TheIntroDb.listMySubmissions(apiKey)
+        com.nuvio.app.features.analyzedsync.store.noteOwnSubmissions(apiKey, rows.orEmpty(), null)
         error = TheIntroDb.lastListError
         loading = false
     }

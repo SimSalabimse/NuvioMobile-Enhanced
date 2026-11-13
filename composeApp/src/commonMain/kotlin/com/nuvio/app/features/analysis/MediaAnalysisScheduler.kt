@@ -1,6 +1,14 @@
 package com.nuvio.app.features.analysis
 
 import com.nuvio.app.core.logging.InAppLogger
+import com.nuvio.app.features.analyzedsync.json.JsonValue
+import com.nuvio.app.features.analyzedsync.json.toSyncJson
+import com.nuvio.app.features.analyzedsync.merge.AnalyseQuery
+import com.nuvio.app.features.analyzedsync.merge.mergeRecords
+import com.nuvio.app.features.analyzedsync.merge.shouldAnalyse
+import com.nuvio.app.features.analyzedsync.store.diskShowToSyncId
+import com.nuvio.app.features.analyzedsync.store.parseEpisodeName
+import kotlinx.serialization.json.Json
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadStatus
 import com.nuvio.app.features.downloads.DownloadsRepository
@@ -218,6 +226,7 @@ internal object MediaAnalysisScheduler {
             if (!scopeActive()) return false
             if (ok) MediaAnalysisStatus.clearFailure(item.id)
             if (ok) retries -= item.id
+            if (ok) com.nuvio.app.features.analyzedsync.session.AnalyzedSyncCoordinator.onLocalStoreChanged()
             if (!ok) {
                 // Try again later instead of skipping the file for the rest of the session: it
                 // used to stay "partly analysed, queued for more" until Analyse now was tapped.
@@ -287,7 +296,12 @@ internal object MediaAnalysisScheduler {
         .sortedWith(compareBy<DownloadItem> { if (it.id == priorityItemId) 0 else 1 }.then(AnalysisOrder))
         .firstOrNull { item ->
             val existing = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item))
-            existing == null || existing.fileName != item.fileName || needsDerived(existing)
+            analysisWorkPending(
+                existing = existing,
+                downloadFileName = item.fileName,
+                covered = existing != null && syncedEpisodeCovered(item, existing),
+                needsDerivedWork = existing?.let(::needsDerived) == true,
+            )
         }
 
     private fun needsDerived(result: MediaAnalysisResult): Boolean =
@@ -385,6 +399,7 @@ internal object MediaAnalysisScheduler {
             return null
         }
         val key = MediaAnalysisStore.keyFor(item)
+        val previous = MediaAnalysisStore.load(key)
         var result = MediaAnalysisResult(
             key = key,
             analyzedAtMs = com.nuvio.app.features.streams.epochMs(),
@@ -397,7 +412,9 @@ internal object MediaAnalysisScheduler {
             headFingerprint = raw.head,
             tailFingerprint = raw.tail,
             tailStartMs = raw.tailStartMs,
-            userSegments = MediaAnalysisStore.load(key)?.userSegments.orEmpty(),
+            userSegments = previous?.userSegments.orEmpty(),
+            userNoneTypes = previous?.userNoneTypes.orEmpty(),
+            syncRecordsJson = previous?.syncRecordsJson.orEmpty(),
         )
         val season = item.seasonNumber
         if (season != null && item.episodeNumber != null &&
@@ -511,6 +528,46 @@ object MediaAnalysisBackground {
 
     fun requiresExternalPower(): Boolean =
         MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.OnlyWhileCharging)
+}
+
+/**
+ * A projected sync file has no local file name yet. When the synced cut already covers it,
+ * the analyzer stays idle. Thumbnails still run once this phone has analysed that file.
+ */
+internal fun analysisWorkPending(
+    existing: MediaAnalysisResult?,
+    downloadFileName: String,
+    covered: Boolean,
+    needsDerivedWork: Boolean,
+): Boolean {
+    val sameFile = existing != null && (existing.fileName == null || existing.fileName == downloadFileName)
+    if (existing != null && sameFile && covered) {
+        return existing.fileName == downloadFileName && needsDerivedWork
+    }
+    return existing == null || existing.fileName != downloadFileName || needsDerivedWork
+}
+
+private fun syncedEpisodeCovered(item: DownloadItem, existing: MediaAnalysisResult): Boolean {
+    if (existing.syncRecordsJson.isBlank()) return false
+    val name = parseEpisodeName(MediaAnalysisStore.keyFor(item)) ?: return false
+    val showId = diskShowToSyncId(name.diskShow) ?: return false
+    val records = runCatching { Json.parseToJsonElement(existing.syncRecordsJson).toSyncJson() }.getOrNull() as? JsonValue.Arr
+        ?: return false
+    val state = mergeRecords(records.items, com.nuvio.app.features.streams.epochMs())
+    return listOf("intro", "recap", "credits").all { type ->
+        !shouldAnalyse(
+            state,
+            AnalyseQuery(
+                showId = showId,
+                season = item.seasonNumber?.toLong(),
+                episode = item.episodeNumber?.toLong(),
+                segmentType = type,
+                segmentIndex = 0,
+                fileDurationMs = existing.durationMs,
+                localAlgorithm = MEDIA_ANALYSIS_VERSION,
+            ),
+        )
+    }
 }
 
 /** Lowest season and episode first (per show, in download order); movies after episodes. */

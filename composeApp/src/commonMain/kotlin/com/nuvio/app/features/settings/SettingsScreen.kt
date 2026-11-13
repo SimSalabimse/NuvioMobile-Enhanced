@@ -820,6 +820,7 @@ private fun MobileSettingsScreen(
                             onSupportersContributorsClick = onSupportersContributorsClick,
                             onLicensesAttributionsClick = onLicensesAttributionsClick,
                             onWhatsNewClick = onWhatsNewClick,
+                            onSyncClick = { onPageChange(SettingsPage.Sync) },
                             onCheckForUpdatesClick = onCheckForUpdatesClick,
                             onTestUpdateBannerClick = onTestUpdateBannerClick,
                             onAccountClick = onAccountClick,
@@ -1014,6 +1015,9 @@ private fun MobileSettingsScreen(
                     uiState = liveTvUiState,
                 )
                 SettingsPage.Performance -> performanceSettingsContent(
+                    isTablet = false,
+                )
+                SettingsPage.Sync -> analyzedSyncSettingsContent(
                     isTablet = false,
                 )
                 SettingsPage.DiscordRpc -> discordRpcSettingsContent(
@@ -1336,6 +1340,7 @@ private fun TabletSettingsScreen(
                                 onSupportersContributorsClick = { openInlinePage(SettingsPage.SupportersContributors) },
                                 onLicensesAttributionsClick = { openInlinePage(SettingsPage.LicensesAttributions) },
                                 onWhatsNewClick = { openInlinePage(SettingsPage.WhatsNew) },
+                                onSyncClick = { openInlinePage(SettingsPage.Sync) },
                                 onCheckForUpdatesClick = onCheckForUpdatesClick,
                                 onTestUpdateBannerClick = onTestUpdateBannerClick,
                                 onAccountClick = { openInlinePage(SettingsPage.Account) },
@@ -1533,6 +1538,9 @@ private fun TabletSettingsScreen(
                         uiState = liveTvUiState,
                     )
                     SettingsPage.Performance -> performanceSettingsContent(
+                        isTablet = true,
+                    )
+                    SettingsPage.Sync -> analyzedSyncSettingsContent(
                         isTablet = true,
                     )
                     SettingsPage.DiscordRpc -> discordRpcSettingsContent(

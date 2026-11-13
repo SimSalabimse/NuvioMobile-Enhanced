@@ -59,19 +59,25 @@ internal object MediaAnalysisStore {
 
     fun keyFor(item: DownloadItem): String = keyFor(item.parentMetaId, item.seasonNumber, item.episodeNumber)
 
-    fun load(key: String): MediaAnalysisResult? = synchronized(lock) {
+    fun load(key: String): MediaAnalysisResult? = synchronized(lock) { loadUnlocked(key) }
+
+    /** Caller already holds [exclusive]. */
+    internal fun loadUnlocked(key: String): MediaAnalysisResult? {
         dropMisimportedMarksOnce()
         if (cache.containsKey(key)) return cache[key]
         val result = MediaAnalysisFiles.read(key)?.let { text ->
             runCatching { json.decodeFromString(MediaAnalysisResult.serializer(), text) }.getOrNull()
         }?.takeIf { it.version == MEDIA_ANALYSIS_VERSION }
         cache[key] = result
-        result
+        return result
     }
+
+    /** One writer at a time, including sync's read-and-replace. The lock is not re-entrant. */
+    fun <T> exclusive(block: () -> T): T = synchronized(lock) { block() }
 
     /** Read-modify-write of one episode under the lock, so concurrent jobs can't drop each other's changes. */
     fun update(key: String, transform: (MediaAnalysisResult?) -> MediaAnalysisResult?): MediaAnalysisResult? =
-        synchronized(lock) { transform(load(key))?.also(::save) }
+        synchronized(lock) { transform(loadUnlocked(key))?.also(::writeResult) }
 
     /** Show ids that name the same title (tmdb:1, tt…) share one stored key: the first one seen. */
     private val aliases: MutableMap<String, String> by lazy {
@@ -104,11 +110,23 @@ internal object MediaAnalysisStore {
         MediaAnalysisFiles.write(ALIASES_FILE, json.encodeToString(aliases.toMap()))
     }
 
+    /** Replaces the alias map the episode files already use. Sync writes the same file. */
+    fun writeAliasMap(map: Map<String, String>) = synchronized(lock) { writeAliasMapUnlocked(map) }
+
+    /** Caller already holds [exclusive]. Does not replace the map when sync has nothing to apply. */
+    internal fun writeAliasMapUnlocked(map: Map<String, String>) {
+        aliases.clear()
+        aliases.putAll(map)
+        MediaAnalysisFiles.write(ALIASES_FILE, json.encodeToString(aliases.toMap()))
+    }
+
+    fun readAliasMap(): Map<String, String> = synchronized(lock) { aliases.toMap() }
+
     private fun mergeInto(oldKey: String, newKey: String) {
-        val old = load(oldKey)
+        val old = loadUnlocked(oldKey)
         if (old != null) {
-            val target = load(newKey)
-            save(
+            val target = loadUnlocked(newKey)
+            writeResult(
                 target?.copy(userSegments = old.userSegments + target.userSegments)
                     ?: old.copy(key = newKey),
             )
@@ -129,23 +147,25 @@ internal object MediaAnalysisStore {
         if (importCleanupDone) return
         importCleanupDone = true
         if (MediaAnalysisFiles.read(IMPORT_CLEANUP_FLAG) != null) return
-        val all = MediaAnalysisFiles.list("").filter { it.contains("__") }.mapNotNull(::load)
+        val all = MediaAnalysisFiles.list("").filter { it.contains("__") }.mapNotNull(::loadUnlocked)
         val affectedShows = mutableSetOf<String>()
         all.forEach { result ->
             val cleaned = result.withoutImportedMarks()
             if (cleaned != result) {
                 affectedShows += result.key.substringBefore("__")
-                save(cleaned)
+                writeResult(cleaned)
             }
         }
         all.filter { it.key.substringBefore("__") in affectedShows && it.learnedTypes.isNotEmpty() }
-            .forEach { stored -> load(stored.key)?.let { save(it.withoutLearnedTypes()) } }
+            .forEach { stored -> loadUnlocked(stored.key)?.let { writeResult(it.withoutLearnedTypes()) } }
         MediaAnalysisFiles.write(IMPORT_CLEANUP_FLAG, "1")
     }
 
-    fun save(result: MediaAnalysisResult) = synchronized(lock) {
-        // User marks always win over whatever was detected.
-        val applied = result.withUserSegmentsApplied()
+    fun save(result: MediaAnalysisResult) = synchronized(lock) { writeResult(result) }
+
+    /** Caller already holds [exclusive]. Marks win, and "none here" stays empty of detections. */
+    internal fun writeResult(result: MediaAnalysisResult) {
+        val applied = result.withUserSegmentsApplied().withNonesClearingUnmarkedTypes()
         cache[applied.key] = applied
         MediaAnalysisFiles.write(applied.key, json.encodeToString(MediaAnalysisResult.serializer(), applied))
     }
@@ -185,10 +205,24 @@ internal object MediaAnalysisStore {
 
     /** Deletes everything stored for [key] (analysis JSON and thumbnail sheets). */
     fun reset(key: String) {
-        val marks = load(key)?.userSegments.orEmpty()
+        val existing = load(key)
+        val marks = existing?.userSegments.orEmpty()
+        val currentNones = existing?.userNoneTypes.orEmpty()
+        val currentSync = existing?.syncRecordsJson.orEmpty()
         resetAll(key)
-        // Analysing again keeps what the user marked.
-        if (marks.isNotEmpty()) save(MediaAnalysisResult(key = key, analyzedAtMs = 0L, durationMs = 0L, userSegments = marks))
+        // Analysing again keeps what the user marked, including "none here".
+        if (marks.isNotEmpty() || currentNones.isNotEmpty() || currentSync.isNotEmpty()) {
+            save(
+                MediaAnalysisResult(
+                    key = key,
+                    analyzedAtMs = 0L,
+                    durationMs = 0L,
+                    userSegments = marks,
+                    userNoneTypes = currentNones,
+                    syncRecordsJson = currentSync,
+                ),
+            )
+        }
     }
 
     private fun resetAll(key: String) {

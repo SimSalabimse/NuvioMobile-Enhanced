@@ -244,6 +244,7 @@ fun SubmitIntroDialog(
                 .also {
                     mySubmissions = it
                     mySubmissionsError = TheIntroDb.lastListError
+                    com.nuvio.app.features.analyzedsync.store.noteOwnSubmissions(apiKey, it, "tmdb:$tmdbId")
                 }
                 .mapNotNull { it.toFlagRecord(tmdbId) }
         } catch (cancelled: CancellationException) {

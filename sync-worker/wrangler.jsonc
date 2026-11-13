@@ -10,7 +10,7 @@
     "enabled": true,
     "head_sampling_rate": 1,
     "logs": {
-      "enabled": true,
+      "enabled": false,
       "head_sampling_rate": 1,
       "invocation_logs": false
     },
@@ -32,7 +32,7 @@
     {
       "binding": "DB",
       "database_name": "nuvio-sync",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "000cccae-d49d-421e-90f3-0316b310a89f",
       "migrations_dir": "migrations"
     }
   ]
