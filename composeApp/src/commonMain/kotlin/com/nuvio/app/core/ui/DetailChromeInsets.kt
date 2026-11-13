@@ -1,7 +1,10 @@
 package com.nuvio.app.core.ui
 
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.Composable
@@ -120,8 +123,12 @@ internal fun detailChromeTopInset(): Dp {
     LocalDetailChromeTopOverride.current?.let { return it }
     val physical = platformPhysicalTopInset().value
     val status = WindowInsets.statusBars.asPaddingValues().calculateTopPadding().value
+    val safeDrawing = WindowInsets.safeDrawing.only(WindowInsetsSides.Top)
+        .asPaddingValues()
+        .calculateTopPadding()
+        .value
     return detailChromeTopInsetDp(
-        physicalDp = physical,
+        physicalDp = max(physical, safeDrawing),
         statusBarDp = status,
         hostRespectsTop = LocalHostRespectsTopSafeArea.current,
     ).dp

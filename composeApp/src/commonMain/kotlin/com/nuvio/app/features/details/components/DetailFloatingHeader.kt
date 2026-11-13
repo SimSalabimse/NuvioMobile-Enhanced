@@ -1,6 +1,8 @@
 package com.nuvio.app.features.details.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -29,6 +31,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -61,6 +64,7 @@ internal const val DETAIL_HEADER_EDGE_TAG = "detail-header-edge"
 internal const val DETAIL_HEADER_BACK_TAG = "detail-header-back"
 internal const val DETAIL_HEADER_ACTION_TAG = "detail-header-action"
 internal const val DETAIL_HEADER_TITLE_TAG = "detail-header-title"
+internal const val DETAIL_HEADER_COVER_TAG = "detail-header-cover"
 
 private val DetailHeaderRowHeight = 56.dp
 
@@ -118,6 +122,21 @@ fun DetailFloatingHeader(
             solid = solidEdge,
             tag = DETAIL_HEADER_EDGE_TAG,
             color = edgeColor,
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(rowBottom)
+                .background(edgeColor)
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            event.changes.forEach { change -> change.consume() }
+                        }
+                    }
+                }
+                .testTag(DETAIL_HEADER_COVER_TAG),
         )
         if (background != null) {
             Box(modifier = Modifier.matchParentSize()) { background() }

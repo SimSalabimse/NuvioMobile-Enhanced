@@ -14,9 +14,10 @@ import okio.Path.Companion.toPath
 import okio.ByteString.Companion.encodeUtf8
 
 internal data class PosterOfflineImageCacheHit(
-    val path: Path,
+    val path: Path?,
     val freshness: PosterImageCacheFreshness,
     val contentType: String?,
+    val kind: PosterImageEntryKind = PosterImageEntryKind.Image,
 )
 
 internal interface PosterOfflineImageBlobStore {
@@ -43,6 +44,16 @@ internal class PosterOfflineImageDiskCache(
         mutex.withLock {
             ensureLoaded()
             val row = entries.remove(key) ?: return@withLock null
+            if (row.kind == PosterImageEntryKind.Miss) {
+                val touched = row.copy(lastAccessMillis = nowMillis)
+                entries[key] = touched
+                return@withLock PosterOfflineImageCacheHit(
+                    path = null,
+                    freshness = PosterOfflineImageCachePolicy.freshness(touched.freshUntilMillis, nowMillis),
+                    contentType = null,
+                    kind = PosterImageEntryKind.Miss,
+                )
+            }
             val size = blobs.blobSize(key)
             if (size == null || size != row.sizeBytes || !PosterOfflineImageCachePolicy.isUsableCachedImage(size)) {
                 blobs.deleteBlob(key)
@@ -61,6 +72,7 @@ internal class PosterOfflineImageDiskCache(
                 path = path,
                 freshness = PosterOfflineImageCachePolicy.freshness(touched.freshUntilMillis, nowMillis),
                 contentType = touched.contentType,
+                kind = PosterImageEntryKind.Image,
             )
         }
     }
@@ -70,6 +82,7 @@ internal class PosterOfflineImageDiskCache(
         mutex.withLock {
             ensureLoaded()
             val row = entries[key] ?: return@withLock false
+            if (row.kind == PosterImageEntryKind.Miss) return@withLock true
             val size = blobs.blobSize(key)
             size != null && size == row.sizeBytes && PosterOfflineImageCachePolicy.isUsableCachedImage(size)
         }
@@ -111,11 +124,36 @@ internal class PosterOfflineImageDiskCache(
         }
     }
 
+    /** Records that this address had no picture. The bytes are not kept. */
+    suspend fun storeMiss(cacheKey: String, freshUntilMillis: Long, nowMillis: Long): Boolean = io {
+        val key = fileKey(cacheKey)
+        mutex.withLock {
+            ensureLoaded()
+            blobs.deleteBlob(key)
+            entries.remove(key)
+            entries[key] = PosterOfflineImageIndexRow(
+                key = key,
+                sizeBytes = 0L,
+                freshUntilMillis = freshUntilMillis,
+                lastAccessMillis = nowMillis,
+                contentType = null,
+                kind = PosterImageEntryKind.Miss,
+            )
+            persistLocked()
+            true
+        }
+    }
+
     private fun ensureLoaded() {
         if (loaded) return
         val rows = blobs.loadIndex().sortedBy { it.lastAccessMillis }
         var dropped = false
         rows.forEach { row ->
+            if (row.kind == PosterImageEntryKind.Miss) {
+                blobs.deleteBlob(row.key)
+                entries[row.key] = row
+                return@forEach
+            }
             val size = blobs.blobSize(row.key)
             if (size == null || size != row.sizeBytes || !PosterOfflineImageCachePolicy.isUsableCachedImage(size)) {
                 blobs.deleteBlob(row.key)
@@ -234,7 +272,7 @@ internal class OkioPosterOfflineImageBlobStore(
         key.takeIf { it.length == 64 && it.all { char -> char in '0'..'9' || char in 'a'..'f' } }
 
     private companion object {
-        const val IndexFileName = "index.v1"
+        const val IndexFileName = "index.v2"
     }
 }
 

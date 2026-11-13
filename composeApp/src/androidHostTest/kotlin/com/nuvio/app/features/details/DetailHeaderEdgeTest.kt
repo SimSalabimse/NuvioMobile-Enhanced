@@ -11,6 +11,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.LocalDetailChromeTopOverride
 import com.nuvio.app.core.ui.NuvioTheme
+import com.nuvio.app.features.details.components.DETAIL_HEADER_COVER_TAG
 import com.nuvio.app.features.details.components.DETAIL_HEADER_ACTION_TAG
 import com.nuvio.app.features.details.components.DETAIL_HEADER_BACK_TAG
 import com.nuvio.app.features.details.components.DETAIL_HEADER_EDGE_TAG
@@ -63,6 +64,10 @@ class DetailHeaderEdgeTest {
         val back = compose.onNodeWithTag(DETAIL_HEADER_BACK_TAG).getBoundsInRoot()
         val action = compose.onNodeWithTag(DETAIL_HEADER_ACTION_TAG).getBoundsInRoot()
         val edge = compose.onNodeWithTag(DETAIL_HEADER_EDGE_TAG).getBoundsInRoot()
+        val cover = compose.onNodeWithTag(DETAIL_HEADER_COVER_TAG).getBoundsInRoot()
+        assertEquals(0.dp, cover.top)
+        assertTrue(cover.bottom >= safeTop + 56.dp)
+        assertTrue(cover.bottom >= back.bottom)
         val title = compose.onNodeWithTag(DETAIL_HEADER_TITLE_TAG).getBoundsInRoot()
         assertTrue(title.top < back.bottom)
         assertTrue(title.bottom > back.top)
@@ -130,5 +135,57 @@ class DetailHeaderEdgeTest {
         progress.floatValue = 1f
         compose.waitForIdle()
         assertEquals(before, compose.onNodeWithTag(DETAIL_HEADER_TAG).getBoundsInRoot())
+    }
+
+    @Test
+    fun aSmallPhoneInsetStillClearsTheBackButton() {
+        val safeTop = 20.dp
+        compose.setContent {
+            NuvioTheme {
+                CompositionLocalProvider(LocalDetailChromeTopOverride provides safeTop) {
+                    DetailFloatingHeader(
+                        meta = MetaDetails(id = "fixture-1", type = "series", name = "Northwind"),
+                        isSaved = false,
+                        progress = mutableFloatStateOf(1f),
+                        onBack = {},
+                        onToggleSaved = {},
+                    )
+                }
+            }
+        }
+        compose.waitForIdle()
+        val back = compose.onNodeWithTag(DETAIL_HEADER_BACK_TAG).getBoundsInRoot()
+        val cover = compose.onNodeWithTag(DETAIL_HEADER_COVER_TAG).getBoundsInRoot()
+        assertTrue(back.top >= safeTop)
+        assertEquals(0.dp, cover.top)
+        assertTrue(cover.bottom >= back.bottom)
+    }
+
+    @Test
+    fun largeTextKeepsTheBackButtonUnderTheInset() {
+        val safeTop = 59.dp
+        compose.setContent {
+            CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(
+                    density = 1f,
+                    fontScale = 2f,
+                ),
+            ) {
+                NuvioTheme {
+                    CompositionLocalProvider(LocalDetailChromeTopOverride provides safeTop) {
+                        DetailFloatingHeader(
+                            meta = MetaDetails(id = "fixture-1", type = "series", name = "Northwind"),
+                            isSaved = false,
+                            progress = mutableFloatStateOf(1f),
+                            onBack = {},
+                            onToggleSaved = {},
+                        )
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        val back = compose.onNodeWithTag(DETAIL_HEADER_BACK_TAG).getBoundsInRoot()
+        assertTrue(back.top >= safeTop)
     }
 }

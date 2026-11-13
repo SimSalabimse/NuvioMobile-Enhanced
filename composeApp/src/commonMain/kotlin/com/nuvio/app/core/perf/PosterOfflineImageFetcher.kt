@@ -32,26 +32,30 @@ internal class PosterOfflineImageFetcher(
         val now = nowMillis()
         val hit = if (options.diskCachePolicy.readEnabled) cache.open(cacheKey, now) else null
         val freshness = hit?.freshness ?: PosterImageCacheFreshness.NoCache
+        val kind = hit?.kind ?: PosterImageEntryKind.Image
         val network = if (options.networkCachePolicy.readEnabled) {
             PosterOfflineImageCachePolicy.fromCondition(NetworkStatusRepository.uiState.value.condition)
         } else {
             PosterImageNetworkState.Offline
         }
-        val decision = PosterOfflineImageCachePolicy.decide(freshness, network)
-        if (decision.useCachedBytes && hit != null && !decision.makeNetworkRequest) {
-            return@withContext fileResult(hit, DataSource.DISK)
+        val decision = PosterOfflineImageCachePolicy.decideEntry(kind, freshness, network)
+        if (decision.useCachedBytes && hit?.path != null && !decision.makeNetworkRequest) {
+            return@withContext fileResult(hit.path, hit.contentType, DataSource.DISK)
         }
         if (!decision.makeNetworkRequest) {
             throw PosterImageLeftAsPlaceholder()
         }
         val downloaded = download(url, options)
         if (downloaded == null) {
-            val fallback = PosterOfflineImageCachePolicy.decide(
-                freshness,
-                PosterImageNetworkState.RequestFailed,
-            )
-            if (fallback.useCachedBytes && hit != null) {
-                return@withContext fileResult(hit, DataSource.DISK)
+            if (hit?.kind == PosterImageEntryKind.Image && hit.path != null) {
+                return@withContext fileResult(hit.path, hit.contentType, DataSource.DISK)
+            }
+            if (options.diskCachePolicy.writeEnabled) {
+                cache.storeMiss(
+                    cacheKey,
+                    freshUntilMillis = now + PosterOfflineImageCachePolicy.NegativeTtlMs,
+                    nowMillis = now,
+                )
             }
             throw PosterImageLeftAsPlaceholder()
         }
@@ -65,8 +69,8 @@ internal class PosterOfflineImageFetcher(
                 downloaded.contentType,
             )
             val stored = cache.open(cacheKey, now)
-            if (stored != null) {
-                return@withContext fileResult(stored, DataSource.NETWORK)
+            if (stored?.path != null) {
+                return@withContext fileResult(stored.path, stored.contentType, DataSource.NETWORK)
             }
         }
         SourceFetchResult(
@@ -93,13 +97,13 @@ internal class PosterOfflineImageFetcher(
         }
     }
 
-    private fun fileResult(hit: PosterOfflineImageCacheHit, dataSource: DataSource): SourceFetchResult =
+    private fun fileResult(path: okio.Path, contentType: String?, dataSource: DataSource): SourceFetchResult =
         SourceFetchResult(
             source = ImageSource(
-                file = hit.path,
+                file = path,
                 fileSystem = FileSystem.SYSTEM,
             ),
-            mimeType = posterImageMimeType(url, hit.contentType),
+            mimeType = posterImageMimeType(url, contentType),
             dataSource = dataSource,
         )
 }

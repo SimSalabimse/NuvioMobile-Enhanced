@@ -22,18 +22,39 @@ internal data class PosterImageCacheDecision(
         get() = !useCachedBytes && !makeNetworkRequest
 }
 
+internal enum class PosterImageEntryKind {
+    Image,
+    Miss,
+}
+
 internal data class PosterOfflineImageIndexRow(
     val key: String,
     val sizeBytes: Long,
     val freshUntilMillis: Long,
     val lastAccessMillis: Long,
     val contentType: String?,
+    val kind: PosterImageEntryKind = PosterImageEntryKind.Image,
 )
 
 internal object PosterOfflineImageCachePolicy {
     const val MaxBytes: Long = 250L * 1024L * 1024L
     const val MaxCachedImageBytes: Int = 8 * 1024 * 1024
     const val MinimumImageBytes: Long = 32L
+
+    /** A failed or empty fetch is not a picture. It is asked again after this. */
+    const val NegativeTtlMs: Long = 10L * 60L * 1000L
+
+    fun decideEntry(
+        kind: PosterImageEntryKind,
+        freshness: PosterImageCacheFreshness,
+        network: PosterImageNetworkState,
+    ): PosterImageCacheDecision {
+        if (kind == PosterImageEntryKind.Miss && freshness == PosterImageCacheFreshness.Fresh) {
+            return PosterImageCacheDecision(useCachedBytes = false, makeNetworkRequest = false)
+        }
+        val effective = if (kind == PosterImageEntryKind.Miss) PosterImageCacheFreshness.NoCache else freshness
+        return decide(effective, network)
+    }
 
     fun decide(
         cache: PosterImageCacheFreshness,
@@ -95,19 +116,26 @@ internal object PosterOfflineImageCachePolicy {
 
     fun indexText(rows: Collection<PosterOfflineImageIndexRow>): String =
         rows.joinToString("\n") { row ->
-            "${row.key}\t${row.sizeBytes}\t${row.freshUntilMillis}\t${row.lastAccessMillis}\t${row.contentType.orEmpty()}"
+            val kind = if (row.kind == PosterImageEntryKind.Miss) "miss" else "image"
+            "${row.key}\t${row.sizeBytes}\t${row.freshUntilMillis}\t${row.lastAccessMillis}\t${row.contentType.orEmpty()}\t$kind"
         }
 
     private fun parseIndexLine(line: String): PosterOfflineImageIndexRow? {
         if (line.isBlank()) return null
         val parts = line.split('\t')
-        if (parts.size != 5) return null
+        if (parts.size != 6) return null
         val key = parts[0]
         if (key.length != 64 || key.any { it !in '0'..'9' && it !in 'a'..'f' }) return null
         val sizeBytes = parts[1].toLongOrNull() ?: return null
         val freshUntilMillis = parts[2].toLongOrNull() ?: return null
         val lastAccessMillis = parts[3].toLongOrNull() ?: return null
-        if (!isUsableCachedImage(sizeBytes)) return null
+        val kind = when (parts[5]) {
+            "image" -> PosterImageEntryKind.Image
+            "miss" -> PosterImageEntryKind.Miss
+            else -> return null
+        }
+        if (kind == PosterImageEntryKind.Image && !isUsableCachedImage(sizeBytes)) return null
+        if (kind == PosterImageEntryKind.Miss && sizeBytes != 0L) return null
         val contentType = parts[4].trim().takeIf { it.isNotEmpty() }
         return PosterOfflineImageIndexRow(
             key = key,
@@ -115,6 +143,7 @@ internal object PosterOfflineImageCachePolicy {
             freshUntilMillis = freshUntilMillis,
             lastAccessMillis = lastAccessMillis,
             contentType = contentType,
+            kind = kind,
         )
     }
 
