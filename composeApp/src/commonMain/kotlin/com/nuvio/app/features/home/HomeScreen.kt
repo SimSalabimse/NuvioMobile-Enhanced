@@ -804,6 +804,7 @@ fun HomeScreen(
         }
 
         withContext(Dispatchers.Default) {
+            val todayIsoDate = CurrentDateProvider.todayIsoDate()
             val cachedResolvedNextUpItems = completedSeriesCandidates.mapNotNull { candidate ->
                 val cached = cachedNextUpItems[candidate.content.id] ?: return@mapNotNull null
                 val item = cached.second
@@ -814,6 +815,21 @@ fun HomeScreen(
                     return@mapNotNull null
                 }
                 if (!hasUsableHomeNextUpMetadata(item)) {
+                    return@mapNotNull null
+                }
+                if (
+                    cachedNextUpStillNeedsArtwork(
+                        released = item.released,
+                        episodeThumbnail = item.episodeThumbnail,
+                        seasonNumber = item.seasonNumber,
+                        episodeNumber = item.episodeNumber,
+                        todayIso = todayIsoDate,
+                    ) &&
+                    com.nuvio.app.features.details.MetaDetailsRepository.missingArtworkRefreshDue(
+                        item.parentMetaType,
+                        item.parentMetaId,
+                    )
+                ) {
                     return@mapNotNull null
                 }
                 candidate.content.id to cached
@@ -847,7 +863,6 @@ fun HomeScreen(
                 return@withContext
             }
 
-            val todayIsoDate = CurrentDateProvider.todayIsoDate()
             val semaphore = Semaphore(NEXT_UP_RESOLUTION_CONCURRENCY)
             val freshResults = mutableMapOf<String, Pair<Long, ContinueWatchingItem>>()
             val processedFreshContentIds = mutableSetOf<String>()
@@ -1942,7 +1957,15 @@ internal fun buildHomeContinueWatchingItems(
                             fallback = cachedInProgressByProgressKey[entry.resolvedProgressKey()],
                             preserveFallbackPlaybackIdentity = true,
                         )
-                        .withCloudLibraryMetadata(cloudLibraryUiState),
+                        .withCloudLibraryMetadata(cloudLibraryUiState)
+                        .let { filled ->
+                            filled.fillingBlankArtworkFrom(
+                                com.nuvio.app.features.details.MetaDetailsRepository.peek(
+                                    filled.parentMetaType,
+                                    filled.parentMetaId,
+                                ),
+                            )
+                        },
                     isProgressEntry = true,
                 )
             },
@@ -1952,7 +1975,12 @@ internal fun buildHomeContinueWatchingItems(
                 if (item.parentMetaId in suppressedSeriesIds) return@mapNotNull null
                 HomeContinueWatchingCandidate(
                     lastUpdatedEpochMs = lastUpdatedEpochMs,
-                    item = item,
+                    item = item.fillingBlankArtworkFrom(
+                        com.nuvio.app.features.details.MetaDetailsRepository.peek(
+                            item.parentMetaType,
+                            item.parentMetaId,
+                        ),
+                    ),
                     isProgressEntry = false,
                 )
             },

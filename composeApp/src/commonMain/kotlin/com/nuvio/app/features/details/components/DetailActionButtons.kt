@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Shape
@@ -820,6 +821,8 @@ private fun PlayButton(
     )
         Surface(
             modifier = modifier
+                .reportDetailHeaderOcclusion(DetailHeaderOcclusionTarget.Play)
+                .testTag(DETAIL_PLAY_TAG)
                 .height(buttonHeight)
                 .then(
                     if (playEnabled) {

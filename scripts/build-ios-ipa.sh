@@ -38,6 +38,10 @@ fi
 
 cd "${repository_root}"
 
+if [[ "${configuration}" == "Release" ]]; then
+    "${repository_root}/scripts/check-approved-prs.sh"
+fi
+
 ipa_status_helper="${IPA_STATUS_HELPER:-${repository_root}/scripts/ipa-live-status.sh}"
 if [[ ! -f "${ipa_status_helper}" ]]; then
     echo "ipa-status: helper missing: ${ipa_status_helper}" >&2

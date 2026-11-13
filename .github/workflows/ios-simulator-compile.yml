@@ -1,0 +1,78 @@
+name: iOS simulator compile
+
+# Compiles the iOS simulator Kotlin target, including cinterop, on pull requests
+# into the 212-217 stack. No signing and no repository secrets.
+on:
+  pull_request:
+    branches:
+      - cursor/batch12-build207-e33c
+      - sync/upstream-0.6.10
+      - cursor/multi-segment-same-type-50bf
+      - cursor/season-poster-double-tap-03bb
+      - cursor/build-214-standing-rules-e595
+      - cursor/build-215-season-overview-9455
+      - cursor/build-217-full-stack
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-sim-compile-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    name: Compile iOS simulator
+    runs-on: xcode-27
+    timeout-minutes: 150
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+      GRADLE_OPTS: -Dfile.encoding=UTF-8
+      NUVIO_IOS_DISTRIBUTION: appstore
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Cache Kotlin Native
+        uses: actions/cache@v5
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: |
+            konan-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Verify Apple toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphonesimulator --show-sdk-path
+
+      - name: Compile simulator Kotlin and cinterop
+        run: ./gradlew :composeApp:compileKotlinIosSimulatorArm64 -Pnuvio.ios.distribution=appstore --stacktrace
+
+      - name: Prepare iOS dependencies
+        run: ./scripts/prepare-ios-dependencies.sh
+
+      - name: Build iOS Simulator
+        run: |
+          xcodebuild \
+            -project iosApp/iosApp.xcodeproj \
+            -scheme iosApp \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/ios-derived-sim-ci \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY= \
+            build

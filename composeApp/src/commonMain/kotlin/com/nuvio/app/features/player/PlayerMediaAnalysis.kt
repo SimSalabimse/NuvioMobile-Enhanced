@@ -15,8 +15,13 @@ import com.nuvio.app.features.analysis.decodeEnergy
 import com.nuvio.app.features.analysis.loudnessGainDb
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.downloadOpenedBySource
+import com.nuvio.app.features.player.skip.OwnTheIntroDbLedger
 import com.nuvio.app.features.player.skip.SkipInterval
 import com.nuvio.app.features.player.skip.TheIntroDb
+import com.nuvio.app.features.player.skip.canonicalFlagSegmentType
+import com.nuvio.app.features.player.skip.currentTheIntroDbAccountScope
+import com.nuvio.app.features.player.skip.flagSubmitContentKey
+import com.nuvio.app.features.player.skip.ownSentTypes
 import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -143,18 +148,34 @@ internal fun PlayerScreenRuntime.autoSyncedSubmitTypes(): Set<String> =
     if (isIos) emptySet() else segmentTypesSyncedByAnalysis(episodeSkipAnalysis())
 
 /** Segments the user marked or confirmed for the episode on screen (streamed or downloaded). */
-internal fun PlayerScreenRuntime.userMarkedSkipIntervals(): List<SkipInterval> =
-    com.nuvio.app.features.analysis.SkipLearning.userMarks(parentMetaId, activeSeasonNumber, activeEpisodeNumber)
-        .filter { (_, mark) -> mark.endMs > mark.startMs && sameCut(mark.durationMs, playbackSnapshot.durationMs) }
-        .map { (key, mark) ->
+internal fun PlayerScreenRuntime.userMarkedSkipIntervals(): List<SkipInterval> {
+    val season = activeSeasonNumber
+    val episode = activeEpisodeNumber
+    val contentKey = if (season != null && episode != null) {
+        flagSubmitContentKey(parentMetaId, season, episode, isMovie = false)
+    } else {
+        flagSubmitContentKey(parentMetaId, 0, 0, isMovie = true)
+    }
+    val own = ownSentTypes(OwnTheIntroDbLedger.load(currentTheIntroDbAccountScope()), contentKey)
+    return com.nuvio.app.features.analysis.SkipLearning.userMarks(parentMetaId, season, episode)
+        .filter { (type, mark) ->
+            val category = canonicalFlagSegmentType(mark.type.ifBlank { type })
+            val ownSubmission = !mark.imported || (category != null && category in own)
+            ownSubmission && mark.endMs > mark.startMs && sameCut(mark.durationMs, playbackSnapshot.durationMs)
+        }
+        .map { (type, mark) ->
             SkipInterval(
                 mark.startMs / 1000.0,
                 mark.endMs / 1000.0,
-                mark.type.ifBlank { key },
-                if (mark.imported) com.nuvio.app.features.analysis.SkipLearning.PROVIDER_IMPORTED
-                else com.nuvio.app.features.analysis.SkipLearning.PROVIDER,
+                mark.type.ifBlank { type },
+                if (mark.imported) {
+                    com.nuvio.app.features.analysis.SkipLearning.PROVIDER_IMPORTED
+                } else {
+                    com.nuvio.app.features.analysis.SkipLearning.PROVIDER
+                },
             )
         }
+}
 
 /**
  * The allowed online segments, plus on-device ones for each kind (intro, recap, credits) the

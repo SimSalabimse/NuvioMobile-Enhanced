@@ -1,6 +1,8 @@
 package com.nuvio.app.features.home.components
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
@@ -25,9 +27,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.pager.HorizontalPager
@@ -68,9 +74,11 @@ import com.nuvio.app.core.ui.SoftBottomFade
 import com.nuvio.app.core.ui.SoftTopEdge
 import com.nuvio.app.core.ui.platformPhysicalTopInset
 import com.nuvio.app.core.ui.systemIncreaseContrastEnabled
+import com.nuvio.app.core.ui.systemReduceMotionEnabled
 import com.nuvio.app.features.player.playerReduceTransparencyEnabled
 import com.nuvio.app.features.home.HOME_HERO_ART_TAG
 import com.nuvio.app.features.home.HOME_HERO_CONTENT_TAG
+import com.nuvio.app.features.home.homeForegroundTopDp
 import com.nuvio.app.features.home.HOME_HERO_TOP_EDGE_TAG
 import com.nuvio.app.features.home.HomeTopEdgeKind
 import com.nuvio.app.features.home.homeContentTopInsetDp
@@ -216,7 +224,11 @@ internal fun homeContentTopInset(): Dp {
     LocalHomeContentTopInset.current?.let { return it.coerceAtLeast(0.dp) }
     val status = WindowInsets.statusBars.asPaddingValues().calculateTopPadding().value
     val windowTop = platformPhysicalTopInset().value
-    return homeContentTopInsetDp(status, windowTop).dp
+    val safeDrawing = WindowInsets.safeDrawing.only(WindowInsetsSides.Top)
+        .asPaddingValues()
+        .calculateTopPadding()
+        .value
+    return homeContentTopInsetDp(status, windowTop, safeDrawing).dp
 }
 
 internal fun heroUsesWideArtwork(
@@ -334,6 +346,7 @@ internal fun HomeHeroSection(
 
     val isCardStyle = heroStyle == HomeHeroStyle.CARD
     val contentTopInset = homeContentTopInset()
+    val foregroundTop = homeForegroundTopDp(contentTopInset.value).dp
     val cardInsetModifier = if (isCardStyle) {
         Modifier.padding(
             top = HERO_CARD_TOP_PADDING,
@@ -512,8 +525,12 @@ internal fun HomeHeroSection(
                 }
             }
 
-            val artworkSlotHeight = layout.heroHeight
             var heroCopyHeightPx by remember { mutableFloatStateOf(0f) }
+            val copyHeight = with(LocalDensity.current) { heroCopyHeightPx.toDp() }
+            // A tall title, logo, meta row and overview overflow upward into the island
+            // when they are bottom-aligned in a short picture. Grow the picture so the
+            // copy stays under the safe area. The picture still starts at the top edge.
+            val artworkSlotHeight = maxOf(layout.heroHeight, foregroundTop + copyHeight)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -734,7 +751,7 @@ internal fun HomeHeroSection(
                         Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .padding(top = contentTopInset),
+                                    .padding(top = foregroundTop),
                             ) {
                                 HomeHeroCopy(
                                     items = items,
@@ -748,6 +765,7 @@ internal fun HomeHeroSection(
                                     onItemClick = onItemClick,
                                     modifier = Modifier
                                         .align(Alignment.BottomCenter)
+                                        .wrapContentHeight(unbounded = true)
                                         .onSizeChanged { heroCopyHeightPx = it.height.toFloat() }
                                         .testTag(HOME_HERO_CONTENT_TAG),
                                 )
@@ -768,7 +786,7 @@ internal fun HomeHeroSection(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
                                 .padding(
-                                    top = 12.dp + if (isCardStyle) 0.dp else contentTopInset,
+                                    top = if (isCardStyle) 12.dp else foregroundTop,
                                     end = if (layout.isTablet) 32.dp else 18.dp,
                                 )
                                 .size((muteIconSize + 16.dp).atLeastIosHitTarget())
@@ -1043,10 +1061,11 @@ private fun HeroContentBlock(
     }
     val logoUrl = item.logo?.takeIf { it.isNotBlank() }
 
+    val reduceMotion = systemReduceMotionEnabled()
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .animateContentSize(),
+            .animateContentSize(animationSpec = if (reduceMotion) snap() else spring()),
         horizontalAlignment = if (layout.isTablet) Alignment.Start else Alignment.CenterHorizontally,
     ) {
         if (logoUrl != null && !logoLoadError) {

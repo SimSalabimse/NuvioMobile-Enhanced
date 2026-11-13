@@ -11,6 +11,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.click
+import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -217,6 +218,18 @@ class HomeHeroBoundsTest {
     }
 
     @Test
+    @Config(sdk = [34], application = Application::class, qualifiers = "w402dp-h874dp")
+    fun aTallCarouselClearsTheIslandOn16ProAtRestAndAfterASwipe() {
+        assertCopyClearsTheIsland(safeTop = HOME_PRO_PORTRAIT_TOP_DP.dp, width = 402.dp, height = 874.dp)
+    }
+
+    @Test
+    @Config(sdk = [34], application = Application::class, qualifiers = "w375dp-h667dp")
+    fun aTallCarouselClearsTheStatusBarOnSeAtRestAndAfterASwipe() {
+        assertCopyClearsTheIsland(safeTop = HOME_SMALL_PORTRAIT_TOP_DP.dp, width = 375.dp, height = 667.dp)
+    }
+
+    @Test
     fun aLargeTypeSizeKeepsTheTitleUnderTheScrim() {
         val safeTop = HOME_PRO_PORTRAIT_TOP_DP.dp
         compose.setContent {
@@ -239,6 +252,54 @@ class HomeHeroBoundsTest {
         assertTrue(title.bottom <= art.bottom + 1.dp)
         assertTrue(title.bottom > art.top + 402.dp * 9f / 16f)
     }
+
+    private fun assertCopyClearsTheIsland(
+        safeTop: androidx.compose.ui.unit.Dp,
+        width: androidx.compose.ui.unit.Dp,
+        height: androidx.compose.ui.unit.Dp,
+    ) {
+        val gap = HOME_FOREGROUND_GAP_DP.dp
+        compose.setContent {
+            CompositionLocalProvider(LocalHomeContentTopInset provides safeTop) {
+                NuvioTheme {
+                    Box(Modifier.fillMaxSize().testTag("home-background")) {
+                        CompositionLocalProvider(LocalDensity provides Density(density = 1f, fontScale = 3f)) {
+                            HomeHeroSection(
+                                items = listOf(tallPreview("tall-1"), tallPreview("tall-2")),
+                                viewportHeight = height,
+                                trailerPlaybackEnabled = false,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        val art = compose.onNodeWithTag(HOME_HERO_ART_TAG).getBoundsInRoot()
+        val copy = compose.onNodeWithTag(HOME_HERO_CONTENT_TAG).getBoundsInRoot()
+        assertEquals(0.dp, art.top)
+        assertTrue(art.right - art.left >= width - 2.dp, "art width ${art.right - art.left} expected about $width")
+        assertTrue(copy.top >= safeTop + gap, "copy top ${copy.top} expected >= ${safeTop + gap}")
+        assertTrue(copy.bottom <= art.bottom + 1.dp)
+        assertTrue(copy.bottom - copy.top >= 180.dp, "copy height ${copy.bottom - copy.top}")
+        compose.onNodeWithTag(HOME_HERO_ART_TAG).performTouchInput {
+            swipeLeft(startX = width.toPx() * 0.8f, endX = width.toPx() * 0.2f)
+        }
+        compose.waitForIdle()
+        val after = compose.onNodeWithTag(HOME_HERO_CONTENT_TAG).getBoundsInRoot()
+        val artAfter = compose.onNodeWithTag(HOME_HERO_ART_TAG).getBoundsInRoot()
+        assertEquals(0.dp, artAfter.top)
+        assertTrue(after.top >= safeTop + gap, "after swipe ${after.top}")
+        assertTrue(after.bottom <= artAfter.bottom + 1.dp)
+    }
+
+    private fun tallPreview(id: String) = MetaPreview(
+        id = id,
+        type = "movie",
+        name = "Northwind Over the Frozen Reach",
+        description = "A long synopsis that wraps for several lines so the hero copy is taller than a short picture. The title, the year, and this paragraph have to stay under the island.",
+        releaseInfo = "2024",
+    )
 
     private fun preview(id: String) = MetaPreview(
         id = id,

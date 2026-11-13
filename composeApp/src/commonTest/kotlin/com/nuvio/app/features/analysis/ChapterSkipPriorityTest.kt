@@ -220,14 +220,17 @@ class ChapterSkipPriorityTest {
                 fileName = item.fileName,
             ),
         )
-        assertEquals(listOf("Intro" to "Chapters"), skipSourcesFor(item).filter { it.first == "Intro" })
+        assertEquals(listOf("Intro" to "Detected"), skipSourcesFor(item).filter { it.first == "Intro" })
         SkipSourceLedger.record(
             item.parentMetaId,
             item.seasonNumber,
             item.episodeNumber,
             listOf(SkipInterval(1.0, 40.0, "intro", TheIntroDb.PROVIDER)),
         )
-        assertEquals(listOf("Intro" to "TheIntroDB"), skipSourcesFor(item).filter { it.first == "Intro" })
+        assertEquals(
+            listOf("Intro" to "TheIntroDB", "Intro" to "Detected"),
+            skipSourcesFor(item).filter { it.first == "Intro" },
+        )
     }
 
     @Test
