@@ -103,8 +103,10 @@ Every record has:
 
 Producers keep a per-device last clock `L`, starting at `{wallMs: 0, counter: 0}`.
 
-- **tick(nowMs):** if `nowMs > L.wallMs`, set `L = {wallMs: nowMs, counter: 0}`. Otherwise set `L = {wallMs: L.wallMs, counter: L.counter + 1}`. The new record carries `L` plus this device id.
-- **receive(remote):** if `remote.wallMs > L.wallMs`, or the wall times are equal and `remote.counter > L.counter`, set `L = {wallMs: remote.wallMs, counter: remote.counter}`.
+- **tick(nowMs):** if `nowMs > L.wallMs`, or `L.wallMs > nowMs + 86400000`, set `L = {wallMs: nowMs, counter: 0}`. The second case is a saved clock more than 24 hours ahead of the device's current clock; keeping it would keep emitting records other devices reject. Otherwise set `L = {wallMs: L.wallMs, counter: L.counter + 1}`. If that counter would be greater than 1000000, the tick fails and the device waits until `nowMs` moves. The new record carries `L` plus this device id.
+- **receive(remote, nowMs):** if `remote.wallMs > nowMs + 86400000`, leave `L` unchanged. Otherwise, if `remote.wallMs > L.wallMs`, or the wall times are equal and `remote.counter > L.counter`, set `L = {wallMs: remote.wallMs, counter: remote.counter}`.
+
+`86400000` is 24 × 60 × 60 × 1000. A record with `wallMs` greater than `nowMs + 86400000` is rejected by merge and does not delete, pin a tombstone, or move another device's clock. A record inside that window is eligible. The reference functions are `tick` and `receive` in `sync-worker/test/reference/clock.ts`.
 
 Comparison, greater wins:
 
@@ -256,7 +258,7 @@ Group by `segmentType` + `segmentIndex`. Split `outcome: "found"` rows into cut 
 
 Inside a cluster the winner is the greatest `algorithmVersion`, then the greater record under section 4. A different cut stays in its own cluster, so a synced detection never blocks analysis of a different cut.
 
-A found detection is applied when it won its cluster and no applied mark suppresses it. A mark suppresses it when the mark is applied, the type matches, and either the mark is "none here", or the mark's index matches and (`mark.durationMs === 0` or the durations are the same cut). Other found rows in the cluster are `suppressedBy: "newer-detection"`. A `not_found` row is `suppressedBy: "mark"` when a mark suppresses it, and otherwise has `suppressedBy: null`. It is never applied and never appears in `effective`.
+A found detection is applied when it won its cluster and no applied mark suppresses it. A mark suppresses it when the mark is applied, the type matches, and either the mark is "none here", or the mark's index matches and (`mark.durationMs === 0` or the durations are the same cut). Other found rows in the cluster are `suppressedBy: "newer-detection"`. A `not_found` row is `suppressedBy: "mark"` when a mark suppresses it, and otherwise has `suppressedBy: null`. It is never applied, never appears in `effective`, and never becomes a mark of either presence. A slot with no record is the same as a slot that was never analysed: it is not `presence: "none"`, and it is not a tombstone. Only a mark a person saved with `presence: "none"` sets `userNoneTypes`.
 
 ### 6.5 Whether to analyse
 
@@ -279,6 +281,8 @@ A tombstone is kept while `nowMs < hlc.wallMs + 7776000000`. `7776000000` is 90 
 Devices keep the tombstone, and keep sending it, until that instant. After it is dropped they also drop any stored copy of the same kind and id whose clock is less than or equal to the tombstone. Dropping the tombstone while still sending the old live record brings the record back. A later edit, with a greater clock, may reuse the id.
 
 Sort kept tombstones by `kind`, then `id`.
+
+A device that last synced successfully at least `7776000000` ms ago has missed tombstones that other devices are allowed to drop. It pulls from cursor 0 and adopts the remote merge. It does not upload a local record whose `hlc.wallMs` is less than or equal to `nowMs - 7776000000`. Uploading that copy would recreate a delete whose tombstone has already aged out. A local record newer than that cutoff may be uploaded after the pull; a tombstone that could still delete it would still be in the pull. A device that has never completed a sync may upload its local records. That is how the first phone fills a new space. The reference is `syncMode` and `recordsToUpload` in `sync-worker/test/reference/sync-plan.ts`.
 
 ### 6.8 Output shape
 
@@ -328,7 +332,9 @@ The clients are Kotlin/Native on iOS, Kotlin/JVM on Desktop, and Kotlin on Andro
 | Encryption | AES-256-GCM, 12-byte nonce, 16-byte tag | In CommonCrypto, Java `AES/GCM/NoPadding`, Android, and WebCrypto. XChaCha20-Poly1305's longer nonce is safer against reuse and is not in those libraries. |
 | Token hash | SHA-256 | The bearer token already has 256 bits from HMAC. A slow hash is not what makes it unguessable. |
 
-The passphrase is the only secret a person types. Everything else is derived or random.
+The passphrase is the only secret a person types on each device. The enroll secret in section 10 is a separate random Worker secret. It is not derived from the passphrase. Everything else is derived or random.
+
+600000 iterations is the OWASP 2023 minimum for PBKDF2-HMAC-SHA256. This format does not lower it. The KDF runs on the device, not on the Worker. Workers Free allows 10 ms of CPU time per request, which this iteration count is not aimed at. No phone timing was measured for this change. A later client may report a measured duration on a real device; a number from a desktop or a CI runner is not that measurement. `keyCheck` is 16 bytes so a wrong passphrase fails closed. Truncation does not reduce the cost of a guess: the guesser still runs the full KDF, then compares 128 bits. A false match at that width is not a practical outcome. Anyone who can read D1 or the folder can run that offline attack. The passphrase has to be one the owner can remember and a stranger cannot guess.
 
 ### Derivation
 
@@ -349,14 +355,16 @@ The passphrase is the only secret a person types. Everything else is derived or 
 Encrypt with AES-256-GCM, tag length 128.
 
 - Key: `encKey`.
-- Nonce: 12 bytes from a CSPRNG, a new value for every encryption under that `encKey`. Reusing a nonce with two plaintexts breaks confidentiality of both. The Worker does not detect reuse. A 96-bit random nonce stays far from the birthday bound for the number of blobs a profile will write.
+- Nonce: 12 bytes from a CSPRNG (`crypto.getRandomValues` or the platform equivalent), a new value for every encryption under that `encKey`. A counter is not a nonce. Reusing a nonce with two plaintexts breaks confidentiality of both. The Worker rejects a batch that repeats a nonce inside the batch or reuses a nonce already stored in the space, including when the blob id is new. A retry of the same blob id and the same ciphertext is a duplicate and is not a reuse. A 96-bit random nonce stays far from the birthday bound for the number of blobs a profile will write. The reference generator is `randomNonce` in `sync-worker/test/reference/crypto.ts`. The test vector's nonce is a fixed value and is not what a device emits.
 - Plaintext: UTF-8 canonical JSON of exactly one record, at most 8192 bytes, no trailing newline.
-- Associated data: UTF-8 of `nuvio-sync/1\n{spaceId}\n{blobId}\n{deviceId}\n` with the newlines shown. `{deviceId}` is the uploading device, the same id stored on the blob. The record's `hlc.deviceId` may differ.
+- Associated data: UTF-8 of `nuvio-sync/{formatVersion}\n{spaceId}\n{blobId}\n{deviceId}\n{kind}\n` with the newlines shown. `formatVersion` is `1`. `{deviceId}` is the uploading device. `{kind}` is the record kind on the envelope. The client builds this from the routing fields as received, not from a locally corrected guess. After a successful decrypt, the plaintext's `kind` must equal the envelope kind; otherwise the blob is skipped. `seq` and `receivedAtMs` are assigned by the server after encryption, so they are not in the associated data and they do not change the plaintext. The record's `hlc.deviceId` may differ from the uploading device.
 - Ciphertext on the wire: the AES-GCM output used by WebCrypto and by Java `Cipher.doFinal`, which is `ciphertext || tag` (tag last, 16 bytes). One base64 string. There is no separate tag field.
 
 Decrypt with the same key, nonce, and associated data. If authentication fails, skip that blob. Do not merge an empty record in its place. Do not log the plaintext or the failure body.
 
-The test vector's nonce is `00 01 …` repeated as specified in the file. It is a test value. A real device does not use it.
+`encKey`, `authToken`, and `keyCheck` are three different HMAC outputs. Decrypting with `authToken` fails. The server never receives `encKey`.
+
+A different ciphertext for an existing blob id is rejected and is not stored. That blocks replacing a blob with an older ciphertext. An older record inside a new blob loses the merge in section 4 to the greater clock, so replaying the plaintext under a new blob id does not roll the record back. A server that deletes rows can still hide them from a device that pulls from cursor 0. Devices that already applied a record keep their local copy until a full resync adopts the remote set, which is why section 6.7 forbids uploading stale local records after a long gap.
 
 ### Join code
 
@@ -385,10 +393,14 @@ The same object is a Worker batch item and an entry in a folder file.
 ```json
 {
   "id": "22222222-2222-4222-8222-222222222222",
+  "v": 1,
+  "kind": "mark",
   "nonce": "<standard base64 of 12 bytes>",
   "ciphertext": "<standard base64 of ciphertext||tag>"
 }
 ```
+
+`v` is the number 1. `kind` is `mark`, `detection`, `submission`, or `alias`, and it is the kind inside the plaintext. Both are routing fields covered by the associated data.
 
 Standard base64 is RFC 4648 with `+` `/` and `=` padding. Non-canonical padding and extra characters are rejected. The decoded ciphertext is 16 to 24576 bytes.
 
@@ -396,15 +408,15 @@ Standard base64 is RFC 4648 with `+` `/` and `=` padding. Non-canonical padding 
 
 Base URL is the deployed Worker. JSON requests use `Content-Type: application/json`. A `charset` parameter is allowed. Responses are `application/json; charset=utf-8` plus `cache-control: no-store`. There is no CORS header. `OPTIONS` is a 404. Browsers are not a client.
 
-Errors are `{ "error": "<code>", "message": "<short text>" }`. Codes: `bad_request` (400), `unauthorized` (401), `not_found` (404), `method_not_allowed` (405), `conflict` (409), `payload_too_large` (413), `rate_limited` (429), `internal` (500). 429 also sends `retry-after` in seconds.
+Errors are `{ "error": "<code>", "message": "<short text>" }`. Codes: `bad_request` (400), `unauthorized` (401), `not_found` (404), `method_not_allowed` (405), `conflict` (409), `quota_exceeded` (409), `payload_too_large` (413), `rate_limited` (429), `internal` (500). 429 also sends `retry-after` in seconds.
 
-### Auth and the allowlist
+### Auth
 
-Protected requests send `Authorization: Bearer <token>` where `<token>` is `authToken` in base64url with no padding (43 characters). The server hashes it with SHA-256 and compares that digest, in constant time, to every well-formed hash on the allowlist. The allowlist is the Worker secret `ALLOWLIST_TOKEN_HASHES` (hex digests separated by commas or whitespace) plus rows in the D1 `allowlist` table. A hash in either place is enough. The table read takes the first 32 rows in hex order. The server stores and compares hashes only.
+Join, batch, and pull send `Authorization: Bearer <token>` where `<token>` is `authToken` in base64url with no padding (43 characters). The server hashes it with SHA-256 and compares that digest, in constant time, to the hash stored on that space. A missing or malformed bearer is 401 and does not touch D1. A well-formed bearer for a missing space is 404. A well-formed bearer that does not match the space is 401. Neither of those writes a rate-limit row, and neither response includes the salt or the key check. A matching token on a revoked space is 401 with message `Revoked`, still without the salt.
 
-A bearer token that is missing, the wrong length, or not on the allowlist gets 401 before any rate-limit write. A token that is on the allowlist and belongs to a different space also gets 401, and the response does not include the salt or key check.
+`POST /v1/spaces`, `GET /v1/spaces`, and `DELETE /v1/spaces/{spaceId}` instead require the header `X-Nuvio-Enroll`. The value is the Worker secret `ENROLL_SECRET`, a random string of at least 16 characters from a CSPRNG. The Worker hashes the header and the secret with SHA-256 and compares the digests with `timingSafeEqual`. A missing secret, a secret shorter than 16 characters, or a mismatch is 401 and does not read or write D1. The enroll secret is not the passphrase and is not the bearer token. The deployer generates it without the passphrase. The first device sends it once, together with the bearer token, to create the space. Other devices never receive it. Create also requires the bearer token so the server stores the hash of the token the device will actually send later.
 
-The owner adds a space's token hash to the allowlist before the first request from that space. `sync-worker/test/reference/derive-stdin.ts` prints the hash from a passphrase and salt read on stdin. It does not print the passphrase or the token.
+`GET /v1/spaces` with the enroll header lists space ids, creation time, revoke time, and the blob counter. It does not return the salt, the key check, or the token hash. `DELETE /v1/spaces/{spaceId}` with the enroll header revokes that space. Revoke is idempotent. It does not delete blob rows, because deleting them would spend the daily write budget. A revoked space rejects join, push, and pull. Creating the same id again is 409. Access stops; the bytes remain until the owner deletes the database.
 
 ### Limits
 
@@ -413,18 +425,31 @@ The owner adds a space's token hash to the allowlist before the first request fr
 | Request body | 262144 bytes. A larger `Content-Length`, or a stream that passes the cap, is 413. The rest of the stream is discarded. |
 | Blobs per batch | 1 to 50 |
 | Decoded ciphertext | 16 to 24576 bytes |
-| Pull page | default 100, maximum 100 |
-| Rate | 60 requests per space per 60000 ms |
+| Pull page | default 100, maximum 100. `limit` outside 1 to 100 is 400. The query reads at most `limit + 1` rows. |
+| Blobs stored per space | 20000. A batch that would pass that count is 409 `quota_exceeded` and writes nothing. A duplicate of an existing blob is still accepted at the cap. |
+| Rate | 60 authenticated requests per space per 600000 ms |
 
-The rate window is a fixed window aligned to the Unix epoch: `start = nowMs - (nowMs % 60000)`. The request that crosses the limit is counted and returns 429. `retry-after` is the whole seconds until the next window, at least 1. Create is limited on the new space id.
+The rate window is a fixed window aligned to the Unix epoch: `start = nowMs - (nowMs % 600000)`. The request that crosses the limit is counted and returns 429. `retry-after` is the whole seconds until the next window, at least 1. Create is limited on the new space id. The rate-limit write happens only after the enroll secret matches, or after the bearer matches that space. A stranger does not get a D1 write.
+
+60 requests in each 600000 ms window is at most `60 * (86400000 / 600000) = 8640` rate-limit row updates in a day if the space is saturated for the whole day. That ceiling is arithmetic from these two settings and from a 86400000 ms day. It is not a measured usage figure. It stays under the 100,000 D1 rows-written daily allowance on the Workers Free plan so the bookkeeping itself cannot spend the day. Normal syncing is far below the ceiling. The allowance and the 5,000,000 rows-read daily allowance and the 5 GB storage allowance are the published Workers Free D1 limits, not a measurement of this Worker.
 
 ### `GET /health`
 
-No auth. Response `200` `{ "ok": true }`. It does not touch D1.
+No auth. Response `200` `{ "ok": true }`. It does not touch D1. It does spend a Worker request. The Workers Free plan allows 100,000 requests a day. A route in fail-open mode bypasses the Worker after that limit, so this Worker stays on `workers.dev` or on a fail-closed route.
+
+### `GET /v1/spaces`
+
+Enroll header required. No bearer. No body. Response `200`:
+
+```json
+{ "v": 1, "spaces": [ { "spaceId": "<uuid>", "createdAtMs": 0, "revokedAtMs": null, "blobs": 0 } ] }
+```
+
+At most 100 spaces, oldest first. `blobs` is the space counter. The salt and the key check are not included.
 
 ### `POST /v1/spaces`
 
-Auth required. Body, no extra keys:
+Enroll header and bearer token are both required. Body, no extra keys:
 
 ```json
 {
@@ -441,7 +466,12 @@ Auth required. Body, no extra keys:
 - New space: `201` and the header below. A counter row starts at seq 0.
 - Same space, same token, same salt, key check, kdf, and iterations: `200` and the same header.
 - Same space, same token, different header: `409`.
+- Revoked space: `409` with message `Space revoked`. The salt is not returned.
 - Unknown space id in this call is create, not join.
+
+### `DELETE /v1/spaces/{spaceId}`
+
+Enroll header required. No bearer. A missing space is `404`. An active space becomes revoked and the response is `200` `{ "v": 1, "spaceId", "revoked": true }`. Repeating the call returns the same object. Blob rows are left in place.
 
 ```json
 {
@@ -456,7 +486,7 @@ Auth required. Body, no extra keys:
 
 ### `POST /v1/spaces/{spaceId}/join`
 
-Auth required. The body is empty. A `{}` body is 400.
+Bearer required. The enroll header is not accepted in its place. The body is empty. A `{}` body is 400.
 
 - Space and token match: `200` and the header object above.
 - No such space: `404`.
@@ -464,23 +494,22 @@ Auth required. The body is empty. A `{}` body is 400.
 
 ### `POST /v1/spaces/{spaceId}/batches`
 
-Auth required. Body, no extra keys:
+Bearer required. Body, no extra keys:
 
 ```json
 {
   "deviceId": "device-a",
-  "blobs": [ { "id": "<uuid v4>", "nonce": "<base64>", "ciphertext": "<base64>" } ]
+  "blobs": [ { "id": "<uuid v4>", "v": 1, "kind": "mark", "nonce": "<base64>", "ciphertext": "<base64>" } ]
 }
 ```
 
-Blob ids are unique inside the batch. No extra keys on a blob.
+Blob ids are unique inside the batch. No extra keys on a blob. `v` has to be the number 1. `kind` has to be one of the four record kinds.
 
 Response:
 
 ```json
 {
   "v": 1,
-  "highWater": 2,
   "results": [
     { "id": "<uuid>", "seq": 1, "status": "stored" },
     { "id": "<uuid>", "seq": 2, "status": "duplicate" }
@@ -488,15 +517,15 @@ Response:
 }
 ```
 
-`results` follows the request order. `stored` is a new row. `duplicate` is the same id and the same ciphertext; the original seq is kept and the counter does not move. The same id with a different ciphertext rejects the whole batch with `409` and writes none of that batch. A unique-constraint race also returns `409` with message `Retry the batch`; the client sends the same batch again.
+`results` follows the request order. `stored` is a new row. `duplicate` is the same id and the same ciphertext; the original seq is kept and the counter does not move. The same id with a different ciphertext rejects the whole batch with `409` and writes none of that batch. A repeated nonce does the same with message `Nonce already used`. A unique-constraint race also returns `409` with message `Retry the batch`; the client sends the same batch again.
 
-`highWater` is the space counter after the batch. It is not a pull cursor. A client that sets its pull cursor from `highWater` can skip another device's blobs. Pull cursors move only in pull responses.
+The response has no cursor and no high-water field. `seq` is the server-assigned sequence of that blob. It is not a pull cursor. Pull cursors move only in pull responses, to the last `seq` on that page. A client that sets its pull cursor from its own push `seq` skips another device's blobs that were stored under a lower `seq` the client has not pulled.
 
-Seq numbers start at 1 and increase by 1 for each newly stored blob, in request order.
+Seq numbers start at 1 and increase by 1 for each newly stored blob, in the order the batches commit. Two devices interleaving pushes receive distinct increasing seqs. A later pull with the cursor from the previous pull returns every seq the device has not yet seen.
 
 ### `GET /v1/spaces/{spaceId}/blobs?cursor=0&limit=100`
 
-Auth required. `cursor` defaults to `0`. It is an integer from 0 to `2^53 - 1` with no leading zero (except `0` itself). The page is rows with `seq > cursor`, ordered by `seq`, up to `limit`.
+Bearer required. `cursor` defaults to `0`. It is an integer from 0 to `2^53 - 1` with no leading zero (except `0` itself). The page is rows with `seq > cursor`, ordered by `seq`, up to `limit`.
 
 ```json
 {
@@ -505,6 +534,8 @@ Auth required. `cursor` defaults to `0`. It is an integer from 0 to `2^53 - 1` w
     {
       "seq": 1,
       "id": "<uuid>",
+      "v": 1,
+      "kind": "mark",
       "deviceId": "device-a",
       "nonce": "<base64>",
       "ciphertext": "<base64>",
@@ -518,7 +549,7 @@ Auth required. `cursor` defaults to `0`. It is an integer from 0 to `2^53 - 1` w
 
 `receivedAtMs` is server time. Merge ignores it. The returned `cursor` is the last `seq` on the page, or the request cursor when the page is empty. `hasMore` is true when at least one more row exists. Clients loop while `hasMore` is true.
 
-`deviceId` on the row is the uploader. Associated data uses this id, the row's `id`, and the space id.
+`deviceId` on the row is the uploader. Associated data uses the format version, the space id, the row's `id`, this device id, and the row's `kind`. The reference `advancePullCursor` accepts only a pull page: the new cursor is the last `seq` in `blobs`, or the previous cursor when `blobs` is empty.
 
 ## 11. Folder layout (transport e)
 
@@ -572,6 +603,9 @@ Blob bytes are the section 9 envelope. Decrypt, then merge under section 6. Orde
 | `two-cuts.json` | Two durations of one slot both survive. A higher algorithm wins inside a cut even with an older clock. 30000 ms matches; 30001 ms does not. |
 | `tombstone.json` | A newer tombstone removes the mark. It is kept at the delete time and gone at `wallMs + 7776000000`. |
 | `clock-tie.json` | Equal wall and counter. The greater device id wins (`device-b`). |
+| `clock-json-tie.json` | Equal wall, counter, and device id. The greater canonical JSON wins. |
+| `clock-skew.json` | A tombstone more than 24 hours ahead of `nowMs` is rejected and does not delete the mark. |
+| `offline-resync.json` | After a gap of at least 90 days the stale mark is not uploaded. A newer local mark still is. |
 | `alias-merge.json` | IMDb spellings and a TMDB alias become one show. A tombstoned alias splits TMDB from IMDb. Zero-padding still groups the IMDb spellings. |
 | `not-found-vs-none.json` | `not_found` leaves `userNoneTypes` empty and analysis on. A none-here mark turns analysis off and does not rewrite the detection into a mark. |
 | `submission-scope.json` | Two fake account keys stay in two scopes. The strings are fakes, not API keys. |
@@ -582,12 +616,12 @@ The passphrase in the crypto vectors is `test-passphrase-not-a-secret`. It is a 
 
 ## 13. Client duties
 
-- One space per profile. Persist `spaceId`, salt, key check, device id, and the pull cursor. Persist the passphrase in the platform keystore.
-- Generate the salt once. Generate a new nonce per blob.
-- Encrypt canonical JSON. Build associated data from the space, the blob id, and the uploading device id.
-- Pull before merging. Advance the pull cursor only from pull responses.
-- Keep tombstones until `purgeAfterMs`.
-- Skip blobs that fail authentication.
-- Treat `highWater`, `receivedAtMs`, and `seq` as transport. Conflict rules use the record clock.
+- One space per profile. Persist `spaceId`, salt, key check, device id, the pull cursor, and the time of the last successful sync. Persist the passphrase in the platform keystore. The enroll secret is typed once on the first device and is not stored as the passphrase.
+- Generate the salt once. Generate each nonce with `randomNonce`. Do not use a counter.
+- Encrypt canonical JSON. Build associated data from the format version, the space, the blob id, the uploading device id, and the record kind.
+- Pull before merging. Advance the pull cursor only through `advancePullCursor` on a pull response. Do not advance it from a push `seq`.
+- Keep tombstones until `purgeAfterMs`. After a gap of at least `7776000000` ms, full-resync as section 6.7 describes and do not upload the stale local store.
+- Skip blobs that fail authentication, including a kind that does not match the plaintext.
+- Treat `receivedAtMs` and `seq` as transport. Conflict rules use the record clock. There is no push high-water field.
 - Show a synced time as coming from `hlc.deviceId`. Apply it only when section 6 says it is applied and the cut matches.
 - Leave fingerprints and the other out-of-scope values off the device that created them.

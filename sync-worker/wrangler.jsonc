@@ -23,9 +23,10 @@
     "MAX_BLOBS": "50",
     "MAX_CIPHERTEXT_BYTES": "24576",
     "RATE_LIMIT_PER_WINDOW": "60",
-    "RATE_WINDOW_MS": "60000",
+    "RATE_WINDOW_MS": "600000",
     "PULL_DEFAULT_LIMIT": "100",
-    "PULL_MAX_LIMIT": "100"
+    "PULL_MAX_LIMIT": "100",
+    "MAX_SPACE_BLOBS": "20000"
   },
   "d1_databases": [
     {

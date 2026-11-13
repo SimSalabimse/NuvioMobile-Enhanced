@@ -12,6 +12,8 @@ const header = {
 };
 const blob = (id: string) => ({
   id,
+  v: 1,
+  kind: "mark",
   nonce: "AAAAAAAAAAAAAAAA",
   ciphertext: "AAAAAAAAAAAAAAAAAAAAAA==",
 });
@@ -57,6 +59,20 @@ describe("folder layout", () => {
       ["header.json", header],
       ["devices/device-a/0000000000000004.json", {
         v: 1, spaceId, deviceId: "device-a", seq: 5, blobs: [],
+      }],
+    ]);
+    expect(() => collectFolder(files)).toThrow("bad segment");
+  });
+
+  it("rejects a blob that omits the record kind", () => {
+    const files = new Map<string, unknown>([
+      ["header.json", header],
+      ["devices/device-a/0000000000000001.json", {
+        v: 1,
+        spaceId,
+        deviceId: "device-a",
+        seq: 1,
+        blobs: [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1", nonce: "AAAAAAAAAAAAAAAA", ciphertext: "AAAAAAAAAAAAAAAAAAAAAA==" }],
       }],
     ]);
     expect(() => collectFolder(files)).toThrow("bad segment");

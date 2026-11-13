@@ -8,7 +8,10 @@ import {
   deriveKeys,
   encryptBlob,
   keyCheckMatches,
+  openBlob,
+  randomNonce,
   sha256,
+  SyncCryptoError,
 } from "./reference/crypto";
 import { mergeRecords, shouldAnalyse, type AnalyseQuery } from "./reference/merge";
 import cryptoVector from "../../docs/sync/test-vectors/v1/crypto.json";
@@ -22,6 +25,9 @@ import notFound from "../../docs/sync/test-vectors/v1/not-found-vs-none.json";
 import submissions from "../../docs/sync/test-vectors/v1/submission-scope.json";
 import zeroDuration from "../../docs/sync/test-vectors/v1/zero-duration-mark.json";
 import rejected from "../../docs/sync/test-vectors/v1/rejected.json";
+import clockJsonTie from "../../docs/sync/test-vectors/v1/clock-json-tie.json";
+import clockSkew from "../../docs/sync/test-vectors/v1/clock-skew.json";
+import offlineResync from "../../docs/sync/test-vectors/v1/offline-resync.json";
 
 function expectScenario(file: {
   nowMs: number;
@@ -48,20 +54,42 @@ describe("crypto vectors", () => {
     expect(encodeB64Url(keys.authToken)).toBe(cryptoVector.authTokenBase64Url);
     expect(encodeB64(keys.keyCheck)).toBe(cryptoVector.keyCheckBase64);
     expect(encodeHex(await sha256(keys.authToken))).toBe(cryptoVector.tokenHashHex);
+    const routing = {
+      formatVersion: cryptoVector.formatVersion,
+      spaceId: cryptoVector.spaceId,
+      blobId: cryptoVector.blobId,
+      deviceId: cryptoVector.deviceId,
+      kind: cryptoVector.kind,
+    };
     const cipher = await encryptBlob(
       keys.encKey,
       nonce,
-      associatedData(cryptoVector.spaceId, cryptoVector.blobId, cryptoVector.deviceId),
+      associatedData(routing),
       new TextEncoder().encode(cryptoVector.plaintext),
     );
     expect(encodeB64(cipher)).toBe(cryptoVector.ciphertextBase64);
-    const plain = await decryptBlob(
-      keys.encKey,
+    expect(cryptoVector.aad).toBe(`nuvio-sync/1\n${cryptoVector.spaceId}\n${cryptoVector.blobId}\n${cryptoVector.deviceId}\n${cryptoVector.kind}\n`);
+    expect(cryptoVector.masterKeyHex).not.toBe(cryptoVector.encKeyHex);
+    expect(cryptoVector.encKeyHex).not.toBe(cryptoVector.authTokenHex);
+    expect(keys.keyCheck.length).toBe(16);
+    const plain = await openBlob(keys.encKey, cryptoVector.spaceId, {
+      id: cryptoVector.blobId,
+      v: 1,
+      kind: cryptoVector.kind,
+      deviceId: cryptoVector.deviceId,
       nonce,
-      associatedData(cryptoVector.spaceId, cryptoVector.blobId, cryptoVector.deviceId),
-      cipher,
-    );
+      ciphertext: cipher,
+    });
     expect(new TextDecoder().decode(plain)).toBe(cryptoVector.plaintext);
+    await expect(openBlob(keys.encKey, cryptoVector.spaceId, {
+      id: cryptoVector.blobId,
+      v: 1,
+      kind: "detection",
+      deviceId: cryptoVector.deviceId,
+      nonce,
+      ciphertext: cipher,
+    })).rejects.toBeInstanceOf(SyncCryptoError);
+    await expect(decryptBlob(keys.authToken, nonce, associatedData(routing), cipher)).rejects.toBeInstanceOf(SyncCryptoError);
     const wrong = await deriveKeys(cryptoVector.wrongPassphrase, salt);
     expect(encodeB64(wrong.keyCheck)).toBe(cryptoVector.wrongKeyCheckBase64);
     expect(keyCheckMatches(wrong.keyCheck, keys.keyCheck)).toBe(false);
@@ -80,6 +108,26 @@ describe("crypto vectors", () => {
     const fromNfc = await deriveKeys(nfcVector.nfcPassphrase, salt);
     expect(encodeHex(fromNfd.master)).toBe(nfcVector.masterKeyHex);
     expect(encodeHex(fromNfc.master)).toBe(nfcVector.masterKeyHex);
+  });
+});
+
+describe("nonce", () => {
+  it("draws 12 bytes from the injected CSPRNG and does not count", () => {
+    const filled: number[] = [];
+    const nonce = randomNonce((bytes) => {
+      expect(bytes.length).toBe(12);
+      bytes.set([9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 1, 2]);
+      filled.push(bytes.length);
+    });
+    expect(filled).toEqual([12]);
+    expect([...nonce]).toEqual([9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 1, 2]);
+    const first = randomNonce();
+    const second = randomNonce();
+    expect(first.length).toBe(12);
+    expect(second.length).toBe(12);
+    const incremented = first.every((byte, index) => second[index] === (byte + 1) % 256);
+    expect(incremented).toBe(false);
+    expect(encodeHex(first)).not.toBe(encodeHex(second));
   });
 });
 
@@ -122,6 +170,38 @@ describe("merge vectors", () => {
     expect(applied[0]?.startMs).toBe(9_000);
   });
 
+  it("breaks a full clock tie by canonical JSON", () => {
+    expectScenario(clockJsonTie);
+    const wires = clockJsonTie.records.map((record) => canonicalJson(record));
+    const greater = wires[0]! > wires[1]! ? clockJsonTie.records[0] : clockJsonTie.records[1];
+    const state = mergeRecords(clockJsonTie.records, clockJsonTie.nowMs);
+    const applied = state.shows[0]?.episodes[0]?.marks.filter((row) => row.applied) ?? [];
+    expect(applied).toHaveLength(1);
+    expect(applied[0]?.startMs).toBe((greater as { startMs: number }).startMs);
+    expect(applied[0]?.hlc.deviceId).toBe("device-a");
+  });
+
+  it("drops a clock past the skew limit", () => {
+    expectScenario(clockSkew);
+    const state = mergeRecords(clockSkew.records, clockSkew.nowMs);
+    expect(state.rejected).toBe(1);
+    expect(state.tombstones).toEqual([]);
+    expect(state.shows[0]?.episodes[0]?.marks.filter((row) => row.applied)).toHaveLength(1);
+  });
+
+  it("does not resurrect a delete after the tombstone window", () => {
+    expect(offlineResync.mode).toBe("full-resync");
+    expect(offlineResync.withinWindowMode).toBe("incremental");
+    expect(offlineResync.pushLocal).toHaveLength(1);
+    expect(offlineResync.pushLocal[0]?.id).toBe(offlineResync.staleLocalRecords[1]?.id);
+    expect(canonicalJson(mergeRecords([...offlineResync.remoteRecords, ...offlineResync.pushLocal], offlineResync.nowMs))).toBe(offlineResync.adoptedCanonical);
+    expect(JSON.parse(offlineResync.adoptedCanonical).shows[0].episodes[0].marks[0].id).toBe(offlineResync.pushLocal[0]?.id);
+    const resurrected = mergeRecords([offlineResync.staleLocalRecords[0]], offlineResync.nowMs);
+    expect(canonicalJson(resurrected)).toBe(offlineResync.resurrectedCanonical);
+    expect(resurrected.shows[0]?.episodes[0]?.marks[0]?.id).toBe(offlineResync.staleLocalRecords[0]?.id);
+    expect(JSON.stringify(JSON.parse(offlineResync.adoptedCanonical))).not.toContain(offlineResync.staleLocalRecords[0]!.id);
+  });
+
   it("merges aliases and splits them when the alias is removed", () => {
     for (const item of aliasMerge.scenarios) expectScenario(item);
     const linked = mergeRecords(aliasMerge.scenarios[0]!.records, aliasMerge.scenarios[0]!.nowMs);
@@ -135,8 +215,12 @@ describe("merge vectors", () => {
     for (const item of notFound.scenarios) expectScenario(item);
     const alone = mergeRecords(notFound.scenarios[0]!.records, notFound.scenarios[0]!.nowMs);
     expect(alone.shows[0]?.episodes[0]?.userNoneTypes).toEqual([]);
+    expect(alone.shows[0]?.episodes[0]?.marks).toEqual([]);
     expect(alone.shows[0]?.episodes[0]?.effective).toEqual([]);
     expect(alone.shows[0]?.episodes[0]?.detections[0]?.outcome).toBe("not_found");
+    const missing = mergeRecords(notFound.scenarios[2]!.records, notFound.scenarios[2]!.nowMs);
+    expect(missing.shows).toEqual([]);
+    expect(JSON.stringify(missing)).not.toContain("\"presence\":\"none\"");
     const none = mergeRecords(notFound.scenarios[1]!.records, notFound.scenarios[1]!.nowMs);
     expect(none.shows[0]?.episodes[0]?.userNoneTypes).toEqual(["intro"]);
     expect(none.shows[0]?.episodes[0]?.effective[0]?.source).toBe("mark");

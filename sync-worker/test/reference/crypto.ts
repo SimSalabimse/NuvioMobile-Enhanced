@@ -13,6 +13,7 @@ export const NONCE_BYTES = 12;
 export const KEY_BYTES = 32;
 export const KEY_CHECK_BYTES = 16;
 export const MAX_PLAINTEXT_BYTES = 8192;
+export const FORMAT_VERSION = 1;
 
 const ENC_INFO = "nuvio-sync-v1 enc";
 const AUTH_INFO = "nuvio-sync-v1 auth";
@@ -41,8 +42,36 @@ export async function deriveKeys(passphrase: string, salt: Uint8Array): Promise<
   return { master, encKey, authToken, keyCheck: check.slice(0, KEY_CHECK_BYTES) };
 }
 
-export function associatedData(spaceId: string, blobId: string, deviceId: string): Uint8Array {
-  return textEncoder.encode(`nuvio-sync/1\n${spaceId}\n${blobId}\n${deviceId}\n`);
+/** Routing fields the server stores beside the ciphertext and could alter. */
+export interface RoutingAad {
+  formatVersion: number;
+  spaceId: string;
+  blobId: string;
+  deviceId: string;
+  kind: string;
+}
+
+/**
+ * Associated data, one field per line. formatVersion, space, blob id, device,
+ * and record kind are all outside the ciphertext. Seq and receivedAtMs are
+ * assigned by the server after encryption, so they are not here.
+ */
+export function associatedDataText(routing: RoutingAad): string {
+  return `nuvio-sync/${routing.formatVersion}\n${routing.spaceId}\n${routing.blobId}\n${routing.deviceId}\n${routing.kind}\n`;
+}
+
+export function associatedData(routing: RoutingAad): Uint8Array {
+  return textEncoder.encode(associatedDataText(routing));
+}
+
+/** 12 bytes from the platform CSPRNG. Never a counter. */
+export function randomNonce(fill: (bytes: Uint8Array) => void = (bytes) => {
+  crypto.getRandomValues(bytes);
+}): Uint8Array {
+  const nonce = new Uint8Array(NONCE_BYTES);
+  fill(nonce);
+  if (nonce.length !== NONCE_BYTES) throw new SyncCryptoError("bad_input");
+  return nonce;
 }
 
 export function joinCode(spaceId: string, salt: Uint8Array, keyCheck: Uint8Array): string {
@@ -90,6 +119,39 @@ export async function decryptBlob(
 
 export function keyCheckMatches(actual: Uint8Array, expected: Uint8Array): boolean {
   return bytesEqual(actual, expected);
+}
+
+export interface OpenEnvelope {
+  id: string;
+  v: number;
+  kind: string;
+  deviceId: string;
+  nonce: Uint8Array;
+  ciphertext: Uint8Array;
+}
+
+/** Decrypt with the routing fields as received. The plaintext kind must match. */
+export async function openBlob(encKey: Uint8Array, spaceId: string, envelope: OpenEnvelope): Promise<Uint8Array> {
+  const plain = await decryptBlob(
+    encKey,
+    envelope.nonce,
+    associatedData({
+      formatVersion: envelope.v,
+      spaceId,
+      blobId: envelope.id,
+      deviceId: envelope.deviceId,
+      kind: envelope.kind,
+    }),
+    envelope.ciphertext,
+  );
+  let parsed: { kind?: unknown };
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(plain)) as { kind?: unknown };
+  } catch {
+    throw new SyncCryptoError("corrupt_ciphertext");
+  }
+  if (parsed.kind !== envelope.kind) throw new SyncCryptoError("corrupt_ciphertext");
+  return plain;
 }
 
 async function pbkdf2(passphrase: string, salt: Uint8Array, iterations: number): Promise<Uint8Array> {

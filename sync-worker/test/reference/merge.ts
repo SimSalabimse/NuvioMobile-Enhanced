@@ -3,6 +3,7 @@
  * is visible. Submissions never become marks. not_found never becomes presence none.
  */
 import { canonicalJson } from "./canonical";
+import { clockIsAcceptable, TOMBSTONE_KEEP_MS } from "./clock";
 import {
   SEGMENT_TYPES,
   compareParsed,
@@ -19,7 +20,7 @@ import {
 } from "./records";
 
 export const CUT_TOLERANCE_MS = 30_000;
-export const TOMBSTONE_KEEP_MS = 90 * 24 * 60 * 60 * 1000;
+export { TOMBSTONE_KEEP_MS };
 
 export interface MarkView {
   applied: boolean;
@@ -123,7 +124,8 @@ export function mergeRecords(inputs: readonly unknown[], nowMs: number): MergedS
   let rejected = 0;
   for (const input of inputs) {
     const record = parseRecord(input);
-    if (record === null) rejected += 1;
+    // A far-future clock is dropped. It must not win a merge or pin a tombstone.
+    if (record === null || !clockIsAcceptable(record.record.hlc.wallMs, nowMs)) rejected += 1;
     else parsed.push(record);
   }
   const winners = collapse(parsed);

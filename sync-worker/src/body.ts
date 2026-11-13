@@ -1,6 +1,3 @@
-import { decodeHex } from "./b64";
-import type { SyncEnv } from "./env";
-
 /** Read at most `max` bytes. A longer body is rejected without buffering the rest. */
 export async function readBounded(request: Request, max: number): Promise<Uint8Array | "too_large"> {
   const declared = request.headers.get("content-length");
@@ -29,6 +26,12 @@ export async function readBounded(request: Request, max: number): Promise<Uint8A
   return out;
 }
 
+export function declaredTooLarge(request: Request, max: number): boolean {
+  const declared = request.headers.get("content-length");
+  if (declared === null) return false;
+  return !/^\d+$/.test(declared) || Number(declared) > max;
+}
+
 export function isJsonContentType(request: Request): boolean {
   const header = request.headers.get("content-type");
   if (header === null) return false;
@@ -46,34 +49,15 @@ export function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
   return crypto.subtle.timingSafeEqual(left, right);
 }
 
-/** OR of constant-time comparisons. Every equal-length candidate is checked. */
-export function matchesAnyHash(hash: Uint8Array, candidates: readonly Uint8Array[]): boolean {
-  let acc = 0;
-  for (const candidate of candidates) {
-    if (candidate.length !== hash.length) continue;
-    acc |= crypto.subtle.timingSafeEqual(hash, candidate) ? 1 : 0;
-  }
-  return acc === 1;
-}
-
-export async function allowlistCandidates(env: SyncEnv): Promise<Uint8Array[]> {
-  const out: Uint8Array[] = [];
-  const secret = env.ALLOWLIST_TOKEN_HASHES ?? "";
-  for (const part of secret.split(/[\s,]+/)) {
-    const hex = part.trim().toLowerCase();
-    if (hex.length === 0) continue;
-    if (!/^[0-9a-f]{64}$/.test(hex)) continue;
-    const decoded = decodeHex(hex);
-    if (decoded !== null) out.push(decoded);
-  }
-  const { results } = await env.DB.prepare(
-    "SELECT token_hash_hex FROM allowlist ORDER BY token_hash_hex LIMIT 32",
-  ).all<{ token_hash_hex: string }>();
-  for (const row of results) {
-    const hex = row.token_hash_hex.trim().toLowerCase();
-    if (!/^[0-9a-f]{64}$/.test(hex)) continue;
-    const decoded = decodeHex(hex);
-    if (decoded !== null) out.push(decoded);
-  }
-  return out;
+/**
+ * Compare two strings without leaking the expected value through length or
+ * early exit. Both sides are hashed to 32 bytes first.
+ */
+export async function secretEquals(provided: string, expected: string): Promise<boolean> {
+  const encoder = new TextEncoder();
+  const [providedHash, expectedHash] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(provided)),
+    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
+  ]);
+  return crypto.subtle.timingSafeEqual(new Uint8Array(providedHash), new Uint8Array(expectedHash));
 }

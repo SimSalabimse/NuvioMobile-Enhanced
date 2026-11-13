@@ -14,6 +14,7 @@ export interface SpaceRow {
   key_check_b64: string;
   kdf: string;
   iterations: number;
+  revoked_at: number | null;
 }
 
 interface CreateBody {
@@ -33,10 +34,29 @@ export function readSpaceId(body: unknown): string | null {
 
 export async function loadSpace(env: SyncEnv, spaceId: string): Promise<SpaceRow | null> {
   return env.DB.prepare(
-    "SELECT space_id, token_hash_hex, salt_b64, key_check_b64, kdf, iterations FROM spaces WHERE space_id = ?1",
+    "SELECT space_id, token_hash_hex, salt_b64, key_check_b64, kdf, iterations, revoked_at FROM spaces WHERE space_id = ?1",
   )
     .bind(spaceId)
     .first<SpaceRow>();
+}
+
+export async function listSpaces(env: SyncEnv): Promise<Response> {
+  const { results } = await env.DB.prepare(
+    `SELECT s.space_id, s.created_at, s.revoked_at, c.next_seq AS blobs
+     FROM spaces s
+     JOIN space_counters c ON c.space_id = s.space_id
+     ORDER BY s.created_at ASC
+     LIMIT 100`,
+  ).all<{ space_id: string; created_at: number; revoked_at: number | null; blobs: number }>();
+  return json({
+    v: 1,
+    spaces: results.map((row) => ({
+      spaceId: row.space_id,
+      createdAtMs: row.created_at,
+      revokedAtMs: row.revoked_at,
+      blobs: row.blobs,
+    })),
+  });
 }
 
 export async function createSpace(env: SyncEnv, auth: Authed, body: unknown, nowMs: number): Promise<Response> {
@@ -44,6 +64,7 @@ export async function createSpace(env: SyncEnv, auth: Authed, body: unknown, now
   if (parsed === null) return fail(400, "bad_request", "Invalid space");
   const existing = await loadSpace(env, parsed.spaceId);
   if (existing) {
+    if (existing.revoked_at !== null) return fail(409, "conflict", "Space revoked");
     if (!sameToken(existing.token_hash_hex, auth)) return fail(401, "unauthorized", "Unauthorized");
     if (!sameHeader(existing, parsed)) return fail(409, "conflict", "Space already exists");
     return json(toHeader(existing), 200);
@@ -60,7 +81,9 @@ export async function createSpace(env: SyncEnv, auth: Authed, body: unknown, now
     const message = error instanceof Error ? error.message : "";
     if (!message.includes("UNIQUE")) throw error;
     const winner = await loadSpace(env, parsed.spaceId);
-    if (!winner || !sameToken(winner.token_hash_hex, auth)) return fail(401, "unauthorized", "Unauthorized");
+    if (!winner) return fail(401, "unauthorized", "Unauthorized");
+    if (winner.revoked_at !== null) return fail(409, "conflict", "Space revoked");
+    if (!sameToken(winner.token_hash_hex, auth)) return fail(401, "unauthorized", "Unauthorized");
     if (!sameHeader(winner, parsed)) return fail(409, "conflict", "Space already exists");
     return json(toHeader(winner), 200);
   }
@@ -71,14 +94,34 @@ export async function createSpace(env: SyncEnv, auth: Authed, body: unknown, now
     key_check_b64: parsed.keyCheck,
     kdf: parsed.kdf,
     iterations: parsed.iterations,
+    revoked_at: null,
   }), 201);
 }
 
 export async function joinSpace(env: SyncEnv, auth: Authed, spaceId: string): Promise<Response> {
   const existing = await loadSpace(env, spaceId);
+  const denied = denySpace(existing, auth);
+  if (denied) return denied;
+  return json(toHeader(existing!), 200);
+}
+
+export async function revokeSpace(env: SyncEnv, spaceId: string, nowMs: number): Promise<Response> {
+  const existing = await loadSpace(env, spaceId);
+  if (!existing) return fail(404, "not_found", "Not found");
+  if (existing.revoked_at === null) {
+    await env.DB.prepare("UPDATE spaces SET revoked_at = ?1 WHERE space_id = ?2 AND revoked_at IS NULL")
+      .bind(nowMs, spaceId)
+      .run();
+  }
+  return json({ v: 1, spaceId, revoked: true });
+}
+
+/** 404 when the space is missing, 401 when the token or the revoked flag does not allow it. */
+export function denySpace(existing: SpaceRow | null, auth: Authed): Response | null {
   if (!existing) return fail(404, "not_found", "Not found");
   if (!sameToken(existing.token_hash_hex, auth)) return fail(401, "unauthorized", "Unauthorized");
-  return json(toHeader(existing), 200);
+  if (existing.revoked_at !== null) return fail(401, "unauthorized", "Revoked");
+  return null;
 }
 
 function parseCreate(body: unknown): CreateBody | null {
@@ -106,12 +149,17 @@ function parseCreate(body: unknown): CreateBody | null {
 }
 
 function sameHeader(existing: SpaceRow, parsed: CreateBody): boolean {
-  return (
-    existing.salt_b64 === parsed.salt &&
-    existing.key_check_b64 === parsed.keyCheck &&
-    existing.kdf === parsed.kdf &&
-    existing.iterations === parsed.iterations
-  );
+  if (existing.kdf !== parsed.kdf || existing.iterations !== parsed.iterations) return false;
+  if (existing.salt_b64 !== parsed.salt) return false;
+  const stored = decodeB64(existing.key_check_b64);
+  const next = decodeB64(parsed.keyCheck);
+  if (stored === null || next === null) return false;
+  return timingEqual(stored, next);
+}
+
+function timingEqual(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.length !== right.length) return false;
+  return crypto.subtle.timingSafeEqual(left, right);
 }
 
 function toHeader(row: SpaceRow): {

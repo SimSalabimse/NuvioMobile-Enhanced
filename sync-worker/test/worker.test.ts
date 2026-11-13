@@ -1,13 +1,15 @@
 import { env, exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { decodeB64, decodeHex } from "../src/b64";
-import { encodeB64, encodeB64Url, encodeHex } from "./reference/bytes";
+import { decodeB64, decodeHex, encodeB64 } from "../src/b64";
+import { encodeB64Url } from "./reference/bytes";
 import { canonicalJson } from "./reference/canonical";
-import { associatedData, decryptBlob, encryptBlob, sha256 } from "./reference/crypto";
+import { associatedData, decryptBlob, encryptBlob } from "./reference/crypto";
+import { advancePullCursor } from "./reference/cursor";
 import { parseRecord } from "./reference/records";
 import cryptoVector from "../../docs/sync/test-vectors/v1/crypto.json";
 
 const TOKEN = cryptoVector.authTokenBase64Url;
+const ENROLL = "test-enroll-not-a-real-secret";
 
 function space(n: number): string {
   return `12121212-1212-4121-8121-1212121212${n.toString(16).padStart(2, "0")}`;
@@ -16,11 +18,21 @@ const encKeyBytes = decodeHex(cryptoVector.encKeyHex);
 if (encKeyBytes === null) throw new Error("vector enc key");
 const encKey = encKeyBytes;
 
+function nonceFor(n: number): string {
+  const bytes = new Uint8Array(12);
+  bytes[11] = n;
+  return encodeB64(bytes);
+}
+
 function bearer(token: string, jsonBody = true): HeadersInit {
   return {
     authorization: `Bearer ${token}`,
     ...(jsonBody ? { "content-type": "application/json" } : {}),
   };
+}
+
+function enrolled(token: string, jsonBody = true): HeadersInit {
+  return { ...bearer(token, jsonBody), "x-nuvio-enroll": ENROLL };
 }
 
 async function call(path: string, init: RequestInit = {}): Promise<Response> {
@@ -40,13 +52,13 @@ function createBody(spaceId: string) {
 async function createSpace(spaceId: string, token = TOKEN): Promise<Response> {
   return call("/v1/spaces", {
     method: "POST",
-    headers: bearer(token),
+    headers: enrolled(token),
     body: JSON.stringify(createBody(spaceId)),
   });
 }
 
-function blob(id: string, ciphertext = "AAAAAAAAAAAAAAAAAAAAAA==") {
-  return { id, nonce: "AAAAAAAAAAAAAAAA", ciphertext };
+function blob(id: string, n: number, ciphertext = "AAAAAAAAAAAAAAAAAAAAAA==") {
+  return { id, v: 1, kind: "mark", nonce: nonceFor(n), ciphertext };
 }
 
 describe("worker protocol", () => {
@@ -60,41 +72,41 @@ describe("worker protocol", () => {
     expect(options.headers.get("access-control-allow-origin")).toBeNull();
   });
 
-  it("rejects a missing token, a malformed token, and a token off the allowlist", async () => {
+  it("rejects create without the enroll secret and does not write", async () => {
     const missing = await call("/v1/spaces", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(createBody(space(1))),
     });
     expect(missing.status).toBe(401);
-    const malformed = await call("/v1/spaces", {
+    const bearerOnly = await call("/v1/spaces", {
       method: "POST",
-      headers: bearer("not-a-token"),
+      headers: bearer(TOKEN),
       body: JSON.stringify(createBody(space(1))),
     });
-    expect(malformed.status).toBe(401);
+    expect(bearerOnly.status).toBe(401);
+    const wrongEnroll = await call("/v1/spaces", {
+      method: "POST",
+      headers: { ...bearer(TOKEN), "x-nuvio-enroll": "wrong-enroll-secret" },
+      body: JSON.stringify(createBody(space(1))),
+    });
+    expect(wrongEnroll.status).toBe(401);
+    const enrollOnly = await call("/v1/spaces", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-nuvio-enroll": ENROLL },
+      body: JSON.stringify(createBody(space(1))),
+    });
+    expect(enrollOnly.status).toBe(401);
     const stranger = encodeB64Url(new Uint8Array(32).fill(0x22));
-    const rejected = await createSpace(space(1), stranger);
-    expect(rejected.status).toBe(401);
-    expect(await rejected.json()).toEqual({ error: "unauthorized", message: "Unauthorized" });
+    const probe = await call(`/v1/spaces/${space(1)}/blobs?cursor=0`, { headers: bearer(stranger, false) });
+    expect(probe.status).toBe(404);
     const row = await env.DB.prepare("SELECT space_id FROM spaces WHERE space_id = ?1").bind(space(1)).first();
     const rate = await env.DB.prepare("SELECT hits FROM rate_windows WHERE bucket = ?1").bind(`space:${space(1)}`).first();
     expect(row).toBeNull();
     expect(rate).toBeNull();
   });
 
-  it("accepts a hash stored in the D1 allowlist", async () => {
-    const tokenBytes = new Uint8Array(32).fill(0x11);
-    const token = encodeB64Url(tokenBytes);
-    const hash = encodeHex(await sha256(tokenBytes));
-    await env.DB.prepare("INSERT INTO allowlist (token_hash_hex, note, created_at) VALUES (?1, 'profile', 1)")
-      .bind(hash)
-      .run();
-    const response = await createSpace(space(2), token);
-    expect(response.status).toBe(201);
-  });
-
-  it("creates, replays, and joins a space", async () => {
+  it("creates, replays, lists, and joins a space", async () => {
     const created = await createSpace(space(3));
     expect(created.status).toBe(201);
     expect(await created.json()).toEqual({
@@ -107,17 +119,24 @@ describe("worker protocol", () => {
     });
     const replay = await createSpace(space(3));
     expect(replay.status).toBe(200);
+    const listed = await call("/v1/spaces", { headers: { "x-nuvio-enroll": ENROLL } });
+    expect(listed.status).toBe(200);
+    const listBody = await listed.json() as { spaces: Array<{ spaceId: string; revokedAtMs: number | null }> };
+    expect(listBody.spaces.some((row) => row.spaceId === space(3) && row.revokedAtMs === null)).toBe(true);
+    expect(JSON.stringify(listBody)).not.toContain(cryptoVector.saltBase64);
+    expect(JSON.stringify(listBody)).not.toContain(cryptoVector.keyCheckBase64);
+    const hidden = await call("/v1/spaces");
+    expect(hidden.status).toBe(401);
+
     const joined = await call(`/v1/spaces/${space(3)}/join`, { method: "POST", headers: bearer(TOKEN, false) });
     expect(joined.status).toBe(200);
     const other = encodeB64Url(new Uint8Array(32).fill(0x33));
-    const otherHash = encodeHex(await sha256(new Uint8Array(32).fill(0x33)));
-    await env.DB.prepare("INSERT INTO allowlist (token_hash_hex, note, created_at) VALUES (?1, 'other', 1)")
-      .bind(otherHash)
-      .run();
     const wrong = await call(`/v1/spaces/${space(3)}/join`, { method: "POST", headers: bearer(other, false) });
     expect(wrong.status).toBe(401);
     const body = await wrong.json();
     expect(JSON.stringify(body)).not.toContain(cryptoVector.saltBase64);
+    const wrongRate = await env.DB.prepare("SELECT hits FROM rate_windows WHERE bucket = ?1").bind(`space:${space(3)}`).first<{ hits: number }>();
+    expect(wrongRate?.hits).toBe(3);
   });
 
   it("round-trips a tombstone, pages the cursor, and treats a re-push as a duplicate", async () => {
@@ -135,7 +154,13 @@ describe("worker protocol", () => {
     const cipher = encodeB64(await encryptBlob(
       encKey,
       nonce,
-      associatedData(space(4), tombId, "device-a"),
+      associatedData({
+        formatVersion: 1,
+        spaceId: space(4),
+        blobId: tombId,
+        deviceId: "device-a",
+        kind: "mark",
+      }),
       new TextEncoder().encode(plaintext),
     ));
     const second = "33333333-3333-4333-8333-333333333333";
@@ -146,28 +171,30 @@ describe("worker protocol", () => {
       body: JSON.stringify({
         deviceId: "device-a",
         blobs: [
-          { id: tombId, nonce: cryptoVector.nonceBase64, ciphertext: cipher },
-          blob(second),
-          blob(third),
+          { id: tombId, v: 1, kind: "mark", nonce: cryptoVector.nonceBase64, ciphertext: cipher },
+          blob(second, 2),
+          blob(third, 3),
         ],
       }),
     });
     expect(pushed.status).toBe(200);
-    const stored = await pushed.json() as { highWater: number; results: Array<{ status: string; seq: number }> };
-    expect(stored.highWater).toBe(3);
+    const stored = await pushed.json() as { results: Array<{ status: string; seq: number }> };
+    expect(stored).not.toHaveProperty("highWater");
+    expect(stored).not.toHaveProperty("cursor");
     expect(stored.results.map((row) => row.status)).toEqual(["stored", "stored", "stored"]);
+    expect(stored.results.map((row) => row.seq)).toEqual([1, 2, 3]);
 
     const again = await call(`/v1/spaces/${space(4)}/batches`, {
       method: "POST",
       headers: bearer(TOKEN),
-      body: JSON.stringify({ deviceId: "device-a", blobs: [blob(second)] }),
+      body: JSON.stringify({ deviceId: "device-a", blobs: [blob(second, 2)] }),
     });
-    const duplicate = await again.json() as { highWater: number; results: Array<{ status: string; seq: number }> };
+    const duplicate = await again.json() as { results: Array<{ status: string; seq: number }> };
+    expect(duplicate).not.toHaveProperty("highWater");
     expect(duplicate.results[0]).toEqual({ id: second, seq: 2, status: "duplicate" });
-    expect(duplicate.highWater).toBe(3);
 
     const pages: string[] = [];
-    let cursor = "0";
+    let cursor = 0;
     let guard = 0;
     while (guard < 5) {
       guard += 1;
@@ -175,7 +202,8 @@ describe("worker protocol", () => {
         headers: bearer(TOKEN, false),
       });
       expect(page.status).toBe(200);
-      const body = await page.json() as { blobs: Array<{ id: string; seq: number; ciphertext: string; nonce: string; deviceId: string }>; cursor: number; hasMore: boolean };
+      const body = await page.json() as { blobs: Array<{ id: string; seq: number; ciphertext: string; nonce: string; deviceId: string; kind: string; v: number }>; cursor: number; hasMore: boolean };
+      cursor = advancePullCursor(cursor, body);
       if (body.blobs.length === 0) {
         expect(body.hasMore).toBe(false);
         break;
@@ -183,28 +211,95 @@ describe("worker protocol", () => {
       expect(body.blobs).toHaveLength(1);
       pages.push(body.blobs[0]!.id);
       expect(body.hasMore).toBe(pages.length < 3);
-      cursor = String(body.cursor);
     }
     expect(pages).toEqual([tombId, second, third]);
 
+    const overLimit = await call(`/v1/spaces/${space(4)}/blobs?cursor=0&limit=101`, { headers: bearer(TOKEN, false) });
+    expect(overLimit.status).toBe(400);
+    const zeroLimit = await call(`/v1/spaces/${space(4)}/blobs?cursor=0&limit=0`, { headers: bearer(TOKEN, false) });
+    expect(zeroLimit.status).toBe(400);
+
     const pulled = await call(`/v1/spaces/${space(4)}/blobs?cursor=0&limit=1`, { headers: bearer(TOKEN, false) });
-    const first = (await pulled.json() as { blobs: Array<{ id: string; nonce: string; ciphertext: string; deviceId: string }> }).blobs[0]!;
+    const first = (await pulled.json() as { blobs: Array<{ id: string; nonce: string; ciphertext: string; deviceId: string; kind: string; v: number }> }).blobs[0]!;
+    expect(first.v).toBe(1);
+    expect(first.kind).toBe("mark");
     const nonceBytes = decodeB64(first.nonce);
     const cipherBytes = decodeB64(first.ciphertext);
     if (nonceBytes === null || cipherBytes === null) throw new Error("encoding");
-    const plain = await decryptBlob(encKey, nonceBytes, associatedData(space(4), first.id, first.deviceId), cipherBytes);
+    const plain = await decryptBlob(encKey, nonceBytes, associatedData({
+      formatVersion: first.v,
+      spaceId: space(4),
+      blobId: first.id,
+      deviceId: first.deviceId,
+      kind: first.kind,
+    }), cipherBytes);
     const parsed = parseRecord(JSON.parse(new TextDecoder().decode(plain)));
     expect(parsed?.record.deleted).toBe(true);
     expect(parsed?.record.kind).toBe("mark");
+    await expect(decryptBlob(encKey, nonceBytes, associatedData({
+      formatVersion: first.v,
+      spaceId: space(4),
+      blobId: first.id,
+      deviceId: first.deviceId,
+      kind: "detection",
+    }), cipherBytes)).rejects.toThrow();
   });
 
-  it("rejects a changed ciphertext for an existing blob id", async () => {
+  it("keeps both devices when pushes interleave and the pull cursor comes only from pulls", async () => {
+    expect((await createSpace(space(8))).status).toBe(201);
+    const a1 = "88888888-8888-4888-8888-888888888881";
+    const b1 = "88888888-8888-4888-8888-888888888882";
+    const b2 = "88888888-8888-4888-8888-888888888883";
+    const a2 = "88888888-8888-4888-8888-888888888884";
+    const push = async (deviceId: string, id: string, n: number) => {
+      const response = await call(`/v1/spaces/${space(8)}/batches`, {
+        method: "POST",
+        headers: bearer(TOKEN),
+        body: JSON.stringify({ deviceId, blobs: [blob(id, n)] }),
+      });
+      expect(response.status).toBe(200);
+      const body = await response.json() as { results: Array<{ id: string; seq: number; status: string }> };
+      expect(body).not.toHaveProperty("highWater");
+      expect(body).not.toHaveProperty("cursor");
+      return body.results[0]!;
+    };
+    const firstA = await push("device-a", a1, 11);
+    const firstB = await push("device-b", b1, 12);
+    expect([firstA.seq, firstB.seq]).toEqual([1, 2]);
+
+    const page = await call(`/v1/spaces/${space(8)}/blobs?cursor=0&limit=1`, { headers: bearer(TOKEN, false) });
+    const firstPage = await page.json() as { blobs: Array<{ id: string; seq: number; deviceId: string }>; cursor: number; hasMore: boolean };
+    const pullCursor = advancePullCursor(0, firstPage);
+    expect(pullCursor).toBe(1);
+    expect(firstPage.blobs.map((row) => row.id)).toEqual([a1]);
+
+    const secondB = await push("device-b", b2, 13);
+    const secondA = await push("device-a", a2, 14);
+    expect([secondB.seq, secondA.seq]).toEqual([3, 4]);
+
+    const skipped = await call(`/v1/spaces/${space(8)}/blobs?cursor=${secondA.seq}`, { headers: bearer(TOKEN, false) });
+    const missed = await skipped.json() as { blobs: Array<{ id: string; seq: number }>; cursor: number };
+    expect(missed.blobs).toEqual([]);
+    expect(advancePullCursor(secondA.seq, missed)).toBe(secondA.seq);
+
+    const rest = await call(`/v1/spaces/${space(8)}/blobs?cursor=${pullCursor}&limit=100`, { headers: bearer(TOKEN, false) });
+    const restBody = await rest.json() as { blobs: Array<{ id: string; seq: number; deviceId: string }>; cursor: number; hasMore: boolean };
+    expect(advancePullCursor(pullCursor, restBody)).toBe(4);
+    expect(restBody.hasMore).toBe(false);
+    expect(restBody.blobs.map((row) => `${row.deviceId}:${row.id.slice(-1)}:${row.seq}`)).toEqual([
+      "device-b:2:2",
+      "device-b:3:3",
+      "device-a:4:4",
+    ]);
+  });
+
+  it("rejects a repeated nonce and a changed ciphertext", async () => {
     expect((await createSpace(space(5))).status).toBe(201);
     const id = "55555555-5555-4555-8555-555555555555";
     const first = await call(`/v1/spaces/${space(5)}/batches`, {
       method: "POST",
       headers: bearer(TOKEN),
-      body: JSON.stringify({ deviceId: "device-a", blobs: [blob(id)] }),
+      body: JSON.stringify({ deviceId: "device-a", blobs: [blob(id, 21)] }),
     });
     expect(first.status).toBe(200);
     const conflict = await call(`/v1/spaces/${space(5)}/batches`, {
@@ -212,10 +307,30 @@ describe("worker protocol", () => {
       headers: bearer(TOKEN),
       body: JSON.stringify({
         deviceId: "device-a",
-        blobs: [blob(id, encodeB64(new Uint8Array(16).fill(9)))],
+        blobs: [blob(id, 21, encodeB64(new Uint8Array(16).fill(9)))],
       }),
     });
     expect(conflict.status).toBe(409);
+    const reused = "55555555-5555-4555-8555-555555555556";
+    const nonceConflict = await call(`/v1/spaces/${space(5)}/batches`, {
+      method: "POST",
+      headers: bearer(TOKEN),
+      body: JSON.stringify({ deviceId: "device-b", blobs: [blob(reused, 21)] }),
+    });
+    expect(nonceConflict.status).toBe(409);
+    expect(await nonceConflict.json()).toEqual({ error: "conflict", message: "Nonce already used" });
+    const pair = await call(`/v1/spaces/${space(5)}/batches`, {
+      method: "POST",
+      headers: bearer(TOKEN),
+      body: JSON.stringify({
+        deviceId: "device-a",
+        blobs: [
+          blob("55555555-5555-4555-8555-555555555557", 30),
+          blob("55555555-5555-4555-8555-555555555558", 30),
+        ],
+      }),
+    });
+    expect(pair.status).toBe(409);
     const rows = await env.DB.prepare("SELECT COUNT(*) AS n FROM blobs WHERE space_id = ?1").bind(space(5)).first<{ n: number }>();
     expect(rows?.n).toBe(1);
   });
@@ -234,21 +349,78 @@ describe("worker protocol", () => {
       headers: bearer(TOKEN),
       body: JSON.stringify({
         deviceId: "device-a",
-        blobs: [{ id: "66666666-6666-4666-8666-666666666666", nonce: "AAAAAAAAAAAAAAAA", ciphertext: cipher }],
+        blobs: [{ id: "66666666-6666-4666-8666-666666666666", v: 1, kind: "mark", nonce: nonceFor(40), ciphertext: cipher }],
       }),
     });
     expect(over.status).toBe(400);
   });
 
+  it("stops a space at the blob cap and still accepts a duplicate", async () => {
+    expect((await createSpace(space(9))).status).toBe(201);
+    for (let n = 1; n <= 4; n++) {
+      const id = `99999999-9999-4999-8999-99999999999${n}`;
+      const response = await call(`/v1/spaces/${space(9)}/batches`, {
+        method: "POST",
+        headers: bearer(TOKEN),
+        body: JSON.stringify({ deviceId: "device-a", blobs: [blob(id, 50 + n)] }),
+      });
+      expect(response.status).toBe(200);
+    }
+    const full = await call(`/v1/spaces/${space(9)}/batches`, {
+      method: "POST",
+      headers: bearer(TOKEN),
+      body: JSON.stringify({
+        deviceId: "device-a",
+        blobs: [blob("99999999-9999-4999-8999-999999999990", 70)],
+      }),
+    });
+    expect(full.status).toBe(409);
+    expect(await full.json()).toEqual({ error: "quota_exceeded", message: "Space is full" });
+    const duplicate = await call(`/v1/spaces/${space(9)}/batches`, {
+      method: "POST",
+      headers: bearer(TOKEN),
+      body: JSON.stringify({ deviceId: "device-a", blobs: [blob("99999999-9999-4999-8999-999999999991", 51)] }),
+    });
+    expect(duplicate.status).toBe(200);
+    const rows = await env.DB.prepare("SELECT COUNT(*) AS n FROM blobs WHERE space_id = ?1").bind(space(9)).first<{ n: number }>();
+    expect(rows?.n).toBe(4);
+  });
+
+  it("revokes a space with the enroll secret and keeps the salt private", async () => {
+    expect((await createSpace(space(10))).status).toBe(201);
+    const stranger = await call(`/v1/spaces/${space(10)}`, { method: "DELETE" });
+    expect(stranger.status).toBe(401);
+    const still = await call(`/v1/spaces/${space(10)}/join`, { method: "POST", headers: bearer(TOKEN, false) });
+    expect(still.status).toBe(200);
+    const removed = await call(`/v1/spaces/${space(10)}`, { method: "DELETE", headers: { "x-nuvio-enroll": ENROLL } });
+    expect(removed.status).toBe(200);
+    expect(await removed.json()).toEqual({ v: 1, spaceId: space(10), revoked: true });
+    const again = await call(`/v1/spaces/${space(10)}`, { method: "DELETE", headers: { "x-nuvio-enroll": ENROLL } });
+    expect(again.status).toBe(200);
+    const joined = await call(`/v1/spaces/${space(10)}/join`, { method: "POST", headers: bearer(TOKEN, false) });
+    expect(joined.status).toBe(401);
+    expect(JSON.stringify(await joined.json())).not.toContain(cryptoVector.saltBase64);
+    const pushed = await call(`/v1/spaces/${space(10)}/batches`, {
+      method: "POST",
+      headers: bearer(TOKEN),
+      body: JSON.stringify({ deviceId: "device-a", blobs: [blob("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa10", 80)] }),
+    });
+    expect(pushed.status).toBe(401);
+    const recreated = await createSpace(space(10));
+    expect(recreated.status).toBe(409);
+    const rows = await env.DB.prepare("SELECT COUNT(*) AS n FROM blobs WHERE space_id = ?1").bind(space(10)).first<{ n: number }>();
+    expect(rows?.n).toBe(0);
+  });
+
   it("rate limits a space after the configured window", async () => {
     expect((await createSpace(space(7))).status).toBe(201);
     const statuses: number[] = [];
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 20; i++) {
       const response = await call(`/v1/spaces/${space(7)}/blobs?cursor=0`, { headers: bearer(TOKEN, false) });
       statuses.push(response.status);
     }
-    expect(statuses.slice(0, 7)).toEqual([200, 200, 200, 200, 200, 200, 200]);
-    expect(statuses[7]).toBe(429);
+    expect(statuses.slice(0, 19)).toEqual(Array(19).fill(200));
+    expect(statuses[19]).toBe(429);
     const limited = await call(`/v1/spaces/${space(7)}/blobs?cursor=0`, { headers: bearer(TOKEN, false) });
     expect(limited.status).toBe(429);
     expect(limited.headers.get("retry-after")).toBeTruthy();

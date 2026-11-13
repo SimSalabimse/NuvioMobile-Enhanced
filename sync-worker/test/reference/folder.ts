@@ -21,6 +21,8 @@ function assertDevice(deviceId: string): void {
 
 export interface FolderBlob {
   id: string;
+  v: 1;
+  kind: "mark" | "detection" | "submission" | "alias";
   nonce: string;
   ciphertext: string;
 }
@@ -121,10 +123,12 @@ function parseBlobs(value: unknown): FolderBlob[] | null {
   if (!Array.isArray(value)) return null;
   const blobs: FolderBlob[] = [];
   for (const item of value) {
-    if (!isRecord(item) || !keysExact(item, ["ciphertext", "id", "nonce"])) return null;
+    if (!isRecord(item) || !keysExact(item, ["ciphertext", "id", "kind", "nonce", "v"])) return null;
+    if (item.v !== 1) return null;
+    if (item.kind !== "mark" && item.kind !== "detection" && item.kind !== "submission" && item.kind !== "alias") return null;
     if (typeof item.id !== "string" || !UUID_V4.test(item.id)) return null;
     if (typeof item.nonce !== "string" || typeof item.ciphertext !== "string") return null;
-    blobs.push({ id: item.id, nonce: item.nonce, ciphertext: item.ciphertext });
+    blobs.push({ id: item.id, v: 1, kind: item.kind, nonce: item.nonce, ciphertext: item.ciphertext });
   }
   return blobs;
 }

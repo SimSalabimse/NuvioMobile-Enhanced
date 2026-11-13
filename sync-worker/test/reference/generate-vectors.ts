@@ -8,9 +8,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { encodeB64, encodeB64Url, encodeHex } from "./bytes";
 import { canonicalJson } from "./canonical";
-import { KDF_ITERATIONS, associatedData, deriveKeys, encryptBlob, joinCode, sha256 } from "./crypto";
+import { MAX_HLC_SKEW_MS, TOMBSTONE_KEEP_MS } from "./clock";
+import { KDF_ITERATIONS, associatedData, associatedDataText, deriveKeys, encryptBlob, joinCode, sha256 } from "./crypto";
 import { mergeRecords, type AnalyseQuery } from "./merge";
 import type { SegmentType } from "./records";
+import { adoptFullResync, recordsToUpload, syncMode } from "./sync-plan";
 
 const outDir = join(dirname(fileURLToPath(import.meta.url)), "../../../docs/sync/test-vectors/v1");
 const NOW = 1_700_000_000_000;
@@ -155,6 +157,7 @@ async function main(): Promise<void> {
   const blobId = "22222222-2222-4222-8222-222222222222";
   const deviceId = "device-a";
   const keys = await deriveKeys(passphrase, salt);
+  const kind = "mark";
   const plainRecord = rangeMark({
     n: 1,
     showId: "tmdb:100",
@@ -169,8 +172,9 @@ async function main(): Promise<void> {
     deviceId,
   });
   const plaintext = canonicalJson(plainRecord);
-  const aadText = `nuvio-sync/1\n${spaceId}\n${blobId}\n${deviceId}\n`;
-  const ciphertext = await encryptBlob(keys.encKey, nonce, associatedData(spaceId, blobId, deviceId), new TextEncoder().encode(plaintext));
+  const routing = { formatVersion: 1, spaceId, blobId, deviceId, kind };
+  const aadText = associatedDataText(routing);
+  const ciphertext = await encryptBlob(keys.encKey, nonce, associatedData(routing), new TextEncoder().encode(plaintext));
   const wrong = await deriveKeys(`${passphrase}-wrong`, salt);
   const tokenHash = await sha256(keys.authToken);
   const cryptoVector = {
@@ -184,6 +188,8 @@ async function main(): Promise<void> {
     spaceId,
     blobId,
     deviceId,
+    formatVersion: 1,
+    kind,
     aad: aadText,
     plaintext,
     masterKeyHex: encodeHex(keys.master),
@@ -348,14 +354,15 @@ async function main(): Promise<void> {
     { deleted: true, hlc: hlc(2_000_000, 0, "device-b"), id: tombId, kind: "mark" },
   ];
   const kept = mergeRecords(tombstoneRecords, 2_000_000);
-  const purged = mergeRecords(tombstoneRecords, 2_000_000 + 90 * 24 * 60 * 60 * 1000);
+  const purgedAt = 2_000_000 + TOMBSTONE_KEEP_MS;
+  const purged = mergeRecords(tombstoneRecords, purgedAt);
   write("tombstone.json", {
     v: 1,
     name: "tombstone",
     records: tombstoneRecords,
     cases: [
       { nowMs: 2_000_000, merged: kept, mergedCanonical: canonicalJson(kept) },
-      { nowMs: 2_000_000 + 90 * 24 * 60 * 60 * 1000, merged: purged, mergedCanonical: canonicalJson(purged) },
+      { nowMs: purgedAt, merged: purged, mergedCanonical: canonicalJson(purged) },
     ],
   });
 
@@ -397,6 +404,97 @@ async function main(): Promise<void> {
     },
   ];
   write("clock-tie.json", scenario("clock-tie", tieRecords, []));
+
+  const jsonTieId = `mark/${uuid(15)}`;
+  const jsonTieRecords = [1_000, 9_000].map((startMs) => ({
+    ...rangeMark({
+      n: 15,
+      showId: show,
+      season: 1,
+      episode: 8,
+      segmentType: "intro",
+      segmentIndex: 0,
+      startMs,
+      endMs: startMs + 1_000,
+      durationMs: 3_600_000,
+      wallMs: 5_000,
+      counter: 3,
+      deviceId: "device-a",
+    }),
+    id: jsonTieId,
+  }));
+  write("clock-json-tie.json", scenario("clock-json-tie", jsonTieRecords, []));
+
+  const skewedNow = NOW;
+  const skewedLive = rangeMark({
+    n: 16,
+    showId: show,
+    season: 1,
+    episode: 8,
+    segmentType: "intro",
+    segmentIndex: 0,
+    startMs: 10_000,
+    endMs: 20_000,
+    durationMs: 3_600_000,
+    wallMs: skewedNow - 10_000,
+    deviceId: "device-a",
+  });
+  const futureTombstone = {
+    deleted: true,
+    hlc: hlc(skewedNow + MAX_HLC_SKEW_MS + 1, 0, "device-b"),
+    id: skewedLive.id,
+    kind: "mark",
+  };
+  write("clock-skew.json", scenario("clock-skew", [skewedLive, futureTombstone], [
+    { showId: show, season: 1, episode: 8, segmentType: "intro", segmentIndex: 0, fileDurationMs: 3_600_000, localAlgorithm: 1, expectAnalyse: false },
+  ], skewedNow));
+
+  const staleMark = rangeMark({
+    n: 17,
+    showId: show,
+    season: 1,
+    episode: 8,
+    segmentType: "intro",
+    segmentIndex: 0,
+    startMs: 10_000,
+    endMs: 20_000,
+    durationMs: 3_600_000,
+    wallMs: 1_000_000,
+    deviceId: "device-a",
+  });
+  const freshMark = rangeMark({
+    n: 18,
+    showId: show,
+    season: 1,
+    episode: 8,
+    segmentType: "recap",
+    segmentIndex: 0,
+    startMs: 1_000,
+    endMs: 2_000,
+    durationMs: 3_600_000,
+    wallMs: purgedAt - 1_000,
+    deviceId: "device-a",
+  });
+  const lastSuccessfulSyncMs = 1_000_000;
+  const remoteRecords: unknown[] = [];
+  const staleLocalRecords = [staleMark, freshMark];
+  const uploaded = recordsToUpload(staleLocalRecords, lastSuccessfulSyncMs, purgedAt);
+  const adopted = adoptFullResync(remoteRecords, uploaded, purgedAt);
+  write("offline-resync.json", {
+    v: 1,
+    name: "offline-resync",
+    description: "The device's last sync is at least 90 days ago. The stale mark is not uploaded. A mark newer than the keep window still is.",
+    lastSuccessfulSyncMs,
+    nowMs: purgedAt,
+    mode: syncMode(lastSuccessfulSyncMs, purgedAt),
+    remoteRecords,
+    staleLocalRecords,
+    pushLocal: uploaded,
+    adopted,
+    adoptedCanonical: canonicalJson(adopted),
+    resurrectedCanonical: canonicalJson(mergeRecords([staleMark], purgedAt)),
+    withinWindowMode: syncMode(lastSuccessfulSyncMs, 2_000_000),
+  });
 
   const aliasRecords = [
     {
@@ -503,6 +601,7 @@ async function main(): Promise<void> {
     scenarios: [
       scenario("not-found-alone", [notFound], [query]),
       scenario("none-here", [notFound, none], [{ ...query, expectAnalyse: false }]),
+      scenario("no-record", [], [query]),
     ],
   });
 

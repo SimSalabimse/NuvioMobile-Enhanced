@@ -1,6 +1,6 @@
-/** Bindings from wrangler.jsonc. ALLOWLIST_TOKEN_HASHES is a secret, not a var. */
+/** Bindings from wrangler.jsonc. ENROLL_SECRET is a secret, not a var. */
 export interface SyncEnv extends Env {
-  ALLOWLIST_TOKEN_HASHES?: string;
+  ENROLL_SECRET?: string;
   TEST_MIGRATIONS?: unknown;
 }
 
@@ -12,6 +12,7 @@ export interface Limits {
   rateWindowMs: number;
   pullDefault: number;
   pullMax: number;
+  maxSpaceBlobs: number;
 }
 
 export function limitsOf(env: SyncEnv): Limits {
@@ -23,6 +24,7 @@ export function limitsOf(env: SyncEnv): Limits {
     rateWindowMs: positiveInt(env.RATE_WINDOW_MS, 60000),
     pullDefault: positiveInt(env.PULL_DEFAULT_LIMIT, 100),
     pullMax: positiveInt(env.PULL_MAX_LIMIT, 100),
+    maxSpaceBlobs: positiveInt(env.MAX_SPACE_BLOBS, 20_000),
   };
 }
 

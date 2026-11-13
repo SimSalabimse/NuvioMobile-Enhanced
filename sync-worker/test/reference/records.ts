@@ -1,6 +1,7 @@
 /** Closed v1 record parser. Unknown keys are rejected so clients cannot drift. */
 
 import { canonicalJson } from "./canonical";
+import { MAX_HLC_COUNTER } from "./clock";
 
 export const SEGMENT_TYPES = ["intro", "recap", "credits", "preview"] as const;
 export type SegmentType = (typeof SEGMENT_TYPES)[number];
@@ -360,7 +361,7 @@ function parseRelease(value: Record<string, unknown>): string | null | "bad" {
 function parseHlc(value: unknown): Hlc | null {
   if (!isRecord(value) || !keysExact(value, ["counter", "deviceId", "wallMs"])) return null;
   if (!safeInt(value.wallMs) || (value.wallMs as number) < 0) return null;
-  if (!safeInt(value.counter) || (value.counter as number) < 0 || (value.counter as number) > 1_000_000) return null;
+  if (!safeInt(value.counter) || (value.counter as number) < 0 || (value.counter as number) > MAX_HLC_COUNTER) return null;
   if (typeof value.deviceId !== "string" || !DEVICE_ID.test(value.deviceId)) return null;
   return { wallMs: value.wallMs as number, counter: value.counter as number, deviceId: value.deviceId };
 }

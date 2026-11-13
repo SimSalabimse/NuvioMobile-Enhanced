@@ -1,5 +1,6 @@
 /**
- * Print the allowlist hash for a passphrase and salt. Passphrase stays on stdin.
+ * Debug helper for the KDF. Not a deploy step. Deploy uses a random enroll
+ * secret and never reads the passphrase. See sync-worker/README.md.
  *
  *   npx tsx test/reference/derive-stdin.ts < /path/outside/the/repo/input.json
  *

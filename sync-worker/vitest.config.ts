@@ -1,11 +1,8 @@
 import path from "node:path";
-import { readFileSync } from "node:fs";
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
 
-const cryptoVector = JSON.parse(
-  readFileSync(new URL("../docs/sync/test-vectors/v1/crypto.json", import.meta.url), "utf8"),
-) as { tokenHashHex: string };
+const ENROLL_SECRET = "test-enroll-not-a-real-secret";
 
 export default defineConfig(async () => {
   const migrations = await readD1Migrations(path.join(import.meta.dirname, "migrations"));
@@ -16,8 +13,9 @@ export default defineConfig(async () => {
         miniflare: {
           bindings: {
             TEST_MIGRATIONS: migrations,
-            ALLOWLIST_TOKEN_HASHES: cryptoVector.tokenHashHex,
-            RATE_LIMIT_PER_WINDOW: "8",
+            ENROLL_SECRET,
+            RATE_LIMIT_PER_WINDOW: "20",
+            MAX_SPACE_BLOBS: "4",
           },
         },
       }),

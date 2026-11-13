@@ -210,6 +210,30 @@
         "tombstones": []
       },
       "mergedCanonical": "{\"rejected\":0,\"shows\":[{\"aliases\":[\"tmdb:100\"],\"episodes\":[{\"detections\":[{\"algorithm\":\"nuvio-analysis-1\",\"algorithmVersion\":1,\"applied\":false,\"durationMs\":3600000,\"endMs\":null,\"hlc\":{\"counter\":0,\"deviceId\":\"device-a\",\"wallMs\":1000},\"id\":\"det/tmdb:100/s1e8/intro/0/3600000/a1\",\"outcome\":\"not_found\",\"releaseId\":null,\"segmentIndex\":0,\"segmentType\":\"intro\",\"startMs\":null,\"suppressedBy\":\"mark\"}],\"effective\":[{\"algorithm\":null,\"durationMs\":0,\"endMs\":null,\"id\":\"none/tmdb:100/s1e8/intro\",\"presence\":\"none\",\"segmentIndex\":null,\"segmentType\":\"intro\",\"source\":\"mark\",\"startMs\":null}],\"episode\":8,\"episodeKey\":\"s1e8\",\"marks\":[{\"applied\":true,\"durationMs\":0,\"endMs\":null,\"hlc\":{\"counter\":0,\"deviceId\":\"device-b\",\"wallMs\":2000},\"id\":\"none/tmdb:100/s1e8/intro\",\"presence\":\"none\",\"segmentIndex\":null,\"segmentType\":\"intro\",\"startMs\":null,\"suppressedBy\":null}],\"season\":1,\"userNoneTypes\":[\"intro\"]}],\"showId\":\"tmdb:100\"}],\"submissions\":[],\"tombstones\":[]}"
+    },
+    {
+      "name": "no-record",
+      "nowMs": 1700000000000,
+      "records": [],
+      "queries": [
+        {
+          "showId": "tmdb:100",
+          "season": 1,
+          "episode": 8,
+          "segmentType": "intro",
+          "segmentIndex": 0,
+          "fileDurationMs": 3600000,
+          "localAlgorithm": 1,
+          "expectAnalyse": true
+        }
+      ],
+      "merged": {
+        "rejected": 0,
+        "shows": [],
+        "submissions": [],
+        "tombstones": []
+      },
+      "mergedCanonical": "{\"rejected\":0,\"shows\":[],\"submissions\":[],\"tombstones\":[]}"
     }
   ]
 }

@@ -19,8 +19,8 @@ export interface RateResult {
 
 /**
  * One row per space per window. The write is the abuse counter.
- * Callers skip this until the bearer token is on the allowlist, so a stranger
- * does not get a D1 write.
+ * Callers skip this until the enroll secret or the space bearer has matched,
+ * so a stranger does not get a D1 write.
  */
 export async function takeRateHit(env: SyncEnv, bucket: string, limit: number, windowMs: number, nowMs: number): Promise<RateResult> {
   const start = windowStart(nowMs, windowMs);
