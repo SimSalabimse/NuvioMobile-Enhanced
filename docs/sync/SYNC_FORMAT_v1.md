@@ -40,6 +40,10 @@ A show id is one of:
 
 `imdb:tt0000100` and `imdb:tt100` are spellings of the same IMDb title. The numeric value is the integer after `tt`. They merge with no alias record. TMDB ids are not zero-padded, so `tmdb:100` and `tmdb:0100` are not both valid; only `tmdb:100` is.
 
+A writer normalizes an IMDb id before storing it in a record and before placing it in a record id. The normalized spelling is `imdb:tt` plus the integer in decimal, left-padded with `0` to at least 7 digits. `tt100`, `imdb:tt100`, `imdb_tt100`, and `tt0000100` are all written `imdb:tt0000100`. An integer that already has more than 7 digits keeps every digit (`tt12345678` is written `imdb:tt12345678`). Extra leading zeros beyond that padding are not written. Readers still accept every spelling of 1 to 10 digits above, and those spellings still merge with no alias record. `{showId}` in a none id, a detection id, and an alias id (`{from}`) is this normalized spelling when the writer created the record.
+
+A disk show id `tt…`, `imdb:tt…`, or `imdb_tt…` is that same IMDb id and is normalized the same way.
+
 A TMDB id and an IMDb id of the same title are linked only by an `alias` record.
 
 Today's on-disk keys, which this format replaces when the clients land:
@@ -75,7 +79,7 @@ Writers translate those into the ids in this section. `outro` in the analysis fi
 
 UUID v4 is lowercase and matches `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`. Space ids and blob ids use the same form.
 
-`accountScope` is 64 lowercase hex characters: SHA-256 of the UTF-8 TheIntroDB account key. The key is never stored in a record, a file, or the Worker. This checkout fetches that list from the API and does not persist a hash under `own_theintrodb_submissions_v2`; v1 clients use this SHA-256 as the scope.
+`accountScope` is 64 lowercase hex characters: SHA-256 of the trimmed UTF-8 TheIntroDB account key. Trim leading and trailing whitespace with `String.prototype.trim` (Unicode `White_Space` and line terminators), then hash the UTF-8 bytes of what remains. A key that is empty after trimming has no scope and is not written. The key is never stored in a record, a file, or the Worker. This checkout fetches that list from the API and does not persist a hash under `own_theintrodb_submissions_v2`; v1 clients use this SHA-256 as the scope.
 
 `remoteId` is the submission's id at TheIntroDB, 1 to 128 characters from `A-Z a-z 0-9 . _ -`.
 
@@ -230,7 +234,7 @@ Build an undirected graph. Every live record contributes its show id. A live ali
 The canonical show id of a component is:
 
 1. The smallest TMDB number, written `tmdb:{number}`, if any TMDB id is present.
-2. Otherwise the smallest IMDb number. When several stored spellings share that number, the one with the most digits wins, then UTF-16 order.
+2. Otherwise the smallest IMDb number. When several stored spellings share that number, the one with the most digits wins, then UTF-16 order. Writers of new records store the normalized IMDb spelling from section 2; merge still groups every accepted spelling by numeric value.
 3. Otherwise the UTF-16-smallest `raw:` id.
 
 `aliases` is every stored spelling in the component, sorted by UTF-16, including the canonical id. Lookup uses exact spelling. An unseen zero-padding of an IMDb id does not match until some record has used that spelling.

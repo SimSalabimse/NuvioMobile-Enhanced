@@ -14,6 +14,7 @@ import {
   SyncCryptoError,
 } from "./reference/crypto";
 import { mergeRecords, shouldAnalyse, type AnalyseQuery } from "./reference/merge";
+import { canonicalImdbShowId, parseRecord } from "./reference/records";
 import cryptoVector from "../../docs/sync/test-vectors/v1/crypto.json";
 import nfcVector from "../../docs/sync/test-vectors/v1/passphrase-nfc.json";
 import markBeats from "../../docs/sync/test-vectors/v1/mark-beats-detection.json";
@@ -28,6 +29,7 @@ import rejected from "../../docs/sync/test-vectors/v1/rejected.json";
 import clockJsonTie from "../../docs/sync/test-vectors/v1/clock-json-tie.json";
 import clockSkew from "../../docs/sync/test-vectors/v1/clock-skew.json";
 import offlineResync from "../../docs/sync/test-vectors/v1/offline-resync.json";
+import idNormalization from "../../docs/sync/test-vectors/v1/id-normalization.json";
 
 function expectScenario(file: {
   nowMs: number;
@@ -241,6 +243,23 @@ describe("merge vectors", () => {
 
   it("treats a zero duration mark as covering every cut of that slot", () => {
     expectScenario(zeroDuration);
+  });
+
+  it("pads imdb ids in record ids and trims the account key", async () => {
+    for (const row of idNormalization.imdb) {
+      expect(canonicalImdbShowId(row.input)).toBe(row.showId);
+    }
+    expect(idNormalization.detection.id).toBe("det/imdb:tt0000100/s1e8/intro/0/3600000/a1");
+    expect(idNormalization.none.id).toBe("none/imdb:tt0000100/s1e8/intro");
+    expect(idNormalization.alias.id).toBe("alias/imdb:tt0000100");
+    expect(parseRecord(idNormalization.detection)).not.toBeNull();
+    expect(parseRecord(idNormalization.none)).not.toBeNull();
+    expect(parseRecord(idNormalization.alias)).not.toBeNull();
+    const scope = idNormalization.accountScope;
+    expect(scope.trimmed).toBe(scope.key.trim());
+    expect(scope.trimmed).not.toBe(scope.key);
+    expect(encodeHex(await sha256(new TextEncoder().encode(scope.trimmed)))).toBe(scope.accountScope);
+    expect(scope.accountScope).toBe(submissions.records[0]?.accountScope);
   });
 
   it("counts malformed records and drops them", () => {

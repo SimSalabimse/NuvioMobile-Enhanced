@@ -5,13 +5,33 @@ import com.nuvio.app.features.analyzedsync.crypto.encodeHex
 import com.nuvio.app.features.analyzedsync.crypto.sha256
 import com.nuvio.app.features.analyzedsync.json.canonicalJson
 import com.nuvio.app.features.analyzedsync.record.SubmissionRecord
+import com.nuvio.app.features.analyzedsync.record.canonicalShowId
 import com.nuvio.app.features.analyzedsync.record.episodeKey
-import com.nuvio.app.features.analyzedsync.record.isShowId
 import com.nuvio.app.features.analyzedsync.session.AnalyzedSyncVault
 import com.nuvio.app.features.analyzedsync.session.decodeSession
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.player.skip.TheIntroDbUserSubmission
 import com.nuvio.app.features.streams.epochMs
+
+/** SHA-256 of the trimmed UTF-8 key. Empty after trim has no scope. Trim matches `String.prototype.trim`. */
+internal fun accountScope(apiKey: String): String? {
+    val trimmed = trimAccountKey(apiKey)
+    if (trimmed.isEmpty()) return null
+    return encodeHex(sha256(trimmed.encodeToByteArray()))
+}
+
+private fun trimAccountKey(value: String): String {
+    var start = 0
+    var end = value.length
+    while (start < end && isTrimWhitespace(value[start])) start++
+    while (end > start && isTrimWhitespace(value[end - 1])) end--
+    return value.substring(start, end)
+}
+
+private fun isTrimWhitespace(ch: Char): Boolean = when (ch) {
+    '\u0009', '\u000A', '\u000B', '\u000C', '\u000D', '\u0020', '\u00A0', '\u1680', '\u2028', '\u2029', '\u202F', '\u205F', '\u3000', '\uFEFF' -> true
+    else -> ch in '\u2000'..'\u200A'
+}
 
 private val REMOTE_ID = Regex("^[A-Za-z0-9._-]{1,128}$")
 private val STATUS = Regex("^[A-Za-z0-9 ._-]{1,32}$")
@@ -21,8 +41,7 @@ private val STATUS = Regex("^[A-Za-z0-9 ._-]{1,32}$")
  * The key itself is not stored or logged. An inferred missing segment is never written as a mark.
  */
 internal fun noteOwnSubmissions(apiKey: String, rows: List<TheIntroDbUserSubmission>, showId: String?) {
-    if (apiKey.isEmpty()) return
-    val scope = encodeHex(sha256(apiKey.encodeToByteArray()))
+    val scope = accountScope(apiKey) ?: return
     val deviceId = AnalyzedSyncVault.readSession(ProfileRepository.activeProfileId)
         ?.let(::decodeSession)?.deviceId ?: "phone"
     val now = epochMs()
@@ -47,7 +66,7 @@ private fun submissionRecord(
 ): SubmissionRecord? {
     val remote = row.id ?: return null
     if (!REMOTE_ID.matches(remote)) return null
-    val show = row.tmdbId?.let { "tmdb:$it" }?.takeIf(::isShowId) ?: fallbackShowId?.takeIf(::isShowId) ?: return null
+    val show = row.tmdbId?.let { canonicalShowId("tmdb:$it") } ?: fallbackShowId?.let(::canonicalShowId) ?: return null
     val segment = when (row.segment?.lowercase()) {
         "intro" -> "intro"
         "recap" -> "recap"

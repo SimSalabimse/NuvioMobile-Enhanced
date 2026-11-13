@@ -11,7 +11,7 @@ import { canonicalJson } from "./canonical";
 import { MAX_HLC_SKEW_MS, TOMBSTONE_KEEP_MS } from "./clock";
 import { KDF_ITERATIONS, associatedData, associatedDataText, deriveKeys, encryptBlob, joinCode, sha256 } from "./crypto";
 import { mergeRecords, type AnalyseQuery } from "./merge";
-import type { SegmentType } from "./records";
+import { canonicalImdbShowId, type SegmentType } from "./records";
 import { adoptFullResync, recordsToUpload, syncMode } from "./sync-plan";
 
 const outDir = join(dirname(fileURLToPath(import.meta.url)), "../../../docs/sync/test-vectors/v1");
@@ -657,6 +657,60 @@ async function main(): Promise<void> {
     { showId: show, season: 1, episode: 8, segmentType: "preview", segmentIndex: 1, fileDurationMs: 9_999_000, localAlgorithm: 1, expectAnalyse: true },
     { showId: show, season: 1, episode: 8, segmentType: "intro", segmentIndex: 0, fileDurationMs: 9_999_000, localAlgorithm: 1, expectAnalyse: true },
   ]));
+
+  const imdbInputs = ["tt100", "tt0000100", "imdb:tt100", "imdb_tt100", "tt0000000100", "tt12345678", "tt0000000", "imdb_tt0000000"];
+  const paddedImdb = canonicalImdbShowId("tt100");
+  if (paddedImdb === null) throw new Error("imdb normalization");
+  const paddedKey = "  fake-theintrodb-key  ";
+  const trimmedKey = paddedKey.trim();
+  write("id-normalization.json", {
+    v: 1,
+    description: "Writers pad IMDb ids in record ids to at least 7 digits, and accountScope hashes the trimmed UTF-8 TheIntroDB key. The key is an obvious fake.",
+    name: "id-normalization",
+    imdb: imdbInputs.map((input) => ({ input, showId: canonicalImdbShowId(input) })),
+    detection: {
+      kind: "detection",
+      id: detectionId({ showId: paddedImdb, season: 1, episode: 8, segmentType: "intro", segmentIndex: 0, durationMs: 3_600_000, algorithm: "nuvio-analysis-1" }),
+      deleted: false,
+      hlc: hlc(1_000, 0, "device-a"),
+      showId: paddedImdb,
+      season: 1,
+      episode: 8,
+      segmentType: "intro",
+      segmentIndex: 0,
+      outcome: "found",
+      startMs: 40_000,
+      endMs: 90_000,
+      durationMs: 3_600_000,
+      algorithm: "nuvio-analysis-1",
+      releaseId: paddedImdb,
+    },
+    none: {
+      kind: "mark",
+      id: noneId(paddedImdb, 1, 8, "intro"),
+      deleted: false,
+      hlc: hlc(1_000, 0, "device-a"),
+      showId: paddedImdb,
+      season: 1,
+      episode: 8,
+      segmentType: "intro",
+      presence: "none",
+      durationMs: 0,
+    },
+    alias: {
+      kind: "alias",
+      id: `alias/${paddedImdb}`,
+      deleted: false,
+      hlc: hlc(1_000, 0, "device-a"),
+      from: paddedImdb,
+      to: "tmdb:100",
+    },
+    accountScope: {
+      key: paddedKey,
+      trimmed: trimmedKey,
+      accountScope: encodeHex(await sha256(new TextEncoder().encode(trimmedKey))),
+    },
+  });
 
   write("rejected.json", scenario("rejected", [
     rangeMark({

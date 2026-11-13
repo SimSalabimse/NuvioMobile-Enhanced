@@ -15,6 +15,8 @@ import com.nuvio.app.features.analyzedsync.record.MarkRecord
 import com.nuvio.app.features.analyzedsync.record.SubmissionRecord
 import com.nuvio.app.features.analyzedsync.record.SyncRecord
 import com.nuvio.app.features.analyzedsync.record.TombstoneRecord
+import com.nuvio.app.features.analyzedsync.record.canonicalShowId
+import com.nuvio.app.features.analyzedsync.record.canonicalImdbShowId
 import com.nuvio.app.features.analyzedsync.record.detectionId
 import com.nuvio.app.features.analyzedsync.record.episodeKey
 import com.nuvio.app.features.analyzedsync.record.isShowId
@@ -36,7 +38,9 @@ internal open class EpisodeJsonSyncStore(private val files: AnalysisTextFiles) :
         records += readStored(files, TOMBSTONES_FILE)
         records += readStored(files, SUBMISSIONS_FILE)
         val storedAliases = readStored(files, ALIASES_SYNC_FILE)
-        records += if (storedAliases.isNotEmpty()) storedAliases else aliasRecordsFromMap(readAliasMap(files))
+        val storedAliasIds = storedAliases.map { it.record.id }.toSet()
+        records += storedAliases
+        records += aliasRecordsFromMap(readAliasMap(files)).filter { it.record.id !in storedAliasIds }
         files.list("").filter { it.contains("__") }.forEach { name ->
             val parsed = parseEpisodeName(name) ?: return@forEach
             val text = files.read(name) ?: return@forEach
@@ -329,16 +333,19 @@ internal fun episodeFileKey(diskShow: String, season: Long?, episode: Long?): St
     if (season == null || episode == null) "${diskShow}__movie" else "${diskShow}__s${season}e$episode"
 
 internal fun diskShowToSyncId(disk: String): String? {
-    if (disk.startsWith("tt") && isShowId("imdb:$disk")) return "imdb:$disk"
-    val tmdb = Regex("^tmdb_([1-9][0-9]{0,9})$").matchEntire(disk) ?: return if (isShowId(disk)) disk else null
-    return "tmdb:${tmdb.groupValues[1]}"
+    canonicalImdbShowId(disk)?.let { return it }
+    val tmdb = Regex("^tmdb_([1-9][0-9]{0,9})$").matchEntire(disk)
+    if (tmdb != null) return "tmdb:${tmdb.groupValues[1]}"
+    return canonicalShowId(disk)
 }
 
-internal fun syncIdToDisk(showId: String): String? = when {
-    showId.startsWith("imdb:tt") && isShowId(showId) -> showId.removePrefix("imdb:")
-    showId.startsWith("tmdb:") && isShowId(showId) -> "tmdb_${showId.removePrefix("tmdb:")}"
-    isShowId(showId) -> showId
-    else -> null
+internal fun syncIdToDisk(showId: String): String? {
+    val canonical = canonicalShowId(showId) ?: return null
+    return when {
+        canonical.startsWith("imdb:tt") -> canonical.removePrefix("imdb:")
+        canonical.startsWith("tmdb:") -> "tmdb_${canonical.removePrefix("tmdb:")}"
+        else -> canonical
+    }
 }
 
 private fun wireType(local: String): String? = when (local) {
@@ -416,10 +423,11 @@ private fun episodeFiles(files: AnalysisTextFiles): Map<String, MediaAnalysisRes
     }.toMap()
 
 private fun existingDisk(existing: Map<String, MediaAnalysisResult>, aliases: List<String>): String? {
-    val disks = aliases.mapNotNull(::syncIdToDisk).toSet()
+    val wanted = aliases.mapNotNull(::canonicalShowId).toSet()
     return existing.keys.firstNotNullOfOrNull { key ->
         val name = parseEpisodeName(key) ?: return@firstNotNullOfOrNull null
-        if (name.diskShow in disks) name.diskShow else null
+        val sync = diskShowToSyncId(name.diskShow)
+        if (sync != null && sync in wanted) name.diskShow else null
     }
 }
 
@@ -442,7 +450,7 @@ private fun aliasRecordsFromMap(map: Map<String, String>): List<LocalRecord> {
         val tmdb = group.removePrefix("tmdb#").toLongOrNull() ?: continue
         val tmdbId = "tmdb:$tmdb"
         if (!isShowId(tmdbId)) continue
-        val members = map.filterValues { it == group }.keys + owner
+        val members = (map.filterValues { it == group }.keys + owner).distinct()
         for (member in members) {
             val showId = diskShowToSyncId(member) ?: continue
             if (showId == tmdbId) continue

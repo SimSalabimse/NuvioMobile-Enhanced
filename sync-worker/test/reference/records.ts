@@ -131,6 +131,19 @@ export function normShowId(showId: string): string {
   return showId;
 }
 
+/** Writer form of an IMDb id. `tt100`, `imdb:tt100`, and `imdb_tt100` become `imdb:tt0000100`. */
+export function canonicalImdbShowId(source: string): string | null {
+  let digits: string | null = null;
+  if (source.startsWith("imdb:tt")) digits = source.slice("imdb:tt".length);
+  else if (source.startsWith("imdb_tt")) digits = source.slice("imdb_tt".length);
+  else if (source.startsWith("tt")) digits = source.slice("tt".length);
+  if (digits === null || !/^[0-9]{1,10}$/.test(digits) || !/[1-9]/.test(digits)) return null;
+  const stripped = digits.replace(/^0+/, "");
+  if (stripped.length === 0 || stripped.length > 10) return null;
+  const id = `imdb:tt${stripped.padStart(7, "0")}`;
+  return isShowId(id) ? id : null;
+}
+
 export function compareHlc(left: Hlc, right: Hlc): number {
   if (left.wallMs !== right.wallMs) return left.wallMs > right.wallMs ? 1 : -1;
   if (left.counter !== right.counter) return left.counter > right.counter ? 1 : -1;

@@ -1,0 +1,93 @@
+{
+  "v": 1,
+  "description": "Writers pad IMDb ids in record ids to at least 7 digits, and accountScope hashes the trimmed UTF-8 TheIntroDB key. The key is an obvious fake.",
+  "name": "id-normalization",
+  "imdb": [
+    {
+      "input": "tt100",
+      "showId": "imdb:tt0000100"
+    },
+    {
+      "input": "tt0000100",
+      "showId": "imdb:tt0000100"
+    },
+    {
+      "input": "imdb:tt100",
+      "showId": "imdb:tt0000100"
+    },
+    {
+      "input": "imdb_tt100",
+      "showId": "imdb:tt0000100"
+    },
+    {
+      "input": "tt0000000100",
+      "showId": "imdb:tt0000100"
+    },
+    {
+      "input": "tt12345678",
+      "showId": "imdb:tt12345678"
+    },
+    {
+      "input": "tt0000000",
+      "showId": null
+    },
+    {
+      "input": "imdb_tt0000000",
+      "showId": null
+    }
+  ],
+  "detection": {
+    "kind": "detection",
+    "id": "det/imdb:tt0000100/s1e8/intro/0/3600000/a1",
+    "deleted": false,
+    "hlc": {
+      "counter": 0,
+      "deviceId": "device-a",
+      "wallMs": 1000
+    },
+    "showId": "imdb:tt0000100",
+    "season": 1,
+    "episode": 8,
+    "segmentType": "intro",
+    "segmentIndex": 0,
+    "outcome": "found",
+    "startMs": 40000,
+    "endMs": 90000,
+    "durationMs": 3600000,
+    "algorithm": "nuvio-analysis-1",
+    "releaseId": "imdb:tt0000100"
+  },
+  "none": {
+    "kind": "mark",
+    "id": "none/imdb:tt0000100/s1e8/intro",
+    "deleted": false,
+    "hlc": {
+      "counter": 0,
+      "deviceId": "device-a",
+      "wallMs": 1000
+    },
+    "showId": "imdb:tt0000100",
+    "season": 1,
+    "episode": 8,
+    "segmentType": "intro",
+    "presence": "none",
+    "durationMs": 0
+  },
+  "alias": {
+    "kind": "alias",
+    "id": "alias/imdb:tt0000100",
+    "deleted": false,
+    "hlc": {
+      "counter": 0,
+      "deviceId": "device-a",
+      "wallMs": 1000
+    },
+    "from": "imdb:tt0000100",
+    "to": "tmdb:100"
+  },
+  "accountScope": {
+    "key": "  fake-theintrodb-key  ",
+    "trimmed": "fake-theintrodb-key",
+    "accountScope": "cb93951ba45ba9797f45d13f9baf946300314407f7d59b98e8971118b565bbae"
+  }
+}

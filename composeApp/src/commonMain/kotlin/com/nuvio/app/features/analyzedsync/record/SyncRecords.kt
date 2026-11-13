@@ -217,6 +217,29 @@ internal fun normShowId(showId: String): String {
     return showId
 }
 
+/**
+ * Writer form of an IMDb id: `imdb:tt` plus the integer, left-padded to at least 7 digits.
+ * Accepts `tt…`, `imdb:tt…`, and `imdb_tt…`. `tt100` and `tt0000000100` both become `imdb:tt0000100`.
+ */
+internal fun canonicalImdbShowId(source: String): String? {
+    val digits = when {
+        source.startsWith("imdb:tt") -> source.removePrefix("imdb:tt")
+        source.startsWith("imdb_tt") -> source.removePrefix("imdb_tt")
+        source.startsWith("tt") -> source.removePrefix("tt")
+        else -> return null
+    }
+    if (digits.isEmpty() || digits.length > 10 || digits.any { it !in '0'..'9' } || digits.none { it != '0' }) return null
+    val stripped = digits.trimStart('0')
+    if (stripped.isEmpty() || stripped.length > 10) return null
+    return "imdb:tt${stripped.padStart(7, '0')}".takeIf(::isShowId)
+}
+
+/** Writer form of a show id. IMDb ids are padded; other accepted ids are unchanged. */
+internal fun canonicalShowId(source: String): String? {
+    canonicalImdbShowId(source)?.let { return it }
+    return source.takeIf(::isShowId)
+}
+
 internal fun detectionId(
     showId: String,
     episodeKey: String,

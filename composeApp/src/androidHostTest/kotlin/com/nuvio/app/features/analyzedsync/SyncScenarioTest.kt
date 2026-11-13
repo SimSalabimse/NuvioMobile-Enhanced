@@ -19,8 +19,11 @@ import com.nuvio.app.features.analyzedsync.record.AliasRecord
 import com.nuvio.app.features.analyzedsync.record.DetectionRecord
 import com.nuvio.app.features.analyzedsync.record.MarkRecord
 import com.nuvio.app.features.analyzedsync.record.TombstoneRecord
+import com.nuvio.app.features.analyzedsync.record.canonicalImdbShowId
 import com.nuvio.app.features.analyzedsync.record.detectionId
 import com.nuvio.app.features.analyzedsync.record.noneId
+import com.nuvio.app.features.analyzedsync.store.accountScope
+import com.nuvio.app.features.analyzedsync.store.diskShowToSyncId
 import com.nuvio.app.features.analyzedsync.store.AnalysisTextFiles
 import com.nuvio.app.features.analyzedsync.session.normalizeSyncUrl
 import com.nuvio.app.features.analyzedsync.store.EpisodeJsonSyncStore
@@ -380,6 +383,62 @@ class SyncScenarioTest {
         assertFalse(backupJsonIsSafe("""{"passphrase":"secret"}"""))
         assertNull(normalizeSyncUrl("http://sync.example"))
         assertEquals("https://sync.example", normalizeSyncUrl("https://sync.example/"))
+    }
+
+    @Test
+    fun imdbIdsArePaddedAndAliasesStayAvailableForDesktop() {
+        val vector = Json.parseToJsonElement(vectorText("id-normalization.json")).jsonObject
+        for (row in vector.array("imdb")) {
+            val item = row.jsonObject
+            val expected = item["showId"]?.jsonPrimitive?.contentOrNull
+            assertEquals(expected, canonicalImdbShowId(item.string("input")))
+            if (expected != null) assertEquals(expected, diskShowToSyncId(item.string("input")))
+        }
+        assertEquals("imdb:tt0000100", diskShowToSyncId("tt100"))
+        assertEquals("imdb:tt0000100", diskShowToSyncId("imdb_tt100"))
+        assertEquals("imdb:tt12345678", diskShowToSyncId("tt12345678"))
+        assertNull(diskShowToSyncId("tt0000000"))
+        assertEquals("tmdb:100", diskShowToSyncId("tmdb_100"))
+        val detection = parseWire(vector["detection"] ?: error("detection")) as DetectionRecord
+        assertEquals("det/imdb:tt0000100/s1e8/intro/0/3600000/a1", detection.id)
+        assertEquals("imdb:tt0000100", detection.showId)
+        assertEquals("none/imdb:tt0000100/s1e8/intro", parseWire(vector["none"] ?: error("none")).id)
+        val aliasWire = parseWire(vector["alias"] ?: error("alias")) as AliasRecord
+        assertEquals("alias/imdb:tt0000100", aliasWire.id)
+        assertEquals("tmdb:100", aliasWire.to)
+        val scope = vector["accountScope"]?.jsonObject ?: error("scope")
+        assertEquals(scope.string("accountScope"), accountScope(scope.string("key")))
+        assertEquals(accountScope(scope.string("trimmed")), accountScope(" \t${scope.string("trimmed")}\n"))
+        assertEquals(accountScope("key"), accountScope("\u00A0key\u00A0"))
+        assertNull(accountScope(" \u00A0\n"))
+
+        val files = MapFiles()
+        files.write("show-aliases", """{"tmdb#100":"imdb_tt100"}""")
+        files.write("tt100__s1e8", episodeJson().replace("tmdb_100__s1e8", "tt100__s1e8"))
+        val store = EpisodeJsonSyncStore(files)
+        val aliases = store.readLocal().map { it.record }.filterIsInstance<AliasRecord>()
+        assertEquals(listOf("imdb:tt0000100"), aliases.map { it.from })
+        assertEquals("tmdb:100", aliases.single().to)
+        assertEquals("alias/imdb:tt0000100", aliases.single().id)
+        val detections = store.readLocal().map { it.record }.filterIsInstance<DetectionRecord>()
+        assertTrue(detections.isNotEmpty())
+        assertTrue(detections.all { it.showId == "imdb:tt0000100" && it.id.startsWith("det/imdb:tt0000100/") })
+        store.replaceRecords(listOf(aliases.single()), 1_700_000_000_000L)
+        assertTrue(files.list("tt0000100__").isEmpty())
+        files.write("show-aliases", """{"tmdb#100":"tmdb_100","imdb_tt100":"tmdb#100","tt200":"tmdb#100"}""")
+        val again = store.readLocal().map { it.record }.filterIsInstance<AliasRecord>()
+        assertEquals(setOf("imdb:tt0000100", "imdb:tt0000200"), again.map { it.from }.toSet())
+        assertTrue(again.single { it.from == "imdb:tt0000200" }.to == "tmdb:100")
+
+        files.write(
+            "aliases-sync",
+            """[{"kind":"alias","id":"alias/imdb:tt0000100","deleted":true,"hlc":{"wallMs":1,"counter":0,"deviceId":"device-a"}}]""",
+        )
+        val afterDelete = store.readLocal()
+        assertTrue(afterDelete.any { (it.record as? TombstoneRecord)?.id == "alias/imdb:tt0000100" })
+        val afterTombstone = afterDelete.map { it.record }.filterIsInstance<AliasRecord>()
+        assertTrue(afterTombstone.none { it.from == "imdb:tt0000100" })
+        assertTrue(afterTombstone.any { it.from == "imdb:tt0000200" })
     }
 
     @Test
