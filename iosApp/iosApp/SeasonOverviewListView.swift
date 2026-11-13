@@ -484,7 +484,10 @@ private struct ReplacingMark: View {
 
     var body: some View {
         if #available(iOS 17.0, *) {
-            styled.symbolEffect(.replace, options: .nonRepeating, value: token)
+            // .replace is a content transition, not a discrete symbol effect.
+            styled
+                .contentTransition(.symbolEffect(.replace))
+                .animation(.default, value: token)
         } else {
             styled
         }
