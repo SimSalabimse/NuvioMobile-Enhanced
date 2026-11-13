@@ -62,9 +62,9 @@ class TheIntroDbV4Test {
     @Test
     fun communityTheIntroDbTimesAreNotLabelledYours() {
         assertEquals("TheIntroDB", skipSourceLabel(TheIntroDb.PROVIDER))
-        assertEquals("TheIntroDB (yours)", skipSourceLabel(com.nuvio.app.features.analysis.SkipLearning.PROVIDER_IMPORTED))
+        assertEquals(null, skipSourceLabel(com.nuvio.app.features.analysis.SkipLearning.PROVIDER_IMPORTED))
         assertEquals("Your mark", skipSourceLabel(com.nuvio.app.features.analysis.SkipLearning.PROVIDER))
-        assertEquals("On-device", skipSourceLabel(com.nuvio.app.features.player.ON_DEVICE_SKIP_PROVIDER))
+        assertEquals("Detected", skipSourceLabel(com.nuvio.app.features.player.ON_DEVICE_SKIP_PROVIDER))
         assertEquals("IntroDB", skipSourceLabel("introdb"))
     }
 

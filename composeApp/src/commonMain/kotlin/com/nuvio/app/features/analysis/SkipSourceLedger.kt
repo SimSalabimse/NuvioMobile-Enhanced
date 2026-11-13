@@ -21,7 +21,15 @@ import com.nuvio.app.features.downloads.DownloadStatus
 import com.nuvio.app.features.downloads.DownloadsSettingsStorage
 import com.nuvio.app.features.player.CHAPTER_SKIP_PROVIDER
 import com.nuvio.app.features.player.ON_DEVICE_SKIP_PROVIDER
+import com.nuvio.app.features.details.seasonEpisodeContentKey
+import com.nuvio.app.features.player.skip.LABEL_YOUR_MARK
+import com.nuvio.app.features.player.skip.EpisodeSegmentLabels
+import com.nuvio.app.features.player.skip.OwnTheIntroDbLedger
 import com.nuvio.app.features.player.skip.SkipInterval
+import com.nuvio.app.features.player.skip.TheIntroDb
+import com.nuvio.app.features.player.skip.attributeEpisodeSegments
+import com.nuvio.app.features.player.skip.canonicalFlagSegmentType
+import com.nuvio.app.features.player.skip.currentTheIntroDbAccountScope
 import com.nuvio.app.features.player.skip.skipSourceLabel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -86,21 +94,71 @@ internal fun skipKind(type: String): String = when (type.lowercase()) {
 internal fun skipSourcesFor(item: DownloadItem): List<Pair<String, String>> {
     val key = MediaAnalysisStore.keyFor(item)
     val result = MediaAnalysisStore.load(key)
+    val labels = episodeLabels(item, key, result)
     val kinds = listOf("intro" to "Intro", "recap" to "Recap", "outro" to "Credits", "preview" to "Preview")
-    return kinds.mapNotNull { (kind, label) ->
-        val source = when {
-            externalSkipSource(key, result, kind) != null -> externalSkipSource(key, result, kind)
-            result != null && result.fileName == item.fileName && result.hasOnDevice(kind) ->
-                when {
-                    kind in result.learnedTypes -> "From your mark"
-                    kind in result.foundUsing -> "Found using E${result.foundUsing.getValue(kind)}"
-                    kind in result.chapterTypes -> skipSourceLabel(CHAPTER_SKIP_PROVIDER)
-                    else -> skipSourceLabel(ON_DEVICE_SKIP_PROVIDER)
-                }
-            else -> null
+    return kinds.flatMap { (kind, label) ->
+        val lines = labels.labelsFor(kind).toMutableList()
+        val online = SkipSourceLedger.online(key)[kind]
+        if (online != null && online != TheIntroDb.PROVIDER) {
+            skipSourceLabel(online)?.let { named ->
+                if (named !in lines) lines += named
+            }
         }
-        source?.let { label to it }
+        lines.map { label to it }
     }
+}
+
+private fun episodeLabels(
+    item: DownloadItem,
+    key: String,
+    result: MediaAnalysisResult?,
+): EpisodeSegmentLabels {
+    val season = item.seasonNumber
+    val episode = item.episodeNumber
+    val contentKey = if (season != null && episode != null) {
+        seasonEpisodeContentKey(
+            metaId = item.parentMetaId,
+            imdbId = null,
+            videoId = item.videoId,
+            videoImdbId = null,
+            season = season,
+            episode = episode,
+        )
+    } else {
+        ""
+    }
+    val scope = currentTheIntroDbAccountScope()
+    val durationMs = result?.durationMs ?: 0L
+    val manual = result?.userSegments.orEmpty().mapNotNull { (type, mark) ->
+        type.takeIf {
+            !mark.imported &&
+                com.nuvio.app.features.player.sameCut(mark.durationMs, durationMs) &&
+                (mark.absent || mark.endMs > mark.startMs)
+        }
+    }.toSet()
+    val detected = if (result != null && result.fileName == item.fileName) {
+        listOf("intro", "recap", "outro", "preview").filter { kind ->
+            kind in result.learnedTypes ||
+                kind in result.foundUsing ||
+                kind in result.chapterTypes ||
+                result.hasOnDevice(kind)
+        }.toSet()
+    } else {
+        emptySet()
+    }
+    val publicTypes = SkipSourceLedger.online(key)
+        .filterValues { provider -> provider == TheIntroDb.PROVIDER }
+        .keys
+        .mapNotNull { canonicalFlagSegmentType(it) }
+        .toSet()
+    return attributeEpisodeSegments(
+        contentKey = contentKey,
+        accountScope = scope,
+        ledgerByScope = mapOf(scope to OwnTheIntroDbLedger.load(scope)),
+        manualTypes = manual,
+        publicTypes = publicTypes,
+        detectedTypes = detected,
+    )
 }
 
 /**
@@ -108,10 +166,15 @@ internal fun skipSourcesFor(item: DownloadItem): List<Pair<String, String>> {
  * A none answer has no end time, so a check that requires end after start hides it and the
  * detector's "none" chip stays on screen.
  */
-internal fun userMarkSource(mark: UserSegment?, durationMs: Long): String? {
+internal fun userMarkSource(
+    mark: UserSegment?,
+    durationMs: Long,
+    ownSubmission: Boolean = false,
+): String? {
     if (mark == null || !com.nuvio.app.features.player.sameCut(mark.durationMs, durationMs)) return null
     if (!mark.absent && mark.endMs <= mark.startMs) return null
-    return skipSourceLabel(if (mark.imported) SkipLearning.PROVIDER_IMPORTED else SkipLearning.PROVIDER)
+    if (mark.imported && !ownSubmission) return null
+    return LABEL_YOUR_MARK
 }
 
 /**
@@ -119,8 +182,10 @@ internal fun userMarkSource(mark: UserSegment?, durationMs: Long): String? {
  * your TheIntroDB submissions), else the online provider the player last used. Stored data only.
  */
 private fun externalSkipSource(key: String, result: MediaAnalysisResult?, kind: String): String? {
-    val mark = userMarkSource(result?.userSegments?.get(kind), result?.durationMs ?: 0L)
-    if (mark != null) return mark
+    val mark = result?.userSegments?.get(kind)
+    val own = mark != null && !mark.imported
+    val labeled = userMarkSource(mark, result?.durationMs ?: 0L, ownSubmission = own)
+    if (labeled != null) return labeled
     val online = SkipSourceLedger.online(key)[kind] ?: return null
     return skipSourceLabel(online) ?: online
 }

@@ -50,7 +50,7 @@ class ChapterChipStatusTest {
             }
             MediaAnalysisStore.save(stored(intro = true, credits = true, recap = true))
             val sources = skipSourcesFor(item).map { it.second }.toSet()
-            assertTrue("Chapters" in sources)
+            assertTrue("Detected" in sources)
             assertEquals(listOf("Intro", "Recap", "Credits", "Preview").filter { label ->
                 skipSourcesFor(item).any { it.first == label }
             }.toSet(), setOf("Intro", "Recap", "Credits"))

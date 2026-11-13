@@ -2025,7 +2025,7 @@
     <string name="season_overview_public_none">Public · none</string>
     <string name="season_overview_public_unavailable">Public · unavailable</string>
     <string name="season_overview_public_not_checked">Public · not checked</string>
-    <string name="season_overview_public_listed">Public · %1$s</string>
+    <string name="season_overview_public_listed">TheIntroDB · %1$s</string>
     <string name="season_overview_own_not_checked">Yours · not checked</string>
     <string name="season_overview_own_not_submitted">Yours · not submitted</string>
     <string name="season_overview_own_unavailable">Yours · unavailable</string>

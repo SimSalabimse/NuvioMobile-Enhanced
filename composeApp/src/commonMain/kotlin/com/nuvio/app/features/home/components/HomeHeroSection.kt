@@ -25,6 +25,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -71,6 +74,7 @@ import com.nuvio.app.core.ui.systemIncreaseContrastEnabled
 import com.nuvio.app.features.player.playerReduceTransparencyEnabled
 import com.nuvio.app.features.home.HOME_HERO_ART_TAG
 import com.nuvio.app.features.home.HOME_HERO_CONTENT_TAG
+import com.nuvio.app.features.home.homeForegroundTopDp
 import com.nuvio.app.features.home.HOME_HERO_TOP_EDGE_TAG
 import com.nuvio.app.features.home.HomeTopEdgeKind
 import com.nuvio.app.features.home.homeContentTopInsetDp
@@ -216,7 +220,11 @@ internal fun homeContentTopInset(): Dp {
     LocalHomeContentTopInset.current?.let { return it.coerceAtLeast(0.dp) }
     val status = WindowInsets.statusBars.asPaddingValues().calculateTopPadding().value
     val windowTop = platformPhysicalTopInset().value
-    return homeContentTopInsetDp(status, windowTop).dp
+    val safeDrawing = WindowInsets.safeDrawing.only(WindowInsetsSides.Top)
+        .asPaddingValues()
+        .calculateTopPadding()
+        .value
+    return homeContentTopInsetDp(status, windowTop, safeDrawing).dp
 }
 
 internal fun heroUsesWideArtwork(
@@ -334,6 +342,7 @@ internal fun HomeHeroSection(
 
     val isCardStyle = heroStyle == HomeHeroStyle.CARD
     val contentTopInset = homeContentTopInset()
+    val foregroundTop = homeForegroundTopDp(contentTopInset.value).dp
     val cardInsetModifier = if (isCardStyle) {
         Modifier.padding(
             top = HERO_CARD_TOP_PADDING,
@@ -734,7 +743,7 @@ internal fun HomeHeroSection(
                         Box(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .padding(top = contentTopInset),
+                                    .padding(top = foregroundTop),
                             ) {
                                 HomeHeroCopy(
                                     items = items,
@@ -768,7 +777,7 @@ internal fun HomeHeroSection(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
                                 .padding(
-                                    top = 12.dp + if (isCardStyle) 0.dp else contentTopInset,
+                                    top = if (isCardStyle) 12.dp else foregroundTop,
                                     end = if (layout.isTablet) 32.dp else 18.dp,
                                 )
                                 .size((muteIconSize + 16.dp).atLeastIosHitTarget())
