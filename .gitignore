@@ -2,6 +2,8 @@
 .kotlin
 .gradle
 **/build/
+iosApp/iosApp/Sync/.build/
+iosApp/iosApp/Sync/Package.resolved
 !composeApp/src/**/kotlin/com/nuvio/app/core/build/
 !composeApp/src/**/kotlin/com/nuvio/app/core/build/**
 xcuserdata

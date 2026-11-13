@@ -164,12 +164,6 @@ CCCryptorStatus CCCryptorGCMAddAAD(
     size_t aDataLen
 );
 
-CCCryptorStatus CCCryptorGCMAddIV(
-    CCCryptorRef cryptorRef,
-    const void *iv,
-    size_t ivLen
-);
-
 CCCryptorStatus CCCryptorGCMEncrypt(
     CCCryptorRef cryptorRef,
     const void *dataIn,

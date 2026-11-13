@@ -1,7 +1,8 @@
 package com.nuvio.app.features.analyzedsync.crypto
 
 /**
- * Platform primitives. iOS uses CommonCrypto and Security. Android and JVM tests use JCA.
+ * Platform primitives. iOS AES-GCM goes through CryptoKit. PBKDF2 and HMAC stay on
+ * public CommonCrypto. Android and JVM tests use JCA.
  * The passphrase, master key, and bearer token are never logged by these functions.
  */
 internal expect object SyncCryptoPlatform {

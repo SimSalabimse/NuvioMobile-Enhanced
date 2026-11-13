@@ -1,28 +1,19 @@
 package com.nuvio.app.features.analyzedsync.crypto
 
-import com.nuvio.app.features.plugins.cryptointerop.CCCryptorGCMAddIV
-import com.nuvio.app.features.plugins.cryptointerop.CCCryptorGCMAddAAD
-import com.nuvio.app.features.plugins.cryptointerop.CCCryptorGCMDecrypt
-import com.nuvio.app.features.plugins.cryptointerop.CCCryptorGCMEncrypt
-import com.nuvio.app.features.plugins.cryptointerop.CCCryptorGCMFinal
-import com.nuvio.app.features.plugins.cryptointerop.CCCryptorCreateWithMode
-import com.nuvio.app.features.plugins.cryptointerop.CCCryptorRefVar
-import com.nuvio.app.features.plugins.cryptointerop.CCCryptorRelease
 import com.nuvio.app.features.plugins.cryptointerop.CCHmac
 import com.nuvio.app.features.plugins.cryptointerop.CCKeyDerivationPBKDF
 import com.nuvio.app.features.plugins.cryptointerop.CC_SHA256
 import com.nuvio.app.features.plugins.cryptointerop.CC_SHA256_DIGEST_LENGTH
-import com.nuvio.app.features.plugins.cryptointerop.ccNoPadding
-import com.nuvio.app.features.plugins.cryptointerop.kCCAlgorithmAES
-import com.nuvio.app.features.plugins.cryptointerop.kCCDecrypt
-import com.nuvio.app.features.plugins.cryptointerop.kCCEncrypt
 import com.nuvio.app.features.plugins.cryptointerop.kCCHmacAlgSHA256
-import com.nuvio.app.features.plugins.cryptointerop.kCCModeGCM
 import com.nuvio.app.features.plugins.cryptointerop.kCCPBKDF2
 import com.nuvio.app.features.plugins.cryptointerop.kCCPRFHmacAlgSHA256
 import com.nuvio.app.features.plugins.cryptointerop.kCCSuccess
+import com.nuvio.app.nativebridge.NuvioSyncAesGcmOpen
+import com.nuvio.app.nativebridge.NuvioSyncAesGcmSeal
 import kotlinx.cinterop.ByteVar
+import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.IntVar
 import kotlinx.cinterop.UByteVar
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.alloc
@@ -97,15 +88,19 @@ internal actual object SyncCryptoPlatform {
     }
 
     actual fun aesGcmEncrypt(key: ByteArray, nonce: ByteArray, aad: ByteArray, plaintext: ByteArray): ByteArray =
-        crypt(encrypt = true, key = key, nonce = nonce, aad = aad, input = plaintext)
+        aesGcm(seal = true, key = key, nonce = nonce, aad = aad, input = plaintext, outputSize = plaintext.size + 16)
+            ?: error("AES-GCM failed")
 
     actual fun aesGcmDecrypt(key: ByteArray, nonce: ByteArray, aad: ByteArray, ciphertextAndTag: ByteArray): ByteArray? {
         if (ciphertextAndTag.size < 16) return null
-        return try {
-            crypt(encrypt = false, key = key, nonce = nonce, aad = aad, input = ciphertextAndTag)
-        } catch (_: Exception) {
-            null
-        }
+        return aesGcm(
+            seal = false,
+            key = key,
+            nonce = nonce,
+            aad = aad,
+            input = ciphertextAndTag,
+            outputSize = ciphertextAndTag.size - 16,
+        )
     }
 
     actual fun randomBytes(count: Int): ByteArray {
@@ -122,90 +117,70 @@ internal actual object SyncCryptoPlatform {
     actual fun normalizeNfc(text: String): String =
         NSString.create(string = text).precomposedStringWithCanonicalMapping
 
-    private fun crypt(encrypt: Boolean, key: ByteArray, nonce: ByteArray, aad: ByteArray, input: ByteArray): ByteArray {
-        val ciphertext = if (encrypt) input else input.copyOfRange(0, input.size - 16)
-        val expectedTag = if (encrypt) null else input.copyOfRange(input.size - 16, input.size)
+    /**
+     * CryptoKit lives in the app, same as the Diagnostics `@_cdecl` bridge.
+     * The static framework leaves [NuvioSyncAesGcmSeal] and [NuvioSyncAesGcmOpen] undefined
+     * until the app links them. Output is ciphertext || tag, never the CryptoKit combined box.
+     */
+    private fun aesGcm(
+        seal: Boolean,
+        key: ByteArray,
+        nonce: ByteArray,
+        aad: ByteArray,
+        input: ByteArray,
+        outputSize: Int,
+    ): ByteArray? {
+        if (outputSize < 0) return null
+        val out = ByteArray(outputSize)
         var produced: ByteArray? = null
         memScoped {
-            val cryptorRefVar = alloc<CCCryptorRefVar>()
+            val written = alloc<IntVar>()
+            written.value = -1
             key.usePinned { pinnedKey ->
                 nonce.usePinned { pinnedNonce ->
-                    ciphertext.usePinned { pinnedInput ->
-                        val status = CCCryptorCreateWithMode(
-                            op = if (encrypt) kCCEncrypt else kCCDecrypt,
-                            mode = kCCModeGCM,
-                            alg = kCCAlgorithmAES,
-                            padding = ccNoPadding,
-                            iv = null,
-                            key = pinnedKey.addressOf(0),
-                            keyLength = key.size.toULong(),
-                            tweak = null,
-                            tweakLength = 0UL,
-                            numRounds = 0,
-                            options = 0U,
-                            cryptorRef = cryptorRefVar.ptr,
-                        )
-                        check(status == kCCSuccess) { "AES-GCM init failed" }
-                        val cryptor = cryptorRefVar.value ?: error("AES-GCM init failed")
-                        try {
-                            val ivStatus = CCCryptorGCMAddIV(
-                                cryptor,
-                                if (nonce.isEmpty()) null else pinnedNonce.addressOf(0),
-                                nonce.size.toULong(),
-                            )
-                            check(ivStatus == kCCSuccess) { "AES-GCM nonce failed" }
-                            if (aad.isNotEmpty()) {
-                                aad.usePinned { pinnedAad ->
-                                    val aadStatus = CCCryptorGCMAddAAD(
-                                        cryptor,
-                                        pinnedAad.addressOf(0),
-                                        aad.size.toULong(),
-                                    )
-                                    check(aadStatus == kCCSuccess) { "AES-GCM AAD failed" }
-                                }
-                            }
-                            val plainOrCipher = ByteArray(ciphertext.size)
-                            plainOrCipher.usePinned { pinnedOut ->
-                                val dataStatus = if (encrypt) {
-                                    CCCryptorGCMEncrypt(
-                                        cryptor,
-                                        if (ciphertext.isEmpty()) null else pinnedInput.addressOf(0),
-                                        ciphertext.size.toULong(),
-                                        if (ciphertext.isEmpty()) null else pinnedOut.addressOf(0),
+                    aad.usePinned { pinnedAad ->
+                        input.usePinned { pinnedInput ->
+                            out.usePinned { pinnedOut ->
+                                val status = if (seal) {
+                                    NuvioSyncAesGcmSeal(
+                                        pinnedKey.bytePtr(key),
+                                        key.size,
+                                        pinnedNonce.bytePtr(nonce),
+                                        nonce.size,
+                                        pinnedAad.bytePtr(aad),
+                                        aad.size,
+                                        pinnedInput.bytePtr(input),
+                                        input.size,
+                                        pinnedOut.bytePtr(out),
+                                        out.size,
+                                        written.ptr,
                                     )
                                 } else {
-                                    CCCryptorGCMDecrypt(
-                                        cryptor,
-                                        if (ciphertext.isEmpty()) null else pinnedInput.addressOf(0),
-                                        ciphertext.size.toULong(),
-                                        if (ciphertext.isEmpty()) null else pinnedOut.addressOf(0),
+                                    NuvioSyncAesGcmOpen(
+                                        pinnedKey.bytePtr(key),
+                                        key.size,
+                                        pinnedNonce.bytePtr(nonce),
+                                        nonce.size,
+                                        pinnedAad.bytePtr(aad),
+                                        aad.size,
+                                        pinnedInput.bytePtr(input),
+                                        input.size,
+                                        pinnedOut.bytePtr(out),
+                                        out.size,
+                                        written.ptr,
                                     )
                                 }
-                                check(dataStatus == kCCSuccess) { "AES-GCM failed" }
+                                if (status == 0 && written.value == outputSize) produced = out
                             }
-                            val tag = expectedTag?.copyOf() ?: ByteArray(16)
-                            val tagLength = alloc<platform.posix.size_tVar>()
-                            tagLength.value = 16UL
-                            tag.usePinned { pinnedTag ->
-                                val finalStatus = CCCryptorGCMFinal(cryptor, pinnedTag.addressOf(0), tagLength.ptr)
-                                check(finalStatus == kCCSuccess) { "AES-GCM tag failed" }
-                            }
-                            if (expectedTag != null && !constantTimeEquals(tag, expectedTag)) error("AES-GCM tag failed")
-                            produced = if (encrypt) plainOrCipher + tag else plainOrCipher
-                        } finally {
-                            CCCryptorRelease(cryptor)
                         }
                     }
                 }
             }
         }
-        return produced ?: error("AES-GCM failed")
+        return produced
     }
 }
 
-private fun constantTimeEquals(left: ByteArray, right: ByteArray): Boolean {
-    if (left.size != right.size) return false
-    var diff = 0
-    for (index in left.indices) diff = diff or (left[index].toInt() xor right[index].toInt())
-    return diff == 0
-}
+@OptIn(ExperimentalForeignApi::class)
+private fun kotlinx.cinterop.Pinned<ByteArray>.bytePtr(bytes: ByteArray): CPointer<UByteVar>? =
+    if (bytes.isEmpty()) null else addressOf(0).reinterpret()

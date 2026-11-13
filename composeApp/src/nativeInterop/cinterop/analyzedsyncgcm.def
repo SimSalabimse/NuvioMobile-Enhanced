@@ -1,0 +1,2 @@
+headers = AnalyzedSyncAesGcmInterop.h
+package = com.nuvio.app.nativebridge
