@@ -44,6 +44,10 @@ scripts/*
 !scripts/ui-shots.sh
 !scripts/ui-manifest.sh
 !scripts/ui-manifest.tsv
+!scripts/ci-local.sh
+!scripts/ci/
+!scripts/ci/**
+scripts/ci/__pycache__/
 !scripts/objc-export-check/
 !scripts/objc-export-check/**
 iosApp/Configuration/DeviceSigning.local.json
