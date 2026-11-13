@@ -398,7 +398,9 @@ private fun DetailHeroHeading(
     modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = modifier
+        modifier = Modifier
+            .reportDetailHeaderOcclusion(DetailHeaderOcclusionTarget.Heading)
+            .then(modifier)
             .fillMaxWidth()
             .padding(horizontal = if (isTablet) 32.dp else 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,

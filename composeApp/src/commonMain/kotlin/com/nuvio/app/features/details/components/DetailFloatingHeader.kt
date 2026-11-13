@@ -21,7 +21,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -32,7 +35,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsPropertyKey
+import androidx.compose.ui.semantics.SemanticsPropertyReceiver
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -51,6 +60,7 @@ import com.nuvio.app.core.ui.detailChromeTopInset
 import com.nuvio.app.core.ui.scrollEdgeHeightDp
 import com.nuvio.app.core.ui.scrollEdgeKind
 import com.nuvio.app.core.ui.systemIncreaseContrastEnabled
+import com.nuvio.app.core.ui.systemReduceMotionEnabled
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.player.playerReduceTransparencyEnabled
 import com.nuvio.app.navigation.LocalNativeNavigationBarHidden
@@ -65,8 +75,19 @@ internal const val DETAIL_HEADER_BACK_TAG = "detail-header-back"
 internal const val DETAIL_HEADER_ACTION_TAG = "detail-header-action"
 internal const val DETAIL_HEADER_TITLE_TAG = "detail-header-title"
 internal const val DETAIL_HEADER_COVER_TAG = "detail-header-cover"
+internal const val DETAIL_HEADER_ROW_TAG = "detail-header-row"
+internal const val DETAIL_PLAY_TAG = "detail-play"
 
-private val DetailHeaderRowHeight = 56.dp
+internal val DetailHeaderRowHeight = 56.dp
+
+/**
+ * Approach before the title meets the row. The cover is already solid on that line,
+ * so the fade never leaves the title or the Play pill showing through the buttons.
+ */
+internal val DetailHeaderCoverFade = 16.dp
+
+internal val DetailHeaderCoverAlphaKey = SemanticsPropertyKey<Float>("DetailHeaderCoverAlpha")
+internal var SemanticsPropertyReceiver.detailHeaderCoverAlpha by DetailHeaderCoverAlphaKey
 
 /**
  * Draw-phase alpha for the title that joins the top row.
@@ -75,8 +96,134 @@ private val DetailHeaderRowHeight = 56.dp
  */
 internal fun detailHeaderTitleAlpha(progress: Float): Float = progress.coerceIn(0f, 1f)
 
-/** The opaque header is absent at rest, so the hero stays full-bleed. It fades in as the page scrolls. */
+/** Clamps a resolved cover progress for the draw phase. */
 internal fun detailHeaderCoverAlpha(progress: Float): Float = progress.coerceIn(0f, 1f)
+
+/**
+ * How solid the pinned details header is.
+ *
+ * [scrollOffsetPx] is the page scroll. [protectedTopPx] is the unscrolled top of the
+ * hero title or the Play pill, whichever is higher. [headerBottomPx] is the safe-area
+ * top plus the back/+ row. Rest stays clear so the hero is full-bleed. The cover is
+ * solid once that content meets the bottom of the row. [fadePx] finishes on that line.
+ * Reduce Motion snaps there instead of fading.
+ */
+internal fun detailHeaderCoverProgress(
+    scrollOffsetPx: Float,
+    protectedTopPx: Float,
+    headerBottomPx: Float,
+    fadePx: Float,
+    reduceMotion: Boolean,
+): Float {
+    if (scrollOffsetPx <= 0f) return 0f
+    if (protectedTopPx.isNaN() || headerBottomPx <= 0f) return 0f
+    val coverAt = (protectedTopPx - headerBottomPx).coerceAtLeast(0f)
+    if (reduceMotion || fadePx <= 0f) {
+        return if (scrollOffsetPx >= coverAt) 1f else 0f
+    }
+    val fadeStart = (coverAt - fadePx).coerceAtLeast(0f)
+    if (scrollOffsetPx <= fadeStart) return 0f
+    if (scrollOffsetPx >= coverAt) return 1f
+    val span = coverAt - fadeStart
+    if (span <= 0f) return 1f
+    return ((scrollOffsetPx - fadeStart) / span).coerceIn(0f, 1f)
+}
+
+/** Unscrolled top of the first control that must not cross the header row. */
+internal fun detailHeaderProtectedTopPx(
+    headingRootTopPx: Float,
+    playRootTopPx: Float,
+    listOriginY: Float,
+    scrollOffsetPx: Float,
+): Float {
+    val root = when {
+        headingRootTopPx.isNaN() && playRootTopPx.isNaN() -> return Float.NaN
+        headingRootTopPx.isNaN() -> playRootTopPx
+        playRootTopPx.isNaN() -> headingRootTopPx
+        else -> minOf(headingRootTopPx, playRootTopPx)
+    }
+    return root - listOriginY + scrollOffsetPx
+}
+
+internal enum class DetailHeaderOcclusionTarget { Heading, Play }
+
+/**
+ * Positions of the hero title and the Play pill, in the scrolling page.
+ * The header reads these; the two controls report them.
+ */
+internal class DetailHeaderOcclusion(
+    private val scrollOffsetPx: () -> Float,
+    private val heroScrolledOff: () -> Boolean,
+) {
+    var listOriginY by mutableFloatStateOf(0f)
+    var headingRootTopPx by mutableFloatStateOf(Float.NaN)
+        private set
+    var playRootTopPx by mutableFloatStateOf(Float.NaN)
+        private set
+
+    fun reportRootTop(target: DetailHeaderOcclusionTarget, rootTopPx: Float) {
+        when (target) {
+            DetailHeaderOcclusionTarget.Heading -> headingRootTopPx = rootTopPx
+            DetailHeaderOcclusionTarget.Play -> playRootTopPx = rootTopPx
+        }
+    }
+
+    fun scrolledOff(): Boolean = heroScrolledOff()
+
+    fun scrollOffset(): Float = scrollOffsetPx()
+
+    fun protectedTopPx(): Float = detailHeaderProtectedTopPx(
+        headingRootTopPx = headingRootTopPx,
+        playRootTopPx = playRootTopPx,
+        listOriginY = listOriginY,
+        scrollOffsetPx = scrollOffsetPx(),
+    )
+}
+
+internal val LocalDetailHeaderOcclusion = compositionLocalOf<DetailHeaderOcclusion?> { null }
+
+@Composable
+internal fun Modifier.reportDetailHeaderListOrigin(): Modifier {
+    val occlusion = LocalDetailHeaderOcclusion.current ?: return this
+    return this.onGloballyPositioned { coordinates ->
+        occlusion.listOriginY = coordinates.positionInRoot().y
+    }
+}
+
+@Composable
+internal fun Modifier.reportDetailHeaderOcclusion(target: DetailHeaderOcclusionTarget): Modifier {
+    val occlusion = LocalDetailHeaderOcclusion.current ?: return this
+    return this.onGloballyPositioned { coordinates ->
+        occlusion.reportRootTop(target, coordinates.positionInRoot().y)
+    }
+}
+
+/**
+ * Cover progress for the details header. Clear at rest. Solid once the hero title
+ * or the Play pill reaches the bottom of the status-bar-plus-row bar.
+ */
+@Composable
+internal fun rememberDetailHeaderCoverProgress(
+    reduceMotion: Boolean = systemReduceMotionEnabled(),
+): State<Float> {
+    val occlusion = LocalDetailHeaderOcclusion.current
+    val density = LocalDensity.current
+    val headerBottomPx = with(density) { detailFloatingHeaderHeight().toPx() }
+    val fadePx = with(density) { DetailHeaderCoverFade.toPx() }
+    return remember(occlusion, reduceMotion, headerBottomPx, fadePx) {
+        derivedStateOf {
+            val source = occlusion ?: return@derivedStateOf 0f
+            if (source.scrolledOff()) return@derivedStateOf 1f
+            detailHeaderCoverProgress(
+                scrollOffsetPx = source.scrollOffset(),
+                protectedTopPx = source.protectedTopPx(),
+                headerBottomPx = headerBottomPx,
+                fadePx = fadePx,
+                reduceMotion = reduceMotion,
+            )
+        }
+    }
+}
 
 @Composable
 internal fun detailFloatingHeaderHeight(): Dp {
@@ -118,6 +265,7 @@ fun DetailFloatingHeader(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
+            .semantics { detailHeaderCoverAlpha = coverAlpha }
             .testTag(DETAIL_HEADER_TAG),
     ) {
         val logoWidth = (maxWidth * 0.6f).coerceAtMost(240.dp)
@@ -156,7 +304,8 @@ fun DetailFloatingHeader(
                 .fillMaxWidth()
                 .padding(LocalVerticalBarPadding.current)
                 .padding(top = headerTopPadding, start = 16.dp, end = 16.dp)
-                .height(DetailHeaderRowHeight),
+                .height(DetailHeaderRowHeight)
+                .testTag(DETAIL_HEADER_ROW_TAG),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
