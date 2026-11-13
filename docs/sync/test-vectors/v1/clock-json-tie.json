@@ -1,0 +1,99 @@
+{
+  "name": "clock-json-tie",
+  "nowMs": 1700000000000,
+  "records": [
+    {
+      "deleted": false,
+      "durationMs": 3600000,
+      "endMs": 2000,
+      "episode": 8,
+      "hlc": {
+        "counter": 3,
+        "deviceId": "device-a",
+        "wallMs": 5000
+      },
+      "id": "mark/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa0f",
+      "kind": "mark",
+      "presence": "range",
+      "season": 1,
+      "segmentIndex": 0,
+      "segmentType": "intro",
+      "showId": "tmdb:100",
+      "startMs": 1000
+    },
+    {
+      "deleted": false,
+      "durationMs": 3600000,
+      "endMs": 10000,
+      "episode": 8,
+      "hlc": {
+        "counter": 3,
+        "deviceId": "device-a",
+        "wallMs": 5000
+      },
+      "id": "mark/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa0f",
+      "kind": "mark",
+      "presence": "range",
+      "season": 1,
+      "segmentIndex": 0,
+      "segmentType": "intro",
+      "showId": "tmdb:100",
+      "startMs": 9000
+    }
+  ],
+  "queries": [],
+  "merged": {
+    "rejected": 0,
+    "shows": [
+      {
+        "aliases": [
+          "tmdb:100"
+        ],
+        "episodes": [
+          {
+            "detections": [],
+            "effective": [
+              {
+                "algorithm": null,
+                "durationMs": 3600000,
+                "endMs": 2000,
+                "id": "mark/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa0f",
+                "presence": "range",
+                "segmentIndex": 0,
+                "segmentType": "intro",
+                "source": "mark",
+                "startMs": 1000
+              }
+            ],
+            "episode": 8,
+            "episodeKey": "s1e8",
+            "marks": [
+              {
+                "applied": true,
+                "durationMs": 3600000,
+                "endMs": 2000,
+                "hlc": {
+                  "wallMs": 5000,
+                  "counter": 3,
+                  "deviceId": "device-a"
+                },
+                "id": "mark/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa0f",
+                "presence": "range",
+                "segmentIndex": 0,
+                "segmentType": "intro",
+                "startMs": 1000,
+                "suppressedBy": null
+              }
+            ],
+            "season": 1,
+            "userNoneTypes": []
+          }
+        ],
+        "showId": "tmdb:100"
+      }
+    ],
+    "submissions": [],
+    "tombstones": []
+  },
+  "mergedCanonical": "{\"rejected\":0,\"shows\":[{\"aliases\":[\"tmdb:100\"],\"episodes\":[{\"detections\":[],\"effective\":[{\"algorithm\":null,\"durationMs\":3600000,\"endMs\":2000,\"id\":\"mark/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa0f\",\"presence\":\"range\",\"segmentIndex\":0,\"segmentType\":\"intro\",\"source\":\"mark\",\"startMs\":1000}],\"episode\":8,\"episodeKey\":\"s1e8\",\"marks\":[{\"applied\":true,\"durationMs\":3600000,\"endMs\":2000,\"hlc\":{\"counter\":3,\"deviceId\":\"device-a\",\"wallMs\":5000},\"id\":\"mark/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa0f\",\"presence\":\"range\",\"segmentIndex\":0,\"segmentType\":\"intro\",\"startMs\":1000,\"suppressedBy\":null}],\"season\":1,\"userNoneTypes\":[]}],\"showId\":\"tmdb:100\"}],\"submissions\":[],\"tombstones\":[]}"
+}
