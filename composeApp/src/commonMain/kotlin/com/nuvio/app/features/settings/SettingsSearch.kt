@@ -260,6 +260,13 @@ internal fun settingsSearchEntries(
         icon = Icons.Rounded.PlayArrow,
     )
     addPage(
+        page = SettingsPage.Sync,
+        key = "sync",
+        title = stringResource(Res.string.compose_settings_page_sync),
+        description = stringResource(Res.string.compose_settings_root_sync_description),
+        icon = Icons.Filled.Sync,
+    )
+    addPage(
         page = SettingsPage.Streams,
         key = "streams",
         title = streamsPage,

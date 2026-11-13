@@ -104,6 +104,15 @@ internal object MediaAnalysisStore {
         MediaAnalysisFiles.write(ALIASES_FILE, json.encodeToString(aliases.toMap()))
     }
 
+    /** Replaces the alias map the episode files already use. Sync writes the same file. */
+    fun writeAliasMap(map: Map<String, String>) = synchronized(lock) {
+        aliases.clear()
+        aliases.putAll(map)
+        MediaAnalysisFiles.write(ALIASES_FILE, json.encodeToString(aliases.toMap()))
+    }
+
+    fun readAliasMap(): Map<String, String> = synchronized(lock) { aliases.toMap() }
+
     private fun mergeInto(oldKey: String, newKey: String) {
         val old = load(oldKey)
         if (old != null) {
@@ -185,10 +194,24 @@ internal object MediaAnalysisStore {
 
     /** Deletes everything stored for [key] (analysis JSON and thumbnail sheets). */
     fun reset(key: String) {
-        val marks = load(key)?.userSegments.orEmpty()
+        val existing = load(key)
+        val marks = existing?.userSegments.orEmpty()
+        val currentNones = existing?.userNoneTypes.orEmpty()
+        val currentSync = existing?.syncRecordsJson.orEmpty()
         resetAll(key)
-        // Analysing again keeps what the user marked.
-        if (marks.isNotEmpty()) save(MediaAnalysisResult(key = key, analyzedAtMs = 0L, durationMs = 0L, userSegments = marks))
+        // Analysing again keeps what the user marked, including "none here".
+        if (marks.isNotEmpty() || currentNones.isNotEmpty() || currentSync.isNotEmpty()) {
+            save(
+                MediaAnalysisResult(
+                    key = key,
+                    analyzedAtMs = 0L,
+                    durationMs = 0L,
+                    userSegments = marks,
+                    userNoneTypes = currentNones,
+                    syncRecordsJson = currentSync,
+                ),
+            )
+        }
     }
 
     private fun resetAll(key: String) {

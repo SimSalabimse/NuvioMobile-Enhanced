@@ -140,6 +140,7 @@ open class MainActivity : AppCompatActivity() {
         ProfileStorage.initialize(applicationContext)
         AvatarStorage.initialize(applicationContext)
         ProfilePinCacheStorage.initialize(applicationContext)
+        com.nuvio.app.features.analyzedsync.session.AnalyzedSyncVault.initialize(applicationContext)
         MemberAssetStorage.initialize(applicationContext)
         DiscoverSelectionStorage.initialize(applicationContext)
         SearchHistoryStorage.initialize(applicationContext)

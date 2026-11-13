@@ -57,6 +57,13 @@ internal data class MediaAnalysisResult(
     val learnedTypes: Set<String> = emptySet(),
     /** Segment types found from a clip of another episode ([SiblingClipReference]): type to episode. */
     val foundUsing: Map<String, Int> = emptyMap(),
+    /** Segment types the user marked "none here". A missing detection is not this set. */
+    val userNoneTypes: Set<String> = emptySet(),
+    /**
+     * Canonical JSON array of the sync records for this episode (marks, detections, tombstones).
+     * Empty on files written before sync. Fingerprints are not in it.
+     */
+    val syncRecordsJson: String = "",
 )
 
 @Serializable

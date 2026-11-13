@@ -43,6 +43,7 @@ internal object SkipMarkImport {
         val key = savedKeyForService(IntroSubmitService.THE_INTRODB, settings.introDbApiKey, settings.theIntroDbApiKey)
         if (key.isBlank()) { done += parentMetaId; return 0 }
         val submissions = TheIntroDb.listMySubmissions(key, tmdbId, mediaType)
+        com.nuvio.app.features.analyzedsync.store.noteOwnSubmissions(key, submissions, "tmdb:$tmdbId")
         val error = TheIntroDb.lastListError
         // Only a complete, attributable list counts; otherwise the next play of the show retries.
         if (error == null) done += parentMetaId
