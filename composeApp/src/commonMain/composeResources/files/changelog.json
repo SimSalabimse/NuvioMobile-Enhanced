@@ -11,7 +11,9 @@
       "fixed": [
         "Your mark is only a segment you submitted or set yourself. A public TheIntroDB time stays TheIntroDB, and an on-device detection stays Detected.",
         "Home hero text and the show page header sit below the status bar. Scrolling the show page keeps the play button under that header.",
-        "A Continue Watching card asks again when a just-aired episode had no artwork cached, then tries the episode still, the show backdrop, and the poster."
+        "A Continue Watching card asks again when a just-aired episode had no artwork cached, then tries the episode still, the show backdrop, and the poster.",
+        "Home hero titles stay below the status bar and the Dynamic Island, including a tall carousel.",
+        "The Continue Watching menu stays above the tab bar and keeps one Mark as watched row."
       ]
     },
     {

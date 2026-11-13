@@ -1,6 +1,8 @@
 package com.nuvio.app.features.home.components
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
@@ -31,6 +33,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.pager.HorizontalPager
@@ -71,6 +74,7 @@ import com.nuvio.app.core.ui.SoftBottomFade
 import com.nuvio.app.core.ui.SoftTopEdge
 import com.nuvio.app.core.ui.platformPhysicalTopInset
 import com.nuvio.app.core.ui.systemIncreaseContrastEnabled
+import com.nuvio.app.core.ui.systemReduceMotionEnabled
 import com.nuvio.app.features.player.playerReduceTransparencyEnabled
 import com.nuvio.app.features.home.HOME_HERO_ART_TAG
 import com.nuvio.app.features.home.HOME_HERO_CONTENT_TAG
@@ -521,8 +525,12 @@ internal fun HomeHeroSection(
                 }
             }
 
-            val artworkSlotHeight = layout.heroHeight
             var heroCopyHeightPx by remember { mutableFloatStateOf(0f) }
+            val copyHeight = with(LocalDensity.current) { heroCopyHeightPx.toDp() }
+            // A tall title, logo, meta row and overview overflow upward into the island
+            // when they are bottom-aligned in a short picture. Grow the picture so the
+            // copy stays under the safe area. The picture still starts at the top edge.
+            val artworkSlotHeight = maxOf(layout.heroHeight, foregroundTop + copyHeight)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -757,6 +765,7 @@ internal fun HomeHeroSection(
                                     onItemClick = onItemClick,
                                     modifier = Modifier
                                         .align(Alignment.BottomCenter)
+                                        .wrapContentHeight(unbounded = true)
                                         .onSizeChanged { heroCopyHeightPx = it.height.toFloat() }
                                         .testTag(HOME_HERO_CONTENT_TAG),
                                 )
@@ -1052,10 +1061,11 @@ private fun HeroContentBlock(
     }
     val logoUrl = item.logo?.takeIf { it.isNotBlank() }
 
+    val reduceMotion = systemReduceMotionEnabled()
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .animateContentSize(),
+            .animateContentSize(animationSpec = if (reduceMotion) snap() else spring()),
         horizontalAlignment = if (layout.isTablet) Alignment.Start else Alignment.CenterHorizontally,
     ) {
         if (logoUrl != null && !logoLoadError) {

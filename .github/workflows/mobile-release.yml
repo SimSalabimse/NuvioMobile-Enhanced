@@ -343,6 +343,9 @@ jobs:
           } >> "${gradle_user_home}/gradle.properties"
           cat "${gradle_user_home}/gradle.properties"
 
+      - name: Check approved pull requests
+        run: ./scripts/check-approved-prs.sh
+
       - name: Prepare iOS dependencies
         run: ./scripts/prepare-ios-dependencies.sh
 

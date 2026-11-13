@@ -116,6 +116,10 @@ jobs:
           echo "local.properties keys (names only):"
           awk -F= '/^[[:space:]]*[^#[:space:]]/ { print $1 }' local.properties
 
+      - name: Check approved pull requests
+        if: env.IOS_CONFIGURATION == 'Release'
+        run: ./scripts/check-approved-prs.sh
+
       - name: Prepare iOS dependencies
         run: ./scripts/prepare-ios-dependencies.sh
 

@@ -1,21 +1,29 @@
 package com.nuvio.app.core.ui
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,6 +44,7 @@ import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -51,6 +60,7 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -118,6 +128,7 @@ private enum class PosterZoomPhase {
 }
 
 private const val PosterZoomVisibilityThreshold = 0.0005f
+internal const val POSTER_ZOOM_MENU_TAG = "poster-zoom-menu"
 private val PosterZoomExpandSpring = spring<Float>(
     dampingRatio = Spring.DampingRatioNoBouncy,
     stiffness = 340f,
@@ -153,6 +164,7 @@ fun NuvioPosterZoomActionOverlay(
     backdrop: Backdrop,
     onDismissed: () -> Unit,
     modifier: Modifier = Modifier,
+    bottomClearance: Dp? = null,
 ) {
     val tokens = MaterialTheme.nuvio
     val previewShape = RoundedCornerShape(PosterZoomFinalCornerRadius)
@@ -174,6 +186,7 @@ fun NuvioPosterZoomActionOverlay(
     var returnBounds by remember { mutableStateOf<Rect?>(null) }
     var lifted by remember { mutableStateOf(false) }
     var showFallback by remember { mutableStateOf(source == null) }
+    val reduceMotion = systemReduceMotionEnabled()
 
     var rootOrigin by remember { mutableStateOf(Offset.Zero) }
     var slotBounds by remember { mutableStateOf<Rect?>(null) }
@@ -186,11 +199,11 @@ fun NuvioPosterZoomActionOverlay(
         if (slotBounds == null || phase != PosterZoomPhase.Open) return@LaunchedEffect
         lifted = source?.lift() == true
         showFallback = !lifted
-        launch { scrim.animateTo(1f, tween(durationMillis = 260, easing = NuvioTokens.Motion.standard)) }
-        launch { zoom.animateTo(1f, PosterZoomExpandSpring) }
+        launch { scrim.animateTo(1f, posterZoomSpec(reduceMotion, tween(durationMillis = 260, easing = NuvioTokens.Motion.standard))) }
+        launch { zoom.animateTo(1f, posterZoomSpec(reduceMotion, PosterZoomExpandSpring)) }
         launch {
-            delay(60)
-            menu.animateTo(1f, PosterZoomMenuSpring)
+            delay(if (reduceMotion) 0 else 60)
+            menu.animateTo(1f, posterZoomSpec(reduceMotion, PosterZoomMenuSpring))
         }
     }
 
@@ -200,12 +213,12 @@ fun NuvioPosterZoomActionOverlay(
         phase = PosterZoomPhase.Closing
         scope.launch {
             coroutineScope {
-                launch { menu.animateTo(0f, tween(durationMillis = 140)) }
+                launch { menu.animateTo(0f, posterZoomSpec(reduceMotion, tween(durationMillis = 140))) }
                 launch {
-                    delay(80)
-                    scrim.animateTo(0f, tween(durationMillis = 260, easing = NuvioTokens.Motion.standard))
+                    delay(if (reduceMotion) 0 else 80)
+                    scrim.animateTo(0f, posterZoomSpec(reduceMotion, tween(durationMillis = 260, easing = NuvioTokens.Motion.standard)))
                 }
-                launch { zoom.animateTo(0f, PosterZoomCollapseSpring) }
+                launch { zoom.animateTo(0f, posterZoomSpec(reduceMotion, PosterZoomCollapseSpring)) }
             }
             currentOnDismissed()
             afterClose?.invoke()
@@ -250,6 +263,13 @@ fun NuvioPosterZoomActionOverlay(
         val posterWidth = posterHeight * aspect
         val menuWidth = min(280.dp, maxWidth - NuvioTokens.Space.s48)
         val columnWidth = max(posterWidth, menuWidth)
+        val safeBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val tabClearance = bottomClearance ?: maxOf(
+            floatingTabContentBottomInsetDp(nativeTabs = true, safeAreaBottomDp = safeBottom.value).dp,
+            floatingTabContentBottomInsetDp(nativeTabs = false, safeAreaBottomDp = safeBottom.value).dp,
+        )
+        val menuMax = (maxHeight - posterHeight - tabClearance - 96.dp).coerceAtLeast(120.dp)
+        val menuScroll = rememberScrollState()
 
         Box(
             modifier = Modifier
@@ -270,8 +290,10 @@ fun NuvioPosterZoomActionOverlay(
 
         Column(
             modifier = Modifier
-                .align(Alignment.Center)
-                .width(columnWidth),
+                .align(Alignment.BottomCenter)
+                .padding(bottom = tabClearance)
+                .width(columnWidth)
+                .clipToBounds(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // Invisible slot marking where the zoomed poster comes to rest.
@@ -322,6 +344,9 @@ fun NuvioPosterZoomActionOverlay(
             Column(
                 modifier = Modifier
                     .width(menuWidth)
+                    .heightIn(max = menuMax)
+                    .testTag(POSTER_ZOOM_MENU_TAG)
+                    .verticalScroll(menuScroll)
                     .graphicsLayer {
                         val progress = menu.value
                         val clamped = progress.coerceIn(0f, 1f)
@@ -519,6 +544,9 @@ private fun PosterZoomMenuRow(
         )
     }
 }
+
+internal fun <T> posterZoomSpec(reduceMotion: Boolean, spec: AnimationSpec<T>): AnimationSpec<T> =
+    if (reduceMotion) snap() else spec
 
 private fun lerp(start: Float, stop: Float, fraction: Float): Float =
     start + (stop - start) * fraction

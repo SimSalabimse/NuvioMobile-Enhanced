@@ -48,6 +48,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -102,6 +104,10 @@ jobs:
             fi
           } >> "${gradle_user_home}/gradle.properties"
           cat "${gradle_user_home}/gradle.properties"
+
+      - name: Check approved pull requests
+        if: inputs.configuration == 'Release'
+        run: ./scripts/check-approved-prs.sh
 
       - name: Prepare iOS dependencies
         run: ./scripts/prepare-ios-dependencies.sh
