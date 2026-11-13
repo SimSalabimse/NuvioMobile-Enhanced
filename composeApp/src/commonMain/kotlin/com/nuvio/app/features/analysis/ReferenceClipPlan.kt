@@ -180,19 +180,6 @@ internal fun parseReferenceActivity(token: String): ReferenceActivity? {
     return ReferenceActivity(operation, seconds, season, episode)
 }
 
-/**
- * Status line for a reference step.
- * [ReferenceActivity.operation] `read` is a downloaded episode. `compare` is the match itself.
- */
-internal fun referenceActivitySentence(activity: ReferenceActivity): String {
-    val place = "S${activity.season} E${activity.episode}"
-    return when (activity.operation) {
-        "read" -> "Reading the downloaded episode, ${activity.seconds}s of $place"
-        "compare" -> "Comparing ${activity.seconds}s of $place"
-        else -> "Fetching ${activity.seconds}s of $place"
-    }
-}
-
 /** Local analysis ranks ahead of a reference read so one clip cannot hold the queue. */
 internal fun analysisQueueRank(needsLocalWork: Boolean, needsReference: Boolean): Int = when {
     needsLocalWork -> 0

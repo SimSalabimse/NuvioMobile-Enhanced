@@ -378,6 +378,9 @@ internal object SmartDownloads {
     /** Host tests pin the Wi-Fi bit. Null reads [DownloadNetworkGuard]. */
     internal var onWifiForTest: Boolean? = null
 
+    /** Set for the settings pass so a goal sentence is kept for the one toast. */
+    private var passTally: DownloadTally? = null
+
     private fun onWifiNow(): Boolean = onWifiForTest ?: DownloadNetworkGuard.isOnWifi()
 
     private var fixtureGoalHeld = false
@@ -390,6 +393,11 @@ internal object SmartDownloads {
     private fun reportGoal(metaId: String, text: String) {
         com.nuvio.app.core.logging.InAppLogger.info("SmartDownloads", "goal $metaId: $text")
         _goalStatus.value = _goalStatus.value + (metaId to text)
+        val tally = passTally
+        if (tally != null) {
+            if (announceGoals.remove(metaId)) tally.goalLines += text
+            return
+        }
         if (announceGoals.remove(metaId)) NuvioToastController.show(text)
     }
 
@@ -553,11 +561,22 @@ internal object SmartDownloads {
                 .distinct()
                 .toList()
             val outbox = mutableListOf<SmartDownloadRequest>()
-            ids.forEach { id -> applySavedSeriesCount(id, announce = false, queueOut = outbox) }
+            var waiting = 0
+            var waitingReason: String? = null
+            ids.forEach { id ->
+                val decision = applySavedSeriesCount(id, announce = false, queueOut = outbox) ?: return@forEach
+                val gate = smartDownloadGateLabel(decision.message)
+                if (gate != null && decision.keepPending && !decision.startsNow) {
+                    waiting += decision.episodeCodes.size
+                    if (waitingReason == null) waitingReason = gate
+                }
+            }
             val tally = DownloadTally()
             runPending(tally, prepend = outbox)
-            if (tally.queued > 0 || !tally.spoke) {
-                NuvioToastController.show(smartDownloadRuleQueued(tally.queued))
+            if (tally.queued > 0 || waiting > 0 || tally.goalLines.isNotEmpty() || !tally.spoke) {
+                NuvioToastController.show(
+                    smartDownloadPassMessage(tally.queued, waiting, waitingReason, tally.goalLines),
+                )
             }
         }
     }
@@ -699,11 +718,7 @@ internal object SmartDownloads {
                 quiet = decision.startsNow,
                 resultAnnounced = decision.startsNow && !announce,
             )
-            when {
-                queueOut == null -> add(request)
-                decision.startsNow -> queueOut += request.copy(quiet = true, resultAnnounced = true)
-                !decisionBlockedByGate(decision.message) -> queueOut += request
-            }
+            if (queueOut == null) add(request) else queueOut += request
         }
     }
 
@@ -825,25 +840,31 @@ internal object SmartDownloads {
         prepend: List<SmartDownloadRequest> = emptyList(),
     ) {
         mutex.withLock {
-            if (prepend.isNotEmpty()) {
-                var staged = loadPending()
-                prepend.forEach { request ->
-                    staged = listOf(request) + staged.filterNot { it.sameTarget(request) }
+            val previousTally = passTally
+            passTally = tally
+            try {
+                if (prepend.isNotEmpty()) {
+                    var staged = loadPending()
+                    prepend.forEach { request ->
+                        staged = listOf(request) + staged.filterNot { it.sameTarget(request) }
+                    }
+                    savePending(staged)
                 }
-                savePending(staged)
+                val pending = loadPending()
+                val wait = waitReason().takeIf { pending.isNotEmpty() }
+                _waitReason.value = wait
+                if (pending.isEmpty()) return
+                if (wait != null) {
+                    pending.forEach { it.report(wait) }
+                    scheduleRetry()
+                    return
+                }
+                val left = pending.mapNotNull { request -> runCatching { fulfil(request, tally) }.getOrDefault(request) }
+                savePending(left)
+                if (left.isNotEmpty()) scheduleRetry()
+            } finally {
+                passTally = previousTally
             }
-            val pending = loadPending()
-            val wait = waitReason().takeIf { pending.isNotEmpty() }
-            _waitReason.value = wait
-            if (pending.isEmpty()) return
-            if (wait != null) {
-                pending.forEach { it.report(wait) }
-                scheduleRetry()
-                return
-            }
-            val left = pending.mapNotNull { request -> runCatching { fulfil(request, tally) }.getOrDefault(request) }
-            savePending(left)
-            if (left.isNotEmpty()) scheduleRetry()
         }
     }
 
@@ -1030,24 +1051,7 @@ internal object SmartDownloads {
 private class DownloadTally {
     var queued: Int = 0
     var spoke: Boolean = false
-}
-
-private fun decisionBlockedByGate(message: String): Boolean {
-    val wifi = smartDownloadWaitReason(
-        onlyOnWifi = true,
-        onWifi = false,
-        onlyWhileCharging = false,
-        charging = false,
-        analyserSupported = false,
-    )
-    val charging = smartDownloadWaitReason(
-        onlyOnWifi = false,
-        onWifi = true,
-        onlyWhileCharging = true,
-        charging = false,
-        analyserSupported = true,
-    )
-    return message == wifi || message == charging
+    val goalLines = mutableListOf<String>()
 }
 
 private fun nextEpisodeFacts(

@@ -186,9 +186,42 @@ internal fun markRangeStatus(
 internal fun showEndAfterStartMessage(clocksTouched: Boolean, problem: MarkProblem?): Boolean =
     clocksTouched && problem == MarkProblem.EndNotAfterStart
 
-/** Same H:MM:SS clock as Mark start / Mark end. A tenth shows only when the length is not a whole second. */
-internal fun markStatusLengthLabel(lengthSec: Double): String =
-    formatMarkClock(lengthSec, showTenth = true)
+/**
+ * Same H:MM:SS clock as Mark start / Mark end. A tenth shows only when the length is not a whole second.
+ * Rounding must not land on a segment limit the true length has not reached, or a too-short intro
+ * would read as the minimum while the mark stays red.
+ */
+internal fun markStatusLengthLabel(lengthSec: Double): String {
+    val shown = formatMarkClock(lengthSec, showTenth = true)
+    val shownSec = parseMarkClock(shown) ?: return shown
+    if (shownSec > lengthSec + 1e-6 && roundsUpOntoSegmentLimit(lengthSec, shownSec)) {
+        return truncatedMarkLengthClock(lengthSec)
+    }
+    return shown
+}
+
+private val segmentLimitSeconds = doubleArrayOf(
+    IntroMinSec,
+    IntroMaxSec,
+    RecapMinSec,
+    RecapMaxSec,
+    CreditsMinSec,
+    CreditsMaxSec,
+    PreviewMinSec,
+    PreviewMaxSec,
+)
+
+private fun roundsUpOntoSegmentLimit(actualSec: Double, shownSec: Double): Boolean =
+    segmentLimitSeconds.any { limit -> actualSec + 1e-9 < limit && shownSec + 1e-9 >= limit }
+
+/** Tenth truncated, so 4.96 s stays 0:00:04.9 and does not become 0:00:05. */
+private fun truncatedMarkLengthClock(seconds: Double): String {
+    val totalMs = (seconds.coerceAtLeast(0.0) * 1000.0).roundToInt().coerceAtLeast(0)
+    val whole = totalMs / 1000
+    val tenths = (totalMs % 1000) / 100
+    val base = formatMarkHms(whole)
+    return if (tenths == 0) base else "$base.$tenths"
+}
 
 /**
  * Half of one displayed tenth. Rounding a clock onto a 0.1 s grid, or a

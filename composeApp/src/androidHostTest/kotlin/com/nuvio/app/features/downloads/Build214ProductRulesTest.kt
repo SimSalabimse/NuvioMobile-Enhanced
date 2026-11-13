@@ -72,14 +72,8 @@ class Build214ProductRulesTest {
         SmartDownloads.onWifiForTest = false
         NuvioToastController.dismiss()
         SmartDownloadSettings.changeCount(2)
-        assertEquals("Queued 0 episodes", awaitToast())
-        val deadline = System.currentTimeMillis() + 3_000
-        var shows = SmartDownloads.pendingShowIdsForTest()
-        while (System.currentTimeMillis() < deadline && shows.isEmpty()) {
-            Thread.sleep(50)
-            shows = SmartDownloads.pendingShowIdsForTest()
-        }
-        assertEquals(emptyList(), shows, "a blocked Wi-Fi gate must not leave a pending request")
+        assertEquals("Queued 0 episodes · 2 waiting for Wi-Fi", awaitToast())
+        assertEquals(listOf(showId), SmartDownloads.pendingShowIdsForTest())
         assertEquals(listOf(1), DownloadsRepository.uiState.value.items.map { it.episodeNumber })
     }
 

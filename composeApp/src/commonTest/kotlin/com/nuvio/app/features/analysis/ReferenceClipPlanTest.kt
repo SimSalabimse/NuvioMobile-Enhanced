@@ -89,14 +89,6 @@ class ReferenceClipPlanTest {
         assertEquals(null, parseReferenceActivity("clip"))
         val compare = parseReferenceActivity(referenceActivityToken("compare", 40, 3, 4))
         assertEquals(ReferenceActivity("compare", 40, 3, 4), compare)
-        assertEquals("Comparing 40s of S3 E4", referenceActivitySentence(compare!!))
-        assertEquals(
-            "Reading the downloaded episode, 40s of S3 E4",
-            referenceActivitySentence(ReferenceActivity("read", 40, 3, 4)),
-        )
-        assertEquals(
-            "Fetching 40s of S3 E4",
-            referenceActivitySentence(ReferenceActivity("fetch", 40, 3, 4)),
-        )
+        assertEquals(ReferenceActivity("read", 40, 3, 4), parseReferenceActivity(referenceActivityToken("read", 40, 3, 4)))
     }
 }

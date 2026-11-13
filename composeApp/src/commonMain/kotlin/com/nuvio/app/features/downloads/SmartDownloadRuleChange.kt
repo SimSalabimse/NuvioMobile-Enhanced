@@ -78,6 +78,34 @@ internal fun smartDownloadSettingsFeedback(
 internal fun smartDownloadRuleSearching(count: Int): String =
     if (count == 1) "Looking for the next episode" else "Looking for the next $count episodes"
 
+/** "Wi-Fi" or "charging" when [message] is a gate block. Null for every other reason. */
+internal fun smartDownloadGateLabel(message: String): String? = when {
+    message.startsWith("Waiting for Wi-Fi") -> "Wi-Fi"
+    message == "Waiting for charging" -> "charging"
+    else -> null
+}
+
+/**
+ * Settings-pass line. [queued] is files that started. [waiting] episodes stay on the same
+ * pending list as a series save, and the goal sentences from this pass stay in front.
+ */
+internal fun smartDownloadPassMessage(
+    queued: Int,
+    waiting: Int = 0,
+    waitingReason: String? = null,
+    goalLines: List<String> = emptyList(),
+): String {
+    val queue = smartDownloadRuleQueued(queued)
+    val held = waiting.coerceAtLeast(0)
+    val body = if (held > 0 && !waitingReason.isNullOrBlank()) {
+        val wait = if (held == 1) "1 waiting" else "$held waiting"
+        "$queue · $wait for $waitingReason"
+    } else {
+        queue
+    }
+    return if (goalLines.isEmpty()) body else goalLines.joinToString(" · ") + " · " + body
+}
+
 /** A plain next-episode request, not an exact unaired queue and not a Finish-a-series goal. */
 internal fun isPlainSmartRequest(exact: Boolean, count: Int?): Boolean = !exact && count == null
 

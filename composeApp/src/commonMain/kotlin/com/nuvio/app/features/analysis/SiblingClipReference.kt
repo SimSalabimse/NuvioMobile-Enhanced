@@ -22,6 +22,7 @@ import com.nuvio.app.features.player.skip.resolveSkipImdbId
 import com.nuvio.app.features.streams.StreamLinkCacheRepository
 import com.nuvio.app.core.serialization.LenientJson
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
@@ -368,14 +369,19 @@ internal object SiblingClipReference {
         segment: Pair<Long, Long>,
         targetDurationMs: Long = 0L,
         referenceDurationMs: Long = 0L,
+        shouldStop: () -> Boolean = { false },
     ): Pair<Long, Long>? {
         if (targetDurationMs > 0L && referenceDurationMs > 0L && !sameCut(referenceDurationMs, targetDurationMs)) {
             return null
         }
         val windowMs = (segment.second - segment.first).coerceAtLeast(0L)
         val minMs = maxOf(REFERENCE_MIN_MATCH_MS, windowMs / 2)
-        val match = FingerprintMatcher.longestSharedSegment(frames, clip, minFrames = (minMs / step).toInt().coerceAtLeast(1))
-            ?: return null
+        val match = FingerprintMatcher.longestSharedSegment(
+            frames,
+            clip,
+            minFrames = (minMs / step).toInt().coerceAtLeast(1),
+            shouldStop = shouldStop,
+        ) ?: return null
         val windowFrames = (windowMs / step).toInt()
         if (windowFrames > 0 && match.length * 2 < windowFrames) return null
         val start = framesOffsetMs + match.startA * step
@@ -432,17 +438,26 @@ internal suspend fun alignReferenceSegment(
         val seconds = (windowMs / 1_000L).toInt().coerceAtLeast(1)
         onCompare(seconds)
         if (yieldToLocal()) return ReferenceAlignment.Preempted
-        val range = compareReferenceOffCaller {
-            SiblingClipReference.locate(
-                frames,
-                framesOffsetMs,
-                decodeFingerprint(clip.fingerprint),
-                clip.startMs,
-                stepMs,
-                slice.contentStartMs to slice.contentEndMs,
-                targetDurationMs,
-                referenceDurationMs,
-            )
+        val caller = currentCoroutineContext()
+        val range = try {
+            compareReferenceOffCaller {
+                SiblingClipReference.locate(
+                    frames,
+                    framesOffsetMs,
+                    decodeFingerprint(clip.fingerprint),
+                    clip.startMs,
+                    stepMs,
+                    slice.contentStartMs to slice.contentEndMs,
+                    targetDurationMs,
+                    referenceDurationMs,
+                    shouldStop = {
+                        caller.ensureActive()
+                        yieldToLocal()
+                    },
+                )
+            }
+        } catch (_: ReferenceStop) {
+            return ReferenceAlignment.Preempted
         }
         if (yieldToLocal()) return ReferenceAlignment.Preempted
         if (range == null) continue
