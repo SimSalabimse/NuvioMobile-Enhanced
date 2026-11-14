@@ -9,10 +9,10 @@ package com.nuvio.app.features.details
  * Later lines: one episode each
  *
  * Header: title, status, selecting, selectLabel, downloadLabel, running, buttonEnabled,
- * downloadOffered, open, watch, include, remove, swipeInstalled, watched.
- * Row: id, episode, title, watched, publicLine, included, swipe, states `C,P,D,M`,
- * four symbol labels, spoken.
- * `C` confirmed, `P` pending, `D` detected, `M` missing. Swipe is `1` even with Reduce Motion.
+ * downloadOffered, open, watch, include, remove, swipeInstalled, watched, legend.
+ * Row: id, episode, title, watched, publicLine, included, swipe, states `Y,U,M`,
+ * four symbol labels, spoken, yoursLine.
+ * `Y` yours, `U` public, `M` missing. Yours is this account only. Swipe is `1` even with Reduce Motion.
  */
 internal const val SEASON_OVERVIEW_PAYLOAD_VERSION = "SO1"
 
@@ -35,10 +35,11 @@ internal fun seasonOverviewPayload(ui: SeasonOverviewListUi): String {
             ui.removeLabel,
             flag(ui.swipeActionsInstalled),
             ui.watchedLabel,
+            ui.legend,
         ),
     )
     val rows = ui.rows.joinToString("\n") { row ->
-        val states = row.symbols.joinToString(",") { it.state.wireCode().toString() }
+        val states = row.symbols.joinToString(",") { it.presence.wireCode().toString() }
         seasonOverviewJoin(
             listOf(
                 row.contentKey,
@@ -54,6 +55,7 @@ internal fun seasonOverviewPayload(ui: SeasonOverviewListUi): String {
                 row.symbols.getOrNull(2)?.accessibility.orEmpty(),
                 row.symbols.getOrNull(3)?.accessibility.orEmpty(),
                 row.spoken,
+                row.yoursLine,
             ),
         )
     }
@@ -68,19 +70,19 @@ internal fun seasonOverviewReadPayload(payload: String): SeasonOverviewListUi? {
     val lines = payload.split('\n')
     if (lines.size < 2 || lines[0] != SEASON_OVERVIEW_PAYLOAD_VERSION) return null
     val header = seasonOverviewSplit(lines[1])
-    if (header.size != 14) return null
+    if (header.size != 15) return null
     val rows = lines.drop(2).map { line ->
         val fields = seasonOverviewSplit(line)
-        if (fields.size != 13) return null
+        if (fields.size != 14) return null
         val states = fields[7].split(',')
         if (states.size != 4) return null
         val symbols = List(4) { index ->
-            val state = symbolStateFromWire(states[index].singleOrNull() ?: return null) ?: return null
+            val presence = presenceFromWire(states[index].singleOrNull() ?: return null) ?: return null
             val kind = SeasonOverviewSymbolKind.entries[index]
             SeasonOverviewSymbolUi(
                 kind = kind,
-                state = state,
-                token = "${kind.name}:${state.name}",
+                presence = presence,
+                token = "${kind.name}:${presence.name}",
                 accessibility = fields[8 + index],
             )
         }
@@ -90,6 +92,7 @@ internal fun seasonOverviewReadPayload(payload: String): SeasonOverviewListUi? {
             title = fields[2],
             watched = fields[3] == "1",
             publicLine = fields[4],
+            yoursLine = fields[13],
             symbols = symbols,
             included = fields[5] == "1",
             swipeWatchPrivately = fields[6] == "1",
@@ -116,6 +119,7 @@ internal fun seasonOverviewReadPayload(payload: String): SeasonOverviewListUi? {
         includeLabel = header[10],
         removeLabel = header[11],
         watchedLabel = header[13],
+        legend = header[14],
         contextActions = if (downloadOffered) {
             seasonOverviewContextActionIds
         } else {

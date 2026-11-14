@@ -3,11 +3,12 @@ package com.nuvio.app.features.details.components
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -33,20 +34,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.rememberSwipeToDismissBoxState
-import com.nuvio.app.features.details.SeasonMarkSymbolState
 import com.nuvio.app.features.details.SeasonOverviewCopy
+import com.nuvio.app.features.details.SeasonSegmentPresence
 import com.nuvio.app.features.details.SeasonOverviewListUi
 import com.nuvio.app.features.details.SeasonOverviewNativeListHost
 import com.nuvio.app.features.details.SeasonOverviewRowUi
@@ -73,9 +75,16 @@ import nuvio.composeapp.generated.resources.season_overview_public_not_checked
 import nuvio.composeapp.generated.resources.season_overview_public_unavailable
 import nuvio.composeapp.generated.resources.season_overview_remove_download
 import nuvio.composeapp.generated.resources.season_overview_segment_detected
+import nuvio.composeapp.generated.resources.season_overview_legend
+import nuvio.composeapp.generated.resources.season_overview_presence
 import nuvio.composeapp.generated.resources.season_overview_segment_missing
 import nuvio.composeapp.generated.resources.season_overview_segment_pending
 import nuvio.composeapp.generated.resources.season_overview_segment_submitted
+import nuvio.composeapp.generated.resources.season_overview_word_missing
+import nuvio.composeapp.generated.resources.season_overview_word_public
+import nuvio.composeapp.generated.resources.season_overview_word_yours
+import nuvio.composeapp.generated.resources.season_overview_yours_count
+import nuvio.composeapp.generated.resources.season_overview_yours_line
 import nuvio.composeapp.generated.resources.season_overview_select
 import nuvio.composeapp.generated.resources.season_overview_watched
 import nuvio.composeapp.generated.resources.submit_intro_segment_intro
@@ -112,6 +121,13 @@ internal fun seasonOverviewSheetCopy(): SeasonOverviewCopy = SeasonOverviewCopy(
     pendingTemplate = stringResource(Res.string.season_overview_segment_pending),
     detectedTemplate = stringResource(Res.string.season_overview_segment_detected),
     missingTemplate = stringResource(Res.string.season_overview_segment_missing),
+    yoursWord = stringResource(Res.string.season_overview_word_yours),
+    publicWord = stringResource(Res.string.season_overview_word_public),
+    missingWord = stringResource(Res.string.season_overview_word_missing),
+    presenceTemplate = stringResource(Res.string.season_overview_presence),
+    yoursLineTemplate = stringResource(Res.string.season_overview_yours_line),
+    yoursCountTemplate = stringResource(Res.string.season_overview_yours_count),
+    legend = stringResource(Res.string.season_overview_legend),
 )
 
 /**
@@ -177,6 +193,16 @@ internal fun SeasonOverviewSheetContent(
                         .background(MaterialTheme.colorScheme.surfaceContainerLow)
                         .verticalScroll(scroll),
                 ) {
+                    Text(
+                        text = list.legend,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .testTag("season-overview-legend"),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    HorizontalDivider()
                     list.rows.forEachIndexed { index, row ->
                         SeasonOverviewComposeRow(
                             row = row,
@@ -298,7 +324,7 @@ private fun SeasonOverviewComposeRow(
                     onLongClick = { menu = true },
                 )
                 .padding(horizontal = 16.dp, vertical = 8.dp)
-                .clearAndSetSemantics { contentDescription = row.spoken }
+                .semantics { contentDescription = row.spoken }
                 .testTag("season-overview-row-${row.contentKey}")
             if (seasonOverviewWrapsSymbols(LocalDensity.current.fontScale)) {
                 Column(
@@ -364,18 +390,18 @@ private fun SeasonOverviewLeading(row: SeasonOverviewRowUi, list: SeasonOverview
         if (list.selecting) {
             SeasonSelectMark(included = row.included)
         }
+        Text(
+            text = row.episodeNumber.toString(),
+            modifier = Modifier.testTag("season-overview-episode-${row.contentKey}"),
+            style = MaterialTheme.typography.bodyLarge.copy(fontFeatureSettings = "tnum"),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         if (row.watched) {
             androidx.compose.material3.Icon(
                 imageVector = Icons.Filled.Check,
-                contentDescription = null,
+                contentDescription = list.watchedLabel,
                 tint = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.size(20.dp),
-            )
-        } else {
-            Text(
-                text = row.episodeNumber.toString(),
-                style = MaterialTheme.typography.bodyLarge.copy(fontFeatureSettings = "tnum"),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -397,12 +423,24 @@ private fun SeasonOverviewText(row: SeasonOverviewRowUi, modifier: Modifier = Mo
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        if (row.yoursLine.isNotEmpty()) {
+            Text(
+                text = row.yoursLine,
+                modifier = Modifier.testTag("season-overview-yours-${row.contentKey}"),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun SeasonOverviewSymbols(row: SeasonOverviewRowUi) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         row.symbols.forEach { symbol ->
             SeasonMarkGlyph(symbol)
         }
@@ -424,49 +462,33 @@ private fun SeasonSelectMark(included: Boolean) {
 @Composable
 private fun SeasonMarkGlyph(symbol: SeasonOverviewSymbolUi) {
     val scheme = MaterialTheme.colorScheme
-    val letterColor = when (symbol.state) {
-        SeasonMarkSymbolState.OwnConfirmed -> scheme.onPrimary
-        SeasonMarkSymbolState.OwnPending -> scheme.onSurface
-        SeasonMarkSymbolState.DetectedHere -> scheme.onSurface
-        SeasonMarkSymbolState.Missing -> scheme.onSurface.copy(alpha = 0.38f)
+    val background = when (symbol.presence) {
+        SeasonSegmentPresence.Yours -> scheme.primary
+        SeasonSegmentPresence.Public -> scheme.surface
+        SeasonSegmentPresence.Missing -> scheme.surface.copy(alpha = 0f)
     }
-    Box(
+    val foreground = when (symbol.presence) {
+        SeasonSegmentPresence.Yours -> scheme.onPrimary
+        SeasonSegmentPresence.Public -> scheme.onSurface
+        SeasonSegmentPresence.Missing -> scheme.onSurface.copy(alpha = 0.45f)
+    }
+    val shape = RoundedCornerShape(8.dp)
+    Text(
+        text = symbol.accessibility,
         modifier = Modifier
-            .defaultMinSize(minWidth = 22.dp, minHeight = 22.dp)
-            .clearAndSetSemantics { contentDescription = symbol.accessibility },
-        contentAlignment = Alignment.Center,
-    ) {
-        SeasonMarkShape(symbol)
-        Text(
-            text = symbol.accessibility.take(1),
-            style = MaterialTheme.typography.labelSmall,
-            color = letterColor,
-        )
-    }
-}
-
-@Composable
-private fun BoxScope.SeasonMarkShape(symbol: SeasonOverviewSymbolUi) {
-    val scheme = MaterialTheme.colorScheme
-    val accent = scheme.primary
-    val ink = scheme.onSurface
-    val dim = scheme.onSurface.copy(alpha = 0.38f)
-    val tint = scheme.onSurface.copy(alpha = 0.16f)
-    Canvas(modifier = Modifier.matchParentSize()) {
-        when (symbol.state) {
-            SeasonMarkSymbolState.OwnConfirmed -> drawCircle(color = accent)
-            SeasonMarkSymbolState.OwnPending -> drawCircle(
-                color = ink,
-                style = Stroke(width = 1.5.dp.toPx()),
+            .clip(shape)
+            .background(background)
+            .then(
+                if (symbol.presence == SeasonSegmentPresence.Public) {
+                    Modifier.border(1.dp, scheme.outline, shape)
+                } else {
+                    Modifier
+                },
             )
-            SeasonMarkSymbolState.DetectedHere -> drawCircle(color = tint)
-            SeasonMarkSymbolState.Missing -> drawCircle(
-                color = dim,
-                style = Stroke(
-                    width = 1.dp.toPx(),
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(2.dp.toPx(), 2.dp.toPx())),
-                ),
-            )
-        }
-    }
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .clearAndSetSemantics { contentDescription = symbol.accessibility }
+            .testTag("season-overview-segment-${symbol.kind.name}"),
+        style = MaterialTheme.typography.labelLarge,
+        color = foreground,
+    )
 }

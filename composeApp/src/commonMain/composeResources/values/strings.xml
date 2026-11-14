@@ -2034,6 +2034,13 @@
     <string name="season_overview_segment_pending">%1$s, pending</string>
     <string name="season_overview_segment_detected">%1$s. Detected, not submitted yet</string>
     <string name="season_overview_segment_missing">%1$s, missing</string>
+    <string name="season_overview_word_yours">yours</string>
+    <string name="season_overview_word_public">public</string>
+    <string name="season_overview_word_missing">missing</string>
+    <string name="season_overview_presence">%1$s: %2$s</string>
+    <string name="season_overview_yours_line">You submitted: %1$s</string>
+    <string name="season_overview_yours_count">%1$s ×%2$d</string>
+    <string name="season_overview_legend">Yours — you submitted it. Public — on TheIntroDB, not from you. Missing — nothing yet.</string>
     <string name="season_overview_public_checking">Public · checking</string>
     <string name="season_overview_public_none">Public: none</string>
     <string name="season_overview_public_unavailable">Public: unavailable</string>

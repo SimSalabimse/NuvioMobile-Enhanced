@@ -9,8 +9,7 @@ import UIKit
 private let seasonOverviewField = "\u{001F}"
 
 struct SeasonOverviewSymbol: Equatable {
-    let name: String
-    let filledName: String
+    /// `Y` yours, `U` public, `M` missing.
     let state: String
     let token: String
     let accessibility: String
@@ -22,6 +21,7 @@ struct SeasonOverviewRow: Identifiable, Equatable {
     let title: String
     let watched: Bool
     let publicLine: String
+    let yoursLine: String
     let included: Bool
     let swipeWatchPrivately: Bool
     let symbols: [SeasonOverviewSymbol]
@@ -43,6 +43,7 @@ struct SeasonOverviewSnapshot: Equatable {
     var removeLabel: String
     var swipeInstalled: Bool
     var watchedLabel: String
+    var legend: String
     var rows: [SeasonOverviewRow]
 
     static let empty = SeasonOverviewSnapshot(
@@ -60,6 +61,7 @@ struct SeasonOverviewSnapshot: Equatable {
         removeLabel: "Remove from download",
         swipeInstalled: true,
         watchedLabel: "Watched",
+        legend: "",
         rows: []
     )
 
@@ -67,26 +69,17 @@ struct SeasonOverviewSnapshot: Equatable {
         let lines = payload.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         guard lines.count >= 2, lines[0] == "SO1" else { return nil }
         let header = splitFields(lines[1])
-        guard header.count == 14 else { return nil }
+        guard header.count == 15 else { return nil }
         var rows: [SeasonOverviewRow] = []
         if lines.count > 2 {
             for line in lines.dropFirst(2) where !line.isEmpty {
                 let fields = splitFields(line)
-                guard fields.count == 13 else { return nil }
+                guard fields.count == 14 else { return nil }
                 let codes = fields[7].split(separator: ",").map(String.init)
                 guard codes.count == 4 else { return nil }
-                let kinds: [(String, String)] = [
-                    ("play.rectangle", "play.rectangle.fill"),
-                    ("arrow.uturn.backward.circle", "arrow.uturn.backward.circle.fill"),
-                    ("list.bullet.rectangle", "list.bullet.rectangle.fill"),
-                    ("forward.end", "forward.end.fill"),
-                ]
                 let symbols: [SeasonOverviewSymbol] = (0..<4).map { index in
                     let state = codes[index]
-                    let kind = kinds[index]
                     return SeasonOverviewSymbol(
-                        name: kind.0,
-                        filledName: kind.1,
                         state: state,
                         token: "\(index):\(state)",
                         accessibility: fields[8 + index]
@@ -100,6 +93,7 @@ struct SeasonOverviewSnapshot: Equatable {
                         title: fields[2],
                         watched: fields[3] == "1",
                         publicLine: fields[4],
+                        yoursLine: fields[13],
                         included: fields[5] == "1",
                         swipeWatchPrivately: fields[6] == "1",
                         symbols: symbols,
@@ -123,6 +117,7 @@ struct SeasonOverviewSnapshot: Equatable {
             removeLabel: header[11],
             swipeInstalled: header[12] == "1",
             watchedLabel: header[13],
+            legend: header[14],
             rows: rows
         )
     }
@@ -184,6 +179,7 @@ final class SeasonOverviewListStore: ObservableObject {
             removeLabel: snapshot.removeLabel,
             swipeInstalled: true,
             watchedLabel: snapshot.watchedLabel,
+            legend: snapshot.legend,
             rows: []
         )
     }
@@ -242,6 +238,13 @@ struct SeasonOverviewListRoot: View {
                         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                         .accessibilityIdentifier("season-overview-status")
                 } else {
+                    if !snapshot.legend.isEmpty {
+                        Text(snapshot.legend)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .accessibilityIdentifier("season-overview-legend")
+                    }
                     ForEach(snapshot.rows) { row in
                         SeasonOverviewEpisodeRow(
                             row: row,
@@ -336,8 +339,7 @@ private struct SeasonOverviewEpisodeRow: View {
             }
         }
         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(row.spoken)
+        .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isButton)
         .accessibilityIdentifier("season-overview-row-\(row.id)")
     }
@@ -375,15 +377,15 @@ private struct SeasonOverviewEpisodeLabel: View {
                     .foregroundStyle(row.included ? Color.primary : Color.secondary)
                     .accessibilityLabel(row.included ? snapshot.removeLabel : snapshot.includeLabel)
             }
+            Text(row.episode)
+                .font(.body.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("season-overview-episode-\(row.id)")
             if row.watched {
                 Image(systemName: "checkmark")
                     .font(.body)
                     .foregroundStyle(.primary)
                     .accessibilityLabel(snapshot.watchedLabel)
-            } else {
-                Text(row.episode)
-                    .font(.body.monospacedDigit())
-                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -398,106 +400,80 @@ private struct SeasonOverviewEpisodeLabel: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: fillsWidth ? CGFloat.infinity : nil, alignment: .leading)
+            if !row.yoursLine.isEmpty {
+                Text(row.yoursLine)
+                    .font(.footnote)
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: fillsWidth ? CGFloat.infinity : nil, alignment: .leading)
+                    .accessibilityIdentifier("season-overview-yours-\(row.id)")
+            }
         }
     }
 
     private var symbols: some View {
         HStack(spacing: 8) {
             ForEach(row.symbols.indices, id: \.self) { index in
-                MarkGlyph(symbol: row.symbols[index], reduceMotion: reduceMotion)
+                SegmentWord(symbol: row.symbols[index], reduceMotion: reduceMotion)
             }
         }
     }
 }
 
-private func markTint(_ state: String) -> Color {
-    switch state {
-    case "C":
-        return .accentColor
-    case "P":
-        return .primary
-    case "D":
-        return .secondary
-    default:
-        return .secondary.opacity(0.45)
-    }
-}
-
-private struct MarkGlyph: View {
+/// The words are the state. Colour and fill repeat them; they are not the only difference.
+private struct SegmentWord: View {
     let symbol: SeasonOverviewSymbol
     let reduceMotion: Bool
 
     var body: some View {
-        let filled = symbol.state == "C"
-        let tint = markTint(symbol.state)
-        MarkImage(
-            systemName: filled ? symbol.filledName : symbol.name,
-            token: symbol.token,
-            tint: tint,
-            reduceMotion: reduceMotion,
-            dashed: symbol.state == "M"
-        )
-        .accessibilityLabel(symbol.accessibility)
-        .frame(minWidth: 22, minHeight: 22)
-    }
-}
-
-private struct MarkImage: View {
-    let systemName: String
-    let token: String
-    let tint: Color
-    let reduceMotion: Bool
-    let dashed: Bool
-
-    var body: some View {
-        Group {
-            if reduceMotion {
-                styled
-            } else {
-                ReplacingMark(systemName: systemName, token: token, tint: tint, dashed: dashed)
+        label
+            .font(.caption)
+            .foregroundStyle(foreground)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(background, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                if symbol.state == "U" {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Color.secondary, lineWidth: 1)
+                }
             }
-        }
-        .overlay {
-            if dashed {
-                Circle()
-                    .stroke(style: StrokeStyle(lineWidth: 1, dash: [2, 2]))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 22, height: 22)
-            }
-        }
+            .accessibilityLabel(symbol.accessibility)
+            .accessibilityIdentifier("season-overview-segment-\(symbol.token)")
     }
 
-    private var styled: some View {
-        Image(systemName: systemName)
-            .font(.body)
-            .foregroundStyle(tint)
-            .symbolRenderingMode(dashed ? .monochrome : .hierarchical)
-    }
-}
-
-/// Availability stays in this view's body so the list type-checks on the iOS 16 deployment target.
-private struct ReplacingMark: View {
-    let systemName: String
-    let token: String
-    let tint: Color
-    let dashed: Bool
-
-    var body: some View {
-        if #available(iOS 17.0, *) {
-            // .replace is a content transition, not a discrete symbol effect.
-            styled
-                .contentTransition(.symbolEffect(.replace))
-                .animation(.default, value: token)
+    @ViewBuilder
+    private var label: some View {
+        if reduceMotion {
+            Text(symbol.accessibility)
+        } else if #available(iOS 17.0, *) {
+            Text(symbol.accessibility)
+                .contentTransition(.interpolate)
+                .animation(.default, value: symbol.token)
         } else {
-            styled
+            Text(symbol.accessibility)
         }
     }
 
-    private var styled: some View {
-        Image(systemName: systemName)
-            .font(.body)
-            .foregroundStyle(tint)
-            .symbolRenderingMode(dashed ? .monochrome : .hierarchical)
+    private var foreground: Color {
+        switch symbol.state {
+        case "Y":
+            return Color(uiColor: .systemBackground)
+        case "U":
+            return .primary
+        default:
+            return .secondary
+        }
+    }
+
+    private var background: Color {
+        switch symbol.state {
+        case "Y":
+            return .accentColor
+        case "U":
+            return Color.primary.opacity(0.08)
+        default:
+            return .clear
+        }
     }
 }
 

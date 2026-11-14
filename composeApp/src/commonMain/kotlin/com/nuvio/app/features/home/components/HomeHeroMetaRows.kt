@@ -16,6 +16,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import com.nuvio.app.features.home.HOME_HERO_BADGES_TAG
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -69,7 +71,9 @@ internal fun HomeHeroMetaRows(
     val rowArrangement = Arrangement.spacedBy(8.dp, horizontalAlignment)
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(HOME_HERO_BADGES_TAG),
         horizontalAlignment = horizontalAlignment,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {

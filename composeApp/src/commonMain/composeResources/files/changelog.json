@@ -2,6 +2,19 @@
   "releases": [
     {
       "version": "0.6.10.1",
+      "build": 218,
+      "date": "2026-11-13",
+      "new": [],
+      "improved": [
+        "Season overview shows the episode number on every row, with the watched mark beside it. Each segment says yours, public, or missing in words."
+      ],
+      "fixed": [
+        "Home artwork starts below the status bar. The clock sits on the plain background, and Home content does not scroll up behind it.",
+        "The Continue Watching preview and its menu stay inside the safe area. On a small phone every row, including Remove, fits above the tab bar."
+      ]
+    },
+    {
+      "version": "0.6.10.1",
       "build": 217,
       "date": "2026-11-13",
       "new": [],

@@ -1,5 +1,6 @@
 package com.nuvio.app.features.details
 
+import com.nuvio.app.features.player.skip.AccountSegment
 import com.nuvio.app.features.player.skip.OwnAccountMarks
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -25,7 +26,7 @@ class SeasonOverviewListTest {
             ),
             detected = setOf("outro"),
         )
-        val symbols = seasonOverviewSymbols(row.marks, copy)
+        val symbols = seasonOverviewSymbols(row.marks, publicTypes = emptySet(), copy)
         assertEquals(
             listOf(
                 SeasonOverviewSymbolKind.Intro,
@@ -37,20 +38,33 @@ class SeasonOverviewListTest {
         )
         assertEquals(
             listOf(
-                SeasonMarkSymbolState.OwnConfirmed,
-                SeasonMarkSymbolState.OwnPending,
-                SeasonMarkSymbolState.DetectedHere,
-                SeasonMarkSymbolState.Missing,
+                SeasonSegmentPresence.Yours,
+                SeasonSegmentPresence.Yours,
+                SeasonSegmentPresence.Missing,
+                SeasonSegmentPresence.Missing,
             ),
-            symbols.map { it.state },
+            symbols.map { it.presence },
         )
-        assertEquals("Intro:OwnConfirmed", symbols[0].token)
-        assertEquals('C', symbols[0].state.wireCode())
-        assertEquals('P', symbols[1].state.wireCode())
-        assertEquals('D', symbols[2].state.wireCode())
-        assertEquals('M', symbols[3].state.wireCode())
-        assertTrue(symbols[0].accessibility.contains("Intro"))
+        assertEquals("Intro:Yours", symbols[0].token)
+        assertEquals('Y', symbols[0].presence.wireCode())
+        assertEquals('Y', symbols[1].presence.wireCode())
+        assertEquals('M', symbols[2].presence.wireCode())
+        assertEquals('M', symbols[3].presence.wireCode())
+        assertEquals("Intro: yours", symbols[0].accessibility)
+        assertEquals("Recap: yours", symbols[1].accessibility)
+        assertEquals("Credits: missing", symbols[2].accessibility)
+        assertEquals("Preview: missing", symbols[3].accessibility)
         assertFalse(symbols[0].accessibility.contains("Public"))
+
+        val publishedSymbols = seasonOverviewSymbols(
+            marks = row.marks,
+            publicTypes = setOf("outro", "preview"),
+            copy = copy,
+        )
+        assertEquals(SeasonSegmentPresence.Yours, publishedSymbols[0].presence)
+        assertEquals(SeasonSegmentPresence.Public, publishedSymbols[2].presence)
+        assertEquals("Credits: public", publishedSymbols[2].accessibility)
+        assertEquals(SeasonSegmentPresence.Public, publishedSymbols[3].presence)
     }
 
     @Test
@@ -74,9 +88,11 @@ class SeasonOverviewListTest {
         )
         val ownedRow = owned.rows.single()
         assertEquals("Public: none", ownedRow.publicLine)
-        assertTrue(ownedRow.symbols.all { it.state == SeasonMarkSymbolState.OwnConfirmed })
-        assertFalse(ownedRow.publicLine.contains("Yours"))
-        assertFalse(ownedRow.spoken.contains("Yours"))
+        assertEquals("You submitted: Intro, Recap, Credits, Preview", ownedRow.yoursLine)
+        assertTrue(ownedRow.symbols.all { it.presence == SeasonSegmentPresence.Yours })
+        assertFalse(ownedRow.publicLine.contains("yours"))
+        assertTrue(ownedRow.spoken.contains("You submitted: Intro, Recap, Credits, Preview"))
+        assertTrue(ownedRow.spoken.contains("Intro: yours"))
         assertTrue(ownedRow.spoken.contains("Public: none"))
 
         val published = listUi(
@@ -92,9 +108,12 @@ class SeasonOverviewListTest {
         )
         val publishedRow = published.rows.single()
         assertEquals("Public: Intro, Recap, Credits, Preview", publishedRow.publicLine)
-        assertTrue(publishedRow.symbols.all { it.state == SeasonMarkSymbolState.Missing })
+        assertEquals("", publishedRow.yoursLine)
+        assertTrue(publishedRow.symbols.all { it.presence == SeasonSegmentPresence.Public })
+        assertEquals("Intro: public", publishedRow.symbols[0].accessibility)
         assertFalse(publishedRow.publicLine.contains("submitted"))
         assertFalse(publishedRow.publicLine.contains("pending"))
+        assertFalse(publishedRow.yoursLine.contains("Public"))
 
         val notChecked = listUi(
             rows = listOf(
@@ -107,8 +126,9 @@ class SeasonOverviewListTest {
             facts = mapOf(key(3) to facts(key(3), CatalogRead.NotChecked, emptySet(), emptySet())),
         )
         assertEquals("Public: not checked", notChecked.rows.single().publicLine)
-        assertEquals(SeasonMarkSymbolState.OwnPending, notChecked.rows.single().symbols[0].state)
-        assertEquals(SeasonMarkSymbolState.DetectedHere, notChecked.rows.single().symbols[1].state)
+        assertEquals(SeasonSegmentPresence.Yours, notChecked.rows.single().symbols[0].presence)
+        assertEquals("You submitted: Intro", notChecked.rows.single().yoursLine)
+        assertEquals(SeasonSegmentPresence.Missing, notChecked.rows.single().symbols[1].presence)
 
         val unavailable = seasonOverviewPublicLine(CatalogRead.Unavailable, setOf("intro"), copy)
         assertEquals("Public: unavailable", unavailable)
@@ -225,8 +245,9 @@ class SeasonOverviewListTest {
         assertEquals(true, parsed?.swipeActionsInstalled)
         assertEquals(true, parsed?.rows?.single()?.swipeWatchPrivately)
         assertEquals("Public: none", parsed?.rows?.single()?.publicLine)
-        assertEquals(SeasonMarkSymbolState.Missing, parsed?.rows?.single()?.symbols?.first()?.state)
-        assertEquals('M', parsed?.rows?.single()?.symbols?.first()?.state?.wireCode())
+        assertEquals(SeasonSegmentPresence.Missing, parsed?.rows?.single()?.symbols?.first()?.presence)
+        assertEquals('M', parsed?.rows?.single()?.symbols?.first()?.presence?.wireCode())
+        assertEquals("", parsed?.rows?.single()?.yoursLine)
     }
 
     @Test
@@ -247,7 +268,9 @@ class SeasonOverviewListTest {
         assertEquals("Season\n2", parsed?.title)
         assertEquals("A\nB\u001fC", parsed?.rows?.single()?.title)
         assertEquals("Public: Intro", parsed?.rows?.single()?.publicLine)
-        assertEquals(SeasonMarkSymbolState.OwnConfirmed, parsed?.rows?.single()?.symbols?.get(3)?.state)
+        assertEquals(SeasonSegmentPresence.Yours, parsed?.rows?.single()?.symbols?.get(3)?.presence)
+        assertEquals(SeasonSegmentPresence.Public, parsed?.rows?.single()?.symbols?.first()?.presence)
+        assertEquals("You submitted: Preview", parsed?.rows?.single()?.yoursLine)
         assertEquals("\u001f", seasonOverviewUnescape(seasonOverviewEscape("\u001f")))
         assertEquals("A\nB", seasonOverviewUnescape(seasonOverviewEscape("A\nB")))
     }
@@ -285,9 +308,12 @@ class SeasonOverviewListTest {
         assertEquals(before, episode)
         assertEquals(own, OwnAccountMarks(confirmed = mapOf(key(1) to setOf("intro"))))
         assertTrue(ui.rows.single().watched)
-        assertEquals(SeasonMarkSymbolState.OwnConfirmed, ui.rows.single().symbols.first().state)
+        assertTrue(ui.rows.single().spoken.startsWith("1, Watched,"))
+        assertEquals(SeasonSegmentPresence.Yours, ui.rows.single().symbols.first().presence)
         assertEquals("Public: Credits", ui.rows.single().publicLine)
-        assertFalse(ui.rows.single().spoken.contains("Yours"))
+        assertEquals("You submitted: Intro", ui.rows.single().yoursLine)
+        assertFalse(ui.rows.single().publicLine.contains("yours"))
+        assertEquals("Intro: yours", ui.rows.single().symbols.first().accessibility)
         ui.rows.single().symbols.forEach { symbol ->
             assertTrue(ui.rows.single().spoken.contains(symbol.accessibility))
         }
@@ -321,6 +347,37 @@ class SeasonOverviewListTest {
         )
         assertTrue(selecting.rows.single().spoken.startsWith("Remove from download. "))
         assertEquals("Download 1", selecting.downloadLabel)
+    }
+
+    @Test
+    fun yoursLineCountsEveryOwnSegmentAndIgnoresPublicTimes() {
+        val contentKey = key(4)
+        val episode = episodeSegmentOverview(
+            episode = SeasonEpisodeRef(1, 4, "Two intros", false, contentKey),
+            own = OwnAccountMarks(
+                confirmed = mapOf(contentKey to setOf("intro")),
+                confirmedRows = mapOf(
+                    contentKey to listOf(
+                        AccountSegment("intro-a", "intro", 0L, 1_000L),
+                        AccountSegment("intro-b", "intro", 8_000L, 9_000L),
+                    ),
+                ),
+            ),
+            detectedTypes = emptySet(),
+        )
+        assertEquals(2, episode.ownCounts["intro"])
+        val ui = listUi(
+            rows = listOf(episode),
+            facts = mapOf(
+                contentKey to facts(contentKey, CatalogRead.Listed, setOf("intro", "outro"), setOf("intro")),
+            ),
+        )
+        val shown = ui.rows.single()
+        assertEquals("You submitted: Intro ×2", shown.yoursLine)
+        assertFalse(shown.yoursLine.contains("Credits"))
+        assertEquals(SeasonSegmentPresence.Yours, shown.symbols[0].presence)
+        assertEquals(SeasonSegmentPresence.Public, shown.symbols[2].presence)
+        assertEquals("4", shown.episodeNumber.toString())
     }
 
     private fun listUi(

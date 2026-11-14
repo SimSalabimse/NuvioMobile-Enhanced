@@ -90,6 +90,8 @@ internal data class EpisodeSegmentOverview(
     val watched: Boolean,
     val contentKey: String,
     val marks: Map<String, SegmentMark>,
+    /** How many of each type this account submitted. Public data is not counted. */
+    val ownCounts: Map<String, Int> = emptyMap(),
 ) {
     val submitted: Set<String> get() = marks.filterValues { it == SegmentMark.Submitted }.keys
     val pending: Set<String> get() = marks.filterValues { it == SegmentMark.Pending }.keys
@@ -213,6 +215,16 @@ internal fun episodeSegmentOverview(
             else -> SegmentMark.Missing
         }
     }
+    val submittedRows = own.confirmedRows[episode.contentKey].orEmpty() +
+        own.pendingRows[episode.contentKey].orEmpty()
+    val ownCounts = SEASON_SEGMENT_TYPES.associateWith { type ->
+        val listed = submittedRows.count { canonicalFlagSegmentType(it.type) == type }
+        when {
+            listed > 0 -> listed
+            type in confirmed || type in pending -> 1
+            else -> 0
+        }
+    }
     return EpisodeSegmentOverview(
         season = episode.season,
         episode = episode.episode,
@@ -220,6 +232,7 @@ internal fun episodeSegmentOverview(
         watched = episode.watched,
         contentKey = episode.contentKey,
         marks = marks,
+        ownCounts = ownCounts,
     )
 }
 

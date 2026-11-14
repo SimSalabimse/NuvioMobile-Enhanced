@@ -28,11 +28,23 @@ internal enum class SeasonOverviewSymbolKind {
     Preview,
 }
 
+/**
+ * What the row says about one segment type.
+ * Yours comes only from this account's submissions. Public is TheIntroDB and not yours.
+ * A local detection is not a submission, so it is Missing unless TheIntroDB lists it.
+ */
+internal enum class SeasonSegmentPresence {
+    Yours,
+    Public,
+    Missing,
+}
+
 internal data class SeasonOverviewSymbolUi(
     val kind: SeasonOverviewSymbolKind,
-    val state: SeasonMarkSymbolState,
-    /** Changes only when [state] changes, so a replace effect can run once. */
+    val presence: SeasonSegmentPresence,
+    /** Changes only when [presence] changes, so a replace effect can run once. */
     val token: String,
+    /** Spoken and visible words, for example "Intro: yours". */
     val accessibility: String,
 )
 
@@ -43,6 +55,8 @@ internal data class SeasonOverviewRowUi(
     val watched: Boolean,
     /** Public catalogue only. Never this account's own marks. */
     val publicLine: String,
+    /** This account's submissions only. Empty when there are none. */
+    val yoursLine: String,
     val symbols: List<SeasonOverviewSymbolUi>,
     val included: Boolean,
     /** System swipe action. Stays on when Reduce Motion is on. */
@@ -71,6 +85,8 @@ internal data class SeasonOverviewListUi(
     val includeLabel: String,
     val removeLabel: String,
     val watchedLabel: String,
+    /** One sentence for the three segment words. Shown above the rows. */
+    val legend: String,
     /** Long-press menu, in order. Include is omitted when download is not offered. */
     val contextActions: List<String>,
 )
@@ -102,6 +118,13 @@ internal data class SeasonOverviewCopy(
     val pendingTemplate: String,
     val detectedTemplate: String,
     val missingTemplate: String,
+    val yoursWord: String,
+    val publicWord: String,
+    val missingWord: String,
+    val presenceTemplate: String,
+    val yoursLineTemplate: String,
+    val yoursCountTemplate: String,
+    val legend: String,
 )
 
 internal fun englishSeasonOverviewCopy(): SeasonOverviewCopy = SeasonOverviewCopy(
@@ -131,6 +154,13 @@ internal fun englishSeasonOverviewCopy(): SeasonOverviewCopy = SeasonOverviewCop
     pendingTemplate = "%1\$s, pending",
     detectedTemplate = "%1\$s. Detected, not submitted yet",
     missingTemplate = "%1\$s, missing",
+    yoursWord = "yours",
+    publicWord = "public",
+    missingWord = "missing",
+    presenceTemplate = "%1\$s: %2\$s",
+    yoursLineTemplate = "You submitted: %1\$s",
+    yoursCountTemplate = "%1\$s ×%2\$d",
+    legend = "Yours — you submitted it. Public — on TheIntroDB, not from you. Missing — nothing yet.",
 )
 
 internal val seasonOverviewContextActionIds: List<String> = listOf(
@@ -159,6 +189,35 @@ internal fun symbolStateFromWire(code: Char): SeasonMarkSymbolState? = when (cod
     'D' -> SeasonMarkSymbolState.DetectedHere
     'M' -> SeasonMarkSymbolState.Missing
     else -> null
+}
+
+/**
+ * One word for the row. A pending submission is still yours.
+ * Public is used only when this account did not submit that type.
+ */
+internal fun seasonSegmentPresence(mark: SegmentMark, listedPublicly: Boolean): SeasonSegmentPresence = when {
+    mark == SegmentMark.Submitted || mark == SegmentMark.Pending -> SeasonSegmentPresence.Yours
+    listedPublicly -> SeasonSegmentPresence.Public
+    else -> SeasonSegmentPresence.Missing
+}
+
+internal fun SeasonSegmentPresence.wireCode(): Char = when (this) {
+    SeasonSegmentPresence.Yours -> 'Y'
+    SeasonSegmentPresence.Public -> 'U'
+    SeasonSegmentPresence.Missing -> 'M'
+}
+
+internal fun presenceFromWire(code: Char): SeasonSegmentPresence? = when (code) {
+    'Y' -> SeasonSegmentPresence.Yours
+    'U' -> SeasonSegmentPresence.Public
+    'M' -> SeasonSegmentPresence.Missing
+    else -> null
+}
+
+internal fun seasonOverviewPresenceWord(presence: SeasonSegmentPresence, copy: SeasonOverviewCopy): String = when (presence) {
+    SeasonSegmentPresence.Yours -> copy.yoursWord
+    SeasonSegmentPresence.Public -> copy.publicWord
+    SeasonSegmentPresence.Missing -> copy.missingWord
 }
 
 internal data class SeasonOverviewToolbar(
@@ -233,6 +292,7 @@ internal fun seasonOverviewStatusText(state: SeasonOverviewUiState, copy: Season
 
 internal fun seasonOverviewSymbols(
     marks: Map<String, SegmentMark>,
+    publicTypes: Set<String>,
     copy: SeasonOverviewCopy,
 ): List<SeasonOverviewSymbolUi> = listOf(
     SeasonOverviewSymbolKind.Intro to "intro",
@@ -241,13 +301,38 @@ internal fun seasonOverviewSymbols(
     SeasonOverviewSymbolKind.Preview to "preview",
 ).map { (kind, type) ->
     val label = seasonOverviewTypeLabel(type, copy)
-    val state = seasonMarkSymbolState(marks[type] ?: SegmentMark.Missing)
+    val presence = seasonSegmentPresence(
+        mark = marks[type] ?: SegmentMark.Missing,
+        listedPublicly = type in publicTypes,
+    )
     SeasonOverviewSymbolUi(
         kind = kind,
-        state = state,
-        token = "${kind.name}:${state.name}",
-        accessibility = seasonOverviewSymbolAccessibility(label, state, copy),
+        presence = presence,
+        token = "${kind.name}:${presence.name}",
+        accessibility = formatArgs(copy.presenceTemplate, label, seasonOverviewPresenceWord(presence, copy)),
     )
+}
+
+/**
+ * Names from this account's own rows. A count above one is written out.
+ * Public types are not an input.
+ */
+internal fun seasonOverviewYoursLine(ownCounts: Map<String, Int>, copy: SeasonOverviewCopy): String {
+    val names = listOf(
+        "intro" to copy.intro,
+        "recap" to copy.recap,
+        "outro" to copy.credits,
+        "preview" to copy.preview,
+    ).mapNotNull { (type, label) ->
+        val count = ownCounts[type] ?: 0
+        when {
+            count <= 0 -> null
+            count == 1 -> label
+            else -> formatCountArg(copy.yoursCountTemplate, label, count)
+        }
+    }
+    if (names.isEmpty()) return ""
+    return formatArg(copy.yoursLineTemplate, names.joinToString(", "))
 }
 
 @Suppress("UNUSED_PARAMETER")
@@ -316,6 +401,7 @@ internal fun seasonOverviewListUi(
         includeLabel = copy.includeDownload,
         removeLabel = copy.removeDownload,
         watchedLabel = copy.watched,
+        legend = copy.legend,
         contextActions = contextActions,
     )
 }
@@ -327,18 +413,28 @@ private fun seasonOverviewRowUi(
     selecting: Boolean,
     copy: SeasonOverviewCopy,
 ): SeasonOverviewRowUi {
+    val publicTypes = if (facts?.publicRead == CatalogRead.Listed) facts.publicTypes else emptySet()
     val publicLine = seasonOverviewPublicLine(
         read = facts?.publicRead,
-        publicTypes = facts?.publicTypes.orEmpty(),
+        publicTypes = publicTypes,
         copy = copy,
     )
-    val symbols = seasonOverviewSymbols(row.marks, copy)
+    val yoursLine = seasonOverviewYoursLine(row.ownCounts, copy)
+    val symbols = seasonOverviewSymbols(row.marks, publicTypes, copy)
     val spokenBody = buildString {
-        append(if (row.watched) copy.watched else row.episode.toString())
+        append(row.episode.toString())
+        if (row.watched) {
+            append(", ")
+            append(copy.watched)
+        }
         append(", ")
         append(row.title)
         append(". ")
         append(publicLine)
+        if (yoursLine.isNotEmpty()) {
+            append(". ")
+            append(yoursLine)
+        }
         symbols.forEach { symbol ->
             append(". ")
             append(symbol.accessibility)
@@ -356,6 +452,7 @@ private fun seasonOverviewRowUi(
         title = row.title,
         watched = row.watched,
         publicLine = publicLine,
+        yoursLine = yoursLine,
         symbols = symbols,
         included = included,
         swipeWatchPrivately = true,
@@ -369,20 +466,6 @@ private fun seasonOverviewTypeLabel(type: String, copy: SeasonOverviewCopy): Str
     "outro" -> copy.credits
     else -> copy.preview
 }
-
-private fun seasonOverviewSymbolAccessibility(
-    label: String,
-    state: SeasonMarkSymbolState,
-    copy: SeasonOverviewCopy,
-): String = formatArg(
-    when (state) {
-        SeasonMarkSymbolState.OwnConfirmed -> copy.submittedTemplate
-        SeasonMarkSymbolState.OwnPending -> copy.pendingTemplate
-        SeasonMarkSymbolState.DetectedHere -> copy.detectedTemplate
-        SeasonMarkSymbolState.Missing -> copy.missingTemplate
-    },
-    label,
-)
 
 /** AX1 and above, including AX5, put the four symbols on their own line. */
 internal fun seasonOverviewWrapsSymbols(fontScale: Float): Boolean =
@@ -406,3 +489,9 @@ internal fun formatCount(template: String, count: Int): String =
 
 internal fun formatArg(template: String, value: String): String =
     template.replace("%1\$s", value).replace("%s", value)
+
+internal fun formatArgs(template: String, first: String, second: String): String =
+    template.replace("%1\$s", first).replace("%2\$s", second)
+
+internal fun formatCountArg(template: String, label: String, count: Int): String =
+    template.replace("%1\$s", label).replace("%2\$d", count.toString()).replace("%d", count.toString())

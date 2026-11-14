@@ -34,6 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,6 +61,7 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -129,6 +131,52 @@ private enum class PosterZoomPhase {
 
 private const val PosterZoomVisibilityThreshold = 0.0005f
 internal const val POSTER_ZOOM_MENU_TAG = "poster-zoom-menu"
+
+/** The lifted episode card. Hidden when the menu needs the space. */
+internal const val POSTER_ZOOM_PREVIEW_TAG = "poster-zoom-preview"
+
+internal data class PosterZoomPreviewFit(
+    val posterHeightDp: Float,
+    val previewVisible: Boolean,
+    val compactRows: Boolean,
+)
+
+/**
+ * The preview and every menu row share the space between the window's top inset and the tab bar.
+ * The preview shrinks, then hides. Rows tighten only after the preview is gone.
+ */
+internal fun posterZoomPreviewFit(
+    viewportHeightDp: Float,
+    safeTopDp: Float,
+    tabClearanceDp: Float,
+    preferredPosterDp: Float,
+    titleBlockDp: Float,
+    menuRowCount: Int,
+    menuRowDp: Float,
+    gapsDp: Float,
+): PosterZoomPreviewFit {
+    val available = (viewportHeightDp - safeTopDp.coerceAtLeast(0f) - tabClearanceDp.coerceAtLeast(0f))
+        .coerceAtLeast(0f)
+    val rows = menuRowCount.coerceAtLeast(0)
+    val dividers = (rows - 1).coerceAtLeast(0) * 0.5f
+    val fixed = titleBlockDp.coerceAtLeast(0f) +
+        rows * menuRowDp.coerceAtLeast(0f) +
+        dividers +
+        gapsDp.coerceAtLeast(0f)
+    val room = available - fixed
+    val preferred = preferredPosterDp.coerceAtLeast(0f)
+    if (room >= preferred && preferred > 0f) {
+        return PosterZoomPreviewFit(preferred, previewVisible = true, compactRows = false)
+    }
+    if (room >= 96f) {
+        return PosterZoomPreviewFit(room, previewVisible = true, compactRows = false)
+    }
+    return PosterZoomPreviewFit(
+        posterHeightDp = 0f,
+        previewVisible = false,
+        compactRows = true,
+    )
+}
 private val PosterZoomExpandSpring = spring<Float>(
     dampingRatio = Spring.DampingRatioNoBouncy,
     stiffness = 340f,
@@ -190,13 +238,14 @@ fun NuvioPosterZoomActionOverlay(
 
     var rootOrigin by remember { mutableStateOf(Offset.Zero) }
     var slotBounds by remember { mutableStateOf<Rect?>(null) }
+    var menuArmed by remember { mutableStateOf(false) }
 
     DisposableEffect(source) {
         onDispose { source?.land() }
     }
 
-    LaunchedEffect(slotBounds != null, phase) {
-        if (slotBounds == null || phase != PosterZoomPhase.Open) return@LaunchedEffect
+    LaunchedEffect(menuArmed, phase) {
+        if (!menuArmed || phase != PosterZoomPhase.Open) return@LaunchedEffect
         lifted = source?.lift() == true
         showFallback = !lifted
         launch { scrim.animateTo(1f, posterZoomSpec(reduceMotion, tween(durationMillis = 260, easing = NuvioTokens.Motion.standard))) }
@@ -259,16 +308,31 @@ fun NuvioPosterZoomActionOverlay(
             ?: 0.675f
         val aspect = anchorAspect.coerceIn(0.35f, 2.4f)
         val maxPosterWidth = if (aspect >= 1f) maxWidth * 0.8f else maxWidth * 0.6f
-        val posterHeight = min(maxPosterWidth / aspect, maxHeight * 0.44f)
-        val posterWidth = posterHeight * aspect
-        val menuWidth = min(280.dp, maxWidth - NuvioTokens.Space.s48)
-        val columnWidth = max(posterWidth, menuWidth)
+        val safeTop = windowSafeTopInset()
         val safeBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         val tabClearance = bottomClearance ?: maxOf(
             floatingTabContentBottomInsetDp(nativeTabs = true, safeAreaBottomDp = safeBottom.value).dp,
             floatingTabContentBottomInsetDp(nativeTabs = false, safeAreaBottomDp = safeBottom.value).dp,
         )
-        val menuMax = (maxHeight - posterHeight - tabClearance - 96.dp).coerceAtLeast(120.dp)
+        val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
+        val preferredPoster = min(maxPosterWidth / aspect, maxHeight * 0.44f)
+        val fit = posterZoomPreviewFit(
+            viewportHeightDp = maxHeight.value,
+            safeTopDp = safeTop.value,
+            tabClearanceDp = tabClearance.value,
+            preferredPosterDp = preferredPoster.value,
+            titleBlockDp = 22f * fontScale + 20f * fontScale + 8f,
+            menuRowCount = frozenActions.size,
+            menuRowDp = 32f + 24f * fontScale,
+            gapsDp = NuvioTokens.Space.s18.value + NuvioTokens.Space.s14.value,
+        )
+        SideEffect {
+            menuArmed = !fit.previewVisible || slotBounds != null
+        }
+        val posterHeight = fit.posterHeightDp.dp
+        val posterWidth = if (fit.previewVisible) posterHeight * aspect else 0.dp
+        val menuWidth = min(280.dp, maxWidth - NuvioTokens.Space.s48)
+        val columnWidth = max(posterWidth, menuWidth)
         val menuScroll = rememberScrollState()
 
         Box(
@@ -291,17 +355,20 @@ fun NuvioPosterZoomActionOverlay(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = tabClearance)
+                .padding(top = safeTop, bottom = tabClearance)
                 .width(columnWidth)
+                .heightIn(max = (maxHeight - safeTop - tabClearance).coerceAtLeast(0.dp))
                 .clipToBounds(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Invisible slot marking where the zoomed poster comes to rest.
-            Box(
-                modifier = Modifier
-                    .size(width = posterWidth, height = posterHeight)
-                    .onGloballyPositioned { coordinates -> slotBounds = coordinates.boundsInRoot() },
-            )
+            if (fit.previewVisible) {
+                Box(
+                    modifier = Modifier
+                        .size(width = posterWidth, height = posterHeight)
+                        .testTag(POSTER_ZOOM_PREVIEW_TAG)
+                        .onGloballyPositioned { coordinates -> slotBounds = coordinates.boundsInRoot() },
+                )
+            }
 
             Spacer(modifier = Modifier.height(NuvioTokens.Space.s18))
 
@@ -344,7 +411,6 @@ fun NuvioPosterZoomActionOverlay(
             Column(
                 modifier = Modifier
                     .width(menuWidth)
-                    .heightIn(max = menuMax)
                     .testTag(POSTER_ZOOM_MENU_TAG)
                     .verticalScroll(menuScroll)
                     .graphicsLayer {
@@ -374,6 +440,7 @@ fun NuvioPosterZoomActionOverlay(
                     PosterZoomMenuRow(
                         action = action,
                         enabled = phase == PosterZoomPhase.Open && action.enabled,
+                        compact = fit.compactRows,
                         onSelected = { select(action) },
                         modifier = Modifier.graphicsLayer {
                             val stagger = index * 0.07f
@@ -513,6 +580,7 @@ fun NuvioPosterZoomActionOverlay(
 private fun PosterZoomMenuRow(
     action: PosterZoomOverlayAction,
     enabled: Boolean,
+    compact: Boolean,
     onSelected: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -523,7 +591,10 @@ private fun PosterZoomMenuRow(
             .fillMaxWidth()
             .alpha(if (action.enabled) 1f else 0.38f)
             .clickable(enabled = enabled, onClick = onSelected)
-            .padding(horizontal = NuvioTokens.Space.s18, vertical = NuvioTokens.Space.s16),
+            .padding(
+                horizontal = NuvioTokens.Space.s18,
+                vertical = if (compact) NuvioTokens.Space.s8 else NuvioTokens.Space.s16,
+            ),
         horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
         verticalAlignment = Alignment.CenterVertically,
     ) {
