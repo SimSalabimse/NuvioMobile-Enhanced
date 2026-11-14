@@ -41,6 +41,7 @@ scripts/*
 !scripts/builds_page/
 !scripts/builds_page/**
 !scripts/check-ios-objc-export.sh
+!scripts/check-approved-prs.sh
 !scripts/ui-shots.sh
 !scripts/ui-manifest.sh
 !scripts/ui-manifest.tsv

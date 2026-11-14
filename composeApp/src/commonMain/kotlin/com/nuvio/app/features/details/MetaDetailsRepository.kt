@@ -37,6 +37,9 @@ import com.nuvio.app.features.trakt.MoreLikeThisSourcePreference
 import com.nuvio.app.features.tracking.TrackingSettingsRepository
 import com.nuvio.app.features.trakt.shouldUseTraktMoreLikeThis
 import com.nuvio.app.features.watched.WatchedClock
+import com.nuvio.app.features.home.metaHasAiredEpisodeWithoutStill
+import com.nuvio.app.features.home.missingArtworkRetryDue
+import com.nuvio.app.features.home.shouldBypassCachedMetaForMissingArtwork
 import com.nuvio.app.features.watchprogress.CurrentDateProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -339,6 +342,7 @@ object MetaDetailsRepository {
         activeRequestKey = null
         fixtureMetas.clear()
         cachedMetaByRequestKey.clear()
+        missingArtAttemptMs.clear()
         synchronized(savedAtLock) { savedAtMsByRequestKey.clear() }
         refreshing.clear()
         _uiState.value = MetaDetailsUiState()
@@ -393,15 +397,13 @@ object MetaDetailsRepository {
         fixtureMetas[requestKey]?.let { return MetaFetch(it) }
         bindProfile()
         if (useCache) {
-            cachedMetaByRequestKey[requestKey]?.let { cached ->
+            val memory = cachedMetaByRequestKey[requestKey]
+            val diskHit = if (memory == null) readDiskTitle(requestKey) else null
+            if (diskHit != null) rememberDisk(requestKey, diskHit)
+            val cachedMeta = memory?.baseMeta ?: diskHit?.meta
+            if (cachedMeta != null && !takeMissingArtworkRefetch(requestKey, cachedMeta)) {
                 refreshIfStale(type, id, requestKey, updateUi = false)
-                return MetaFetch(cached.baseMeta)
-            }
-            val diskHit = readDiskTitle(requestKey)
-            if (diskHit != null) {
-                rememberDisk(requestKey, diskHit)
-                refreshIfStale(type, id, requestKey, updateUi = false)
-                return MetaFetch(diskHit.meta)
+                return MetaFetch(cachedMeta)
             }
         }
         ServerItemRef.parse(id)?.let { ref ->
@@ -1152,21 +1154,65 @@ object MetaDetailsRepository {
         activeRequestKey = null
     }
 
+    private val missingArtAttemptMs = mutableMapOf<String, Long>()
+
+    /**
+     * True when an empty episode still may be asked for again.
+     * The stamp lives only in memory, so a restart tries once immediately.
+     */
+    internal fun missingArtworkRefreshDue(type: String, id: String): Boolean {
+        val now = Clock.System.now().toEpochMilliseconds()
+        return synchronized(savedAtLock) {
+            missingArtworkRetryDue(missingArtAttemptMs["$type:$id"] ?: 0L, now)
+        }
+    }
+
+    /**
+     * An aired episode with no still is not a finished cache hit.
+     * Returns true when this call should go to the network, and records the attempt.
+     */
+    private fun takeMissingArtworkRefetch(requestKey: String, meta: MetaDetails): Boolean {
+        val now = Clock.System.now().toEpochMilliseconds()
+        val offline = currentOfflineDetailsNetwork() == OfflineCacheNetwork.Offline
+        val todayIso = CurrentDateProvider.todayIsoDate()
+        return synchronized(savedAtLock) {
+            val bypass = shouldBypassCachedMetaForMissingArtwork(
+                meta = meta,
+                todayIso = todayIso,
+                lastAttemptMs = missingArtAttemptMs[requestKey] ?: 0L,
+                nowMs = now,
+                offline = offline,
+            )
+            if (bypass) missingArtAttemptMs[requestKey] = now
+            bypass
+        }
+    }
+
     private fun refreshIfStale(
         type: String,
         id: String,
         requestKey: String,
         updateUi: Boolean,
     ) {
+        val now = Clock.System.now().toEpochMilliseconds()
         val savedAtMs = savedAtMs(requestKey)
-        if (!offlineStampIsFresh(savedAtMs, Clock.System.now().toEpochMilliseconds(), OfflineDetailsCacheLimits.MetaTtlMs) &&
-            savedAtMs > 0L
-        ) {
-            val decision = offlineCacheDecision(OfflineCacheLookup.DiskStale, currentOfflineDetailsNetwork())
-            if (!decision.refreshRequested) return
-        } else {
-            return
-        }
+        val fresh = savedAtMs > 0L &&
+            offlineStampIsFresh(savedAtMs, now, OfflineDetailsCacheLimits.MetaTtlMs)
+        val missingStill = metaHasAiredEpisodeWithoutStill(
+            cachedMetaByRequestKey[requestKey]?.baseMeta,
+            CurrentDateProvider.todayIsoDate(),
+        )
+        val network = currentOfflineDetailsNetwork()
+        val staleRefresh = savedAtMs > 0L && !fresh &&
+            offlineCacheDecision(OfflineCacheLookup.DiskStale, network).refreshRequested
+        val missingRefresh = missingStill &&
+            network != OfflineCacheNetwork.Offline &&
+            synchronized(savedAtLock) {
+                val due = missingArtworkRetryDue(missingArtAttemptMs[requestKey] ?: 0L, now)
+                if (due) missingArtAttemptMs[requestKey] = now
+                due
+            }
+        if (!staleRefresh && !missingRefresh) return
         val started = synchronized(savedAtLock) { refreshing.add(requestKey) }
         if (!started) return
         scope.launch {

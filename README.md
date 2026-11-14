@@ -114,6 +114,7 @@ Upstream Nuvio has no Live TV. This fork adds the whole feature.
 |---|---|---|
 | **More Like This → View All** — the recommendation rail's header opens the full list as a paged grid that keeps loading as you scroll, instead of stopping at one page. | — | Always on when the rail has more to show |
 | **Episode navigator** — a sticky bar above the episode list of every season to search episodes by title, plot or number, jump straight to an episode number, and sort (first to last, last to first, highest rated, newest aired, unwatched first). | Details page → episode list | Always on for series |
+| **Season overview** — one grouped row per episode: the episode number or a watched check, the title, a public-marks line, and four segment symbols. Select picks episodes for an analysis download. Swipe right watches privately, including with Reduce Motion on. | Details → Seasons header, or long-press a season → **Season overview** | — |
 | **Progress on episode cards** — partially watched episodes show a progress bar on their card. | — | Always on |
 | **Original-language titles** — show titles, title logos, posters and backdrops in the title's original language, falling back to your TMDB language when unavailable. | Settings → Content & Discovery → TMDB Enrichment → **Original language** | Off |
 | **Budget and revenue** — added to the details block for movies. | Shown with Settings → Layout → Detail Page → **Details** | — |

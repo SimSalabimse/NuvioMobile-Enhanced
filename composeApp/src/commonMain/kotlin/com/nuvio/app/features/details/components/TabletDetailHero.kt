@@ -362,6 +362,7 @@ fun TabletDetailHero(
                     model = logoUrl,
                     contentDescription = stringResource(Res.string.detail_logo_content_description, meta.name),
                     modifier = Modifier
+                        .reportDetailHeaderOcclusion(DetailHeaderOcclusionTarget.Heading)
                         .widthIn(max = 560.dp)
                         .height(120.dp),
                     alignment = Alignment.CenterStart,
@@ -371,6 +372,7 @@ fun TabletDetailHero(
             } else {
                 Text(
                     text = meta.name,
+                    modifier = Modifier.reportDetailHeaderOcclusion(DetailHeaderOcclusionTarget.Heading),
                     style = MaterialTheme.typography.displayLarge.copy(
                         fontSize = NuvioTokens.Type.displayMd,
                         lineHeight = NuvioTokens.LineHeight.displayMd,

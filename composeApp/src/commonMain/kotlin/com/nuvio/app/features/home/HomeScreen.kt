@@ -8,6 +8,7 @@ import com.nuvio.app.core.network.offlineTransitionMotion
 import com.nuvio.app.core.ui.asComposeEasing
 import com.nuvio.app.core.ui.finiteSpec
 import androidx.compose.foundation.MutatePriority
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.stopScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -19,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -42,6 +44,7 @@ import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.ui.LocalNuvioBottomNavigationOverlayPadding
 import com.nuvio.app.core.ui.DynamicArtworkBackground
+import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.LocalVerticalBarPadding
 import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
 import com.nuvio.app.core.ui.ScreenActivityEffect
@@ -804,6 +807,7 @@ fun HomeScreen(
         }
 
         withContext(Dispatchers.Default) {
+            val todayIsoDate = CurrentDateProvider.todayIsoDate()
             val cachedResolvedNextUpItems = completedSeriesCandidates.mapNotNull { candidate ->
                 val cached = cachedNextUpItems[candidate.content.id] ?: return@mapNotNull null
                 val item = cached.second
@@ -814,6 +818,21 @@ fun HomeScreen(
                     return@mapNotNull null
                 }
                 if (!hasUsableHomeNextUpMetadata(item)) {
+                    return@mapNotNull null
+                }
+                if (
+                    cachedNextUpStillNeedsArtwork(
+                        released = item.released,
+                        episodeThumbnail = item.episodeThumbnail,
+                        seasonNumber = item.seasonNumber,
+                        episodeNumber = item.episodeNumber,
+                        todayIso = todayIsoDate,
+                    ) &&
+                    com.nuvio.app.features.details.MetaDetailsRepository.missingArtworkRefreshDue(
+                        item.parentMetaType,
+                        item.parentMetaId,
+                    )
+                ) {
                     return@mapNotNull null
                 }
                 candidate.content.id to cached
@@ -847,7 +866,6 @@ fun HomeScreen(
                 return@withContext
             }
 
-            val todayIsoDate = CurrentDateProvider.todayIsoDate()
             val semaphore = Semaphore(NEXT_UP_RESOLUTION_CONCURRENCY)
             val freshResults = mutableMapOf<String, Pair<Long, ContinueWatchingItem>>()
             val processedFreshContentIds = mutableSetOf<String>()
@@ -1129,11 +1147,24 @@ fun HomeScreen(
             { url -> activeHeroArtworkUrl = url }
         }
 
-        DynamicArtworkBackground(artworkUrl = if (showDownloadsFirst) null else activeHeroArtworkUrl) {
+        val homeViewportHeight = maxHeight
+        val homeTopInset = homeContentTopInset()
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.nuvio.colors.background),
+        ) {
+        DynamicArtworkBackground(
+            artworkUrl = if (showDownloadsFirst) null else activeHeroArtworkUrl,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = homeTopInset)
+                .clipToBounds(),
+        ) {
             NuvioScreen(
                 modifier = Modifier.fillMaxSize().then(heroStretchModifier),
                 horizontalPadding = 0.dp,
-                topPadding = if (showHeroSlot) 0.dp else homeContentTopInset(),
+                topPadding = 0.dp,
                 listState = homeListState,
                 autoHidesNativeTabBar = true,
             ) {
@@ -1148,7 +1179,7 @@ fun HomeScreen(
                                 .fillMaxWidth()
                                 .graphicsLayer { alpha = reveal }
                                 .clipToBounds()
-                                .homeHeroGrowSlot(reveal, maxHeight)
+                                .homeHeroGrowSlot(reveal, homeViewportHeight)
                                 .graphicsLayer { translationY = heroSlide.value.dp.toPx() }
                                 .nuvioHorizontalScrollBleed(LocalVerticalBarPadding.current),
                             animationSpec = if (reconnectMotion.snap) snap() else tween(reconnectMotion.durationMs),
@@ -1157,7 +1188,7 @@ fun HomeScreen(
                             when {
                                 isLoading -> HomeSkeletonHero(
                                     modifier = Modifier,
-                                    viewportHeight = maxHeight,
+                                    viewportHeight = homeViewportHeight,
                                     mobileBelowSectionHeightHint = mobileHeroBelowSectionHeightHint,
                                     heroStyle = homeSettingsUiState.heroStyle,
                                 )
@@ -1165,7 +1196,7 @@ fun HomeScreen(
                                 homeUiState.heroItems.isNotEmpty() -> HomeHeroSection(
                                     items = homeHeroState.items,
                                     modifier = Modifier,
-                                    viewportHeight = maxHeight,
+                                    viewportHeight = homeViewportHeight,
                                     mobileBelowSectionHeightHint = mobileHeroBelowSectionHeightHint,
                                     heroStyle = homeSettingsUiState.heroStyle,
                                     listState = homeListState,
@@ -1187,7 +1218,7 @@ fun HomeScreen(
 
                                 else -> HomeHeroReservedSpace(
                                     modifier = Modifier,
-                                    viewportHeight = maxHeight,
+                                    viewportHeight = homeViewportHeight,
                                     mobileBelowSectionHeightHint = mobileHeroBelowSectionHeightHint,
                                     heroStyle = homeSettingsUiState.heroStyle,
                                 )
@@ -1369,6 +1400,7 @@ fun HomeScreen(
                     }
                 }
             }
+        }
         }
     }
     if ((showDownloadsFirst || offlineCoverAlpha.value > 0f) && onOpenDownload != null) {
@@ -1942,7 +1974,15 @@ internal fun buildHomeContinueWatchingItems(
                             fallback = cachedInProgressByProgressKey[entry.resolvedProgressKey()],
                             preserveFallbackPlaybackIdentity = true,
                         )
-                        .withCloudLibraryMetadata(cloudLibraryUiState),
+                        .withCloudLibraryMetadata(cloudLibraryUiState)
+                        .let { filled ->
+                            filled.fillingBlankArtworkFrom(
+                                com.nuvio.app.features.details.MetaDetailsRepository.peek(
+                                    filled.parentMetaType,
+                                    filled.parentMetaId,
+                                ),
+                            )
+                        },
                     isProgressEntry = true,
                 )
             },
@@ -1952,7 +1992,12 @@ internal fun buildHomeContinueWatchingItems(
                 if (item.parentMetaId in suppressedSeriesIds) return@mapNotNull null
                 HomeContinueWatchingCandidate(
                     lastUpdatedEpochMs = lastUpdatedEpochMs,
-                    item = item,
+                    item = item.fillingBlankArtworkFrom(
+                        com.nuvio.app.features.details.MetaDetailsRepository.peek(
+                            item.parentMetaType,
+                            item.parentMetaId,
+                        ),
+                    ),
                     isProgressEntry = false,
                 )
             },
