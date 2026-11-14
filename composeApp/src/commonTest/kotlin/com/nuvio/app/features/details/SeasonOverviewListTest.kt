@@ -320,6 +320,23 @@ class SeasonOverviewListTest {
     }
 
     @Test
+    fun segmentChipsStayOneLineAndMissingIsFilled() {
+        val labels = listOf("Intro: yours", "Recap: yours", "Credits: public", "Preview: missing")
+        labels.forEach { label ->
+            assertFalse(label.contains('\n'), label)
+            assertEquals(1, label.lineSequence().count())
+        }
+        SeasonSegmentPresence.entries.forEach { presence ->
+            val face = seasonOverviewChipFace(presence)
+            assertEquals(1, face.lineLimit)
+            assertTrue(face.filled)
+        }
+        assertTrue(copy.legend.contains("Yours"))
+        assertTrue(copy.legend.contains("Public"))
+        assertTrue(copy.legend.contains("Missing"))
+    }
+
+    @Test
     fun accessibilityScaleWrapsAndTheSheetKeepsBothHeights() {
         assertTrue(seasonOverviewWrapsSymbols(3.12f))
         assertTrue(seasonOverviewWrapsSymbols(1.5f))

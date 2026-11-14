@@ -2,6 +2,16 @@
   "releases": [
     {
       "version": "0.6.10.1",
+      "build": 219,
+      "date": "2026-11-14",
+      "new": [],
+      "improved": [
+        "Season overview segment chips stay on one line. Missing uses the same chip shape as yours and public."
+      ],
+      "fixed": []
+    },
+    {
+      "version": "0.6.10.1",
       "build": 218,
       "date": "2026-11-13",
       "new": [],

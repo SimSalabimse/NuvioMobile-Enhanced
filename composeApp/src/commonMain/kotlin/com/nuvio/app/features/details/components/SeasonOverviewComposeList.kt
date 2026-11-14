@@ -39,10 +39,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsPropertyKey
+import androidx.compose.ui.semantics.SemanticsPropertyReceiver
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
@@ -53,6 +57,7 @@ import com.nuvio.app.features.details.SeasonOverviewListUi
 import com.nuvio.app.features.details.SeasonOverviewNativeListHost
 import com.nuvio.app.features.details.SeasonOverviewRowUi
 import com.nuvio.app.features.details.SeasonOverviewSymbolUi
+import com.nuvio.app.features.details.seasonOverviewChipFace
 import com.nuvio.app.features.details.seasonOverviewNativeList
 import com.nuvio.app.features.details.seasonOverviewPlaysSymbolEffects
 import com.nuvio.app.features.details.seasonOverviewWrapsSymbols
@@ -434,14 +439,26 @@ private fun SeasonOverviewText(row: SeasonOverviewRowUi, modifier: Modifier = Mo
     }
 }
 
+internal val SeasonOverviewChipLineLimitKey = SemanticsPropertyKey<Int>("SeasonOverviewChipLineLimit")
+internal var SemanticsPropertyReceiver.seasonOverviewChipLineLimit by SeasonOverviewChipLineLimitKey
+
+internal val SeasonOverviewChipFilledKey = SemanticsPropertyKey<Boolean>("SeasonOverviewChipFilled")
+internal var SemanticsPropertyReceiver.seasonOverviewChipFilled by SeasonOverviewChipFilledKey
+
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun SeasonOverviewSymbols(row: SeasonOverviewRowUi) {
+    SeasonOverviewSegmentChips(row.symbols)
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+internal fun SeasonOverviewSegmentChips(symbols: List<SeasonOverviewSymbolUi>) {
     FlowRow(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        row.symbols.forEach { symbol ->
+        symbols.forEach { symbol ->
             SeasonMarkGlyph(symbol)
         }
     }
@@ -462,17 +479,20 @@ private fun SeasonSelectMark(included: Boolean) {
 @Composable
 private fun SeasonMarkGlyph(symbol: SeasonOverviewSymbolUi) {
     val scheme = MaterialTheme.colorScheme
+    val face = seasonOverviewChipFace(symbol.presence)
     val background = when (symbol.presence) {
         SeasonSegmentPresence.Yours -> scheme.primary
         SeasonSegmentPresence.Public -> scheme.surface
-        SeasonSegmentPresence.Missing -> scheme.surface.copy(alpha = 0f)
+        SeasonSegmentPresence.Missing ->
+            if (face.filled) scheme.secondaryContainer else scheme.surface.copy(alpha = 0f)
     }
     val foreground = when (symbol.presence) {
         SeasonSegmentPresence.Yours -> scheme.onPrimary
         SeasonSegmentPresence.Public -> scheme.onSurface
-        SeasonSegmentPresence.Missing -> scheme.onSurface.copy(alpha = 0.45f)
+        SeasonSegmentPresence.Missing -> scheme.onSecondaryContainer
     }
     val shape = RoundedCornerShape(8.dp)
+    val tag = "season-overview-segment-${symbol.kind.name}"
     Text(
         text = symbol.accessibility,
         modifier = Modifier
@@ -486,9 +506,16 @@ private fun SeasonMarkGlyph(symbol: SeasonOverviewSymbolUi) {
                 },
             )
             .padding(horizontal = 8.dp, vertical = 4.dp)
-            .clearAndSetSemantics { contentDescription = symbol.accessibility }
-            .testTag("season-overview-segment-${symbol.kind.name}"),
+            .clearAndSetSemantics {
+                this[SemanticsProperties.TestTag] = tag
+                contentDescription = symbol.accessibility
+                seasonOverviewChipLineLimit = face.lineLimit
+                seasonOverviewChipFilled = face.filled
+            },
         style = MaterialTheme.typography.labelLarge,
         color = foreground,
+        maxLines = face.lineLimit,
+        softWrap = false,
+        overflow = TextOverflow.Ellipsis,
     )
 }

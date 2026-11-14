@@ -467,6 +467,19 @@ private fun seasonOverviewTypeLabel(type: String, copy: SeasonOverviewCopy): Str
     else -> copy.preview
 }
 
+/**
+ * Every segment word is one line, including Missing.
+ * The chip is filled for all three states. Colour still separates them.
+ * A large type size may put fewer chips on a line. The label itself does not wrap.
+ */
+internal data class SeasonOverviewChipFace(
+    val lineLimit: Int,
+    val filled: Boolean,
+)
+
+internal fun seasonOverviewChipFace(presence: SeasonSegmentPresence): SeasonOverviewChipFace =
+    SeasonOverviewChipFace(lineLimit = 1, filled = true)
+
 /** AX1 and above, including AX5, put the four symbols on their own line. */
 internal fun seasonOverviewWrapsSymbols(fontScale: Float): Boolean =
     accessibilityTextSize(fontScale)

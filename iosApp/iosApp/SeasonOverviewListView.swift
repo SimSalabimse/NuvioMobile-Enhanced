@@ -411,11 +411,41 @@ private struct SeasonOverviewEpisodeLabel: View {
     }
 
     private var symbols: some View {
+        SegmentChips(symbols: row.symbols, reduceMotion: reduceMotion)
+    }
+}
+
+/// One line of chips when they fit. Otherwise two, then one column.
+/// A chip never breaks its own label. Large type just uses fewer columns.
+private struct SegmentChips: View {
+    let symbols: [SeasonOverviewSymbol]
+    let reduceMotion: Bool
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            chipLine(symbols)
+            VStack(alignment: .leading, spacing: 8) {
+                chipLine(Array(symbols.prefix(2)))
+                chipLine(Array(symbols.dropFirst(2)))
+            }
+            .fixedSize(horizontal: true, vertical: true)
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(symbols.indices, id: \.self) { index in
+                    SegmentWord(symbol: symbols[index], reduceMotion: reduceMotion)
+                }
+            }
+            .fixedSize(horizontal: true, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func chipLine(_ symbols: [SeasonOverviewSymbol]) -> some View {
         HStack(spacing: 8) {
-            ForEach(row.symbols.indices, id: \.self) { index in
-                SegmentWord(symbol: row.symbols[index], reduceMotion: reduceMotion)
+            ForEach(symbols.indices, id: \.self) { index in
+                SegmentWord(symbol: symbols[index], reduceMotion: reduceMotion)
             }
         }
+        .fixedSize(horizontal: true, vertical: true)
     }
 }
 
@@ -443,6 +473,13 @@ private struct SegmentWord: View {
 
     @ViewBuilder
     private var label: some View {
+        chipText
+            .lineLimit(SeasonOverviewChipFace.lineLimit)
+            .fixedSize(horizontal: true, vertical: true)
+    }
+
+    @ViewBuilder
+    private var chipText: some View {
         if reduceMotion {
             Text(symbol.accessibility)
         } else if #available(iOS 17.0, *) {
@@ -472,9 +509,14 @@ private struct SegmentWord: View {
         case "U":
             return Color.primary.opacity(0.08)
         default:
-            return .clear
+            return Color(uiColor: .tertiarySystemFill)
         }
     }
+}
+
+/// Shared with the list test: one line, and Missing is a chip too.
+enum SeasonOverviewChipFace {
+    static let lineLimit = 1
 }
 
 private struct DownloadGlyph: View {
