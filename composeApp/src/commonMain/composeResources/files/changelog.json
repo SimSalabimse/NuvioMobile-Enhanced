@@ -2,6 +2,16 @@
   "releases": [
     {
       "version": "0.6.10.1",
+      "build": 220,
+      "date": "2026-11-14",
+      "new": [],
+      "improved": [],
+      "fixed": [
+        "Removed a stray line on the What's new sheet."
+      ]
+    },
+    {
+      "version": "0.6.10.1",
       "build": 219,
       "date": "2026-11-14",
       "new": [],

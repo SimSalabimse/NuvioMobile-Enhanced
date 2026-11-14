@@ -301,10 +301,6 @@ internal fun WhatsNewSheet(releases: List<BundledRelease>, firstRun: Boolean, on
                 }
                 val background = MaterialTheme.nuvio.colors.surfaceSheet
                 Box(
-                    Modifier.align(Alignment.TopCenter).fillMaxWidth().height(16.dp)
-                        .background(Brush.verticalGradient(listOf(background, background.copy(alpha = 0f)))),
-                )
-                Box(
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(32.dp)
                         .background(Brush.verticalGradient(listOf(background.copy(alpha = 0f), background))),
                 )
