@@ -13,11 +13,9 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.round
 import kotlinx.cinterop.CValue
 import kotlinx.cinterop.ExperimentalForeignApi
-import kotlinx.cinterop.OverrideInit
 import kotlinx.cinterop.useContents
 import platform.CoreGraphics.CGRect
 import platform.CoreGraphics.CGRectMake
-import platform.Foundation.NSCoder
 import platform.UIKit.UIColor
 import platform.UIKit.UIEdgeInsets
 import platform.UIKit.UIView
@@ -89,14 +87,8 @@ private fun UIViewController.watchWindowSafeInsets(onChange: () -> Unit): () -> 
 }
 
 @OptIn(ExperimentalForeignApi::class)
-private class WindowInsetProbe : UIView {
+private class WindowInsetProbe(frame: CValue<CGRect>) : UIView(frame) {
     var onChange: (() -> Unit)? = null
-
-    @OverrideInit
-    constructor(frame: CValue<CGRect>) : super(frame)
-
-    @OverrideInit
-    constructor(coder: NSCoder) : super(coder)
 
     override fun didMoveToWindow() {
         super.didMoveToWindow()
