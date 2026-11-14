@@ -7,6 +7,11 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -65,6 +70,30 @@ internal data class DisplaySafeInsets(
 
 @Composable
 internal expect fun platformPhysicalSafeInsets(): DisplaySafeInsets
+
+/**
+ * The first composition can run before the view is in a window, so the first
+ * reading is often 0. [subscribe] must call back when a later reading exists.
+ * A one-shot read never sees the window attach.
+ */
+@Composable
+internal fun rememberLatestInset(
+    key: Any?,
+    read: () -> DisplaySafeInsets,
+    subscribe: (onChange: () -> Unit) -> () -> Unit,
+): DisplaySafeInsets {
+    var insets by remember(key) { mutableStateOf(read()) }
+    DisposableEffect(key) {
+        val unsubscribe = subscribe {
+            val next = read()
+            if (next != insets) insets = next
+        }
+        val next = read()
+        if (next != insets) insets = next
+        onDispose { unsubscribe() }
+    }
+    return insets
+}
 
 @Composable
 internal expect fun ResizeForKeyboard()

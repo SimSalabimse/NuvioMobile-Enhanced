@@ -17,6 +17,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import android.provider.Settings
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.backdrops.emptyBackdrop
 import org.junit.Rule
@@ -29,7 +30,7 @@ import kotlin.test.assertTrue
 
 /**
  * The Continue Watching long-press menu stays above the floating tab bar.
- * One watched row. A row past the fold can be scrolled into reach.
+ * One watched row. With a preview card on screen the menu still opens to full size.
  */
 @RunWith(RobolectricTestRunner::class)
 class ContinueWatchingMenuLayoutTest {
@@ -48,7 +49,26 @@ class ContinueWatchingMenuLayoutTest {
         assertMenuClearsTheTabBar(heightDp = 667f, safeBottomDp = 0f, safeTopDp = 20f)
     }
 
-    private fun assertMenuClearsTheTabBar(heightDp: Float, safeBottomDp: Float, safeTopDp: Float) {
+    @Test
+    @Config(sdk = [34], application = Application::class, qualifiers = "w402dp-h874dp")
+    fun reduceMotionShowsTheMenuAtOnceWhileThePreviewIsShowing() {
+        assertMenuClearsTheTabBar(
+            heightDp = 874f,
+            safeBottomDp = 34f,
+            safeTopDp = 59f,
+            reduceMotion = true,
+            settleMs = 0L,
+        )
+    }
+
+    private fun assertMenuClearsTheTabBar(
+        heightDp: Float,
+        safeBottomDp: Float,
+        safeTopDp: Float,
+        reduceMotion: Boolean = false,
+        settleMs: Long = 1_500L,
+    ) {
+        setReduceMotion(reduceMotion)
         val labels = listOf(
             "Details",
             "Mark as watched",
@@ -94,7 +114,7 @@ class ContinueWatchingMenuLayoutTest {
                 }
             }
         }
-        compose.mainClock.advanceTimeBy(1_500)
+        if (settleMs > 0L) compose.mainClock.advanceTimeBy(settleMs)
         compose.waitForIdle()
         val window = compose.onNodeWithTag("menu-window").getBoundsInRoot()
         val menu = compose.onNodeWithTag(POSTER_ZOOM_MENU_TAG).getBoundsInRoot()
@@ -105,6 +125,14 @@ class ContinueWatchingMenuLayoutTest {
             "menu bottom ${menu.bottom} should sit above the ${clearance} tab clearance",
         )
         val previews = compose.onAllNodes(hasTestTag(POSTER_ZOOM_PREVIEW_TAG)).fetchSemanticsNodes()
+        if (heightDp >= 800f) {
+            assertTrue(previews.isNotEmpty(), "the preview card stays on the tall phone")
+        }
+        val progress = compose.onAllNodes(hasTestTag(POSTER_ZOOM_MENU_TAG))
+            .fetchSemanticsNodes()
+            .single()
+            .config[PosterZoomMenuProgressKey]
+        assertTrue(progress >= 0.98f, "menu progress $progress")
         if (previews.isNotEmpty()) {
             val preview = compose.onNodeWithTag(POSTER_ZOOM_PREVIEW_TAG).getBoundsInRoot()
             assertTrue(preview.top >= window.top + safeTop, "preview top ${preview.top}")
@@ -114,10 +142,10 @@ class ContinueWatchingMenuLayoutTest {
         labels.forEach { label ->
             compose.onNodeWithText(label).assertExists()
         }
-        val remove = compose.onNodeWithText("Remove", useUnmergedTree = true).getBoundsInRoot()
+        val remove = compose.onNodeWithText("Remove").getBoundsInRoot()
         assertTrue(
             remove.top >= window.top + safeTop && remove.bottom > remove.top,
-            "Remove $remove menu $menu window $window safeTop $safeTop",
+            "Remove $remove menu $menu window $window safeTop $safeTop progress $progress",
         )
         assertTrue(remove.top >= menu.top - 1.dp, "Remove top ${remove.top}")
         assertTrue(remove.bottom <= menu.bottom + 1.dp, "Remove bottom ${remove.bottom}")
@@ -125,5 +153,12 @@ class ContinueWatchingMenuLayoutTest {
             remove.bottom <= heightDp.dp - clearance + 1.dp,
             "Remove bottom ${remove.bottom} should sit above the tab bar",
         )
+    }
+
+    private fun setReduceMotion(enabled: Boolean) {
+        val resolver = org.robolectric.RuntimeEnvironment.getApplication().contentResolver
+        val scale = if (enabled) 0f else 1f
+        Settings.Global.putFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, scale)
+        Settings.Global.putFloat(resolver, Settings.Global.TRANSITION_ANIMATION_SCALE, scale)
     }
 }
