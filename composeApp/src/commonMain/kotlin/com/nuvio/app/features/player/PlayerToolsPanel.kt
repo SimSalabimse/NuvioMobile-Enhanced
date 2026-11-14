@@ -840,8 +840,10 @@ private fun SourcesPage(
             onRefresh = onReload,
             modifier = Modifier.padding(horizontal = 8.dp),
         )
+        val rowKeys = remember(shown) { shown.map { it.first }.stablePlayerKeys() }
         LazyColumn(Modifier.weight(1f)) {
-            items(shown, key = { it.first.stableKey() }) { (stream, fact) ->
+            items(shown.size, key = { index -> rowKeys[index] }) { index ->
+                val (stream, fact) = shown[index]
                 val selected = stream.isCurrentPlayerStream(currentUrl, currentName)
                 PlayerToolRow(
                     title = stream.streamLabel,
@@ -1446,12 +1448,6 @@ private fun sourceSubtitle(facts: SourceRowFacts): String {
         cached.takeIf { facts.cached },
     ).joinToString(" · ")
 }
-
-private fun StreamItem.stableKey(): String = listOf(
-    addonId,
-    infoHash ?: url ?: streamLabel,
-    fileIdx ?: -1,
-).joinToString(":")
 
 private fun JsonObject?.intOrSnapshot(key: String): Int =
     this?.get(key)?.let { runCatching { it.jsonPrimitiveInt() }.getOrNull() } ?: 0

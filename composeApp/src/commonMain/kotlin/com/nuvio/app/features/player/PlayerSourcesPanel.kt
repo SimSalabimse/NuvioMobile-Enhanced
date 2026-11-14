@@ -102,9 +102,12 @@ fun PlayerSourcesPanel(
 internal fun List<StreamItem>.stablePlayerKeys(): List<String> {
     val occurrences = mutableMapOf<String, Int>()
     return map { stream ->
+        val server = stream.serverTarget?.let { target ->
+            "${target.item.encode()}:${target.mediaSourceId.orEmpty()}"
+        }
         val base = listOf(
             stream.addonId,
-            stream.infoHash ?: stream.clientResolve?.infoHash ?: stream.url ?: stream.externalUrl ?: stream.streamLabel,
+            stream.infoHash ?: stream.clientResolve?.infoHash ?: stream.url ?: stream.externalUrl ?: server ?: stream.streamLabel,
             stream.fileIdx ?: stream.clientResolve?.fileIdx ?: -1,
         ).joinToString("::")
         val count = occurrences[base] ?: 0

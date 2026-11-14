@@ -7,7 +7,8 @@
       "new": [],
       "improved": [],
       "fixed": [
-        "Removed a stray line on the What's new sheet."
+        "Removed a stray line on the What's new sheet.",
+        "Opening Sources during playback no longer crashes when two server streams share a title."
       ]
     },
     {
