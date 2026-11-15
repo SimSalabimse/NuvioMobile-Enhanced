@@ -51,19 +51,36 @@ if [[ "${kotlin}" -lt 1 ]]; then
     done
     if [[ -n "${binary}" ]]; then
         echo "ComposeApp binary: ${binary}"
-        file "${binary}" || true
-        generated="${dest}/ComposeApp.framework.dSYM"
-        if dsymutil "${binary}" -o "${generated}"; then
-            if [[ -d "${generated}" ]]; then
+        file_desc="$(file "${binary}" || true)"
+        echo "${file_desc}"
+        if [[ "${file_desc}" == *"Mach-O"* ]]; then
+            generated="${dest}/ComposeApp.framework.dSYM"
+            if dsymutil "${binary}" -o "${generated}" && [[ -d "${generated}" ]]; then
                 kotlin=$((kotlin + 1))
                 count=$((count + 1))
                 echo "Generated ${generated}"
+            else
+                echo "dsymutil did not produce a ComposeApp dSYM." >&2
             fi
         else
-            echo "dsymutil did not produce a ComposeApp dSYM." >&2
+            echo "ComposeApp.framework is a static archive, so it has no dSYM of its own."
         fi
     else
         echo "No ComposeApp.framework/ComposeApp binary was found." >&2
+    fi
+fi
+
+# Static frameworks are linked into the app. Their DWARF is in the app dSYM.
+if [[ "${kotlin}" -lt 1 && "${app}" -ge 1 ]]; then
+    dwarf="$(find "${dest}" -path '*.app.dSYM/Contents/Resources/DWARF/*' -type f -print | head -n 1 || true)"
+    if [[ -n "${dwarf}" ]] && grep -a -m 1 -q 'kfun:' "${dwarf}"; then
+        kotlin=$((kotlin + 1))
+        printf '%s\n' \
+            "ComposeApp.framework is a static archive linked into the app." \
+            "Kotlin frames (kfun:) are in the app dSYM." \
+            "atos -arch arm64 -o <App>.dSYM/Contents/Resources/DWARF/<App> -l <load-address> <address>" \
+            > "${dest}/kotlin-symbols.txt"
+        echo "App dSYM contains Kotlin function names."
     fi
 fi
 
