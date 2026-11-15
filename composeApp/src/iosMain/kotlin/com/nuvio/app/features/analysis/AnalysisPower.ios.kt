@@ -26,7 +26,7 @@ internal actual object AnalysisPower {
         }
         return AnalysisPowerSnapshot(
             thermal = thermal,
-            lowPowerMode = NSProcessInfo.processInfo.lowPowerModeEnabled,
+            lowPowerMode = NSProcessInfo.processInfo.isLowPowerModeEnabled,
         )
     }
 
