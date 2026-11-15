@@ -1101,11 +1101,11 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                     val waitedId = nextItemId
                     nextEpisodeAutoPlayJob?.cancel()
                     nextEpisodeAutoPlayJob = effectScope.launch {
-                        val started = System.currentTimeMillis()
+                        val started = kotlin.time.TimeSource.Monotonic.markNow()
                         while (
                             waitedId != null &&
                             !NextUpAnalysis.ready(waitedId) &&
-                            System.currentTimeMillis() - started < NEXT_UP_AUTOPLAY_WAIT_MS
+                            started.elapsedNow().inWholeMilliseconds < NEXT_UP_AUTOPLAY_WAIT_MS
                         ) {
                             kotlinx.coroutines.delay(200)
                         }

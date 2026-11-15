@@ -260,7 +260,7 @@ internal object PlaybackPriority {
         reapplyDownloadCap()
     }
 
-    fun dutyWindowOpen(nowMs: Long = System.currentTimeMillis()): Boolean {
+    fun dutyWindowOpen(nowMs: Long = kotlin.time.Clock.System.now().toEpochMilliseconds()): Boolean {
         val gate = downloadGate()
         if (!gate.dutyCycle) return true
         if (dutyAnchorMs == 0L) dutyAnchorMs = nowMs
