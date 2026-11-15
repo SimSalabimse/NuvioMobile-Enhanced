@@ -1,3 +1,5 @@
+import Foundation
+
 // C ABI for Kotlin/Native (composeApp/src/nativeInterop/cinterop/DiagnosticsInterop.h).
 //
 // Release builds compile this app with whole-module optimization and do not
