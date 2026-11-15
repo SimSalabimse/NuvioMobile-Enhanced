@@ -1,0 +1,234 @@
+{
+  "name": "two-cuts",
+  "nowMs": 1700000000000,
+  "records": [
+    {
+      "algorithm": "nuvio-analysis-1",
+      "deleted": false,
+      "durationMs": 2400000,
+      "episode": 8,
+      "hlc": {
+        "counter": 0,
+        "deviceId": "device-a",
+        "wallMs": 100
+      },
+      "id": "det/tmdb:100/s1e8/intro/0/2400000/a1",
+      "kind": "detection",
+      "outcome": "found",
+      "season": 1,
+      "segmentIndex": 0,
+      "segmentType": "intro",
+      "showId": "tmdb:100",
+      "startMs": 1000,
+      "endMs": 2000
+    },
+    {
+      "algorithm": "nuvio-analysis-2",
+      "deleted": false,
+      "durationMs": 2400000,
+      "episode": 8,
+      "hlc": {
+        "counter": 0,
+        "deviceId": "device-b",
+        "wallMs": 50
+      },
+      "id": "det/tmdb:100/s1e8/intro/0/2400000/a2",
+      "kind": "detection",
+      "outcome": "found",
+      "season": 1,
+      "segmentIndex": 0,
+      "segmentType": "intro",
+      "showId": "tmdb:100",
+      "startMs": 1500,
+      "endMs": 2500
+    },
+    {
+      "algorithm": "nuvio-analysis-1",
+      "deleted": false,
+      "durationMs": 3600000,
+      "episode": 8,
+      "hlc": {
+        "counter": 0,
+        "deviceId": "device-a",
+        "wallMs": 80
+      },
+      "id": "det/tmdb:100/s1e8/intro/0/3600000/a1",
+      "kind": "detection",
+      "outcome": "found",
+      "season": 1,
+      "segmentIndex": 0,
+      "segmentType": "intro",
+      "showId": "tmdb:100",
+      "startMs": 3000,
+      "endMs": 4000
+    }
+  ],
+  "queries": [
+    {
+      "showId": "tmdb:100",
+      "season": 1,
+      "episode": 8,
+      "segmentType": "intro",
+      "segmentIndex": 0,
+      "fileDurationMs": 2400000,
+      "localAlgorithm": 2,
+      "expectAnalyse": false
+    },
+    {
+      "showId": "tmdb:100",
+      "season": 1,
+      "episode": 8,
+      "segmentType": "intro",
+      "segmentIndex": 0,
+      "fileDurationMs": 2430000,
+      "localAlgorithm": 2,
+      "expectAnalyse": false
+    },
+    {
+      "showId": "tmdb:100",
+      "season": 1,
+      "episode": 8,
+      "segmentType": "intro",
+      "segmentIndex": 0,
+      "fileDurationMs": 2430001,
+      "localAlgorithm": 2,
+      "expectAnalyse": true
+    },
+    {
+      "showId": "tmdb:100",
+      "season": 1,
+      "episode": 8,
+      "segmentType": "intro",
+      "segmentIndex": 0,
+      "fileDurationMs": 2400000,
+      "localAlgorithm": 3,
+      "expectAnalyse": true
+    },
+    {
+      "showId": "tmdb:100",
+      "season": 1,
+      "episode": 8,
+      "segmentType": "intro",
+      "segmentIndex": 0,
+      "fileDurationMs": 3600000,
+      "localAlgorithm": 1,
+      "expectAnalyse": false
+    },
+    {
+      "showId": "tmdb:100",
+      "season": 1,
+      "episode": 8,
+      "segmentType": "intro",
+      "segmentIndex": 0,
+      "fileDurationMs": 5000000,
+      "localAlgorithm": 1,
+      "expectAnalyse": true
+    }
+  ],
+  "merged": {
+    "rejected": 0,
+    "shows": [
+      {
+        "aliases": [
+          "tmdb:100"
+        ],
+        "episodes": [
+          {
+            "detections": [
+              {
+                "algorithm": "nuvio-analysis-1",
+                "algorithmVersion": 1,
+                "applied": false,
+                "durationMs": 2400000,
+                "endMs": 2000,
+                "hlc": {
+                  "wallMs": 100,
+                  "counter": 0,
+                  "deviceId": "device-a"
+                },
+                "id": "det/tmdb:100/s1e8/intro/0/2400000/a1",
+                "outcome": "found",
+                "releaseId": null,
+                "segmentIndex": 0,
+                "segmentType": "intro",
+                "startMs": 1000,
+                "suppressedBy": "newer-detection"
+              },
+              {
+                "algorithm": "nuvio-analysis-2",
+                "algorithmVersion": 2,
+                "applied": true,
+                "durationMs": 2400000,
+                "endMs": 2500,
+                "hlc": {
+                  "wallMs": 50,
+                  "counter": 0,
+                  "deviceId": "device-b"
+                },
+                "id": "det/tmdb:100/s1e8/intro/0/2400000/a2",
+                "outcome": "found",
+                "releaseId": null,
+                "segmentIndex": 0,
+                "segmentType": "intro",
+                "startMs": 1500,
+                "suppressedBy": null
+              },
+              {
+                "algorithm": "nuvio-analysis-1",
+                "algorithmVersion": 1,
+                "applied": true,
+                "durationMs": 3600000,
+                "endMs": 4000,
+                "hlc": {
+                  "wallMs": 80,
+                  "counter": 0,
+                  "deviceId": "device-a"
+                },
+                "id": "det/tmdb:100/s1e8/intro/0/3600000/a1",
+                "outcome": "found",
+                "releaseId": null,
+                "segmentIndex": 0,
+                "segmentType": "intro",
+                "startMs": 3000,
+                "suppressedBy": null
+              }
+            ],
+            "effective": [
+              {
+                "algorithm": "nuvio-analysis-2",
+                "durationMs": 2400000,
+                "endMs": 2500,
+                "id": "det/tmdb:100/s1e8/intro/0/2400000/a2",
+                "presence": "range",
+                "segmentIndex": 0,
+                "segmentType": "intro",
+                "source": "detection",
+                "startMs": 1500
+              },
+              {
+                "algorithm": "nuvio-analysis-1",
+                "durationMs": 3600000,
+                "endMs": 4000,
+                "id": "det/tmdb:100/s1e8/intro/0/3600000/a1",
+                "presence": "range",
+                "segmentIndex": 0,
+                "segmentType": "intro",
+                "source": "detection",
+                "startMs": 3000
+              }
+            ],
+            "episode": 8,
+            "episodeKey": "s1e8",
+            "marks": [],
+            "season": 1,
+            "userNoneTypes": []
+          }
+        ],
+        "showId": "tmdb:100"
+      }
+    ],
+    "submissions": [],
+    "tombstones": []
+  },
+  "mergedCanonical": "{\"rejected\":0,\"shows\":[{\"aliases\":[\"tmdb:100\"],\"episodes\":[{\"detections\":[{\"algorithm\":\"nuvio-analysis-1\",\"algorithmVersion\":1,\"applied\":false,\"durationMs\":2400000,\"endMs\":2000,\"hlc\":{\"counter\":0,\"deviceId\":\"device-a\",\"wallMs\":100},\"id\":\"det/tmdb:100/s1e8/intro/0/2400000/a1\",\"outcome\":\"found\",\"releaseId\":null,\"segmentIndex\":0,\"segmentType\":\"intro\",\"startMs\":1000,\"suppressedBy\":\"newer-detection\"},{\"algorithm\":\"nuvio-analysis-2\",\"algorithmVersion\":2,\"applied\":true,\"durationMs\":2400000,\"endMs\":2500,\"hlc\":{\"counter\":0,\"deviceId\":\"device-b\",\"wallMs\":50},\"id\":\"det/tmdb:100/s1e8/intro/0/2400000/a2\",\"outcome\":\"found\",\"releaseId\":null,\"segmentIndex\":0,\"segmentType\":\"intro\",\"startMs\":1500,\"suppressedBy\":null},{\"algorithm\":\"nuvio-analysis-1\",\"algorithmVersion\":1,\"applied\":true,\"durationMs\":3600000,\"endMs\":4000,\"hlc\":{\"counter\":0,\"deviceId\":\"device-a\",\"wallMs\":80},\"id\":\"det/tmdb:100/s1e8/intro/0/3600000/a1\",\"outcome\":\"found\",\"releaseId\":null,\"segmentIndex\":0,\"segmentType\":\"intro\",\"startMs\":3000,\"suppressedBy\":null}],\"effective\":[{\"algorithm\":\"nuvio-analysis-2\",\"durationMs\":2400000,\"endMs\":2500,\"id\":\"det/tmdb:100/s1e8/intro/0/2400000/a2\",\"presence\":\"range\",\"segmentIndex\":0,\"segmentType\":\"intro\",\"source\":\"detection\",\"startMs\":1500},{\"algorithm\":\"nuvio-analysis-1\",\"durationMs\":3600000,\"endMs\":4000,\"id\":\"det/tmdb:100/s1e8/intro/0/3600000/a1\",\"presence\":\"range\",\"segmentIndex\":0,\"segmentType\":\"intro\",\"source\":\"detection\",\"startMs\":3000}],\"episode\":8,\"episodeKey\":\"s1e8\",\"marks\":[],\"season\":1,\"userNoneTypes\":[]}],\"showId\":\"tmdb:100\"}],\"submissions\":[],\"tombstones\":[]}"
+}

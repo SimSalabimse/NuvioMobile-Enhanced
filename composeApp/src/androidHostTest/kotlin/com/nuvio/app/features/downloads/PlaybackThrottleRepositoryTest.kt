@@ -114,6 +114,7 @@ class PlaybackThrottleRepositoryTest {
     @Test
     fun smoothPlaybackKeepsOneDownloadMovingAndCloseResumesBoth() {
         startTwoDownloads()
+        markNext(1)
 
         PlaybackPriority.sessionStarted(isLocalFile = false)
         snapshots(buffering = true, forMs = 2_000L)
@@ -131,6 +132,7 @@ class PlaybackThrottleRepositoryTest {
     @Test
     fun downloadQueuedDuringPlaybackStartsAfterClose() {
         startTwoDownloads()
+        markNext(1)
         PlaybackPriority.sessionStarted(isLocalFile = false)
         snapshots(buffering = false, forMs = 60_000L)
 
@@ -193,6 +195,7 @@ class PlaybackThrottleRepositoryTest {
     @Test
     fun episodeWaitingForTheCapShowsAStillIndicator() {
         startTwoDownloads()
+        markNext(1)
         PlaybackPriority.sessionStarted(isLocalFile = false)
         snapshots(buffering = false, forMs = 10 * 60_000L)
 
@@ -205,6 +208,7 @@ class PlaybackThrottleRepositoryTest {
     @Test
     fun shortLoadingBlipsDuringSmoothPlaybackNeverLeavePlaying() {
         startTwoDownloads()
+        markNext(1)
         PlaybackPriority.sessionStarted(isLocalFile = false)
         snapshots(buffering = true, forMs = 3_000L)
 
@@ -220,6 +224,7 @@ class PlaybackThrottleRepositoryTest {
     @Test
     fun realStallStrainsAndPlayingComesBackThirtySecondsAfterTheLastOne() {
         startTwoDownloads()
+        markNext(1)
         PlaybackPriority.sessionStarted(isLocalFile = false)
         snapshots(buffering = false, forMs = 60_000L)
         val kept = fake.running.single()
@@ -247,6 +252,7 @@ class PlaybackThrottleRepositoryTest {
     @Test
     fun initialLoadSeeksAndReloadsDoNotStrain() {
         startTwoDownloads()
+        markNext(1)
         PlaybackPriority.sessionStarted(isLocalFile = false)
         snapshots(buffering = true, forMs = 6_000L)
         assertEquals(PlaybackPriority.Level.Playing, PlaybackPriority.level, "first load before a frame")
@@ -298,6 +304,7 @@ class PlaybackThrottleRepositoryTest {
     @Test
     fun switchingToAWaitingPartialMidSessionStartsIt() {
         startThreeDownloads()
+        markNext(1)
         PlaybackPriority.sessionStarted(isLocalFile = false)
         snapshots(buffering = false, forMs = 60_000L)
         assertEquals(setOf("e1"), fake.running)
@@ -319,6 +326,7 @@ class PlaybackThrottleRepositoryTest {
         PlaybackPriority.sessionStarted(isLocalFile = false)
         snapshots(buffering = true, forMs = 2_000L)
         snapshots(buffering = false, forMs = 60_000L)
+        markNext(2)
 
         DownloadsRepository.enqueueFromStream(
             contentType = "series", videoId = "show:1:2", parentMetaId = "show", parentMetaType = "series",
@@ -336,6 +344,7 @@ class PlaybackThrottleRepositoryTest {
         DownloadsRepository.replaceItems(listOf(episode("e1", 1), episode("e2", 2)))
         DownloadsRepository.resumeDownloads(listOf("e1", "e2"))
         assertEquals(setOf("e1", "e2"), fake.opening)
+        markNext(1)
 
         PlaybackPriority.sessionStarted(isLocalFile = false)
         fake.finishOpens()
@@ -347,6 +356,7 @@ class PlaybackThrottleRepositoryTest {
     @Test
     fun fileThatFinishesAsTheCapStopsItShowsCompletedAtOnce() {
         startTwoDownloads()
+        markNext(1)
         PlaybackPriority.sessionStarted(isLocalFile = false)
         val demoted = DownloadsRepository.uiState.value.items.single { it.status == DownloadStatus.Queued }.id
 
@@ -363,6 +373,7 @@ class PlaybackThrottleRepositoryTest {
         PlaybackPriority.sessionStarted(isLocalFile = false)
         snapshots(buffering = true, forMs = 2_000L)
         snapshots(buffering = false, forMs = 40 * 60_000L)
+        markNext(2)
         val next = enqueueNextEpisode()
         assertEquals(setOf(next), fake.running, "the next episode starts while the player is open")
         fake.progress(next, 50_000_000L)
@@ -390,6 +401,7 @@ class PlaybackThrottleRepositoryTest {
         PlaybackPriority.sessionStarted(isLocalFile = false)
         snapshots(buffering = true, forMs = 2_000L)
         snapshots(buffering = false, forMs = 40 * 60_000L)
+        markNext(2)
         val next = enqueueNextEpisode()
         fake.progress(next, 50_000_000L)
 
@@ -446,6 +458,7 @@ class PlaybackThrottleRepositoryTest {
     @Test
     fun staleProgressAndSuccessFromAnOldAttemptAreIgnored() {
         startTwoDownloads()
+        markNext(1)
         PlaybackPriority.sessionStarted(isLocalFile = false)
         snapshots(buffering = false, forMs = 60_000L)
         val kept = fake.running.single()
@@ -515,6 +528,10 @@ class PlaybackThrottleRepositoryTest {
                 else -> assertTrue(!transferring, "${row.id} is ${row.status} but still transfers")
             }
         }
+    }
+
+    private fun markNext(episode: Int) {
+        PlaybackPriority.noteNextUp("show", 1, episode)
     }
 
     private fun startTwoDownloads() {

@@ -22,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.launch
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.p2p.P2pStreamRequest
@@ -35,6 +36,7 @@ import com.nuvio.app.features.player.skip.SkipUndo
 import com.nuvio.app.features.player.skip.shouldAutoSkip
 import com.nuvio.app.features.player.skip.internalSkipAction
 import com.nuvio.app.features.player.skip.intervalsAtSeekPositions
+import com.nuvio.app.features.analysis.NextUpAnalysis
 import com.nuvio.app.features.analysis.offerNextEpisodeIntroWindow
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.FinishedDownloadDeletion
@@ -1053,6 +1055,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         nextEpisodeCardDismissed,
         blocksAutoplay,
     ) {
+        val effectScope = this
         snapshotFlow { playbackClock.positionMs }.collect {
             if (blocksAutoplay) {
                 if (showNextEpisodeCard || nextEpisodeAutoPlayJob != null) {
@@ -1078,11 +1081,29 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                         atThreshold = true,
                     )
                 }
+                val nextItemId = nextEpisodeInfo?.let { next ->
+                    DownloadsRepository.findPlayableDownload(
+                        parentMetaId = parentMetaId,
+                        seasonNumber = next.season,
+                        episodeNumber = next.episode,
+                        videoId = next.videoId,
+                    )?.id
+                }
                 if (playerSettingsUiState.streamAutoPlayNextEpisodeEnabled && nextEpisodeInfo?.hasAired == true && !isPartyControlLocked &&
                     // "End of episode" sleep: stop here instead of rolling on.
                     PlayerSleepTimer.choice.value != SleepTimerChoice.EndOfEpisode
                 ) {
-                    playNextEpisode(automatic = true)
+                    val waitedId = nextItemId
+                    nextEpisodeAutoPlayJob?.cancel()
+                    nextEpisodeAutoPlayJob = effectScope.launch {
+                        val deadline = System.currentTimeMillis() + 120_000L
+                        while (waitedId != null && !NextUpAnalysis.ready(waitedId) && System.currentTimeMillis() < deadline) {
+                            kotlinx.coroutines.delay(400)
+                        }
+                        if (waitedId == null || NextUpAnalysis.ready(waitedId)) {
+                            playNextEpisode(automatic = true)
+                        }
+                    }
                 }
             } else if (!shouldShow) {
                 showNextEpisodeCard = false

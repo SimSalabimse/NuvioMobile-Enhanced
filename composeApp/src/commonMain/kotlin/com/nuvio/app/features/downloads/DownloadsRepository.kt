@@ -720,6 +720,16 @@ object DownloadsRepository {
         } finally {
             // The file is on disk. Wake a sleeping analysis pass immediately.
             com.nuvio.app.features.analysis.MediaAnalysisScheduler.kick(0L)
+            val finished = _uiState.value.items.firstOrNull { it.id == downloadId }
+            val uri = finished?.localFileUri
+            if (finished != null && !uri.isNullOrBlank() && PlaybackPriority.isNextUp(finished)) {
+                com.nuvio.app.features.analysis.NextUpAnalysis.consider(
+                    id = finished.id,
+                    fileUri = uri,
+                    atThreshold = false,
+                    videoPlaying = true,
+                )
+            }
         }
     }
 
@@ -1197,8 +1207,14 @@ object DownloadsRepository {
     /** Automatic downloads wait while a video is playing. A tap the user made may use the one slot. */
     private fun downloadMayStart(id: String): Boolean {
         val gate = PlaybackPriority.downloadGate()
-        if (gate.allowNewAuto) return true
-        return _uiState.value.items.firstOrNull { it.id == id }?.startedByUser == true
+        if (id in PartialPlaybackLease.heldIds()) return true
+        val item = _uiState.value.items.firstOrNull { it.id == id } ?: return false
+        val allowed = if (PlaybackPriority.isNextUp(item)) {
+            gate.nextUp.allowStart && PlaybackPriority.dutyWindowOpen()
+        } else {
+            gate.other.allowStart
+        }
+        return allowed
     }
 
     private var lastDownloadGateLine: String? = null
@@ -1214,6 +1230,17 @@ object DownloadsRepository {
             lowPowerMode = power.lowPowerMode,
         )
         if (line == lastDownloadGateLine) return
+        lastDownloadGateLine = line
+        val plain = PlaybackPriority.nextUpPlainId()
+        if (plain != null) {
+            val hash = com.nuvio.app.features.diagnostics.behaviourContentId(
+                com.nuvio.app.features.diagnostics.BehaviourLogFiles.installSalt(),
+                plain,
+            )
+            val nextLine = nextUpLine(hash, gate.state.name.lowercase(), -1, -1, 0)
+            com.nuvio.app.core.logging.InAppLogger.info("Downloads", nextLine)
+            com.nuvio.app.features.diagnostics.DiagnosticsLogger.logPerformance(nextLine)
+        }
         lastDownloadGateLine = line
         com.nuvio.app.core.logging.InAppLogger.info("Downloads", line)
         com.nuvio.app.features.diagnostics.DiagnosticsLogger.logPerformance(line)
@@ -1243,11 +1270,12 @@ object DownloadsRepository {
         // what a plain shrink did; a waiting one is not pulled in past that cap. A hot device
         // likewise starts nothing new.
         val pauseAll = startQueue.maxActive == 0
+        val blocked = startQueue.releaseBlocked(::downloadMayStart)
         val thermal = DownloadThermalGate.blocksNextFile()
         val pinned = startQueue.pin(heldIdsToStart(held, active, pauseAll, thermal))
         val keep = if (pauseAll || thermal) held.intersect(active) else held
         val demoted = startQueue.shrinkTo(startQueue.maxActive, keep)
-        if (pinned.isNotEmpty() || demoted.isNotEmpty()) alignQueuedStatuses()
+        if (pinned.isNotEmpty() || demoted.isNotEmpty() || blocked.isNotEmpty()) alignQueuedStatuses()
         applyStarts(pinned + startQueue.promote(DownloadThermalGate.blocksNextFile(), ::downloadMayStart), pinned.toSet())
         refreshHeldForPlayback()
         val plan = "cap=${startQueue.maxActive} running=${startQueue.activeIds()} waiting=${startQueue.waitingIds()} player=$held"

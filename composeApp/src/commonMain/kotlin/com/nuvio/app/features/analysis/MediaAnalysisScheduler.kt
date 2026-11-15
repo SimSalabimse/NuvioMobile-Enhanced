@@ -133,7 +133,7 @@ internal expect object MediaAnalyzerPlatform {
      * Decodes only the first [windowMs] of a local file, at utility priority.
      * The caller does not store the result: a short window is not a full fingerprint.
      */
-    suspend fun analyzeIntroWindow(fileUri: String, windowMs: Long): String?
+    suspend fun analyzeIntroWindow(fileUri: String, windowMs: Long, startMs: Long): String?
 }
 
 @Serializable
@@ -334,17 +334,36 @@ internal object MediaAnalysisScheduler {
      * so playback holding that queue does not cancel it. The JSON is not saved.
      */
     fun offerIntroWindow(itemId: String, fileUri: String) {
-        if (introWindowJob?.isActive == true) return
+        offerWindows(itemId, fileUri, listOf("intro", "credits"))
+    }
+
+    fun offerWindows(itemId: String, fileUri: String, kinds: List<String>) {
+        if (kinds.isEmpty() || introWindowJob?.isActive == true) return
         if (!analyserSupported()) {
-            logIntroWindowResult(itemId, "unsupported")
+            kinds.forEach { NextUpAnalysis.mark(itemId, it, "unsupported") }
+            logNextUpAnalysis(itemId)
             return
         }
         introWindowJob = scope.launch(Dispatchers.Default) {
-            val raw = runCatching { MediaAnalyzerPlatform.analyzeIntroWindow(fileUri, INTRO_WINDOW_MS) }.getOrNull()
-            val parsed = raw?.let { runCatching { json.decodeFromString(RawMediaAnalysis.serializer(), it) }.getOrNull() }
-            val result = if (parsed != null && parsed.durationMs > 0L) "scanned" else "aborted"
-            logIntroWindowResult(itemId, result)
+            for (kind in kinds) {
+                val window = if (kind == "credits") CREDITS_WINDOW_MS else INTRO_WINDOW_MS
+                val start = if (kind == "credits") WINDOW_AT_END else 0L
+                val raw = runCatching {
+                    MediaAnalyzerPlatform.analyzeIntroWindow(fileUri, window, start)
+                }.getOrNull()
+                val parsed = raw?.let { runCatching { json.decodeFromString(RawMediaAnalysis.serializer(), it) }.getOrNull() }
+                val result = if (parsed != null && parsed.durationMs > 0L) "scanned" else "aborted"
+                NextUpAnalysis.mark(itemId, kind, result)
+            }
+            logNextUpAnalysis(itemId)
         }
+    }
+
+    private fun logNextUpAnalysis(itemId: String) {
+        val line = "next-up analysis intro=${NextUpAnalysis.result(itemId, "intro")} " +
+            "credits=${NextUpAnalysis.result(itemId, "credits")} qos=utility"
+        InAppLogger.info("Analysis", line)
+        com.nuvio.app.features.diagnostics.DiagnosticsLogger.logPerformance(line)
     }
 
     private fun logIntroWindowResult(itemId: String, result: String) {

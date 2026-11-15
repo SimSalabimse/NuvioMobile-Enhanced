@@ -107,13 +107,13 @@ final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
     /// memory only (nothing is written to disk). [onDone] gets `{"startMs","stepMs","fingerprint"}`.
     /// First few minutes of a downloaded file. Stays at utility QoS and stops if the phone heats up.
     /// The caller does not store this as the episode fingerprint.
-    func analyzeIntroWindow(fileUri: String, windowMs: Int64, onDone: @escaping (String?) -> Void) {
+    func analyzeIntroWindow(fileUri: String, windowMs: Int64, startMs: Int64, onDone: @escaping (String?) -> Void) {
         let flag = startJob()
         setRunningFile(fileUri)
         MediaAnalyzerStatus.shared.begin()
         queue.async {
             MediaAnalyzerQosName.restoreUtility()
-            let result = MediaAnalysisRun(fileUri: fileUri, abort: flag, windowMs: windowMs).run()
+            let result = MediaAnalysisRun(fileUri: fileUri, abort: flag, windowMs: windowMs, startMs: startMs).run()
             self.endJob(flag)
             self.setRunningFile(nil)
             DispatchQueue.main.async { onDone(result) }
@@ -275,11 +275,14 @@ private final class MediaAnalysisRun {
     private let abort: MediaAnalyzerAbortFlag
     /// When set, decode only this many milliseconds from the start and ignore the playback hold.
     private let windowMs: Int64?
+    /// Negative means the window sits at the end of the file.
+    private let startMs: Int64
 
-    init(fileUri: String, abort: MediaAnalyzerAbortFlag, windowMs: Int64? = nil) {
+    init(fileUri: String, abort: MediaAnalyzerAbortFlag, windowMs: Int64? = nil, startMs: Int64 = 0) {
         self.fileUri = fileUri
         self.abort = abort
         self.windowMs = windowMs
+        self.startMs = startMs
     }
 
     /// Serious or critical heat, or Low Power Mode, ends the short intro pass.
@@ -338,6 +341,12 @@ private final class MediaAnalysisRun {
         }
 
         let durationMs: Int64 = context.pointee.duration > 0 ? context.pointee.duration / 1000 : 0
+        if let limit = windowMs {
+            let origin = startMs < 0 ? max(0, durationMs - limit) : startMs
+            if origin > 0 {
+                _ = av_seek_frame(context, -1, origin * 1000, AVSEEK_FLAG_BACKWARD)
+            }
+        }
         let tailStartMs: Int64 = durationMs > Self.tailMs ? durationMs - Self.tailMs : 0
         let chaptersStartedNs = DispatchTime.now().uptimeNanoseconds
         let chapters = readChapters(context)

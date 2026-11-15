@@ -200,6 +200,15 @@ internal class DownloadStartQueue(
      * Moves the newest active ids back to the front of the line until at most [max] are active.
      * Ids in [keep] stay active even past [max].
      */
+    fun releaseBlocked(canStart: (String) -> Boolean): List<String> {
+        val blocked = active.filterNot(canStart)
+        blocked.forEach { id ->
+            active.remove(id)
+            waiting.addFirst(id)
+        }
+        return blocked
+    }
+
     fun shrinkTo(max: Int, keep: Set<String> = emptySet()): List<String> {
         val demoted = mutableListOf<String>()
         while (active.size > max) {

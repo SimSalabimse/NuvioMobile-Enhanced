@@ -2,6 +2,18 @@
   "releases": [
     {
       "version": "0.6.10.1",
+      "build": 222,
+      "date": "2026-11-15",
+      "new": [
+        "The next episode keeps downloading quietly while you watch. Other downloads wait.",
+        "Its intro and credits are ready before it starts.",
+        "A behaviour log can be shared from Diagnostics. Tap Something felt off when playback misbehaves."
+      ],
+      "improved": [],
+      "fixed": []
+    },
+    {
+      "version": "0.6.10.1",
       "build": 221,
       "date": "2026-11-15",
       "new": [

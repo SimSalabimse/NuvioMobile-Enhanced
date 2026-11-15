@@ -1,0 +1,101 @@
+{
+  "v": 1,
+  "description": "The account keys below are obvious fakes used only to lock the SHA-256 scope. They are not API keys.",
+  "fakeAccountKeys": [
+    "fake-theintrodb-key",
+    "fake-theintrodb-key-other"
+  ],
+  "name": "submission-scope",
+  "nowMs": 1700000000000,
+  "records": [
+    {
+      "accountScope": "cb93951ba45ba9797f45d13f9baf946300314407f7d59b98e8971118b565bbae",
+      "deleted": false,
+      "durationMs": 3600000,
+      "endMs": 90000,
+      "episode": 8,
+      "hlc": {
+        "counter": 0,
+        "deviceId": "device-a",
+        "wallMs": 1000
+      },
+      "id": "submission/cb93951ba45ba9797f45d13f9baf946300314407f7d59b98e8971118b565bbae/remote-1",
+      "kind": "submission",
+      "mediaType": "tv",
+      "remoteId": "remote-1",
+      "season": 1,
+      "segmentType": "intro",
+      "showId": "tmdb:100",
+      "startMs": 40000,
+      "status": "approved"
+    },
+    {
+      "accountScope": "15dd61741115d967759cc97e05a68934cb55ddcd07803515fcd739909672b8b8",
+      "deleted": false,
+      "durationMs": 3600000,
+      "endMs": 90000,
+      "episode": 8,
+      "hlc": {
+        "counter": 0,
+        "deviceId": "device-a",
+        "wallMs": 1000
+      },
+      "id": "submission/15dd61741115d967759cc97e05a68934cb55ddcd07803515fcd739909672b8b8/remote-2",
+      "kind": "submission",
+      "mediaType": "tv",
+      "remoteId": "remote-2",
+      "season": 1,
+      "segmentType": "intro",
+      "showId": "tmdb:100",
+      "startMs": 40000,
+      "status": "approved"
+    }
+  ],
+  "queries": [],
+  "merged": {
+    "rejected": 0,
+    "shows": [],
+    "submissions": [
+      {
+        "accountScope": "15dd61741115d967759cc97e05a68934cb55ddcd07803515fcd739909672b8b8",
+        "durationMs": 3600000,
+        "endMs": 90000,
+        "episode": 8,
+        "hlc": {
+          "wallMs": 1000,
+          "counter": 0,
+          "deviceId": "device-a"
+        },
+        "id": "submission/15dd61741115d967759cc97e05a68934cb55ddcd07803515fcd739909672b8b8/remote-2",
+        "mediaType": "tv",
+        "remoteId": "remote-2",
+        "season": 1,
+        "segmentType": "intro",
+        "showId": "tmdb:100",
+        "startMs": 40000,
+        "status": "approved"
+      },
+      {
+        "accountScope": "cb93951ba45ba9797f45d13f9baf946300314407f7d59b98e8971118b565bbae",
+        "durationMs": 3600000,
+        "endMs": 90000,
+        "episode": 8,
+        "hlc": {
+          "wallMs": 1000,
+          "counter": 0,
+          "deviceId": "device-a"
+        },
+        "id": "submission/cb93951ba45ba9797f45d13f9baf946300314407f7d59b98e8971118b565bbae/remote-1",
+        "mediaType": "tv",
+        "remoteId": "remote-1",
+        "season": 1,
+        "segmentType": "intro",
+        "showId": "tmdb:100",
+        "startMs": 40000,
+        "status": "approved"
+      }
+    ],
+    "tombstones": []
+  },
+  "mergedCanonical": "{\"rejected\":0,\"shows\":[],\"submissions\":[{\"accountScope\":\"15dd61741115d967759cc97e05a68934cb55ddcd07803515fcd739909672b8b8\",\"durationMs\":3600000,\"endMs\":90000,\"episode\":8,\"hlc\":{\"counter\":0,\"deviceId\":\"device-a\",\"wallMs\":1000},\"id\":\"submission/15dd61741115d967759cc97e05a68934cb55ddcd07803515fcd739909672b8b8/remote-2\",\"mediaType\":\"tv\",\"remoteId\":\"remote-2\",\"season\":1,\"segmentType\":\"intro\",\"showId\":\"tmdb:100\",\"startMs\":40000,\"status\":\"approved\"},{\"accountScope\":\"cb93951ba45ba9797f45d13f9baf946300314407f7d59b98e8971118b565bbae\",\"durationMs\":3600000,\"endMs\":90000,\"episode\":8,\"hlc\":{\"counter\":0,\"deviceId\":\"device-a\",\"wallMs\":1000},\"id\":\"submission/cb93951ba45ba9797f45d13f9baf946300314407f7d59b98e8971118b565bbae/remote-1\",\"mediaType\":\"tv\",\"remoteId\":\"remote-1\",\"season\":1,\"segmentType\":\"intro\",\"showId\":\"tmdb:100\",\"startMs\":40000,\"status\":\"approved\"}],\"tombstones\":[]}"
+}

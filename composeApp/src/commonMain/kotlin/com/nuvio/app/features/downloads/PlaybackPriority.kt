@@ -48,6 +48,12 @@ internal object PlaybackPriority {
     /** True only while the video is actually playing, not while it is paused or stopped. */
     private var videoPlaying = false
     private var appliedDownloadGateKey: String? = null
+    private var nextUpParentId: String? = null
+    private var nextUpSeason: Int? = null
+    private var nextUpEpisode: Int? = null
+    private var behindDeadline = false
+    private var lastDeadlineCheckMs = 0L
+    private var dutyAnchorMs = 0L
     private var pausedSinceMs = 0L
     private var bufferingSinceMs = 0L
     private var lastStrainMs = 0L
@@ -104,6 +110,7 @@ internal object PlaybackPriority {
             // Downloads resume as soon as playback pauses. The two-minute wait is only the
             // analysis level returning to Normal.
             publishAnalysisThrottle(videoPlaying = false)
+            com.nuvio.app.features.analysis.NextUpAnalysis.onPaused()
             if (level != Level.Normal && nowMs - pausedSinceMs >= PAUSED_RELEASE_MS) {
                 InAppLogger.info("PlaybackPriority", "paused for a while, background work at full speed")
                 apply(Level.Normal)
@@ -184,17 +191,55 @@ internal object PlaybackPriority {
      * While a video is playing the queue keeps one transfer and starts no Smart Download.
      * A pause or stop opens the queue again. Wi-Fi plus charging at nominal heat runs at full speed.
      */
+    /** The episode after the one on screen. Only that file may transfer while playback continues. */
+    fun noteNextUp(parentMetaId: String, season: Int, episode: Int) {
+        if (parentMetaId == nextUpParentId && season == nextUpSeason && episode == nextUpEpisode) return
+        nextUpParentId = parentMetaId
+        nextUpSeason = season
+        nextUpEpisode = episode
+        behindDeadline = false
+        appliedDownloadGateKey = null
+        if (sessionOpen) publishDownloadGate()
+    }
+
+    fun isNextUp(item: DownloadItem): Boolean =
+        item.parentMetaId == nextUpParentId &&
+            item.seasonNumber == nextUpSeason &&
+            item.episodeNumber == nextUpEpisode
+
+    /**
+     * Once a minute, compare the measured rate with the time left in the episode.
+     * A late file is raised to normal priority unless the phone is seriously hot.
+     */
+    fun noteNextUpProgress(bytesLeft: Long, bytesPerSecond: Long, episodeRemainingMs: Long, nowMs: Long) {
+        if (nowMs - lastDeadlineCheckMs < NEXT_UP_DEADLINE_CHECK_MS) return
+        lastDeadlineCheckMs = nowMs
+        val late = nextUpBehindDeadline(bytesLeft, bytesPerSecond, episodeRemainingMs)
+        if (late == behindDeadline) return
+        behindDeadline = late
+        appliedDownloadGateKey = null
+        publishDownloadGate()
+    }
+
     fun downloadGate(): DownloadGateDecision {
         val power = AnalysisPower.snapshot()
-        return downloadGateDecision(
+        val gate = playbackDownloadGate(
             videoPlaying = videoPlaying,
-            strained = level == Level.Strained,
             thermal = power.thermal,
             lowPowerMode = power.lowPowerMode,
             charging = MediaAnalyzerPlatform.isCharging(),
             onWifi = DownloadNetworkGuard.isOnWifi(),
+            behindDeadline = behindDeadline,
             pauseWhileWatching = SmartDownloadSettings.snapshot().pauseDuringPlayback,
         )
+        if (level != Level.Strained || !videoPlaying) return gate
+        val held = gate.nextUp.copy(
+            state = DownloadGateState.Hold,
+            pace = TransferPace.Stopped,
+            allowStart = false,
+            reason = "stall",
+        )
+        return gate.copy(state = DownloadGateState.Hold, reason = "stall", maxActive = 0, nextUp = held, lowPriority = false)
     }
 
     fun downloadCap(): Int = downloadGate().maxActive
@@ -203,10 +248,35 @@ internal object PlaybackPriority {
 
     private fun publishDownloadGate() {
         val gate = downloadGate()
-        val key = "${gate.state}|${gate.reason}|${gate.maxActive}|${gate.allowNewAuto}|${gate.lowPriority}"
-        if (key == appliedDownloadGateKey) return
-        appliedDownloadGateKey = key
+        val key = "${gate.state}|${gate.reason}|${gate.maxActive}|${gate.nextUp.pace}|${gate.other.allowStart}|${gate.dutyCycle}"
+        val phase = dutyPhase()
+        val published = "$key|$phase"
+        if (published == appliedDownloadGateKey) return
+        appliedDownloadGateKey = published
+        com.nuvio.app.features.diagnostics.BehaviourEvents.record(
+            "download-gate",
+            mapOf("state" to gate.state.name.lowercase(), "reason" to gate.reason, "phase" to phase),
+        )
         reapplyDownloadCap()
+    }
+
+    fun dutyWindowOpen(nowMs: Long = System.currentTimeMillis()): Boolean {
+        val gate = downloadGate()
+        if (!gate.dutyCycle) return true
+        if (dutyAnchorMs == 0L) dutyAnchorMs = nowMs
+        return dutyCycleTransferring(nowMs - dutyAnchorMs)
+    }
+
+    private fun dutyPhase(): String {
+        if (!downloadGate().dutyCycle) return "on"
+        return if (dutyWindowOpen()) "on" else "off"
+    }
+
+    fun nextUpPlainId(): String? {
+        val parent = nextUpParentId ?: return null
+        val season = nextUpSeason ?: return null
+        val episode = nextUpEpisode ?: return null
+        return "$parent:$season:$episode"
     }
 
     private fun apply(next: Level, always: Boolean = false) {
@@ -271,6 +341,10 @@ internal object PlaybackPriority {
         analysisBoosted = false
         pausedSinceMs = 0L
         appliedDownloadGateKey = null
+        nextUpParentId = null
+        nextUpSeason = null
+        nextUpEpisode = null
+        behindDeadline = false
         level = Level.Normal
         appliedAnalysisThrottle = 0
         appliedPauseReason = null

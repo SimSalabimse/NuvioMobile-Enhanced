@@ -1,0 +1,68 @@
+{
+  "v": 1,
+  "name": "tombstone",
+  "records": [
+    {
+      "deleted": false,
+      "durationMs": 3600000,
+      "endMs": 20000,
+      "episode": 8,
+      "hlc": {
+        "counter": 0,
+        "deviceId": "device-a",
+        "wallMs": 1000000
+      },
+      "id": "mark/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa04",
+      "kind": "mark",
+      "presence": "range",
+      "season": 1,
+      "segmentIndex": 0,
+      "segmentType": "intro",
+      "showId": "tmdb:100",
+      "startMs": 10000
+    },
+    {
+      "deleted": true,
+      "hlc": {
+        "counter": 0,
+        "deviceId": "device-b",
+        "wallMs": 2000000
+      },
+      "id": "mark/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa04",
+      "kind": "mark"
+    }
+  ],
+  "cases": [
+    {
+      "nowMs": 2000000,
+      "merged": {
+        "rejected": 0,
+        "shows": [],
+        "submissions": [],
+        "tombstones": [
+          {
+            "hlc": {
+              "wallMs": 2000000,
+              "counter": 0,
+              "deviceId": "device-b"
+            },
+            "id": "mark/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa04",
+            "kind": "mark",
+            "purgeAfterMs": 7778000000
+          }
+        ]
+      },
+      "mergedCanonical": "{\"rejected\":0,\"shows\":[],\"submissions\":[],\"tombstones\":[{\"hlc\":{\"counter\":0,\"deviceId\":\"device-b\",\"wallMs\":2000000},\"id\":\"mark/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa04\",\"kind\":\"mark\",\"purgeAfterMs\":7778000000}]}"
+    },
+    {
+      "nowMs": 7778000000,
+      "merged": {
+        "rejected": 0,
+        "shows": [],
+        "submissions": [],
+        "tombstones": []
+      },
+      "mergedCanonical": "{\"rejected\":0,\"shows\":[],\"submissions\":[],\"tombstones\":[]}"
+    }
+  ]
+}

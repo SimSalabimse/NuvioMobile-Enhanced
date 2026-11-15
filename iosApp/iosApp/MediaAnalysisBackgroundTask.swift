@@ -11,6 +11,7 @@ enum MediaAnalysisBackgroundTask {
 
     static func registerAtLaunch() {
         NuvioMediaAnalyzerRegistration.register()
+        BehaviourUploadTask.registerAtLaunch()
         BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { task in
             guard let processing = task as? BGProcessingTask else {
                 task.setTaskCompleted(success: false)

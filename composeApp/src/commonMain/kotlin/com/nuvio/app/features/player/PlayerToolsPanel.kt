@@ -1140,6 +1140,7 @@ private fun InfoPage(
         }
     }
     LazyColumn(Modifier.fillMaxSize()) {
+        item { SomethingFeltOffRow() }
         item { InfoLine(stringResource(Res.string.player_tools_show), showTitle) }
         episodeLine?.let { item { InfoLine(stringResource(Res.string.player_tools_episode), it) } }
         aired?.takeIf { it.isNotBlank() }?.let {
@@ -1161,6 +1162,25 @@ private fun InfoPage(
                 modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
             )
         }
+    }
+}
+
+@Composable
+private fun SomethingFeltOffRow() {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 16.dp)
+            .clickable {
+                com.nuvio.app.features.diagnostics.BehaviourEvents.mark(null)
+                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                com.nuvio.app.core.ui.NuvioToastController.show("Marked")
+            },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("Something felt off", color = Color.White, fontSize = PlayerToolRowText)
     }
 }
 

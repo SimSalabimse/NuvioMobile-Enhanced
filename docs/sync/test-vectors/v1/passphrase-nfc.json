@@ -1,0 +1,9 @@
+{
+  "v": 1,
+  "description": "NFD and NFC of the same passphrase derive the same master key. The passphrase is normalized to NFC before PBKDF2.",
+  "nfdPassphrase": "café",
+  "nfcPassphrase": "café",
+  "saltBase64": "AAECAwQFBgcICQoLDA0ODw==",
+  "iterations": 600000,
+  "masterKeyHex": "17a8cc909c26bff2953d49ec550a9068c0e6dbe94bc67dadd5d6ee828b88f8de"
+}

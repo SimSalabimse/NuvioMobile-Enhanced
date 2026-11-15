@@ -4,6 +4,8 @@ import UniformTypeIdentifiers
 struct DiagnosticsSettingsView: View {
     @StateObject private var viewModel = DiagnosticsViewModel()
     @Environment(\.dismiss) private var dismiss
+    @State private var marked = false
+    @AppStorage("NuvioShareBehaviourLog") private var shareBehaviourLog = true
     
     var body: some View {
         List {
@@ -14,6 +16,19 @@ struct DiagnosticsSettingsView: View {
                 Text("Stays on this phone. Nothing is uploaded.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Share behaviour log", isOn: $shareBehaviourLog)
+                    .tint(.accentColor)
+                LabeledContent("Last uploaded", value: BehaviourShare.lastUploaded)
+                Button {
+                    BehaviourEvents.markFromSettings()
+                    marked = true
+                } label: {
+                    Label(marked ? "Marked" : "Something felt off", systemImage: "flag")
+                }
+                .accessibilityHint("Saves a marker on this phone")
             }
 
             if let analysisTiming = viewModel.analysisTiming, !analysisTiming.isEmpty {

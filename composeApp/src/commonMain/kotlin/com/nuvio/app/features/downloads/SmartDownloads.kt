@@ -437,6 +437,8 @@ internal object SmartDownloads {
     /** Credits start the player knows for an episode (own mark > TheIntroDB > on-device). */
     private val liveCreditsStartMs = mutableMapOf<String, Long>()
     private val downloadArmed = mutableSetOf<String>()
+    private var nextUpBytes = -1L
+    private var nextUpBytesAtMs = 0L
     private var lastSampleVideoId: String? = null
     private var lastSampleAtMs = 0L
     private var metaFetchJob: Job? = null
@@ -475,34 +477,65 @@ internal object SmartDownloads {
         }
         val season = seasonNumber ?: return
         val episode = episodeNumber ?: return
-        if (videoId.isBlank() || videoId in downloadArmed) return
+        if (videoId.isBlank()) return
         val now = DownloadsClock.nowEpochMs()
         if (videoId == lastSampleVideoId && now - lastSampleAtMs < NEXT_EPISODE_DOWNLOAD_SAMPLE_INTERVAL_MS) return
         lastSampleAtMs = now
         lastSampleVideoId = videoId
-        val tagged = AnalysisTempDownloads.taggedIds()
-        val items = DownloadsRepository.uiState.value.items.filter { it.id !in tagged }
-        if (items.none { it.parentMetaId == parentMetaId }) return
-        val meta = metaOrLoad(parentMetaType, parentMetaId) ?: return
-        val next = nextEpisodes(meta.videos, season, episode, 1).firstOrNull()
-        val decision = decideNextEpisodeDownload(
-            nextEpisodeFacts(
-                items = items,
-                parentMetaId = parentMetaId,
-                next = next,
-                durationMs = durationMs,
-                positionMs = positionMs,
-                playbackSpeed = playbackSpeed,
-                mediaBitrateBps = mediaBitrateBps,
-            ),
-        )
-        if (decision != NextEpisodeDownloadDecision.StartNow) return
-        if (!downloadArmed.add(videoId)) return
-        com.nuvio.app.core.logging.InAppLogger.info(
-            "SmartDownloads",
-            "next episode download at ${positionMs}ms of ${durationMs}ms",
-        )
-        add(SmartDownloadRequest(parentMetaId, parentMetaType, season, episode))
+        if (videoId !in downloadArmed) {
+            val tagged = AnalysisTempDownloads.taggedIds()
+            val items = DownloadsRepository.uiState.value.items.filter { it.id !in tagged }
+            if (items.none { it.parentMetaId == parentMetaId }) return
+            val meta = metaOrLoad(parentMetaType, parentMetaId) ?: return
+            val next = nextEpisodes(meta.videos, season, episode, 1).firstOrNull()
+            val nextSeason = next?.season
+            val nextEpisode = next?.episode
+            if (nextSeason != null && nextEpisode != null) {
+                PlaybackPriority.noteNextUp(parentMetaId, nextSeason, nextEpisode)
+            }
+            val decision = decideNextEpisodeDownload(
+                nextEpisodeFacts(
+                    items = items,
+                    parentMetaId = parentMetaId,
+                    next = next,
+                    durationMs = durationMs,
+                    positionMs = positionMs,
+                    playbackSpeed = playbackSpeed,
+                    mediaBitrateBps = mediaBitrateBps,
+                ),
+            )
+            // The next episode starts with playback, at low priority. A later minute checks
+            // whether that low rate still finishes 10 minutes before this episode ends.
+            if (decision !is NextEpisodeDownloadDecision.Skip && downloadArmed.add(videoId)) {
+                com.nuvio.app.core.logging.InAppLogger.info(
+                    "SmartDownloads",
+                    "next episode download at ${positionMs}ms of ${durationMs}ms",
+                )
+                add(SmartDownloadRequest(parentMetaId, parentMetaType, season, episode))
+            }
+        }
+        noteNextUpRate(parentMetaId, durationMs - positionMs, now)
+    }
+
+    private fun noteNextUpRate(parentMetaId: String, episodeRemainingMs: Long, nowMs: Long) {
+        val item = DownloadsRepository.uiState.value.items.firstOrNull {
+            it.parentMetaId == parentMetaId && PlaybackPriority.isNextUp(it)
+        } ?: return
+        val total = item.totalBytes ?: return
+        if (total <= 0L) return
+        val downloaded = item.downloadedBytes ?: 0L
+        val left = (total - downloaded).coerceAtLeast(0L)
+        val elapsedSec = (nowMs - nextUpBytesAtMs) / 1000L
+        val rate = if (nextUpBytes >= 0L && elapsedSec > 0L) {
+            (downloaded - nextUpBytes) / elapsedSec
+        } else {
+            0L
+        }
+        if (nowMs - nextUpBytesAtMs >= NEXT_UP_DEADLINE_CHECK_MS || nextUpBytes < 0L) {
+            nextUpBytes = downloaded
+            nextUpBytesAtMs = nowMs
+        }
+        PlaybackPriority.noteNextUpProgress(left, rate, episodeRemainingMs.coerceAtLeast(0L), nowMs)
     }
 
     /** The episode on screen is near its end: the Finish a series goal moves on. The download itself starts from [onPlaybackSample]. */
