@@ -6,6 +6,7 @@ import com.nuvio.app.features.analysis.analysisDiagnosticsLine
 import com.nuvio.app.features.analysis.analysisPauseReason
 import com.nuvio.app.features.analysis.analysisQosLabel
 import com.nuvio.app.features.analysis.analysisThrottleLevel
+import com.nuvio.app.features.analysis.logProcessMemory
 import com.nuvio.app.features.analysis.setAnalysisPlayerSessionOpen
 import com.nuvio.app.features.analysis.setAnalysisThrottleLevel
 import com.nuvio.app.features.diagnostics.DiagnosticsLogger
@@ -212,6 +213,12 @@ internal object PlaybackPriority {
     private fun logAnalysisHold(line: String) {
         InAppLogger.info("PlaybackPriority", line)
         DiagnosticsLogger.logPerformance(line)
+        val event = when {
+            line.startsWith("analysis stop") -> "analysis-stop"
+            line.startsWith("analysis start") -> "analysis-start"
+            else -> "analysis"
+        }
+        logProcessMemory(event)
     }
 
     /** Process start: drop a session flag or throttle left behind by a player in an earlier run. */

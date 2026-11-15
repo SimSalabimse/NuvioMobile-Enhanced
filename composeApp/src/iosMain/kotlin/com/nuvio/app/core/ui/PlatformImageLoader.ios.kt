@@ -4,12 +4,14 @@ import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.memory.MemoryCache
+import com.nuvio.app.core.logging.InAppLogger
+import com.nuvio.app.features.analysis.logProcessMemory
 import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSOperationQueue
 import platform.UIKit.UIApplicationDidReceiveMemoryWarningNotification
 
-private const val IosImageMemoryCacheBytes = 256L * 1024 * 1024
-private const val IosImageMemoryCacheDuringPlaybackBytes = 64L * 1024 * 1024
+/** About 48 MB: under a percent of an 8 GB phone, and enough for the poster rows. */
+private const val IosImageMemoryCacheBytes = 48L * 1024 * 1024
 
 private var memoryWarningObserverInstalled = false
 
@@ -24,6 +26,7 @@ internal actual fun ImageLoader.Builder.configurePlatformImageLoader(): ImageLoa
 
 internal actual val platformProvidesImageLoader: Boolean = false
 
+@OptIn(kotlin.native.runtime.NativeRuntimeApi::class)
 private fun installMemoryWarningObserver() {
     if (memoryWarningObserverInstalled) return
     memoryWarningObserverInstalled = true
@@ -32,13 +35,19 @@ private fun installMemoryWarningObserver() {
         `object` = null,
         queue = NSOperationQueue.mainQueue,
     ) { _ ->
+        clearArtworkBackdropCache()
         SingletonImageLoader.get(PlatformContext.INSTANCE).memoryCache?.clear()
+        InAppLogger.info("ImageLoader", "memory warning: cleared image memory cache")
+        logProcessMemory("warning")
+        kotlin.native.runtime.GC.collect()
     }
 }
 
 @OptIn(kotlin.native.runtime.NativeRuntimeApi::class)
 fun trimImageMemoryForPlayback() {
-    SingletonImageLoader.get(PlatformContext.INSTANCE).memoryCache?.trimToSize(IosImageMemoryCacheDuringPlaybackBytes)
+    clearArtworkBackdropCache()
+    SingletonImageLoader.get(PlatformContext.INSTANCE).memoryCache?.clear()
+    InAppLogger.info("ImageLoader", "cleared image memory cache for playback")
     suspendAnimatedImagesForPlayback()
     kotlin.native.runtime.GC.collect()
 }

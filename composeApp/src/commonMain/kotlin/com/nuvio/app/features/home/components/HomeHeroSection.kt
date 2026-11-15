@@ -69,6 +69,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
+import com.nuvio.app.core.ui.heroDecodePixels
+import com.nuvio.app.core.ui.heroImageRequest
 import com.nuvio.app.core.ui.SoftBottomFade
 import com.nuvio.app.core.ui.platformPhysicalTopInset
 import com.nuvio.app.core.ui.systemReduceMotionEnabled
@@ -96,6 +98,7 @@ import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
+import coil3.size.Precision
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.perf.rememberPlaybackQuiet
 import com.nuvio.app.core.build.TrailerPlaybackMode
@@ -439,10 +442,20 @@ internal fun HomeHeroSection(
                     .map { page -> items[page % items.size] }
                     .distinct()
                 val imageLoader = SingletonImageLoader.get(platformContext)
+                val (prefetchWidth, prefetchHeight) = heroDecodePixels(
+                    heroWidthPx.toInt().coerceAtLeast(1),
+                    heroHeightPx.toInt().coerceAtLeast(1),
+                )
                 neighbours.forEach { item ->
                     listOfNotNull(heroArtworkUrl(item, effectiveArtworkSource), item.logo?.takeIf { it.isNotBlank() })
                         .forEach { url ->
-                            imageLoader.enqueue(ImageRequest.Builder(platformContext).data(url).build())
+                            imageLoader.enqueue(
+                                ImageRequest.Builder(platformContext)
+                                    .data(url)
+                                    .size(prefetchWidth, prefetchHeight)
+                                    .precision(Precision.INEXACT)
+                                    .build(),
+                            )
                         }
                 }
                 neighbours.forEach { item ->
@@ -575,8 +588,19 @@ internal fun HomeHeroSection(
                                     1f
                                 }
                                 val drawnScale = artwork.extraScale * scrollScale
+                                val decodeWidth = with(LocalDensity.current) {
+                                    (heroFrameWidth * artwork.widthFraction).roundToPx()
+                                }
+                                val decodeHeight = with(LocalDensity.current) {
+                                    (artworkSlotHeight * imageFraction).roundToPx()
+                                }
                                 AsyncImage(
-                                    model = artworkUrl,
+                                    model = heroImageRequest(
+                                        platformContext,
+                                        artworkUrl,
+                                        decodeWidth,
+                                        decodeHeight,
+                                    ),
                                     contentDescription = item.name,
                                     modifier = Modifier
                                         .align(Alignment.TopCenter)

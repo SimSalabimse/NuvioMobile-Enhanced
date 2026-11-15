@@ -29,6 +29,7 @@ import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.features.downloads.noteInAppPlaybackPlaying
 import com.nuvio.app.core.ui.collectAfterPlayback
 import com.nuvio.app.core.ui.trimImageMemoryForPlayback
+import com.nuvio.app.features.analysis.logProcessMemory
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.useContents
 import kotlinx.coroutines.delay
@@ -87,8 +88,20 @@ actual fun PlatformPlayerSurface(
     var subtitleText by remember(sourceUrl) { mutableStateOf("") }
     var subtitleStyle by remember { mutableStateOf(SubtitleStyleState.DEFAULT) }
 
-    LaunchedEffect(Unit) { trimImageMemoryForPlayback() }
-    DisposableEffect(Unit) { onDispose { collectAfterPlayback() } }
+    LaunchedEffect(Unit) {
+        trimImageMemoryForPlayback()
+        logProcessMemory("playback-start")
+        while (isActive) {
+            delay(5 * 60 * 1000L)
+            logProcessMemory("playback")
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            logProcessMemory("playback-stop")
+            collectAfterPlayback()
+        }
+    }
     val bridge = remember {
         NuvioPlayerBridgeFactory.create()
     }

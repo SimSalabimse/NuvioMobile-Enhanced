@@ -11,6 +11,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
+import coil3.compose.LocalPlatformContext
+import com.nuvio.app.core.ui.heroImageRequest
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.ui.ProfileMeshBackground
@@ -68,8 +71,11 @@ fun ProfileBackgroundBackdrop(
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
+            val backdropContext = LocalPlatformContext.current
+            val decodeWidth = with(LocalDensity.current) { maxWidth.roundToPx() }
+            val decodeHeight = with(LocalDensity.current) { maxHeight.roundToPx() }
             AsyncImage(
-                model = backgroundModel,
+                model = heroImageRequest(backdropContext, backgroundModel, decodeWidth, decodeHeight),
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,

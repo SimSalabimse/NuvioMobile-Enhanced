@@ -1,3 +1,4 @@
+import ComposeApp
 import Foundation
 import Libavcodec
 import Libavutil
@@ -17,6 +18,11 @@ final class MediaAnalyzerSampleLoop {
     /// Keep in step with `HEAD_FINGERPRINT_MS` (25 minutes).
     static let headWindowMs: Int64 = 25 * 60_000
     static let fingerprintTargetRate = 6000.0
+    /// 25 min and 15 min of mono at 6000 Hz. Same bound as `ANALYSIS_PCM_BYTE_CAP`.
+    static let maxHeadSamples = 25 * 60 * 6000
+    static let maxTailSamples = 15 * 60 * 6000
+    /// Six hours of 100 ms energy and loudness blocks.
+    static let maxEnergySteps = 6 * 60 * 60 * 10
 
     /// Debug-only switch for timing the old loop against the fast loop on one file.
     /// Release builds ignore this and always use the fast loop.
@@ -55,6 +61,8 @@ final class MediaAnalyzerSampleLoop {
     private var channelSquares: [Double]
     private var decimSum: Float = 0
     private var decimCount = 0
+    private var spillURL: URL?
+    private var parked = false
 
     var decodedMs: Int64 { sampleIndex * 1000 / Int64(max(1, rate)) }
 
@@ -81,6 +89,124 @@ final class MediaAnalyzerSampleLoop {
         }
         channelSquares = Array(repeating: 0, count: channels)
         energyLevels.reserveCapacity(Int(max(durationMs, 0) / 100) + 16)
+    }
+
+    /// Write the PCM and fingerprint arrays to a temp file and drop them.
+    /// A pause must not keep the decode buffers resident.
+    func releaseForIdle() {
+        guard !parked else { return }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("nuvio-analysis-\(UUID().uuidString).bin")
+        var data = Data()
+        appendCount(energyLevels.count, to: &data)
+        data.append(contentsOf: energyLevels)
+        appendFloats(headSamples, to: &data)
+        appendFloats(tailSamples, to: &data)
+        appendDoubles(blockPowers, to: &data)
+        do {
+            try data.write(to: url, options: .atomic)
+            let bytes = data.count
+            energyLevels.removeAll(keepingCapacity: false)
+            headSamples.removeAll(keepingCapacity: false)
+            tailSamples.removeAll(keepingCapacity: false)
+            blockPowers.removeAll(keepingCapacity: false)
+            spillURL = url
+            parked = true
+            InAppLogBridge.shared.info(tag: "Analysis/iOS", message: "analysis buffers event=release bytes=\(bytes)")
+        } catch {
+            InAppLogBridge.shared.info(tag: "Analysis/iOS", message: "analysis buffers event=release bytes=-1")
+        }
+    }
+
+    func restoreFromIdle() {
+        guard parked, let url = spillURL else { return }
+        defer {
+            try? FileManager.default.removeItem(at: url)
+            spillURL = nil
+            parked = false
+        }
+        guard let data = try? Data(contentsOf: url) else {
+            InAppLogBridge.shared.info(tag: "Analysis/iOS", message: "analysis buffers event=restore bytes=-1")
+            return
+        }
+        var offset = 0
+        guard let energyCount = readCount(data, offset: &offset),
+              let energy = readBytes(data, count: energyCount, offset: &offset),
+              let head = readFloats(data, offset: &offset),
+              let tail = readFloats(data, offset: &offset),
+              let blocks = readDoubles(data, offset: &offset) else {
+            InAppLogBridge.shared.info(tag: "Analysis/iOS", message: "analysis buffers event=restore bytes=-1")
+            return
+        }
+        energyLevels = energy
+        headSamples = head
+        tailSamples = tail
+        blockPowers = blocks
+        InAppLogBridge.shared.info(tag: "Analysis/iOS", message: "analysis buffers event=restore bytes=\(data.count)")
+    }
+
+    /// Finished, cancelled, or a reference clip that must stop. Deletes the spill too.
+    func releaseFinished() {
+        if let url = spillURL {
+            try? FileManager.default.removeItem(at: url)
+        }
+        spillURL = nil
+        parked = false
+        energyLevels.removeAll(keepingCapacity: false)
+        headSamples.removeAll(keepingCapacity: false)
+        tailSamples.removeAll(keepingCapacity: false)
+        blockPowers.removeAll(keepingCapacity: false)
+    }
+
+    private func appendCount(_ count: Int, to data: inout Data) {
+        var value = UInt32(min(max(0, count), Int(UInt32.max)))
+        withUnsafeBytes(of: &value) { data.append(contentsOf: $0) }
+    }
+
+    private func appendFloats(_ values: [Float], to data: inout Data) {
+        appendCount(values.count, to: &data)
+        values.withUnsafeBytes { data.append(contentsOf: $0) }
+    }
+
+    private func appendDoubles(_ values: [Double], to data: inout Data) {
+        appendCount(values.count, to: &data)
+        values.withUnsafeBytes { data.append(contentsOf: $0) }
+    }
+
+    private func readCount(_ data: Data, offset: inout Int) -> Int? {
+        guard offset + 4 <= data.count else { return nil }
+        let value = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) }
+        offset += 4
+        return Int(value)
+    }
+
+    private func readBytes(_ data: Data, count: Int, offset: inout Int) -> [UInt8]? {
+        guard count >= 0, offset + count <= data.count else { return nil }
+        let slice = data.subdata(in: offset..<(offset + count))
+        offset += count
+        return [UInt8](slice)
+    }
+
+    private func readFloats(_ data: Data, offset: inout Int) -> [Float]? {
+        guard let count = readCount(data, offset: &offset) else { return nil }
+        let bytes = count * MemoryLayout<Float>.size
+        guard offset + bytes <= data.count else { return nil }
+        let values = data.subdata(in: offset..<(offset + bytes)).withUnsafeBytes { raw in
+            Array(raw.bindMemory(to: Float.self))
+        }
+        offset += bytes
+        return values
+    }
+
+    private func readDoubles(_ data: Data, offset: inout Int) -> [Double]? {
+        guard let count = readCount(data, offset: &offset) else { return nil }
+        let bytes = count * MemoryLayout<Double>.size
+        guard offset + bytes <= data.count else { return nil }
+        let values = data.subdata(in: offset..<(offset + bytes)).withUnsafeBytes { raw in
+            Array(raw.bindMemory(to: Double.self))
+        }
+        offset += bytes
+        return values
     }
 
     func consume(frame: UnsafeMutablePointer<AVFrame>) {
@@ -265,8 +391,8 @@ final class MediaAnalyzerSampleLoop {
             decimCount += 1
             if decimCount == decimation {
                 let value = decimSum / Float(decimation)
-                if sampleIndex < headEndSample { headSamples.append(value) }
-                if sampleIndex >= tailStartSample { tailSamples.append(value) }
+                if sampleIndex < headEndSample, headSamples.count < Self.maxHeadSamples { headSamples.append(value) }
+                if sampleIndex >= tailStartSample, tailSamples.count < Self.maxTailSamples { tailSamples.append(value) }
                 decimSum = 0
                 decimCount = 0
             }
@@ -362,8 +488,8 @@ final class MediaAnalyzerSampleLoop {
                                 dCnt += 1
                                 if dCnt == dec {
                                     let value = dSum / Float(dec)
-                                    if idx < headEnd { headSamples.append(value) }
-                                    if idx >= tailStart { tailSamples.append(value) }
+                                    if idx < headEnd, headSamples.count < Self.maxHeadSamples { headSamples.append(value) }
+                                    if idx >= tailStart, tailSamples.count < Self.maxTailSamples { tailSamples.append(value) }
                                     dSum = 0
                                     dCnt = 0
                                 }
@@ -396,13 +522,15 @@ final class MediaAnalyzerSampleLoop {
     private func closeStep() {
         let rms = sqrt(stepSquares / Double(max(1, stepCount)))
         let db = rms > 0 ? 20 * log10(rms) : -90
-        energyLevels.append(UInt8(max(0, min(255, ((db + 90) / 90 * 255).rounded()))))
         var power = 0.0
         for ch in 0..<channels {
             power += weights[ch] * channelSquares[ch] / Double(max(1, stepCount))
             channelSquares[ch] = 0
         }
-        blockPowers.append(power)
+        if energyLevels.count < Self.maxEnergySteps {
+            energyLevels.append(UInt8(max(0, min(255, ((db + 90) / 90 * 255).rounded()))))
+            blockPowers.append(power)
+        }
         stepSquares = 0
         stepCount = 0
     }

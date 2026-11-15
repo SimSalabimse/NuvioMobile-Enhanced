@@ -52,7 +52,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.graphicsLayer
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
 import com.nuvio.app.core.ui.DETAIL_LANDSCAPE_EXTRA_SCALE
+import com.nuvio.app.core.ui.heroImageRequest
 import com.nuvio.app.core.ui.HeroArtworkFit
 import com.nuvio.app.core.ui.focusedAlignment
 import com.nuvio.app.core.ui.heroArtworkDecision
@@ -197,8 +199,13 @@ fun DetailHero(
                             )
                         }
                         val imageHeight = artworkFrameHeight * imageFraction
+                        val heroContext = LocalPlatformContext.current
+                        val decodeWidth = with(LocalDensity.current) {
+                            (heroFrameWidth * artwork.widthFraction).roundToPx()
+                        }
+                        val decodeHeight = with(LocalDensity.current) { imageHeight.roundToPx() }
                         AsyncImage(
-                            model = imageUrl,
+                            model = heroImageRequest(heroContext, imageUrl, decodeWidth, decodeHeight),
                             contentDescription = meta.name,
                             modifier = Modifier
                                 .align(Alignment.TopCenter)

@@ -46,6 +46,10 @@ internal fun backdropControlColor(default: Color): Color =
     }
 
 private val backdropCache = linkedMapOf<String, ImageBitmap>()
+
+internal fun clearArtworkBackdropCache() {
+    backdropCache.clear()
+}
 private val backdropScrim = Brush.verticalGradient(
     0f to Color.Black.copy(alpha = 0.34f),
     0.55f to Color.Black.copy(alpha = 0.48f),

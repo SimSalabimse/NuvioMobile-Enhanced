@@ -328,6 +328,7 @@ private final class MediaAnalysisRun {
         }
 
         func drainFrames() {
+            guard let codecContext = codecPointer, let frame = framePointer else { return }
             while avcodec_receive_frame(codecContext, frame) >= 0 {
                 let rate = Int(frame.pointee.sample_rate)
                 let channels = Int(frame.pointee.ch_layout.nb_channels)
@@ -343,6 +344,54 @@ private final class MediaAnalysisRun {
             }
         }
 
+        var resumePts: Int64 = Int64.min
+        var resumeFailed = false
+
+        func parkDecode() {
+            accumulator?.releaseForIdle()
+            av_packet_free(&packetPointer)
+            av_frame_free(&framePointer)
+            avcodec_free_context(&codecPointer)
+            avformat_close_input(&contextPointer)
+        }
+
+        func resumeDecode() -> Bool {
+            guard let allocated = avformat_alloc_context() else { return false }
+            allocated.pointee.interrupt_callback.callback = { opaque in
+                guard let opaque else { return 0 }
+                return Unmanaged<MediaAnalyzerAbortFlag>.fromOpaque(opaque).takeUnretainedValue().isSet ? 1 : 0
+            }
+            allocated.pointee.interrupt_callback.opaque = Unmanaged.passUnretained(abort).toOpaque()
+            contextPointer = allocated
+            guard avformat_open_input(&contextPointer, path, nil, nil) >= 0, let context = contextPointer else {
+                return false
+            }
+            _ = avformat_find_stream_info(context, nil)
+            guard audioIndex >= 0,
+                  let stream = context.pointee.streams[Int(audioIndex)],
+                  let parameters = stream.pointee.codecpar,
+                  let decoder = avcodec_find_decoder(parameters.pointee.codec_id),
+                  let codecContext = avcodec_alloc_context3(decoder) else {
+                return false
+            }
+            codecPointer = codecContext
+            guard avcodec_parameters_to_context(codecContext, parameters) >= 0,
+                  avcodec_open2(codecContext, decoder, nil) >= 0 else {
+                return false
+            }
+            for index in 0..<Int(context.pointee.nb_streams) where index != Int(audioIndex) {
+                context.pointee.streams[index]?.pointee.discard = AVDISCARD_ALL
+            }
+            if resumePts != Int64.min {
+                _ = av_seek_frame(context, audioIndex, resumePts, AVSEEK_FLAG_BACKWARD)
+            }
+            packetPointer = av_packet_alloc()
+            framePointer = av_frame_alloc()
+            guard packetPointer != nil, framePointer != nil else { return false }
+            accumulator?.restoreFromIdle()
+            return true
+        }
+
         var packetsSinceProgress = 0
         var packetsSinceThrottle = 0
         // The queue is created at utility. Raise it only when no player session is open, then
@@ -356,16 +405,30 @@ private final class MediaAnalysisRun {
             // QoS stays at utility while a player session is open or the decode is held.
             MediaAnalyzerQosName.applyForCurrentSession()
             packetsSinceThrottle += 1
-            if packetsSinceThrottle >= MediaAnalyzerThrottle.packetsPerCheck {
+            let pausedNow = MediaAnalyzerThrottle.currentLevel() > 0
+            if pausedNow || packetsSinceThrottle >= MediaAnalyzerThrottle.packetsPerCheck {
                 packetsSinceThrottle = 0
                 let workedNs = DispatchTime.now().uptimeNanoseconds &- sliceStartedNs
                 throttleYields += 1
-                throttledNs &+= MediaAnalyzerThrottle.yield(abort: abort, workedNs: workedNs)
-                sliceStartedNs = DispatchTime.now().uptimeNanoseconds
+                if MediaAnalyzerThrottle.currentLevel() > 0 {
+                    parkDecode()
+                    throttledNs &+= MediaAnalyzerThrottle.yield(abort: abort, workedNs: workedNs)
+                    sliceStartedNs = DispatchTime.now().uptimeNanoseconds
+                    if abort.isSet { break }
+                    if !resumeDecode() {
+                        resumeFailed = true
+                        break
+                    }
+                } else {
+                    throttledNs &+= MediaAnalyzerThrottle.yield(abort: abort, workedNs: workedNs)
+                    sliceStartedNs = DispatchTime.now().uptimeNanoseconds
+                }
             }
+            guard let context = contextPointer, let codecContext = codecPointer, let packet = packetPointer else { break }
             let read = av_read_frame(context, packet)
             if read < 0 { break }
             if packet.pointee.stream_index == audioIndex {
+                if packet.pointee.pts != Int64.min { resumePts = packet.pointee.pts }
                 if avcodec_send_packet(codecContext, packet) >= 0 { drainFrames() }
                 packetsSinceProgress += 1
                 if packetsSinceProgress >= 200, durationMs > 0, let acc = accumulator {
@@ -375,11 +438,14 @@ private final class MediaAnalysisRun {
             }
             av_packet_unref(packet)
         }
-        if abort.isSet {
-            log("cancelled")
+        if abort.isSet || resumeFailed {
+            accumulator?.releaseFinished()
+            log(abort.isSet ? "cancelled" : "resume failed")
             return nil
         }
-        _ = avcodec_send_packet(codecContext, nil)
+        if let codecContext = codecPointer {
+            _ = avcodec_send_packet(codecContext, nil)
+        }
         drainFrames()
 
         guard let acc = accumulator else { return nil }
@@ -401,10 +467,16 @@ private final class MediaAnalysisRun {
         let headPrint = skipHead ? nil : Fingerprinter.fingerprint(samples: acc.headSamples, rate: acc.fingerprintRate)
         let tailPrint = (!skipTail && durationMs > 0) ? Fingerprinter.fingerprint(samples: acc.tailSamples, rate: acc.fingerprintRate) : nil
         let fingerprintMs = Int((DispatchTime.now().uptimeNanoseconds &- fingerprintStartedNs) / 1_000_000)
+        let energy = Data(acc.energyLevels).base64EncodedString()
+        let steps = acc.energyLevels.count
+        let headCount = acc.headSamples.count
+        let tailCount = acc.tailSamples.count
+        let loudness = acc.integratedLoudness()
+        acc.releaseFinished()
         var output: [String: Any] = [
             "durationMs": measuredMs,
             "energyStepMs": Self.stepMs,
-            "energy": Data(acc.energyLevels).base64EncodedString(),
+            "energy": energy,
             "fingerprintStepMs": Self.stepMs,
             "tailStartMs": tailStartMs,
             "decodeMs": decodeMs,
@@ -417,11 +489,11 @@ private final class MediaAnalysisRun {
             "throttleYields": throttleYields,
             "qos": qos,
         ]
-        if let lufs = acc.integratedLoudness() { output["integratedLufs"] = lufs }
+        if let loudness { output["integratedLufs"] = loudness }
         if let headPrint { output["head"] = headPrint }
         if let tailPrint { output["tail"] = tailPrint }
         guard let data = try? JSONSerialization.data(withJSONObject: output) else { return nil }
-        log("done durationMs=\(measuredMs) steps=\(acc.energyLevels.count) head=\(acc.headSamples.count) tail=\(acc.tailSamples.count)")
+        log("done durationMs=\(measuredMs) steps=\(steps) head=\(headCount) tail=\(tailCount)")
         return String(data: data, encoding: .utf8)
     }
 
@@ -560,6 +632,11 @@ private final class ClipFingerprintRun {
             av_frame_free(&framePointer)
         }
         while !abort.isSet, !reachedEnd, av_read_frame(context, packet) >= 0 {
+            if MediaAnalyzerThrottle.currentLevel() > 0 {
+                accumulator?.releaseFinished()
+                log("clip paused")
+                return nil
+            }
             if packet.pointee.stream_index == audioIndex, avcodec_send_packet(codecContext, packet) >= 0 {
                 while avcodec_receive_frame(codecContext, frame) >= 0 {
                     defer { av_frame_unref(frame) }
@@ -621,7 +698,12 @@ private final class ClipFingerprintRun {
         }
         if abort.isSet { stopReason = "abort" }
         guard !abort.isSet, let acc = accumulator,
-              let print = Fingerprinter.fingerprint(samples: acc.headSamples, rate: acc.fingerprintRate) else { return nil }
+              let print = Fingerprinter.fingerprint(samples: acc.headSamples, rate: acc.fingerprintRate) else {
+            accumulator?.releaseFinished()
+            return nil
+        }
+        let decodedMs = acc.decodedMs
+        acc.releaseFinished()
         let output: [String: Any] = [
             "startMs": originMs,
             "stepMs": MediaAnalysisRun.stepMs,
@@ -632,7 +714,7 @@ private final class ClipFingerprintRun {
             "windowComplete": stopReason == "window-end",
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: output) else { return nil }
-        log("clip done startMs=\(originMs) decodedMs=\(acc.decodedMs)")
+        log("clip done startMs=\(originMs) decodedMs=\(decodedMs)")
         return String(data: data, encoding: .utf8)
     }
 
@@ -750,6 +832,21 @@ private enum NuvioAutomationDefaults {
 /// 3 pauses for a serious or critical thermal state, or Low Power Mode.
 /// Any non-zero level sleeps until it returns to 0 or the pass is cancelled. It does not
 /// resume after a minute: a movie is longer than that, and the old cap decoded through it.
+/// phys_footprint in MB. The same counter jetsam uses.
+private func nuvioPhysFootprintMb() -> Int {
+    var info = task_vm_info_data_t()
+    var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.stride / MemoryLayout<integer_t>.stride)
+    let result = withUnsafeMutablePointer(to: &info) { pointer -> kern_return_t in
+        pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { rebound in
+            task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), rebound, &count)
+        }
+    }
+    guard result == KERN_SUCCESS else { return -1 }
+    let bytes = info.phys_footprint
+    if bytes == 0 { return -1 }
+    return Int(bytes / (1024 * 1024))
+}
+
 private enum MediaAnalyzerThrottle {
     private static let key = NuvioAutomationDefaults.storeKey("NuvioAnalysisThrottleLevel")
     private static let jobKey = NuvioAutomationDefaults.storeKey("NuvioAnalysisActiveJob")
@@ -816,6 +913,9 @@ private enum MediaAnalyzerThrottle {
         let message = "analysis \(event) job=\(jobToken) reason=\(reason) qos=\(qos) thermal=\(Self.thermalName()) lowPower=\(ProcessInfo.processInfo.isLowPowerModeEnabled)"
         InAppLogBridge.shared.info(tag: "Analysis/iOS", message: message)
         DiagnosticsManager.shared.log(category: .performance, message: message)
+        let memory = "memory event=analysis-\(event) footprintMb=\(nuvioPhysFootprintMb())"
+        InAppLogBridge.shared.info(tag: "Analysis/iOS", message: memory)
+        DiagnosticsManager.shared.log(category: .performance, message: memory)
     }
 
     private static func thermalName() -> String {

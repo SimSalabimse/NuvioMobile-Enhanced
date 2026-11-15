@@ -937,9 +937,28 @@ final class MPVPlayerViewController: UIViewController {
         }, UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque()))
     }
 
+    /// Network streams. Local files override this in applyDemuxerCache.
     private static let demuxerMaxBytes = 64 * 1024 * 1024
 
     private static let demuxerMaxBackBytes = 32 * 1024 * 1024
+
+    /// file:// and downloaded paths: cache=no, 8 MiB forward, 2 MiB back.
+    /// Streams stay at cache=auto, 64 MiB forward, 32 MiB back.
+    /// Matches demuxerCacheOptions in PlaybackMemory.kt.
+    private func applyDemuxerCache(for urlString: String) {
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        let local = trimmed.hasPrefix("file:") || trimmed.hasPrefix("/") || trimmed.hasPrefix("content:")
+        let cache = local ? "no" : "auto"
+        let maxBytes = local ? 8 * 1024 * 1024 : Self.demuxerMaxBytes
+        let maxBackBytes = local ? 2 * 1024 * 1024 : Self.demuxerMaxBackBytes
+        setStringProperty("cache", cache)
+        setStringProperty("demuxer-max-bytes", "\(maxBytes)")
+        setStringProperty("demuxer-max-back-bytes", "\(maxBackBytes)")
+        InAppLogBridge.shared.info(
+            tag: "MPV/iOS",
+            message: "demuxer cache=\(cache) maxBytes=\(maxBytes) maxBackBytes=\(maxBackBytes) local=\(local)"
+        )
+    }
 
     /// `auto` becomes `auto-safe` so mpv only enables a hardware decoder it considers safe.
     /// An empty value stays on VideoToolbox. `no` is the explicit software choice.
@@ -1283,6 +1302,7 @@ final class MPVPlayerViewController: UIViewController {
         }
         isFileLoaded = false
         startupSubtitles = request.subtitles
+        applyDemuxerCache(for: request.urlString)
         command("loadfile", args: [request.urlString, "replace"])
         if let audioUrl = request.audioUrl, !audioUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in

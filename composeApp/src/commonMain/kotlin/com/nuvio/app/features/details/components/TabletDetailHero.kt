@@ -56,6 +56,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -63,11 +64,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
 import com.nuvio.app.core.format.extractReleaseYearForDisplay
 import com.nuvio.app.core.ui.ArtworkBackdrop
 import com.nuvio.app.core.ui.HeroArtworkFit
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.heroArtworkDecision
+import com.nuvio.app.core.ui.heroImageRequest
 import com.nuvio.app.core.ui.heroImageHeightFraction
 import com.nuvio.app.core.ui.rememberHeroArtworkSize
 import com.nuvio.app.core.ui.featherArtwork
@@ -198,8 +201,13 @@ private fun BackdropArtwork(
             )
             val portrait = artwork.fit != HeroArtworkFit.CropLandscape
             val imageFraction = heroImageHeightFraction(artwork, maxWidth.value, maxHeight.value)
+            val heroContext = LocalPlatformContext.current
+            val decodeWidth = with(LocalDensity.current) {
+                (maxWidth * artwork.widthFraction).roundToPx()
+            }
+            val decodeHeight = with(LocalDensity.current) { (maxHeight * imageFraction).roundToPx() }
             AsyncImage(
-                model = imageUrl,
+                model = heroImageRequest(heroContext, imageUrl, decodeWidth, decodeHeight),
                 contentDescription = meta.name,
                 modifier = Modifier
                     .align(Alignment.TopCenter)

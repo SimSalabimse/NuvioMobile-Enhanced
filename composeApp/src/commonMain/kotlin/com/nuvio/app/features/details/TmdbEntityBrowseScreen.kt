@@ -48,6 +48,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import com.nuvio.app.core.ui.HERO_DECODE_MAX_EDGE_PX
+import com.nuvio.app.core.ui.heroImageRequest
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.pluralStringResource
 import org.jetbrains.compose.resources.stringResource
@@ -176,7 +179,12 @@ private fun EntityBrowseContent(
     Box(modifier = Modifier.fillMaxSize()) {
         if (backgroundUrl != null) {
             AsyncImage(
-                model = backgroundUrl,
+                model = heroImageRequest(
+                    LocalPlatformContext.current,
+                    backgroundUrl,
+                    HERO_DECODE_MAX_EDGE_PX,
+                    HERO_DECODE_MAX_EDGE_PX,
+                ),
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
