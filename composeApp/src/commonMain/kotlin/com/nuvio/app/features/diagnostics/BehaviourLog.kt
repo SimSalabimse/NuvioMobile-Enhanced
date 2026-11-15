@@ -95,6 +95,12 @@ internal object BehaviourEvents {
     private val lock = BehaviourLock()
     private var pending = 0
 
+    fun appendRaw(line: String) = lock.withLock {
+        ring.append(line)
+        pending += 1
+        if (pending >= BEHAVIOUR_FLUSH_EVENTS) flushLocked()
+    }
+
     fun record(kind: String, fields: Map<String, String> = emptyMap()) = lock.withLock {
         ring.append(behaviourEventLine(kind, fields))
         pending += 1

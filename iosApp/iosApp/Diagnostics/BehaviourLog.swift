@@ -223,10 +223,10 @@ final class BehaviourMetrics: NSObject, MXMetricManagerSubscriber {
     }
 
     private func store(kind: String, data: Data) {
-        if data.count > 32 * 1024 {
+        guard data.count <= 32 * 1024, let text = String(data: data, encoding: .utf8) else {
             BehaviourLogFiles_iosKt.nuvioRecordBehaviour(kind: "metrickit-\(kind)-dropped")
             return
         }
-        BehaviourLogFiles_iosKt.nuvioRecordBehaviour(kind: "metrickit-\(kind)")
+        BehaviourLogFiles_iosKt.nuvioAppendRaw(line: text)
     }
 }

@@ -31,6 +31,16 @@ fun nuvioBehaviourFlush() {
     BehaviourEvents.flush()
 }
 
+fun nuvioAppendRaw(line: String) {
+    val one = line.replace("\n", " ").replace("\r", " ").take(32_000)
+    val lower = one.lowercase()
+    if (one.isEmpty() || lower.contains("http") || one.contains("@") || one.contains("://")) {
+        BehaviourEvents.record("metrickit-redacted")
+        return
+    }
+    BehaviourEvents.appendRaw(one)
+}
+
 interface NuvioBehaviourLogBridge {
     fun write(active: String, previous: String)
 }
