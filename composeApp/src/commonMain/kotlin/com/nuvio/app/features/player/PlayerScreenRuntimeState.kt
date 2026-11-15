@@ -368,6 +368,15 @@ internal class PlayerScreenRuntime(
     var downloadSwap by mutableStateOf<PlayerDownloadSwap?>(null)
     var downloadSwapGaveUpVideoIds: Set<String> = emptySet()
     var downloadSwapPartialFallbacks: Int = 0
+    /**
+     * Key of the mpv instance already on screen. The next downloaded episode keeps it so the
+     * player is not destroyed at the end of the file and created again.
+     */
+    var retainedLocalSurfaceKey by mutableStateOf<PlaybackKey?>(null)
+    /** True until the next local file has opened. Ended snapshots from the previous file are ignored. */
+    var localEpisodeHandoff by mutableStateOf(false)
+    /** Resume point applied when the next local file is loaded into the current player. */
+    var localHandoffStartMs by mutableStateOf<Long?>(null)
     var audioDelayMs by mutableStateOf(0)
     /** Output the audio delay is remembered for; null while that setting is off. */
     var audioOutputKey: String? = null

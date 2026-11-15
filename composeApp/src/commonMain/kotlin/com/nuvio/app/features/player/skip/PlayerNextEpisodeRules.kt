@@ -5,6 +5,32 @@ import com.nuvio.app.features.watching.domain.isShortPlaceholderDuration
 
 object PlayerNextEpisodeRules {
 
+    /**
+     * The episode Next should open. Matches the catalog by id, then by season and episode.
+     * A catalog miss still returns the card's own episode so a downloaded file can play offline.
+     */
+    fun resolveNextEpisodeVideo(
+        next: NextEpisodeInfo?,
+        episodes: List<MetaVideo>,
+    ): MetaVideo? {
+        if (next == null || !next.hasAired) return null
+        val id = next.videoId.trim()
+        if (id.isNotEmpty()) {
+            episodes.firstOrNull { it.id == id }?.let { return it }
+        }
+        episodes.firstOrNull { it.season == next.season && it.episode == next.episode }?.let { return it }
+        if (id.isEmpty() && next.title.isBlank()) return null
+        return MetaVideo(
+            id = id.ifEmpty { "s${next.season}e${next.episode}" },
+            title = next.title,
+            released = next.released,
+            thumbnail = next.thumbnail,
+            season = next.season,
+            episode = next.episode,
+            overview = next.overview,
+        )
+    }
+
     fun resolveNextEpisode(
         videos: List<MetaVideo>,
         currentSeason: Int?,

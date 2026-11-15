@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -936,7 +937,7 @@ private fun EpisodesPage(
                         )
                     }
                 }
-                items(rows, key = { "${it.season}:${it.episode}:${it.id}" }) { episode ->
+                itemsIndexed(rows, key = { index, episode -> "${episode.season}:${episode.episode}:${episode.id}:$index" }) { _, episode ->
                     EpisodeToolRow(
                         episode = episode,
                         parentMetaType = parentMetaType,

@@ -301,6 +301,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi(
     ) {
         val playerSurfaceSourceUrl = if (isP2pPlaybackActive) p2pResolvedSourceUrl else activePlaybackSourceUrl
         val playbackKey = activePlaybackKey
+        val surfaceKey = retainedLocalSurfaceKey ?: playbackKey
         val initialPositionRequestKey = currentInitialPositionRequestKey()
 
         val resolvedAutoEngineState = remember(sourcePlaybackKey) {
@@ -321,7 +322,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi(
         val resolvedAutoEngine = resolvedAutoEngineState.value
 
         if (playerSurfaceSourceUrl != null) {
-            key(playbackKey) {
+            key(surfaceKey) {
                 val active = remember { mutableStateOf(true) }
                 DisposableEffect(Unit) {
                     onDispose { active.value = false }
@@ -361,6 +362,11 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi(
                         if (snapshot.isPlaying && !snapshot.isLoading && snapshot.positionMs > 0L) {
                             FinishedDownloadDeletion.playbackPlaying(playbackSession.videoId, persistsProgress)
                         }
+                        if (localEpisodeHandoff) {
+                            // The player we kept is still reporting the previous file's end.
+                            if (snapshot.isEnded || snapshot.durationMs <= 0L) return@PlatformPlayerSurface
+                            localEpisodeHandoff = false
+                        }
                         if (snapshot.isEnded && handleDownloadSwapPartialEnd()) return@PlatformPlayerSurface
                         // The held state: the end of an in-progress download's bytes is not an end.
                         if (playbackSnapshot.isEnded && !isDownloadSwapInFlight) {
@@ -387,7 +393,8 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi(
                         }
                     },
                     includeMediaInfo = showStreamInfoModal,
-                    sourceSwapStartMs = downloadSwapStartMsFor(playerSurfaceSourceUrl),
+                    sourceSwapStartMs = downloadSwapStartMsFor(playerSurfaceSourceUrl)
+                        ?: localHandoffStartMs,
                 )
             }
         }

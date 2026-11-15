@@ -39,6 +39,7 @@ import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.FinishedDownloadDeletion
 import com.nuvio.app.features.downloads.SmartDownloads
 import com.nuvio.app.features.downloads.PartialPlaybackLease
+import com.nuvio.app.features.downloads.isOnDiskPlaybackUrl
 import com.nuvio.app.features.downloads.partialPlaybackDownloadId
 import com.nuvio.app.features.servers.ServerPlayback
 import com.nuvio.app.features.servers.ServerStreams
@@ -144,9 +145,14 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
     }
 
     LaunchedEffect(activePlaybackKey, activeSourceUrl, activeSourceAudioUrl, activeSourceHeaders, activeSourceResponseHeaders) {
+        if (!isOnDiskPlaybackUrl(activeSourceUrl)) {
+            retainedLocalSurfaceKey = null
+            localEpisodeHandoff = false
+            localHandoffStartMs = null
+        }
         errorMessage = null
-        // Stream <-> download swap of the same video: same mpv, same session, nothing to reset.
-        if (isDownloadSwapInFlight) return@LaunchedEffect
+        // Stream <-> download swap, and a downloaded next episode, keep the same mpv instance.
+        if (isDownloadSwapInFlight || localEpisodeHandoff) return@LaunchedEffect
         playerController = null
         playerControllerSourceUrl = null
         playbackSnapshot = PlayerPlaybackSnapshot()
@@ -804,8 +810,15 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         val durationMs = playbackSnapshot.durationMs
         if (!playerSettingsUiState.skipIntroEnabled) return@LaunchedEffect
         if ((contentType ?: parentMetaType).equals("movie", ignoreCase = true)) {
+            if (isNetworkOffline()) return@LaunchedEffect
             val api = filterSkipSources(
-                SkipIntroRepository.getMovieSkipIntervals(parentMetaId, vid, durationMs = durationMs),
+                try {
+                    SkipIntroRepository.getMovieSkipIntervals(parentMetaId, vid, durationMs = durationMs)
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    emptyList()
+                },
             )
             apiSkipIntervals = api
             recomputeMergedSkipIntervals()
@@ -827,8 +840,9 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
             }
         }
         launch {
-            // Bounded so a slow provider never stalls the player.
-            val resolved = withTimeoutOrNull(SKIP_INTERVAL_RESOLVE_TIMEOUT_MS) {
+            // Bounded so a slow provider never stalls the player. A failure offline must not throw.
+            val resolved = try {
+                withTimeoutOrNull(SKIP_INTERVAL_RESOLVE_TIMEOUT_MS) {
                 val imdbFromContent = parentMetaId.takeIf { it.startsWith("tt") }
                     ?: (metaUiState.meta ?: playerMeta)
                         ?.takeIf { it.id == parentMetaId }
@@ -866,6 +880,11 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                         durationMs = durationMs,
                     )
                 }
+            }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                null
             }
             val filtered = filterSkipSources(resolved ?: return@launch)
             apiSkipIntervals = filtered

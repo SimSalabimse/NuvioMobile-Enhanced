@@ -142,7 +142,7 @@ internal fun PlayerChaptersPanel(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxHeight(),
                     ) {
-                        itemsIndexed(chapters, key = { _, chapter -> chapter.startMs }) { index, chapter ->
+                        itemsIndexed(chapters, key = { index, chapter -> "${chapter.startMs}:$index" }) { index, chapter ->
                             val endMs = chapters.getOrNull(index + 1)?.startMs ?: durationMs
                             val isCurrent = index == currentIndex
                             ChapterRow(

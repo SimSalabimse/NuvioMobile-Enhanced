@@ -11,6 +11,7 @@ import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadSubtitles
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.isLoopbackPartialPlaybackUrl
+import com.nuvio.app.features.downloads.isOnDiskPlaybackUrl
 import com.nuvio.app.features.downloads.partialPlaybackCoversStart
 import com.nuvio.app.features.livetv.LiveTvChannel
 import com.nuvio.app.features.livetv.LiveTvRepository
@@ -549,10 +550,13 @@ internal fun PlayerScreenRuntime.switchToEpisodeStream(
 }
 
 internal fun PlayerScreenRuntime.switchToDownloadedEpisode(downloadItem: DownloadItem, episode: MetaVideo) {
-    val localFileUri = DownloadsRepository.playableLocalFileUri(downloadItem) ?: return
+    val localFileUri = runCatching { DownloadsRepository.playableLocalFileUri(downloadItem) }.getOrNull() ?: return
+    // Captured before the URL changes. The surface stays on this key for a local-to-local handoff.
+    val handoff = isOnDiskPlaybackUrl(activeSourceUrl)
+    val surfaceKey = if (handoff) retainedLocalSurfaceKey ?: activePlaybackKey else null
     resetEpisodePanelAndNextEpisodeState()
-    flushWatchProgress()
-    stopActiveP2pStream()
+    runCatching { flushWatchProgress() }
+    runCatching { stopActiveP2pStream() }
 
     val fallbackVideoId = buildPlaybackVideoId(
         parentMetaId = parentMetaId,
@@ -561,12 +565,14 @@ internal fun PlayerScreenRuntime.switchToDownloadedEpisode(downloadItem: Downloa
         fallbackVideoId = episode.id,
     )
     val resolvedVideoId = episode.id.takeIf { it.isNotBlank() } ?: fallbackVideoId
-    val epEntry = WatchProgressRepository.progressForVideo(
-        videoId = resolvedVideoId,
-        parentMetaId = parentMetaId,
-        seasonNumber = episode.season,
-        episodeNumber = episode.episode,
-    )
+    val epEntry = runCatching {
+        WatchProgressRepository.progressForVideo(
+            videoId = resolvedVideoId,
+            parentMetaId = parentMetaId,
+            seasonNumber = episode.season,
+            episodeNumber = episode.episode,
+        )
+    }.getOrNull()
         ?.takeIf { !it.isCompleted }
     val savedResumeFraction = epEntry?.progressPercent
         ?.takeIf { it > 0f }
@@ -582,8 +588,26 @@ internal fun PlayerScreenRuntime.switchToDownloadedEpisode(downloadItem: Downloa
     val epResumeFraction = if (persistsProgress) savedResumeFraction.takeIf { resumeInsideFile } else null
     val epResumePositionMs = if (persistsProgress && resumeInsideFile) savedResumePositionMs else 0L
 
-    externalSubtitles = DownloadSubtitles.localSubtitles(localFileUri)
+    // A swap still pointing at the episode that just ended would put its stream URL back.
+    downloadSwap = null
+    if (handoff) {
+        retainedLocalSurfaceKey = surfaceKey
+        localEpisodeHandoff = true
+        localHandoffStartMs = epResumePositionMs.takeIf { it > 0L }
+        playbackSnapshot = PlayerPlaybackSnapshot(isLoading = true, isEnded = false)
+        playbackClock.reset()
+        playbackSnapshotKey = null
+        initialLoadCompleted = false
+        errorMessage = null
+    } else {
+        retainedLocalSurfaceKey = null
+        localEpisodeHandoff = false
+        localHandoffStartMs = null
+    }
+    shouldPlay = true
+    externalSubtitles = runCatching { DownloadSubtitles.localSubtitles(localFileUri) }.getOrDefault(emptyList())
     activeSourceUrl = localFileUri
+    activePlaybackSourceUrl = localFileUri
     activeSourceAudioUrl = null
     activeSourceHeaders = emptyMap()
     activeSourceResponseHeaders = emptyMap()
