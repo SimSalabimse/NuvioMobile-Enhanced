@@ -1,5 +1,7 @@
 package com.nuvio.app.features.analysis
 
+import com.nuvio.app.nativebridge.NuvioAnalysisLowPowerMode
+import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -12,6 +14,7 @@ import platform.Foundation.NSProcessInfoThermalState
 import platform.Foundation.NSProcessInfoThermalStateDidChangeNotification
 import platform.Foundation.thermalState
 
+@OptIn(ExperimentalForeignApi::class)
 internal actual object AnalysisPower {
     private var thermalObserver: Any? = null
     private var powerObserver: Any? = null
@@ -26,7 +29,7 @@ internal actual object AnalysisPower {
         }
         return AnalysisPowerSnapshot(
             thermal = thermal,
-            lowPowerMode = NSProcessInfo.processInfo.isLowPowerModeEnabled,
+            lowPowerMode = NuvioAnalysisLowPowerMode() != 0,
         )
     }
 

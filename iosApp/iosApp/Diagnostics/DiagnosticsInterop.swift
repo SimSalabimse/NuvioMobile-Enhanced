@@ -55,3 +55,8 @@ public func NuvioDiagnosticsLogPerformance(_ message: UnsafePointer<CChar>?) {
 public func NuvioDiagnosticsShareAnalysisLog(_ text: UnsafePointer<CChar>?) {
     DiagnosticsBridge.shareAnalysisLog(nuvioDiagnosticsString(text))
 }
+
+@_cdecl("NuvioAnalysisLowPowerMode")
+public func NuvioAnalysisLowPowerMode() -> Int32 {
+    ProcessInfo.processInfo.isLowPowerModeEnabled ? 1 : 0
+}
