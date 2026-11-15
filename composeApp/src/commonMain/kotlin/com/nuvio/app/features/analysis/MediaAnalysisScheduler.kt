@@ -374,18 +374,15 @@ internal object MediaAnalysisScheduler {
                 delay(CHARGER_POLL_MS)
                 continue
             }
-            // Playback no longer stops analysis; it runs throttled (see PlaybackPriority). Only a
-            // struggling player makes it wait before the next file.
-            if (!fromBackgroundTask &&
-                !com.nuvio.app.features.downloads.PlaybackPriority.analysisBoosted &&
-                com.nuvio.app.features.downloads.PlaybackPriority.level ==
-                com.nuvio.app.features.downloads.PlaybackPriority.Level.Strained &&
-                !strainExemptReady()
-            ) {
+            // Pause while a video is playing, and also while the phone is seriously hot or in
+            // Low Power Mode. Resume on the next poll after playback stops and the phone is idle.
+            val pauseReason = com.nuvio.app.features.downloads.PlaybackPriority.analysisPauseReason()
+            if (pauseReason != null) {
+                if (fromBackgroundTask) return false
                 if (MediaAnalysisStatus.job.value !is AnalysisJobState.WaitingForPlayback) {
-                    exportNote("-", "queue", "playback", "waiting")
+                    exportNote("-", "queue", pauseReason, "waiting")
                 }
-                noteWait("playback", true)
+                noteWait(pauseReason, true)
                 MediaAnalysisStatus.setJob(AnalysisJobState.WaitingForPlayback)
                 delay(PLAYBACK_POLL_MS)
                 continue
@@ -414,6 +411,7 @@ internal object MediaAnalysisScheduler {
                 continue
             }
             currentItem = item
+            setAnalysisActiveJob(item.id)
             currentInBackground = fromBackgroundTask
             val pass = try {
                 analyzeOne(item)
@@ -426,6 +424,7 @@ internal object MediaAnalysisScheduler {
                 PassResult.Retry
             } finally {
                 currentItem = null
+                setAnalysisActiveJob("")
                 analyzerLane.finish()
                 MediaAnalysisStatus.setJob(AnalysisJobState.Idle)
                 MediaAnalysisStatus.resultsChanged()
@@ -502,12 +501,6 @@ internal object MediaAnalysisScheduler {
         MediaAnalysisStore.save(base.copy(fileName = item.fileName, analysisAttempts = attempts))
     }
 
-    private fun strainExemptReady(): Boolean {
-        val id = playbackStrainExemptId ?: return false
-        if (id in failedThisSession || isBackingOff(id)) return false
-        return DownloadsRepository.uiState.value.items.any { it.id == id && it.status == DownloadStatus.Completed }
-    }
-
     private val failedThisSession = mutableSetOf<String>()
     /** id -> (attempts so far, not before epoch ms). */
     private val retries = mutableMapOf<String, Pair<Int, Long>>()
@@ -534,6 +527,9 @@ internal object MediaAnalysisScheduler {
     }
     private var currentItem: DownloadItem? = null
     private var currentInBackground = false
+
+    /** Download id of the file in progress, or "-" . Safe for a diagnostics line. */
+    fun activeJobId(): String = currentItem?.id?.takeIf { it.isNotBlank() } ?: "-"
 
     private fun stage(stage: AnalysisStage, activity: String = activityFor(stage)) {
         val item = currentItem ?: return
@@ -1176,6 +1172,10 @@ object MediaAnalysisBackground {
         // A throttle or a player-open flag left from an earlier process must not hold the analyser
         // or keep its queue at the lower QoS.
         com.nuvio.app.features.downloads.PlaybackPriority.clearStaleSession()
+        AnalysisPower.startObserving {
+            com.nuvio.app.features.downloads.PlaybackPriority.notePowerChanged()
+        }
+        com.nuvio.app.features.downloads.PlaybackPriority.notePowerChanged()
         MediaAnalysisScheduler.kick()
         com.nuvio.app.features.downloads.DownloadsRepository.ensureLoaded()
         com.nuvio.app.features.offline.OfflineArtwork.cacheAll(

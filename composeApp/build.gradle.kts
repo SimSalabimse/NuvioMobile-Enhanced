@@ -521,8 +521,10 @@ kotlin {
                 "-Xbinary=bundleId=$iosFrameworkBundleId",
                 "-Xbinary=objcExportEntryPointsPath=${swiftExportEntryPoints.get().asFile.absolutePath}",
             )
-            iosReleaseDisabledPhases?.let { phases ->
-                if (buildType == org.jetbrains.kotlin.gradle.plugin.mpp.NativeBuildType.RELEASE) {
+            if (buildType == org.jetbrains.kotlin.gradle.plugin.mpp.NativeBuildType.RELEASE) {
+                // Keep DWARF in the release framework so the app dSYM can symbolicate Kotlin frames.
+                freeCompilerArgs += "-g"
+                iosReleaseDisabledPhases?.let { phases ->
                     freeCompilerArgs += listOf("-Xdisable-phases=$phases")
                 }
             }

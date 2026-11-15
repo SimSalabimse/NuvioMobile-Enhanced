@@ -205,6 +205,15 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Upload dSYMs
+        if: env.IOS_CONFIGURATION == 'Release'
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuvio-sideload-dsym-${{ github.sha }}
+          path: build/ios-ipa/dsym
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Publish pre-release
         if: ${{ inputs.publish_release }}
         env:

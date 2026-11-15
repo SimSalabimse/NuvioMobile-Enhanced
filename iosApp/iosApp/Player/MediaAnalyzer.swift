@@ -352,9 +352,8 @@ private final class MediaAnalysisRun {
         let throttleLevelStart = MediaAnalyzerThrottle.currentLevel()
         var sliceStartedNs = DispatchTime.now().uptimeNanoseconds
         while !abort.isSet {
-            // Playback comes first (PlaybackPriority in the shared code): while a video is
-            // actually playing the decode sleeps at least as much as before. A pause, the end,
-            // or no player session does not sleep. QoS follows the session on each slice.
+            // Playback, heat, and Low Power Mode pause this decode until the level is 0.
+            // QoS stays at utility while a player session is open or the decode is held.
             MediaAnalyzerQosName.applyForCurrentSession()
             packetsSinceThrottle += 1
             if packetsSinceThrottle >= MediaAnalyzerThrottle.packetsPerCheck {
@@ -746,67 +745,50 @@ private enum NuvioAutomationDefaults {
     }
 }
 
-/// Set from Kotlin (setAnalysisThrottleLevel): 0 full speed, 1 a video is playing, 2 the player is buffering.
-///
-/// While a video is actually playing, one check sleeps at least [playingSleepFloorUs] (the previous
-/// fixed 25 ms every [packetsPerCheck] packets). If that slice of work was longer than
-/// [playingWorkBudgetMs], the sleep grows by [playingSleepPerBudgetMs] per budget window, so the
-/// analyser is never hotter during playback than it was before. A shorter slice keeps the floor.
-/// Level 0 (no player, or playback paused or ended) does not sleep. Level 2 is unchanged.
+/// Set from Kotlin (setAnalysisThrottleLevel).
+/// 0 runs. 1 pauses while a video is playing. 2 pauses while playback is strained.
+/// 3 pauses for a serious or critical thermal state, or Low Power Mode.
+/// Any non-zero level sleeps until it returns to 0 or the pass is cancelled. It does not
+/// resume after a minute: a movie is longer than that, and the old cap decoded through it.
 private enum MediaAnalyzerThrottle {
     private static let key = NuvioAutomationDefaults.storeKey("NuvioAnalysisThrottleLevel")
+    private static let jobKey = NuvioAutomationDefaults.storeKey("NuvioAnalysisActiveJob")
 
-    /// Packets between throttle checks. Same slice as the previous loop.
+    /// Packets between throttle checks.
     static let packetsPerCheck = 64
-    /// Minimum sleep while a video is playing, once per [packetsPerCheck]. The old fixed sleep.
-    static let playingSleepFloorUs: useconds_t = 25_000
-    /// Work window that can earn extra sleep while a video is playing.
-    static let playingWorkBudgetMs: UInt64 = 20
-    /// Extra sleep per [playingWorkBudgetMs] of work, used only when it exceeds the floor.
-    /// 25 ms of sleep per 20 ms of work. Not 5 ms: that duty cycle would be hotter than the floor
-    /// on a short slice, and a playing video must not get a hotter analyser than before.
-    static let playingSleepPerBudgetMs: UInt64 = 25
-    /// Unchanged hold while the player is struggling (level 2).
-    static let strainedSleepUs: useconds_t = 250_000
-    /// Unchanged cap so a level that is never cleared cannot stall the queue (about a minute).
-    static let strainedMaxWaits = 240
+    /// Sleep slice while paused. Short enough that playback ending resumes the file quickly.
+    static let holdSleepUs: useconds_t = 250_000
+    private static var holding = false
 
     static func currentLevel() -> Int {
         UserDefaults.standard.integer(forKey: key)
     }
 
-    /// Sleeps when a playing or struggling player is holding the analyser back.
-    /// [workedNs] is the time since the previous check, not including that check's sleep.
-    /// Returns the nanoseconds spent inside the sleeps (0 when the level does not sleep).
+    /// Sleeps while playback, heat, or Low Power Mode is holding the analyser.
+    /// [workedNs] is unused: a pause does not decode a slice and then sleep.
+    /// Returns the nanoseconds spent inside the sleeps (0 when the level does not pause).
     static func yield(abort: MediaAnalyzerAbortFlag, workedNs: UInt64) -> UInt64 {
+        _ = workedNs
         var sleptNs: UInt64 = 0
         var level = currentLevel()
-        if level == 1 {
-            sleptNs &+= sleepPlaying(workedNs: workedNs, abort: abort)
+        if level <= 0 {
+            if holding {
+                holding = false
+                logHold(event: "start", level: 0)
+            }
             return sleptNs
         }
-        // Hold while the player struggles, but never for more than a minute at a time, so a level
-        // that is never cleared cannot stall the queue.
-        var waited = 0
-        while level >= 2 && !abort.isSet && waited < strainedMaxWaits {
-            sleptNs &+= measuredSleep(strainedSleepUs)
-            waited += 1
+        if !holding {
+            holding = true
+            logHold(event: "stop", level: level)
+        }
+        while level > 0 && !abort.isSet {
+            sleptNs &+= measuredSleep(holdSleepUs)
             level = currentLevel()
         }
-        return sleptNs
-    }
-
-    /// At least the old 25 ms. Longer work sleeps more, in slices `usleep` is known to honour.
-    private static func sleepPlaying(workedNs: UInt64, abort: MediaAnalyzerAbortFlag) -> UInt64 {
-        let workedMs = workedNs / 1_000_000
-        let budgetMs = workedMs * playingSleepPerBudgetMs / playingWorkBudgetMs
-        let floorMs = UInt64(playingSleepFloorUs) / 1_000
-        var remainingUs = max(floorMs, budgetMs) * 1_000
-        var sleptNs: UInt64 = 0
-        while remainingUs > 0 && !abort.isSet {
-            let slice = useconds_t(min(remainingUs, UInt64(strainedSleepUs)))
-            sleptNs &+= measuredSleep(slice)
-            remainingUs -= UInt64(slice)
+        if holding && (level <= 0 || abort.isSet) {
+            holding = false
+            logHold(event: "start", level: level)
         }
         return sleptNs
     }
@@ -816,16 +798,46 @@ private enum MediaAnalyzerThrottle {
         usleep(microseconds)
         return DispatchTime.now().uptimeNanoseconds &- started
     }
+
+    private static func logHold(event: String, level: Int) {
+        let reason: String
+        if level == 1 {
+            reason = "playback"
+        } else if level == 2 {
+            reason = "playback-strained"
+        } else if level == 3 {
+            reason = "power"
+        } else {
+            reason = "clear"
+        }
+        let job = UserDefaults.standard.string(forKey: jobKey)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let jobToken = (job?.isEmpty == false && job?.contains("/") == false && job?.contains(" ") == false) ? job! : "-"
+        let qos = MediaAnalyzerQosName.current()
+        let message = "analysis \(event) job=\(jobToken) reason=\(reason) qos=\(qos) thermal=\(Self.thermalName()) lowPower=\(ProcessInfo.processInfo.isLowPowerModeEnabled)"
+        InAppLogBridge.shared.info(tag: "Analysis/iOS", message: message)
+        DiagnosticsManager.shared.log(category: .performance, message: message)
+    }
+
+    private static func thermalName() -> String {
+        switch ProcessInfo.processInfo.thermalState {
+        case .nominal: return "nominal"
+        case .fair: return "fair"
+        case .serious: return "serious"
+        case .critical: return "critical"
+        @unknown default: return "unknown"
+        }
+    }
 }
 
 /// Analyser-thread QoS. The queue is created at utility. The thread is raised to userInitiated
-/// only while no player session is open (`NuvioAnalysisPlayerSessionOpen`), and put back when one is.
+/// only while no player session is open and the decode is not paused for playback or heat.
 private enum MediaAnalyzerQosName {
     private static let sessionKey = NuvioAutomationDefaults.storeKey("NuvioAnalysisPlayerSessionOpen")
     private static var lastApplied: qos_class_t = QOS_CLASS_UNSPECIFIED
 
     static func applyForCurrentSession() {
-        let target: qos_class_t = sessionOpen() ? QOS_CLASS_UTILITY : QOS_CLASS_USER_INITIATED
+        let held = MediaAnalyzerThrottle.currentLevel() > 0
+        let target: qos_class_t = (sessionOpen() || held) ? QOS_CLASS_UTILITY : QOS_CLASS_USER_INITIATED
         guard target != lastApplied else { return }
         if pthread_set_qos_class_self_np(target, 0) == 0 {
             lastApplied = target

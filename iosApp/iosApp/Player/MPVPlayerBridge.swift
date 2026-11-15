@@ -883,6 +883,9 @@ final class MPVPlayerViewController: UIViewController {
         setSetupOption("gpu-api", "vulkan")
         setSetupOption("gpu-context", "moltenvk")
         setSetupOption("hwdec", "videotoolbox")
+        // Audio clock, not display-resample. Display sync redraws at the panel rate, including
+        // 120 Hz, and keeps the GPU busy while the picture is paused.
+        setSetupOption("video-sync", "audio")
         // Precise seeks must decode reference frames. Dropping them leaves VideoToolbox on a blocky recovery picture.
         setSetupOption("hr-seek-framedrop", "no")
         // After repeated VideoToolbox failures, fall back to software decoding instead of a frozen picture.
@@ -937,6 +940,51 @@ final class MPVPlayerViewController: UIViewController {
     private static let demuxerMaxBytes = 64 * 1024 * 1024
 
     private static let demuxerMaxBackBytes = 32 * 1024 * 1024
+
+    /// `auto` becomes `auto-safe` so mpv only enables a hardware decoder it considers safe.
+    /// An empty value stays on VideoToolbox. `no` is the explicit software choice.
+    private func resolvedHardwareDecoder(_ value: String) -> String {
+        switch value {
+        case "", "auto":
+            return "auto-safe"
+        default:
+            return value
+        }
+    }
+
+    /// One line per file. If a common file is on the software decoder and the user did not turn
+    /// hardware decoding off, put VideoToolbox back. The line has the codec name, not the URL.
+    private func logHardwareDecoderOnce() {
+        let generation = mpvGeneration
+        mpvQueue.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            guard let self, self.mpvGeneration == generation, self.mpv != nil else { return }
+            let current = self.getString("hwdec-current") ?? ""
+            let codec = self.hardwareDecoderLogToken(self.getString("video-codec"))
+            let configured = self.resolvedHardwareDecoder(self.lastVideoOutputSettings?.hardwareDecoder ?? "videotoolbox")
+            let software = current.isEmpty || current == "no"
+            var active = current.isEmpty ? "unset" : current
+            if software && configured != "no" {
+                self.setStringProperty("hwdec", "videotoolbox")
+                active = "videotoolbox"
+                InAppLogBridge.shared.warn(
+                    tag: "MPV/iOS",
+                    message: "hwdec-current was \(current.isEmpty ? "unset" : current) codec=\(codec); set videotoolbox"
+                )
+            }
+            let line = "hwdec-current=\(active) codec=\(codec) configured=\(configured)"
+            InAppLogBridge.shared.info(tag: "MPV/iOS", message: line)
+            DiagnosticsManager.shared.log(category: .playback, message: line)
+        }
+    }
+
+    private func hardwareDecoderLogToken(_ raw: String?) -> String {
+        let value = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !value.isEmpty, value.count <= 32,
+              value.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" || $0 == "_" }) else {
+            return "unknown"
+        }
+        return value
+    }
 
     private func setSetupOption(_ name: String, _ value: String) {
         guard let ctx = mpv else { return }
@@ -1068,7 +1116,7 @@ final class MPVPlayerViewController: UIViewController {
 
     private func restoreHardwareDecodingIfLost() {
         guard mpv != nil else { return }
-        let configured = lastVideoOutputSettings?.hardwareDecoder ?? "videotoolbox"
+        let configured = resolvedHardwareDecoder(lastVideoOutputSettings?.hardwareDecoder ?? "videotoolbox")
         guard configured != "no" else { return }
         if pictureInPictureController?.isPictureInPictureActive == true {
             mpvQueue.async { [weak self] in self?.hwdecBeforeBackground = nil }
@@ -1286,6 +1334,9 @@ final class MPVPlayerViewController: UIViewController {
             publishNowPlayingForPlaybackSession()
         }
         setFlag("pause", false)
+        if lastVideoOutputSettings?.interpolation == true {
+            setStringProperty("interpolation", "yes")
+        }
         isPlayerPlaying = true
         playbackStateGeneration &+= 1
         let coreGeneration = mpvGeneration
@@ -1298,6 +1349,11 @@ final class MPVPlayerViewController: UIViewController {
     func pausePlayback() {
         guard mpv != nil else { return }
         setFlag("pause", true)
+        // Interpolation synthesizes frames at the display rate. Leave it off while paused
+        // so a 120 Hz panel does not keep redrawing a still picture.
+        if lastVideoOutputSettings?.interpolation == true {
+            setStringProperty("interpolation", "no")
+        }
         isPlayerPlaying = false
         playbackStateGeneration &+= 1
         if !isEmbeddedPreviewMode {
@@ -1714,7 +1770,7 @@ final class MPVPlayerViewController: UIViewController {
         metalLayer.wantsExtendedDynamicRangeContent = extendedDynamicRange
         guard mpv != nil else { return }
 
-        setStringProperty("hwdec", hardwareDecoder)
+        setStringProperty("hwdec", resolvedHardwareDecoder(hardwareDecoder))
         setStringProperty("target-colorspace-hint", targetColorspaceHint ? "yes" : "no")
         setStringProperty("tone-mapping", toneMapping)
         setStringProperty("hdr-compute-peak", hdrComputePeak ? "yes" : "no")
@@ -3121,6 +3177,7 @@ final class MPVPlayerViewController: UIViewController {
                             self.publishNowPlayingForPlaybackSession()
                         }
                         self.logCurrentAudioOutput()
+                        self.logHardwareDecoderOnce()
                         self.performDeviceLossResume()
                     }
                 case MPV_EVENT_PLAYBACK_RESTART:

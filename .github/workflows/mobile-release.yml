@@ -371,6 +371,13 @@ jobs:
           path: build/ios-ipa/*.ipa
           if-no-files-found: error
 
+      - name: Upload iOS dSYMs
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuvio-${{ needs.prepare.outputs.version }}-ios-dsym
+          path: build/ios-ipa/dsym
+          if-no-files-found: error
+
   # Creates the release with the APKs as soon as Android succeeds — does not wait for iOS.
   release:
     name: Create ${{ inputs.mode }} release

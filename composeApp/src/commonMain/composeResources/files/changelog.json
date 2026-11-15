@@ -9,7 +9,8 @@
       "fixed": [
         "Removed a stray line on the What's new sheet.",
         "Opening Sources during playback no longer crashes when two server streams share a title.",
-        "Next episode no longer crashes with downloaded episodes"
+        "Next episode no longer crashes with downloaded episodes",
+        "Uses less battery and stays cooler during playback"
       ]
     },
     {

@@ -1,0 +1,71 @@
+package com.nuvio.app.features.analysis
+
+/**
+ * Why on-device intro, segment, and learning analysis must not run.
+ * Playback wins while a video is actually playing. Heat and Low Power Mode still hold
+ * after playback stops, until the phone is idle and cool.
+ */
+internal enum class AnalysisThermal {
+    Nominal,
+    Fair,
+    Serious,
+    Critical,
+}
+
+internal data class AnalysisPowerSnapshot(
+    val thermal: AnalysisThermal,
+    val lowPowerMode: Boolean,
+)
+
+internal fun analysisPauseReason(
+    videoPlaying: Boolean,
+    thermal: AnalysisThermal,
+    lowPowerMode: Boolean,
+): String? = when {
+    videoPlaying -> "playback"
+    thermal == AnalysisThermal.Serious -> "thermal-serious"
+    thermal == AnalysisThermal.Critical -> "thermal-critical"
+    lowPowerMode -> "low-power"
+    else -> null
+}
+
+/** 0 runs. 1 pauses for playback. 2 pauses because playback is strained. 3 pauses for heat or Low Power Mode. */
+internal fun analysisThrottleLevel(
+    level: com.nuvio.app.features.downloads.PlaybackPriority.Level,
+    videoPlaying: Boolean,
+    thermal: AnalysisThermal = AnalysisThermal.Nominal,
+    lowPowerMode: Boolean = false,
+): Int {
+    if (videoPlaying) {
+        return if (level == com.nuvio.app.features.downloads.PlaybackPriority.Level.Strained) 2 else 1
+    }
+    return if (analysisPauseReason(videoPlaying = false, thermal, lowPowerMode) != null) 3 else 0
+}
+
+internal fun analysisQosLabel(playerSessionOpen: Boolean, paused: Boolean): String =
+    if (playerSessionOpen || paused) "utility" else "userInitiated"
+
+/**
+ * One diagnostics line. Tokens only: no URLs, paths, or secrets.
+ * [event] is start, stop, or thermal.
+ */
+internal fun analysisDiagnosticsLine(
+    event: String,
+    job: String,
+    reason: String,
+    qos: String,
+    power: AnalysisPowerSnapshot,
+): String {
+    val thermal = power.thermal.name.lowercase()
+    val lowPower = if (power.lowPowerMode) "true" else "false"
+    return "analysis ${token(event)} job=${token(job)} reason=${token(reason)} qos=${token(qos)} " +
+        "thermal=$thermal lowPower=$lowPower"
+}
+
+private fun token(raw: String): String {
+    val trimmed = raw.trim()
+    if (trimmed.isEmpty() || trimmed.length > 64) return "-"
+    if (trimmed.any { it.isWhitespace() || it == '/' || it == '\\' || it == '?' || it == '&' || it == '@' }) return "-"
+    if (!trimmed.all { it.isLetterOrDigit() || it == '-' || it == '_' || it == '.' || it == ':' }) return "-"
+    return trimmed
+}

@@ -15,3 +15,8 @@ internal actual fun setAnalysisThrottleLevel(level: Int) {
 internal actual fun setAnalysisPlayerSessionOpen(open: Boolean) {
     NSUserDefaults.standardUserDefaults.setBool(open, forKey = isolateStorageKey("NuvioAnalysisPlayerSessionOpen"))
 }
+
+/** Read by MediaAnalyzer.swift when it logs a pause. The id only, never a path. */
+internal actual fun setAnalysisActiveJob(jobId: String) {
+    NSUserDefaults.standardUserDefaults.setObject(jobId, forKey = isolateStorageKey("NuvioAnalysisActiveJob"))
+}

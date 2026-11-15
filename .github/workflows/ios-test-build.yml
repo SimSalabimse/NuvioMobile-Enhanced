@@ -154,3 +154,12 @@ jobs:
           path: build/ios-ipa/*.ipa
           if-no-files-found: error
           retention-days: 7
+
+      - name: Upload dSYMs
+        if: inputs.configuration == 'Release'
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuvio-test-${{ inputs.configuration }}-dsym-${{ github.sha }}
+          path: build/ios-ipa/dsym
+          if-no-files-found: error
+          retention-days: 14

@@ -1,19 +1,26 @@
 package com.nuvio.app.features.downloads
 
 import com.nuvio.app.core.logging.InAppLogger
+import com.nuvio.app.features.analysis.AnalysisPower
+import com.nuvio.app.features.analysis.analysisDiagnosticsLine
+import com.nuvio.app.features.analysis.analysisPauseReason
+import com.nuvio.app.features.analysis.analysisQosLabel
+import com.nuvio.app.features.analysis.analysisThrottleLevel
 import com.nuvio.app.features.analysis.setAnalysisPlayerSessionOpen
 import com.nuvio.app.features.analysis.setAnalysisThrottleLevel
+import com.nuvio.app.features.diagnostics.DiagnosticsLogger
 
 /**
- * Playback first, then downloads, then on-device analysis. Throttles rather than stops:
+ * Playback first, then downloads, then on-device analysis.
  *
- * - [Level.Normal]: no player, or it has been paused for [PAUSED_RELEASE_MS]. Full speed.
- * - [Level.Playing]: one download at a time. While the video is actually playing, analysis
- *   keeps going in small slices with sleeps. A pause or the end of playback does not sleep analysis.
+ * - [Level.Normal]: no player, or it has been paused for [PAUSED_RELEASE_MS]. Analysis may run,
+ *   unless the phone is seriously hot or in Low Power Mode.
+ * - [Level.Playing]: one download at a time. While the video is actually playing, intro, segment,
+ *   and learning analysis is paused. A pause or the end of playback lets it resume.
  *   Downloads still use this level's cap until [PAUSED_RELEASE_MS].
  * - [Level.Strained]: the player stalled mid-playback (a local file read at ~150 kB/s with two
  *   downloads writing and the analyser decoding is how this was found): waiting for data for
- *   [STRAIN_AFTER_MS] at the spot it was playing. Downloads wait and analysis pauses until
+ *   [STRAIN_AFTER_MS] at the spot it was playing. Downloads wait and analysis stays paused until
  *   [STRAIN_COOL_DOWN_MS] after the last such stall, then back to Playing.
  *
  * Loading that is not a stall never strains or extends the cool-down: the first load before a
@@ -44,6 +51,7 @@ internal object PlaybackPriority {
     private var lastTickMs = 0L
     /** Last level written to the platform, so a playing snapshot does not rewrite it every tick. */
     private var appliedAnalysisThrottle = 0
+    private var appliedPauseReason: String? = null
 
     fun sessionStarted(isLocalFile: Boolean) {
         sessionOpen = true
@@ -76,8 +84,8 @@ internal object PlaybackPriority {
         if (!wantsToPlay) {
             bufferingSinceMs = 0L
             if (pausedSinceMs == 0L) pausedSinceMs = nowMs
-            // The video is not playing. Analysis stops sleeping immediately. Download cap is unchanged
-            // until the pause has lasted [PAUSED_RELEASE_MS].
+            // The video is not playing, so analysis may resume. Heat and Low Power Mode still hold it.
+            // Download cap is unchanged until the pause has lasted [PAUSED_RELEASE_MS].
             publishAnalysisThrottle(videoPlaying = false)
             if (level != Level.Normal && nowMs - pausedSinceMs >= PAUSED_RELEASE_MS) {
                 InAppLogger.info("PlaybackPriority", "paused for a while, background work at full speed")
@@ -120,6 +128,25 @@ internal object PlaybackPriority {
         publishAnalysisThrottle(videoPlaying = sessionOpen && pausedSinceMs == 0L)
     }
 
+    /** Thermal state or Low Power Mode changed. Logs every change, then reapplies the hold. */
+    fun notePowerChanged() {
+        val playing = sessionOpen && pausedSinceMs == 0L
+        val power = AnalysisPower.snapshot()
+        val line = analysisDiagnosticsLine(
+            event = "thermal",
+            job = com.nuvio.app.features.analysis.MediaAnalysisScheduler.activeJobId(),
+            reason = "thermal-change",
+            qos = analysisQosLabel(playerSessionOpen = sessionOpen, paused = playing || power.holdsAnalysis()),
+            power = power,
+        )
+        InAppLogger.info("PlaybackPriority", line)
+        DiagnosticsLogger.logPerformance(line)
+        publishAnalysisThrottle(videoPlaying = playing)
+    }
+
+    /** Null while analysis may run. Otherwise playback, strain, heat, or Low Power Mode. */
+    fun analysisPauseReason(): String? = appliedPauseReason
+
     fun sessionEnded() {
         analysisBoosted = false
         setAnalysisPlayerSessionOpen(false)
@@ -144,15 +171,47 @@ internal object PlaybackPriority {
         publishAnalysisThrottle(videoPlaying = sessionOpen && pausedSinceMs == 0L)
         InAppLogger.info("PlaybackPriority", "level=$next downloads allowed=${downloadCap()}")
         reapplyDownloadCap()
-        // Make sure queued analysis is running (throttled) rather than left waiting.
-        if (next != Level.Strained) com.nuvio.app.features.analysis.MediaAnalysisScheduler.kick()
+        // A playing or hot phone holds the queue. Anything else should pick the work back up.
+        if (appliedPauseReason == null) com.nuvio.app.features.analysis.MediaAnalysisScheduler.kick()
     }
 
     private fun publishAnalysisThrottle(videoPlaying: Boolean) {
-        val next = analysisThrottleLevel(level, videoPlaying = videoPlaying, boosted = analysisBoosted)
-        if (next == appliedAnalysisThrottle) return
+        val power = AnalysisPower.snapshot()
+        val next = analysisThrottleLevel(
+            level,
+            videoPlaying = videoPlaying,
+            thermal = power.thermal,
+            lowPowerMode = power.lowPowerMode,
+        )
+        val reason = when (next) {
+            0 -> null
+            1 -> "playback"
+            2 -> "playback-strained"
+            else -> analysisPauseReason(videoPlaying = false, power.thermal, power.lowPowerMode) ?: "power"
+        }
+        if (next == appliedAnalysisThrottle && reason == appliedPauseReason) return
+        val previous = appliedPauseReason
         appliedAnalysisThrottle = next
+        appliedPauseReason = reason
         setAnalysisThrottleLevel(next)
+        val job = com.nuvio.app.features.analysis.MediaAnalysisScheduler.activeJobId()
+        val qos = analysisQosLabel(playerSessionOpen = sessionOpen, paused = next != 0)
+        val powerLine = { event: String, why: String ->
+            analysisDiagnosticsLine(event, job, why, qos, power)
+        }
+        if (previous == null && reason != null) {
+            logAnalysisHold(powerLine("stop", reason))
+        } else if (previous != null && reason == null) {
+            logAnalysisHold(powerLine("start", "clear"))
+            com.nuvio.app.features.analysis.MediaAnalysisScheduler.kick(startDelayMs = 0L)
+        } else if (reason != null && previous != reason) {
+            logAnalysisHold(powerLine("stop", reason))
+        }
+    }
+
+    private fun logAnalysisHold(line: String) {
+        InAppLogger.info("PlaybackPriority", line)
+        DiagnosticsLogger.logPerformance(line)
     }
 
     /** Process start: drop a session flag or throttle left behind by a player in an earlier run. */
@@ -162,22 +221,11 @@ internal object PlaybackPriority {
         pausedSinceMs = 0L
         level = Level.Normal
         appliedAnalysisThrottle = 0
+        appliedPauseReason = null
         setAnalysisPlayerSessionOpen(false)
         setAnalysisThrottleLevel(0)
     }
 }
 
-/**
- * Analysis throttle while [level] is the download/playback level.
- * 0 is full speed, 1 is the playing slice, 2 holds while the player is struggling.
- * A video that is not actually playing (no session, paused, or ended) does not sleep analysis.
- * [Level.Strained] still holds, but only while [videoPlaying] is true.
- */
-internal fun analysisThrottleLevel(
-    level: PlaybackPriority.Level,
-    videoPlaying: Boolean,
-    boosted: Boolean,
-): Int {
-    if (boosted || !videoPlaying) return 0
-    return level.analysisThrottle
-}
+private fun com.nuvio.app.features.analysis.AnalysisPowerSnapshot.holdsAnalysis(): Boolean =
+    analysisPauseReason(videoPlaying = false, thermal, lowPowerMode) != null

@@ -50,8 +50,8 @@ fi
 # shellcheck source=ipa-live-status.sh
 source "${ipa_status_helper}"
 
-# Release builds keep a dSYM, so stripping the shipped binary loses nothing for crash reports.
-# Fast builds use plain dwarf without a dSYM and stay unstripped unless asked.
+# Release configuration keeps a dSYM (app and Kotlin framework). Stripping the shipped
+# binary does not remove that bundle. Debug fast builds stay on plain dwarf unless asked.
 # NUVIO_IOS_STRIP_SYMBOLS=1/0 overrides the default for either mode.
 if [[ "${build_mode}" == "release" ]]; then
     strip_symbols="${NUVIO_IOS_STRIP_SYMBOLS:-1}"
@@ -96,7 +96,11 @@ fast_flags=()
 caffeinate_cmd=()
 if [[ "${build_mode}" == "fast" ]]; then
     build_environment+=(KOTLIN_FRAMEWORK_BUILD_TYPE=debug)
-    fast_flags=(ARCHS=arm64 ONLY_ACTIVE_ARCH=YES DEBUG_INFORMATION_FORMAT=dwarf -parallelizeTargets -jobs "$(sysctl -n hw.ncpu)")
+    fast_flags=(ARCHS=arm64 ONLY_ACTIVE_ARCH=YES -parallelizeTargets -jobs "$(sysctl -n hw.ncpu)")
+    # Release uses the project dwarf-with-dsym setting. Debug stays on plain dwarf.
+    if [[ "${configuration}" != "Release" ]]; then
+        fast_flags+=(DEBUG_INFORMATION_FORMAT=dwarf)
+    fi
 elif [[ "${build_mode}" != "release" ]]; then
     echo "Unsupported IOS_BUILD_MODE: ${build_mode}" >&2
     exit 1
@@ -186,5 +190,15 @@ temporary_ipa="${package_root}/nuvio-${version}-enhanced-${configuration_slug}.i
 unzip -tq "${temporary_ipa}"
 mv "${temporary_ipa}" "${ipa_path}"
 ipa_live_status_record_ipa "${ipa_path}" "${version}"
+
+if [[ "${configuration}" == "Release" ]]; then
+    dsym_dest="${output_directory}/dsym"
+    rm -rf "${dsym_dest}"
+    REQUIRE_APP_DSYM=1 REQUIRE_KOTLIN_DSYM=1 \
+        "${repository_root}/scripts/collect-ios-dsyms.sh" \
+        "${dsym_dest}" \
+        "${products_directory}" \
+        "${repository_root}/composeApp/build/bin"
+fi
 
 echo "Created ${ipa_path}"
