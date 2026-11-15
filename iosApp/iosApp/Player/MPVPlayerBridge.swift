@@ -420,6 +420,8 @@ final class MPVPlayerViewController: UIViewController {
         }
     }
 
+    private var teardownWaiters: [() -> Void] = []
+    private var teardownFinished = false
     private let mpvLifecycleLock = NSLock()
     private var storedMpvGeneration: UInt64 = 0
     private var mpvGeneration: UInt64 {
@@ -602,21 +604,39 @@ final class MPVPlayerViewController: UIViewController {
 
     private static var livePlayers: [WeakPlayer] = []
 
-    private func retireOtherPlayers() {
-        guard !isEmbeddedPreviewMode else { return }
+    /// The next player must not attach until the previous mpv core, including
+    /// its `vo` thread, has finished. A downloaded next episode starts at once,
+    /// so the old thread used to exit while the new view was already up.
+    private func retireOtherPlayers(then start: @escaping () -> Void) {
+        guard !isEmbeddedPreviewMode else {
+            start()
+            return
+        }
         let others = Self.livePlayers.compactMap(\.value).filter { other in
             other !== self &&
+                !other.teardownFinished &&
                 !other.isEmbeddedPreviewMode &&
-                !other.isPlayerDestroyed &&
                 !PlayerPictureInPictureParking.shared.isParked(player: other)
         }
         Self.livePlayers.removeAll { $0.value == nil }
         Self.livePlayers.append(WeakPlayer(self))
-        for other in others {
-            other.destroyPlayer()
-        }
         if PlayerPictureInPictureParking.shared.hasParkedPlayer {
             PlayerPictureInPictureParking.shared.closeParked()
+        }
+        guard !others.isEmpty else {
+            start()
+            return
+        }
+        let group = DispatchGroup()
+        for other in others {
+            group.enter()
+            other.destroyPlayer {
+                group.leave()
+            }
+        }
+        group.notify(queue: .main) { [weak self] in
+            guard let self, !self.isPlayerDestroyed else { return }
+            start()
         }
     }
 
@@ -652,34 +672,40 @@ final class MPVPlayerViewController: UIViewController {
             pip.setSubtitleText(getString("sub-text") ?? "", bold: lastSubtitleStyle?.bold ?? false)
         }
         view.layer.addSublayer(pip.displayLayer)
+        // Standalone Metal layer. It is not the view's backing layer, and its
+        // delegate must not be the UIView. mpv renders on the `vo` thread.
+        metalLayer.delegate = nil
         view.layer.addSublayer(metalLayer)
         layoutPlayerSurfaces()
 
-        retireOtherPlayers()
-        setupMpv()
-        if let settings = lastVideoOutputSettings {
-            configureVideoOutput(
-                hardwareDecoder: settings.hardwareDecoder,
-                targetColorspaceHint: settings.targetColorspaceHint,
-                toneMapping: settings.toneMapping,
-                hdrComputePeak: settings.hdrComputePeak,
-                targetPrimaries: settings.targetPrimaries,
-                targetTransfer: settings.targetTransfer,
-                extendedDynamicRange: settings.extendedDynamicRange,
-                deband: settings.deband,
-                interpolation: settings.interpolation,
-                brightness: settings.brightness,
-                contrast: settings.contrast,
-                saturation: settings.saturation,
-                gamma: settings.gamma
-            )
-        }
-        if let audioOutput = lastAudioOutput { setStringProperty("ao", audioOutput) }
-        if !isEmbeddedPreviewMode {
-            activateAudioSessionForPlayback()
-        }
         setupNotifications()
         refreshImmersiveSystemUI()
+        retireOtherPlayers { [weak self] in
+            guard let self, !self.isPlayerDestroyed else { return }
+            self.setupMpv()
+            if let settings = self.lastVideoOutputSettings {
+                self.configureVideoOutput(
+                    hardwareDecoder: settings.hardwareDecoder,
+                    targetColorspaceHint: settings.targetColorspaceHint,
+                    toneMapping: settings.toneMapping,
+                    hdrComputePeak: settings.hdrComputePeak,
+                    targetPrimaries: settings.targetPrimaries,
+                    targetTransfer: settings.targetTransfer,
+                    extendedDynamicRange: settings.extendedDynamicRange,
+                    deband: settings.deband,
+                    interpolation: settings.interpolation,
+                    brightness: settings.brightness,
+                    contrast: settings.contrast,
+                    saturation: settings.saturation,
+                    gamma: settings.gamma
+                )
+            }
+            if let audioOutput = self.lastAudioOutput { self.setStringProperty("ao", audioOutput) }
+            if !self.isEmbeddedPreviewMode {
+                self.activateAudioSessionForPlayback()
+            }
+            self.attemptStartPendingLoad()
+        }
     }
 
     func setPictureInPicturePlaceholderVisible(_ visible: Bool) {
@@ -796,6 +822,7 @@ final class MPVPlayerViewController: UIViewController {
     }
 
     private func applyExternallyManagedViewSize(_ size: CGSize) {
+        PlayerSurfaceThreading.assertMainThread()
         let targetBounds = CGRect(origin: .zero, size: size)
         if view.bounds != targetBounds {
             view.bounds = targetBounds
@@ -809,6 +836,7 @@ final class MPVPlayerViewController: UIViewController {
     }
 
     private func layoutPlayerSurfaces() {
+        PlayerSurfaceThreading.assertMainThread()
         let bounds = CGRect(origin: .zero, size: externallyManagedViewSize ?? view.bounds.size)
         guard bounds.width > 1, bounds.height > 1 else { return }
 
@@ -1538,8 +1566,15 @@ final class MPVPlayerViewController: UIViewController {
     }
 
     private func teardownMpvCore(completion: (() -> Void)? = nil) {
+        let finish: () -> Void = {
+            if Thread.isMainThread {
+                completion?()
+            } else {
+                DispatchQueue.main.async { completion?() }
+            }
+        }
         guard let ctx = mpv else {
-            completion?()
+            finish()
             return
         }
         mpv = nil
@@ -1548,29 +1583,40 @@ final class MPVPlayerViewController: UIViewController {
         pendingLoadRetryWorkItem?.cancel()
         pendingLoadRetryWorkItem = nil
         pendingLoadRequest = nil
-        detachMetalLayerBeforeTeardown()
 
-        mpvQueue.async { [weak self, eventQueue, metalLayer] in
-            eventQueue.sync {}
-            mpv_terminate_destroy(ctx)
-            withExtendedLifetime(metalLayer) {}
-            eventQueue.async { self?.sawDeviceLossInLog = false }
-            if let completion {
-                DispatchQueue.main.async(execute: completion)
+        let queue = mpvQueue
+        let destroyCore = { [weak self, eventQueue, metalLayer] in
+            queue.async {
+                eventQueue.sync {}
+                // Joins the vo thread. The layer is already off the UIView,
+                // and that thread has committed its own Core Animation work.
+                mpv_terminate_destroy(ctx)
+                withExtendedLifetime(metalLayer) {}
+                eventQueue.async { self?.sawDeviceLossInLog = false }
+                finish()
+            }
+        }
+        if Thread.isMainThread {
+            detachMetalLayerBeforeTeardown()
+            destroyCore()
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.detachMetalLayerBeforeTeardown()
+                destroyCore()
             }
         }
     }
 
     private func detachMetalLayerBeforeTeardown() {
-        let detach = { [metalLayer] in
-            guard metalLayer.superlayer != nil else { return }
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            metalLayer.removeFromSuperlayer()
-            CATransaction.commit()
-        }
-        guard Thread.isMainThread else { return }
-        detach()
+        PlayerSurfaceThreading.assertMainThread()
+        guard metalLayer.superlayer != nil else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        metalLayer.removeFromSuperlayer()
+        CATransaction.commit()
+        // Lay the hosting view out here, on the main thread, before the vo
+        // thread is joined and exits.
+        CATransaction.flush()
     }
 
     private func reapplyRememberedSettings() {
@@ -2321,9 +2367,25 @@ final class MPVPlayerViewController: UIViewController {
         }
     }
 
-    func destroyPlayer() {
-        guard !isPlayerDestroyed else { return }
-        Self.livePlayers.removeAll { $0.value == nil || $0.value === self }
+    func destroyPlayer(completion: (() -> Void)? = nil) {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else {
+                    completion?()
+                    return
+                }
+                self.destroyPlayer(completion: completion)
+            }
+            return
+        }
+        if teardownFinished {
+            completion?()
+            return
+        }
+        if isPlayerDestroyed {
+            if let completion { teardownWaiters.append(completion) }
+            return
+        }
         pictureInPictureController?.invalidate()
         pictureInPictureController = nil
         NotificationCenter.default.removeObserver(self)
@@ -2356,7 +2418,18 @@ final class MPVPlayerViewController: UIViewController {
         isRecoveringFromDeviceLoss = false
         releaseGpuProbeResources()
         flushPendingCoalescedLog()
-        teardownMpvCore()
+        teardownMpvCore { [weak self] in
+            guard let self else {
+                completion?()
+                return
+            }
+            let waiters = self.teardownWaiters
+            self.teardownWaiters = []
+            self.teardownFinished = true
+            Self.livePlayers.removeAll { $0.value == nil || $0.value === self }
+            completion?()
+            waiters.forEach { $0() }
+        }
     }
 
     private func activateAudioSessionForPlayback() {
