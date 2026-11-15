@@ -22,7 +22,9 @@ node_modules/
 logs/
 analysis/
 !composeApp/src/*/kotlin/com/nuvio/app/features/analysis/
-Docs
+Docs/*
+!Docs/design/
+!Docs/design/**
 SUPPORTER_COSMETICS.md
 supabase/migrations/
 keystore/
