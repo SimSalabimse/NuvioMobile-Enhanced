@@ -2,6 +2,7 @@ package com.nuvio.app.features.downloads
 
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.features.analysis.AnalysisPower
+import com.nuvio.app.features.analysis.MediaAnalyzerPlatform
 import com.nuvio.app.features.analysis.analysisDiagnosticsLine
 import com.nuvio.app.features.analysis.analysisPauseReason
 import com.nuvio.app.features.analysis.analysisQosLabel
@@ -44,6 +45,9 @@ internal object PlaybackPriority {
     var level: Level = Level.Normal
         private set
     private var sessionOpen = false
+    /** True only while the video is actually playing, not while it is paused or stopped. */
+    private var videoPlaying = false
+    private var appliedDownloadGateKey: String? = null
     private var pausedSinceMs = 0L
     private var bufferingSinceMs = 0L
     private var lastStrainMs = 0L
@@ -62,6 +66,8 @@ internal object PlaybackPriority {
         playedSinceLoad = false
         lastPositionMs = -1L
         lastTickMs = 0L
+        videoPlaying = true
+        appliedDownloadGateKey = null
         setAnalysisPlayerSessionOpen(true)
         InAppLogger.info("PlaybackPriority", "player opened local=$isLocalFile")
         apply(Level.Playing, always = true)
@@ -73,6 +79,15 @@ internal object PlaybackPriority {
      */
     fun noteSnapshot(wantsToPlay: Boolean, buffering: Boolean, positionMs: Long, nowMs: Long) {
         if (!sessionOpen) return
+        videoPlaying = wantsToPlay
+        try {
+            noteSnapshotBody(buffering, positionMs, nowMs)
+        } finally {
+            publishDownloadGate()
+        }
+    }
+
+    private fun noteSnapshotBody(buffering: Boolean, positionMs: Long, nowMs: Long) {
         if (lastPositionMs >= 0L && lastTickMs > 0L) {
             val moved = positionMs - lastPositionMs
             if (moved < -JUMP_SLACK_MS || moved > (nowMs - lastTickMs) * MAX_SPEED + JUMP_SLACK_MS) {
@@ -82,11 +97,12 @@ internal object PlaybackPriority {
         }
         lastPositionMs = positionMs
         lastTickMs = nowMs
-        if (!wantsToPlay) {
+        if (!videoPlaying) {
             bufferingSinceMs = 0L
             if (pausedSinceMs == 0L) pausedSinceMs = nowMs
             // The video is not playing, so analysis may resume. Heat and Low Power Mode still hold it.
-            // Download cap is unchanged until the pause has lasted [PAUSED_RELEASE_MS].
+            // Downloads resume as soon as playback pauses. The two-minute wait is only the
+            // analysis level returning to Normal.
             publishAnalysisThrottle(videoPlaying = false)
             if (level != Level.Normal && nowMs - pausedSinceMs >= PAUSED_RELEASE_MS) {
                 InAppLogger.info("PlaybackPriority", "paused for a while, background work at full speed")
@@ -143,6 +159,7 @@ internal object PlaybackPriority {
         InAppLogger.info("PlaybackPriority", line)
         DiagnosticsLogger.logPerformance(line)
         publishAnalysisThrottle(videoPlaying = playing)
+        publishDownloadGate()
     }
 
     /** Null while analysis may run. Otherwise playback, strain, heat, or Low Power Mode. */
@@ -150,6 +167,8 @@ internal object PlaybackPriority {
 
     fun sessionEnded() {
         analysisBoosted = false
+        videoPlaying = false
+        appliedDownloadGateKey = null
         setAnalysisPlayerSessionOpen(false)
         if (!sessionOpen) return
         sessionOpen = false
@@ -160,18 +179,42 @@ internal object PlaybackPriority {
         com.nuvio.app.features.analysis.MediaAnalysisStatus.resultsChanged()
     }
 
-    /** Downloads allowed now: the level's cap, or none while the player is open when that is chosen. */
-    fun downloadCap(): Int =
-        if (level != Level.Normal && SmartDownloadSettings.snapshot().pauseDuringPlayback) 0 else level.maxDownloads
+    /**
+     * Downloads follow the same heat, Low Power Mode, and playback signal as analysis.
+     * While a video is playing the queue keeps one transfer and starts no Smart Download.
+     * A pause or stop opens the queue again. Wi-Fi plus charging at nominal heat runs at full speed.
+     */
+    fun downloadGate(): DownloadGateDecision {
+        val power = AnalysisPower.snapshot()
+        return downloadGateDecision(
+            videoPlaying = videoPlaying,
+            strained = level == Level.Strained,
+            thermal = power.thermal,
+            lowPowerMode = power.lowPowerMode,
+            charging = MediaAnalyzerPlatform.isCharging(),
+            onWifi = DownloadNetworkGuard.isOnWifi(),
+            pauseWhileWatching = SmartDownloadSettings.snapshot().pauseDuringPlayback,
+        )
+    }
+
+    fun downloadCap(): Int = downloadGate().maxActive
 
     fun reapplyDownloadCap() = DownloadsRepository.setPlaybackDownloadCap(downloadCap())
+
+    private fun publishDownloadGate() {
+        val gate = downloadGate()
+        val key = "${gate.state}|${gate.reason}|${gate.maxActive}|${gate.allowNewAuto}|${gate.lowPriority}"
+        if (key == appliedDownloadGateKey) return
+        appliedDownloadGateKey = key
+        reapplyDownloadCap()
+    }
 
     private fun apply(next: Level, always: Boolean = false) {
         if (level == next && !always) return
         level = next
         publishAnalysisThrottle(videoPlaying = sessionOpen && pausedSinceMs == 0L)
         InAppLogger.info("PlaybackPriority", "level=$next downloads allowed=${downloadCap()}")
-        reapplyDownloadCap()
+        publishDownloadGate()
         // A playing or hot phone holds the queue. Anything else should pick the work back up.
         if (appliedPauseReason == null) com.nuvio.app.features.analysis.MediaAnalysisScheduler.kick()
     }
@@ -224,8 +267,10 @@ internal object PlaybackPriority {
     /** Process start: drop a session flag or throttle left behind by a player in an earlier run. */
     fun clearStaleSession() {
         sessionOpen = false
+        videoPlaying = false
         analysisBoosted = false
         pausedSinceMs = 0L
+        appliedDownloadGateKey = null
         level = Level.Normal
         appliedAnalysisThrottle = 0
         appliedPauseReason = null

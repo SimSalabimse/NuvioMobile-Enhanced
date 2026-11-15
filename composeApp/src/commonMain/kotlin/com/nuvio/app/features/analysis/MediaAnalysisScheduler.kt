@@ -129,6 +129,11 @@ internal expect object MediaAnalyzerPlatform {
      * null when it failed or was cancelled.
      */
     suspend fun fingerprintClip(url: String, headers: Map<String, String>, startMs: Long, endMs: Long): String?
+    /**
+     * Decodes only the first [windowMs] of a local file, at utility priority.
+     * The caller does not store the result: a short window is not a full fingerprint.
+     */
+    suspend fun analyzeIntroWindow(fileUri: String, windowMs: Long): String?
 }
 
 @Serializable
@@ -171,7 +176,12 @@ internal object MediaAnalysisScheduler {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val json = LenientJson
+    private val delayWake = AnalysisDelayWake()
     private var job: Job? = null
+    private var introWindowJob: Job? = null
+
+    /** Host tests observe kick even when this platform has no analyser. */
+    internal var kickHookForTest: ((Long) -> Unit)? = null
     private val runMutex = Mutex()
     private val runAgain = atomic(false)
 
@@ -213,6 +223,9 @@ internal object MediaAnalysisScheduler {
         referenceNotBefore.clear()
         analyzerLane.finish()
         supportedOverride = null
+        kickHookForTest = null
+        introWindowJob?.cancel()
+        introWindowJob = null
         priorityItemId = null
         playbackStrainExemptId = null
         currentItem = null
@@ -233,6 +246,9 @@ internal object MediaAnalysisScheduler {
 
     /** Starts a pass over finished downloads unless one is already running. */
     fun kick(startDelayMs: Long = START_DELAY_MS) {
+        kickHookForTest?.invoke(startDelayMs)
+        // Only an immediate kick ends a poll sleep. A normal 20s kick must not cancel it.
+        if (startDelayMs <= 0L) delayWake.kick()
         if (!analyserSupported()) return
         if (!runMutex.tryLock()) {
             runAgain.value = true
@@ -253,7 +269,7 @@ internal object MediaAnalysisScheduler {
             val self = kotlin.coroutines.coroutineContext[Job]
             MediaAnalysisStatus.setJob(AnalysisJobState.Starting)
             try {
-                delay(startDelayMs)
+                delayWake.sleep(startDelayMs)
                 runPending(fromBackgroundTask = false)
             } finally {
                 if (job === self && MediaAnalysisStatus.job.value !is AnalysisJobState.WaitingForCharger) {
@@ -311,6 +327,31 @@ internal object MediaAnalysisScheduler {
         if (job?.isActive != true) kick(startDelayMs = 0L) else {
             job?.cancel(); job = null; kick(startDelayMs = 0L)
         }
+    }
+
+    /**
+     * Light pass of the next episode's intro window. It does not join the main queue,
+     * so playback holding that queue does not cancel it. The JSON is not saved.
+     */
+    fun offerIntroWindow(itemId: String, fileUri: String) {
+        if (introWindowJob?.isActive == true) return
+        if (!analyserSupported()) {
+            logIntroWindowResult(itemId, "unsupported")
+            return
+        }
+        introWindowJob = scope.launch(Dispatchers.Default) {
+            val raw = runCatching { MediaAnalyzerPlatform.analyzeIntroWindow(fileUri, INTRO_WINDOW_MS) }.getOrNull()
+            val parsed = raw?.let { runCatching { json.decodeFromString(RawMediaAnalysis.serializer(), it) }.getOrNull() }
+            val result = if (parsed != null && parsed.durationMs > 0L) "scanned" else "aborted"
+            logIntroWindowResult(itemId, result)
+        }
+    }
+
+    private fun logIntroWindowResult(itemId: String, result: String) {
+        val token = itemId.trim().takeIf { it.isNotEmpty() && it.none { ch -> ch.isWhitespace() || ch == '/' } } ?: "-"
+        val line = "intro window id=$token result=$result qos=utility"
+        InAppLogger.info("Analysis", line)
+        com.nuvio.app.features.diagnostics.DiagnosticsLogger.logPerformance(line)
     }
 
     fun cancel() {
@@ -371,7 +412,7 @@ internal object MediaAnalysisScheduler {
                 MediaAnalysisStatus.setJob(AnalysisJobState.WaitingForCharger)
                 // In the app, keep checking: nothing else starts the queue when the charger goes in.
                 if (fromBackgroundTask) return false
-                delay(CHARGER_POLL_MS)
+                delayWake.sleep(CHARGER_POLL_MS)
                 continue
             }
             // Pause while a video is playing, and also while the phone is seriously hot or in
@@ -384,7 +425,7 @@ internal object MediaAnalysisScheduler {
                 }
                 noteWait(pauseReason, true)
                 MediaAnalysisStatus.setJob(AnalysisJobState.WaitingForPlayback)
-                delay(PLAYBACK_POLL_MS)
+                delayWake.sleep(PLAYBACK_POLL_MS)
                 continue
             }
             val localItem = nextPending()

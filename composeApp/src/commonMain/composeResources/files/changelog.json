@@ -2,6 +2,18 @@
   "releases": [
     {
       "version": "0.6.10.1",
+      "build": 221,
+      "date": "2026-11-15",
+      "new": [
+        "Downloads wait while a video is playing, and they pause when the phone is hot or in Low Power Mode.",
+        "The next downloaded episode can be checked for its intro while the current one finishes.",
+        "Holding a Continue Watching card always shows that card."
+      ],
+      "improved": [],
+      "fixed": []
+    },
+    {
+      "version": "0.6.10.1",
       "build": 220,
       "date": "2026-11-14",
       "new": [],

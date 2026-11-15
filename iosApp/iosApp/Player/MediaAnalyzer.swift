@@ -105,6 +105,21 @@ final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
 
     /// Fingerprints [startMs, endMs] of another episode's stream at [url]; the audio is decoded in
     /// memory only (nothing is written to disk). [onDone] gets `{"startMs","stepMs","fingerprint"}`.
+    /// First few minutes of a downloaded file. Stays at utility QoS and stops if the phone heats up.
+    /// The caller does not store this as the episode fingerprint.
+    func analyzeIntroWindow(fileUri: String, windowMs: Int64, onDone: @escaping (String?) -> Void) {
+        let flag = startJob()
+        setRunningFile(fileUri)
+        MediaAnalyzerStatus.shared.begin()
+        queue.async {
+            MediaAnalyzerQosName.restoreUtility()
+            let result = MediaAnalysisRun(fileUri: fileUri, abort: flag, windowMs: windowMs).run()
+            self.endJob(flag)
+            self.setRunningFile(nil)
+            DispatchQueue.main.async { onDone(result) }
+        }
+    }
+
     func fingerprintClip(
         url: String,
         headers: [String: String],
@@ -258,10 +273,20 @@ private final class MediaAnalysisRun {
 
     private let fileUri: String
     private let abort: MediaAnalyzerAbortFlag
+    /// When set, decode only this many milliseconds from the start and ignore the playback hold.
+    private let windowMs: Int64?
 
-    init(fileUri: String, abort: MediaAnalyzerAbortFlag) {
+    init(fileUri: String, abort: MediaAnalyzerAbortFlag, windowMs: Int64? = nil) {
         self.fileUri = fileUri
         self.abort = abort
+        self.windowMs = windowMs
+    }
+
+    /// Serious or critical heat, or Low Power Mode, ends the short intro pass.
+    private static func introPowerAbort() -> Bool {
+        let thermal = ProcessInfo.processInfo.thermalState
+        if thermal == .serious || thermal == .critical { return true }
+        return ProcessInfo.processInfo.isLowPowerModeEnabled
     }
 
     func run() -> String? {
@@ -396,11 +421,28 @@ private final class MediaAnalysisRun {
         var packetsSinceThrottle = 0
         // The queue is created at utility. Raise it only when no player session is open, then
         // read the thread so the timings line matches the class actually applied.
-        MediaAnalyzerQosName.applyForCurrentSession()
+        // An intro window stays at utility for the whole pass.
+        if windowMs != nil {
+            MediaAnalyzerQosName.restoreUtility()
+        } else {
+            MediaAnalyzerQosName.applyForCurrentSession()
+        }
         let qos = MediaAnalyzerQosName.current()
         let throttleLevelStart = MediaAnalyzerThrottle.currentLevel()
         var sliceStartedNs = DispatchTime.now().uptimeNanoseconds
         while !abort.isSet {
+            if let limit = windowMs {
+                // A short intro pass keeps running during playback. Heat and Low Power Mode stop it.
+                MediaAnalyzerQosName.restoreUtility()
+                if Self.introPowerAbort() {
+                    accumulator?.releaseFinished()
+                    log("intro aborted heat")
+                    return nil
+                }
+                if let decoded = accumulator?.decodedMs, decoded >= limit {
+                    break
+                }
+            } else {
             // Playback, heat, and Low Power Mode pause this decode until the level is 0.
             // QoS stays at utility while a player session is open or the decode is held.
             MediaAnalyzerQosName.applyForCurrentSession()
@@ -423,6 +465,7 @@ private final class MediaAnalysisRun {
                     throttledNs &+= MediaAnalyzerThrottle.yield(abort: abort, workedNs: workedNs)
                     sliceStartedNs = DispatchTime.now().uptimeNanoseconds
                 }
+            }
             }
             guard let context = contextPointer, let codecContext = codecPointer, let packet = packetPointer else { break }
             let read = av_read_frame(context, packet)
@@ -449,6 +492,12 @@ private final class MediaAnalysisRun {
         drainFrames()
 
         guard let acc = accumulator else { return nil }
+        if let limit = windowMs {
+            let decoded = acc.decodedMs
+            acc.releaseFinished()
+            log("intro window decodedMs=\(decoded) limitMs=\(limit)")
+            return "{\"durationMs\":\(decoded),\"qos\":\"utility\"}"
+        }
         let measuredMs = durationMs > 0 ? durationMs : acc.decodedMs
         let elapsedNs = DispatchTime.now().uptimeNanoseconds &- startedNs
         let decodeMs = Int((elapsedNs > sampleLoopNs ? elapsedNs - sampleLoopNs : 0) / 1_000_000)

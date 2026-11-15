@@ -35,6 +35,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -181,9 +182,6 @@ internal fun posterZoomPreviewFit(
     if (normalRoom >= minimum) {
         return PosterZoomPreviewFit(normalRoom, previewVisible = true, compactRows = false)
     }
-    if (normal <= available) {
-        return PosterZoomPreviewFit(0f, previewVisible = false, compactRows = false)
-    }
     val compactRoom = available - compact
     if (compactRoom >= minimum) {
         return PosterZoomPreviewFit(
@@ -192,7 +190,12 @@ internal fun posterZoomPreviewFit(
             compactRows = true,
         )
     }
-    return PosterZoomPreviewFit(0f, previewVisible = false, compactRows = true)
+    // A tall menu used to drop the card. Keep a preview and let the menu scroll.
+    return PosterZoomPreviewFit(
+        posterHeightDp = minOf(preferred, maxOf(minimum, 72f)),
+        previewVisible = true,
+        compactRows = true,
+    )
 }
 private val PosterZoomExpandSpring = spring<Float>(
     dampingRatio = Spring.DampingRatioNoBouncy,
@@ -219,6 +222,7 @@ private val PosterZoomMenuSpring = spring<Float>(
 @Composable
 fun NuvioPosterZoomActionOverlay(
     imageUrl: String?,
+    fallbackImageUrls: List<String> = emptyList(),
     title: String,
     subtitle: String?,
     isWatched: Boolean = false,
@@ -459,26 +463,11 @@ fun NuvioPosterZoomActionOverlay(
                             ),
                         contentAlignment = Alignment.Center,
                     ) {
-                        if (imageUrl != null) {
-                            AsyncImage(
-                                model = imageUrl,
-                                contentDescription = title,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .then(if (blurred) Modifier.blur(NuvioTokens.Space.s18) else Modifier),
-                                contentScale = ContentScale.Crop,
-                            )
-                        } else {
-                            Text(
-                                text = title,
-                                modifier = Modifier.padding(NuvioTokens.Space.s14),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = tokens.colors.textMuted,
-                                textAlign = TextAlign.Center,
-                                maxLines = 4,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+                        PosterZoomFallbackArtwork(
+                            urls = listOfNotNull(imageUrl?.takeIf { it.isNotBlank() }) + fallbackImageUrls,
+                            title = title,
+                            blurred = blurred,
+                        )
                         NuvioPosterWatchedOverlay(
                             isWatched = isWatched,
                             modifier = Modifier.graphicsLayer {
@@ -500,6 +489,38 @@ fun NuvioPosterZoomActionOverlay(
             }
         }
     }
+}
+
+@Composable
+private fun PosterZoomFallbackArtwork(
+    urls: List<String>,
+    title: String,
+    blurred: Boolean,
+) {
+    val tokens = MaterialTheme.nuvio
+    var index by remember(urls) { mutableIntStateOf(0) }
+    val url = urls.getOrNull(index)
+    if (url == null) {
+        Text(
+            text = title,
+            modifier = Modifier.padding(NuvioTokens.Space.s14),
+            style = MaterialTheme.typography.titleMedium,
+            color = tokens.colors.textMuted,
+            textAlign = TextAlign.Center,
+            maxLines = 4,
+            overflow = TextOverflow.Ellipsis,
+        )
+        return
+    }
+    AsyncImage(
+        model = url,
+        contentDescription = title,
+        modifier = Modifier
+            .fillMaxSize()
+            .then(if (blurred) Modifier.blur(NuvioTokens.Space.s18) else Modifier),
+        contentScale = ContentScale.Crop,
+        onError = { if (index < urls.lastIndex) index += 1 },
+    )
 }
 
 @Composable
@@ -567,8 +588,15 @@ private fun PosterZoomSheet(
             preferredPosterDp = preferredPoster.value,
         )
         val requestedPreview = if (fit.previewVisible) fit.posterHeightDp.dp.roundToPx() else 0
-        val previewBudget = (availablePx - if (fit.compactRows) fixedCompact else fixedNormal).coerceAtLeast(0)
-        val previewH = requestedPreview.coerceAtMost(previewBudget)
+        val titleAndGaps = gapTop + titlePlaceable.height + gapBottom
+        val roomAfterTitle = (availablePx - titleAndGaps).coerceAtLeast(0)
+        val floorPx = 72.dp.roundToPx()
+        val previewH = when {
+            preferredPoster.value <= 0f || !fit.previewVisible -> 0
+            roomAfterTitle >= requestedPreview -> requestedPreview
+            roomAfterTitle >= floorPx -> roomAfterTitle
+            else -> minOf(floorPx, availablePx / 3).coerceAtLeast(if (availablePx > 0) 1 else 0)
+        }
         val previewW = if (previewH > 0) {
             (previewH * aspect).roundToInt().coerceIn(1, constraints.maxWidth)
         } else {

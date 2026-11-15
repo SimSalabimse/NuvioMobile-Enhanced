@@ -466,6 +466,39 @@ class PlaybackThrottleRepositoryTest {
         assertTrue(kept in fake.running)
     }
 
+    @Test
+    fun smartDownloadWaitsWhileAVideoPlaysAndStartsWhenPlaybackPauses() {
+        PlaybackPriority.sessionStarted(isLocalFile = false)
+        snapshots(buffering = false, forMs = 60_000L)
+
+        DownloadsRepository.enqueueFromStream(
+            contentType = "series", videoId = "show:1:4", parentMetaId = "show", parentMetaType = "series",
+            title = "Show", logo = null, poster = null, background = null, seasonNumber = 1, episodeNumber = 4,
+            episodeTitle = null, episodeThumbnail = null,
+            stream = StreamItem(name = "S1E4", url = "https://example.com/e4.mkv", addonName = "Test", addonId = "test"),
+            startedByUser = false,
+        )
+        val id = DownloadsRepository.uiState.value.items.single { it.episodeNumber == 4 }.id
+        assertTrue(id !in fake.running, "an automatic download does not start during playback")
+        assertEquals(DownloadStatus.Queued, DownloadsRepository.uiState.value.items.single { it.id == id }.status)
+
+        snapshots(buffering = false, forMs = 2_000L, wantsToPlay = false)
+        assertTrue(id in fake.running, "pausing playback lets the waiting download start")
+        PlaybackPriority.sessionEnded()
+    }
+
+    @Test
+    fun aFinishedDownloadKicksAnalysisImmediately() {
+        val seen = mutableListOf<Long>()
+        com.nuvio.app.features.analysis.MediaAnalysisScheduler.kickHookForTest = { seen += it }
+        try {
+            DownloadsRepository.markFinishedInBackground("missing", "file:///downloads/missing.mkv", 10L)
+        } finally {
+            com.nuvio.app.features.analysis.MediaAnalysisScheduler.kickHookForTest = null
+        }
+        assertEquals(listOf(0L), seen)
+    }
+
     private fun startThreeDownloads() {
         DownloadsRepository.replaceItems(listOf(episode("e1", 1), episode("e2", 2), episode("e3", 3)))
         DownloadsRepository.resumeDownloads(listOf("e1", "e2", "e3"))

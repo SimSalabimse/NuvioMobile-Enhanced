@@ -32,6 +32,27 @@ internal fun continueWatchingArtworkChain(
 }
 
 /**
+ * Addresses for the long-press card, in the order the shelf already uses.
+ * The pressed card's own address stays first. A blank chain still returns that address.
+ */
+internal fun continueWatchingPreviewUrls(
+    anchorImageUrl: String?,
+    episodeStill: String?,
+    backdrop: String?,
+    poster: String?,
+    imageUrl: String?,
+): List<String> {
+    val chain = continueWatchingArtworkChain(
+        episodeStill = episodeStill,
+        backdrop = backdrop,
+        poster = poster,
+        imageUrl = imageUrl,
+    )
+    val anchor = anchorImageUrl?.trim()?.takeIf { it.isNotEmpty() } ?: return chain
+    return listOf(anchor) + chain.filterNot { it == anchor }
+}
+
+/**
  * Fills blank artwork from the show already in the meta cache.
  * Does not write the Continue Watching progress entry.
  */

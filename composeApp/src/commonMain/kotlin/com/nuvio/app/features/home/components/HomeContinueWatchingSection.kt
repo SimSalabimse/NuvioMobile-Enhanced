@@ -1,14 +1,11 @@
 package com.nuvio.app.features.home.components
 
 import com.nuvio.app.core.a11y.continueWatchingLongPressActions
-import com.nuvio.app.core.a11y.installLongPressAccessibility
 import com.nuvio.app.features.downloads.FinishSeriesGoalBadge
 import com.nuvio.app.features.settings.ThemeSettingsRepository
 import androidx.compose.runtime.collectAsState
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -603,7 +600,6 @@ private fun continueWatchingLandscapeCardMetrics(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ContinueWatchingCard(
     item: ContinueWatchingItem,
@@ -823,7 +819,6 @@ private fun continueWatchingCardBadgeText(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ContinueWatchingWideCard(
     item: ContinueWatchingItem,
@@ -834,6 +829,8 @@ private fun ContinueWatchingWideCard(
     onLongClick: (() -> Unit)?,
 ) {
     val cornerRadius = rememberPosterCardStyleUiState().cornerRadiusDp.dp
+    val artworkChain = item.artworkCandidates(useEpisodeThumbnails)
+    val artworkUrl = artworkChain.firstOrNull()
     Row(
         modifier = Modifier
             .width(layout.wideCardWidth)
@@ -851,22 +848,14 @@ private fun ContinueWatchingWideCard(
                 color = Color.White.copy(alpha = 0.15f),
                 shape = RoundedCornerShape(cornerRadius),
             )
-            .combinedClickable(
-                enabled = onClick != null || onLongClick != null,
-                onClick = { onClick?.invoke() },
+            .posterCardClickable(
+                onClick = onClick,
                 onLongClick = onLongClick,
-            )
-            .then(
-                onLongClick?.let { longClick ->
-                    Modifier.installLongPressAccessibility(
-                        continueWatchingLongPressActions(item, enabled = true),
-                        longClick,
-                    )
-                } ?: Modifier,
+                zoomImageUrl = artworkUrl,
+                zoomCornerRadius = cornerRadius,
+                longPressActions = continueWatchingLongPressActions(item, enabled = onLongClick != null),
             ),
     ) {
-        val artworkChain = item.artworkCandidates(useEpisodeThumbnails)
-        val artworkUrl = artworkChain.firstOrNull()
         val shouldBlurArtwork = item.shouldBlurContinueWatchingArtwork(
             blurUnwatchedEpisodes = blurNextUp,
             useEpisodeThumbnails = useEpisodeThumbnails,
@@ -974,7 +963,6 @@ private fun ContinueWatchingWideCard(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ContinueWatchingPosterCard(
     item: ContinueWatchingItem,

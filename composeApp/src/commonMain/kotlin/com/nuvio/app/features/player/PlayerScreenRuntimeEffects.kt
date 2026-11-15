@@ -35,6 +35,7 @@ import com.nuvio.app.features.player.skip.SkipUndo
 import com.nuvio.app.features.player.skip.shouldAutoSkip
 import com.nuvio.app.features.player.skip.internalSkipAction
 import com.nuvio.app.features.player.skip.intervalsAtSeekPositions
+import com.nuvio.app.features.analysis.offerNextEpisodeIntroWindow
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.FinishedDownloadDeletion
 import com.nuvio.app.features.downloads.SmartDownloads
@@ -1068,6 +1069,15 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
             }
             if (shouldShow && !showNextEpisodeCard) {
                 showNextEpisodeCard = true
+                nextEpisodeInfo?.let { next ->
+                    offerNextEpisodeIntroWindow(
+                        parentMetaId = parentMetaId,
+                        season = next.season,
+                        episode = next.episode,
+                        videoId = next.videoId,
+                        atThreshold = true,
+                    )
+                }
                 if (playerSettingsUiState.streamAutoPlayNextEpisodeEnabled && nextEpisodeInfo?.hasAired == true && !isPartyControlLocked &&
                     // "End of episode" sleep: stop here instead of rolling on.
                     PlayerSleepTimer.choice.value != SleepTimerChoice.EndOfEpisode

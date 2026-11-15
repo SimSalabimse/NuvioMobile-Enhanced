@@ -382,6 +382,16 @@ internal val IosBackgroundDownloadCoordinator: IosBackgroundDownloadCoordinatorI
     IosBackgroundDownloadCoordinatorImpl()
 }
 
+/** 0.25 is NSURLSessionTaskPriorityLow. 0.5 is the default. */
+internal var lowPriorityTransfers: Boolean = false
+
+internal actual object DownloadTransferPriority {
+    actual fun setLowPriority(low: Boolean) {
+        lowPriorityTransfers = low
+        IosBackgroundDownloadCoordinator.setTaskPriority(if (low) 0.25f else 0.5f)
+    }
+}
+
 @OptIn(ExperimentalForeignApi::class)
 internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDownloadDelegateProtocol {
     private var session: NSURLSession? = null
@@ -402,6 +412,10 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         var callbacks: DownloadCallbacks,
     )
 
+    fun setTaskPriority(priority: Float) {
+        tasksByDownloadId.values.forEach { task -> task.priority = priority }
+    }
+
     fun ensureSessionCreated(): NSURLSession {
         session?.let { return it }
         val configuration = NSURLSessionConfiguration.backgroundSessionConfigurationWithIdentifier(
@@ -409,7 +423,8 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         ).apply {
             val policy = speedFirstBackgroundSessionPolicy
             timeoutIntervalForResource = DOWNLOAD_RESOURCE_TIMEOUT_SECONDS
-            discretionary = policy.discretionary
+            // A session that already exists cannot change this. New tasks also set priority.
+            discretionary = policy.discretionary || lowPriorityTransfers
             allowsCellularAccess = policy.allowsCellularAccess
             sessionSendsLaunchEvents = policy.sendsLaunchEvents
             // Queued files are all submitted before the app leaves the foreground; the session
@@ -775,6 +790,7 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
 
             val nativeRequest = buildRequest(request, rangeStart = resumeFromBytes.takeIf { it > 0L })
             val task = ensureSessionCreated().downloadTaskWithRequest(nativeRequest)
+            task.priority = if (lowPriorityTransfers) 0.25f else 0.5f
             task.taskDescription = downloadId
             IosBackgroundTaskFiles.remember(downloadId, request.destinationFileName)
             applyRetryDelay(task, notBeforeSeconds)

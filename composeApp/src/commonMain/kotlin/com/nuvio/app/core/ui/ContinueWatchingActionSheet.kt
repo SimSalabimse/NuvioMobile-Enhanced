@@ -217,7 +217,13 @@ private fun ContinueWatchingSheetHeader(
                 .background(tokens.colors.surfaceCard),
             contentAlignment = Alignment.Center,
         ) {
-            val artwork = item.poster ?: item.imageUrl
+            val artwork = com.nuvio.app.features.home.continueWatchingPreviewUrls(
+                anchorImageUrl = null,
+                episodeStill = item.episodeThumbnail,
+                backdrop = item.background,
+                poster = item.poster,
+                imageUrl = item.imageUrl,
+            ).firstOrNull()
             if (artwork != null) {
                 AsyncImage(
                     model = cloudLibraryDisplayArtworkUrl(artwork),

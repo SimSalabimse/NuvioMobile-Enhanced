@@ -96,13 +96,12 @@ internal fun Modifier.posterCardClickable(
     if (onClick == null && onLongClick == null) return posterModifier
     val performLongClick = onLongClick?.let { longClick ->
         {
-            source.bounds?.let { cardBounds ->
-                PosterZoomAnchorHolder.stash(
-                    PosterZoomAnchor(cardBounds, zoomImageUrl, zoomCornerRadius).also {
-                        it.source = source
-                    },
-                )
-            }
+            val cardBounds = source.bounds ?: Rect(0f, 0f, 1f, 1f)
+            PosterZoomAnchorHolder.stash(
+                PosterZoomAnchor(cardBounds, zoomImageUrl, zoomCornerRadius).also {
+                    it.source = source
+                },
+            )
             longClick()
         }
     }

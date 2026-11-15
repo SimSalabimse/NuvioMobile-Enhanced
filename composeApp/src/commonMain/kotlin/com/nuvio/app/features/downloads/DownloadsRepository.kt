@@ -170,8 +170,9 @@ object DownloadsRepository {
      */
     fun submitWaitingForBackground() {
         if (!hasLoaded) return
-        startQueue.maxActive = BACKGROUND_SUBMIT_CAP
-        applyStarts(startQueue.promote(DownloadThermalGate.blocksNextFile()))
+        val gateCap = PlaybackPriority.downloadGate().maxActive
+        startQueue.maxActive = minOf(BACKGROUND_SUBMIT_CAP, gateCap)
+        applyStarts(startQueue.promote(DownloadThermalGate.blocksNextFile(), ::downloadMayStart))
     }
 
     /** Back in the app: new starts wait for one of the two slots again. Running files keep going. */
@@ -344,7 +345,7 @@ object DownloadsRepository {
 
             currentItems.add(0, item)
             publish(currentItems)
-            val toStart = startQueue.request(downloadId, DownloadThermalGate.blocksNextFile())
+            val toStart = startQueue.request(downloadId, DownloadThermalGate.blocksNextFile(), canStart = ::downloadMayStart)
             persistStatus()
             if (analysisTemp && !startedByUser) AnalysisTempDownloads.tagCreated(downloadId)
             CommittedEnqueue(
@@ -398,6 +399,7 @@ object DownloadsRepository {
             item.id,
             DownloadThermalGate.blocksNextFile(),
             atFront = true,
+            canStart = { id -> id == item.id || downloadMayStart(id) },
         )
         val reset = item.copy(
             status = if (item.id in toStart) DownloadStatus.Downloading else DownloadStatus.Queued,
@@ -681,6 +683,7 @@ object DownloadsRepository {
             downloadId,
             DownloadThermalGate.blocksNextFile(),
             atFront = true,
+            canStart = ::downloadMayStart,
         )
         val published = if (downloadId in toStart) {
             restored
@@ -697,21 +700,26 @@ object DownloadsRepository {
      * Marks the row Completed if the list is loaded; otherwise the next load does it.
      */
     internal fun markFinishedInBackground(downloadId: String, localFileUri: String, totalBytes: Long?) {
-        if (!hasLoaded) return
-        activeHandles.remove(downloadId)
-        partialPrefixCache.remove(downloadId)
-        mutateItem(downloadId) { current ->
-            if (current.status == DownloadStatus.Completed) return@mutateItem current
-            current.copy(
-                status = DownloadStatus.Completed,
-                localFileUri = localFileUri,
-                downloadedBytes = totalBytes?.takeIf { it > 0L } ?: current.downloadedBytes,
-                totalBytes = totalBytes?.takeIf { it > 0L } ?: current.totalBytes,
-                earlyPlayReady = false,
-                playsWhenDownloadFinishes = false,
-                errorMessage = null,
-                updatedAtEpochMs = DownloadsClock.nowEpochMs(),
-            )
+        try {
+            if (!hasLoaded) return
+            activeHandles.remove(downloadId)
+            partialPrefixCache.remove(downloadId)
+            mutateItem(downloadId) { current ->
+                if (current.status == DownloadStatus.Completed) return@mutateItem current
+                current.copy(
+                    status = DownloadStatus.Completed,
+                    localFileUri = localFileUri,
+                    downloadedBytes = totalBytes?.takeIf { it > 0L } ?: current.downloadedBytes,
+                    totalBytes = totalBytes?.takeIf { it > 0L } ?: current.totalBytes,
+                    earlyPlayReady = false,
+                    playsWhenDownloadFinishes = false,
+                    errorMessage = null,
+                    updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                )
+            }
+        } finally {
+            // The file is on disk. Wake a sleeping analysis pass immediately.
+            com.nuvio.app.features.analysis.MediaAnalysisScheduler.kick(0L)
         }
     }
 
@@ -782,7 +790,11 @@ object DownloadsRepository {
                 }
             },
         )
-        val toStart = startQueue.requestAllAtFront(orderedIds, DownloadThermalGate.blocksNextFile())
+        val toStart = startQueue.requestAllAtFront(
+            orderedIds,
+            DownloadThermalGate.blocksNextFile(),
+            canStart = { id -> id in orderedIds.toSet() || downloadMayStart(id) },
+        )
         persistStatus()
         applyStarts(toStart)
     }
@@ -812,7 +824,7 @@ object DownloadsRepository {
         publish(_uiState.value.items.filterNot { it.id == downloadId })
         persistStatus()
         forgetAnalysedFile(item)
-        applyStarts(startQueue.release(downloadId, DownloadThermalGate.blocksNextFile()))
+        applyStarts(startQueue.release(downloadId, DownloadThermalGate.blocksNextFile(), ::downloadMayStart))
         appUsageDirty = true
         scheduleSpaceRetry()
         SmartDownloads.retryPending()
@@ -1098,7 +1110,7 @@ object DownloadsRepository {
             persistProgressIfDue()
         }
         if (statusChanged && before?.status == DownloadStatus.Downloading && after?.status != DownloadStatus.Downloading) {
-            applyStarts(startQueue.release(downloadId, DownloadThermalGate.blocksNextFile()))
+            applyStarts(startQueue.release(downloadId, DownloadThermalGate.blocksNextFile(), ::downloadMayStart))
             // A finished file owes nothing any more: a waiting one may fit now.
             if (after?.status == DownloadStatus.Completed) retrySpaceFailures()
         }
@@ -1177,7 +1189,34 @@ object DownloadsRepository {
      */
     fun setPlaybackDownloadCap(cap: Int) {
         startQueue.maxActive = cap
+        DownloadTransferPriority.setLowPriority(PlaybackPriority.downloadGate().lowPriority)
         if (hasLoaded) replanSlots()
+        logDownloadGate()
+    }
+
+    /** Automatic downloads wait while a video is playing. A tap the user made may use the one slot. */
+    private fun downloadMayStart(id: String): Boolean {
+        val gate = PlaybackPriority.downloadGate()
+        if (gate.allowNewAuto) return true
+        return _uiState.value.items.firstOrNull { it.id == id }?.startedByUser == true
+    }
+
+    private var lastDownloadGateLine: String? = null
+
+    private fun logDownloadGate() {
+        val gate = PlaybackPriority.downloadGate()
+        val power = com.nuvio.app.features.analysis.AnalysisPower.snapshot()
+        val line = downloadGateLine(
+            gate = gate,
+            active = startQueue.activeIds().size,
+            queued = startQueue.waitingIds().size,
+            thermal = power.thermal,
+            lowPowerMode = power.lowPowerMode,
+        )
+        if (line == lastDownloadGateLine) return
+        lastDownloadGateLine = line
+        com.nuvio.app.core.logging.InAppLogger.info("Downloads", line)
+        com.nuvio.app.features.diagnostics.DiagnosticsLogger.logPerformance(line)
     }
 
     /**
@@ -1188,7 +1227,7 @@ object DownloadsRepository {
     fun onPartialPlaybackLeaseChanged() {
         if (!hasLoaded) return
         if (PartialPlaybackLease.heldIds().isEmpty()) {
-            applyStarts(startQueue.promote(DownloadThermalGate.blocksNextFile()))
+            applyStarts(startQueue.promote(DownloadThermalGate.blocksNextFile(), ::downloadMayStart))
             refreshHeldForPlayback()
         } else {
             replanSlots()
@@ -1203,13 +1242,13 @@ object DownloadsRepository {
         // Cap 0 from the setting pauses new starts. A file that is already running stays, which is
         // what a plain shrink did; a waiting one is not pulled in past that cap. A hot device
         // likewise starts nothing new.
-        val pauseAll = startQueue.maxActive == 0 && SmartDownloadSettings.snapshot().pauseDuringPlayback
+        val pauseAll = startQueue.maxActive == 0
         val thermal = DownloadThermalGate.blocksNextFile()
         val pinned = startQueue.pin(heldIdsToStart(held, active, pauseAll, thermal))
         val keep = if (pauseAll || thermal) held.intersect(active) else held
         val demoted = startQueue.shrinkTo(startQueue.maxActive, keep)
         if (pinned.isNotEmpty() || demoted.isNotEmpty()) alignQueuedStatuses()
-        applyStarts(pinned + startQueue.promote(DownloadThermalGate.blocksNextFile()), pinned.toSet())
+        applyStarts(pinned + startQueue.promote(DownloadThermalGate.blocksNextFile(), ::downloadMayStart), pinned.toSet())
         refreshHeldForPlayback()
         val plan = "cap=${startQueue.maxActive} running=${startQueue.activeIds()} waiting=${startQueue.waitingIds()} player=$held"
         if (plan != lastSlotPlan) {
@@ -1223,7 +1262,7 @@ object DownloadsRepository {
         thermalObserverStarted = true
         DownloadThermalGate.startObserving {
             if (!hasLoaded) return@startObserving
-            applyStarts(startQueue.promote(DownloadThermalGate.blocksNextFile()))
+            applyStarts(startQueue.promote(DownloadThermalGate.blocksNextFile(), ::downloadMayStart))
         }
     }
 
@@ -1237,7 +1276,7 @@ object DownloadsRepository {
             .filter { (it.status == DownloadStatus.Downloading || it.status == DownloadStatus.Queued) && it.id !in activeHandles }
             .sortedBy { it.createdAtEpochMs }
             .map { it.id }
-        val started = startQueue.restore(running, pending, DownloadThermalGate.blocksNextFile())
+        val started = startQueue.restore(running, pending, DownloadThermalGate.blocksNextFile(), ::downloadMayStart)
         alignQueuedStatuses()
         applyStarts(started)
     }

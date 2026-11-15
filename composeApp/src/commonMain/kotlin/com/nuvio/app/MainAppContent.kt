@@ -2515,8 +2515,16 @@ internal fun MainAppContent(
                             season = item.seasonNumber,
                             episode = item.episodeNumber,
                         )
+                        val previewUrls = com.nuvio.app.features.home.continueWatchingPreviewUrls(
+                            anchorImageUrl = anchor.imageUrl,
+                            episodeStill = item.episodeThumbnail,
+                            backdrop = item.background,
+                            poster = item.poster,
+                            imageUrl = item.imageUrl,
+                        ).mapNotNull { cloudLibraryDisplayArtworkUrl(it) }
                         NuvioPosterZoomActionOverlay(
-                            imageUrl = cloudLibraryDisplayArtworkUrl(anchor.imageUrl ?: item.poster ?: item.imageUrl),
+                            imageUrl = previewUrls.firstOrNull(),
+                            fallbackImageUrls = previewUrls.drop(1),
                             title = item.title,
                             subtitle = localizedContinueWatchingSubtitle(item),
                             blurred = item.shouldBlurContinueWatchingArtwork(

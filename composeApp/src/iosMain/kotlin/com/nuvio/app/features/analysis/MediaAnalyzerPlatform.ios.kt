@@ -13,6 +13,8 @@ interface NuvioMediaAnalyzerBridge {
     fun makeThumbnails(fileUri: String, outputPrefix: String, durationMs: Long, intervalMs: Long, tileWidth: Int, onDone: (String?) -> Unit)
     /** Fingerprints [startMs]..[endMs] of the stream at [url] in memory; [onDone] gets the JSON or null. */
     fun fingerprintClip(url: String, headers: Map<String, String>, startMs: Long, endMs: Long, onDone: (String?) -> Unit)
+    /** First [windowMs] of a local file only. The result is not stored as the episode's fingerprint. */
+    fun analyzeIntroWindow(fileUri: String, windowMs: Long, onDone: (String?) -> Unit)
     fun cancel()
     /** 0..1 for the running call, negative when unknown. */
     fun currentProgress(): Double
@@ -57,6 +59,16 @@ internal actual object MediaAnalyzerPlatform {
         return suspendCancellableCoroutine { continuation ->
             continuation.invokeOnCancellation { bridge.cancel() }
             bridge.fingerprintClip(url, headers, startMs, endMs) { result ->
+                if (continuation.isActive) continuation.resume(result)
+            }
+        }
+    }
+
+    actual suspend fun analyzeIntroWindow(fileUri: String, windowMs: Long): String? {
+        val bridge = NuvioMediaAnalyzerRegistry.bridge ?: return null
+        return suspendCancellableCoroutine { continuation ->
+            continuation.invokeOnCancellation { bridge.cancel() }
+            bridge.analyzeIntroWindow(fileUri, windowMs) { result ->
                 if (continuation.isActive) continuation.resume(result)
             }
         }
