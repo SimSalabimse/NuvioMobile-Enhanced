@@ -2,7 +2,7 @@
 
 Cloudflare Worker and D1 store for analyzed-details sync format v1. The normative rules are [`docs/sync/SYNC_FORMAT_v1.md`](../docs/sync/SYNC_FORMAT_v1.md). This process stores ciphertext, a salt, a key-check value, and routing ids. It does not see the passphrase, the encryption key, or the plaintext.
 
-Nothing in this directory has been deployed. `database_id` in `wrangler.jsonc` is the placeholder `00000000-0000-0000-0000-000000000000`.
+`database_id` in `wrangler.jsonc` is the existing `nuvio-sync` database. It is not a secret. Observability logs and traces are off.
 
 ## Endpoints
 
@@ -15,7 +15,7 @@ Nothing in this directory has been deployed. `database_id` in `wrangler.jsonc` i
 | `POST /v1/spaces/:id/join` | Bearer | Return salt and key check. Empty body. |
 | `POST /v1/spaces/:id/batches` | Bearer | Store a batch of blobs. Same id and same ciphertext is a duplicate. |
 | `GET /v1/spaces/:id/blobs?cursor=&limit=` | Bearer | Pull blobs with `seq` greater than `cursor`. |
-| `POST /telemetry` | Bearer of an existing space | Store one gzip behaviour batch, at most 512 KiB. Rows older than 30 days are deleted on that write. |
+| `POST /telemetry` | Bearer of an existing space, or `X-Nuvio-Ingest` | Store one gzip behaviour batch, at most 512 KiB. Write only. |
 
 Errors are JSON `{ "error", "message" }`. There is no CORS header. A push response has per-blob `seq` values and no pull cursor. The pull cursor moves only from pull responses.
 
@@ -71,8 +71,8 @@ Do this on a machine logged into the owner's Cloudflare account. These steps cre
 
 1. Install Node 22 and run `npm ci` in `sync-worker/`.
 2. `npx wrangler login`.
-3. `npx wrangler d1 create nuvio-sync`.
-4. Replace the placeholder `database_id` in `wrangler.jsonc` with the id that command prints. Leave `database_name` as `nuvio-sync`.
+3. The D1 database `nuvio-sync` already exists. `database_id` in `wrangler.jsonc` is that database. Do not create a second one.
+4. Leave `database_name` as `nuvio-sync`.
 5. `npx wrangler d1 migrations apply nuvio-sync --remote`.
 6. `npx wrangler deploy`. Leave the Worker on the `workers.dev` hostname. If you add a route later, set that route to fail closed. A fail-open route bypasses the Worker after the daily request limit.
 7. Generate an enroll secret into a file outside the repo. This is random bytes, not the passphrase:
@@ -82,8 +82,9 @@ Do this on a machine logged into the owner's Cloudflare account. These steps cre
    ```
 
 8. `npx wrangler secret put ENROLL_SECRET`. Paste the file. Do not pass the secret as a command argument. `secret put` deploys a new version. Delete the file after the secret is stored. A missing or short secret makes create, list, and revoke return 401.
-9. On the first device, paste the workers.dev URL and the enroll secret once, and type the passphrase. The device creates the space. It shows a join code. Other devices get the join code and the passphrase. They do not get the enroll secret.
-10. Leave traces off. `wrangler.jsonc` sets `traces.enabled` to false and `invocation_logs` to false because platform traces can include request headers. The Worker logs an error name only, and only when a handler throws.
+9. Generate a telemetry ingest key the same way, into a different file outside the repo, and run `npx wrangler secret put TELEMETRY_INGEST_KEY`. The header is `X-Nuvio-Ingest`. The key is not the enroll secret and is not a bearer token. A missing or short key rejects ingest writes. There is no route that reads telemetry.
+10. On the first device, paste the workers.dev URL and the enroll secret once, and type the passphrase. The device creates the space. It shows a join code. Other devices get the join code and the passphrase. They do not get the enroll secret.
+11. Leave logs and traces off. `wrangler.jsonc` sets `observability.enabled` and `logs.enabled` to false, and `traces.enabled` to false, because platform logs can include request headers. The Worker logs an error name only, and only when a handler throws.
 
 To turn a space off, `DELETE /v1/spaces/<space id>` with the `X-Nuvio-Enroll` header. `GET /v1/spaces` with the same header lists ids if you did not keep them. Revoke does not free the blob rows. Deleting the D1 database does.
 
@@ -99,7 +100,7 @@ A second profile is a second space, created the same way with the same enroll se
 | `migrations/0001_init.sql` | D1 tables. |
 | `migrations/0002_telemetry.sql` | `telemetry_batches`. Apply it with the same `wrangler d1 migrations apply` step. Do not deploy from a pull request. |
 | `test/reference/` | KDF, AES-GCM, merge, folder reader, vector generator. |
-| `wrangler.jsonc` | Bindings. `database_id` stays a placeholder until step 4. |
+| `wrangler.jsonc` | Bindings. `database_id` is the existing nuvio-sync database. Logs are off. |
 
 ## Review notes
 

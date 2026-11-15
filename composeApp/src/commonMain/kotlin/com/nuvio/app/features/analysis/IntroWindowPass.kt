@@ -3,6 +3,8 @@ package com.nuvio.app.features.analysis
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.features.diagnostics.DiagnosticsLogger
 import com.nuvio.app.features.downloads.DownloadsRepository
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 /** First few minutes: the intro and recap window, not the 25-minute fingerprint. */
 internal const val INTRO_WINDOW_MS = 5 * 60_000L
@@ -61,6 +63,41 @@ internal fun nextUpAnalysisPlan(
 internal fun nextUpAutoplayReady(introDone: Boolean, creditsDone: Boolean): Boolean =
     introDone && creditsDone
 
+/** Autoplay may pause for the next-up windows, and no longer than this. */
+internal const val NEXT_UP_AUTOPLAY_WAIT_MS = 5_000L
+
+/** Ready now, or the cap has been reached. Playback starts either way. */
+internal fun autoplayStarts(waitedMs: Long, analysisReady: Boolean): Boolean =
+    analysisReady || waitedMs >= NEXT_UP_AUTOPLAY_WAIT_MS
+
+internal enum class LateMark { Apply, Record, Pending }
+
+internal data class LateNextUp(val intro: LateMark, val credits: LateMark)
+
+/**
+ * A late intro is a skip only while the playhead is still inside that window.
+ * Past the window, the result is recorded and playback is left where it is.
+ * Credits are the next-episode marker when the playhead has not reached them.
+ */
+internal fun lateNextUpApply(
+    positionMs: Long,
+    introReady: Boolean,
+    introEndMs: Long,
+    creditsReady: Boolean,
+    creditsStartMs: Long,
+): LateNextUp = LateNextUp(
+    intro = when {
+        !introReady -> LateMark.Pending
+        positionMs < introEndMs -> LateMark.Apply
+        else -> LateMark.Record
+    },
+    credits = when {
+        !creditsReady -> LateMark.Pending
+        positionMs < creditsStartMs -> LateMark.Apply
+        else -> LateMark.Record
+    },
+)
+
 /** The light pass stops if the phone heats up or Low Power Mode switches on. */
 internal fun introWindowShouldAbort(thermal: AnalysisThermal, lowPowerMode: Boolean): Boolean {
     if (lowPowerMode) return true
@@ -72,6 +109,8 @@ internal object NextUpAnalysis {
     private var pendingId: String? = null
     private var pendingUri: String? = null
     private val attempted = mutableSetOf<String>()
+    private val revisions = MutableStateFlow(0)
+    val updates: StateFlow<Int> = revisions
 
     fun result(id: String, kind: String): String = results[id]?.get(kind) ?: "pending"
 
@@ -83,6 +122,7 @@ internal object NextUpAnalysis {
 
     fun mark(id: String, kind: String, value: String) {
         results.getOrPut(id) { mutableMapOf() }[kind] = value
+        revisions.value = revisions.value + 1
     }
 
     fun consider(id: String, fileUri: String, atThreshold: Boolean, videoPlaying: Boolean) {

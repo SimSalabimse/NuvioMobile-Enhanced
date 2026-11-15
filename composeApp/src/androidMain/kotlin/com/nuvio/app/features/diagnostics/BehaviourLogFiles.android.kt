@@ -1,5 +1,9 @@
 package com.nuvio.app.features.diagnostics
 
+internal actual fun behaviourEnqueue(block: () -> Unit) = block()
+
+internal actual fun behaviourSync(block: () -> Unit) = block()
+
 internal actual class BehaviourLock {
     actual fun <T> withLock(block: () -> T): T = synchronized(this) { block() }
 }

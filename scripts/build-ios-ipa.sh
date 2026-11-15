@@ -105,6 +105,25 @@ elif [[ "${build_mode}" != "release" ]]; then
     echo "Unsupported IOS_BUILD_MODE: ${build_mode}" >&2
     exit 1
 fi
+# Telemetry keys come from the environment or from local.properties.
+# That file is produced outside the repo (NUVIO_LOCAL_PROPERTIES_BASE64). Values are not printed.
+telemetry_build_settings=()
+append_telemetry_setting() {
+    local name="$1"
+    local value="${!name-}"
+    if [[ -z "${value}" && -f "${repository_root}/local.properties" ]]; then
+        value="$(sed -nE "s/^[[:space:]]*${name}[[:space:]]*=[[:space:]]*//p" "${repository_root}/local.properties" | head -n 1)"
+    fi
+    if [[ -n "${value}" ]]; then
+        telemetry_build_settings+=("${name}=${value}")
+        echo "telemetry packaging: ${name} present"
+    else
+        echo "telemetry packaging: ${name} absent"
+    fi
+}
+append_telemetry_setting NUVIO_TELEMETRY_INGEST_KEY
+append_telemetry_setting NUVIO_TELEMETRY_BASE_URL
+
 command -v caffeinate >/dev/null && caffeinate_cmd=(caffeinate -dims)
 ${caffeinate_cmd[@]+"${caffeinate_cmd[@]}"} "${build_environment[@]}" \
     xcodebuild \
@@ -120,6 +139,7 @@ ${caffeinate_cmd[@]+"${caffeinate_cmd[@]}"} "${build_environment[@]}" \
     ${NUVIO_IOS_SKIP_DSYM:+DEBUG_INFORMATION_FORMAT=dwarf} \
     ${fast_flags[@]+"${fast_flags[@]}"} \
     ${strip_symbols_flags[@]+"${strip_symbols_flags[@]}"} \
+    ${telemetry_build_settings[@]+"${telemetry_build_settings[@]}"} \
     build
 
 ipa_live_status stage --name checks

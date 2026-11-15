@@ -77,6 +77,10 @@
 		<string>com.nuvio.app.media-analysis</string>
 		<string>com.nuvio.app.behaviour-upload</string>
 	</array>
+	<key>NuvioTelemetryIngestKey</key>
+	<string>$(NUVIO_TELEMETRY_INGEST_KEY)</string>
+	<key>NuvioTelemetryBaseURL</key>
+	<string>$(NUVIO_TELEMETRY_BASE_URL)</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>

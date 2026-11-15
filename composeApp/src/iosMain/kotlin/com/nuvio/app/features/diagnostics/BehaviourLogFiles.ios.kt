@@ -1,8 +1,27 @@
+@file:OptIn(ExperimentalForeignApi::class)
+
 package com.nuvio.app.features.diagnostics
 
 import com.nuvio.app.features.profiles.ProfilePinCrypto
+import kotlinx.cinterop.ExperimentalForeignApi
 import platform.Foundation.NSLock
 import platform.Foundation.NSUserDefaults
+import platform.darwin.dispatch_async
+import platform.darwin.dispatch_queue_create
+import platform.darwin.dispatch_sync
+
+@OptIn(ExperimentalForeignApi::class)
+private val behaviourQueue = dispatch_queue_create("tv.nuvio.behaviour.append", null)
+
+@OptIn(ExperimentalForeignApi::class)
+internal actual fun behaviourEnqueue(block: () -> Unit) {
+    dispatch_async(behaviourQueue) { block() }
+}
+
+@OptIn(ExperimentalForeignApi::class)
+internal actual fun behaviourSync(block: () -> Unit) {
+    dispatch_sync(behaviourQueue) { block() }
+}
 
 internal actual class BehaviourLock {
     private val lock = NSLock()

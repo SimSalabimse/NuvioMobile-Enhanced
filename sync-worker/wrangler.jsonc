@@ -7,11 +7,11 @@
   // platform traces can capture headers. The Worker code does not log bodies
   // or tokens. See README.
   "observability": {
-    "enabled": true,
-    "head_sampling_rate": 1,
+    "enabled": false,
+    "head_sampling_rate": 0,
     "logs": {
-      "enabled": true,
-      "head_sampling_rate": 1,
+      "enabled": false,
+      "head_sampling_rate": 0,
       "invocation_logs": false
     },
     "traces": {
@@ -32,7 +32,7 @@
     {
       "binding": "DB",
       "database_name": "nuvio-sync",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "000cccae-d49d-421e-90f3-0316b310a89f",
       "migrations_dir": "migrations"
     }
   ]

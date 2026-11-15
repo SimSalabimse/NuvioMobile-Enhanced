@@ -90,38 +90,66 @@ internal expect class BehaviourLock() {
     fun <T> withLock(block: () -> T): T
 }
 
+/** iOS hops to a background queue. The caller only enqueues. */
+internal expect fun behaviourEnqueue(block: () -> Unit)
+
+/** Waits for queued appends. Callers must not be the main thread on iOS. */
+internal expect fun behaviourSync(block: () -> Unit)
+
 internal object BehaviourEvents {
     private val ring = BehaviourRing()
     private val lock = BehaviourLock()
     private var pending = 0
 
-    fun appendRaw(line: String) = lock.withLock {
-        ring.append(line)
-        pending += 1
-        if (pending >= BEHAVIOUR_FLUSH_EVENTS) flushLocked()
+    fun appendRaw(line: String) {
+        behaviourEnqueue {
+            lock.withLock {
+                ring.append(line)
+                pending += 1
+                if (pending >= BEHAVIOUR_FLUSH_EVENTS) flushLocked()
+            }
+        }
     }
 
-    fun record(kind: String, fields: Map<String, String> = emptyMap()) = lock.withLock {
-        ring.append(behaviourEventLine(kind, fields))
-        pending += 1
-        if (pending >= BEHAVIOUR_FLUSH_EVENTS) flushLocked()
+    fun record(kind: String, fields: Map<String, String> = emptyMap()) {
+        behaviourEnqueue {
+            lock.withLock {
+                ring.append(behaviourEventLine(kind, fields))
+                pending += 1
+                if (pending >= BEHAVIOUR_FLUSH_EVENTS) flushLocked()
+            }
+        }
     }
 
     fun mark(note: String?) {
         val clean = behaviourNote(note)
         val fields = if (clean.isEmpty()) emptyMap() else mapOf("note" to clean)
-        record("marker", fields)
-        flush()
+        behaviourEnqueue {
+            lock.withLock {
+                ring.append(behaviourEventLine("marker", fields))
+                flushLocked()
+            }
+        }
     }
 
-    fun flush() = lock.withLock { flushLocked() }
+    fun flush() {
+        behaviourSync { lock.withLock { flushLocked() } }
+    }
 
-    fun snapshot(): String = lock.withLock { ring.previous + ring.active }
+    fun snapshot(): String {
+        var value = ""
+        behaviourSync { value = lock.withLock { ring.previous + ring.active } }
+        return value
+    }
 
-    fun clear() = lock.withLock {
-        ring.clear()
-        pending = 0
-        BehaviourLogFiles.write("", "")
+    fun clear() {
+        behaviourSync {
+            lock.withLock {
+                ring.clear()
+                pending = 0
+                BehaviourLogFiles.write("", "")
+            }
+        }
     }
 
     private fun flushLocked() {

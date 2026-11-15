@@ -1,2 +1,5 @@
 CURRENT_PROJECT_VERSION = 222
 MARKETING_VERSION=0.6.10.1
+// Empty unless packaging passes the values. Never commit a key.
+NUVIO_TELEMETRY_INGEST_KEY=
+NUVIO_TELEMETRY_BASE_URL=

@@ -36,7 +36,12 @@ import com.nuvio.app.features.player.skip.SkipUndo
 import com.nuvio.app.features.player.skip.shouldAutoSkip
 import com.nuvio.app.features.player.skip.internalSkipAction
 import com.nuvio.app.features.player.skip.intervalsAtSeekPositions
+import com.nuvio.app.features.analysis.CREDITS_WINDOW_MS
+import com.nuvio.app.features.analysis.INTRO_WINDOW_MS
+import com.nuvio.app.features.analysis.LateMark
+import com.nuvio.app.features.analysis.NEXT_UP_AUTOPLAY_WAIT_MS
 import com.nuvio.app.features.analysis.NextUpAnalysis
+import com.nuvio.app.features.analysis.lateNextUpApply
 import com.nuvio.app.features.analysis.offerNextEpisodeIntroWindow
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.FinishedDownloadDeletion
@@ -1096,17 +1101,65 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                     val waitedId = nextItemId
                     nextEpisodeAutoPlayJob?.cancel()
                     nextEpisodeAutoPlayJob = effectScope.launch {
-                        val deadline = System.currentTimeMillis() + 120_000L
-                        while (waitedId != null && !NextUpAnalysis.ready(waitedId) && System.currentTimeMillis() < deadline) {
-                            kotlinx.coroutines.delay(400)
+                        val started = System.currentTimeMillis()
+                        while (
+                            waitedId != null &&
+                            !NextUpAnalysis.ready(waitedId) &&
+                            System.currentTimeMillis() - started < NEXT_UP_AUTOPLAY_WAIT_MS
+                        ) {
+                            kotlinx.coroutines.delay(200)
                         }
-                        if (waitedId == null || NextUpAnalysis.ready(waitedId)) {
-                            playNextEpisode(automatic = true)
-                        }
+                        playNextEpisode(automatic = true)
                     }
                 }
             } else if (!shouldShow) {
                 showNextEpisodeCard = false
+            }
+        }
+    }
+
+    LaunchedEffect(activePlaybackKey) {
+        val itemId = DownloadsRepository.findPlayableDownload(
+            parentMetaId = parentMetaId,
+            seasonNumber = activeSeasonNumber,
+            episodeNumber = activeEpisodeNumber,
+            videoId = activeVideoId,
+        )?.id ?: return@LaunchedEffect
+        var introHandled = false
+        var creditsHandled = false
+        NextUpAnalysis.updates.collect {
+            val durationMs = playbackSnapshot.durationMs
+            val plan = lateNextUpApply(
+                positionMs = playbackClock.positionMs,
+                introReady = NextUpAnalysis.result(itemId, "intro") != "pending",
+                introEndMs = INTRO_WINDOW_MS,
+                creditsReady = NextUpAnalysis.result(itemId, "credits") != "pending",
+                creditsStartMs = (durationMs - CREDITS_WINDOW_MS).coerceAtLeast(0L),
+            )
+            if (!introHandled && plan.intro != LateMark.Pending) {
+                introHandled = true
+                if (plan.intro == LateMark.Apply) recomputeMergedSkipIntervals()
+                com.nuvio.app.features.diagnostics.BehaviourEvents.record(
+                    "next-up-late",
+                    mapOf("window" to "intro", "action" to plan.intro.name.lowercase()),
+                )
+            }
+            if (!creditsHandled && plan.credits == LateMark.Apply && durationMs > CREDITS_WINDOW_MS) {
+                creditsHandled = true
+                val start = (durationMs - CREDITS_WINDOW_MS) / 1000.0
+                val end = durationMs / 1000.0
+                skipIntervals = skipIntervals + com.nuvio.app.features.player.skip.SkipInterval(
+                    startTime = start,
+                    endTime = end,
+                    type = "outro",
+                    provider = ON_DEVICE_SKIP_PROVIDER,
+                )
+            } else if (!creditsHandled && plan.credits == LateMark.Record) {
+                creditsHandled = true
+                com.nuvio.app.features.diagnostics.BehaviourEvents.record(
+                    "next-up-late",
+                    mapOf("window" to "credits", "action" to "record"),
+                )
             }
         }
     }

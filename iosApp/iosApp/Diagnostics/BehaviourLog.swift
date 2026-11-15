@@ -1,12 +1,14 @@
 import BackgroundTasks
 import ComposeApp
+import Security
 import zlib
 import Foundation
 import MetricKit
 import Network
 import UIKit
 
-/// File-backed behaviour log. Kotlin owns the ring. This type writes the two chunks and uploads them.
+/// File-backed behaviour log. Kotlin owns the ring. Appends are enqueued onto
+/// `tv.nuvio.behaviour.append` and never run on the main thread.
 final class BehaviourFileBridge: NSObject, NuvioBehaviourLogBridge {
     func write(active: String, previous: String) {
         BehaviourFiles.replace(active: active, previous: previous)
@@ -78,7 +80,9 @@ enum BehaviourUploadTask {
     static func registerAtLaunch() {
         NuvioBehaviourLogRegistry.shared.register(log: BehaviourFileBridge())
         MXMetricManager.shared.add(BehaviourMetrics.shared)
-        BehaviourLogFiles_iosKt.nuvioRecordBehaviour(kind: "launch")
+        DispatchQueue.global(qos: .utility).async {
+            BehaviourLogFiles_iosKt.nuvioRecordBehaviour(kind: "launch")
+        }
         BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { task in
             guard let processing = task as? BGProcessingTask else {
                 task.setTaskCompleted(success: false)
@@ -93,8 +97,10 @@ enum BehaviourUploadTask {
             object: nil,
             queue: .main
         ) { _ in
-            BehaviourLogFiles_iosKt.nuvioRecordBehaviour(kind: "background")
-            BehaviourLogFiles_iosKt.nuvioBehaviourFlush()
+            DispatchQueue.global(qos: .utility).async {
+                BehaviourLogFiles_iosKt.nuvioRecordBehaviour(kind: "background")
+                BehaviourLogFiles_iosKt.nuvioBehaviourFlush()
+            }
             schedule()
             upload { _ in }
         }
@@ -103,7 +109,9 @@ enum BehaviourUploadTask {
             object: nil,
             queue: .main
         ) { _ in
-            BehaviourLogFiles_iosKt.nuvioRecordBehaviour(kind: "foreground")
+            DispatchQueue.global(qos: .utility).async {
+                BehaviourLogFiles_iosKt.nuvioRecordBehaviour(kind: "foreground")
+            }
         }
     }
 
@@ -117,9 +125,19 @@ enum BehaviourUploadTask {
 
     static func upload(done: @escaping (Bool) -> Void) {
         guard BehaviourShare.enabled else { done(false); return }
+        let ingestKey = TelemetryPackaging.value("NuvioTelemetryIngestKey")
+        let ingestBase = TelemetryPackaging.value("NuvioTelemetryBaseURL")
         let token = UserDefaults.standard.string(forKey: "NuvioSyncDeviceToken") ?? ""
-        let base = UserDefaults.standard.string(forKey: "NuvioSyncBaseURL") ?? ""
-        guard token.count == 43, let url = URL(string: base)?.appendingPathComponent("telemetry") else {
+        let syncBase = UserDefaults.standard.string(forKey: "NuvioSyncBaseURL") ?? ""
+        let destination: URL
+        let ingest: String?
+        if let ingestKey, let ingestBase, let url = URL(string: ingestBase)?.appendingPathComponent("telemetry") {
+            destination = url
+            ingest = ingestKey
+        } else if token.count == 43, let url = URL(string: syncBase)?.appendingPathComponent("telemetry") {
+            destination = url
+            ingest = nil
+        } else {
             done(false)
             return
         }
@@ -134,15 +152,21 @@ enum BehaviourUploadTask {
             done(false)
             return
         }
+        DispatchQueue.global(qos: .utility).async {
         let body = BehaviourLogFiles_iosKt.nuvioBehaviourSnapshot()
         guard let raw = body.data(using: .utf8), !raw.isEmpty, let gzipped = gzip(raw), gzipped.count <= 512 * 1024 else {
             done(false)
             return
         }
-        var request = URLRequest(url: url)
+        var request = URLRequest(url: destination)
         request.httpMethod = "POST"
         request.setValue("gzip", forHTTPHeaderField: "Content-Encoding")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if let ingest {
+            request.setValue(ingest, forHTTPHeaderField: "X-Nuvio-Ingest")
+            request.setValue(TelemetryInstall.id, forHTTPHeaderField: "X-Nuvio-Install")
+        } else {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         request.setValue("222", forHTTPHeaderField: "X-Nuvio-App-Build")
         request.setValue("behaviour", forHTTPHeaderField: "X-Nuvio-Kind")
         request.httpBody = gzipped
@@ -157,6 +181,7 @@ enum BehaviourUploadTask {
                 done(false)
             }
         }.resume()
+        }
     }
 
     private static let pathMonitor: NWPathMonitor = {
@@ -201,9 +226,36 @@ enum BehaviourUploadTask {
 
 enum BehaviourEvents {
     static func markFromSettings() {
-        BehaviourLogFiles_iosKt.nuvioRecordBehaviour(kind: "marker")
-        BehaviourLogFiles_iosKt.nuvioBehaviourFlush()
+        DispatchQueue.global(qos: .utility).async {
+            BehaviourLogFiles_iosKt.nuvioRecordBehaviour(kind: "marker")
+        }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+}
+
+enum TelemetryPackaging {
+    static func value(_ key: String) -> String? {
+        let raw = Bundle.main.object(forInfoDictionaryKey: key) as? String ?? ""
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed.contains("$(") { return nil }
+        return trimmed
+    }
+}
+
+enum TelemetryInstall {
+    static var id: String {
+        let key = "NuvioInstallId"
+        if let existing = UserDefaults.standard.string(forKey: key),
+           existing.count >= 8,
+           existing.count <= 64,
+           existing.unicodeScalars.allSatisfy({ CharacterSet(charactersIn: "0123456789abcdef-").contains($0) }) {
+            return existing
+        }
+        var bytes = [UInt8](repeating: 0, count: 8)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        let created = bytes.map { String(format: "%02x", $0) }.joined()
+        UserDefaults.standard.set(created, forKey: key)
+        return created
     }
 }
 

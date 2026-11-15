@@ -14,6 +14,7 @@ export default defineConfig(async () => {
           bindings: {
             TEST_MIGRATIONS: migrations,
             ENROLL_SECRET,
+            TELEMETRY_INGEST_KEY: "test-ingest-not-a-real-secret",
             RATE_LIMIT_PER_WINDOW: "20",
             MAX_SPACE_BLOBS: "4",
           },
