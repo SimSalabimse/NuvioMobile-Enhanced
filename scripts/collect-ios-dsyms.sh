@@ -32,10 +32,40 @@ for root in "$@"; do
         count=$((count + 1))
         case "${base}" in
             *.app.dSYM) app=$((app + 1)) ;;
-            ComposeApp.framework.dSYM) kotlin=$((kotlin + 1)) ;;
+            *ComposeApp*.dSYM) kotlin=$((kotlin + 1)) ;;
         esac
-    done < <(find "${root}" -type d \( -name '*.app.dSYM' -o -name '*.appex.dSYM' -o -name 'ComposeApp.framework.dSYM' \) -print)
+    done < <(find "${root}" -type d \( -name '*.app.dSYM' -o -name '*.appex.dSYM' -o -name '*ComposeApp*.dSYM' \) -print)
 done
+
+# A static ComposeApp.framework has no separate dSYM until dsymutil runs on its binary.
+if [[ "${kotlin}" -lt 1 ]]; then
+    binary=""
+    for root in "$@"; do
+        if [[ ! -d "${root}" ]]; then
+            continue
+        fi
+        binary="$(find "${root}" -type f -path '*/ComposeApp.framework/ComposeApp' -print | head -n 1 || true)"
+        if [[ -n "${binary}" ]]; then
+            break
+        fi
+    done
+    if [[ -n "${binary}" ]]; then
+        echo "ComposeApp binary: ${binary}"
+        file "${binary}" || true
+        generated="${dest}/ComposeApp.framework.dSYM"
+        if dsymutil "${binary}" -o "${generated}"; then
+            if [[ -d "${generated}" ]]; then
+                kotlin=$((kotlin + 1))
+                count=$((count + 1))
+                echo "Generated ${generated}"
+            fi
+        else
+            echo "dsymutil did not produce a ComposeApp dSYM." >&2
+        fi
+    else
+        echo "No ComposeApp.framework/ComposeApp binary was found." >&2
+    fi
+fi
 
 echo "Collected ${count} dSYM bundles (app=${app} kotlin=${kotlin}) into ${dest}"
 if [[ "${REQUIRE_APP_DSYM:-0}" == "1" && "${app}" -lt 1 ]]; then
