@@ -179,6 +179,7 @@ internal object MediaAnalysisScheduler {
     private val delayWake = AnalysisDelayWake()
     private var job: Job? = null
     private var introWindowJob: Job? = null
+    private val introWindowBusy = atomic(false)
 
     /** Host tests observe kick even when this platform has no analyser. */
     internal var kickHookForTest: ((Long) -> Unit)? = null
@@ -226,6 +227,7 @@ internal object MediaAnalysisScheduler {
         kickHookForTest = null
         introWindowJob?.cancel()
         introWindowJob = null
+        introWindowBusy.value = false
         priorityItemId = null
         playbackStrainExemptId = null
         currentItem = null
@@ -337,26 +339,36 @@ internal object MediaAnalysisScheduler {
         offerWindows(itemId, fileUri, listOf("intro", "credits"))
     }
 
-    fun offerWindows(itemId: String, fileUri: String, kinds: List<String>) {
-        if (kinds.isEmpty() || introWindowJob?.isActive == true) return
+    /** False when a pass is already running. The caller keeps its attempt for a later try. */
+    fun offerWindows(itemId: String, fileUri: String, kinds: List<String>): Boolean {
+        if (!windowOfferAccepted(slotFree = true, plan = kinds, alreadyAttempted = false)) return false
+        if (!introWindowBusy.compareAndSet(expect = false, update = true)) return false
         if (!analyserSupported()) {
             kinds.forEach { NextUpAnalysis.mark(itemId, it, "unsupported") }
             logNextUpAnalysis(itemId)
-            return
+            introWindowBusy.value = false
+            return true
         }
         introWindowJob = scope.launch(Dispatchers.Default) {
-            for (kind in kinds) {
-                val window = if (kind == "credits") CREDITS_WINDOW_MS else INTRO_WINDOW_MS
-                val start = if (kind == "credits") WINDOW_AT_END else 0L
-                val raw = runCatching {
-                    MediaAnalyzerPlatform.analyzeIntroWindow(fileUri, window, start)
-                }.getOrNull()
-                val parsed = raw?.let { runCatching { json.decodeFromString(RawMediaAnalysis.serializer(), it) }.getOrNull() }
-                val result = if (parsed != null && parsed.durationMs > 0L) "scanned" else "aborted"
-                NextUpAnalysis.mark(itemId, kind, result)
+            try {
+                for (kind in kinds) {
+                    val window = if (kind == "credits") CREDITS_WINDOW_MS else INTRO_WINDOW_MS
+                    val start = if (kind == "credits") WINDOW_AT_END else 0L
+                    val raw = withContext(Dispatchers.Default) {
+                        runCatching {
+                            MediaAnalyzerPlatform.analyzeIntroWindow(fileUri, window, start)
+                        }.getOrNull()
+                    }
+                    val parsed = raw?.let { runCatching { json.decodeFromString(RawMediaAnalysis.serializer(), it) }.getOrNull() }
+                    val result = if (parsed != null && parsed.durationMs > 0L) "scanned" else "aborted"
+                    NextUpAnalysis.mark(itemId, kind, result)
+                }
+                logNextUpAnalysis(itemId)
+            } finally {
+                introWindowBusy.value = false
             }
-            logNextUpAnalysis(itemId)
         }
+        return true
     }
 
     private fun logNextUpAnalysis(itemId: String) {

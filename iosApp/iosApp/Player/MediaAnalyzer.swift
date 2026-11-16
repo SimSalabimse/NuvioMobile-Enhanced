@@ -116,7 +116,7 @@ final class MediaAnalyzer: NSObject, NuvioMediaAnalyzerBridge {
             let result = MediaAnalysisRun(fileUri: fileUri, abort: flag, windowMs: windowMs, startMs: startMs).run()
             self.endJob(flag)
             self.setRunningFile(nil)
-            DispatchQueue.main.async { onDone(result) }
+            DispatchQueue.global(qos: .utility).async { onDone(result) }
         }
     }
 
@@ -342,6 +342,11 @@ private final class MediaAnalysisRun {
 
         let durationMs: Int64 = context.pointee.duration > 0 ? context.pointee.duration / 1000 : 0
         if let limit = windowMs {
+            // Same rule as creditsWindowOriginMs: an end window with no duration must not decode the opening.
+            if startMs < 0 && durationMs <= 0 {
+                log("credits skipped unknown duration")
+                return nil
+            }
             let origin = startMs < 0 ? max(0, durationMs - limit) : startMs
             if origin > 0 {
                 _ = av_seek_frame(context, -1, origin * 1000, AVSEEK_FLAG_BACKWARD)

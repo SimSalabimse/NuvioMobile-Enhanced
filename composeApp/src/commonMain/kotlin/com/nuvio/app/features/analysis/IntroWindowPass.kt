@@ -70,9 +70,49 @@ internal const val NEXT_UP_AUTOPLAY_WAIT_MS = 5_000L
 internal fun autoplayStarts(waitedMs: Long, analysisReady: Boolean): Boolean =
     analysisReady || waitedMs >= NEXT_UP_AUTOPLAY_WAIT_MS
 
+/** How long the autoplay loop may sleep without stepping past [capMs]. */
+internal fun autoplayWaitMillis(elapsedMs: Long, capMs: Long = NEXT_UP_AUTOPLAY_WAIT_MS): Long {
+    val left = capMs - elapsedMs
+    if (left <= 0L) return 0L
+    return left.coerceAtMost(200L)
+}
+
 internal enum class LateMark { Apply, Record, Pending }
 
 internal data class LateNextUp(val intro: LateMark, val credits: LateMark)
+
+/**
+ * Where a credits window starts, in milliseconds. A negative [startMs] means the end of the file.
+ * Unknown duration returns null so the pass does not decode the opening again.
+ */
+internal fun creditsWindowOriginMs(durationMs: Long, windowMs: Long, startMs: Long): Long? {
+    if (windowMs <= 0L) return null
+    if (startMs >= 0L) return startMs
+    if (durationMs <= 0L) return null
+    return (durationMs - windowMs).coerceAtLeast(0L)
+}
+
+/**
+ * A late mark is applied only when the pass produced real bounds.
+ * The scan window itself is not a credits cue.
+ */
+internal fun lateDetectedSkip(
+    action: LateMark,
+    detectedStartSec: Double?,
+    detectedEndSec: Double?,
+): LateSkip? {
+    if (action != LateMark.Apply) return null
+    val start = detectedStartSec ?: return null
+    val end = detectedEndSec ?: return null
+    if (!start.isFinite() || !end.isFinite() || end <= start || start < 0.0) return null
+    return LateSkip(start, end)
+}
+
+internal data class LateSkip(val startSec: Double, val endSec: Double)
+
+/** One next-up pass at a time. A busy pass does not consume the caller's attempt. */
+internal fun windowOfferAccepted(slotFree: Boolean, plan: List<String>, alreadyAttempted: Boolean): Boolean =
+    slotFree && plan.isNotEmpty() && !alreadyAttempted
 
 /**
  * A late intro is a skip only while the playhead is still inside that window.
@@ -137,10 +177,10 @@ internal object NextUpAnalysis {
             thermal = power.thermal,
             lowPowerMode = power.lowPowerMode,
         )
-        if (plan.isEmpty()) return
         val key = "$id:${if (atThreshold) "threshold" else "cool"}:${plan.joinToString()}"
-        if (!attempted.add(key)) return
-        MediaAnalysisScheduler.offerWindows(id, fileUri, plan)
+        if (!windowOfferAccepted(slotFree = true, plan = plan, alreadyAttempted = key in attempted)) return
+        if (!MediaAnalysisScheduler.offerWindows(id, fileUri, plan)) return
+        attempted.add(key)
     }
 
     fun onPaused() {

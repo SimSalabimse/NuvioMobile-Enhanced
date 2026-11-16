@@ -22,6 +22,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.p2p.P2pSettingsRepository
@@ -39,8 +42,10 @@ import com.nuvio.app.features.player.skip.intervalsAtSeekPositions
 import com.nuvio.app.features.analysis.CREDITS_WINDOW_MS
 import com.nuvio.app.features.analysis.INTRO_WINDOW_MS
 import com.nuvio.app.features.analysis.LateMark
-import com.nuvio.app.features.analysis.NEXT_UP_AUTOPLAY_WAIT_MS
 import com.nuvio.app.features.analysis.NextUpAnalysis
+import com.nuvio.app.features.analysis.autoplayStarts
+import com.nuvio.app.features.analysis.autoplayWaitMillis
+import com.nuvio.app.features.analysis.lateDetectedSkip
 import com.nuvio.app.features.analysis.lateNextUpApply
 import com.nuvio.app.features.analysis.offerNextEpisodeIntroWindow
 import com.nuvio.app.features.downloads.DownloadsRepository
@@ -1060,7 +1065,6 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         nextEpisodeCardDismissed,
         blocksAutoplay,
     ) {
-        val effectScope = this
         snapshotFlow { playbackClock.positionMs }.collect {
             if (blocksAutoplay) {
                 if (showNextEpisodeCard || nextEpisodeAutoPlayJob != null) {
@@ -1086,7 +1090,15 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                         atThreshold = true,
                     )
                 }
-                val nextItemId = nextEpisodeInfo?.let { next ->
+            } else if (!shouldShow) {
+                showNextEpisodeCard = false
+            }
+            if (shouldShow && playerSettingsUiState.streamAutoPlayNextEpisodeEnabled && nextEpisodeInfo?.hasAired == true && !isPartyControlLocked &&
+                // "End of episode" sleep: stop here instead of rolling on.
+                PlayerSleepTimer.choice.value != SleepTimerChoice.EndOfEpisode &&
+                nextEpisodeAutoPlayJob == null
+            ) {
+                val waitedId = nextEpisodeInfo?.let { next ->
                     DownloadsRepository.findPlayableDownload(
                         parentMetaId = parentMetaId,
                         seasonNumber = next.season,
@@ -1094,26 +1106,30 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                         videoId = next.videoId,
                     )?.id
                 }
-                if (playerSettingsUiState.streamAutoPlayNextEpisodeEnabled && nextEpisodeInfo?.hasAired == true && !isPartyControlLocked &&
-                    // "End of episode" sleep: stop here instead of rolling on.
-                    PlayerSleepTimer.choice.value != SleepTimerChoice.EndOfEpisode
-                ) {
-                    val waitedId = nextItemId
-                    nextEpisodeAutoPlayJob?.cancel()
-                    nextEpisodeAutoPlayJob = effectScope.launch {
-                        val started = kotlin.time.TimeSource.Monotonic.markNow()
-                        while (
-                            waitedId != null &&
-                            !NextUpAnalysis.ready(waitedId) &&
-                            started.elapsedNow().inWholeMilliseconds < NEXT_UP_AUTOPLAY_WAIT_MS
-                        ) {
-                            kotlinx.coroutines.delay(200)
-                        }
-                        playNextEpisode(automatic = true)
-                    }
+                // The player effect restarts when the snapshot changes, including when the
+                // episode ends. The wait is a sibling of that effect so the restart does not
+                // cancel it, and it still stops when the player leaves the screen.
+                val host = coroutineContext[Job]?.parent
+                val waitScope = if (host != null) {
+                    CoroutineScope(coroutineContext.minusKey(Job) + host)
+                } else {
+                    scope
                 }
-            } else if (!shouldShow) {
-                showNextEpisodeCard = false
+                // Main.immediate runs the body inside launch, before the assignment. Start lazy so
+                // the handle is stored first and a later effect restart does not drop it.
+                val waitJob = waitScope.launch(start = CoroutineStart.LAZY) {
+                    val started = kotlin.time.TimeSource.Monotonic.markNow()
+                    while (waitedId != null && !NextUpAnalysis.ready(waitedId)) {
+                        val elapsed = started.elapsedNow().inWholeMilliseconds
+                        if (autoplayStarts(elapsed, analysisReady = false)) break
+                        val pause = autoplayWaitMillis(elapsed)
+                        if (pause <= 0L) break
+                        kotlinx.coroutines.delay(pause)
+                    }
+                    playNextEpisode(automatic = true)
+                }
+                nextEpisodeAutoPlayJob = waitJob
+                waitJob.start()
             }
         }
     }
@@ -1144,21 +1160,20 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
                     mapOf("window" to "intro", "action" to plan.intro.name.lowercase()),
                 )
             }
-            if (!creditsHandled && plan.credits == LateMark.Apply && durationMs > CREDITS_WINDOW_MS) {
+            if (!creditsHandled && plan.credits != LateMark.Pending) {
                 creditsHandled = true
-                val start = (durationMs - CREDITS_WINDOW_MS) / 1000.0
-                val end = durationMs / 1000.0
-                skipIntervals = skipIntervals + com.nuvio.app.features.player.skip.SkipInterval(
-                    startTime = start,
-                    endTime = end,
-                    type = "outro",
-                    provider = ON_DEVICE_SKIP_PROVIDER,
-                )
-            } else if (!creditsHandled && plan.credits == LateMark.Record) {
-                creditsHandled = true
+                val detected = lateDetectedSkip(plan.credits, detectedStartSec = null, detectedEndSec = null)
+                if (detected != null) {
+                    skipIntervals = skipIntervals + com.nuvio.app.features.player.skip.SkipInterval(
+                        startTime = detected.startSec,
+                        endTime = detected.endSec,
+                        type = "outro",
+                        provider = ON_DEVICE_SKIP_PROVIDER,
+                    )
+                }
                 com.nuvio.app.features.diagnostics.BehaviourEvents.record(
                     "next-up-late",
-                    mapOf("window" to "credits", "action" to "record"),
+                    mapOf("window" to "credits", "action" to plan.credits.name.lowercase()),
                 )
             }
         }
