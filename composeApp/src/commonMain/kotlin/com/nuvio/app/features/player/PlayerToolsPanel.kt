@@ -53,6 +53,11 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
@@ -1167,20 +1172,37 @@ private fun InfoPage(
 
 @Composable
 private fun SomethingFeltOffRow() {
+    var marked by remember { mutableStateOf(false) }
+    val copy = com.nuvio.app.features.diagnostics.feltOffMarker(
+        marked = marked,
+        reduceMotion = playerReduceMotionEnabled(),
+    )
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 48.dp)
             .padding(horizontal = 16.dp)
-            .clickable {
+            .clickable(role = Role.Button) {
                 com.nuvio.app.features.diagnostics.BehaviourEvents.mark(null)
                 haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                com.nuvio.app.core.ui.NuvioToastController.show("Marked")
+                marked = true
+                com.nuvio.app.core.ui.NuvioToastController.show(
+                    com.nuvio.app.features.diagnostics.feltOffMarker(marked = true, reduceMotion = copy.motionMillis == 0).value,
+                )
+            }
+            .semantics {
+                contentDescription = copy.label
+                stateDescription = copy.value
             },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("Something felt off", color = Color.White, fontSize = PlayerToolRowText)
+        Text(
+            if (marked) copy.value else copy.label,
+            color = Color.White,
+            fontSize = PlayerToolRowText,
+            modifier = Modifier.clearAndSetSemantics {},
+        )
     }
 }
 

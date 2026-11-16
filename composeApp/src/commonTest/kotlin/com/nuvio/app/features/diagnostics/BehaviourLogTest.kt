@@ -22,6 +22,35 @@ class BehaviourLogTest {
     }
 
     @Test
+    fun oneOversizedLineDoesNotBreakTheCap() {
+        val ring = BehaviourRing(maxBytes = 64)
+        ring.append("x".repeat(200))
+        assertEquals(0, ring.bytes())
+        ring.append("ok")
+        ring.append("y".repeat(200))
+        assertTrue(ring.bytes() <= 64)
+        assertTrue(ring.active.contains("ok"))
+    }
+
+    @Test
+    fun aMetricLineWithAPathOrUrlIsDropped() {
+        assertEquals(null, behaviourRawLine("/var/mobile/Containers/Data/show.mkv"))
+        assertEquals(null, behaviourRawLine("https://cdn.example/a"))
+        assertEquals(null, behaviourRawLine("user@host"))
+        assertEquals("{\"kind\":\"metric\"}", behaviourRawLine("{\"kind\":\"metric\"}\n"))
+    }
+
+    @Test
+    fun theMarkerKeepsItsNameAndSnapsWhenMotionIsReduced() {
+        val still = feltOffMarker(marked = true, reduceMotion = true)
+        assertEquals("Something felt off", still.label)
+        assertEquals("Marked", still.value)
+        assertEquals("Saves a marker on this phone", still.hint)
+        assertEquals(0, still.motionMillis)
+        assertEquals(160, feltOffMarker(marked = false, reduceMotion = false).motionMillis)
+    }
+
+    @Test
     fun theRingStaysInsideFourMegabytesAndDropsTheOlderFile() {
         val ring = BehaviourRing(maxBytes = 64)
         repeat(20) { index -> ring.append("event-$index-xxxxxxxx") }

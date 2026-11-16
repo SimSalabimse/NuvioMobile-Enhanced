@@ -19,7 +19,8 @@ internal class BehaviourRing(private val maxBytes: Int = BEHAVIOUR_LOG_MAX_BYTES
 
     fun append(line: String) {
         val next = if (line.endsWith("\n")) line else line + "\n"
-        val half = maxBytes / 2
+        if (next.encodeToByteArray().size > maxBytes) return
+        val half = (maxBytes / 2).coerceAtLeast(1)
         if (active.encodeToByteArray().size + next.encodeToByteArray().size > half) {
             previous = active
             active = ""
@@ -50,6 +51,41 @@ internal fun behaviourEventLine(kind: String, fields: Map<String, String>): Stri
     }
     return "{\"kind\":\"${jsonToken(kind)}\",$body}"
 }
+
+/**
+ * One MetricKit payload line. A URL, address, path, or file name is dropped whole.
+ * The ring stores the returned line, or nothing when this is null.
+ */
+internal fun behaviourRawLine(line: String): String? {
+    val one = line.replace("\n", " ").replace("\r", " ").trim().take(32_000)
+    val lower = one.lowercase()
+    if (
+        one.isEmpty() ||
+        lower.contains("http") ||
+        one.contains("@") ||
+        one.contains("://") ||
+        one.contains("/") ||
+        one.contains("\\")
+    ) {
+        return null
+    }
+    return one
+}
+
+internal data class FeltOffMarker(
+    val label: String,
+    val value: String,
+    val hint: String,
+    val motionMillis: Int,
+)
+
+/** The marker keeps its name for VoiceOver. Reduce Motion snaps the state change. */
+internal fun feltOffMarker(marked: Boolean, reduceMotion: Boolean) = FeltOffMarker(
+    label = "Something felt off",
+    value = if (marked) "Marked" else "Not marked",
+    hint = "Saves a marker on this phone",
+    motionMillis = if (reduceMotion) 0 else 160,
+)
 
 /** A note is one short line. A URL, address, or path is dropped. */
 internal fun behaviourNote(raw: String?): String {

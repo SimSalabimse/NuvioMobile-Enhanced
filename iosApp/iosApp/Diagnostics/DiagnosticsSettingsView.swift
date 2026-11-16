@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 struct DiagnosticsSettingsView: View {
     @StateObject private var viewModel = DiagnosticsViewModel()
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var marked = false
     @AppStorage("NuvioShareBehaviourLog") private var shareBehaviourLog = true
     
@@ -24,10 +25,23 @@ struct DiagnosticsSettingsView: View {
                 LabeledContent("Last uploaded", value: BehaviourShare.lastUploaded)
                 Button {
                     BehaviourEvents.markFromSettings()
-                    marked = true
+                    if reduceMotion {
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) { marked = true }
+                    } else {
+                        marked = true
+                    }
                 } label: {
-                    Label(marked ? "Marked" : "Something felt off", systemImage: "flag")
+                    Label {
+                        Text(marked ? "Marked" : "Something felt off")
+                    } icon: {
+                        Image(systemName: "flag")
+                            .accessibilityHidden(true)
+                    }
                 }
+                .accessibilityLabel("Something felt off")
+                .accessibilityValue(marked ? "Marked" : "Not marked")
                 .accessibilityHint("Saves a marker on this phone")
             }
 
