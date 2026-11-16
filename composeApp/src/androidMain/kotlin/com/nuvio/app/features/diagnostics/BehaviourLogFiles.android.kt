@@ -9,7 +9,18 @@ internal actual class BehaviourLock {
 }
 
 internal actual object BehaviourLogFiles {
-    actual fun write(active: String, previous: String) = Unit
+    private var previous: String = ""
+    private var active: String = ""
+    private var snapshot: String = ""
+
+    actual fun read(): Pair<String, String> = previous to active
+    actual fun write(active: String, previous: String) {
+        this.active = active
+        this.previous = previous
+    }
+    actual fun readSnapshot(): String = snapshot
+    actual fun writeSnapshot(text: String) { snapshot = text }
+    actual fun deleteSnapshot() { snapshot = "" }
     actual fun bearerToken(): String? = null
     actual fun installSalt(): String = "host"
 }

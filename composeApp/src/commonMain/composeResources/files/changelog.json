@@ -7,7 +7,8 @@
       "new": [
         "The next episode keeps downloading quietly while you watch. Other downloads wait.",
         "The next episode starts within a few seconds. Its intro skip and credits marker are applied when the check finishes.",
-        "A behaviour log can be shared from Diagnostics. Tap Something felt off when playback misbehaves."
+        "A behaviour log can be shared from Diagnostics. Tap Something felt off when playback misbehaves.",
+        "A marker in that log is still there after the app is opened again."
       ],
       "improved": [],
       "fixed": []

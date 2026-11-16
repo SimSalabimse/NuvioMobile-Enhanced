@@ -180,6 +180,7 @@ object HomeRepository {
         _uiState.update { it.copy(isLoading = true, errorMessage = null) }
         val cachedHomeFirst = PerformanceSettings.isEnabled(PerformanceOptimization.CachedHomeFirst)
         activeJob = scope.launch {
+            val homeStarted = TimeSource.Monotonic.markNow()
             val prioritizedRequests = prioritizeDefinitions(
                 definitions = requests,
                 snapshot = HomeCatalogSettingsRepository.snapshot(),
@@ -240,6 +241,10 @@ object HomeRepository {
             cachedSections = loadedSections.toMap()
             lastErrorMessage = firstErrorMessage
             activeRequestKey = null
+            com.nuvio.app.features.diagnostics.BehaviourEvents.record(
+                "home-load",
+                mapOf("ms" to homeStarted.elapsedNow().inWholeMilliseconds.toString()),
+            )
             publishCurrentState(
                 isLoading = false,
                 requestKey = requestKey,

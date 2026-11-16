@@ -345,10 +345,13 @@ internal object MediaAnalysisScheduler {
         if (!introWindowBusy.compareAndSet(expect = false, update = true)) return false
         if (!analyserSupported()) {
             kinds.forEach { NextUpAnalysis.mark(itemId, it, "unsupported") }
+            kinds.forEach { recordWindow(it, "start", "queued") }
+            kinds.forEach { recordWindow(it, "finish", "unsupported") }
             logNextUpAnalysis(itemId)
             introWindowBusy.value = false
             return true
         }
+        kinds.forEach { recordWindow(it, "start", "queued") }
         introWindowJob = scope.launch(Dispatchers.Default) {
             try {
                 for (kind in kinds) {
@@ -362,6 +365,7 @@ internal object MediaAnalysisScheduler {
                     val parsed = raw?.let { runCatching { json.decodeFromString(RawMediaAnalysis.serializer(), it) }.getOrNull() }
                     val result = if (parsed != null && parsed.durationMs > 0L) "scanned" else "aborted"
                     NextUpAnalysis.mark(itemId, kind, result)
+                    recordWindow(kind, "finish", result)
                 }
                 logNextUpAnalysis(itemId)
             } finally {
@@ -369,6 +373,13 @@ internal object MediaAnalysisScheduler {
             }
         }
         return true
+    }
+
+    private fun recordWindow(window: String, action: String, reason: String) {
+        com.nuvio.app.features.diagnostics.BehaviourEvents.record(
+            "analysis",
+            mapOf("action" to action, "reason" to reason, "window" to window),
+        )
     }
 
     private fun logNextUpAnalysis(itemId: String) {
@@ -1013,6 +1024,7 @@ internal object MediaAnalysisScheduler {
      */
     private suspend fun audioAnalysis(item: DownloadItem, uri: String, already: MediaAnalysisResult?): AudioPass? {
         val started = TimeSource.Monotonic.markNow()
+        recordWindow("full", "start", "file")
         var matchMs = 0L
         var clipMs = 0L
         var teachMs = 0L
@@ -1187,6 +1199,7 @@ internal object MediaAnalysisScheduler {
             "analyse done id=${item.id} durationMs=${result.durationMs} lufs=${result.integratedLufs} " +
                 "intro=${result.introStartMs}-${result.introEndMs} credits=${result.creditsStartMs}-${result.creditsEndMs}",
         )
+        recordWindow("full", "finish", "file")
         logAnalysisStageTimings(
             item.id,
             AnalysisStageTimings(

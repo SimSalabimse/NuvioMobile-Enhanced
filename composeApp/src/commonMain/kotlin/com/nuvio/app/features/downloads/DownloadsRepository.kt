@@ -1237,9 +1237,22 @@ object DownloadsRepository {
                 com.nuvio.app.features.diagnostics.BehaviourLogFiles.installSalt(),
                 plain,
             )
-            val nextLine = nextUpLine(hash, gate.state.name.lowercase(), -1, -1, 0)
+            val eta = PlaybackPriority.nextUpEtaSeconds()
+            val remaining = PlaybackPriority.nextUpRemainingSeconds()
+            val rate = PlaybackPriority.nextUpBytesPerSecond()
+            val nextLine = nextUpLine(hash, gate.state.name.lowercase(), eta, remaining, rate)
             com.nuvio.app.core.logging.InAppLogger.info("Downloads", nextLine)
             com.nuvio.app.features.diagnostics.DiagnosticsLogger.logPerformance(nextLine)
+            com.nuvio.app.features.diagnostics.BehaviourEvents.record(
+                "next-up",
+                mapOf(
+                    "id" to hash,
+                    "state" to gate.state.name.lowercase(),
+                    "eta" to eta.toString(),
+                    "remaining" to remaining.toString(),
+                    "rate" to rate.toString(),
+                ),
+            )
         }
         lastDownloadGateLine = line
         com.nuvio.app.core.logging.InAppLogger.info("Downloads", line)

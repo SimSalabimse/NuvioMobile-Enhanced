@@ -36,11 +36,25 @@ internal actual class BehaviourLock {
     }
 }
 
+fun nuvioBehaviourOpen() {
+    BehaviourEvents.open()
+}
+
 fun nuvioRecordBehaviour(kind: String) {
     BehaviourEvents.record(kind)
 }
 
+fun nuvioBehaviourMark() {
+    BehaviourEvents.mark(null)
+}
+
 fun nuvioBehaviourSnapshot(): String = BehaviourEvents.snapshot()
+
+fun nuvioBehaviourBeginUpload(): String = BehaviourEvents.beginUpload()
+
+fun nuvioBehaviourFinishUpload(status: Int) {
+    BehaviourEvents.completeUpload(status)
+}
 
 fun nuvioBehaviourClear() {
     BehaviourEvents.clear()
@@ -53,7 +67,7 @@ fun nuvioBehaviourFlush() {
 fun nuvioAppendRaw(line: String) {
     val one = behaviourRawLine(line)
     if (one == null) {
-        BehaviourEvents.record("metrickit-redacted")
+        BehaviourEvents.record("metrickit-dropped")
         return
     }
     BehaviourEvents.appendRaw(one)
@@ -61,6 +75,11 @@ fun nuvioAppendRaw(line: String) {
 
 interface NuvioBehaviourLogBridge {
     fun write(active: String, previous: String)
+    fun readPrevious(): String
+    fun readActive(): String
+    fun writeSnapshot(text: String)
+    fun readSnapshot(): String
+    fun deleteSnapshot()
 }
 
 object NuvioBehaviourLogRegistry {
@@ -72,8 +91,23 @@ object NuvioBehaviourLogRegistry {
 }
 
 internal actual object BehaviourLogFiles {
+    actual fun read(): Pair<String, String> {
+        val bridge = NuvioBehaviourLogRegistry.bridge ?: return "" to ""
+        return bridge.readPrevious() to bridge.readActive()
+    }
+
     actual fun write(active: String, previous: String) {
         NuvioBehaviourLogRegistry.bridge?.write(active, previous)
+    }
+
+    actual fun readSnapshot(): String = NuvioBehaviourLogRegistry.bridge?.readSnapshot().orEmpty()
+
+    actual fun writeSnapshot(text: String) {
+        NuvioBehaviourLogRegistry.bridge?.writeSnapshot(text)
+    }
+
+    actual fun deleteSnapshot() {
+        NuvioBehaviourLogRegistry.bridge?.deleteSnapshot()
     }
 
     actual fun bearerToken(): String? =

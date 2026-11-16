@@ -110,6 +110,16 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         }
     }
 
+    LaunchedEffect(parentMetaId, activeSeasonNumber, activeEpisodeNumber, activeVideoId) {
+        val plain = listOfNotNull(
+            parentMetaId.takeIf { it.isNotBlank() },
+            activeSeasonNumber?.toString(),
+            activeEpisodeNumber?.toString(),
+            activeVideoId?.takeIf { it.isNotBlank() },
+        ).joinToString(":")
+        com.nuvio.app.features.downloads.PlaybackPriority.notePlaybackContent(plain)
+    }
+
     LaunchedEffect(parentMetaType, parentMetaId) {
         episodesLoadGeneration += 1
         episodesLoadJob?.cancel()

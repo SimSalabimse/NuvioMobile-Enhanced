@@ -39,6 +39,7 @@ private fun installMemoryWarningObserver() {
         SingletonImageLoader.get(PlatformContext.INSTANCE).memoryCache?.clear()
         InAppLogger.info("ImageLoader", "memory warning: cleared image memory cache")
         logProcessMemory("warning")
+        com.nuvio.app.features.diagnostics.BehaviourEvents.record("memory-warning")
         kotlin.native.runtime.GC.collect()
     }
 }

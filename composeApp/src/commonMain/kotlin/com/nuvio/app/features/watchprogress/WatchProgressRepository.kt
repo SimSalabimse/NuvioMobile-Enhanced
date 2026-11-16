@@ -391,6 +391,8 @@ object WatchProgressRepository {
     }
 
     private fun loadFromDisk(profileId: Int) {
+        val started = kotlin.time.TimeSource.Monotonic.markNow()
+        try {
         fixtureEntries?.let { entries ->
             currentProfileId = profileId
             hasLoaded = true
@@ -439,6 +441,12 @@ object WatchProgressRepository {
         }
         publish()
         resolveRemoteMetadata()
+        } finally {
+            com.nuvio.app.features.diagnostics.BehaviourEvents.record(
+                "cw-load",
+                mapOf("ms" to started.elapsedNow().inWholeMilliseconds.toString()),
+            )
+        }
     }
 
     private fun activeOperationGeneration(profileId: Int): Long? {

@@ -215,6 +215,10 @@ internal fun offerNextEpisodeIntroWindow(
     )
     if (!allowed && stored.hasOnDeviceMarks()) {
         logIntroWindow(item.id, "skip-marks")
+        com.nuvio.app.features.diagnostics.BehaviourEvents.record(
+            "analysis",
+            mapOf("action" to "skip", "reason" to "marks", "window" to "intro"),
+        )
         return
     }
     val uri = DownloadsRepository.playableLocalFileUri(item) ?: return

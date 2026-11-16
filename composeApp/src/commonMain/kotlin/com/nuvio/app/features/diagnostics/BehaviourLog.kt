@@ -1,6 +1,10 @@
 package com.nuvio.app.features.diagnostics
 
 import com.nuvio.app.features.profiles.ProfilePinCrypto
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 internal const val BEHAVIOUR_LOG_MAX_BYTES = 4 * 1024 * 1024
 internal const val BEHAVIOUR_FLUSH_EVENTS = 64
@@ -31,6 +35,13 @@ internal class BehaviourRing(private val maxBytes: Int = BEHAVIOUR_LOG_MAX_BYTES
         }
     }
 
+    /** Keep what is already on disk, then drop the oldest lines until the cap holds. */
+    fun restore(previous: String, active: String) {
+        this.previous = ""
+        this.active = ""
+        (previous + active).lineSequence().filter { it.isNotBlank() }.forEach { append(it) }
+    }
+
     fun bytes(): Int = previous.encodeToByteArray().size + active.encodeToByteArray().size
 
     fun clear() {
@@ -45,31 +56,61 @@ internal fun behaviourContentId(salt: String, id: String): String {
     return digest.take(12)
 }
 
-internal fun behaviourEventLine(kind: String, fields: Map<String, String>): String {
-    val body = fields.entries.joinToString(",") { (key, value) ->
-        "\"${jsonToken(key)}\":\"${jsonToken(value)}\""
+internal const val BEHAVIOUR_POSITION_BUCKET_MS = 30_000L
+internal const val BEHAVIOUR_METRIC_MAX_BYTES = 32 * 1024
+
+private val behaviourJson = Json { encodeDefaults = true }
+
+/** One event. Empty fields stay valid JSON. [t] is epoch milliseconds, [seq] restarts each launch. */
+internal fun behaviourEventLine(
+    kind: String,
+    fields: Map<String, String>,
+    t: Long,
+    seq: Long,
+    launch: String,
+): String {
+    val obj = buildJsonObject {
+        put("t", t)
+        put("seq", seq)
+        put("launch", launch.take(32))
+        put("kind", kind.take(32))
+        fields.forEach { (key, value) ->
+            val name = jsonToken(key).take(32)
+            if (name.isEmpty()) return@forEach
+            val limit = if (name == "payload") BEHAVIOUR_METRIC_MAX_BYTES else 80
+            put(name, value.take(limit))
+        }
     }
-    return "{\"kind\":\"${jsonToken(kind)}\",$body}"
+    return behaviourJson.encodeToString(JsonObject.serializer(), obj)
 }
 
+internal fun behaviourPositionBucket(positionMs: Long): Long {
+    if (positionMs < 0L) return -1L
+    return positionMs / BEHAVIOUR_POSITION_BUCKET_MS
+}
+
+internal fun behaviourLaunchId(): String =
+    ProfilePinCrypto.secureRandomBytes(8).joinToString(separator = "") { byte ->
+        (byte.toInt() and 0xff).toString(16).padStart(2, '0')
+    }
+
+private val behaviourUrl = Regex("""[A-Za-z][A-Za-z0-9+.-]*://[^\s"'<>]+""")
+private val behaviourPath = Regex("""[^\s"'<>]*[/\\][^\s"'<>]*""")
+private val behaviourAddress = Regex("""[^\s"'<>@]+@[^\s"'<>@]+""")
+
 /**
- * One MetricKit payload line. A URL, address, path, or file name is dropped whole.
- * The ring stores the returned line, or nothing when this is null.
+ * One MetricKit payload. Paths become `<path>`, URLs `<url>`, addresses `<addr>`.
+ * The rest of the payload stays. Nothing over 32 KB is kept.
  */
 internal fun behaviourRawLine(line: String): String? {
-    val one = line.replace("\n", " ").replace("\r", " ").trim().take(32_000)
-    val lower = one.lowercase()
-    if (
-        one.isEmpty() ||
-        lower.contains("http") ||
-        one.contains("@") ||
-        one.contains("://") ||
-        one.contains("/") ||
-        one.contains("\\")
-    ) {
-        return null
-    }
-    return one
+    if (line.encodeToByteArray().size > BEHAVIOUR_METRIC_MAX_BYTES) return null
+    val one = line.replace("\n", " ").replace("\r", " ").trim()
+    if (one.isEmpty()) return null
+    val redacted = behaviourAddress.replace(
+        behaviourPath.replace(behaviourUrl.replace(one, "<url>"), "<path>"),
+        "<addr>",
+    )
+    return redacted.take(BEHAVIOUR_METRIC_MAX_BYTES).ifEmpty { null }
 }
 
 internal data class FeltOffMarker(
@@ -116,8 +157,99 @@ internal fun telemetryDeleteLocalBatch(statusCode: Int): Boolean = statusCode in
 private fun jsonToken(value: String): String =
     value.replace("\\", "").replace("\"", "").replace("\n", " ").take(80)
 
-internal expect object BehaviourLogFiles {
+internal interface BehaviourDisk {
+    fun read(): Pair<String, String>
     fun write(active: String, previous: String)
+    fun readSnapshot(): String
+    fun writeSnapshot(text: String)
+    fun deleteSnapshot()
+}
+
+internal class MemoryBehaviourDisk : BehaviourDisk {
+    var previous: String = ""
+    var active: String = ""
+    var snapshot: String = ""
+
+    override fun read(): Pair<String, String> = previous to active
+    override fun write(active: String, previous: String) {
+        this.active = active
+        this.previous = previous
+    }
+    override fun readSnapshot(): String = snapshot
+    override fun writeSnapshot(text: String) { snapshot = text }
+    override fun deleteSnapshot() { snapshot = "" }
+}
+
+/**
+ * One launch. The ring is loaded from [disk] first, so a later launch appends.
+ * [beginUpload] rotates the current text into a snapshot and leaves the live ring for newer events.
+ */
+internal class BehaviourLogSession(
+    private val disk: BehaviourDisk,
+    private val nowMs: () -> Long = { kotlin.time.Clock.System.now().toEpochMilliseconds() },
+    val launchId: String = behaviourLaunchId(),
+) {
+    private val ring = BehaviourRing()
+    private var seq = 0L
+    private var pending = 0
+
+    init {
+        val (previous, active) = disk.read()
+        ring.restore(previous, active)
+    }
+
+    fun text(): String = ring.previous + ring.active
+
+    fun record(kind: String, fields: Map<String, String> = emptyMap()) {
+        seq += 1
+        ring.append(behaviourEventLine(kind, fields, nowMs(), seq, launchId))
+        pending += 1
+        if (pending >= BEHAVIOUR_FLUSH_EVENTS) flush()
+    }
+
+    fun mark(note: String?) {
+        val clean = behaviourNote(note)
+        val fields = if (clean.isEmpty()) emptyMap() else mapOf("note" to clean)
+        seq += 1
+        ring.append(behaviourEventLine("marker", fields, nowMs(), seq, launchId))
+        flush()
+    }
+
+    fun appendPayload(kind: String, payload: String) {
+        record(kind, mapOf("payload" to payload))
+    }
+
+    fun flush() {
+        pending = 0
+        disk.write(ring.active, ring.previous)
+    }
+
+    /** The batch already waiting, or the live ring rotated out of the way. */
+    fun beginUpload(): String {
+        val waiting = disk.readSnapshot()
+        if (waiting.isNotBlank()) return waiting
+        flush()
+        val batch = text()
+        if (batch.isBlank()) return ""
+        disk.writeSnapshot(batch)
+        ring.clear()
+        pending = 0
+        disk.write("", "")
+        return batch
+    }
+
+    /** A 2xx drops the snapshot only. Events written after [beginUpload] stay. */
+    fun completeUpload(status: Int) {
+        if (status in 200..299) disk.deleteSnapshot()
+    }
+}
+
+internal expect object BehaviourLogFiles {
+    fun read(): Pair<String, String>
+    fun write(active: String, previous: String)
+    fun readSnapshot(): String
+    fun writeSnapshot(text: String)
+    fun deleteSnapshot()
     fun bearerToken(): String?
     fun installSalt(): String
 }
@@ -132,64 +264,66 @@ internal expect fun behaviourEnqueue(block: () -> Unit)
 /** Waits for queued appends. Callers must not be the main thread on iOS. */
 internal expect fun behaviourSync(block: () -> Unit)
 
-internal object BehaviourEvents {
-    private val ring = BehaviourRing()
-    private val lock = BehaviourLock()
-    private var pending = 0
+private object AppBehaviourDisk : BehaviourDisk {
+    override fun read(): Pair<String, String> = BehaviourLogFiles.read()
+    override fun write(active: String, previous: String) = BehaviourLogFiles.write(active, previous)
+    override fun readSnapshot(): String = BehaviourLogFiles.readSnapshot()
+    override fun writeSnapshot(text: String) = BehaviourLogFiles.writeSnapshot(text)
+    override fun deleteSnapshot() = BehaviourLogFiles.deleteSnapshot()
+}
 
-    fun appendRaw(line: String) {
-        behaviourEnqueue {
+internal object BehaviourEvents {
+    private val lock = BehaviourLock()
+    private var session = BehaviourLogSession(AppBehaviourDisk)
+
+    /** Load the files from the previous launch, then append. Call this before the first event. */
+    fun open() {
+        behaviourSync {
             lock.withLock {
-                ring.append(line)
-                pending += 1
-                if (pending >= BEHAVIOUR_FLUSH_EVENTS) flushLocked()
+                session = BehaviourLogSession(AppBehaviourDisk)
             }
         }
+    }
+
+    fun appendRaw(line: String) {
+        behaviourEnqueue { lock.withLock { session.appendPayload("metric", line) } }
     }
 
     fun record(kind: String, fields: Map<String, String> = emptyMap()) {
-        behaviourEnqueue {
-            lock.withLock {
-                ring.append(behaviourEventLine(kind, fields))
-                pending += 1
-                if (pending >= BEHAVIOUR_FLUSH_EVENTS) flushLocked()
-            }
-        }
+        behaviourEnqueue { lock.withLock { session.record(kind, fields) } }
     }
 
     fun mark(note: String?) {
-        val clean = behaviourNote(note)
-        val fields = if (clean.isEmpty()) emptyMap() else mapOf("note" to clean)
-        behaviourEnqueue {
-            lock.withLock {
-                ring.append(behaviourEventLine("marker", fields))
-                flushLocked()
-            }
-        }
+        behaviourEnqueue { lock.withLock { session.mark(note) } }
     }
 
     fun flush() {
-        behaviourSync { lock.withLock { flushLocked() } }
+        behaviourSync { lock.withLock { session.flush() } }
     }
 
     fun snapshot(): String {
         var value = ""
-        behaviourSync { value = lock.withLock { ring.previous + ring.active } }
+        behaviourSync { value = lock.withLock { session.text() } }
         return value
+    }
+
+    fun beginUpload(): String {
+        var value = ""
+        behaviourSync { value = lock.withLock { session.beginUpload() } }
+        return value
+    }
+
+    fun completeUpload(status: Int) {
+        behaviourSync { lock.withLock { session.completeUpload(status) } }
     }
 
     fun clear() {
         behaviourSync {
             lock.withLock {
-                ring.clear()
-                pending = 0
                 BehaviourLogFiles.write("", "")
+                BehaviourLogFiles.deleteSnapshot()
+                session = BehaviourLogSession(AppBehaviourDisk, launchId = session.launchId)
             }
         }
-    }
-
-    private fun flushLocked() {
-        pending = 0
-        BehaviourLogFiles.write(ring.active, ring.previous)
     }
 }

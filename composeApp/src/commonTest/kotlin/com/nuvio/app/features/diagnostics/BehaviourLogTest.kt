@@ -1,8 +1,13 @@
 package com.nuvio.app.features.diagnostics
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class BehaviourLogTest {
@@ -33,11 +38,78 @@ class BehaviourLogTest {
     }
 
     @Test
-    fun aMetricLineWithAPathOrUrlIsDropped() {
-        assertEquals(null, behaviourRawLine("/var/mobile/Containers/Data/show.mkv"))
-        assertEquals(null, behaviourRawLine("https://cdn.example/a"))
-        assertEquals(null, behaviourRawLine("user@host"))
+    fun aMetricPayloadKeepsItsBodyAndRedactsPathsAndUrls() {
+        val raw = """{"ok":1,"file":"/var/mobile/Containers/Data/show.mkv","page":"https://cdn.example/a","who":"user@host"}"""
+        val line = behaviourRawLine(raw)
+        assertNotNull(line)
+        assertTrue(line.contains("\"ok\":1"))
+        assertTrue(line.contains("<path>"))
+        assertTrue(line.contains("<url>"))
+        assertTrue(line.contains("<addr>"))
+        assertFalse(line.contains("/var/mobile"))
+        assertFalse(line.contains("https://"))
+        assertFalse(line.contains("user@host"))
         assertEquals("{\"kind\":\"metric\"}", behaviourRawLine("{\"kind\":\"metric\"}\n"))
+        assertEquals(null, behaviourRawLine("x".repeat(BEHAVIOUR_METRIC_MAX_BYTES + 1)))
+    }
+
+    @Test
+    fun reloadAfterRelaunchKeepsTheMarker() {
+        val disk = MemoryBehaviourDisk()
+        val first = BehaviourLogSession(disk, nowMs = { 1_700_000_000_000L }, launchId = "launch-a")
+        first.mark(null)
+        val second = BehaviourLogSession(disk, nowMs = { 1_700_000_005_000L }, launchId = "launch-b")
+        assertTrue(second.text().contains("\"kind\":\"marker\""))
+        assertTrue(second.text().contains("launch-a"))
+        second.record("foreground")
+        assertTrue(second.text().contains("launch-b"))
+        assertTrue(second.text().contains("\"kind\":\"marker\""))
+    }
+
+    @Test
+    fun everyLineIsJsonWithTimeAndSequence() {
+        val session = BehaviourLogSession(MemoryBehaviourDisk(), nowMs = { 42L }, launchId = "launch-a")
+        session.record("launch")
+        session.record("playback", mapOf("state" to "start"))
+        val lines = session.text().lineSequence().filter { it.isNotBlank() }.toList()
+        assertEquals(2, lines.size)
+        val parsed = lines.map { Json.parseToJsonElement(it).jsonObject }
+        parsed.forEach { obj ->
+            assertEquals(42L, obj.getValue("t").jsonPrimitive.long)
+            assertEquals("launch-a", obj.getValue("launch").jsonPrimitive.content)
+            assertTrue(obj.getValue("seq").jsonPrimitive.long > 0L)
+            assertFalse(obj.getValue("kind").jsonPrimitive.content.isEmpty())
+        }
+        assertEquals(listOf(1L, 2L), parsed.map { it.getValue("seq").jsonPrimitive.long })
+        assertEquals("launch", parsed[0].getValue("kind").jsonPrimitive.content)
+        assertFalse(lines[0].contains(",}"))
+    }
+
+    @Test
+    fun uploadSnapshotDoesNotDeleteNewerEvents() {
+        val disk = MemoryBehaviourDisk()
+        val session = BehaviourLogSession(disk, nowMs = { 1L }, launchId = "launch-a")
+        session.record("old")
+        val batch = session.beginUpload()
+        assertTrue(batch.contains("\"kind\":\"old\""))
+        session.record("newer")
+        session.completeUpload(500)
+        assertTrue(disk.snapshot.contains("\"kind\":\"old\""))
+        assertTrue(session.text().contains("\"kind\":\"newer\""))
+        session.completeUpload(200)
+        assertEquals("", disk.snapshot)
+        assertTrue(session.text().contains("\"kind\":\"newer\""))
+        assertFalse(session.text().contains("\"kind\":\"old\""))
+    }
+
+    @Test
+    fun theMarkerIsFlushedToDiskImmediately() {
+        val disk = MemoryBehaviourDisk()
+        val session = BehaviourLogSession(disk, nowMs = { 1L }, launchId = "launch-a")
+        session.mark(null)
+        val stored = disk.previous + disk.active
+        assertTrue(stored.contains("\"kind\":\"marker\""))
+        assertTrue(stored.contains("\"t\":"))
     }
 
     @Test

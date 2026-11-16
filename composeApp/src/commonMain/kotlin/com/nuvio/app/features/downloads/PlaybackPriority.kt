@@ -10,7 +10,11 @@ import com.nuvio.app.features.analysis.analysisThrottleLevel
 import com.nuvio.app.features.analysis.logProcessMemory
 import com.nuvio.app.features.analysis.setAnalysisPlayerSessionOpen
 import com.nuvio.app.features.analysis.setAnalysisThrottleLevel
+import com.nuvio.app.features.diagnostics.BehaviourEvents
+import com.nuvio.app.features.diagnostics.BehaviourLogFiles
 import com.nuvio.app.features.diagnostics.DiagnosticsLogger
+import com.nuvio.app.features.diagnostics.behaviourContentId
+import com.nuvio.app.features.diagnostics.behaviourPositionBucket
 
 /**
  * Playback first, then downloads, then on-device analysis.
@@ -64,6 +68,12 @@ internal object PlaybackPriority {
     /** Last level written to the platform, so a playing snapshot does not rewrite it every tick. */
     private var appliedAnalysisThrottle = 0
     private var appliedPauseReason: String? = null
+    private var playbackPlainId: String? = null
+    private var loggedPlayState = "idle"
+    private var lastPowerKey: String? = null
+    private var nextUpBytesLeft = -1L
+    private var nextUpBytesPerSecond = 0L
+    private var nextUpRemainingMs = -1L
 
     fun sessionStarted(isLocalFile: Boolean) {
         sessionOpen = true
@@ -77,6 +87,7 @@ internal object PlaybackPriority {
         appliedDownloadGateKey = null
         setAnalysisPlayerSessionOpen(true)
         InAppLogger.info("PlaybackPriority", "player opened local=$isLocalFile")
+        logPlayback("start", lastPositionMs)
         apply(Level.Playing, always = true)
     }
 
@@ -90,6 +101,7 @@ internal object PlaybackPriority {
         try {
             noteSnapshotBody(buffering, positionMs, nowMs)
         } finally {
+            logPlayback(if (videoPlaying) "start" else "pause", positionMs)
             publishDownloadGate()
         }
     }
@@ -154,9 +166,29 @@ internal object PlaybackPriority {
     }
 
     /** Thermal state or Low Power Mode changed. Logs every change, then reapplies the hold. */
+    fun notePlaybackContent(plainId: String) {
+        val trimmed = plainId.trim()
+        playbackPlainId = trimmed.ifEmpty { null }
+    }
+
+    fun notePlaybackError(positionMs: Long) {
+        logPlayback("error", positionMs)
+    }
+
     fun notePowerChanged() {
         val playing = sessionOpen && pausedSinceMs == 0L
         val power = AnalysisPower.snapshot()
+        val powerKey = "${power.thermal.name.lowercase()}|${power.lowPowerMode}"
+        if (powerKey != lastPowerKey) {
+            lastPowerKey = powerKey
+            BehaviourEvents.record(
+                "power",
+                mapOf(
+                    "thermal" to power.thermal.name.lowercase(),
+                    "lowPower" to if (power.lowPowerMode) "true" else "false",
+                ),
+            )
+        }
         val line = analysisDiagnosticsLine(
             event = "thermal",
             job = com.nuvio.app.features.analysis.MediaAnalysisScheduler.activeJobId(),
@@ -181,6 +213,8 @@ internal object PlaybackPriority {
         setAnalysisPlayerSessionOpen(false)
         if (!sessionOpen) return
         sessionOpen = false
+        logPlayback("stop", lastPositionMs)
+        loggedPlayState = "idle"
         InAppLogger.info("PlaybackPriority", "player closed")
         apply(Level.Normal)
         // Whatever happened during playback, the queue picks up again and the labels refresh.
@@ -216,6 +250,9 @@ internal object PlaybackPriority {
      * A late file is raised to normal priority unless the phone is seriously hot.
      */
     fun noteNextUpProgress(bytesLeft: Long, bytesPerSecond: Long, episodeRemainingMs: Long, nowMs: Long) {
+        nextUpBytesLeft = bytesLeft
+        nextUpBytesPerSecond = bytesPerSecond
+        nextUpRemainingMs = episodeRemainingMs
         if (!deadlineRecheckDue(nowMs, lastDeadlineCheckMs, episodeRemainingMs, lastRemainingMs)) return
         lastDeadlineCheckMs = nowMs
         lastRemainingMs = episodeRemainingMs
@@ -277,6 +314,12 @@ internal object PlaybackPriority {
         return if (dutyWindowOpen()) "on" else "off"
     }
 
+    fun nextUpEtaSeconds(): Long = com.nuvio.app.features.downloads.nextUpEtaSeconds(nextUpBytesLeft, nextUpBytesPerSecond)
+
+    fun nextUpRemainingSeconds(): Long = if (nextUpRemainingMs < 0L) -1L else nextUpRemainingMs / 1000L
+
+    fun nextUpBytesPerSecond(): Long = nextUpBytesPerSecond
+
     private fun clearNextUp() {
         nextUpParentId = null
         nextUpSeason = null
@@ -285,6 +328,23 @@ internal object PlaybackPriority {
         lastDeadlineCheckMs = 0L
         lastRemainingMs = -1L
         dutyAnchorMs = 0L
+        nextUpBytesLeft = -1L
+        nextUpBytesPerSecond = 0L
+        nextUpRemainingMs = -1L
+    }
+
+    private fun logPlayback(state: String, positionMs: Long) {
+        if (state == loggedPlayState) return
+        loggedPlayState = state
+        val fields = linkedMapOf(
+            "state" to state,
+            "pos" to behaviourPositionBucket(positionMs).toString(),
+        )
+        val plain = playbackPlainId
+        if (!plain.isNullOrBlank()) {
+            fields["id"] = behaviourContentId(BehaviourLogFiles.installSalt(), plain)
+        }
+        BehaviourEvents.record("playback", fields)
     }
 
     fun nextUpPlainId(): String? {
@@ -330,12 +390,22 @@ internal object PlaybackPriority {
         }
         if (previous == null && reason != null) {
             logAnalysisHold(powerLine("stop", reason))
+            recordAnalysis("skip", reason, "full")
         } else if (previous != null && reason == null) {
             logAnalysisHold(powerLine("start", "clear"))
+            recordAnalysis("start", "clear", "full")
             com.nuvio.app.features.analysis.MediaAnalysisScheduler.kick(startDelayMs = 0L)
         } else if (reason != null && previous != reason) {
             logAnalysisHold(powerLine("stop", reason))
+            recordAnalysis("skip", reason, "full")
         }
+    }
+
+    private fun recordAnalysis(action: String, reason: String, window: String) {
+        BehaviourEvents.record(
+            "analysis",
+            mapOf("action" to action, "reason" to reason, "window" to window),
+        )
     }
 
     private fun logAnalysisHold(line: String) {
@@ -360,6 +430,7 @@ internal object PlaybackPriority {
         level = Level.Normal
         appliedAnalysisThrottle = 0
         appliedPauseReason = null
+        loggedPlayState = "idle"
         setAnalysisPlayerSessionOpen(false)
         setAnalysisThrottleLevel(0)
     }

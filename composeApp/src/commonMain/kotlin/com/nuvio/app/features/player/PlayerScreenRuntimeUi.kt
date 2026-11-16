@@ -376,6 +376,9 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi(
                     },
                     onError = { message ->
                         if (!active.value || playbackKey != activePlaybackKey) return@PlatformPlayerSurface
+                        if (message != null) {
+                            com.nuvio.app.features.downloads.PlaybackPriority.notePlaybackError(playbackClock.positionMs)
+                        }
                         if (message != null && handleDownloadSwapError(message)) return@PlatformPlayerSurface
                         if (message != null && tryRefreshCredentialedSourceAfterError(message)) {
                             return@PlatformPlayerSurface

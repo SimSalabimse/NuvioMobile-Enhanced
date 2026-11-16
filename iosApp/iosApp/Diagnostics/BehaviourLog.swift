@@ -13,6 +13,12 @@ final class BehaviourFileBridge: NSObject, NuvioBehaviourLogBridge {
     func write(active: String, previous: String) {
         BehaviourFiles.replace(active: active, previous: previous)
     }
+
+    func readPrevious() -> String { BehaviourFiles.read("behaviour-a.jsonl") }
+    func readActive() -> String { BehaviourFiles.read("behaviour-b.jsonl") }
+    func writeSnapshot(text: String) { BehaviourFiles.writeSnapshot(text) }
+    func readSnapshot() -> String { BehaviourFiles.read("behaviour-upload.jsonl") }
+    func deleteSnapshot() { BehaviourFiles.deleteSnapshot() }
 }
 
 enum BehaviourFiles {
@@ -20,10 +26,32 @@ enum BehaviourFiles {
     private static let maxFileBytes = 2 * 1024 * 1024
 
     static func replace(active: String, previous: String) {
-        queue.async {
-            write(name: "behaviour-a.jsonl", text: String(previous.prefix(maxFileBytes)))
-            write(name: "behaviour-b.jsonl", text: String(active.prefix(maxFileBytes)))
+        queue.sync {
+            write(name: "behaviour-a.jsonl", text: capped(previous))
+            write(name: "behaviour-b.jsonl", text: capped(active))
         }
+    }
+
+    static func read(_ name: String) -> String {
+        queue.sync {
+            (try? String(contentsOf: file(name), encoding: .utf8)) ?? ""
+        }
+    }
+
+    static func writeSnapshot(_ text: String) {
+        queue.sync { write(name: "behaviour-upload.jsonl", text: capped(text)) }
+    }
+
+    static func deleteSnapshot() {
+        queue.sync {
+            try? FileManager.default.removeItem(at: file("behaviour-upload.jsonl"))
+        }
+    }
+
+    private static func capped(_ text: String) -> String {
+        let data = text.data(using: .utf8) ?? Data()
+        if data.count <= maxFileBytes { return text }
+        return String(data: data.prefix(maxFileBytes), encoding: .utf8) ?? ""
     }
 
     static func combined() -> String {
@@ -80,6 +108,7 @@ enum BehaviourUploadTask {
     static func registerAtLaunch() {
         NuvioBehaviourLogRegistry.shared.register(log: BehaviourFileBridge())
         MXMetricManager.shared.add(BehaviourMetrics.shared)
+        BehaviourLogFiles_iosKt.nuvioBehaviourOpen()
         DispatchQueue.global(qos: .utility).async {
             BehaviourLogFiles_iosKt.nuvioRecordBehaviour(kind: "launch")
         }
@@ -153,7 +182,7 @@ enum BehaviourUploadTask {
             return
         }
         DispatchQueue.global(qos: .utility).async {
-        let body = BehaviourLogFiles_iosKt.nuvioBehaviourSnapshot()
+        let body = BehaviourLogFiles_iosKt.nuvioBehaviourBeginUpload()
         guard let raw = body.data(using: .utf8), !raw.isEmpty, let gzipped = gzip(raw), gzipped.count <= 512 * 1024 else {
             done(false)
             return
@@ -172,9 +201,8 @@ enum BehaviourUploadTask {
         request.httpBody = gzipped
         URLSession.shared.dataTask(with: request) { _, response, _ in
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            BehaviourLogFiles_iosKt.nuvioBehaviourFinishUpload(status: Int32(code))
             if (200..<300).contains(code) {
-                BehaviourLogFiles_iosKt.nuvioBehaviourClear()
-                BehaviourFiles.clear()
                 UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: BehaviourShare.lastUploadKey)
                 done(true)
             } else {
@@ -226,9 +254,7 @@ enum BehaviourUploadTask {
 
 enum BehaviourEvents {
     static func markFromSettings() {
-        DispatchQueue.global(qos: .utility).async {
-            BehaviourLogFiles_iosKt.nuvioRecordBehaviour(kind: "marker")
-        }
+        BehaviourLogFiles_iosKt.nuvioBehaviourMark()
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 }
