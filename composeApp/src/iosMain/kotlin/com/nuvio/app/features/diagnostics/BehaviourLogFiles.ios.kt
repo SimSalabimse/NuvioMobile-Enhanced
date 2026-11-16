@@ -44,16 +44,26 @@ fun nuvioRecordBehaviour(kind: String) {
     BehaviourEvents.record(kind)
 }
 
-/** Background or foreground. Records the live heat, then re-runs the download gate. */
+/**
+ * Background, foreground, or a background-session wake.
+ * The device error log and the behaviour log both get the heat, the transfer count,
+ * and the active bytes per second. The behaviour line is written before this returns.
+ */
 fun nuvioRecordHeat(where: String) {
+    val line = com.nuvio.app.features.downloads.DownloadsRepository.transferLine(where)
+    DiagnosticsLogger.logPerformance(line)
     val power = com.nuvio.app.features.analysis.AnalysisPower.snapshot()
-    val place = where.trim().lowercase().take(16).ifBlank { "app" }
-    BehaviourEvents.record(
-        "heat",
+    val place = where.trim().lowercase().filter { it.isLetter() }.take(16).ifBlank { "app" }
+    val active = line.substringAfter("active=", "").substringBefore(" ").ifBlank { "0" }
+    val rate = line.substringAfter("rate=", "").ifBlank { "0" }
+    BehaviourEvents.recordNow(
+        "transfers",
         mapOf(
             "where" to place,
             "thermal" to power.thermal.name.lowercase(),
             "lowPower" to if (power.lowPowerMode) "true" else "false",
+            "active" to active,
+            "rate" to rate,
         ),
     )
     com.nuvio.app.features.downloads.PlaybackPriority.notePowerChanged()

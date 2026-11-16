@@ -1277,19 +1277,37 @@ object DownloadsRepository {
     }
 
     private var lastSlotPlan: String? = null
+    private var lastOffWindowLine: String? = null
+    private var rateBytes = -1L
+    private var rateAtMs = 0L
+    private var rateBps = 0L
+
+    /** Active transfers and the measured bytes per second, for the background and foreground lines. */
+    fun transferLine(where: String): String {
+        val power = com.nuvio.app.features.analysis.AnalysisPower.snapshot()
+        val active = if (hasLoaded) startQueue.activeIds().size else 0
+        if (hasLoaded) {
+            val total = _uiState.value.items
+                .filter { it.status == DownloadStatus.Downloading }
+                .sumOf { it.downloadedBytes }
+            rateBps = transferBytesPerSecond(rateBytes, rateAtMs, total, DownloadsClock.nowEpochMs())
+            rateBytes = total
+            rateAtMs = DownloadsClock.nowEpochMs()
+        }
+        return transferActivityLine(where, power.thermal, power.lowPowerMode, active, rateBps)
+    }
 
     private fun replanSlots() {
         val held = PartialPlaybackLease.heldIds()
         val active = startQueue.activeIds()
-        // Cap 0 from the setting pauses new starts. A file that is already running stays, which is
-        // what a plain shrink did; a waiting one is not pulled in past that cap. A hot device
-        // likewise starts nothing new.
+        // Cap 0 suspends running transfers. iOS keeps resume data, so the off window moves no bytes.
         val pauseAll = startQueue.maxActive == 0
         val blocked = startQueue.releaseBlocked(::downloadMayStart)
         val thermal = DownloadThermalGate.blocksNextFile()
         val pinned = startQueue.pin(heldIdsToStart(held, active, pauseAll, thermal))
         val keep = if (pauseAll || thermal) held.intersect(active) else held
         val demoted = startQueue.shrinkTo(startQueue.maxActive, keep)
+        if (pauseAll) logOffWindow() else lastOffWindowLine = null
         if (pinned.isNotEmpty() || demoted.isNotEmpty() || blocked.isNotEmpty()) alignQueuedStatuses()
         applyStarts(pinned + startQueue.promote(DownloadThermalGate.blocksNextFile(), ::downloadMayStart), pinned.toSet())
         refreshHeldForPlayback()
@@ -1298,6 +1316,16 @@ object DownloadsRepository {
             lastSlotPlan = plan
             com.nuvio.app.core.logging.InAppLogger.info("Downloads", "slots $plan")
         }
+    }
+
+    private fun logOffWindow() {
+        val bytes = offWindowBytes(cap = 0, reportedDelta = 0L)
+        val line = "off-window bytes=$bytes"
+        if (line == lastOffWindowLine) return
+        lastOffWindowLine = line
+        com.nuvio.app.core.logging.InAppLogger.info("Downloads", line)
+        com.nuvio.app.features.diagnostics.DiagnosticsLogger.logPerformance(line)
+        com.nuvio.app.features.diagnostics.BehaviourEvents.record("off-window", mapOf("bytes" to bytes.toString()))
     }
 
     private fun ensureThermalObserver() {

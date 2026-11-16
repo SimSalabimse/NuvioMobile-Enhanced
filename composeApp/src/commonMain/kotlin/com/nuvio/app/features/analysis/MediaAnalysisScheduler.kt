@@ -457,9 +457,8 @@ internal object MediaAnalysisScheduler {
                 delayWake.sleep(CHARGER_POLL_MS)
                 continue
             }
-            // Heat is read again before every start, including after a power hold.
-            com.nuvio.app.features.downloads.PlaybackPriority.notePowerChanged()
-            val pauseReason = com.nuvio.app.features.downloads.PlaybackPriority.analysisPauseReason()
+            // Heat is read again before every start, including the reason=power path.
+            val pauseReason = com.nuvio.app.features.downloads.PlaybackPriority.pauseReasonNow()
             if (pauseReason != null) {
                 if (fromBackgroundTask) return false
                 if (MediaAnalysisStatus.job.value !is AnalysisJobState.WaitingForPlayback) {

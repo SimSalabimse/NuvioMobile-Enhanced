@@ -296,6 +296,16 @@ internal object BehaviourEvents {
         behaviourEnqueue { lock.withLock { session.record(kind, fields) } }
     }
 
+    /** Background and foreground. The line is on disk before the call returns. */
+    fun recordNow(kind: String, fields: Map<String, String> = emptyMap()) {
+        behaviourSync {
+            lock.withLock {
+                session.record(kind, fields)
+                session.flush()
+            }
+        }
+    }
+
     fun mark(note: String?) {
         behaviourSync { lock.withLock { session.mark(note) } }
     }

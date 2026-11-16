@@ -31,6 +31,26 @@ internal fun analysisPauseReason(
     else -> null
 }
 
+/** Live heat. A stored throttle of 0 does not allow a start while this is false. */
+internal fun analysisMayStart(
+    videoPlaying: Boolean,
+    thermal: AnalysisThermal,
+    lowPowerMode: Boolean,
+    transferActive: Boolean = false,
+): Boolean = analysisPauseReason(videoPlaying, thermal, lowPowerMode, transferActive) == null
+
+/** Same job and reason. qos and thermal flicker do not count as a new stop. */
+internal fun sameAnalysisStop(previous: String?, line: String): Boolean {
+    if (previous == null || !line.startsWith("analysis stop") || !previous.startsWith("analysis stop")) return false
+    return analysisStopIdentity(line) == analysisStopIdentity(previous)
+}
+
+private fun analysisStopIdentity(line: String): String {
+    val job = line.substringAfter("job=", "").substringBefore(" ")
+    val reason = line.substringAfter("reason=", "").substringBefore(" ")
+    return "$job|$reason"
+}
+
 /** 0 runs. 1 pauses for playback. 2 pauses because playback is strained. 3 pauses for heat or Low Power Mode. */
 internal fun analysisThrottleLevel(
     level: com.nuvio.app.features.downloads.PlaybackPriority.Level,

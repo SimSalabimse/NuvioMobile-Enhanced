@@ -4,9 +4,11 @@ import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.features.analysis.AnalysisPower
 import com.nuvio.app.features.analysis.MediaAnalyzerPlatform
 import com.nuvio.app.features.analysis.analysisDiagnosticsLine
+import com.nuvio.app.features.analysis.analysisMayStart
 import com.nuvio.app.features.analysis.analysisPauseReason
 import com.nuvio.app.features.analysis.analysisQosLabel
 import com.nuvio.app.features.analysis.analysisThrottleLevel
+import com.nuvio.app.features.analysis.sameAnalysisStop
 import com.nuvio.app.features.analysis.logProcessMemory
 import com.nuvio.app.features.analysis.setAnalysisPlayerSessionOpen
 import com.nuvio.app.features.analysis.setAnalysisThrottleLevel
@@ -57,6 +59,8 @@ internal object PlaybackPriority {
     private var nextUpSeason: Int? = null
     private var nextUpEpisode: Int? = null
     private var behindDeadline = false
+    /** Latched once the next episode would miss its analysis window. It does not flap back off. */
+    private var justInTime = false
     private var lastDeadlineCheckMs = 0L
     private var lastRemainingMs = -1L
     private var dutyAnchorMs = 0L
@@ -72,6 +76,8 @@ internal object PlaybackPriority {
     private var playbackPlainId: String? = null
     private var loggedPlayState = "idle"
     private var lastPowerKey: String? = null
+    private var lastThermalLine: String? = null
+    private var lastAnalysisStopLine: String? = null
     private var transfersActive = false
     private var nextUpBytesLeft = -1L
     private var nextUpBytesPerSecond = 0L
@@ -202,10 +208,30 @@ internal object PlaybackPriority {
             ),
             power = power,
         )
-        InAppLogger.info("PlaybackPriority", line)
-        DiagnosticsLogger.logPerformance(line)
+        if (line != lastThermalLine) {
+            lastThermalLine = line
+            InAppLogger.info("PlaybackPriority", line)
+            DiagnosticsLogger.logPerformance(line)
+        }
         publishAnalysisThrottle(videoPlaying = playing)
         publishDownloadGate()
+    }
+
+    /**
+     * Live heat, read again before a start. A stored throttle of 0 is not enough:
+     * the power path checks this, including after a hold whose reason was "power".
+     */
+    fun pauseReasonNow(): String? {
+        val playing = sessionOpen && pausedSinceMs == 0L
+        publishAnalysisThrottle(videoPlaying = playing)
+        val power = AnalysisPower.snapshot()
+        val reason = analysisPauseReason(playing, power.thermal, power.lowPowerMode, transfersActive)
+        if (reason != null && reason != appliedPauseReason) publishAnalysisThrottle(videoPlaying = playing)
+        return if (analysisMayStart(playing, power.thermal, power.lowPowerMode, transfersActive)) {
+            null
+        } else {
+            reason ?: "power"
+        }
     }
 
     /** Null while analysis may run. Otherwise playback, strain, heat, or Low Power Mode. */
@@ -240,6 +266,7 @@ internal object PlaybackPriority {
         nextUpSeason = season
         nextUpEpisode = episode
         behindDeadline = false
+        justInTime = false
         lastDeadlineCheckMs = 0L
         lastRemainingMs = -1L
         appliedDownloadGateKey = null
@@ -259,12 +286,23 @@ internal object PlaybackPriority {
         nextUpBytesLeft = bytesLeft
         nextUpBytesPerSecond = bytesPerSecond
         nextUpRemainingMs = episodeRemainingMs
-        if (!deadlineRecheckDue(nowMs, lastDeadlineCheckMs, episodeRemainingMs, lastRemainingMs)) return
-        lastDeadlineCheckMs = nowMs
-        lastRemainingMs = episodeRemainingMs
-        val late = nextUpBehindDeadline(bytesLeft, bytesPerSecond, episodeRemainingMs)
-        if (late == behindDeadline) return
-        behindDeadline = late
+        var changed = false
+        if (nextUpJustInTime(bytesLeft, bytesPerSecond, episodeRemainingMs) && !justInTime) {
+            justInTime = true
+            changed = true
+        }
+        val check = deadlineRecheckDue(nowMs, lastDeadlineCheckMs, episodeRemainingMs, lastRemainingMs)
+        if (!check && !changed) return
+        if (check) {
+            lastDeadlineCheckMs = nowMs
+            lastRemainingMs = episodeRemainingMs
+            val late = nextUpBehindDeadline(bytesLeft, bytesPerSecond, episodeRemainingMs)
+            if (late != behindDeadline) {
+                behindDeadline = late
+                changed = true
+            }
+        }
+        if (!changed) return
         appliedDownloadGateKey = null
         publishDownloadGate()
     }
@@ -279,6 +317,7 @@ internal object PlaybackPriority {
             onWifi = DownloadNetworkGuard.isOnWifi(),
             behindDeadline = behindDeadline,
             pauseWhileWatching = SmartDownloadSettings.snapshot().pauseDuringPlayback,
+            justInTime = justInTime,
         )
         if (level != Level.Strained || !videoPlaying) return gate
         val held = gate.nextUp.copy(
@@ -295,7 +334,7 @@ internal object PlaybackPriority {
     /** Serious or critical heat, and nothing playing: the background session transfers nothing. */
     fun backgroundSessionHold(): Boolean {
         val power = AnalysisPower.snapshot()
-        return backgroundSessionHolds(videoPlaying, power.thermal)
+        return backgroundSessionHolds(power.thermal)
     }
 
     fun reapplyDownloadCap() = DownloadsRepository.setPlaybackDownloadCap(downloadCap())
@@ -354,6 +393,7 @@ internal object PlaybackPriority {
         nextUpSeason = null
         nextUpEpisode = null
         behindDeadline = false
+        justInTime = false
         lastDeadlineCheckMs = 0L
         lastRemainingMs = -1L
         dutyAnchorMs = 0L
@@ -389,8 +429,8 @@ internal object PlaybackPriority {
         publishAnalysisThrottle(videoPlaying = sessionOpen && pausedSinceMs == 0L)
         InAppLogger.info("PlaybackPriority", "level=$next downloads allowed=${downloadCap()}")
         publishDownloadGate()
-        // A playing or hot phone holds the queue. Anything else should pick the work back up.
-        if (appliedPauseReason == null) com.nuvio.app.features.analysis.MediaAnalysisScheduler.kick()
+        // Heat is read again before a start, including the power path.
+        if (pauseReasonNow() == null) com.nuvio.app.features.analysis.MediaAnalysisScheduler.kick()
     }
 
     private fun publishAnalysisThrottle(videoPlaying: Boolean) {
@@ -448,6 +488,9 @@ internal object PlaybackPriority {
     }
 
     private fun logAnalysisHold(line: String) {
+        if (sameAnalysisStop(lastAnalysisStopLine, line)) return
+        if (line.startsWith("analysis stop")) lastAnalysisStopLine = line
+        if (line.startsWith("analysis start")) lastAnalysisStopLine = null
         InAppLogger.info("PlaybackPriority", line)
         DiagnosticsLogger.logPerformance(line)
         val event = when {

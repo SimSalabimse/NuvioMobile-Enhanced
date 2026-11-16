@@ -71,6 +71,33 @@ class AnalysisRunGateTest {
 
     @Test
     fun thePowerPathChecksHeatAgainBeforeAStart() {
+        assertFalse(analysisMayStart(videoPlaying = false, AnalysisThermal.Serious, lowPowerMode = false))
+        assertFalse(
+            analysisMayStart(
+                videoPlaying = false,
+                thermal = AnalysisThermal.Serious,
+                lowPowerMode = false,
+                transferActive = true,
+            ),
+        )
+        assertFalse(analysisMayStart(videoPlaying = false, AnalysisThermal.Critical, lowPowerMode = false))
+        assertTrue(analysisMayStart(videoPlaying = false, AnalysisThermal.Nominal, lowPowerMode = false))
+        val first = analysisDiagnosticsLine(
+            event = "stop",
+            job = "ep-1",
+            reason = "power",
+            qos = "utility",
+            power = AnalysisPowerSnapshot(AnalysisThermal.Serious, lowPowerMode = false),
+        )
+        val again = analysisDiagnosticsLine(
+            event = "stop",
+            job = "ep-1",
+            reason = "power",
+            qos = "background",
+            power = AnalysisPowerSnapshot(AnalysisThermal.Critical, lowPowerMode = true),
+        )
+        assertTrue(sameAnalysisStop(first, again))
+        assertFalse(sameAnalysisStop(first, first.replace("stop", "start")))
         assertEquals(
             "thermal-serious",
             analysisPauseReason(videoPlaying = false, AnalysisThermal.Serious, lowPowerMode = false, transferActive = true),

@@ -132,15 +132,32 @@ internal object IosForegroundDownloads {
     fun prepareForBackground() {
         ensureObserver()
         if (InAppPlaybackKeepAlive.isPlaying()) return
+        moveToBackground()
+    }
+
+    /**
+     * didEnterBackground. Serious or critical heat suspends running transfers and does not
+     * hand queued files to the background session, including when playback had been open.
+     */
+    fun onAppEnteredBackground() {
+        ensureObserver()
+        if (com.nuvio.app.features.downloads.PlaybackPriority.backgroundSessionHold()) {
+            leavingForeground = true
+            DownloadsRepository.submitWaitingForBackground()
+            return
+        }
+        prepareForBackground()
+    }
+
+    private fun moveToBackground() {
         leavingForeground = true
+        if (com.nuvio.app.features.downloads.PlaybackPriority.backgroundSessionHold()) {
+            DownloadsRepository.submitWaitingForBackground()
+            return
+        }
         holdBackgroundTime()
         handedOff += delegate.handoffAll()
         DownloadsRepository.submitWaitingForBackground()
-    }
-
-    /** didEnterBackground: a fallback for any writer willResignActive did not reach. */
-    fun onAppEnteredBackground() {
-        prepareForBackground()
     }
 
     private fun onAppBecameActive() {
@@ -728,10 +745,15 @@ private class IosForegroundSessionDelegate : NSObject(), NSURLSessionDataDelegat
         dataTask: NSURLSessionDataTask,
         didReceiveData: NSData,
     ) {
+        val downloadId = dataTask.taskDescription.orEmpty()
+        if (IosTransferControl.isSuppressed(downloadId)) {
+            dataTask.cancel()
+            return
+        }
         val bytes = didReceiveData.copyBytes()
         if (bytes.isEmpty()) return
         lock.lock()
-        val job = jobs[dataTask.taskDescription.orEmpty()]
+        val job = jobs[downloadId]
         if (
             job == null ||
             job.mode != ForegroundMode.Running ||

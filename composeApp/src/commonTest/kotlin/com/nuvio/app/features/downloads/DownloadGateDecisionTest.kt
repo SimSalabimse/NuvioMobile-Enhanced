@@ -27,13 +27,13 @@ class DownloadGateDecisionTest {
         val cases = listOf(
             playing(thermal = AnalysisThermal.Nominal) to TransferPace.Low,
             playing(thermal = AnalysisThermal.Fair) to TransferPace.Low,
-            playing(thermal = AnalysisThermal.Serious) to TransferPace.Slowest,
+            playing(thermal = AnalysisThermal.Serious) to TransferPace.Stopped,
             playing(thermal = AnalysisThermal.Critical) to TransferPace.Stopped,
             playing(lowPowerMode = true) to TransferPace.Low,
-            playing(thermal = AnalysisThermal.Serious, lowPowerMode = true) to TransferPace.Slowest,
+            playing(thermal = AnalysisThermal.Serious, lowPowerMode = true) to TransferPace.Stopped,
             playing(thermal = AnalysisThermal.Critical, lowPowerMode = true) to TransferPace.Stopped,
             playing(thermal = AnalysisThermal.Nominal, lowPowerMode = true, behindDeadline = true) to TransferPace.Normal,
-            playing(thermal = AnalysisThermal.Serious, behindDeadline = true) to TransferPace.Slowest,
+            playing(thermal = AnalysisThermal.Serious, behindDeadline = true) to TransferPace.Stopped,
             playing(thermal = AnalysisThermal.Critical, behindDeadline = true) to TransferPace.Stopped,
         )
         cases.forEach { (gate, pace) ->
@@ -43,8 +43,8 @@ class DownloadGateDecisionTest {
         assertTrue(playing(lowPowerMode = true).nextUp.allowStart)
         assertEquals("low-power", playing(lowPowerMode = true).nextUp.reason)
         assertFalse(playing(thermal = AnalysisThermal.Critical).nextUp.allowStart)
-        assertTrue(playing(thermal = AnalysisThermal.Serious).dutyCycle)
-        assertEquals(1, playing(thermal = AnalysisThermal.Serious).maxActive)
+        assertFalse(playing(thermal = AnalysisThermal.Serious).dutyCycle)
+        assertEquals(0, playing(thermal = AnalysisThermal.Serious).maxActive)
         assertEquals(0, playing(thermal = AnalysisThermal.Critical).maxActive)
     }
 
@@ -104,27 +104,81 @@ class DownloadGateDecisionTest {
         assertFalse(thermalBlocksNextFile(AnalysisThermal.Fair))
         assertFalse(thermalBlocksNextFile(AnalysisThermal.Serious))
         assertTrue(thermalBlocksNextFile(AnalysisThermal.Critical))
-        assertFalse(backgroundSessionHolds(videoPlaying = true, thermal = AnalysisThermal.Serious))
-        assertTrue(backgroundSessionHolds(videoPlaying = false, thermal = AnalysisThermal.Serious))
-        assertTrue(backgroundSessionHolds(videoPlaying = false, thermal = AnalysisThermal.Critical))
-        assertFalse(backgroundSessionHolds(videoPlaying = false, thermal = AnalysisThermal.Fair))
+        assertTrue(backgroundSessionHolds(AnalysisThermal.Serious))
+        assertTrue(backgroundSessionHolds(AnalysisThermal.Critical))
+        assertFalse(backgroundSessionHolds(AnalysisThermal.Fair))
+        assertFalse(backgroundSessionHolds(AnalysisThermal.Nominal))
     }
 
     @Test
-    fun playbackLaneMatchesBuild222() {
+    fun playbackLaneMatchesBuild222ExceptSeriousJustInTime() {
         assertEquals(TransferPace.Low, playing(thermal = AnalysisThermal.Nominal).nextUp.pace)
+        assertFalse(playing(thermal = AnalysisThermal.Nominal).dutyCycle)
         assertEquals(TransferPace.Low, playing(thermal = AnalysisThermal.Fair).nextUp.pace)
-        assertEquals(TransferPace.Slowest, playing(thermal = AnalysisThermal.Serious).nextUp.pace)
-        assertTrue(playing(thermal = AnalysisThermal.Serious).dutyCycle)
-        assertTrue(playing(thermal = AnalysisThermal.Serious).nextUp.allowStart)
-        assertEquals(1, playing(thermal = AnalysisThermal.Serious).maxActive)
         assertEquals(TransferPace.Stopped, playing(thermal = AnalysisThermal.Critical).nextUp.pace)
         assertEquals(0, playing(thermal = AnalysisThermal.Critical).maxActive)
         assertEquals(TransferPace.Low, playing(lowPowerMode = true).nextUp.pace)
         assertEquals("low-power", playing(lowPowerMode = true).nextUp.reason)
         assertEquals(TransferPace.Normal, playing(charging = true, onWifi = true, thermal = AnalysisThermal.Nominal).nextUp.pace)
-        assertEquals(TransferPace.Slowest, playing(charging = true, onWifi = true, thermal = AnalysisThermal.Serious).nextUp.pace)
         assertFalse(playing().other.allowStart)
+        assertEquals(1, playing().maxActive)
+    }
+
+    @Test
+    fun seriousPlaybackHoldsUntilJustInTimeThenOneLowPriorityTransfer() {
+        val early = playing(thermal = AnalysisThermal.Serious, justInTime = false)
+        assertEquals(TransferPace.Stopped, early.nextUp.pace)
+        assertFalse(early.nextUp.allowStart)
+        assertEquals(0, early.maxActive)
+        assertFalse(early.dutyCycle)
+        assertEquals("thermal-serious", early.reason)
+
+        val due = playing(thermal = AnalysisThermal.Serious, justInTime = true)
+        assertEquals(TransferPace.Low, due.nextUp.pace)
+        assertTrue(due.nextUp.allowStart)
+        assertEquals(1, due.maxActive)
+        assertFalse(due.dutyCycle)
+        assertEquals("deadline", due.reason)
+        assertEquals(0.25f, transferTaskPriority(due.lowPriority))
+        assertFalse(due.other.allowStart)
+
+        val critical = playing(thermal = AnalysisThermal.Critical, justInTime = true, behindDeadline = true)
+        assertEquals(TransferPace.Stopped, critical.nextUp.pace)
+        assertEquals(0, critical.maxActive)
+        assertFalse(critical.nextUp.allowStart)
+    }
+
+    @Test
+    fun justInTimeLeavesRoomForTheAnalysis() {
+        val floor = NEXT_UP_CONSERVATIVE_FLOOR_BPS
+        assertEquals(floor, nextUpConservativeRate(7L * floor))
+        assertEquals(floor / 2, nextUpConservativeRate(floor / 2))
+        assertEquals(floor, nextUpConservativeRate(-1L))
+        assertTrue(nextUpJustInTime(bytesLeft = 1_000, bytesPerSecond = 0, episodeRemainingMs = 60 * 60_000L))
+        assertFalse(nextUpJustInTime(bytesLeft = 0, bytesPerSecond = floor, episodeRemainingMs = 60_000))
+
+        val hundredMib = 100L * 1024L * 1024L
+        assertFalse(
+            nextUpJustInTime(
+                bytesLeft = hundredMib,
+                bytesPerSecond = 8L * 1024L * 1024L,
+                episodeRemainingMs = 40 * 60_000L,
+            ),
+        )
+        val twoHundredMib = 200L * 1024L * 1024L
+        assertTrue(
+            nextUpJustInTime(
+                bytesLeft = twoHundredMib,
+                bytesPerSecond = 8L * 1024L * 1024L,
+                episodeRemainingMs = 18 * 60_000L,
+            ),
+        )
+        assertEquals(0L, offWindowBytes(cap = 0, reportedDelta = 7_000_000))
+        assertEquals(7_000_000L, offWindowBytes(cap = 1, reportedDelta = 7_000_000))
+        assertEquals(
+            "transfers where=background thermal=serious lowPower=false active=1 rate=0",
+            transferActivityLine("background", AnalysisThermal.Serious, lowPowerMode = false, active = 1, bytesPerSecond = 0),
+        )
     }
 
     @Test
@@ -142,14 +196,15 @@ class DownloadGateDecisionTest {
         assertEquals(TransferPace.Stopped, playing(charging = true, onWifi = true, thermal = AnalysisThermal.Critical).nextUp.pace)
         assertEquals(TransferPace.Stopped, playing(charging = true, onWifi = true, pauseWhileWatching = true).nextUp.pace)
         assertEquals(TransferPace.Low, playing(charging = true, onWifi = true, thermal = AnalysisThermal.Fair).nextUp.pace)
-        assertEquals(TransferPace.Slowest, playing(charging = true, onWifi = true, thermal = AnalysisThermal.Serious).nextUp.pace)
+        assertEquals(TransferPace.Stopped, playing(charging = true, onWifi = true, thermal = AnalysisThermal.Serious).nextUp.pace)
     }
 
     @Test
     fun deadlineRaisesPriorityUnlessHeatIsSeriousOrCritical() {
         assertEquals(TransferPace.Normal, playing(behindDeadline = true).nextUp.pace)
         assertEquals("deadline", playing(behindDeadline = true, lowPowerMode = true).nextUp.reason)
-        assertEquals(TransferPace.Slowest, playing(behindDeadline = true, thermal = AnalysisThermal.Serious).nextUp.pace)
+        assertEquals(TransferPace.Stopped, playing(behindDeadline = true, thermal = AnalysisThermal.Serious).nextUp.pace)
+        assertEquals(TransferPace.Low, playing(behindDeadline = true, thermal = AnalysisThermal.Serious, justInTime = true).nextUp.pace)
         assertFalse(nextUpBehindDeadline(bytesLeft = 0, bytesPerSecond = 1_000, episodeRemainingMs = 60_000))
         assertFalse(nextUpBehindDeadline(bytesLeft = 1_000, bytesPerSecond = -1, episodeRemainingMs = 60_000))
         assertTrue(nextUpBehindDeadline(bytesLeft = 1_000, bytesPerSecond = 0, episodeRemainingMs = 60_000))
@@ -260,6 +315,7 @@ class DownloadGateDecisionTest {
         onWifi: Boolean = true,
         pauseWhileWatching: Boolean = false,
         behindDeadline: Boolean = false,
+        justInTime: Boolean = false,
     ) = playbackDownloadGate(
         videoPlaying = true,
         thermal = thermal,
@@ -268,5 +324,6 @@ class DownloadGateDecisionTest {
         onWifi = onWifi,
         behindDeadline = behindDeadline,
         pauseWhileWatching = pauseWhileWatching,
+        justInTime = justInTime,
     )
 }

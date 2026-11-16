@@ -916,7 +916,7 @@ private enum MediaAnalyzerThrottle {
     /// Sleep slice while paused. Short enough that playback ending resumes the file quickly.
     static let holdSleepUs: useconds_t = 250_000
     private static var holding = false
-    private static var lastStopLine: String?
+    private static var lastStopKey: String?
 
     static func currentLevel() -> Int {
         UserDefaults.standard.integer(forKey: key)
@@ -976,10 +976,11 @@ private enum MediaAnalyzerThrottle {
         let qos = MediaAnalyzerQosName.current()
         let message = "analysis \(event) job=\(jobToken) reason=\(reason) qos=\(qos) thermal=\(Self.thermalName()) lowPower=\(ProcessInfo.processInfo.isLowPowerModeEnabled)"
         if event == "stop" {
-            if message == lastStopLine { return }
-            lastStopLine = message
+            let key = "\(jobToken)|\(reason)"
+            if key == lastStopKey { return }
+            lastStopKey = key
         } else {
-            lastStopLine = nil
+            lastStopKey = nil
         }
         InAppLogBridge.shared.info(tag: "Analysis/iOS", message: message)
         DiagnosticsManager.shared.log(category: .performance, message: message)

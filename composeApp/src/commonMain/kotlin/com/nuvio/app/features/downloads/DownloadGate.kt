@@ -6,14 +6,21 @@ import com.nuvio.app.features.analysis.AnalysisThermal
  * Two download lanes share one queue.
  * Next-up is only the episode that follows the one playing. Everything else waits while a video plays.
  * URLSession has no byte-rate cap. [NEXT_UP_DUTY_CYCLE_DEFAULT] is off: one low-priority transfer
- * is the throttle, and a 30/30 cycle would fight finishing the file before the current episode ends.
- * Serious heat still uses the cycle, because "slowest" has no other control.
+ * is the throttle. Serious heat during playback does not use the 30/30 cycle. That cycle left the
+ * transfer running in the off window and restarted it over and over. The next episode waits, then
+ * one low-priority transfer runs until the file is done.
  */
 internal const val NEXT_UP_DUTY_CYCLE_DEFAULT = false
 internal const val NEXT_UP_DUTY_ON_MS = 30_000L
 internal const val NEXT_UP_DUTY_OFF_MS = 30_000L
 internal const val NEXT_UP_DEADLINE_LEAD_MS = 10 * 60_000L
 internal const val NEXT_UP_DEADLINE_CHECK_MS = 60_000L
+/** Room for the next episode to be analysed before it starts. */
+internal const val NEXT_UP_ANALYSIS_RESERVE_MS = 3 * 60_000L
+/** Start once the finish would land inside this lead of the current episode's end. */
+internal const val NEXT_UP_JUST_IN_TIME_LEAD_MS = 15 * 60_000L
+/** Conservative rate. A faster measurement is not trusted. */
+internal const val NEXT_UP_CONSERVATIVE_FLOOR_BPS = 2L * 1024L * 1024L
 
 internal enum class DownloadGateState { Run, Throttle, Hold }
 
@@ -75,11 +82,11 @@ internal fun idleMaxActive(thermal: AnalysisThermal, lowPowerMode: Boolean): Int
 }
 
 /**
- * The background session stops when nothing is playing and heat is serious or critical.
- * Playback keeps the build 222 lane, including the serious-heat duty cycle.
+ * Serious or critical heat does not hand files to the background session.
+ * Running transfers are suspended when the app goes to the background hot.
  */
-internal fun backgroundSessionHolds(videoPlaying: Boolean, thermal: AnalysisThermal): Boolean =
-    !videoPlaying && (thermal == AnalysisThermal.Serious || thermal == AnalysisThermal.Critical)
+internal fun backgroundSessionHolds(thermal: AnalysisThermal): Boolean =
+    thermal == AnalysisThermal.Serious || thermal == AnalysisThermal.Critical
 
 /** Critical heat starts nothing. Serious heat still allows the one low-priority slot. */
 internal fun thermalBlocksNextFile(thermal: AnalysisThermal): Boolean =
@@ -93,6 +100,7 @@ internal fun nextUpLaneDecision(
     onWifi: Boolean,
     behindDeadline: Boolean,
     pauseWhileWatching: Boolean,
+    justInTime: Boolean = false,
 ): LaneDecision {
     if (!videoPlaying) {
         return idleLaneDecision(DownloadLane.NextUp, thermal, lowPowerMode, "paused")
@@ -100,6 +108,7 @@ internal fun nextUpLaneDecision(
     if (pauseWhileWatching) {
         return lane(DownloadLane.NextUp, DownloadGateState.Hold, TransferPace.Stopped, false, "playback")
     }
+    // Critical holds. The deadline does not start a transfer while the phone is critical.
     if (thermal == AnalysisThermal.Critical) {
         return lane(DownloadLane.NextUp, DownloadGateState.Hold, TransferPace.Stopped, false, "thermal-critical")
     }
@@ -107,7 +116,10 @@ internal fun nextUpLaneDecision(
         return lane(DownloadLane.NextUp, DownloadGateState.Run, TransferPace.Normal, true, "charging-wifi")
     }
     if (thermal == AnalysisThermal.Serious) {
-        return lane(DownloadLane.NextUp, DownloadGateState.Throttle, TransferPace.Slowest, true, "thermal-serious")
+        if (justInTime) {
+            return lane(DownloadLane.NextUp, DownloadGateState.Throttle, TransferPace.Low, true, "deadline")
+        }
+        return lane(DownloadLane.NextUp, DownloadGateState.Hold, TransferPace.Stopped, false, "thermal-serious")
     }
     if (behindDeadline) {
         return lane(DownloadLane.NextUp, DownloadGateState.Run, TransferPace.Normal, true, "deadline")
@@ -137,9 +149,10 @@ internal fun playbackDownloadGate(
     behindDeadline: Boolean,
     pauseWhileWatching: Boolean,
     dutyCycleDefault: Boolean = NEXT_UP_DUTY_CYCLE_DEFAULT,
+    justInTime: Boolean = false,
 ): DownloadGateDecision {
     val nextUp = nextUpLaneDecision(
-        videoPlaying, thermal, lowPowerMode, charging, onWifi, behindDeadline, pauseWhileWatching,
+        videoPlaying, thermal, lowPowerMode, charging, onWifi, behindDeadline, pauseWhileWatching, justInTime,
     )
     val other = otherLaneDecision(videoPlaying, pauseWhileWatching, thermal, lowPowerMode)
     val maxActive = if (videoPlaying) {
@@ -180,6 +193,66 @@ internal fun dutyCycleActive(pace: TransferPace, defaultEnabled: Boolean): Boole
  * A measured zero is an infinite ETA, so the file is behind.
  * A product that does not fit in a millisecond count is behind as well.
  */
+/**
+ * The lower of the measured rate and 2 MiB/s.
+ * No sample yet uses the floor. A measured zero cannot finish in time.
+ */
+internal fun nextUpConservativeRate(measuredBytesPerSecond: Long): Long = when {
+    measuredBytesPerSecond < 0L -> NEXT_UP_CONSERVATIVE_FLOOR_BPS
+    measuredBytesPerSecond == 0L -> 0L
+    else -> minOf(measuredBytesPerSecond, NEXT_UP_CONSERVATIVE_FLOOR_BPS)
+}
+
+/**
+ * True when the projected finish, plus about 3 minutes of analysis, would land within
+ * 15 minutes of the end. The rate is [nextUpConservativeRate].
+ */
+internal fun nextUpJustInTime(
+    bytesLeft: Long,
+    bytesPerSecond: Long,
+    episodeRemainingMs: Long,
+    analysisReserveMs: Long = NEXT_UP_ANALYSIS_RESERVE_MS,
+    leadMs: Long = NEXT_UP_JUST_IN_TIME_LEAD_MS,
+): Boolean {
+    if (bytesLeft <= 0L) return false
+    val rate = nextUpConservativeRate(bytesPerSecond)
+    if (rate == 0L) return true
+    if (bytesLeft > Long.MAX_VALUE / 1000L) return true
+    val etaMs = bytesLeft * 1000L / rate
+    return etaMs + analysisReserveMs >= episodeRemainingMs - leadMs
+}
+
+/** Bytes accepted while the cap is 0. A suspended window moves none. */
+internal fun offWindowBytes(cap: Int, reportedDelta: Long): Long =
+    if (cap <= 0) 0L else reportedDelta.coerceAtLeast(0L)
+
+internal fun transferBytesPerSecond(
+    previousBytes: Long,
+    previousMs: Long,
+    bytes: Long,
+    nowMs: Long,
+): Long {
+    if (previousBytes < 0L || previousMs <= 0L || nowMs <= previousMs) return 0L
+    val delta = bytes - previousBytes
+    if (delta <= 0L) return 0L
+    return delta * 1000L / (nowMs - previousMs)
+}
+
+/** Device error log and behaviour log. Tokens only. */
+internal fun transferActivityLine(
+    where: String,
+    thermal: AnalysisThermal,
+    lowPowerMode: Boolean,
+    active: Int,
+    bytesPerSecond: Long,
+): String {
+    val place = where.trim().lowercase().filter { it.isLetter() }.take(16).ifBlank { "app" }
+    val lowPower = if (lowPowerMode) "true" else "false"
+    val count = active.coerceAtLeast(0)
+    val rate = bytesPerSecond.coerceAtLeast(0L)
+    return "transfers where=$place thermal=${thermal.name.lowercase()} lowPower=$lowPower active=$count rate=$rate"
+}
+
 internal fun nextUpBehindDeadline(
     bytesLeft: Long,
     bytesPerSecond: Long,

@@ -3,6 +3,7 @@ package com.nuvio.app.features.downloads
 import com.nuvio.app.features.analysis.AnalysisThermal
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -82,6 +83,29 @@ class PlaybackCapRestartTest {
         h.setCap(gate.maxActive)
         assertEquals(listOf("b", "a"), h.stopped)
         assertTrue(h.handles.isEmpty(), "a critical cap sends no more bytes")
+        assertEquals(0L, offWindowBytes(cap = 0, reportedDelta = 5_000_000))
+    }
+
+    @Test
+    fun `an off window suspends the running transfer and moves no bytes`() {
+        val early = playbackDownloadGate(
+            videoPlaying = true,
+            thermal = AnalysisThermal.Serious,
+            lowPowerMode = false,
+            charging = false,
+            onWifi = true,
+            behindDeadline = false,
+            pauseWhileWatching = false,
+            justInTime = false,
+        )
+        assertEquals(0, early.maxActive)
+        assertFalse(early.dutyCycle)
+        val h = Harness()
+        h.enqueue("next")
+        h.setCap(early.maxActive)
+        assertEquals(listOf("next"), h.stopped)
+        assertTrue(h.handles.isEmpty(), "cap 0 drops the writer, so the off window cannot move bytes")
+        assertEquals(0L, offWindowBytes(cap = early.maxActive, reportedDelta = 7 * 1024 * 1024))
     }
 
     @Test
