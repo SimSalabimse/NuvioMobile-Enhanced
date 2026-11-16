@@ -10,6 +10,7 @@ import com.nuvio.app.features.analysis.analysisThrottleLevel
 import com.nuvio.app.features.analysis.logProcessMemory
 import com.nuvio.app.features.analysis.setAnalysisPlayerSessionOpen
 import com.nuvio.app.features.analysis.setAnalysisThrottleLevel
+import com.nuvio.app.features.analysis.setAnalysisTransferActive
 import com.nuvio.app.features.diagnostics.BehaviourEvents
 import com.nuvio.app.features.diagnostics.BehaviourLogFiles
 import com.nuvio.app.features.diagnostics.DiagnosticsLogger
@@ -71,6 +72,7 @@ internal object PlaybackPriority {
     private var playbackPlainId: String? = null
     private var loggedPlayState = "idle"
     private var lastPowerKey: String? = null
+    private var transfersActive = false
     private var nextUpBytesLeft = -1L
     private var nextUpBytesPerSecond = 0L
     private var nextUpRemainingMs = -1L
@@ -193,7 +195,11 @@ internal object PlaybackPriority {
             event = "thermal",
             job = com.nuvio.app.features.analysis.MediaAnalysisScheduler.activeJobId(),
             reason = "thermal-change",
-            qos = analysisQosLabel(playerSessionOpen = sessionOpen, paused = playing || power.holdsAnalysis()),
+            qos = analysisQosLabel(
+                playerSessionOpen = sessionOpen,
+                paused = playing || power.holdsAnalysis(),
+                transferActive = transfersActive,
+            ),
             power = power,
         )
         InAppLogger.info("PlaybackPriority", line)
@@ -286,18 +292,41 @@ internal object PlaybackPriority {
 
     fun downloadCap(): Int = downloadGate().maxActive
 
+    /** Serious or critical heat, and nothing playing: the background session transfers nothing. */
+    fun backgroundSessionHold(): Boolean {
+        val power = AnalysisPower.snapshot()
+        return backgroundSessionHolds(videoPlaying, power.thermal)
+    }
+
     fun reapplyDownloadCap() = DownloadsRepository.setPlaybackDownloadCap(downloadCap())
+
+    /** A transfer starting or finishing. Analysis holds from fair heat upward while one is active. */
+    fun noteTransfersChanged(active: Boolean) {
+        val changed = active != transfersActive
+        transfersActive = active
+        setAnalysisTransferActive(active)
+        if (!changed) return
+        publishAnalysisThrottle(videoPlaying = sessionOpen && pausedSinceMs == 0L)
+    }
 
     private fun publishDownloadGate() {
         val gate = downloadGate()
-        val key = "${gate.state}|${gate.reason}|${gate.maxActive}|${gate.nextUp.pace}|${gate.other.allowStart}|${gate.dutyCycle}"
+        val power = AnalysisPower.snapshot()
+        val key = "${gate.state}|${gate.reason}|${gate.maxActive}|${gate.nextUp.pace}|${gate.other.pace}|${gate.other.allowStart}|${gate.dutyCycle}|${power.thermal.name}|${power.lowPowerMode}"
         val phase = dutyPhase()
         val published = "$key|$phase"
         if (published == appliedDownloadGateKey) return
         appliedDownloadGateKey = published
         com.nuvio.app.features.diagnostics.BehaviourEvents.record(
             "download-gate",
-            mapOf("state" to gate.state.name.lowercase(), "reason" to gate.reason, "phase" to phase),
+            mapOf(
+                "state" to gate.state.name.lowercase(),
+                "reason" to gate.reason,
+                "phase" to phase,
+                "thermal" to power.thermal.name.lowercase(),
+                "lowPower" to if (power.lowPowerMode) "true" else "false",
+                "cap" to gate.maxActive.toString(),
+            ),
         )
         reapplyDownloadCap()
     }
@@ -371,12 +400,18 @@ internal object PlaybackPriority {
             videoPlaying = videoPlaying,
             thermal = power.thermal,
             lowPowerMode = power.lowPowerMode,
+            transferActive = transfersActive,
         )
         val reason = when (next) {
             0 -> null
             1 -> "playback"
             2 -> "playback-strained"
-            else -> analysisPauseReason(videoPlaying = false, power.thermal, power.lowPowerMode) ?: "power"
+            else -> analysisPauseReason(
+                videoPlaying = false,
+                power.thermal,
+                power.lowPowerMode,
+                transfersActive,
+            ) ?: "power"
         }
         if (next == appliedAnalysisThrottle && reason == appliedPauseReason) return
         val previous = appliedPauseReason
@@ -384,7 +419,11 @@ internal object PlaybackPriority {
         appliedPauseReason = reason
         setAnalysisThrottleLevel(next)
         val job = com.nuvio.app.features.analysis.MediaAnalysisScheduler.activeJobId()
-        val qos = analysisQosLabel(playerSessionOpen = sessionOpen, paused = next != 0)
+        val qos = analysisQosLabel(
+            playerSessionOpen = sessionOpen,
+            paused = next != 0,
+            transferActive = transfersActive,
+        )
         val powerLine = { event: String, why: String ->
             analysisDiagnosticsLine(event, job, why, qos, power)
         }
@@ -433,6 +472,8 @@ internal object PlaybackPriority {
         loggedPlayState = "idle"
         setAnalysisPlayerSessionOpen(false)
         setAnalysisThrottleLevel(0)
+        transfersActive = false
+        setAnalysisTransferActive(false)
     }
 }
 

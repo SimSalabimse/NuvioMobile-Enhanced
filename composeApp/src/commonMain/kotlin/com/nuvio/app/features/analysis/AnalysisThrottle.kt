@@ -11,3 +11,6 @@ internal expect fun setAnalysisPlayerSessionOpen(open: Boolean)
 
 /** Download id of the file being analysed, or empty. The analyser log reads this. No paths or URLs. */
 internal expect fun setAnalysisActiveJob(jobId: String)
+
+/** True while any download transfer is active. The analyser stays at utility QoS. */
+internal expect fun setAnalysisTransferActive(active: Boolean)

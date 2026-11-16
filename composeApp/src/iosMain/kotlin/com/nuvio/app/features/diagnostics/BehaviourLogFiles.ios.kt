@@ -44,6 +44,21 @@ fun nuvioRecordBehaviour(kind: String) {
     BehaviourEvents.record(kind)
 }
 
+/** Background or foreground. Records the live heat, then re-runs the download gate. */
+fun nuvioRecordHeat(where: String) {
+    val power = com.nuvio.app.features.analysis.AnalysisPower.snapshot()
+    val place = where.trim().lowercase().take(16).ifBlank { "app" }
+    BehaviourEvents.record(
+        "heat",
+        mapOf(
+            "where" to place,
+            "thermal" to power.thermal.name.lowercase(),
+            "lowPower" to if (power.lowPowerMode) "true" else "false",
+        ),
+    )
+    com.nuvio.app.features.downloads.PlaybackPriority.notePowerChanged()
+}
+
 fun nuvioBehaviourMark() {
     BehaviourEvents.mark(null)
 }

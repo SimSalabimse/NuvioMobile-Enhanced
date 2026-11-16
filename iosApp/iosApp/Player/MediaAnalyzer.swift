@@ -285,12 +285,9 @@ private final class MediaAnalysisRun {
         self.startMs = startMs
     }
 
-    /// Serious or critical heat, or Low Power Mode, ends the short intro pass.
-    private static func introPowerAbort() -> Bool {
-        let thermal = ProcessInfo.processInfo.thermalState
-        if thermal == .serious || thermal == .critical { return true }
-        return ProcessInfo.processInfo.isLowPowerModeEnabled
-    }
+    /// The same heat rule as a full pass: serious, critical, Low Power Mode,
+    /// or fair and above while a download is transferring.
+    private static func introPowerAbort() -> Bool = MediaAnalyzerThrottle.heatBlocksStart()
 
     func run() -> String? {
         // Drop back to the queue's utility class when this job ends, including on failure,
@@ -457,11 +454,11 @@ private final class MediaAnalysisRun {
                     break
                 }
             } else {
-            // Playback, heat, and Low Power Mode pause this decode until the level is 0.
-            // QoS stays at utility while a player session is open or the decode is held.
+            // Playback, heat, and Low Power Mode pause this decode.
+            // Heat is read again here, including after a power hold, before decode continues.
             MediaAnalyzerQosName.applyForCurrentSession()
             packetsSinceThrottle += 1
-            let pausedNow = MediaAnalyzerThrottle.currentLevel() > 0
+            let pausedNow = MediaAnalyzerThrottle.currentLevel() > 0 || MediaAnalyzerThrottle.heatBlocksStart()
             if pausedNow || packetsSinceThrottle >= MediaAnalyzerThrottle.packetsPerCheck {
                 packetsSinceThrottle = 0
                 let workedNs = DispatchTime.now().uptimeNanoseconds &- sliceStartedNs
@@ -919,6 +916,7 @@ private enum MediaAnalyzerThrottle {
     /// Sleep slice while paused. Short enough that playback ending resumes the file quickly.
     static let holdSleepUs: useconds_t = 250_000
     private static var holding = false
+    private static var lastStopLine: String?
 
     static func currentLevel() -> Int {
         UserDefaults.standard.integer(forKey: key)
@@ -927,28 +925,31 @@ private enum MediaAnalyzerThrottle {
     /// Sleeps while playback, heat, or Low Power Mode is holding the analyser.
     /// [workedNs] is unused: a pause does not decode a slice and then sleep.
     /// Returns the nanoseconds spent inside the sleeps (0 when the level does not pause).
+    /// Live heat, including fair and above while a transfer is active.
+    /// A stored throttle of 0 is not enough: the power path checks this before it resumes.
+    static func heatBlocksStart() -> Bool {
+        let thermal = ProcessInfo.processInfo.thermalState
+        if thermal == .serious || thermal == .critical { return true }
+        if ProcessInfo.processInfo.isLowPowerModeEnabled { return true }
+        return MediaAnalyzerQosName.transferActive() && thermal != .nominal
+    }
+
     static func yield(abort: MediaAnalyzerAbortFlag, workedNs: UInt64) -> UInt64 {
         _ = workedNs
         var sleptNs: UInt64 = 0
-        var level = currentLevel()
-        if level <= 0 {
-            if holding {
-                holding = false
-                logHold(event: "start", level: 0)
+        while !abort.isSet {
+            let blocked = currentLevel() > 0 || heatBlocksStart()
+            if !blocked { break }
+            if !holding {
+                holding = true
+                let level = currentLevel()
+                logHold(event: "stop", level: level > 0 ? level : 3)
             }
-            return sleptNs
-        }
-        if !holding {
-            holding = true
-            logHold(event: "stop", level: level)
-        }
-        while level > 0 && !abort.isSet {
             sleptNs &+= measuredSleep(holdSleepUs)
-            level = currentLevel()
         }
-        if holding && (level <= 0 || abort.isSet) {
+        if holding {
             holding = false
-            logHold(event: "start", level: level)
+            if !abort.isSet { logHold(event: "start", level: 0) }
         }
         return sleptNs
     }
@@ -974,6 +975,12 @@ private enum MediaAnalyzerThrottle {
         let jobToken = (job?.isEmpty == false && job?.contains("/") == false && job?.contains(" ") == false) ? job! : "-"
         let qos = MediaAnalyzerQosName.current()
         let message = "analysis \(event) job=\(jobToken) reason=\(reason) qos=\(qos) thermal=\(Self.thermalName()) lowPower=\(ProcessInfo.processInfo.isLowPowerModeEnabled)"
+        if event == "stop" {
+            if message == lastStopLine { return }
+            lastStopLine = message
+        } else {
+            lastStopLine = nil
+        }
         InAppLogBridge.shared.info(tag: "Analysis/iOS", message: message)
         DiagnosticsManager.shared.log(category: .performance, message: message)
         let memory = "memory event=analysis-\(event) footprintMb=\(nuvioPhysFootprintMb())"
@@ -993,14 +1000,20 @@ private enum MediaAnalyzerThrottle {
 }
 
 /// Analyser-thread QoS. The queue is created at utility. The thread is raised to userInitiated
-/// only while no player session is open and the decode is not paused for playback or heat.
+/// only while no player session is open, the decode is not held, and no download is transferring.
 private enum MediaAnalyzerQosName {
     private static let sessionKey = NuvioAutomationDefaults.storeKey("NuvioAnalysisPlayerSessionOpen")
+    private static let transferKey = NuvioAutomationDefaults.storeKey("NuvioAnalysisTransferActive")
     private static var lastApplied: qos_class_t = QOS_CLASS_UNSPECIFIED
 
+    static func transferActive() -> Bool {
+        UserDefaults.standard.bool(forKey: transferKey)
+    }
+
     static func applyForCurrentSession() {
-        let held = MediaAnalyzerThrottle.currentLevel() > 0
-        let target: qos_class_t = (sessionOpen() || held) ? QOS_CLASS_UTILITY : QOS_CLASS_USER_INITIATED
+        let held = MediaAnalyzerThrottle.currentLevel() > 0 || MediaAnalyzerThrottle.heatBlocksStart()
+        let busy = sessionOpen() || held || transferActive()
+        let target: qos_class_t = busy ? QOS_CLASS_UTILITY : QOS_CLASS_USER_INITIATED
         guard target != lastApplied else { return }
         if pthread_set_qos_class_self_np(target, 0) == 0 {
             lastApplied = target

@@ -1,5 +1,6 @@
 package com.nuvio.app.features.downloads
 
+import com.nuvio.app.features.analysis.AnalysisThermal
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -61,6 +62,26 @@ class PlaybackCapRestartTest {
         assertEquals(emptySet(), heldIdsToStart(setOf("e3"), active = setOf("e1"), pauseAll = true, thermalBlocks = false))
         assertEquals(emptySet(), heldIdsToStart(setOf("e3"), active = setOf("e1"), pauseAll = false, thermalBlocks = true))
         assertEquals(setOf("e3"), heldIdsToStart(setOf("e3"), active = setOf("e1"), pauseAll = false, thermalBlocks = false))
+    }
+
+    @Test
+    fun `critical while idle suspends every running transfer`() {
+        val gate = playbackDownloadGate(
+            videoPlaying = false,
+            thermal = AnalysisThermal.Critical,
+            lowPowerMode = false,
+            charging = false,
+            onWifi = true,
+            behindDeadline = false,
+            pauseWhileWatching = false,
+        )
+        assertEquals(0, gate.maxActive)
+        val h = Harness()
+        h.enqueue("a")
+        h.enqueue("b")
+        h.setCap(gate.maxActive)
+        assertEquals(listOf("b", "a"), h.stopped)
+        assertTrue(h.handles.isEmpty(), "a critical cap sends no more bytes")
     }
 
     @Test

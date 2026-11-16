@@ -171,13 +171,15 @@ object DownloadsRepository {
     fun submitWaitingForBackground() {
         if (!hasLoaded) return
         val gateCap = PlaybackPriority.downloadGate().maxActive
-        startQueue.maxActive = minOf(BACKGROUND_SUBMIT_CAP, gateCap)
-        applyStarts(startQueue.promote(DownloadThermalGate.blocksNextFile(), ::downloadMayStart))
+        val capped = minOf(BACKGROUND_SUBMIT_CAP, gateCap)
+        startQueue.maxActive = if (PlaybackPriority.backgroundSessionHold()) 0 else capped
+        replanSlots()
     }
 
-    /** Back in the app: new starts wait for one of the two slots again. Running files keep going. */
+    /** Back in the app: the foreground cap applies again, and a heat hold can resume. */
     fun restoreForegroundCap() {
         startQueue.maxActive = PlaybackPriority.downloadCap()
+        if (hasLoaded) replanSlots()
         resumeWaitingForAppOpen()
         if (hasLoaded) {
             scheduleSpaceRetry()
@@ -1303,7 +1305,9 @@ object DownloadsRepository {
         thermalObserverStarted = true
         DownloadThermalGate.startObserving {
             if (!hasLoaded) return@startObserving
-            applyStarts(startQueue.promote(DownloadThermalGate.blocksNextFile(), ::downloadMayStart))
+            // Heat and Low Power Mode re-run the gate with no video playing. A lower cap
+            // suspends the extra tasks; iOS keeps resume data for the ones it stops.
+            PlaybackPriority.notePowerChanged()
         }
     }
 
@@ -1360,6 +1364,7 @@ object DownloadsRepository {
     }
 
     private fun applyStarts(startedIds: List<String>, pinned: Set<String> = emptySet()) {
+        PlaybackPriority.noteTransfersChanged(startQueue.activeIds().isNotEmpty())
         if (startedIds.isEmpty()) return
         val now = DownloadsClock.nowEpochMs()
         val plan = planDownloadStarts(startedIds, activeHandles.keys.toSet(), startQueue.maxActive, pinned)

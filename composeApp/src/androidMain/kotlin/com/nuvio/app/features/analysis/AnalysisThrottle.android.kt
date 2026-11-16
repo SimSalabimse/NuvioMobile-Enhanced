@@ -5,3 +5,5 @@ internal actual fun setAnalysisThrottleLevel(level: Int) = Unit
 internal actual fun setAnalysisPlayerSessionOpen(open: Boolean) = Unit
 
 internal actual fun setAnalysisActiveJob(jobId: String) = Unit
+
+internal actual fun setAnalysisTransferActive(active: Boolean) = Unit

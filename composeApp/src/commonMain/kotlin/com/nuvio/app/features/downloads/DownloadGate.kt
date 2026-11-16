@@ -40,6 +40,51 @@ internal data class DownloadGateDecision(
     val dutyCycle: Boolean,
 )
 
+/**
+ * Nothing is playing.
+ * Nominal keeps two transfers at normal priority. Fair keeps two at low priority.
+ * Serious keeps one at low priority. Critical holds every transfer.
+ * Low Power Mode keeps one transfer.
+ */
+internal fun idleLaneDecision(
+    laneName: DownloadLane,
+    thermal: AnalysisThermal,
+    lowPowerMode: Boolean,
+    coolReason: String,
+): LaneDecision {
+    if (thermal == AnalysisThermal.Critical) {
+        return lane(laneName, DownloadGateState.Hold, TransferPace.Stopped, false, "thermal-critical")
+    }
+    if (thermal == AnalysisThermal.Serious) {
+        return lane(laneName, DownloadGateState.Throttle, TransferPace.Low, true, "thermal-serious")
+    }
+    if (thermal == AnalysisThermal.Fair) {
+        return lane(laneName, DownloadGateState.Throttle, TransferPace.Low, true, "thermal-fair")
+    }
+    if (lowPowerMode) {
+        return lane(laneName, DownloadGateState.Throttle, TransferPace.Low, true, "low-power")
+    }
+    return lane(laneName, DownloadGateState.Run, TransferPace.Normal, true, coolReason)
+}
+
+/** Two at nominal or fair, one at serious or Low Power Mode, none at critical. */
+internal fun idleMaxActive(thermal: AnalysisThermal, lowPowerMode: Boolean): Int = when {
+    thermal == AnalysisThermal.Critical -> 0
+    thermal == AnalysisThermal.Serious || lowPowerMode -> 1
+    else -> MAX_ACTIVE_DOWNLOADS
+}
+
+/**
+ * The background session stops when nothing is playing and heat is serious or critical.
+ * Playback keeps the build 222 lane, including the serious-heat duty cycle.
+ */
+internal fun backgroundSessionHolds(videoPlaying: Boolean, thermal: AnalysisThermal): Boolean =
+    !videoPlaying && (thermal == AnalysisThermal.Serious || thermal == AnalysisThermal.Critical)
+
+/** Critical heat starts nothing. Serious heat still allows the one low-priority slot. */
+internal fun thermalBlocksNextFile(thermal: AnalysisThermal): Boolean =
+    thermal == AnalysisThermal.Critical
+
 internal fun nextUpLaneDecision(
     videoPlaying: Boolean,
     thermal: AnalysisThermal,
@@ -50,7 +95,7 @@ internal fun nextUpLaneDecision(
     pauseWhileWatching: Boolean,
 ): LaneDecision {
     if (!videoPlaying) {
-        return lane(DownloadLane.NextUp, DownloadGateState.Run, TransferPace.Normal, true, "paused")
+        return idleLaneDecision(DownloadLane.NextUp, thermal, lowPowerMode, "paused")
     }
     if (pauseWhileWatching) {
         return lane(DownloadLane.NextUp, DownloadGateState.Hold, TransferPace.Stopped, false, "playback")
@@ -74,11 +119,13 @@ internal fun nextUpLaneDecision(
 internal fun otherLaneDecision(
     videoPlaying: Boolean,
     pauseWhileWatching: Boolean,
+    thermal: AnalysisThermal,
+    lowPowerMode: Boolean,
 ): LaneDecision {
     if (videoPlaying || pauseWhileWatching && videoPlaying) {
         return lane(DownloadLane.Other, DownloadGateState.Hold, TransferPace.Stopped, false, "playback")
     }
-    return lane(DownloadLane.Other, DownloadGateState.Run, TransferPace.Normal, true, "clear")
+    return idleLaneDecision(DownloadLane.Other, thermal, lowPowerMode, "clear")
 }
 
 internal fun playbackDownloadGate(
@@ -94,15 +141,11 @@ internal fun playbackDownloadGate(
     val nextUp = nextUpLaneDecision(
         videoPlaying, thermal, lowPowerMode, charging, onWifi, behindDeadline, pauseWhileWatching,
     )
-    val other = if (videoPlaying) {
-        otherLaneDecision(videoPlaying, pauseWhileWatching)
+    val other = otherLaneDecision(videoPlaying, pauseWhileWatching, thermal, lowPowerMode)
+    val maxActive = if (videoPlaying) {
+        if (nextUp.allowStart) 1 else 0
     } else {
-        lane(DownloadLane.Other, DownloadGateState.Run, TransferPace.Normal, true, "clear")
-    }
-    val maxActive = when {
-        !videoPlaying -> MAX_ACTIVE_DOWNLOADS
-        nextUp.allowStart -> 1
-        else -> 0
+        idleMaxActive(thermal, lowPowerMode)
     }
     val duty = dutyCycleActive(nextUp.pace, dutyCycleDefault)
     return DownloadGateDecision(

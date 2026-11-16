@@ -526,4 +526,42 @@ describe("worker protocol", () => {
     expect(statuses.slice(0, 20)).toEqual(Array(20).fill(200));
     expect(statuses[20]).toBe(429);
   });
+
+  it("accepts the app upload shape and rejects a form content type", async () => {
+    const raw = new TextEncoder().encode('{"t":1,"seq":1,"launch":"ab","kind":"launch"}\n');
+    const stream = new Blob([raw]).stream().pipeThrough(new CompressionStream("gzip"));
+    const body = new Uint8Array(await new Response(stream).arrayBuffer());
+    const headers = {
+      "content-type": "application/octet-stream",
+      "content-encoding": "gzip",
+      "x-nuvio-ingest": INGEST,
+      "x-nuvio-install": "install-shape",
+      "x-nuvio-app-build": "223",
+      "x-nuvio-kind": "behaviour",
+    };
+    const accepted = await call("/telemetry", { method: "POST", headers, body });
+    expect(accepted.status).toBe(200);
+    const stored = await env.DB.prepare(
+      "SELECT app_build, kind, length(body) AS n FROM telemetry_batches ORDER BY id DESC LIMIT 1",
+    ).first<{ app_build: string; kind: string; n: number }>();
+    expect(stored?.app_build).toBe("223");
+    expect(stored?.kind).toBe("behaviour");
+    expect(stored?.n).toBe(body.byteLength);
+    const form = await call("/telemetry", {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/x-www-form-urlencoded", "x-nuvio-install": "install-form" },
+      body,
+    });
+    expect(form.status).toBe(400);
+    const missingType = await call("/telemetry", {
+      method: "POST",
+      headers: {
+        "content-encoding": "gzip",
+        "x-nuvio-ingest": INGEST,
+        "x-nuvio-install": "install-bare",
+      },
+      body,
+    });
+    expect(missingType.status).toBe(200);
+  });
 });

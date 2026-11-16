@@ -21,11 +21,13 @@ internal fun analysisPauseReason(
     videoPlaying: Boolean,
     thermal: AnalysisThermal,
     lowPowerMode: Boolean,
+    transferActive: Boolean = false,
 ): String? = when {
     videoPlaying -> "playback"
     thermal == AnalysisThermal.Serious -> "thermal-serious"
     thermal == AnalysisThermal.Critical -> "thermal-critical"
     lowPowerMode -> "low-power"
+    transferActive && thermal != AnalysisThermal.Nominal -> "download"
     else -> null
 }
 
@@ -35,15 +37,20 @@ internal fun analysisThrottleLevel(
     videoPlaying: Boolean,
     thermal: AnalysisThermal = AnalysisThermal.Nominal,
     lowPowerMode: Boolean = false,
+    transferActive: Boolean = false,
 ): Int {
     if (videoPlaying) {
         return if (level == com.nuvio.app.features.downloads.PlaybackPriority.Level.Strained) 2 else 1
     }
-    return if (analysisPauseReason(videoPlaying = false, thermal, lowPowerMode) != null) 3 else 0
+    return if (analysisPauseReason(videoPlaying = false, thermal, lowPowerMode, transferActive) != null) 3 else 0
 }
 
-internal fun analysisQosLabel(playerSessionOpen: Boolean, paused: Boolean): String =
-    if (playerSessionOpen || paused) "utility" else "userInitiated"
+/** Utility while a player is open, analysis is held, or any download is transferring. */
+internal fun analysisQosLabel(
+    playerSessionOpen: Boolean,
+    paused: Boolean,
+    transferActive: Boolean = false,
+): String = if (playerSessionOpen || paused || transferActive) "utility" else "userInitiated"
 
 /**
  * One diagnostics line. Tokens only: no URLs, paths, or secrets.

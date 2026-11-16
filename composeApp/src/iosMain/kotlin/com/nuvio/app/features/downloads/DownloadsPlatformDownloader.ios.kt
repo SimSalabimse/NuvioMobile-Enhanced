@@ -141,7 +141,8 @@ internal actual object DownloadsPlatformDownloader {
     }
 
     actual fun pauseRunningTransfer(item: DownloadItem) {
-        // A start still looking up the session's tasks would otherwise begin after this stop.
+        // A lower cap suspends this task. The foreground writer keeps the .part file.
+        // The background task is cancelled with resume data so it can continue later.
         IosTransferControl.suppress(item.id)
         IosForegroundDownloads.cancel(item.id)
         IosBackgroundDownloadCoordinator.cancelDownload(item.id)

@@ -2,6 +2,17 @@
   "releases": [
     {
       "version": "0.6.10.1",
+      "build": 223,
+      "date": "2026-11-16",
+      "new": [],
+      "improved": [],
+      "fixed": [
+        "Downloads slow down when the phone is warm and pause when it is hot, even when nothing is playing.",
+        "The behaviour log can be uploaded from Device error log."
+      ]
+    },
+    {
+      "version": "0.6.10.1",
       "build": 222,
       "date": "2026-11-15",
       "new": [

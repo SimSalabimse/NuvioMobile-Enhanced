@@ -457,8 +457,8 @@ internal object MediaAnalysisScheduler {
                 delayWake.sleep(CHARGER_POLL_MS)
                 continue
             }
-            // Pause while a video is playing, and also while the phone is seriously hot or in
-            // Low Power Mode. Resume on the next poll after playback stops and the phone is idle.
+            // Heat is read again before every start, including after a power hold.
+            com.nuvio.app.features.downloads.PlaybackPriority.notePowerChanged()
             val pauseReason = com.nuvio.app.features.downloads.PlaybackPriority.analysisPauseReason()
             if (pauseReason != null) {
                 if (fromBackgroundTask) return false

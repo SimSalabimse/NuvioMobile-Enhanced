@@ -85,21 +85,58 @@ enum BehaviourFiles {
 enum BehaviourShare {
     static let key = "NuvioShareBehaviourLog"
     static let lastUploadKey = "NuvioBehaviourLastUpload"
+    static let lastAttemptKey = "NuvioBehaviourLastAttempt"
+    static let lastAttemptOkKey = "NuvioBehaviourLastAttemptOk"
+    static let lastAttemptDetailKey = "NuvioBehaviourLastAttemptDetail"
 
     static var enabled: Bool {
         if UserDefaults.standard.object(forKey: key) == nil { return true }
         return UserDefaults.standard.bool(forKey: key)
     }
 
-    static var lastUploaded: String {
-        let stamp = UserDefaults.standard.double(forKey: lastUploadKey)
+    static func uploadedLabel(stamp: Double) -> String {
         if stamp <= 0 { return "Not yet" }
-        let date = Date(timeIntervalSince1970: stamp)
+        return formatted(stamp)
+    }
+
+    static var lastUploaded: String {
+        uploadedLabel(stamp: UserDefaults.standard.double(forKey: lastUploadKey))
+    }
+
+    static func recordAttempt(ok: Bool, detail: String) {
+        let defaults = UserDefaults.standard
+        defaults.set(Date().timeIntervalSince1970, forKey: lastAttemptKey)
+        defaults.set(ok, forKey: lastAttemptOkKey)
+        let shown = ok ? "OK" : safeDetail(detail)
+        defaults.set(shown, forKey: lastAttemptDetailKey)
+    }
+
+    static func lastAttemptLabel(stamp: Double, ok: Bool, detail: String) -> String {
+        if stamp <= 0 { return "Not yet" }
+        let outcome = ok ? "OK" : (detail.isEmpty ? "Could not upload" : detail)
+        return "\(formatted(stamp)) · \(outcome)"
+    }
+
+    private static func formatted(_ stamp: Double) -> String {
         let format = DateFormatter()
         format.dateStyle = .medium
         format.timeStyle = .short
-        return format.string(from: date)
+        return format.string(from: Date(timeIntervalSince1970: stamp))
     }
+
+    /// Short status text. Drops anything that could be a path or a URL.
+    private static func safeDetail(_ detail: String) -> String {
+        let kept = detail.filter { $0.isLetter || $0.isNumber || $0 == " " || $0 == "-" }
+        let trimmed = kept.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "Could not upload" }
+        return String(trimmed.prefix(40))
+    }
+}
+
+enum BehaviourUploadRoute {
+    case wifi
+    case cellular
+    case offline
 }
 
 enum BehaviourUploadTask {
@@ -126,6 +163,7 @@ enum BehaviourUploadTask {
             object: nil,
             queue: .main
         ) { _ in
+            BehaviourLogFiles_iosKt.nuvioRecordHeat(where: "background")
             DispatchQueue.global(qos: .utility).async {
                 BehaviourLogFiles_iosKt.nuvioRecordBehaviour(kind: "background")
                 BehaviourLogFiles_iosKt.nuvioBehaviourFlush()
@@ -138,6 +176,7 @@ enum BehaviourUploadTask {
             object: nil,
             queue: .main
         ) { _ in
+            BehaviourLogFiles_iosKt.nuvioRecordHeat(where: "foreground")
             DispatchQueue.global(qos: .utility).async {
                 BehaviourLogFiles_iosKt.nuvioRecordBehaviour(kind: "foreground")
             }
@@ -152,8 +191,25 @@ enum BehaviourUploadTask {
         try? BGTaskScheduler.shared.submit(request)
     }
 
-    static func upload(done: @escaping (Bool) -> Void) {
-        guard BehaviourShare.enabled else { done(false); return }
+    static func route() -> BehaviourUploadRoute {
+        let path = pathMonitor.currentPath
+        if path.status != .satisfied { return .offline }
+        if path.usesInterfaceType(.cellular) && !path.usesInterfaceType(.wifi) { return .cellular }
+        return .wifi
+    }
+
+    /// [now] skips the six-hour wait. Cellular is used only after the settings row confirms it.
+    static func upload(now: Bool = false, allowCellular: Bool = false, done: @escaping (Bool) -> Void) {
+        let finish: (Bool, String, Bool) -> Void = { ok, detail, record in
+            DispatchQueue.main.async {
+                if record { BehaviourShare.recordAttempt(ok: ok, detail: detail) }
+                done(ok)
+            }
+        }
+        guard BehaviourShare.enabled else {
+            finish(false, "Sharing is off", now)
+            return
+        }
         let ingestKey = TelemetryPackaging.value("NuvioTelemetryIngestKey")
         let ingestBase = TelemetryPackaging.value("NuvioTelemetryBaseURL")
         let token = UserDefaults.standard.string(forKey: "NuvioSyncDeviceToken") ?? ""
@@ -167,48 +223,66 @@ enum BehaviourUploadTask {
             destination = url
             ingest = nil
         } else {
-            done(false)
+            finish(false, "Not configured", now)
             return
         }
-        let path = pathMonitor.currentPath
-        let wifi = path.status == .satisfied && path.usesInterfaceType(.wifi) && !path.isExpensive && !path.isConstrained
-        if !wifi || ProcessInfo.processInfo.isLowPowerModeEnabled {
-            done(false)
-            return
-        }
-        let last = UserDefaults.standard.double(forKey: BehaviourShare.lastUploadKey)
-        if last > 0, Date().timeIntervalSince1970 - last < 6 * 60 * 60 {
-            done(false)
-            return
+        if now {
+            switch route() {
+            case .offline:
+                finish(false, "No network", true)
+                return
+            case .cellular where !allowCellular:
+                finish(false, "Needs cellular confirm", true)
+                return
+            case .cellular, .wifi:
+                break
+            }
+        } else {
+            let path = pathMonitor.currentPath
+            let wifi = path.status == .satisfied && path.usesInterfaceType(.wifi) && !path.isExpensive && !path.isConstrained
+            if !wifi || ProcessInfo.processInfo.isLowPowerModeEnabled {
+                finish(false, "", false)
+                return
+            }
+            let last = UserDefaults.standard.double(forKey: BehaviourShare.lastUploadKey)
+            if last > 0, Date().timeIntervalSince1970 - last < 6 * 60 * 60 {
+                finish(false, "", false)
+                return
+            }
         }
         DispatchQueue.global(qos: .utility).async {
-        let body = BehaviourLogFiles_iosKt.nuvioBehaviourBeginUpload()
-        guard let raw = body.data(using: .utf8), !raw.isEmpty, let gzipped = gzip(raw), gzipped.count <= 512 * 1024 else {
-            done(false)
-            return
-        }
-        var request = URLRequest(url: destination)
-        request.httpMethod = "POST"
-        request.setValue("gzip", forHTTPHeaderField: "Content-Encoding")
-        if let ingest {
-            request.setValue(ingest, forHTTPHeaderField: "X-Nuvio-Ingest")
-            request.setValue(TelemetryInstall.id, forHTTPHeaderField: "X-Nuvio-Install")
-        } else {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        request.setValue("222", forHTTPHeaderField: "X-Nuvio-App-Build")
-        request.setValue("behaviour", forHTTPHeaderField: "X-Nuvio-Kind")
-        request.httpBody = gzipped
-        URLSession.shared.dataTask(with: request) { _, response, _ in
-            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-            BehaviourLogFiles_iosKt.nuvioBehaviourFinishUpload(status: Int32(code))
-            if (200..<300).contains(code) {
-                UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: BehaviourShare.lastUploadKey)
-                done(true)
-            } else {
-                done(false)
+            let body = BehaviourLogFiles_iosKt.nuvioBehaviourBeginUpload()
+            guard let raw = body.data(using: .utf8), !raw.isEmpty, let gzipped = gzip(raw), gzipped.count <= 512 * 1024 else {
+                finish(false, "Nothing to send", now)
+                return
             }
-        }.resume()
+            var request = URLRequest(url: destination)
+            request.httpMethod = "POST"
+            request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+            request.setValue("gzip", forHTTPHeaderField: "Content-Encoding")
+            if let ingest {
+                request.setValue(ingest, forHTTPHeaderField: "X-Nuvio-Ingest")
+                request.setValue(TelemetryInstall.id, forHTTPHeaderField: "X-Nuvio-Install")
+            } else {
+                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            }
+            let build = (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "223")
+                .filter { $0.isNumber || $0 == "." }
+            request.setValue(build.isEmpty ? "223" : String(build.prefix(32)), forHTTPHeaderField: "X-Nuvio-App-Build")
+            request.setValue("behaviour", forHTTPHeaderField: "X-Nuvio-Kind")
+            request.httpBody = gzipped
+            URLSession.shared.dataTask(with: request) { _, response, _ in
+                let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                BehaviourLogFiles_iosKt.nuvioBehaviourFinishUpload(status: Int32(code))
+                if (200..<300).contains(code) {
+                    UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: BehaviourShare.lastUploadKey)
+                    finish(true, "OK", true)
+                } else if code == 0 {
+                    finish(false, "No response", true)
+                } else {
+                    finish(false, "HTTP \(code)", true)
+                }
+            }.resume()
         }
     }
 

@@ -6,7 +6,12 @@ struct DiagnosticsSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var marked = false
+    @State private var confirmCellular = false
     @AppStorage("NuvioShareBehaviourLog") private var shareBehaviourLog = true
+    @AppStorage("NuvioBehaviourLastUpload") private var lastUploadStamp = 0.0
+    @AppStorage("NuvioBehaviourLastAttempt") private var lastAttemptStamp = 0.0
+    @AppStorage("NuvioBehaviourLastAttemptOk") private var lastAttemptOk = false
+    @AppStorage("NuvioBehaviourLastAttemptDetail") private var lastAttemptDetail = ""
     
     var body: some View {
         List {
@@ -14,7 +19,7 @@ struct DiagnosticsSettingsView: View {
                 Toggle("Save device error log", isOn: $viewModel.isEnabled)
                     .tint(.accentColor)
                 
-                Text("Stays on this phone. Nothing is uploaded.")
+                Text("The error log stays on this phone.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -22,7 +27,23 @@ struct DiagnosticsSettingsView: View {
             Section {
                 Toggle("Share behaviour log", isOn: $shareBehaviourLog)
                     .tint(.accentColor)
-                LabeledContent("Last uploaded", value: BehaviourShare.lastUploaded)
+                Text("Uploaded on Wi-Fi when sharing is on. Upload now can use cellular after you confirm.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                LabeledContent("Last uploaded", value: BehaviourShare.uploadedLabel(stamp: lastUploadStamp))
+                LabeledContent(
+                    "Last attempt",
+                    value: BehaviourShare.lastAttemptLabel(
+                        stamp: lastAttemptStamp,
+                        ok: lastAttemptOk,
+                        detail: lastAttemptDetail
+                    )
+                )
+                Button("Upload now") {
+                    uploadNow()
+                }
+                .disabled(!shareBehaviourLog)
+                .accessibilityHint("Sends the behaviour log. Cellular data asks first.")
                 Button {
                     BehaviourEvents.markFromSettings()
                     if reduceMotion {
@@ -95,6 +116,14 @@ struct DiagnosticsSettingsView: View {
                 ShareSheet(items: [url])
             }
         }
+        .confirmationDialog("Upload using cellular?", isPresented: $confirmCellular, titleVisibility: .visible) {
+            Button("Upload") {
+                BehaviourUploadTask.upload(now: true, allowCellular: true) { _ in }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The behaviour log will use cellular data.")
+        }
         .alert("Clear device error log?", isPresented: $viewModel.showingClearConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Clear", role: .destructive) {
@@ -105,6 +134,17 @@ struct DiagnosticsSettingsView: View {
         }
         .onAppear {
             viewModel.refresh()
+        }
+    }
+
+    private func uploadNow() {
+        switch BehaviourUploadTask.route() {
+        case .wifi:
+            BehaviourUploadTask.upload(now: true) { _ in }
+        case .cellular:
+            confirmCellular = true
+        case .offline:
+            BehaviourShare.recordAttempt(ok: false, detail: "No network")
         }
     }
 }

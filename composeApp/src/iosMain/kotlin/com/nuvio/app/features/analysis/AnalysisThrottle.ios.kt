@@ -20,3 +20,8 @@ internal actual fun setAnalysisPlayerSessionOpen(open: Boolean) {
 internal actual fun setAnalysisActiveJob(jobId: String) {
     NSUserDefaults.standardUserDefaults.setObject(jobId, forKey = isolateStorageKey("NuvioAnalysisActiveJob"))
 }
+
+/** Read by MediaAnalyzer.swift so a transfer never raises the analyser to userInitiated. */
+internal actual fun setAnalysisTransferActive(active: Boolean) {
+    NSUserDefaults.standardUserDefaults.setBool(active, forKey = isolateStorageKey("NuvioAnalysisTransferActive"))
+}

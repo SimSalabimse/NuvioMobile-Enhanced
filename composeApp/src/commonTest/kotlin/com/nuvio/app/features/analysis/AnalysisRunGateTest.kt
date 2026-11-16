@@ -32,6 +32,60 @@ class AnalysisRunGateTest {
     }
 
     @Test
+    fun aTransferHoldsAnalysisFromFairUpwardAndNominalStillRuns() {
+        assertEquals(
+            "download",
+            analysisPauseReason(
+                videoPlaying = false,
+                AnalysisThermal.Fair,
+                lowPowerMode = false,
+                transferActive = true,
+            ),
+        )
+        assertNull(
+            analysisPauseReason(
+                videoPlaying = false,
+                AnalysisThermal.Nominal,
+                lowPowerMode = false,
+                transferActive = true,
+            ),
+        )
+        assertEquals(
+            3,
+            analysisThrottleLevel(
+                com.nuvio.app.features.downloads.PlaybackPriority.Level.Normal,
+                videoPlaying = false,
+                thermal = AnalysisThermal.Fair,
+                transferActive = true,
+            ),
+        )
+        assertEquals(0, analysisThrottleLevel(
+            com.nuvio.app.features.downloads.PlaybackPriority.Level.Normal,
+            videoPlaying = false,
+            thermal = AnalysisThermal.Nominal,
+            transferActive = true,
+        ))
+        assertEquals("utility", analysisQosLabel(playerSessionOpen = false, paused = false, transferActive = true))
+        assertEquals("userInitiated", analysisQosLabel(playerSessionOpen = false, paused = false, transferActive = false))
+    }
+
+    @Test
+    fun thePowerPathChecksHeatAgainBeforeAStart() {
+        assertEquals(
+            "thermal-serious",
+            analysisPauseReason(videoPlaying = false, AnalysisThermal.Serious, lowPowerMode = false, transferActive = true),
+        )
+        assertEquals(
+            "download",
+            analysisPauseReason(videoPlaying = false, AnalysisThermal.Fair, lowPowerMode = false, transferActive = true),
+        )
+        assertNull(
+            analysisPauseReason(videoPlaying = false, AnalysisThermal.Nominal, lowPowerMode = false, transferActive = false),
+        )
+        assertEquals("utility", analysisQosLabel(playerSessionOpen = false, paused = true, transferActive = false))
+    }
+
+    @Test
     fun lowPowerModePausesWhenTheVideoIsIdle() {
         assertEquals("low-power", analysisPauseReason(videoPlaying = false, AnalysisThermal.Fair, lowPowerMode = true))
         assertEquals(
