@@ -53,6 +53,7 @@ internal object PlaybackPriority {
     private var nextUpEpisode: Int? = null
     private var behindDeadline = false
     private var lastDeadlineCheckMs = 0L
+    private var lastRemainingMs = -1L
     private var dutyAnchorMs = 0L
     private var pausedSinceMs = 0L
     private var bufferingSinceMs = 0L
@@ -173,6 +174,7 @@ internal object PlaybackPriority {
     fun analysisPauseReason(): String? = appliedPauseReason
 
     fun sessionEnded() {
+        clearNextUp()
         analysisBoosted = false
         videoPlaying = false
         appliedDownloadGateKey = null
@@ -198,6 +200,8 @@ internal object PlaybackPriority {
         nextUpSeason = season
         nextUpEpisode = episode
         behindDeadline = false
+        lastDeadlineCheckMs = 0L
+        lastRemainingMs = -1L
         appliedDownloadGateKey = null
         if (sessionOpen) publishDownloadGate()
     }
@@ -212,8 +216,9 @@ internal object PlaybackPriority {
      * A late file is raised to normal priority unless the phone is seriously hot.
      */
     fun noteNextUpProgress(bytesLeft: Long, bytesPerSecond: Long, episodeRemainingMs: Long, nowMs: Long) {
-        if (nowMs - lastDeadlineCheckMs < NEXT_UP_DEADLINE_CHECK_MS) return
+        if (!deadlineRecheckDue(nowMs, lastDeadlineCheckMs, episodeRemainingMs, lastRemainingMs)) return
         lastDeadlineCheckMs = nowMs
+        lastRemainingMs = episodeRemainingMs
         val late = nextUpBehindDeadline(bytesLeft, bytesPerSecond, episodeRemainingMs)
         if (late == behindDeadline) return
         behindDeadline = late
@@ -270,6 +275,16 @@ internal object PlaybackPriority {
     private fun dutyPhase(): String {
         if (!downloadGate().dutyCycle) return "on"
         return if (dutyWindowOpen()) "on" else "off"
+    }
+
+    private fun clearNextUp() {
+        nextUpParentId = null
+        nextUpSeason = null
+        nextUpEpisode = null
+        behindDeadline = false
+        lastDeadlineCheckMs = 0L
+        lastRemainingMs = -1L
+        dutyAnchorMs = 0L
     }
 
     fun nextUpPlainId(): String? {
@@ -341,10 +356,7 @@ internal object PlaybackPriority {
         analysisBoosted = false
         pausedSinceMs = 0L
         appliedDownloadGateKey = null
-        nextUpParentId = null
-        nextUpSeason = null
-        nextUpEpisode = null
-        behindDeadline = false
+        clearNextUp()
         level = Level.Normal
         appliedAnalysisThrottle = 0
         appliedPauseReason = null

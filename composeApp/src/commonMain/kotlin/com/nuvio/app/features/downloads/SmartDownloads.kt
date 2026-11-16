@@ -506,32 +506,47 @@ internal object SmartDownloads {
             )
             // The next episode starts with playback, at low priority. A later minute checks
             // whether that low rate still finishes 10 minutes before this episode ends.
-            if (decision !is NextEpisodeDownloadDecision.Skip && downloadArmed.add(videoId)) {
+            if (
+                decision !is NextEpisodeDownloadDecision.Skip &&
+                nextSeason != null &&
+                nextEpisode != null &&
+                downloadArmed.add(videoId)
+            ) {
+                val target = nextUpDownloadTarget(nextSeason, nextEpisode)
                 com.nuvio.app.core.logging.InAppLogger.info(
                     "SmartDownloads",
                     "next episode download at ${positionMs}ms of ${durationMs}ms",
                 )
-                add(SmartDownloadRequest(parentMetaId, parentMetaType, season, episode))
+                add(
+                    SmartDownloadRequest(
+                        parentMetaId,
+                        parentMetaType,
+                        target.season,
+                        target.episode,
+                        exact = target.exact,
+                    ),
+                )
             }
         }
         noteNextUpRate(parentMetaId, durationMs - positionMs, now)
     }
 
+    private var nextUpTrackedId: String? = null
+
     private fun noteNextUpRate(parentMetaId: String, episodeRemainingMs: Long, nowMs: Long) {
         val item = DownloadsRepository.uiState.value.items.firstOrNull {
             it.parentMetaId == parentMetaId && PlaybackPriority.isNextUp(it)
         } ?: return
-        val total = item.totalBytes ?: return
-        if (total <= 0L) return
-        val downloaded = item.downloadedBytes ?: 0L
-        val left = (total - downloaded).coerceAtLeast(0L)
-        val elapsedSec = (nowMs - nextUpBytesAtMs) / 1000L
-        val rate = if (nextUpBytes >= 0L && elapsedSec > 0L) {
-            (downloaded - nextUpBytes) / elapsedSec
-        } else {
-            0L
+        if (item.id != nextUpTrackedId) {
+            nextUpTrackedId = item.id
+            nextUpBytes = -1L
+            nextUpBytesAtMs = nowMs
         }
-        if (nowMs - nextUpBytesAtMs >= NEXT_UP_DEADLINE_CHECK_MS || nextUpBytes < 0L) {
+        val downloaded = item.downloadedBytes ?: 0L
+        val left = nextUpBytesLeft(item.totalBytes, downloaded)
+        val elapsedMs = nowMs - nextUpBytesAtMs
+        val rate = nextUpMeasuredRate(downloaded, nextUpBytes, elapsedMs)
+        if (elapsedMs >= NEXT_UP_DEADLINE_CHECK_MS || nextUpBytes < 0L) {
             nextUpBytes = downloaded
             nextUpBytesAtMs = nowMs
         }
@@ -1218,6 +1233,16 @@ internal fun <T> smartDownloadsThatFit(
 }
 
 
+
+/** The episode that follows the one playing. Exact, so a later episode is not pulled into the lane. */
+internal data class NextUpDownloadTarget(
+    val season: Int,
+    val episode: Int,
+    val exact: Boolean,
+)
+
+internal fun nextUpDownloadTarget(season: Int, episode: Int) =
+    NextUpDownloadTarget(season = season, episode = episode, exact = true)
 
 /** The next [count] regular episodes after S[season]E[episode], in order, specials left out. */
 internal fun nextEpisodes(videos: List<MetaVideo>, season: Int, episode: Int, count: Int): List<MetaVideo> =

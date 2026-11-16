@@ -132,9 +132,10 @@ internal fun dutyCycleActive(pace: TransferPace, defaultEnabled: Boolean): Boole
     pace == TransferPace.Slowest || (pace == TransferPace.Low && defaultEnabled)
 
 /**
- * ETA is bytes left divided by the measured rate.
- * Raise priority when that ETA is later than the time left in the episode minus 10 minutes.
- * A non-positive rate does not raise priority.
+ * ETA is bytes left divided by the measured rate, in milliseconds.
+ * A negative rate has not been measured yet and does not raise priority.
+ * A measured zero is an infinite ETA, so the file is behind.
+ * A product that does not fit in a millisecond count is behind as well.
  */
 internal fun nextUpBehindDeadline(
     bytesLeft: Long,
@@ -143,10 +144,55 @@ internal fun nextUpBehindDeadline(
     leadMs: Long = NEXT_UP_DEADLINE_LEAD_MS,
 ): Boolean {
     if (bytesLeft <= 0L) return false
-    if (bytesPerSecond <= 0L) return false
+    if (bytesPerSecond < 0L) return false
+    if (bytesPerSecond == 0L) return true
+    if (bytesLeft > Long.MAX_VALUE / 1000L) return true
     val etaMs = bytesLeft * 1000L / bytesPerSecond
     return etaMs > episodeRemainingMs - leadMs
 }
+
+/**
+ * Bytes still to fetch. An unknown length keeps a full episode guess ahead of the playhead
+ * so a missing Content-Length cannot sit at low priority for the whole episode.
+ */
+internal fun nextUpBytesLeft(totalBytes: Long?, downloadedBytes: Long): Long {
+    val downloaded = downloadedBytes.coerceAtLeast(0L)
+    val known = totalBytes?.takeIf { it > 0L }
+    if (known != null) return (known - downloaded).coerceAtLeast(0L)
+    if (downloaded > Long.MAX_VALUE - NEXT_EPISODE_SIZE_WHEN_UNKNOWN_BYTES) {
+        return NEXT_EPISODE_SIZE_WHEN_UNKNOWN_BYTES
+    }
+    return NEXT_EPISODE_SIZE_WHEN_UNKNOWN_BYTES
+}
+
+/** Bytes per second, or -1 before the first sample. Zero means the window moved no bytes. */
+internal fun nextUpMeasuredRate(downloadedBytes: Long, baselineBytes: Long, elapsedMs: Long): Long {
+    if (baselineBytes < 0L || elapsedMs <= 0L) return -1L
+    val delta = downloadedBytes - baselineBytes
+    if (delta <= 0L) return 0L
+    if (delta > Long.MAX_VALUE / 1000L) return Long.MAX_VALUE / 1000L
+    return delta * 1000L / elapsedMs
+}
+
+/**
+ * The minute timer, plus a seek or episode change that moves the end closer than playback explains.
+ * [lastRemainingMs] below zero means this episode has not been sampled yet.
+ */
+internal fun deadlineRecheckDue(
+    nowMs: Long,
+    lastCheckMs: Long,
+    episodeRemainingMs: Long,
+    lastRemainingMs: Long,
+    intervalMs: Long = NEXT_UP_DEADLINE_CHECK_MS,
+): Boolean {
+    if (lastCheckMs <= 0L || nowMs - lastCheckMs >= intervalMs) return true
+    if (lastRemainingMs < 0L) return true
+    val wall = (nowMs - lastCheckMs).coerceAtLeast(0L)
+    return lastRemainingMs - episodeRemainingMs > wall + 2_000L
+}
+
+/** NSURLSession task priority. 0.25 is low. 0.5 is the session default. */
+internal fun transferTaskPriority(low: Boolean): Float = if (low) 0.25f else 0.5f
 
 internal fun nextUpEtaSeconds(bytesLeft: Long, bytesPerSecond: Long): Long {
     if (bytesLeft <= 0L || bytesPerSecond <= 0L) return -1L

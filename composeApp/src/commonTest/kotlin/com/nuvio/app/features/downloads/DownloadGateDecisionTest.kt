@@ -90,7 +90,42 @@ class DownloadGateDecisionTest {
         assertEquals("deadline", playing(behindDeadline = true, lowPowerMode = true).nextUp.reason)
         assertEquals(TransferPace.Slowest, playing(behindDeadline = true, thermal = AnalysisThermal.Serious).nextUp.pace)
         assertFalse(nextUpBehindDeadline(bytesLeft = 0, bytesPerSecond = 1_000, episodeRemainingMs = 60_000))
-        assertFalse(nextUpBehindDeadline(bytesLeft = 1_000, bytesPerSecond = 0, episodeRemainingMs = 60_000))
+        assertFalse(nextUpBehindDeadline(bytesLeft = 1_000, bytesPerSecond = -1, episodeRemainingMs = 60_000))
+        assertTrue(nextUpBehindDeadline(bytesLeft = 1_000, bytesPerSecond = 0, episodeRemainingMs = 60_000))
+        assertTrue(
+            nextUpBehindDeadline(
+                bytesLeft = Long.MAX_VALUE / 2,
+                bytesPerSecond = 1,
+                episodeRemainingMs = Long.MAX_VALUE,
+            ),
+        )
+        assertEquals(NEXT_EPISODE_SIZE_WHEN_UNKNOWN_BYTES, nextUpBytesLeft(totalBytes = null, downloadedBytes = 4_000))
+        assertEquals(0L, nextUpBytesLeft(totalBytes = 100, downloadedBytes = 100))
+        assertEquals(-1L, nextUpMeasuredRate(downloadedBytes = 0, baselineBytes = -1, elapsedMs = 60_000))
+        assertEquals(0L, nextUpMeasuredRate(downloadedBytes = 10, baselineBytes = 10, elapsedMs = 60_000))
+        assertEquals(1_000L, nextUpMeasuredRate(downloadedBytes = 1_000, baselineBytes = 0, elapsedMs = 1_000))
+        assertFalse(
+            deadlineRecheckDue(
+                nowMs = 10_000,
+                lastCheckMs = 9_000,
+                episodeRemainingMs = 30_000,
+                lastRemainingMs = 31_000,
+            ),
+        )
+        assertTrue(
+            deadlineRecheckDue(
+                nowMs = 10_000,
+                lastCheckMs = 9_000,
+                episodeRemainingMs = 5_000,
+                lastRemainingMs = 40 * 60_000L,
+            ),
+        )
+        assertEquals(0.25f, transferTaskPriority(low = true))
+        assertEquals(0.5f, transferTaskPriority(low = false))
+        val target = nextUpDownloadTarget(season = 2, episode = 4)
+        assertEquals(2, target.season)
+        assertEquals(4, target.episode)
+        assertTrue(target.exact)
         assertFalse(
             nextUpBehindDeadline(
                 bytesLeft = 500_000,

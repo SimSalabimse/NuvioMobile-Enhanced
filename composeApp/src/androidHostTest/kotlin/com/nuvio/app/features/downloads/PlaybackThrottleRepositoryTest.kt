@@ -13,6 +13,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -318,6 +319,34 @@ class PlaybackThrottleRepositoryTest {
         } finally {
             PartialPlaybackLease.release("e3")
         }
+        assertSlotsMatchStatuses()
+    }
+
+    @Test
+    fun closingThePlayerDropsTheNextUpLane() {
+        PlaybackPriority.sessionStarted(isLocalFile = false)
+        markNext(4)
+        val row = episode("e4", 4)
+        assertTrue(PlaybackPriority.isNextUp(row))
+        PlaybackPriority.sessionEnded()
+        assertFalse(PlaybackPriority.isNextUp(row))
+    }
+
+    @Test
+    fun aFarEpisodeDoesNotTransferDuringPlayback() {
+        PlaybackPriority.sessionStarted(isLocalFile = false)
+        snapshots(buffering = false, forMs = 5_000L)
+        markNext(2)
+        DownloadsRepository.enqueueFromStream(
+            contentType = "series", videoId = "show:1:5", parentMetaId = "show", parentMetaType = "series",
+            title = "Show", logo = null, poster = null, background = null, seasonNumber = 1, episodeNumber = 5,
+            episodeTitle = null, episodeThumbnail = null,
+            stream = StreamItem(name = "S1E5", url = "https://example.com/e5.mkv", addonName = "Test", addonId = "test"),
+        )
+        val far = DownloadsRepository.uiState.value.items.single { it.episodeNumber == 5 }.id
+        assertTrue(far !in fake.running)
+        val next = enqueueNextEpisode()
+        assertEquals(setOf(next), fake.running)
         assertSlotsMatchStatuses()
     }
 

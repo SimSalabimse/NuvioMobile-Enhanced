@@ -760,6 +760,7 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
             val resumeData = takeResumeData(request.destinationFileName)
             if (resumeData != null) {
                 val task = ensureSessionCreated().downloadTaskWithResumeData(resumeData)
+                task.priority = transferTaskPriority(lowPriorityTransfers)
                 task.taskDescription = downloadId
                 IosBackgroundTaskFiles.remember(downloadId, request.destinationFileName)
                 applyRetryDelay(task, notBeforeSeconds)
@@ -790,7 +791,7 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
 
             val nativeRequest = buildRequest(request, rangeStart = resumeFromBytes.takeIf { it > 0L })
             val task = ensureSessionCreated().downloadTaskWithRequest(nativeRequest)
-            task.priority = if (lowPriorityTransfers) 0.25f else 0.5f
+            task.priority = transferTaskPriority(lowPriorityTransfers)
             task.taskDescription = downloadId
             IosBackgroundTaskFiles.remember(downloadId, request.destinationFileName)
             applyRetryDelay(task, notBeforeSeconds)
