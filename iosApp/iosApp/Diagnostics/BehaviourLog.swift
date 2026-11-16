@@ -254,6 +254,7 @@ enum BehaviourUploadTask {
 
 enum BehaviourEvents {
     static func markFromSettings() {
+        // Returns after the marker is on disk. The write runs on tv.nuvio.behaviour.append.
         BehaviourLogFiles_iosKt.nuvioBehaviourMark()
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }

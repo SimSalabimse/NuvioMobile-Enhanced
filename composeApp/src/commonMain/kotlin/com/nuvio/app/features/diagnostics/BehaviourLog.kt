@@ -261,7 +261,10 @@ internal expect class BehaviourLock() {
 /** iOS hops to a background queue. The caller only enqueues. */
 internal expect fun behaviourEnqueue(block: () -> Unit)
 
-/** Waits for queued appends. Callers must not be the main thread on iOS. */
+/**
+ * Runs [block] on `tv.nuvio.behaviour.append` and waits until it returns.
+ * The main thread may wait. Calling this from that same queue deadlocks.
+ */
 internal expect fun behaviourSync(block: () -> Unit)
 
 private object AppBehaviourDisk : BehaviourDisk {
@@ -294,7 +297,7 @@ internal object BehaviourEvents {
     }
 
     fun mark(note: String?) {
-        behaviourEnqueue { lock.withLock { session.mark(note) } }
+        behaviourSync { lock.withLock { session.mark(note) } }
     }
 
     fun flush() {
