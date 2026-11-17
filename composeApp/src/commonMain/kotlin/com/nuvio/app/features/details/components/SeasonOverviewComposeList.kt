@@ -3,7 +3,6 @@ package com.nuvio.app.features.details.components
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +18,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Subtitles
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material3.Icon
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -34,7 +42,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalDensity
@@ -46,7 +53,6 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
@@ -56,6 +62,7 @@ import com.nuvio.app.features.details.SeasonSegmentPresence
 import com.nuvio.app.features.details.SeasonOverviewListUi
 import com.nuvio.app.features.details.SeasonOverviewNativeListHost
 import com.nuvio.app.features.details.SeasonOverviewRowUi
+import com.nuvio.app.features.details.SeasonOverviewSymbolKind
 import com.nuvio.app.features.details.SeasonOverviewSymbolUi
 import com.nuvio.app.features.details.seasonOverviewChipFace
 import com.nuvio.app.features.details.seasonOverviewNativeList
@@ -198,15 +205,7 @@ internal fun SeasonOverviewSheetContent(
                         .background(MaterialTheme.colorScheme.surfaceContainerLow)
                         .verticalScroll(scroll),
                 ) {
-                    Text(
-                        text = list.legend,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
-                            .testTag("season-overview-legend"),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    SeasonOverviewKey()
                     HorizontalDivider()
                     list.rows.forEachIndexed { index, row ->
                         SeasonOverviewComposeRow(
@@ -329,7 +328,6 @@ private fun SeasonOverviewComposeRow(
                     onLongClick = { menu = true },
                 )
                 .padding(horizontal = 16.dp, vertical = 8.dp)
-                .semantics { contentDescription = row.spoken }
                 .testTag("season-overview-row-${row.contentKey}")
             if (seasonOverviewWrapsSymbols(LocalDensity.current.fontScale)) {
                 Column(
@@ -423,19 +421,45 @@ private fun SeasonOverviewText(row: SeasonOverviewRowUi, modifier: Modifier = Mo
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurface,
         )
+    }
+}
+
+@Composable
+private fun SeasonOverviewKey() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .testTag("season-overview-key"),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SeasonOverviewKeyItem(SeasonSegmentPresence.Yours, stringResource(Res.string.season_overview_word_yours))
+        SeasonOverviewKeyItem(SeasonSegmentPresence.Public, stringResource(Res.string.season_overview_word_public))
+        SeasonOverviewKeyItem(SeasonSegmentPresence.Missing, stringResource(Res.string.season_overview_word_missing))
+    }
+}
+
+@Composable
+private fun SeasonOverviewKeyItem(presence: SeasonSegmentPresence, word: String) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SeasonOverviewSegmentIcon(
+            SeasonOverviewSymbolUi(
+                kind = SeasonOverviewSymbolKind.Intro,
+                presence = presence,
+                token = "key:$presence",
+                accessibility = word,
+            ),
+            tagged = false,
+        )
         Text(
-            text = row.publicLine,
-            style = MaterialTheme.typography.bodySmall,
+            text = word,
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (row.yoursLine.isNotEmpty()) {
-            Text(
-                text = row.yoursLine,
-                modifier = Modifier.testTag("season-overview-yours-${row.contentKey}"),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
     }
 }
 
@@ -459,7 +483,7 @@ internal fun SeasonOverviewSegmentChips(symbols: List<SeasonOverviewSymbolUi>) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         symbols.forEach { symbol ->
-            SeasonMarkGlyph(symbol)
+            SeasonOverviewSegmentIcon(symbol)
         }
     }
 }
@@ -477,45 +501,41 @@ private fun SeasonSelectMark(included: Boolean) {
 }
 
 @Composable
-private fun SeasonMarkGlyph(symbol: SeasonOverviewSymbolUi) {
-    val scheme = MaterialTheme.colorScheme
+internal fun SeasonOverviewSegmentIcon(
+    symbol: SeasonOverviewSymbolUi,
+    tagged: Boolean = true,
+) {
     val face = seasonOverviewChipFace(symbol.presence)
-    val background = when (symbol.presence) {
-        SeasonSegmentPresence.Yours -> scheme.primary
-        SeasonSegmentPresence.Public -> scheme.surface
-        SeasonSegmentPresence.Missing ->
-            if (face.filled) scheme.secondaryContainer else scheme.surface.copy(alpha = 0f)
+    val tint = when (symbol.presence) {
+        SeasonSegmentPresence.Yours -> MaterialTheme.colorScheme.primary
+        SeasonSegmentPresence.Public -> MaterialTheme.colorScheme.onSurfaceVariant
+        SeasonSegmentPresence.Missing -> MaterialTheme.colorScheme.outline
     }
-    val foreground = when (symbol.presence) {
-        SeasonSegmentPresence.Yours -> scheme.onPrimary
-        SeasonSegmentPresence.Public -> scheme.onSurface
-        SeasonSegmentPresence.Missing -> scheme.onSecondaryContainer
+    val filled = face.filled
+    val image = when (symbol.kind) {
+        SeasonOverviewSymbolKind.Intro -> if (filled) Icons.Filled.PlayArrow else Icons.Outlined.PlayArrow
+        SeasonOverviewSymbolKind.Recap -> if (filled) Icons.Filled.Refresh else Icons.Outlined.Refresh
+        SeasonOverviewSymbolKind.Credits -> if (filled) Icons.Filled.Subtitles else Icons.Outlined.Subtitles
+        SeasonOverviewSymbolKind.Preview -> if (filled) Icons.Filled.Visibility else Icons.Outlined.Visibility
     }
-    val shape = RoundedCornerShape(8.dp)
     val tag = "season-overview-segment-${symbol.kind.name}"
-    Text(
-        text = symbol.accessibility,
+    Icon(
+        imageVector = image,
+        contentDescription = if (tagged) symbol.accessibility else null,
+        tint = tint,
         modifier = Modifier
-            .clip(shape)
-            .background(background)
+            .size(22.dp)
             .then(
-                if (symbol.presence == SeasonSegmentPresence.Public) {
-                    Modifier.border(1.dp, scheme.outline, shape)
-                } else {
+                if (!tagged) {
                     Modifier
+                } else {
+                    Modifier.clearAndSetSemantics {
+                        this[SemanticsProperties.TestTag] = tag
+                        contentDescription = symbol.accessibility
+                        seasonOverviewChipLineLimit = face.lineLimit
+                        seasonOverviewChipFilled = face.filled
+                    }
                 },
-            )
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-            .clearAndSetSemantics {
-                this[SemanticsProperties.TestTag] = tag
-                contentDescription = symbol.accessibility
-                seasonOverviewChipLineLimit = face.lineLimit
-                seasonOverviewChipFilled = face.filled
-            },
-        style = MaterialTheme.typography.labelLarge,
-        color = foreground,
-        maxLines = face.lineLimit,
-        softWrap = false,
-        overflow = TextOverflow.Ellipsis,
+            ),
     )
 }

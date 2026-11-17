@@ -44,7 +44,7 @@ internal data class SeasonOverviewSymbolUi(
     val presence: SeasonSegmentPresence,
     /** Changes only when [presence] changes, so a replace effect can run once. */
     val token: String,
-    /** Spoken and visible words, for example "Intro: yours". */
+    /** Spoken name, for example "Intro: yours". The row draws an icon, not this sentence. */
     val accessibility: String,
 )
 
@@ -468,9 +468,8 @@ private fun seasonOverviewTypeLabel(type: String, copy: SeasonOverviewCopy): Str
 }
 
 /**
- * Every segment word is one line, including Missing.
- * The chip is filled for all three states. Colour still separates them.
- * A large type size may put fewer chips on a line. The label itself does not wrap.
+ * Yours is filled. Public and Missing are outlines, so the state is not colour alone.
+ * A large type size may put the icons on more than one line. An icon does not wrap.
  */
 internal data class SeasonOverviewChipFace(
     val lineLimit: Int,
@@ -478,7 +477,14 @@ internal data class SeasonOverviewChipFace(
 )
 
 internal fun seasonOverviewChipFace(presence: SeasonSegmentPresence): SeasonOverviewChipFace =
-    SeasonOverviewChipFace(lineLimit = 1, filled = true)
+    SeasonOverviewChipFace(lineLimit = 1, filled = presence == SeasonSegmentPresence.Yours)
+
+/** The episode card uses the same three states as the sheet. A detection is not a submission. */
+internal fun seasonOverviewPresenceFromSources(labels: List<String>): SeasonSegmentPresence = when {
+    com.nuvio.app.features.player.skip.LABEL_YOUR_MARK in labels -> SeasonSegmentPresence.Yours
+    com.nuvio.app.features.player.skip.LABEL_THE_INTRO_DB in labels -> SeasonSegmentPresence.Public
+    else -> SeasonSegmentPresence.Missing
+}
 
 /** AX1 and above, including AX5, put the four symbols on their own line. */
 internal fun seasonOverviewWrapsSymbols(fontScale: Float): Boolean =

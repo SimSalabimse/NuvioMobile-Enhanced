@@ -278,6 +278,13 @@ private fun PartChips(item: DownloadItem, parts: AnalysisParts) {
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         kinds.forEach { kind ->
+            if (kind == AnalysisChipKind.Intro ||
+                kind == AnalysisChipKind.Recap ||
+                kind == AnalysisChipKind.Credits ||
+                kind == AnalysisChipKind.Previews
+            ) {
+                return@forEach
+            }
             val label = chipLabel(kind)
             val part = parts.valueOf(kind)
             val spoken = stringResource(Res.string.analysis_part_a11y, label, stateWord(part))

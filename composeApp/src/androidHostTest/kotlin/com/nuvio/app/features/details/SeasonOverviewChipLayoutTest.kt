@@ -52,7 +52,7 @@ class SeasonOverviewChipLayoutTest {
             val tag = "season-overview-segment-${chip.kind.name}"
             val semantics = compose.onAllNodes(hasTestTag(tag)).fetchSemanticsNodes().single()
             assertEquals(1, semantics.config[SeasonOverviewChipLineLimitKey])
-            assertEquals(true, semantics.config[SeasonOverviewChipFilledKey])
+            assertEquals(chip.presence == SeasonSegmentPresence.Yours, semantics.config[SeasonOverviewChipFilledKey])
             assertEquals(listOf(chip.accessibility), semantics.config[SemanticsProperties.ContentDescription])
             assertFalse(chip.accessibility.contains('\n'))
             val bounds = compose.onNodeWithTag(tag).getBoundsInRoot()

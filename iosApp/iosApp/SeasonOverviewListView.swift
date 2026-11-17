@@ -236,25 +236,19 @@ struct SeasonOverviewListRoot: View {
                         .font(.body)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                         .accessibilityIdentifier("season-overview-status")
                 } else {
-                    if !snapshot.legend.isEmpty {
-                        Text(snapshot.legend)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                            .accessibilityIdentifier("season-overview-legend")
-                    }
+                    SeasonOverviewKey(rows: snapshot.rows)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                        .listRowSeparator(.hidden)
                     ForEach(snapshot.rows) { row in
-                        SeasonOverviewEpisodeRow(
-                            row: row,
-                            snapshot: snapshot,
-                            reduceMotion: reduceMotion
-                        )
+                        SeasonOverviewEpisodeRow(row: row, snapshot: snapshot)
                     }
                 }
             }
-            .listStyle(.insetGrouped)
+            .listStyle(.plain)
+            .modifier(SeasonOverviewTopInset())
             .environment(\.defaultMinListRowHeight, 44)
             .navigationTitle(snapshot.title)
             .navigationBarTitleDisplayMode(.inline)
@@ -291,10 +285,20 @@ struct SeasonOverviewListRoot: View {
     }
 }
 
+private struct SeasonOverviewTopInset: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 17.0, *) {
+            content.contentMargins(.top, 0, for: .scrollContent)
+        } else {
+            content
+        }
+    }
+}
+
 private struct SeasonOverviewEpisodeRow: View {
     let row: SeasonOverviewRow
     let snapshot: SeasonOverviewSnapshot
-    let reduceMotion: Bool
 
     var body: some View {
         Button {
@@ -304,7 +308,7 @@ private struct SeasonOverviewEpisodeRow: View {
                 SeasonOverviewBridge.open(row.id)
             }
         } label: {
-            SeasonOverviewEpisodeLabel(row: row, snapshot: snapshot, reduceMotion: reduceMotion)
+            SeasonOverviewEpisodeLabel(row: row, snapshot: snapshot)
         }
         .buttonStyle(.plain)
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
@@ -348,7 +352,6 @@ private struct SeasonOverviewEpisodeRow: View {
 private struct SeasonOverviewEpisodeLabel: View {
     let row: SeasonOverviewRow
     let snapshot: SeasonOverviewSnapshot
-    let reduceMotion: Bool
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -391,132 +394,134 @@ private struct SeasonOverviewEpisodeLabel: View {
     }
 
     private func textBlock(fillsWidth: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(row.title)
-                .font(.body)
-                .foregroundStyle(.primary)
-                .frame(maxWidth: fillsWidth ? CGFloat.infinity : nil, alignment: .leading)
-            Text(row.publicLine)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: fillsWidth ? CGFloat.infinity : nil, alignment: .leading)
-            if !row.yoursLine.isEmpty {
-                Text(row.yoursLine)
-                    .font(.footnote)
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: fillsWidth ? CGFloat.infinity : nil, alignment: .leading)
-                    .accessibilityIdentifier("season-overview-yours-\(row.id)")
-            }
-        }
+        Text(row.title)
+            .font(.body)
+            .foregroundStyle(.primary)
+            .frame(maxWidth: fillsWidth ? CGFloat.infinity : nil, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var symbols: some View {
-        SegmentChips(symbols: row.symbols, reduceMotion: reduceMotion)
+        SegmentChips(symbols: row.symbols)
     }
 }
 
-/// One line of chips when they fit. Otherwise two, then one column.
-/// A chip never breaks its own label. Large type just uses fewer columns.
+/// One line of icons when they fit. Otherwise two, then a column. Large type uses fewer columns.
 private struct SegmentChips: View {
     let symbols: [SeasonOverviewSymbol]
-    let reduceMotion: Bool
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
             chipLine(symbols)
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
                 chipLine(Array(symbols.prefix(2)))
                 chipLine(Array(symbols.dropFirst(2)))
             }
             .fixedSize(horizontal: true, vertical: true)
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
                 ForEach(symbols.indices, id: \.self) { index in
-                    SegmentWord(symbol: symbols[index], reduceMotion: reduceMotion)
+                    SegmentIcon(symbol: symbols[index])
                 }
             }
             .fixedSize(horizontal: true, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
     }
 
     private func chipLine(_ symbols: [SeasonOverviewSymbol]) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
             ForEach(symbols.indices, id: \.self) { index in
-                SegmentWord(symbol: symbols[index], reduceMotion: reduceMotion)
+                SegmentIcon(symbol: symbols[index])
             }
         }
         .fixedSize(horizontal: true, vertical: true)
     }
 }
 
-/// The words are the state. Colour and fill repeat them; they are not the only difference.
-private struct SegmentWord: View {
+/// Filled accent is yours. An outline in secondary is public. A dim outline is missing.
+private struct SegmentIcon: View {
     let symbol: SeasonOverviewSymbol
-    let reduceMotion: Bool
+    @ScaledMetric(relativeTo: .body) private var side = 22.0
 
     var body: some View {
-        label
-            .font(.caption)
-            .foregroundStyle(foreground)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(background, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay {
-                if symbol.state == "U" {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(Color.secondary, lineWidth: 1)
-                }
-            }
+        Image(systemName: imageName)
+            .font(.system(size: side))
+            .symbolRenderingMode(.monochrome)
+            .foregroundStyle(tint)
             .accessibilityLabel(symbol.accessibility)
             .accessibilityIdentifier("season-overview-segment-\(symbol.token)")
     }
 
-    @ViewBuilder
-    private var label: some View {
-        chipText
-            .lineLimit(SeasonOverviewChipFace.lineLimit)
-            .fixedSize(horizontal: true, vertical: true)
+    private var filled: Bool { symbol.state == "Y" }
+
+    private var index: String {
+        String(symbol.token.split(separator: ":").first ?? "0")
     }
 
-    @ViewBuilder
-    private var chipText: some View {
-        if reduceMotion {
-            Text(symbol.accessibility)
-        } else if #available(iOS 17.0, *) {
-            Text(symbol.accessibility)
-                .contentTransition(.interpolate)
-                .animation(.default, value: symbol.token)
-        } else {
-            Text(symbol.accessibility)
-        }
-    }
-
-    private var foreground: Color {
-        switch symbol.state {
-        case "Y":
-            return Color(uiColor: .systemBackground)
-        case "U":
-            return .primary
+    private var imageName: String {
+        switch index {
+        case "0":
+            return filled ? "play.rectangle.fill" : "play.rectangle"
+        case "1":
+            return filled ? "arrow.counterclockwise.circle.fill" : "arrow.counterclockwise.circle"
+        case "2":
+            return filled ? "captions.bubble.fill" : "captions.bubble"
         default:
-            return .secondary
+            return filled ? "eye.fill" : "eye"
         }
     }
 
-    private var background: Color {
+    private var tint: Color {
         switch symbol.state {
         case "Y":
             return .accentColor
         case "U":
-            return Color.primary.opacity(0.08)
+            return .secondary
         default:
-            return Color(uiColor: .tertiarySystemFill)
+            return Color(uiColor: .tertiaryLabel)
         }
     }
 }
 
-/// Shared with the list test: one line, and Missing is a chip too.
-enum SeasonOverviewChipFace {
-    static let lineLimit = 1
+/// One line. The words name the three states. They are not repeated on each episode.
+private struct SeasonOverviewKey: View {
+    let rows: [SeasonOverviewRow]
+
+    var body: some View {
+        HStack(spacing: 16) {
+            keyItem(state: "Y", fallback: "Yours")
+            keyItem(state: "U", fallback: "Public")
+            keyItem(state: "M", fallback: "Missing")
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Yours, filled. Public, outlined. Missing, dim.")
+        .accessibilityIdentifier("season-overview-key")
+    }
+
+    private func keyItem(state: String, fallback: String) -> some View {
+        let word = spokenWord(state: state) ?? fallback
+        return HStack(spacing: 4) {
+            SegmentIcon(
+                symbol: SeasonOverviewSymbol(state: state, token: "0:\(state)", accessibility: word)
+            )
+            Text(word)
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func spokenWord(state: String) -> String? {
+        for row in rows {
+            guard let symbol = row.symbols.first(where: { $0.state == state }) else { continue }
+            let parts = symbol.accessibility.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2 else { continue }
+            let word = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            if !word.isEmpty { return word }
+        }
+        return nil
+    }
 }
 
 private struct DownloadGlyph: View {

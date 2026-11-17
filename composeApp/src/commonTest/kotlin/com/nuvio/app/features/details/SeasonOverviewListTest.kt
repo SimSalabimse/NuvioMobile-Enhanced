@@ -326,11 +326,19 @@ class SeasonOverviewListTest {
             assertFalse(label.contains('\n'), label)
             assertEquals(1, label.lineSequence().count())
         }
+        assertTrue(seasonOverviewChipFace(SeasonSegmentPresence.Yours).filled)
+        assertFalse(seasonOverviewChipFace(SeasonSegmentPresence.Public).filled)
+        assertFalse(seasonOverviewChipFace(SeasonSegmentPresence.Missing).filled)
         SeasonSegmentPresence.entries.forEach { presence ->
-            val face = seasonOverviewChipFace(presence)
-            assertEquals(1, face.lineLimit)
-            assertTrue(face.filled)
+            assertEquals(1, seasonOverviewChipFace(presence).lineLimit)
         }
+        assertEquals(
+            SeasonSegmentPresence.Yours,
+            seasonOverviewPresenceFromSources(listOf("Your mark", "TheIntroDB")),
+        )
+        assertEquals(SeasonSegmentPresence.Public, seasonOverviewPresenceFromSources(listOf("TheIntroDB")))
+        assertEquals(SeasonSegmentPresence.Missing, seasonOverviewPresenceFromSources(listOf("Detected")))
+        assertEquals(SeasonSegmentPresence.Missing, seasonOverviewPresenceFromSources(emptyList()))
         assertTrue(copy.legend.contains("Yours"))
         assertTrue(copy.legend.contains("Public"))
         assertTrue(copy.legend.contains("Missing"))

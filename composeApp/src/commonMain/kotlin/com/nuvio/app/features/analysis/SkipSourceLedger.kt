@@ -1,21 +1,23 @@
 package com.nuvio.app.features.analysis
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.FastForward
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.analysis_part_credits
+import nuvio.composeapp.generated.resources.analysis_part_intro
+import nuvio.composeapp.generated.resources.analysis_part_previews
+import nuvio.composeapp.generated.resources.analysis_part_recap
+import nuvio.composeapp.generated.resources.season_overview_word_missing
+import nuvio.composeapp.generated.resources.season_overview_word_public
+import nuvio.composeapp.generated.resources.season_overview_word_yours
+import org.jetbrains.compose.resources.stringResource
+import com.nuvio.app.features.details.SeasonOverviewSymbolKind
+import com.nuvio.app.features.details.SeasonOverviewSymbolUi
+import com.nuvio.app.features.details.SeasonSegmentPresence
+import com.nuvio.app.features.details.components.SeasonOverviewSegmentChips
+import com.nuvio.app.features.details.seasonOverviewPresenceFromSources
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadStatus
 import com.nuvio.app.features.downloads.DownloadsSettingsStorage
@@ -211,21 +213,37 @@ private fun MediaAnalysisResult.hasOnDevice(kind: String): Boolean = when (kind)
     else -> false
 }
 
-/** One line per segment ("Intro · Your mark", "Recap · TheIntroDB") on a downloaded episode card. */
+/** Four segment icons on a downloaded episode card. Same states as the season overview. */
 @Composable
 fun SkipSourcesRow(item: DownloadItem) {
     if (item.status != DownloadStatus.Completed || item.seasonNumber == null || item.episodeNumber == null) return
     val ledger by SkipSourceLedger.revision.collectAsStateWithLifecycle()
     val analysis by MediaAnalysisStatus.revision.collectAsStateWithLifecycle()
     val sources = remember(item.id, item.fileName, ledger, analysis) { skipSourcesFor(item) }
-    if (sources.isEmpty()) return
-    val color = MaterialTheme.colorScheme.onSurfaceVariant
-    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        Icon(Icons.Rounded.FastForward, contentDescription = null, tint = color, modifier = Modifier.padding(top = 1.dp).size(14.dp))
-        Column {
-            sources.forEach { (kind, source) ->
-                Text(text = "$kind · $source", style = MaterialTheme.typography.labelSmall, color = color)
-            }
+    val yours = stringResource(Res.string.season_overview_word_yours)
+    val publicWord = stringResource(Res.string.season_overview_word_public)
+    val missing = stringResource(Res.string.season_overview_word_missing)
+    val names = listOf(
+        SeasonOverviewSymbolKind.Intro to stringResource(Res.string.analysis_part_intro),
+        SeasonOverviewSymbolKind.Recap to stringResource(Res.string.analysis_part_recap),
+        SeasonOverviewSymbolKind.Credits to stringResource(Res.string.analysis_part_credits),
+        SeasonOverviewSymbolKind.Preview to stringResource(Res.string.analysis_part_previews),
+    )
+    val keys = listOf("Intro", "Recap", "Credits", "Preview")
+    val symbols = names.mapIndexed { index, (kind, spoken) ->
+        val labels = sources.filter { it.first == keys[index] }.map { it.second }
+        val presence = seasonOverviewPresenceFromSources(labels)
+        val word = when (presence) {
+            SeasonSegmentPresence.Yours -> yours
+            SeasonSegmentPresence.Public -> publicWord
+            SeasonSegmentPresence.Missing -> missing
         }
+        SeasonOverviewSymbolUi(
+            kind = kind,
+            presence = presence,
+            token = "${keys[index]}:$presence",
+            accessibility = "$spoken: $word",
+        )
     }
+    SeasonOverviewSegmentChips(symbols)
 }
