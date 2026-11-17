@@ -5,6 +5,7 @@ name: iOS simulator compile
 on:
   pull_request:
     branches:
+      - enhanced
       - cursor/batch12-build207-e33c
       - sync/upstream-0.6.10
       - cursor/multi-segment-same-type-50bf
