@@ -834,7 +834,7 @@
     <string name="settings_homescreen_hero_style_full_bleed">Full-bleed</string>
     <string name="settings_homescreen_hero_style_full_bleed_description">Nuvio Default. Artwork fills the width of the screen.</string>
     <string name="settings_homescreen_hero_full_width">Full width</string>
-    <string name="settings_homescreen_hero_full_width_description">The picture goes edge to edge. Off, it fades in from the sides. It always starts below the status area.</string>
+    <string name="settings_homescreen_hero_full_width_description">The picture goes edge to edge when this is on. When it is off, there is a plain gap on each side. The picture fades softly at the bottom only. It always starts below the status area.</string>
     <string name="settings_homescreen_hero_style_card">Card</string>
     <string name="settings_homescreen_hero_style_card_description">A clean rounded shaped card.</string>
     <string name="settings_homescreen_catalogs_source">Catalogs Source</string>
