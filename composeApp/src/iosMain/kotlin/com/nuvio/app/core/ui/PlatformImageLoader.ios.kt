@@ -9,15 +9,9 @@ import com.nuvio.app.features.analysis.logProcessMemory
 import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSOperationQueue
 import platform.UIKit.UIApplicationDidReceiveMemoryWarningNotification
-import platform.UIKit.UIDevice
-import platform.UIKit.UIUserInterfaceIdiomPhone
 
 /** About 48 MB: under a percent of an 8 GB phone, and enough for the poster rows. */
 private const val IosImageMemoryCacheBytes = 48L * 1024 * 1024
-
-private val isPhone: Boolean by lazy {
-    UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPhone
-}
 
 private var memoryWarningObserverInstalled = false
 
@@ -25,7 +19,7 @@ internal actual fun ImageLoader.Builder.configurePlatformImageLoader(): ImageLoa
     installMemoryWarningObserver()
     return memoryCache {
         MemoryCache.Builder()
-            .maxSizeBytes(if (isPhone) IosPhoneImageMemoryCacheBytes else IosImageMemoryCacheBytes)
+            .maxSizeBytes(IosImageMemoryCacheBytes)
             .build()
     }
 }
