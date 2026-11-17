@@ -11,9 +11,39 @@ import com.nuvio.app.features.tmdb.TmdbService
 /**
  * Brings the user's earlier TheIntroDB submissions for a show onto the phone as their own marks,
  * so they are used for skipping and as trusted references for the on-device detector.
- * Runs once per show per app session after a list that went through (a failed one retries on the next play). Rejected submissions and ones without times
- * are skipped; marks already on the phone are kept.
+ * Runs once per show per app session after a list that went through (a failed one retries on the next play). Rejected submissions
+ * are skipped. A row with no times is a none answer, not a range that runs to the end of the file.
+ * Marks already on the phone are kept.
  */
+internal data class ListedSubmissionMark(
+    val startMs: Long,
+    val endMs: Long,
+    val absent: Boolean,
+)
+
+/**
+ * A listed row with neither clock, or both clocks at zero, is "none of this segment".
+ * A missing end with a real start still runs to the file length. The file length is not
+ * the end of a none answer.
+ */
+internal fun listedSubmissionMark(startMs: Long?, endMs: Long?, videoDurationMs: Long?): ListedSubmissionMark? {
+    val none = (startMs == null && endMs == null) || (startMs == 0L && endMs == 0L)
+    if (none) return ListedSubmissionMark(startMs = 0L, endMs = 0L, absent = true)
+    val start = startMs ?: 0L
+    val end = endMs ?: videoDurationMs ?: return null
+    if (start < 0L || end <= start) return null
+    if (videoDurationMs != null && end > videoDurationMs) return null
+    return ListedSubmissionMark(start, end, absent = false)
+}
+
+/** The player show id and the download's show id, when those files are not the same key. */
+internal fun absentMarkShowIds(playerShowId: String, downloadShowId: String?): List<String> {
+    val ids = linkedSetOf<String>()
+    if (playerShowId.isNotBlank()) ids += playerShowId
+    if (!downloadShowId.isNullOrBlank()) ids += downloadShowId
+    return ids.toList()
+}
+
 internal object SkipMarkImport {
     private val done = mutableSetOf<String>()
 
@@ -51,17 +81,41 @@ internal object SkipMarkImport {
         for (submission in submissions) {
             if (submission.status.equals("rejected", ignoreCase = true)) continue
             val segment = submission.segment ?: continue
-            val start = submission.startMs ?: 0L
-            val end = submission.endMs ?: submission.videoDurationMs ?: continue
+            val listed = listedSubmissionMark(submission.startMs, submission.endMs, submission.videoDurationMs) ?: continue
             val season = if (isMovie) null else submission.season ?: continue
             val episode = if (isMovie) null else submission.episode ?: continue
+            val category = SkipLearning.canonicalType(segment) ?: continue
+            val already = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(parentMetaId, season, episode))
+                ?.userSegments
+                ?.containsKey(category) == true
+            if (already) continue
             InAppLogger.info(
                 "SkipLearning",
                 "submission tmdb=${submission.tmdbId} tvdb=${submission.tvdbId} s=$season e=$episode " +
-                    "$segment $start-$end dur=${submission.videoDurationMs} status=${submission.status}",
+                    "$segment ${listed.startMs}-${listed.endMs} absent=${listed.absent} " +
+                    "dur=${submission.videoDurationMs} status=${submission.status}",
             )
-            if (submission.videoDurationMs != null && end > submission.videoDurationMs) continue
-            if (SkipLearning.importMark(parentMetaId, season, episode, segment, start, end, submission.videoDurationMs ?: 0L)) {
+            val stored = if (listed.absent) {
+                SkipLearning.recordAbsent(
+                    parentMetaId,
+                    season,
+                    episode,
+                    segment,
+                    submission.videoDurationMs ?: 0L,
+                    imported = true,
+                )
+            } else {
+                SkipLearning.importMark(
+                    parentMetaId,
+                    season,
+                    episode,
+                    segment,
+                    listed.startMs,
+                    listed.endMs,
+                    submission.videoDurationMs ?: 0L,
+                )
+            }
+            if (stored) {
                 imported++
                 season?.let { seasons += it }
             }

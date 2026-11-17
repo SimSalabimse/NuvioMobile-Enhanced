@@ -13,4 +13,6 @@ internal expect object DownloadsSettingsStorage {
     fun saveFlag(key: String, enabled: Boolean)
     fun loadString(key: String): String?
     fun saveString(key: String, value: String?)
+    fun loadDouble(key: String): Double?
+    fun saveDouble(key: String, value: Double?)
 }

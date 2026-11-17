@@ -3,6 +3,7 @@ package com.nuvio.app.features.player
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 
 class SubtitleSelectionModelTest {
 
@@ -143,6 +144,20 @@ class SubtitleSelectionModelTest {
                 isLoadingAddonSubtitles = true,
             ),
         )
+    }
+
+    @Test
+    fun addonRowExposesStoredProviderNameAndBuiltInDoesNot() {
+        val builtIn = SubtitleSelectionOption.BuiltIn(subtitleTrack(index = 0, language = "en", label = "English"))
+        val addon = SubtitleSelectionOption.Addon(
+            addonSubtitle(id = "en", language = "en", display = "English").copy(addonName = "Fixture"),
+        )
+        val unnamed = SubtitleSelectionOption.Addon(
+            addonSubtitle(id = "en2", language = "en", display = "English").copy(addonName = "  "),
+        )
+        assertNull(subtitleSelectionSource(builtIn))
+        assertEquals("Fixture", subtitleSelectionSource(addon))
+        assertNull(subtitleSelectionSource(unnamed))
     }
 
     @Test

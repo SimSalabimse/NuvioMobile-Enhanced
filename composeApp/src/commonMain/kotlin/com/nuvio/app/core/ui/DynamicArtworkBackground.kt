@@ -42,8 +42,10 @@ fun DynamicArtworkBackground(
 ) {
     val active = rememberDynamicArtworkBackgroundEnabled()
     if (!active) {
-        CompositionLocalProvider(LocalDynamicArtworkBackgroundActive provides false) {
-            content()
+        Box(modifier) {
+            CompositionLocalProvider(LocalDynamicArtworkBackgroundActive provides false) {
+                content()
+            }
         }
         return
     }

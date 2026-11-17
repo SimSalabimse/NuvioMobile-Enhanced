@@ -27,6 +27,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.features.downloads.noteInAppPlaybackPlaying
+import com.nuvio.app.core.ui.collectAfterPlayback
+import com.nuvio.app.core.ui.trimImageMemoryForPlayback
+import com.nuvio.app.features.analysis.logProcessMemory
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.useContents
 import kotlinx.coroutines.delay
@@ -58,6 +61,7 @@ actual fun PlatformPlayerSurface(
     initialPositionRequestKey: String?,
     resizeMode: PlayerResizeMode,
     playbackEngine: AndroidPlaybackEngine?,
+    animeContent: Boolean,
     useNativeController: Boolean,
     onInitialPositionHandled: (key: String, handled: Boolean) -> Unit,
     onControllerReady: (PlayerEngineController) -> Unit,
@@ -81,7 +85,23 @@ actual fun PlatformPlayerSurface(
     val latestPlayerSettings = rememberUpdatedState(playerSettings)
     val experimentalSinglePrimaryPictureInPictureEnabled =
         IosExperimentalPictureInPictureSettingsStorage.loadSinglePrimaryRendererEnabled()
+    var subtitleText by remember(sourceUrl) { mutableStateOf("") }
+    var subtitleStyle by remember { mutableStateOf(SubtitleStyleState.DEFAULT) }
 
+    LaunchedEffect(Unit) {
+        trimImageMemoryForPlayback()
+        logProcessMemory("playback-start")
+        while (isActive) {
+            delay(5 * 60 * 1000L)
+            logProcessMemory("playback")
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            logProcessMemory("playback-stop")
+            collectAfterPlayback()
+        }
+    }
     val bridge = remember {
         NuvioPlayerBridgeFactory.create()
     }
@@ -95,14 +115,23 @@ actual fun PlatformPlayerSurface(
     }
 
     bridge.setExperimentalSinglePrimaryPictureInPictureEnabled(experimentalSinglePrimaryPictureInPictureEnabled)
+    LaunchedEffect(playerSettings.downmixEnabled) {
+        bridge.setStereoDownmix(playerSettings.downmixEnabled)
+    }
 
     val controller = remember(bridge) {
         object : PlayerEngineController, PlayerSystemControlSource {
             private var lastAppliedVolume: Float? = null
             private var lastLoggedAudioTracks: String? = null
 
+            override fun networkSpeedBytesPerSecond(): Long? =
+                bridge.networkSpeedBytesPerSecond().takeIf { it >= 0L }
+
             override val keepsPlaybackInBackground: Boolean
                 get() = bridge.getKeepsPlaybackInBackground()
+
+            override val supportsNightMode: Boolean
+                get() = bridge.isNightModeSupported()
 
             override fun setSystemControlHandler(handler: PlayerSystemControlHandler?) {
                 bridge.setSystemControlHandler(handler)
@@ -366,6 +395,23 @@ actual fun PlatformPlayerSurface(
                 InAppLogger.info("Player/iOS", "set subtitle delay ms=$targetMs")
                 bridge.setSubtitleDelayMs(targetMs)
             }
+
+            override fun applyFittedSubtitleSync(speed: Double, fitDelayMs: Long) {
+                InAppLogger.info("Player/iOS", "set subtitle sync speed=$speed delayMs=$fitDelayMs")
+                bridge.setFittedSubtitleSync(speed, fitDelayMs)
+            }
+
+            override val supportsAudioDelay: Boolean get() = true
+
+            override fun setAudioDelayMs(delayMs: Int) {
+                bridge.setAudioDelayMs(delayMs.coerceIn(AUDIO_DELAY_MIN_MS, AUDIO_DELAY_MAX_MS))
+            }
+
+            override val supportsAudioAmplification: Boolean get() = true
+
+            override fun setAudioAmplificationDb(db: Int) {
+                bridge.setAudioAmplificationDb(db.coerceIn(AUDIO_AMPLIFICATION_MIN_DB, AUDIO_AMPLIFICATION_MAX_DB))
+            }
             
             override fun startAudioEnergyCapture(startTimeMs: Long) {
                 InAppLogger.info("Player/iOS", "start audio energy capture at positionMs=$startTimeMs")
@@ -391,17 +437,18 @@ actual fun PlatformPlayerSurface(
                     "Player/iOS",
                     "apply subtitle style font=${style.fontSizeSp} bold=${style.bold} outline=${style.outlineEnabled}:${style.outlineWidth} bottom=${style.bottomOffset}",
                 )
-                bridge.setSubtitleFontPath(SubtitleFontRepository.pathOf(style.customFontFile).orEmpty())
+                subtitleStyle = style
                 bridge.applySubtitleStyle(
                     textColor = style.textColor.toMpvColorString(),
                     backgroundColor = style.backgroundColor.toMpvColorString(),
                     outlineColor = style.outlineColor.toMpvColorString(),
                     outlineSize = if (style.outlineEnabled) style.outlineWidth.toFloat() else 0f,
-                    shadowOffset = if (style.shadowEnabled) style.shadowStrength * MPV_SUBTITLE_SHADOW_OFFSET_SCALE else 0f,
                     bold = style.bold,
                     fontSize = style.toMpvSubtitleFontSize(),
                     subPos = style.toMpvSubtitlePosition(),
                     stripSdh = style.stripSdh,
+                    styledOverlay = style.requiresComposeStyledOverlay,
+                    outlineBlur = style.mpvNativeOutlineBlurLevel,
                 )
             }
 
@@ -491,6 +538,15 @@ actual fun PlatformPlayerSurface(
         bridge.applyIosVideoOutputSettings(playerSettings)
     }
 
+    val nightModeActive = playerSettings.nightModeActive
+    LaunchedEffect(bridge, nightModeActive) {
+        bridge.setNightMode(
+            enabled = nightModeActive,
+            filter = PlayerNightMode.MPV_FILTER,
+            label = PlayerNightMode.MPV_FILTER_LABEL,
+        )
+    }
+
     // Polling for snapshots. Media info walks codec and track properties on the mpv
     // queue, so only request it while the playback-info panel is open.
     LaunchedEffect(bridge) {
@@ -499,8 +555,10 @@ actual fun PlatformPlayerSurface(
         var chapters = emptyList<PlayerChapter>()
         var chaptersDurationMs = 0L
         com.nuvio.app.features.downloads.PlaybackPriority.sessionStarted(isLocalPlaybackUrl(latestSourceUrl.value))
-        // Local-file stall watchdog: a file on the phone should never buffer for long. After 5 s
-        // stuck at one position it seeks there again; after 5 s more it reopens the file there.
+        // Local-file stall watchdog. Recovery waits for a valid time-pos, or LocalFileOpenTimeoutMs.
+        var openTrackedUrl: String? = null
+        var openStartedAtMs = 0L
+        var timePosSeenForOpen = false
         var stallSinceMs = 0L
         var stallPositionMs = -1L
         var stallActions = 0
@@ -538,27 +596,63 @@ actual fun PlatformPlayerSurface(
             )
             noteInAppPlaybackPlaying(snapshot.isPlaying && !snapshot.isEnded)
             val nowMs = com.nuvio.app.features.streams.epochMs()
-            val wantsToPlay = latestPlayWhenReady.value && !snapshot.isEnded
+            val failed = bridge.getErrorMessage().isNotBlank()
+            val ended = snapshot.isEnded
+            val wantsToPlay = latestPlayWhenReady.value && !ended && !failed
             com.nuvio.app.features.downloads.PlaybackPriority.noteSnapshot(
                 wantsToPlay = wantsToPlay,
                 buffering = snapshot.isLoading,
                 positionMs = snapshot.positionMs,
                 nowMs = nowMs,
+                pictureMoving = snapshot.isPlaying && !ended && !failed,
+                ended = ended,
+                failed = failed,
             )
             val url = latestSourceUrl.value
-            if (wantsToPlay && snapshot.isLoading && isLocalPlaybackUrl(url)) {
+            val localFile = isLocalPlaybackUrl(url)
+            if (url != openTrackedUrl) {
+                openTrackedUrl = url
+                openStartedAtMs = 0L
+                timePosSeenForOpen = false
+                stallSinceMs = 0L
+                stallPositionMs = -1L
+                stallActions = 0
+            }
+            val timePosValid = bridge.getTimePosValid()
+            if (localFile && openStartedAtMs == 0L && (snapshot.isLoading || snapshot.isPlaying || timePosValid)) {
+                openStartedAtMs = nowMs
+            }
+            if (timePosValid && !timePosSeenForOpen) {
+                timePosSeenForOpen = true
+                stallSinceMs = 0L
+                stallPositionMs = -1L
+            }
+            val openPhase = when {
+                !localFile -> LocalFileOpenPhase.NotYetOpened
+                timePosSeenForOpen -> LocalFileOpenPhase.TimePosValid
+                openStartedAtMs == 0L -> LocalFileOpenPhase.NotYetOpened
+                else -> LocalFileOpenPhase.OpenedNoTimePos
+            }
+            if (wantsToPlay && snapshot.isLoading && localFile) {
                 if (stallSinceMs == 0L || snapshot.positionMs != stallPositionMs) {
                     stallSinceMs = nowMs
                     stallPositionMs = snapshot.positionMs
-                } else if (nowMs - stallSinceMs >= 5_000L) {
+                }
+                val decision = localFileStallDecision(
+                    phase = openPhase,
+                    elapsedSinceOpenMs = if (openStartedAtMs == 0L) 0L else nowMs - openStartedAtMs,
+                    elapsedAtSamePositionMs = nowMs - stallSinceMs,
+                )
+                if (decision == LocalFileStallDecision.Recover) {
                     stallSinceMs = nowMs
                     stallActions += 1
                     val at = snapshot.positionMs.coerceAtLeast(0L)
-                    if (stallActions % 2 == 1) {
+                    val reopen = openPhase != LocalFileOpenPhase.TimePosValid || stallActions % 2 == 0
+                    if (!reopen) {
                         InAppLogger.warn("Player/iOS", "local file stalled at ${at}ms, seeking again")
                         bridge.seekTo(at)
                     } else {
-                        InAppLogger.warn("Player/iOS", "local file still stalled at ${at}ms, reopening")
+                        InAppLogger.warn("Player/iOS", "local file stalled at ${at}ms, reopening")
                         bridge.loadFileAtPosition(
                             videoUrl = url,
                             headersJson = null,
@@ -566,6 +660,9 @@ actual fun PlatformPlayerSurface(
                             startMs = at,
                         )
                         bridge.play()
+                        timePosSeenForOpen = false
+                        openStartedAtMs = nowMs
+                        stallPositionMs = at
                     }
                 }
             } else {
@@ -588,10 +685,12 @@ actual fun PlatformPlayerSurface(
 
     // Cleanup
     DisposableEffect(bridge) {
+        bridge.setSubtitleTextHandler { subtitleText = it }
         onDispose {
             InAppLogger.info("Player/iOS", "destroy bridge positionMs=${bridge.getPositionMs()} durationMs=${bridge.getDurationMs()}")
             noteInAppPlaybackPlaying(false)
             com.nuvio.app.features.downloads.PlaybackPriority.sessionEnded()
+            bridge.setSubtitleTextHandler(null)
             bridge.destroy()
         }
     }
@@ -621,6 +720,7 @@ actual fun PlatformPlayerSurface(
             },
             interactive = false,
         )
+        StyledSubtitleOverlay(subtitleText, subtitleStyle)
         
         if (useNativeController) {
             var isPlayingLocal by remember { mutableStateOf(playWhenReady) }
@@ -696,7 +796,6 @@ private fun Color.toMpvColorString(): String {
 private fun SubtitleStyleState.toMpvSubtitlePosition(): Int =
     (100 - (bottomOffset / 2)).coerceIn(0, 150)
 
-private const val MPV_SUBTITLE_SHADOW_OFFSET_SCALE = 1.5f
 
 private fun SubtitleStyleState.toMpvSubtitleFontSize(): Float =
     (fontSizeSp * 3f).coerceIn(18f, 96f)

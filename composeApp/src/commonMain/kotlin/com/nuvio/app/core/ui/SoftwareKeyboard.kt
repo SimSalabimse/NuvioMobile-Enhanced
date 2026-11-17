@@ -1,6 +1,8 @@
 package com.nuvio.app.core.ui
 
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.runtime.Composable
@@ -11,6 +13,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.remember
@@ -21,6 +24,22 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import kotlinx.coroutines.launch
 
 internal expect fun dismissPlatformSoftwareKeyboard()
+
+/**
+ * The details column listens for taps so it can dismiss the keyboard.
+ * A row that already took the tap is left alone.
+ */
+internal enum class KeyboardTap {
+    ChildHandled,
+    DismissKeyboard,
+    Ignore,
+}
+
+internal fun keyboardTapAction(childConsumed: Boolean, imeVisible: Boolean): KeyboardTap = when {
+    childConsumed -> KeyboardTap.ChildHandled
+    imeVisible -> KeyboardTap.DismissKeyboard
+    else -> KeyboardTap.Ignore
+}
 
 /**
  * Clears Compose focus and asks the platform to resign the software keyboard.
@@ -64,5 +83,12 @@ internal fun Modifier.dismissKeyboardOnScrollOrTap(): Modifier {
             }
         }
     }
-    return nestedScroll(connection).pointerInput(dismiss) { detectTapGestures { if (imeVisible) dismiss() } }
+    return nestedScroll(connection).pointerInput(dismiss) {
+        awaitEachGesture {
+            val down = awaitFirstDown(pass = PointerEventPass.Final, requireUnconsumed = false)
+            if (keyboardTapAction(down.isConsumed, imeVisible) == KeyboardTap.ChildHandled) return@awaitEachGesture
+            val up = waitForUpOrCancellation(pass = PointerEventPass.Final) ?: return@awaitEachGesture
+            if (keyboardTapAction(up.isConsumed, imeVisible) == KeyboardTap.DismissKeyboard) dismiss()
+        }
+    }
 }

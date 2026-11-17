@@ -10,8 +10,8 @@ actual fun IosDiagnosticsSettingsRow(
     isTablet: Boolean,
 ) {
     SettingsNavigationRow(
-        title = "Diagnostics",
-        description = "On-device crash and error log",
+        title = "Device error log",
+        description = "Crashes and errors stored on this device. Not the session messages.",
         icon = Icons.Rounded.BugReport,
         isTablet = isTablet,
         onClick = { DiagnosticsNavigation.openDiagnosticsSettings() },

@@ -21,15 +21,19 @@ import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.network_empty_response_body
 import nuvio.composeapp.generated.resources.network_request_failed_http
 import org.jetbrains.compose.resources.getString
+import com.nuvio.app.core.automation.isolateStorageKey
 import platform.Foundation.NSUserDefaults
 
 actual object AddonStorage {
     private const val addonUrlsKey = "installed_manifest_urls"
     private const val addonEnabledStatesKey = "installed_manifest_enabled_states"
 
+    private fun urlsKey(profileId: Int) = isolateStorageKey("${addonUrlsKey}_$profileId")
+    private fun enabledKey(profileId: Int) = isolateStorageKey("${addonEnabledStatesKey}_$profileId")
+
     actual fun loadInstalledAddonUrls(profileId: Int): List<String> =
         NSUserDefaults.standardUserDefaults
-            .stringForKey("${addonUrlsKey}_$profileId")
+            .stringForKey(urlsKey(profileId))
             .orEmpty()
             .lineSequence()
             .map { it.trim() }
@@ -39,13 +43,13 @@ actual object AddonStorage {
     actual fun saveInstalledAddonUrls(profileId: Int, urls: List<String>) {
         NSUserDefaults.standardUserDefaults.setObject(
             urls.joinToString(separator = "\n"),
-            forKey = "${addonUrlsKey}_$profileId",
+            forKey = urlsKey(profileId),
         )
     }
 
     actual fun loadAddonEnabledStates(profileId: Int): Map<String, Boolean> =
         NSUserDefaults.standardUserDefaults
-            .stringForKey("${addonEnabledStatesKey}_$profileId")
+            .stringForKey(enabledKey(profileId))
             .orEmpty()
             .lineSequence()
             .mapNotNull(::parseEnabledStateLine)
@@ -57,7 +61,7 @@ actual object AddonStorage {
         }
         NSUserDefaults.standardUserDefaults.setObject(
             payload,
-            forKey = "${addonEnabledStatesKey}_$profileId",
+            forKey = enabledKey(profileId),
         )
     }
 }
@@ -81,8 +85,9 @@ private val addonHttpClient = HttpClient(Darwin) {
     expectSuccess = false
 }
 
-actual suspend fun httpGetText(url: String): String =
-    addonHttpClient
+actual suspend fun httpGetText(url: String): String {
+    com.nuvio.app.core.automation.blockedAutomationHttpText()?.let { return it }
+    return addonHttpClient
         .get(url) {
             accept(ContentType.Application.Json)
         }
@@ -96,9 +101,11 @@ actual suspend fun httpGetText(url: String): String =
             }
             payload
         }
+}
 
-actual suspend fun httpPostJson(url: String, body: String): String =
-    addonHttpClient
+actual suspend fun httpPostJson(url: String, body: String): String {
+    com.nuvio.app.core.automation.blockedAutomationHttpText()?.let { return it }
+    return addonHttpClient
         .post(url) {
             accept(ContentType.Application.Json)
             header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
@@ -114,12 +121,14 @@ actual suspend fun httpPostJson(url: String, body: String): String =
             }
             payload
         }
+}
 
 actual suspend fun httpGetTextWithHeaders(
     url: String,
     headers: Map<String, String>,
-): String =
-    addonHttpClient
+): String {
+    com.nuvio.app.core.automation.blockedAutomationHttpText()?.let { return it }
+    return addonHttpClient
         .get(url) {
             accept(ContentType.Application.Json)
             headers.forEach { (key, value) ->
@@ -136,13 +145,15 @@ actual suspend fun httpGetTextWithHeaders(
             }
             payload
         }
+}
 
 actual suspend fun httpPostJsonWithHeaders(
     url: String,
     body: String,
     headers: Map<String, String>,
-): String =
-    addonHttpClient
+): String {
+    com.nuvio.app.core.automation.blockedAutomationHttpText()?.let { return it }
+    return addonHttpClient
         .post(url) {
             accept(ContentType.Application.Json)
             header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
@@ -161,6 +172,7 @@ actual suspend fun httpPostJsonWithHeaders(
             }
             payload
         }
+}
 
 actual suspend fun httpRequestRaw(
     method: String,
@@ -170,8 +182,22 @@ actual suspend fun httpRequestRaw(
     followRedirects: Boolean,
     maxResponseBodyBytes: Int,
     bodyBytes: ByteArray?,
-): RawHttpResponse =
-    addonHttpClient
+): RawHttpResponse {
+    val automationActive = com.nuvio.app.core.automation.AutomationTestMode.isActive
+    if (com.nuvio.app.core.ui.automationRawRequestBlocked(automationActive, url)) {
+        com.nuvio.app.core.automation.AutomationStubs.noteBlockedNetwork()
+        return RawHttpResponse(status = 204, statusText = "automation", url = "", body = "", headers = emptyMap())
+    }
+    if (!automationActive && com.nuvio.app.core.uifixture.uiFixturesActive()) {
+        return RawHttpResponse(
+            status = 0,
+            statusText = "fixture",
+            url = url,
+            body = "",
+            headers = emptyMap(),
+        )
+    }
+    return addonHttpClient
         .request {
             url(url)
             this.method = HttpMethod.parse(method.uppercase())
@@ -197,3 +223,4 @@ actual suspend fun httpRequestRaw(
                 },
             )
         }
+}

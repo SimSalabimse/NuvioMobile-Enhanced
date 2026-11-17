@@ -17,6 +17,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -130,6 +132,16 @@ internal sealed interface PlayerDownloadIndicator {
     data object Failed : PlayerDownloadIndicator
 }
 
+internal fun playerDownloadContentDescription(indicator: PlayerDownloadIndicator): String = when (indicator) {
+    PlayerDownloadIndicator.NotDownloaded -> "Download"
+    PlayerDownloadIndicator.Done -> "Downloaded"
+    is PlayerDownloadIndicator.Progress -> "Downloading ${indicator.percent}%"
+    PlayerDownloadIndicator.Spinner -> "Downloading"
+    PlayerDownloadIndicator.Waiting -> "Download queued"
+    PlayerDownloadIndicator.Paused -> "Download paused"
+    PlayerDownloadIndicator.Failed -> "Download failed"
+}
+
 internal fun playerDownloadIndicator(row: DownloadItem?): PlayerDownloadIndicator = when (row?.status) {
     null -> PlayerDownloadIndicator.NotDownloaded
     DownloadStatus.Completed -> PlayerDownloadIndicator.Done
@@ -149,16 +161,13 @@ private fun PlayerDownloadButton(
     onClick: () -> Unit,
 ) {
     val indicator = playerDownloadIndicator(row)
-    val description = when (indicator) {
-        PlayerDownloadIndicator.NotDownloaded -> "Download"
-        PlayerDownloadIndicator.Done -> "Downloaded"
-        is PlayerDownloadIndicator.Progress -> "Downloading ${indicator.percent}%"
-        PlayerDownloadIndicator.Spinner -> "Downloading"
-        PlayerDownloadIndicator.Waiting -> "Download queued"
-        PlayerDownloadIndicator.Paused -> "Download paused"
-        PlayerDownloadIndicator.Failed -> "Download failed"
-    }
-    IconButton(onClick = onClick, modifier = Modifier.size(buttonSize)) {
+    val description = playerDownloadContentDescription(indicator)
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier
+            .size(buttonSize)
+            .semantics { contentDescription = description },
+    ) {
         when (indicator) {
             is PlayerDownloadIndicator.Progress -> Box(contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(
@@ -184,7 +193,7 @@ private fun PlayerDownloadButton(
                     PlayerDownloadIndicator.Waiting -> Icons.Rounded.Schedule
                     else -> Icons.Rounded.Download
                 },
-                contentDescription = description,
+                contentDescription = null,
                 tint = Color.White,
                 modifier = Modifier.size(iconSize),
             )

@@ -41,8 +41,15 @@ internal fun PlayerDestination(
         Box(modifier = Modifier.fillMaxSize())
         return
     }
-    LaunchedEffect(launch.videoId) {
-        launch.videoId?.let { ResumePromptRepository.markPlayerEntered(it) }
+    LaunchedEffect(launch.videoId, launch.submitMode, launch.privateSession) {
+        val tracks = com.nuvio.app.features.watchprogress.playbackIsolation(
+            submitMode = launch.submitMode,
+            privateSession = launch.privateSession,
+            globalPrivateViewing = com.nuvio.app.features.player.PlayerSettingsRepository.uiState.value.privateViewingEnabled,
+        ).persistsProgress
+        if (tracks) {
+            launch.videoId?.let { ResumePromptRepository.markPlayerEntered(it) }
+        }
     }
     PlayerScreen(
         profileId = launch.profileId,
@@ -77,9 +84,12 @@ internal fun PlayerDestination(
         initialPositionMs = launch.initialPositionMs,
         initialProgressFraction = launch.initialProgressFraction,
         contentLanguage = launch.contentLanguage,
+        subtitleExtras = launch.subtitleExtras,
         launchId = route.launchId,
         sourceFilename = launch.sourceFilename,
         stream = launch.stream,
+        submitMode = launch.submitMode,
+        privateSession = launch.privateSession,
         onBack = onBack,
         onOpenInExternalPlayer = { request ->
             val playerLaunch = PlayerLaunch(
@@ -104,7 +114,10 @@ internal fun PlayerDestination(
                 videoId = launch.videoId,
                 parentMetaId = launch.parentMetaId,
                 parentMetaType = launch.parentMetaType,
-                initialPositionMs = request.resumePositionMs,
+                initialPositionMs = if (launch.submitMode || launch.privateSession) 0L else request.resumePositionMs,
+                submitMode = launch.submitMode,
+                privateSession = launch.privateSession,
+                subtitleExtras = launch.subtitleExtras,
             )
             onExternalPlayerLaunch(playerLaunch)
             val intentResult = ExternalPlayerPlatform.buildIntent(

@@ -1,6 +1,7 @@
 package com.nuvio.app.core.sync
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.build.AppFeaturePolicy
@@ -310,6 +311,7 @@ object SyncManager {
     )
 
     fun pullAllForProfile(profileId: Int) {
+        if (AutomationTestMode.isActive) return
         startFullProfilePull(profileId = profileId, reason = "requested")
     }
 
@@ -339,6 +341,7 @@ object SyncManager {
     }
 
     fun requestForegroundPull(profileId: Int, force: Boolean = false) {
+        if (AutomationTestMode.isActive) return
         val authState = AuthRepository.state.value
         if (authState !is AuthState.Authenticated || authState.isAnonymous) return
 
@@ -513,6 +516,7 @@ object SyncManager {
     }
 
     fun startPeriodicNuvioSyncPull(profileId: Int) {
+        if (AutomationTestMode.isActive) return
         val authState = AuthRepository.state.value
         if (authState !is AuthState.Authenticated || authState.isAnonymous) {
             stopPeriodicNuvioSyncPull()

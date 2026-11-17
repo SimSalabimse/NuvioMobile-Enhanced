@@ -3,8 +3,14 @@ package com.nuvio.app.features.watching.application
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.details.MetaVideo
+import com.nuvio.app.features.details.currentOfflineDetailsNetwork
+import com.nuvio.app.features.details.OfflineCacheNetwork
+import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.FinishedDownloadDeletion
 import com.nuvio.app.features.home.MetaPreview
+import com.nuvio.app.features.offline.DownloadedEpisodeRef
+import com.nuvio.app.features.offline.isOfflineSeriesType
+import com.nuvio.app.features.offline.watchedToggleTargets
 import com.nuvio.app.features.watched.WatchedItem
 import com.nuvio.app.features.watched.WatchedRepository
 import com.nuvio.app.features.watched.episodePlaybackId
@@ -12,9 +18,12 @@ import com.nuvio.app.features.watched.releasedMainSeasonEpisodes
 import com.nuvio.app.features.watched.toEpisodeWatchedItem
 import com.nuvio.app.features.watched.toSeriesWatchedItem
 import com.nuvio.app.features.watched.toWatchedItem
+import com.nuvio.app.features.cloud.CloudLibraryContentType
+import com.nuvio.app.features.watchprogress.ContinueWatchingItem
 import com.nuvio.app.features.watchprogress.CurrentDateProvider
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
+import com.nuvio.app.features.watching.domain.isReleasedBy
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -24,69 +33,93 @@ object WatchingActions {
     private val actionScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     suspend fun togglePosterWatched(preview: MetaPreview) {
-        if (!preview.type.isSeriesLikeType()) {
-            WatchedRepository.toggleWatched(preview.toWatchedItem(markedAtEpochMs = 0L))
-            return
+        val offline = currentOfflineDetailsNetwork() == OfflineCacheNetwork.Offline
+        val cached = MetaDetailsRepository.cachedMeta(type = preview.type, id = preview.id)
+        val meta = cached ?: if (offline) {
+            null
+        } else {
+            MetaDetailsRepository.fetch(type = preview.type, id = preview.id)
         }
-
         val isCurrentlyWatched = WatchedRepository.isWatched(
             id = preview.id,
             type = preview.type,
         ) || WatchedRepository.isFullyWatchedSeries(id = preview.id, type = preview.type)
-        val meta = MetaDetailsRepository.fetch(type = preview.type, id = preview.id)
-        if (meta == null) {
-            if (isCurrentlyWatched) {
-                WatchedRepository.unmarkWatched(preview.toWatchedItem(markedAtEpochMs = 0L))
+        val todayIsoDate = CurrentDateProvider.todayIsoDate()
+        val targets = watchedToggleTargets(
+            id = preview.id,
+            type = preview.type,
+            name = preview.name,
+            poster = preview.poster,
+            releaseInfo = preview.releaseInfo,
+            currentlyWatched = isCurrentlyWatched,
+            cachedMeta = meta,
+            downloadedEpisodes = downloadedEpisodeRefs(preview.id),
+            todayIsoDate = todayIsoDate,
+            markedAtEpochMs = 0L,
+        )
+        if (targets.isEmpty()) return
+        if (isCurrentlyWatched) {
+            WatchedRepository.unmarkWatched(targets)
+            clearToggleProgress(preview.id, meta, targets, todayIsoDate)
+            if (preview.type.isSeriesLikeType()) {
                 WatchedRepository.updateFullyWatchedSeries(
                     id = preview.id,
                     type = preview.type,
                     isFullyWatched = false,
                 )
             }
-            return
-        }
-
-        val todayIsoDate = CurrentDateProvider.todayIsoDate()
-        val releasedMainEpisodes = meta.releasedMainSeasonEpisodes(todayIsoDate)
-        if (releasedMainEpisodes.isEmpty()) {
-            if (isCurrentlyWatched) {
-                WatchedRepository.unmarkWatched(meta.toSeriesWatchedItem())
-                WatchedRepository.updateFullyWatchedSeries(
-                    id = meta.id,
-                    type = meta.type,
-                    isFullyWatched = false,
-                )
-            }
-            return
-        }
-        val seriesItems = buildList {
-            add(meta.toSeriesWatchedItem())
-            addAll(releasedMainEpisodes.map(meta::toEpisodeWatchedItem))
-        }
-
-        if (isCurrentlyWatched) {
-            WatchedRepository.unmarkWatched(seriesItems)
-            WatchProgressRepository.clearProgress(
-                videoIds = releasedMainEpisodes.map(meta::episodePlaybackId),
-                parentMetaId = meta.id,
-            )
-            WatchedRepository.updateFullyWatchedSeries(
-                id = meta.id,
-                type = meta.type,
-                isFullyWatched = false,
-            )
         } else {
-            WatchedRepository.markWatched(seriesItems)
-            WatchedRepository.updateFullyWatchedSeries(
-                id = meta.id,
-                type = meta.type,
-                isFullyWatched = true,
-            )
-            WatchProgressRepository.clearProgress(
-                videoIds = releasedMainEpisodes.map(meta::episodePlaybackId),
-                parentMetaId = meta.id,
-            )
+            WatchedRepository.markWatched(targets)
+            val seriesComplete = meta != null &&
+                preview.type.isSeriesLikeType() &&
+                meta.releasedMainSeasonEpisodes(todayIsoDate).isNotEmpty()
+            if (seriesComplete) {
+                WatchedRepository.updateFullyWatchedSeries(
+                    id = preview.id,
+                    type = preview.type,
+                    isFullyWatched = true,
+                )
+                clearToggleProgress(preview.id, meta, targets, todayIsoDate)
+            }
         }
+    }
+
+    suspend fun toggleContinueWatchingWatched(item: ContinueWatchingItem) {
+        val meta = MetaDetailsRepository.cachedMeta(type = item.parentMetaType, id = item.parentMetaId)
+        val episode = item.seasonNumber?.let { season ->
+            item.episodeNumber?.let { episode ->
+                meta?.videos?.firstOrNull { video -> video.season == season && video.episode == episode }
+                    ?: MetaVideo(
+                        id = item.videoId,
+                        title = item.episodeTitle ?: item.title,
+                        season = season,
+                        episode = episode,
+                        released = "2000-01-01",
+                    )
+            }
+        }
+        if (meta != null && episode != null) {
+            val watched = WatchedRepository.isWatched(
+                id = item.parentMetaId,
+                type = item.parentMetaType,
+                season = episode.season,
+                episode = episode.episode,
+            )
+            toggleEpisodeWatched(meta, episode, watched)
+            return
+        }
+        WatchedRepository.toggleWatched(
+            WatchedItem(
+                id = item.parentMetaId,
+                type = item.parentMetaType,
+                name = item.episodeTitle ?: item.title,
+                poster = item.poster,
+                season = item.seasonNumber,
+                episode = item.episodeNumber,
+                videoId = item.videoId,
+                markedAtEpochMs = 0L,
+            ),
+        )
     }
 
     fun toggleEpisodeWatched(
@@ -168,6 +201,7 @@ object WatchingActions {
             markedAtEpochMs = entry.lastUpdatedEpochMs,
         )
         WatchedRepository.markWatchedFromPlaybackCompletion(watchedItem, syncRemote = syncRemote)
+        // This device's own completion. The synced-watch delete is not run from here.
         FinishedDownloadDeletion.onPlaybackCompleted(entry)
 
         if (!syncRemote || !entry.isEpisode) return
@@ -180,6 +214,20 @@ object WatchingActions {
             }.getOrNull() ?: return@launch
 
             reconcileSeriesWatchedState(meta = meta)
+        }
+    }
+
+    fun markContinueWatchingWatched(item: ContinueWatchingItem) {
+        if (!item.canMarkWatched()) return
+        WatchedRepository.markWatched(item.toWatchedItem())
+        WatchProgressRepository.clearProgress(
+            videoId = item.videoId,
+            parentMetaId = item.parentMetaId,
+        )
+        if (!item.parentMetaType.isSeriesLikeType()) return
+        actionScope.launch {
+            MetaDetailsRepository.fetch(type = item.parentMetaType, id = item.parentMetaId)
+                ?.let { meta -> reconcileSeriesWatchedState(meta) }
         }
     }
 
@@ -207,5 +255,53 @@ object WatchingActions {
     }
 }
 
-private fun String.isSeriesLikeType(): Boolean =
-    trim().lowercase() in setOf("series", "show", "tv", "tvshow")
+private fun downloadedEpisodeRefs(parentMetaId: String): List<DownloadedEpisodeRef> =
+    DownloadsRepository.uiState.value.items.mapNotNull { item ->
+        if (item.parentMetaId != parentMetaId || !item.isPlayable) return@mapNotNull null
+        val season = item.seasonNumber ?: return@mapNotNull null
+        val episode = item.episodeNumber ?: return@mapNotNull null
+        DownloadedEpisodeRef(
+            season = season,
+            episode = episode,
+            title = item.episodeTitle ?: item.title,
+            videoId = item.videoId,
+            poster = item.episodeThumbnail ?: item.poster,
+        )
+    }
+
+private fun clearToggleProgress(
+    parentMetaId: String,
+    meta: MetaDetails?,
+    targets: List<WatchedItem>,
+    todayIsoDate: String,
+) {
+    val videoIds = if (meta != null && meta.type.isSeriesLikeType()) {
+        meta.releasedMainSeasonEpisodes(todayIsoDate).map(meta::episodePlaybackId)
+    } else {
+        targets.mapNotNull { it.videoId }
+    }
+    if (videoIds.isEmpty()) return
+    WatchProgressRepository.clearProgress(videoIds = videoIds, parentMetaId = parentMetaId)
+}
+
+/** Cloud files have no catalog entry to track, and unreleased episodes cannot be watched yet. */
+internal fun ContinueWatchingItem.canMarkWatched(
+    todayIsoDate: String = CurrentDateProvider.todayIsoDate(),
+): Boolean =
+    !parentMetaType.equals(CloudLibraryContentType, ignoreCase = true) &&
+        (!isNextUp || isReleasedBy(todayIsoDate, released))
+
+/** Same shape as the details screen builds, so tracker sync takes the same path. */
+internal fun ContinueWatchingItem.toWatchedItem(markedAtEpochMs: Long = 0L): WatchedItem =
+    WatchedItem(
+        id = parentMetaId,
+        type = parentMetaType,
+        name = episodeTitle?.takeIf { it.isNotBlank() } ?: title,
+        poster = episodeThumbnail ?: background ?: poster,
+        season = seasonNumber,
+        episode = episodeNumber,
+        videoId = videoId,
+        markedAtEpochMs = markedAtEpochMs,
+    )
+
+private fun String.isSeriesLikeType(): Boolean = isOfflineSeriesType()

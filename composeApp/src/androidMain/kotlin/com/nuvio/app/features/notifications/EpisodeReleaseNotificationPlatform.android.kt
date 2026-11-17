@@ -21,6 +21,8 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import com.nuvio.app.core.automation.AutomationTestMode
+import com.nuvio.app.core.network.NetworkErrorInterceptor
 import com.nuvio.app.core.storage.ProfileScopedKey
 import com.nuvio.app.features.settings.AppIconPlatform
 import io.ktor.client.HttpClient
@@ -80,7 +82,10 @@ internal actual object EpisodeReleaseNotificationPlatform {
                 connectTimeoutMillis = 15_000
                 socketTimeoutMillis = 15_000
             }
-            engine { preconfigured = com.nuvio.app.core.network.SharedOkHttpClient.base }
+            engine {
+                preconfigured = com.nuvio.app.core.network.SharedOkHttpClient.base
+                addInterceptor(NetworkErrorInterceptor())
+            }
         }
     }
 
@@ -125,6 +130,7 @@ internal actual object EpisodeReleaseNotificationPlatform {
     }
 
     actual suspend fun requestAuthorization(): Boolean {
+        if (AutomationTestMode.isActive) return false
         val granted = requestNotificationPermission()
         if (granted) {
             promptExactAlarmAccessIfNeeded()
@@ -186,6 +192,7 @@ internal actual object EpisodeReleaseNotificationPlatform {
     }
 
     actual suspend fun scheduleEpisodeReleaseNotifications(requests: List<EpisodeReleaseNotificationRequest>) {
+        if (AutomationTestMode.isActive) return
         val context = appContext ?: return
         ensureNotificationChannel()
 
@@ -221,6 +228,7 @@ internal actual object EpisodeReleaseNotificationPlatform {
     }
 
     actual suspend fun clearScheduledEpisodeReleaseNotifications() {
+        if (AutomationTestMode.isActive) return
         val context = appContext ?: return
         stateMutex.withLock {
             withContext(Dispatchers.IO) {
@@ -318,6 +326,7 @@ internal actual object EpisodeReleaseNotificationPlatform {
     }
 
     actual suspend fun showTestNotification(request: EpisodeReleaseNotificationRequest) {
+        if (AutomationTestMode.isActive) return
         val context = appContext ?: return
         ensureNotificationChannel()
 
@@ -358,6 +367,7 @@ internal actual object EpisodeReleaseNotificationPlatform {
     }
 
     internal suspend fun loadBackdropBitmap(backdropUrl: String?): Bitmap? {
+        if (AutomationTestMode.isActive) return null
         val imageUrl = backdropUrl?.trim().takeUnless { it.isNullOrEmpty() } ?: return null
         return runCatching {
             withTimeoutOrNull(backdropLoadTimeoutMs) {

@@ -7,6 +7,7 @@ import com.nuvio.app.features.tracking.buildTrackingMediaReference
 import com.nuvio.app.features.watching.domain.isShortPlaceholderDuration
 import com.nuvio.app.features.watchprogress.WatchProgressPlaybackSession
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
+import com.nuvio.app.features.watchprogress.allowsProgressWrite
 
 internal fun PlayerLaunch.externalPlaybackSession(): WatchProgressPlaybackSession = WatchProgressPlaybackSession(
     profileId = profileId,
@@ -28,6 +29,7 @@ internal fun PlayerLaunch.externalPlaybackSession(): WatchProgressPlaybackSessio
     lastStreamSubtitle = streamSubtitle,
     pauseDescription = pauseDescription,
     lastSourceUrl = sourceUrl,
+    persistsProgress = persistsProgress,
 )
 
 internal suspend fun recordExternalPlaybackProgress(
@@ -36,6 +38,7 @@ internal suspend fun recordExternalPlaybackProgress(
 ) {
     if (PlayerSettingsRepository.uiState.value.privateViewingEnabled) return
     val session = result.playbackSession ?: fallbackSession ?: return
+    if (!allowsProgressWrite(session.persistsProgress)) return
     // A completed playback may carry no position at all (MX Player), so only drop position-less
     // results that were not reported as played to the end.
     if (result.positionMs <= 0L && result.endedByUser) return
@@ -70,6 +73,7 @@ internal suspend fun recordExternalPlaybackProgress(
                         media = media,
                         progressPercent = (result.positionMs.toDouble() / durationMs.toDouble() * 100).coerceIn(0.0, 100.0),
                     ),
+                    persistsProgress = session.persistsProgress,
                 )
             }
         }

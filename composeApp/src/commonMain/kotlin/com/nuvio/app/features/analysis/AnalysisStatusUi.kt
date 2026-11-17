@@ -8,12 +8,30 @@ import nuvio.composeapp.generated.resources.analysis_stage_recap
 import nuvio.composeapp.generated.resources.analysis_stage_previews
 import nuvio.composeapp.generated.resources.analysis_status_queued
 import nuvio.composeapp.generated.resources.analysis_status_running
+import nuvio.composeapp.generated.resources.analysis_activity_clip
+import nuvio.composeapp.generated.resources.analysis_activity_reference_compare
+import nuvio.composeapp.generated.resources.analysis_activity_reference_fetch
+import nuvio.composeapp.generated.resources.analysis_activity_reference_read
+import nuvio.composeapp.generated.resources.analysis_activity_teach
+import nuvio.composeapp.generated.resources.analysis_activity_backfill
+import nuvio.composeapp.generated.resources.analysis_activity_preview
+import nuvio.composeapp.generated.resources.analysis_status_elapsed
+import nuvio.composeapp.generated.resources.analysis_status_elapsed_under
 import nuvio.composeapp.generated.resources.analysis_status_done
 import nuvio.composeapp.generated.resources.analysis_status_partly
 import nuvio.composeapp.generated.resources.analysis_status_failed
-import nuvio.composeapp.generated.resources.analysis_part_intro_credits
+import nuvio.composeapp.generated.resources.analysis_part_intro
+import nuvio.composeapp.generated.resources.analysis_part_credits
+import nuvio.composeapp.generated.resources.analysis_part_a11y
+import nuvio.composeapp.generated.resources.analysis_part_state_ready
+import nuvio.composeapp.generated.resources.analysis_part_state_not_found
+import nuvio.composeapp.generated.resources.analysis_part_state_needs_episodes
+import nuvio.composeapp.generated.resources.analysis_part_state_pending
 import nuvio.composeapp.generated.resources.analysis_part_recap
 import nuvio.composeapp.generated.resources.analysis_part_recap_none
+import nuvio.composeapp.generated.resources.analysis_part_recap_you_marked
+import nuvio.composeapp.generated.resources.analysis_part_recap_suggestion
+import nuvio.composeapp.generated.resources.analysis_part_recap_unchecked
 import nuvio.composeapp.generated.resources.analysis_part_subtitle_sync
 import nuvio.composeapp.generated.resources.analysis_part_loudness
 import nuvio.composeapp.generated.resources.analysis_part_previews
@@ -31,6 +49,10 @@ import nuvio.composeapp.generated.resources.analysis_summary_in_background
 import nuvio.composeapp.generated.resources.analysis_summary_starting
 import nuvio.composeapp.generated.resources.analysis_summary_waiting_charger
 import nuvio.composeapp.generated.resources.analysis_summary_waiting_playback
+import nuvio.composeapp.generated.resources.analysis_summary_waiting_heat
+import nuvio.composeapp.generated.resources.analysis_summary_waiting_download
+import nuvio.composeapp.generated.resources.analysis_summary_waiting_low_power
+import nuvio.composeapp.generated.resources.analysis_summary_paused
 import nuvio.composeapp.generated.resources.analysis_summary_idle_done
 import nuvio.composeapp.generated.resources.analysis_summary_idle_charging
 import nuvio.composeapp.generated.resources.analysis_summary_idle_waiting
@@ -64,11 +86,16 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -80,6 +107,7 @@ import com.nuvio.app.features.settings.SettingsClickableRow
 import com.nuvio.app.features.settings.SettingsGroup
 import com.nuvio.app.features.settings.SettingsGroupDivider
 import com.nuvio.app.features.settings.SettingsSection
+import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -91,6 +119,60 @@ private fun stageLabel(stage: AnalysisStage): String = when (stage) {
 }
 
 private fun percent(value: Double): Int = (value.coerceIn(0.0, 1.0) * 100).toInt()
+
+@Composable
+internal fun referenceActivityLabel(activity: ReferenceActivity): String {
+    val name = when (activity.operation) {
+        "read" -> Res.string.analysis_activity_reference_read
+        "compare" -> Res.string.analysis_activity_reference_compare
+        else -> Res.string.analysis_activity_reference_fetch
+    }
+    return stringResource(name, activity.seconds, activity.season, activity.episode)
+}
+
+@Composable
+private fun activityLabel(activity: String, stage: AnalysisStage): String {
+    parseReferenceActivity(activity)?.let { return referenceActivityLabel(it) }
+    return when (activity) {
+        "clip" -> stringResource(Res.string.analysis_activity_clip)
+        "teach" -> stringResource(Res.string.analysis_activity_teach)
+        "backfill" -> stringResource(Res.string.analysis_activity_backfill)
+        "preview" -> stringResource(Res.string.analysis_activity_preview)
+        else -> stageLabel(stage)
+    }
+}
+
+/** Wall clock for a running step. It does not change the percent. */
+@Composable
+private fun analysisClock(sinceEpochMs: Long): Long {
+    var now by remember(sinceEpochMs) { mutableLongStateOf(com.nuvio.app.features.streams.epochMs()) }
+    LaunchedEffect(sinceEpochMs) {
+        if (sinceEpochMs <= 0L) return@LaunchedEffect
+        while (true) {
+            delay(15_000)
+            now = com.nuvio.app.features.streams.epochMs()
+        }
+    }
+    return now
+}
+
+@Composable
+private fun elapsedLabel(sinceEpochMs: Long): String {
+    if (sinceEpochMs <= 0L) return ""
+    val minutes = analysisElapsedMinutes(sinceEpochMs, analysisClock(sinceEpochMs))
+    return if (minutes < 1) {
+        stringResource(Res.string.analysis_status_elapsed_under)
+    } else {
+        stringResource(Res.string.analysis_status_elapsed, minutes)
+    }
+}
+
+@Composable
+private fun runningDetail(stage: AnalysisStage, activity: String, sinceEpochMs: Long): String {
+    val label = activityLabel(activity, stage)
+    val clock = elapsedLabel(sinceEpochMs)
+    return if (clock.isEmpty()) label else "$label · $clock"
+}
 
 /** Small analysis status under a finished download in Downloads. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -109,7 +191,11 @@ fun AnalysisStatusRow(item: DownloadItem) {
         is ItemAnalysisStatus.Running -> Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             StatusLine(
                 Icons.Rounded.GraphicEq,
-                stringResource(Res.string.analysis_status_running, percent(status.overall), stageLabel(status.stage)),
+                stringResource(
+                    Res.string.analysis_status_running,
+                    percent(status.overall),
+                    runningDetail(status.stage, status.activity, status.activitySinceEpochMs),
+                ),
                 MaterialTheme.colorScheme.primary,
             )
             LinearProgressIndicator(
@@ -144,44 +230,101 @@ private fun StatusLine(icon: androidx.compose.ui.graphics.vector.ImageVector, te
     }
 }
 
+@Composable
+private fun chipLabel(kind: AnalysisChipKind): String = when (kind) {
+    AnalysisChipKind.Intro -> stringResource(Res.string.analysis_part_intro)
+    AnalysisChipKind.Credits -> stringResource(Res.string.analysis_part_credits)
+    AnalysisChipKind.Recap -> stringResource(Res.string.analysis_part_recap)
+    AnalysisChipKind.SubtitleSync -> stringResource(Res.string.analysis_part_subtitle_sync)
+    AnalysisChipKind.Loudness -> stringResource(Res.string.analysis_part_loudness)
+    AnalysisChipKind.Previews -> stringResource(Res.string.analysis_part_previews)
+}
+
+private fun AnalysisParts.valueOf(kind: AnalysisChipKind): AnalysisPart = when (kind) {
+    AnalysisChipKind.Intro -> intro
+    AnalysisChipKind.Credits -> credits
+    AnalysisChipKind.Recap -> recap
+    AnalysisChipKind.SubtitleSync -> subtitleSync
+    AnalysisChipKind.Loudness -> loudness
+    AnalysisChipKind.Previews -> previews
+}
+
+@Composable
+private fun stateWord(part: AnalysisPart): String = when (part) {
+    AnalysisPart.Ready -> stringResource(Res.string.analysis_part_state_ready)
+    AnalysisPart.NotFound -> stringResource(Res.string.analysis_part_state_not_found)
+    AnalysisPart.NeedsMoreEpisodes -> stringResource(Res.string.analysis_part_state_needs_episodes)
+    AnalysisPart.Pending -> stringResource(Res.string.analysis_part_state_pending)
+    AnalysisPart.NotChecked -> stringResource(Res.string.analysis_part_recap_unchecked)
+    AnalysisPart.UserMarkedNone -> stringResource(Res.string.analysis_part_recap_you_marked)
+    AnalysisPart.Suggested -> stringResource(Res.string.analysis_part_recap_suggestion)
+    AnalysisPart.Off -> ""
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PartChips(item: DownloadItem, parts: AnalysisParts) {
-    val isEpisode = item.seasonNumber != null && item.episodeNumber != null
-    val entries = buildList {
-        if (isEpisode) add(stringResource(Res.string.analysis_part_intro_credits) to parts.introCredits)
-        if (isEpisode) add(stringResource(Res.string.analysis_part_recap) to parts.recap)
-        add(stringResource(Res.string.analysis_part_subtitle_sync) to parts.subtitleSync)
-        add(stringResource(Res.string.analysis_part_loudness) to parts.loudness)
-        add(stringResource(Res.string.analysis_part_previews) to parts.previews)
-    }.filter { it.second != AnalysisPart.Off }
-    if (entries.isEmpty()) return
+    val kinds = analysisChipKinds(item, parts)
+    if (kinds.isEmpty()) return
     val ledger by SkipSourceLedger.revision.collectAsStateWithLifecycle()
     val external = remember(item.id, item.fileName, parts, ledger) { externalSkipSources(item) }
-    val introCreditsLabel = stringResource(Res.string.analysis_part_intro_credits)
-    val recapLabel = stringResource(Res.string.analysis_part_recap)
     val noRecapText = stringResource(Res.string.analysis_part_recap_none)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        entries.forEach { (label, part) ->
+    val youMarkedRecapText = stringResource(Res.string.analysis_part_recap_you_marked)
+    val suggestionText = stringResource(Res.string.analysis_part_recap_suggestion)
+    val notCheckedText = stringResource(Res.string.analysis_part_recap_unchecked)
+    val readyWord = stringResource(Res.string.analysis_part_state_ready)
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        kinds.forEach { kind ->
+            if (kind == AnalysisChipKind.Intro ||
+                kind == AnalysisChipKind.Recap ||
+                kind == AnalysisChipKind.Credits ||
+                kind == AnalysisChipKind.Previews
+            ) {
+                return@forEach
+            }
+            val label = chipLabel(kind)
+            val part = parts.valueOf(kind)
+            val spoken = stringResource(Res.string.analysis_part_a11y, label, stateWord(part))
             // Times from TheIntroDB, IntroDB or your marks count even when this file found none.
-            val externalSource = when (label) {
-                introCreditsLabel -> external.introCredits
-                recapLabel -> external.recap
+            val externalSource = when (kind) {
+                AnalysisChipKind.Intro -> external.intro
+                AnalysisChipKind.Credits -> external.credits
+                AnalysisChipKind.Recap -> external.recap
                 else -> null
             }?.takeIf { part != AnalysisPart.Ready }
             if (externalSource != null) {
-                PartChip("$label · $externalSource ✓", ready = true)
+                PartChip(
+                    text = "$label · $externalSource ✓",
+                    ready = true,
+                    spoken = stringResource(Res.string.analysis_part_a11y, label, readyWord),
+                )
                 return@forEach
             }
-            if (label == recapLabel && part == AnalysisPart.NotFound) {
+            val recapSentence = if (kind == AnalysisChipKind.Recap) {
+                when (recapChipSentence(part)) {
+                    RecapChipSentence.SeasonSuggestion -> suggestionText
+                    RecapChipSentence.YouMarkedNone -> youMarkedRecapText
+                    RecapChipSentence.NoRecapFound -> noRecapText
+                    RecapChipSentence.NotChecked -> notCheckedText
+                    RecapChipSentence.Ready, RecapChipSentence.Other -> null
+                }
+            } else {
+                null
+            }
+            if (recapSentence != null) {
                 Text(
-                    text = noRecapText,
+                    text = recapSentence,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
                         .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .clearAndSetSemantics { contentDescription = spoken },
                 )
                 return@forEach
             }
@@ -190,15 +333,18 @@ private fun PartChips(item: DownloadItem, parts: AnalysisParts) {
                 AnalysisPart.NotFound -> stringResource(Res.string.analysis_part_none) to false
                 AnalysisPart.NeedsMoreEpisodes -> stringResource(Res.string.analysis_part_needs_episodes) to false
                 AnalysisPart.Pending -> "…" to false
+                AnalysisPart.NotChecked -> notCheckedText to false
+                AnalysisPart.UserMarkedNone -> youMarkedRecapText to false
+                AnalysisPart.Suggested -> suggestionText to false
                 AnalysisPart.Off -> "" to false
             }
-            PartChip("$label $suffix", ready)
+            PartChip("$label $suffix", ready, spoken)
         }
     }
 }
 
 @Composable
-private fun PartChip(text: String, ready: Boolean) {
+private fun PartChip(text: String, ready: Boolean, spoken: String) {
     val bg = if (ready) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)
     val fg = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
     Text(
@@ -208,7 +354,8 @@ private fun PartChip(text: String, ready: Boolean) {
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
             .background(bg)
-            .padding(horizontal = 6.dp, vertical = 2.dp),
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .clearAndSetSemantics { contentDescription = spoken },
     )
 }
 
@@ -232,6 +379,7 @@ internal fun AnalysisSummarySection(isTablet: Boolean) {
         DownloadsRepository.uiState
     }.collectAsStateWithLifecycle()
     val job by MediaAnalysisStatus.job.collectAsStateWithLifecycle()
+    val wait by AnalysisWaitStatus.snapshot.collectAsStateWithLifecycle()
     val failures by MediaAnalysisStatus.failures.collectAsStateWithLifecycle()
     val revision by MediaAnalysisStatus.revision.collectAsStateWithLifecycle()
     val background by MediaAnalysisStatus.background.collectAsStateWithLifecycle()
@@ -266,12 +414,16 @@ internal fun AnalysisSummarySection(isTablet: Boolean) {
                     is AnalysisJobState.Running -> stringResource(
                         Res.string.analysis_summary_running,
                         j.title,
-                        stageLabel(j.stage),
-                        percent(if (j.stageProgress >= 0) j.stageProgress else 0.0),
+                        runningDetail(j.stage, j.activity, j.activitySinceEpochMs),
+                        percent(j.overall),
                     ) + if (j.inBackground) " · " + stringResource(Res.string.analysis_summary_in_background) else ""
                     AnalysisJobState.Starting -> stringResource(Res.string.analysis_summary_starting)
                     AnalysisJobState.WaitingForCharger -> stringResource(Res.string.analysis_summary_waiting_charger)
                     AnalysisJobState.WaitingForPlayback -> stringResource(Res.string.analysis_summary_waiting_playback)
+                    AnalysisJobState.WaitingForHeat -> stringResource(Res.string.analysis_summary_waiting_heat)
+                    AnalysisJobState.WaitingWhileDownloading -> stringResource(Res.string.analysis_summary_waiting_download)
+                    AnalysisJobState.WaitingForLowPower -> stringResource(Res.string.analysis_summary_waiting_low_power)
+                    AnalysisJobState.Paused -> stringResource(Res.string.analysis_summary_paused)
                     AnalysisJobState.Idle -> if (summary.queued.isEmpty()) {
                         stringResource(Res.string.analysis_summary_idle_done)
                     } else if (onlyCharging) {
@@ -280,7 +432,8 @@ internal fun AnalysisSummarySection(isTablet: Boolean) {
                         stringResource(Res.string.analysis_summary_idle_waiting, summary.queued.size)
                     }
                 }
-                Text(stateText, style = MaterialTheme.typography.bodyMedium, color = textColor)
+                val waitClock = wait?.let { " · " + analysisWaitClock(it.elapsedMs) }.orEmpty()
+                Text(stateText + waitClock, style = MaterialTheme.typography.bodyMedium, color = textColor)
                 (job as? AnalysisJobState.Running)?.let { j ->
                     LinearProgressIndicator(
                         progress = { j.overall.toFloat().coerceIn(0f, 1f) },

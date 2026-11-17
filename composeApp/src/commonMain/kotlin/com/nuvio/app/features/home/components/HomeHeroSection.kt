@@ -1,6 +1,8 @@
 package com.nuvio.app.features.home.components
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
@@ -20,13 +22,18 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.pager.HorizontalPager
@@ -36,13 +43,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Star
-import androidx.compose.material.icons.rounded.VolumeOff
-import androidx.compose.material.icons.rounded.VolumeUp
+import androidx.compose.material.icons.automirrored.rounded.VolumeOff
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.runtime.snapshotFlow
@@ -50,6 +58,7 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -58,8 +67,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.testTag
+import com.nuvio.app.core.ui.heroDecodePixels
+import com.nuvio.app.core.ui.heroImageRequest
+import com.nuvio.app.core.ui.SoftBottomFade
+import com.nuvio.app.core.ui.platformPhysicalTopInset
+import com.nuvio.app.core.ui.systemReduceMotionEnabled
+import com.nuvio.app.features.home.HOME_FOREGROUND_GAP_DP
+import com.nuvio.app.features.home.HOME_HERO_ART_TAG
+import com.nuvio.app.features.home.HOME_HERO_CONTENT_TAG
+import com.nuvio.app.features.home.HOME_HERO_DOTS_TAG
+import com.nuvio.app.features.home.HOME_HERO_LOGO_TAG
+import com.nuvio.app.features.home.homeContentTopInsetDp
+import com.nuvio.app.features.home.homeHeroTopPaddingDp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -77,6 +98,7 @@ import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
+import coil3.size.Precision
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.perf.rememberPlaybackQuiet
 import com.nuvio.app.core.build.TrailerPlaybackMode
@@ -85,6 +107,17 @@ import com.nuvio.app.core.ui.atLeastIosHitTarget
 import com.nuvio.app.core.ui.LocalDynamicArtworkBackgroundColor
 import com.nuvio.app.core.ui.rememberDynamicArtworkBackgroundEnabled
 import com.nuvio.app.core.ui.PrefetchArtworkDominantColors
+import com.nuvio.app.core.ui.HeroArtworkFit
+import com.nuvio.app.core.ui.focusedAlignment
+import com.nuvio.app.core.ui.heroArtworkDecision
+import com.nuvio.app.core.ui.heroImageHeightFraction
+import com.nuvio.app.core.ui.nuvioSafeBottomPadding
+import com.nuvio.app.features.details.accessibilityTextSize
+import com.nuvio.app.features.details.accessibleHeroTitleStyle
+import com.nuvio.app.core.ui.phonePortraitHeroArtwork
+import com.nuvio.app.core.ui.portraitHeroFrame
+import com.nuvio.app.core.ui.rememberHeroArtworkSize
+import com.nuvio.app.core.ui.rememberBackdropFocusState
 import com.nuvio.app.core.ui.heroStretchHeight
 import com.nuvio.app.core.ui.LocalVerticalBarPadding
 import com.nuvio.app.core.ui.ScreenActivityEffect
@@ -124,7 +157,6 @@ private const val HERO_SWIPE_THRESHOLD_FRACTION = 0.16f
 private const val HERO_SWIPE_VELOCITY_THRESHOLD = 300f
 private const val HERO_AUTO_SCROLL_INTERVAL_MS = 8_000L
 private const val MOBILE_HERO_VIEWPORT_RATIO = 0.82f
-private const val MOBILE_PORTRAIT_HERO_WIDTH_RATIO = 1.5f
 private const val MOBILE_HERO_MIN_HEIGHT_DP = 360f
 private const val MOBILE_HERO_MAX_HEIGHT_DP = 760f
 private const val TABLET_LANDSCAPE_HERO_HEIGHT_MULTIPLIER = 1.5f
@@ -167,6 +199,25 @@ private const val CARD_WIDE_MAX_VIEWPORT_FRACTION = 0.72f
 internal val HERO_CARD_CORNER_RADIUS = 28.dp
 internal val HERO_CARD_HORIZONTAL_PADDING = 12.dp
 internal val HERO_CARD_TOP_PADDING = 8.dp
+
+/**
+ * Test seam for the live top inset. Production leaves this null and reads the window.
+ * A provided value is the inset the hero must clear. It is not a stand-in for the picture height.
+ */
+internal val LocalHomeContentTopInset = compositionLocalOf<Dp?> { null }
+
+/** Status bar and window top, once. The tab host does not consume the top inset. */
+@Composable
+internal fun homeContentTopInset(): Dp {
+    LocalHomeContentTopInset.current?.let { return it.coerceAtLeast(0.dp) }
+    val status = WindowInsets.statusBars.asPaddingValues().calculateTopPadding().value
+    val windowTop = platformPhysicalTopInset().value
+    val safeDrawing = WindowInsets.safeDrawing.only(WindowInsetsSides.Top)
+        .asPaddingValues()
+        .calculateTopPadding()
+        .value
+    return homeContentTopInsetDp(status, windowTop, safeDrawing).dp
+}
 
 internal fun heroUsesWideArtwork(
     maxWidth: Dp,
@@ -282,10 +333,10 @@ internal fun HomeHeroSection(
     }
 
     val isCardStyle = heroStyle == HomeHeroStyle.CARD
-    val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val foregroundTop = HOME_FOREGROUND_GAP_DP.dp
     val cardInsetModifier = if (isCardStyle) {
         Modifier.padding(
-            top = statusBarTopPadding + HERO_CARD_TOP_PADDING,
+            top = HERO_CARD_TOP_PADDING,
             start = HERO_CARD_HORIZONTAL_PADDING,
             end = HERO_CARD_HORIZONTAL_PADDING,
         )
@@ -299,7 +350,9 @@ internal fun HomeHeroSection(
     }
 
     Column(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = homeHeroTopPaddingDp(isCardStyle, 0f).dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         BoxWithConstraints(
@@ -314,6 +367,7 @@ internal fun HomeHeroSection(
                 )
                 .clip(heroShape),
         ) {
+            val heroFrameWidth = maxWidth
             val baseLayout = homeHeroLayout(
                 maxWidthDp = maxWidth.value,
                 viewportHeightDp = viewportHeight?.value,
@@ -337,7 +391,11 @@ internal fun HomeHeroSection(
                 else -> HomeHeroArtworkSource.POSTER
             }
             val artworkParallax = if (isCardStyle) 0f else HERO_BACKGROUND_PARALLAX
-            val artworkBaseScale = if (isCardStyle) 1f else HERO_BACKGROUND_SCALE
+            // Phone portrait is the orientation, not a reserved slot taller than the picture.
+            val phonePortrait = !isCardStyle && !layout.isTablet &&
+                (viewportHeight == null || viewportHeight >= maxWidth)
+            val portraitFrame = phonePortrait || portraitHeroFrame(heroFrameWidth.value, layout.heroHeight.value)
+            val artworkBaseScale = if (isCardStyle || portraitFrame) 1f else HERO_BACKGROUND_SCALE
             val heroWidthPx = with(LocalDensity.current) { maxWidth.toPx() }
             val heroHeightPx = with(LocalDensity.current) { layout.heroHeight.toPx() }
             val scrollOffsetPx by remember(listState, heroHeightPx) {
@@ -384,10 +442,20 @@ internal fun HomeHeroSection(
                     .map { page -> items[page % items.size] }
                     .distinct()
                 val imageLoader = SingletonImageLoader.get(platformContext)
+                val (prefetchWidth, prefetchHeight) = heroDecodePixels(
+                    heroWidthPx.toInt().coerceAtLeast(1),
+                    heroHeightPx.toInt().coerceAtLeast(1),
+                )
                 neighbours.forEach { item ->
                     listOfNotNull(heroArtworkUrl(item, effectiveArtworkSource), item.logo?.takeIf { it.isNotBlank() })
                         .forEach { url ->
-                            imageLoader.enqueue(ImageRequest.Builder(platformContext).data(url).build())
+                            imageLoader.enqueue(
+                                ImageRequest.Builder(platformContext)
+                                    .data(url)
+                                    .size(prefetchWidth, prefetchHeight)
+                                    .precision(Precision.INEXACT)
+                                    .build(),
+                            )
                         }
                 }
                 neighbours.forEach { item ->
@@ -454,10 +522,16 @@ internal fun HomeHeroSection(
                 }
             }
 
+            var heroCopyHeightPx by remember { mutableFloatStateOf(0f) }
+            val copyHeight = with(LocalDensity.current) { heroCopyHeightPx.toDp() }
+            // A tall title, logo, meta row and overview need a taller picture so they
+            // stay inside it. The picture itself starts below the status inset.
+            val artworkSlotHeight = maxOf(layout.heroHeight, foregroundTop + copyHeight)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heroStretchHeight(layout.heroHeight, stretchPx),
+                    .heroStretchHeight(artworkSlotHeight, stretchPx)
+                    .testTag(HOME_HERO_ART_TAG),
             ) {
                 HorizontalPager(
                     state = pagerState,
@@ -475,7 +549,7 @@ internal fun HomeHeroSection(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(layout.heroHeight)
+                            .height(artworkSlotHeight)
                             .heroStretchZoom(stretchPx),
                     ) {
                         visiblePages.forEach { layer ->
@@ -483,11 +557,62 @@ internal fun HomeHeroSection(
                             val artworkUrl = heroArtworkUrl(item, effectiveArtworkSource)
                             val isCurrentLayer = layer.page == currentPage
                             key(effectiveArtworkSource, item.type, item.id, artworkUrl) {
+                                val backdropFocus = rememberBackdropFocusState(artworkUrl)
+                                val artworkSize = rememberHeroArtworkSize(artworkUrl)
+                                val artwork = if (phonePortrait) {
+                                    phonePortraitHeroArtwork()
+                                } else {
+                                    heroArtworkDecision(
+                                        imageWidth = artworkSize.width,
+                                        imageHeight = artworkSize.height,
+                                        frameWidth = heroFrameWidth.value,
+                                        frameHeight = artworkSlotHeight.value,
+                                        landscapeExtraScale = if (isCardStyle) 1f else HERO_BACKGROUND_SCALE,
+                                        portrait = portraitFrame,
+                                    )
+                                }
+                                val portrait = artwork.fit != HeroArtworkFit.CropLandscape
+                                val imageFraction = if (phonePortrait) {
+                                    1f
+                                } else {
+                                    heroImageHeightFraction(
+                                        artwork,
+                                        heroFrameWidth.value,
+                                        artworkSlotHeight.value,
+                                        portrait = portraitFrame,
+                                    )
+                                }
+                                val scrollScale = if (artwork.scrollScaleEnabled && !isCardStyle) {
+                                    heroBackgroundScrollScale(scrollOffsetPx)
+                                } else {
+                                    1f
+                                }
+                                val drawnScale = artwork.extraScale * scrollScale
+                                val decodeWidth = with(LocalDensity.current) {
+                                    (heroFrameWidth * artwork.widthFraction).roundToPx()
+                                }
+                                val decodeHeight = with(LocalDensity.current) {
+                                    (artworkSlotHeight * imageFraction).roundToPx()
+                                }
                                 AsyncImage(
-                                    model = artworkUrl,
+                                    model = heroImageRequest(
+                                        platformContext,
+                                        artworkUrl,
+                                        decodeWidth,
+                                        decodeHeight,
+                                    ),
                                     contentDescription = item.name,
                                     modifier = Modifier
-                                        .fillMaxSize()
+                                        .align(Alignment.TopCenter)
+                                        .fillMaxWidth(artwork.widthFraction)
+                                        .fillMaxHeight(imageFraction)
+                                        .then(
+                                            if (portrait) {
+                                                Modifier.background(MaterialTheme.colorScheme.background)
+                                            } else {
+                                                Modifier
+                                            },
+                                        )
                                         .graphicsLayer {
                                             val offset = heroPageOffset(pagerState, layer.page)
                                             val visibility = (1f - abs(offset)).coerceIn(0f, 1f)
@@ -496,15 +621,32 @@ internal fun HomeHeroSection(
                                                 visibility > 0f -> 1f
                                                 else -> 0f
                                             }
-                                            translationX = -offset * heroWidthPx * artworkParallax
-                                            translationY = if (isCardStyle) 0f else heroBackgroundScrollTranslationY(scrollOffsetPx)
-                                            scaleX = artworkBaseScale *
-                                                if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
-                                            scaleY = artworkBaseScale *
-                                                if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
+                                            translationX = if (portrait) 0f else -offset * heroWidthPx * artworkParallax
+                                            translationY = if (portrait || isCardStyle) {
+                                                0f
+                                            } else {
+                                                heroBackgroundScrollTranslationY(scrollOffsetPx)
+                                            }
+                                            scaleX = drawnScale
+                                            scaleY = drawnScale
                                         },
-                                    alignment = if (layout.isTablet) Alignment.TopCenter else Alignment.Center,
-                                    contentScale = ContentScale.Crop,
+                                    alignment = if (artwork.horizontalFocus) {
+                                        backdropFocus.focusedAlignment(
+                                            if (layout.isTablet) Alignment.TopCenter else Alignment.Center,
+                                        )
+                                    } else {
+                                        Alignment.Center
+                                    },
+                                    contentScale = if (artwork.fit == HeroArtworkFit.PosterColumn) {
+                                        ContentScale.Fit
+                                    } else {
+                                        ContentScale.Crop
+                                    },
+                                    onSuccess = { state ->
+                                        val image = state.result.image
+                                        artworkSize.onImageLoaded(image.width, image.height)
+                                        backdropFocus.onImageLoaded(image)
+                                    },
                                 )
                             }
                         }
@@ -527,15 +669,44 @@ internal fun HomeHeroSection(
                                     HomeHeroTrailerPlaybackPositionStore.get(heroTrailerItemKey)
                                 },
                                 modifier = Modifier
-                                    .fillMaxSize()
+                                    .align(Alignment.TopCenter)
+                                    .fillMaxWidth()
+                                    .fillMaxHeight(
+                                        if (phonePortrait || !portraitFrame) {
+                                            1f
+                                        } else {
+                                            heroImageHeightFraction(
+                                                heroArtworkDecision(
+                                                    imageWidth = 16,
+                                                    imageHeight = 9,
+                                                    frameWidth = heroFrameWidth.value,
+                                                    frameHeight = artworkSlotHeight.value,
+                                                    landscapeExtraScale = 1f,
+                                                    portrait = true,
+                                                ),
+                                                heroFrameWidth.value,
+                                                artworkSlotHeight.value,
+                                                portrait = true,
+                                            )
+                                        },
+                                    )
                                     .graphicsLayer {
                                         val currentPageOffset = pagerState.currentPageOffsetFraction
                                         val currentPageVisibility = (1f - abs(currentPageOffset)).coerceIn(0f, 1f)
                                         alpha = trailerReadyAlpha * currentPageVisibility
-                                        translationX = -currentPageOffset * heroWidthPx * artworkParallax
-                                        translationY = if (isCardStyle) 0f else heroBackgroundScrollTranslationY(scrollOffsetPx)
-                                        scaleX = artworkBaseScale * if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
-                                        scaleY = artworkBaseScale * if (isCardStyle) 1f else heroBackgroundScrollScale(scrollOffsetPx)
+                                        translationX = if (portraitFrame) 0f else -currentPageOffset * heroWidthPx * artworkParallax
+                                        translationY = if (isCardStyle || portraitFrame) {
+                                            0f
+                                        } else {
+                                            heroBackgroundScrollTranslationY(scrollOffsetPx)
+                                        }
+                                        val trailerScroll = if (isCardStyle || portraitFrame) {
+                                            1f
+                                        } else {
+                                            heroBackgroundScrollScale(scrollOffsetPx)
+                                        }
+                                        scaleX = artworkBaseScale * trailerScroll
+                                        scaleY = artworkBaseScale * trailerScroll
                                     },
                                 onReady = {
                                     if (!heroTrailerFinished) heroTrailerReady = true
@@ -560,33 +731,11 @@ internal fun HomeHeroSection(
                     if (!isCardStyle) {
                         val heroFadeColorState = LocalDynamicArtworkBackgroundColor.current
                         val themeBackground = MaterialTheme.colorScheme.background
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .drawBehind {
-                                    val fade = heroFadeColorState?.value ?: themeBackground
-                                    drawRect(
-                                        Brush.verticalGradient(
-                                            colors = listOf(
-                                                fade.copy(alpha = 0.02f),
-                                                fade.copy(alpha = 0.12f),
-                                                fade.copy(alpha = 0.34f),
-                                                fade.copy(alpha = 0.78f),
-                                            ),
-                                        ),
-                                    )
-                                },
-                        )
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(layout.bottomFadeHeight)
-                                .align(Alignment.BottomCenter)
-                                .drawBehind {
-                                    val fade = heroFadeColorState?.value ?: themeBackground
-                                    drawRect(Brush.verticalGradient(colors = listOf(fade.copy(alpha = 0f), fade)))
-                                },
+                        val copyHeight = with(LocalDensity.current) { heroCopyHeightPx.toDp() }
+                        SoftBottomFade(
+                            height = (copyHeight + 88.dp).coerceAtLeast(layout.bottomFadeHeight),
+                            color = heroFadeColorState?.value ?: themeBackground,
+                            modifier = Modifier.align(Alignment.BottomCenter),
                         )
                     }
 
@@ -606,55 +755,26 @@ internal fun HomeHeroSection(
                                     onItemClick?.invoke(currentItem)
                                 },
                         )
-                        Column(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .padding(
-                                    if (layout.isTablet) {
-                                        PaddingValues(horizontal = layout.contentHorizontalPadding).withVerticalBar()
-                                    } else {
-                                        centeredVerticalBarPadding(layout.contentHorizontalPadding)
-                                    },
-                                )
-                                .padding(vertical = layout.contentVerticalPadding),
-                            horizontalAlignment = if (layout.isTablet) Alignment.Start else Alignment.CenterHorizontally,
-                        ) {
-                            Box(
+                        Box(
                                 modifier = Modifier
-                                    .fillMaxWidth(layout.contentWidthFraction)
-                                    .widthIn(max = layout.contentMaxWidth),
-                                contentAlignment = Alignment.BottomStart,
+                                    .fillMaxSize()
+                                    .padding(top = foregroundTop),
                             ) {
-                                visiblePages.forEach { layer ->
-                                    val layerItem = items[layer.itemIndex]
-                                    key(layerItem.stableKey()) {
-                                    Box(
-                                        modifier = Modifier.graphicsLayer {
-                                            val offset = heroPageOffset(pagerState, layer.page)
-                                            val visibility = (1f - abs(offset)).coerceIn(0f, 1f)
-                                            alpha = ((visibility - 0.5f) * 2f).coerceIn(0f, 1f)
-                                            translationX = -offset * heroWidthPx * HERO_CONTENT_PARALLAX
-                                        },
-                                    ) {
-                                        HeroContentBlock(
-                                            item = layerItem,
-                                            layout = layout,
-                                            showImdbRating = showImdbRating,
-                                            showMdbListRatings = showMdbListRatings,
-                                            onItemClick = onItemClick,
-                                        )
-                                    }
-                                    }
-                                }
-                            }
-
-                            if (items.size > 1) {
-                                Spacer(modifier = Modifier.height(if (layout.isTablet) 16.dp else 18.dp))
-                                HeroPageIndicator(
-                                    itemCount = items.size,
+                                HomeHeroCopy(
+                                    items = items,
+                                    visiblePages = visiblePages,
+                                    layout = layout,
                                     pagerState = pagerState,
                                     coroutineScope = coroutineScope,
+                                    heroWidthPx = heroWidthPx,
+                                    showImdbRating = showImdbRating,
+                                    showMdbListRatings = showMdbListRatings,
+                                    onItemClick = onItemClick,
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .wrapContentHeight(unbounded = true)
+                                        .onSizeChanged { heroCopyHeightPx = it.height.toFloat() }
+                                        .testTag(HOME_HERO_CONTENT_TAG),
                                 )
                             }
                         }
@@ -673,7 +793,7 @@ internal fun HomeHeroSection(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
                                 .padding(
-                                    top = statusBarTopPadding + 12.dp,
+                                    top = if (isCardStyle) 12.dp else foregroundTop,
                                     end = if (layout.isTablet) 32.dp else 18.dp,
                                 )
                                 .size((muteIconSize + 16.dp).atLeastIosHitTarget())
@@ -689,7 +809,7 @@ internal fun HomeHeroSection(
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(
-                                imageVector = if (heroTrailerMuted) Icons.Rounded.VolumeOff else Icons.Rounded.VolumeUp,
+                                imageVector = if (heroTrailerMuted) Icons.AutoMirrored.Rounded.VolumeOff else Icons.AutoMirrored.Rounded.VolumeUp,
                                 contentDescription = muteLabel,
                                 tint = Color.White,
                                 modifier = Modifier.size(muteIconSize),
@@ -698,10 +818,75 @@ internal fun HomeHeroSection(
                     }
                 }
             }
-        }
 
         if (isCardStyle && items.size > 1) {
             Spacer(modifier = Modifier.height(12.dp))
+            HeroPageIndicator(
+                itemCount = items.size,
+                pagerState = pagerState,
+                coroutineScope = coroutineScope,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeHeroCopy(
+    items: List<MetaPreview>,
+    visiblePages: List<HeroPageLayer>,
+    layout: HomeHeroLayout,
+    pagerState: PagerState,
+    coroutineScope: CoroutineScope,
+    heroWidthPx: Float,
+    showImdbRating: Boolean,
+    showMdbListRatings: Boolean,
+    onItemClick: ((MetaPreview) -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(
+                if (layout.isTablet) {
+                    PaddingValues(horizontal = layout.contentHorizontalPadding).withVerticalBar()
+                } else {
+                    centeredVerticalBarPadding(layout.contentHorizontalPadding)
+                },
+            )
+            .padding(vertical = layout.contentVerticalPadding),
+        horizontalAlignment = if (layout.isTablet) Alignment.Start else Alignment.CenterHorizontally,
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(layout.contentWidthFraction)
+                .widthIn(max = layout.contentMaxWidth),
+            contentAlignment = Alignment.BottomStart,
+        ) {
+            visiblePages.forEach { layer ->
+                val layerItem = items[layer.itemIndex]
+                key(layerItem.stableKey()) {
+                    Box(
+                        modifier = Modifier.graphicsLayer {
+                            val offset = heroPageOffset(pagerState, layer.page)
+                            val visibility = (1f - abs(offset)).coerceIn(0f, 1f)
+                            alpha = ((visibility - 0.5f) * 2f).coerceIn(0f, 1f)
+                            translationX = -offset * heroWidthPx * HERO_CONTENT_PARALLAX
+                        },
+                    ) {
+                        HeroContentBlock(
+                            item = layerItem,
+                            layout = layout,
+                            showImdbRating = showImdbRating,
+                            showMdbListRatings = showMdbListRatings,
+                            onItemClick = onItemClick,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (items.size > 1) {
+            Spacer(modifier = Modifier.height(if (layout.isTablet) 16.dp else 12.dp))
             HeroPageIndicator(
                 itemCount = items.size,
                 pagerState = pagerState,
@@ -718,6 +903,7 @@ private fun HeroPageIndicator(
     coroutineScope: CoroutineScope,
 ) {
     Row(
+        modifier = Modifier.testTag(HOME_HERO_DOTS_TAG),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -780,15 +966,16 @@ internal fun HomeHeroReservedSpace(
     heroStyle: HomeHeroStyle = HomeHeroStyle.FULL_BLEED,
 ) {
     val isCardStyle = heroStyle == HomeHeroStyle.CARD
-    val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val contentTopInset = homeContentTopInset()
 
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
+            .padding(top = homeHeroTopPaddingDp(isCardStyle, contentTopInset.value).dp)
             .then(
                 if (isCardStyle) {
                     Modifier.padding(
-                        top = statusBarTopPadding + HERO_CARD_TOP_PADDING,
+                        top = HERO_CARD_TOP_PADDING,
                         start = HERO_CARD_HORIZONTAL_PADDING,
                         end = HERO_CARD_HORIZONTAL_PADDING,
                     )
@@ -840,10 +1027,11 @@ private fun HeroContentBlock(
     }
     val logoUrl = item.logo?.takeIf { it.isNotBlank() }
 
+    val reduceMotion = systemReduceMotionEnabled()
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .animateContentSize(),
+            .animateContentSize(animationSpec = if (reduceMotion) snap() else spring()),
         horizontalAlignment = if (layout.isTablet) Alignment.Start else Alignment.CenterHorizontally,
     ) {
         if (logoUrl != null && !logoLoadError) {
@@ -851,6 +1039,7 @@ private fun HeroContentBlock(
                 model = logoUrl,
                 contentDescription = item.name,
                 modifier = Modifier
+                    .testTag(HOME_HERO_LOGO_TAG)
                     .fillMaxWidth(layout.logoWidthFraction)
                     .aspectRatio(2.6f)
                     .clickable(enabled = onItemClick != null) {
@@ -861,24 +1050,29 @@ private fun HeroContentBlock(
                 onError = { logoLoadError = true },
             )
         } else {
-            Text(
-                text = item.name,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(enabled = onItemClick != null) {
-                        onItemClick?.invoke(item)
-                    },
-                style = if (layout.isTablet) {
-                    MaterialTheme.typography.displaySmall
-                } else {
-                    MaterialTheme.typography.displaySmall
-                },
-                color = MaterialTheme.colorScheme.onBackground,
-                fontWeight = FontWeight.Black,
-                textAlign = if (layout.isTablet) TextAlign.Start else TextAlign.Center,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+            val titleStyle = MaterialTheme.typography.displaySmall
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = item.name,
+                    modifier = Modifier
+                        .testTag(HOME_HERO_LOGO_TAG)
+                        .fillMaxWidth()
+                        .clickable(enabled = onItemClick != null) {
+                            onItemClick?.invoke(item)
+                        },
+                    style = accessibleHeroTitleStyle(
+                        titleStyle,
+                        maxWidth.value,
+                        item.name,
+                        LocalDensity.current.fontScale,
+                    ),
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontWeight = FontWeight.Black,
+                    textAlign = if (layout.isTablet) TextAlign.Start else TextAlign.Center,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
 
         val detailsState = remember(item.type, item.id) {
@@ -924,9 +1118,12 @@ private fun HeroContentBlock(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.72f),
                 textAlign = if (layout.isTablet) TextAlign.Start else TextAlign.Center,
-                maxLines = 2,
+                maxLines = 4,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+        if (accessibilityTextSize(LocalDensity.current.fontScale)) {
+            Spacer(modifier = Modifier.height(nuvioSafeBottomPadding()))
         }
     }
 }
@@ -1011,12 +1208,6 @@ private fun mobileHeroHeight(
     viewportHeightDp: Float?,
     mobileBelowSectionHeightHintDp: Float?,
 ): Dp {
-    val isPortraitViewport = viewportHeightDp?.let { it >= maxWidthDp } != false
-
-    if (isPortraitViewport) {
-        return (maxWidthDp * MOBILE_PORTRAIT_HERO_WIDTH_RATIO).dp
-    }
-
     val viewportDrivenHeight = viewportHeightDp?.let { (it * MOBILE_HERO_VIEWPORT_RATIO).dp }
     val widthFallbackHeight = (maxWidthDp * 1.16f).dp
     val baseHeight = viewportDrivenHeight ?: widthFallbackHeight

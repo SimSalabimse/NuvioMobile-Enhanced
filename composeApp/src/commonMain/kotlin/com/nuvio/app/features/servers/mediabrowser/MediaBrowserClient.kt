@@ -1,6 +1,9 @@
 package com.nuvio.app.features.servers.mediabrowser
 
+import com.nuvio.app.core.automation.AutomationStubs
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.core.build.AppVersionConfig
+import com.nuvio.app.core.network.createApiHttpClient
 import com.nuvio.app.core.network.readBoundedResponseBody
 import com.nuvio.app.core.sync.SyncClientIdentity
 import com.nuvio.app.features.servers.ServerException
@@ -24,8 +27,9 @@ import kotlinx.serialization.json.Json
 
 internal class MediaBrowserClient(
     private val authorizationHeader: String,
-    private val http: HttpClient,
+    supplied: HttpClient?,
 ) {
+    private val http: HttpClient by lazy { supplied ?: createApiHttpClient() }
     val json = Json {
         ignoreUnknownKeys = true
         explicitNulls = false
@@ -52,6 +56,10 @@ internal class MediaBrowserClient(
         body: String? = null,
         allowRedirect: Boolean = false,
     ): ApiResponse {
+        if (AutomationTestMode.isActive) {
+            AutomationStubs.noteBlockedNetwork()
+            throw ServerException(ServerFailure.FAILED)
+        }
         val response = try {
             http.prepareRequest(buildUrl(baseUrl, path, query)) {
                 this.method = method

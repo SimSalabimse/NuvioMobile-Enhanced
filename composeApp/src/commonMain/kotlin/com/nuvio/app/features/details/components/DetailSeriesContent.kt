@@ -39,17 +39,34 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.rounded.ViewList
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.changedToDownIgnoreConsumed
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,9 +75,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.network.NetworkStatusRepository
+import com.nuvio.app.features.offline.rememberItemPlayEnabled
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import com.nuvio.app.core.ui.spoilerBlur
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -81,15 +103,25 @@ import com.nuvio.app.core.ui.NuvioAnimatedWatchedBadge
 import com.nuvio.app.core.ui.NuvioCardDepthSurface
 import com.nuvio.app.core.ui.NuvioProgressBar
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.core.ui.backdropControlColor
 import com.nuvio.app.core.ui.nuvioCardDepth
 import com.nuvio.app.features.ratings.episodeUserRatingTarget
 import com.nuvio.app.features.ratings.rememberUserRating
 import com.nuvio.app.features.tracking.TrackingRatingTarget
+import com.nuvio.app.core.ui.PosterZoomAnchor
 import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
 import com.nuvio.app.core.ui.posterCardClickable
+import com.nuvio.app.features.details.SeasonPosterDoubleTapSlopDp
+import com.nuvio.app.features.details.SeasonPosterDoubleTapWindowMillis
+import com.nuvio.app.features.details.SeasonPosterGesture
+import com.nuvio.app.features.details.largestSeasonPosterUrl
+import com.nuvio.app.features.details.seasonPosterAccessibilityId
+import com.nuvio.app.features.details.seasonPosterScrollDelayMillis
 import com.nuvio.app.features.downloads.SeasonDownloadSheet
 import com.nuvio.app.features.downloads.downloadLogicalContentKey
+import com.nuvio.app.features.details.DETAILS_SEASON_OVERVIEW_HEADER_TAG
 import com.nuvio.app.features.details.MetaDetails
+import com.nuvio.app.features.details.MetaPerson
 import com.nuvio.app.features.details.EpisodeRatingsVisibility
 import com.nuvio.app.features.details.MetaEpisodeCardStyle
 import com.nuvio.app.features.details.MetaVideo
@@ -98,10 +130,14 @@ import com.nuvio.app.features.details.SeasonViewModeStorage
 import com.nuvio.app.features.details.formatRuntimeFromMinutes
 import com.nuvio.app.features.details.groupedEpisodesForDisplay
 import com.nuvio.app.features.details.preferredEpisodeNumberForSeason
+import com.nuvio.app.features.details.seasonCaptionMaxLines
+import com.nuvio.app.features.details.seasonHeaderStacks
+import com.nuvio.app.features.details.seasonPosterWidthDp
 import com.nuvio.app.features.details.seasonSortKey
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
 import com.nuvio.app.features.watching.application.WatchingState
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import nuvio.composeapp.generated.resources.*
@@ -110,7 +146,11 @@ import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
+import com.nuvio.app.core.a11y.episodeLongPressActions
+import com.nuvio.app.core.a11y.installLongPressAccessibility
+import com.nuvio.app.core.a11y.seasonLongPressActions
 import com.nuvio.app.core.ui.glass.ambientLiquidGlass
+import com.nuvio.app.core.i18n.localizedEpisodeTitle
 
 private val log = Logger.withTag("SeriesContent")
 
@@ -134,6 +174,7 @@ fun DetailSeriesContent(
     onEpisodeLongPress: ((MetaVideo) -> Unit)? = null,
     onSeasonLongPress: ((Int) -> Unit)? = null,
     onDownloadEpisode: ((MetaVideo) -> Unit)? = null,
+    manualPlayAvailable: Boolean = false,
 ) {
     val hasVideos = meta.videos.isNotEmpty()
     if (meta.type != "series" && !hasVideos) return
@@ -216,6 +257,8 @@ fun DetailSeriesContent(
                 onSelect = { selectedSeasonOverride = it },
                 onLongPress = onSeasonLongPress,
                 onDownloadSeason = openSeasonDownload?.let { open -> { open(currentSeason) } },
+                progressByVideoId = progressByVideoId,
+                watchedKeys = watchedKeys,
             )
 
             AnimatedContent(
@@ -241,6 +284,7 @@ fun DetailSeriesContent(
                             } else {
                                 seasonForContent.label()
                             },
+                            season = seasonForContent,
                             onDownload = openSeasonDownload?.let { open -> { open(seasonForContent) } },
                         )
                     }
@@ -324,6 +368,9 @@ fun DetailSeriesContent(
                             ),
                             onEpisodeClick = onEpisodeClick,
                             onEpisodeLongPress = onEpisodeLongPress,
+                            meta = meta,
+                            manualPlayAvailable = manualPlayAvailable,
+                            downloadEnabled = onDownloadEpisode != null,
                         )
                     } else {
                         var episodesExpanded by remember(seasonForContent) { mutableStateOf(false) }
@@ -366,6 +413,12 @@ fun DetailSeriesContent(
                                     sizing = sizing,
                                     onClick = { onEpisodeClick?.invoke(episode) },
                                     onLongPress = { onEpisodeLongPress?.invoke(episode) },
+                                    meta = meta,
+                                    watchedKeys = watchedKeys,
+                                    progressByVideoId = progressByVideoId,
+                                    manualPlayAvailable = manualPlayAvailable,
+                                    downloadEnabled = onDownloadEpisode != null,
+                                    sheetMenu = true,
                                 )
                             }
                             if (!episodesExpanded && seasonEpisodes.size > VerticalEpisodesInitialVisibleCount) {
@@ -424,9 +477,11 @@ fun DetailSeriesContent(
 @Composable
 private fun SeasonHeaderTitle(
     title: String,
+    season: Int,
     onDownload: (() -> Unit)?,
 ) {
-    if (onDownload == null) {
+    val openOverview = LocalOpenSeasonOverview.current
+    if (onDownload == null && openOverview == null) {
         DetailSectionTitle(title = title)
         return
     }
@@ -440,17 +495,42 @@ private fun SeasonHeaderTitle(
             fullWidth = false,
             modifier = Modifier.weight(1f),
         )
-        SeasonDownloadIconButton(onClick = onDownload)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (openOverview != null) {
+                SeasonOverviewHeaderButton(onClick = { openOverview(season) })
+            }
+            if (onDownload != null) {
+                SeasonDownloadIconButton(onClick = onDownload)
+            }
+        }
+    }
+}
+
+internal val LocalOpenSeasonOverview = staticCompositionLocalOf<((Int) -> Unit)?> { null }
+
+@Composable
+private fun SeasonOverviewHeaderButton(onClick: () -> Unit) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.testTag(DETAILS_SEASON_OVERVIEW_HEADER_TAG),
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.ViewList,
+            contentDescription = stringResource(Res.string.season_overview),
+            tint = MaterialTheme.colorScheme.onBackground,
+        )
     }
 }
 
 @Composable
 private fun SeasonDownloadIconButton(onClick: () -> Unit) {
-    IconButton(onClick = onClick) {
+    val network by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
+    val enabled = !network.isOfflineLike
+    IconButton(onClick = onClick, enabled = enabled) {
         Icon(
             imageVector = Icons.Rounded.Download,
             contentDescription = stringResource(Res.string.season_download_action),
-            tint = MaterialTheme.colorScheme.onBackground,
+            tint = MaterialTheme.colorScheme.onBackground.copy(alpha = if (enabled) 1f else 0.38f),
         )
     }
 }
@@ -465,6 +545,8 @@ internal fun DetailSeriesListHeader(
     onSeasonSelect: (Int) -> Unit,
     onSeasonLongPress: ((Int) -> Unit)?,
     modifier: Modifier = Modifier,
+    progressByVideoId: Map<String, WatchProgressEntry> = emptyMap(),
+    watchedKeys: Set<String> = emptySet(),
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val sizing = seriesContentSizing(maxWidth.value)
@@ -481,6 +563,8 @@ internal fun DetailSeriesListHeader(
                 horizontalScrollPadding = horizontalScrollPadding,
                 onSelect = onSeasonSelect,
                 onLongPress = onSeasonLongPress,
+                progressByVideoId = progressByVideoId,
+                watchedKeys = watchedKeys,
             )
             if (seasons.size == 1) {
                 SeasonHeaderTitle(
@@ -489,6 +573,7 @@ internal fun DetailSeriesListHeader(
                     } else {
                         currentSeason.label()
                     },
+                    season = currentSeason,
                     onDownload = null,
                 )
             }
@@ -508,6 +593,8 @@ internal fun DetailSeriesListEpisode(
     onEpisodeClick: ((MetaVideo) -> Unit)?,
     onEpisodeLongPress: ((MetaVideo) -> Unit)?,
     modifier: Modifier = Modifier,
+    manualPlayAvailable: Boolean = false,
+    downloadEnabled: Boolean = false,
     highlightQuery: String? = null,
     jumpHighlighted: Boolean = false,
 ) {
@@ -546,6 +633,12 @@ internal fun DetailSeriesListEpisode(
             highlightQuery = highlightQuery,
             onClick = { onEpisodeClick?.invoke(episode) },
             onLongPress = { onEpisodeLongPress?.invoke(episode) },
+            meta = meta,
+            watchedKeys = watchedKeys,
+            progressByVideoId = progressByVideoId,
+            manualPlayAvailable = manualPlayAvailable,
+            downloadEnabled = downloadEnabled,
+            sheetMenu = true,
         )
     }
 }
@@ -585,6 +678,8 @@ private fun SeriesSeasonSelector(
     onSelect: (Int) -> Unit,
     onLongPress: ((Int) -> Unit)?,
     onDownloadSeason: (() -> Unit)? = null,
+    progressByVideoId: Map<String, WatchProgressEntry> = emptyMap(),
+    watchedKeys: Set<String> = emptySet(),
 ) {
     if (seasons.size <= 1) return
 
@@ -598,24 +693,26 @@ private fun SeriesSeasonSelector(
             meta = meta,
         ) != null
     }
+    val stackSeasonHeader = seasonHeaderStacks(LocalDensity.current.fontScale)
     Column(
         modifier = Modifier.animateContentSize(animationSpec = tween(280)),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+        val seasonTitle = @Composable {
             Text(
                 text = stringResource(Res.string.details_seasons),
-                modifier = Modifier.weight(1f),
+                modifier = if (stackSeasonHeader) Modifier.fillMaxWidth() else Modifier.weight(1f),
                 style = MaterialTheme.typography.titleLarge.copy(
                     fontSize = sizing.seasonHeaderSize,
                     fontWeight = FontWeight.SemiBold,
                 ),
                 color = MaterialTheme.colorScheme.onBackground,
+                maxLines = if (stackSeasonHeader) 2 else 1,
+                overflow = TextOverflow.Ellipsis,
+                softWrap = true,
             )
+        }
+        val seasonControls = @Composable {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -631,9 +728,31 @@ private fun SeriesSeasonSelector(
                         },
                     )
                 }
+                val openOverview = LocalOpenSeasonOverview.current
+                if (openOverview != null) {
+                    SeasonOverviewHeaderButton(onClick = { openOverview(currentSeason) })
+                }
                 if (onDownloadSeason != null) {
                     SeasonDownloadIconButton(onClick = onDownloadSeason)
                 }
+            }
+        }
+        if (stackSeasonHeader) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                seasonTitle()
+                seasonControls()
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                seasonTitle()
+                seasonControls()
             }
         }
 
@@ -653,6 +772,8 @@ private fun SeriesSeasonSelector(
                         horizontalScrollPadding = horizontalScrollPadding,
                         onSelect = onSelect,
                         onLongPress = onLongPress,
+                        progressByVideoId = progressByVideoId,
+                        watchedKeys = watchedKeys,
                     )
                     SeasonViewMode.Text -> SeasonTextChipScrollRow(
                         seasons = seasons,
@@ -661,6 +782,9 @@ private fun SeriesSeasonSelector(
                         horizontalScrollPadding = horizontalScrollPadding,
                         onSelect = onSelect,
                         onLongPress = onLongPress,
+                        meta = meta,
+                        progressByVideoId = progressByVideoId,
+                        watchedKeys = watchedKeys,
                     )
                 }
             }
@@ -672,6 +796,9 @@ private fun SeriesSeasonSelector(
                 horizontalScrollPadding = horizontalScrollPadding,
                 onSelect = onSelect,
                 onLongPress = onLongPress,
+                meta = meta,
+                progressByVideoId = progressByVideoId,
+                watchedKeys = watchedKeys,
             )
         }
     }
@@ -726,6 +853,9 @@ private fun SeasonTextChipScrollRow(
     horizontalScrollPadding: Dp,
     onSelect: (Int) -> Unit,
     onLongPress: ((Int) -> Unit)?,
+    meta: MetaDetails,
+    progressByVideoId: Map<String, WatchProgressEntry>,
+    watchedKeys: Set<String>,
 ) {
     val seasonListState = rememberLazyListState()
     var hasPositionedSeasonRow by remember(seasons) { mutableStateOf(false) }
@@ -752,6 +882,15 @@ private fun SeasonTextChipScrollRow(
     ) {
         items(seasons, key = { season -> season }) { season ->
             val isSelected = season == currentSeason
+            val seasonLongPress = onLongPress?.let { handler -> { handler(season) } }
+            val seasonActions = seasonLongPressActions(
+                meta = meta,
+                season = season,
+                isEpisodeWatched = { episode ->
+                    meta.isEpisodeWatchedForNavigator(episode, progressByVideoId, watchedKeys)
+                },
+                enabled = seasonLongPress != null,
+            )
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(sizing.seasonChipRadius))
@@ -768,7 +907,14 @@ private fun SeasonTextChipScrollRow(
                     )
                     .combinedClickable(
                         onClick = { onSelect(season) },
-                        onLongClick = onLongPress?.let { handler -> { handler(season) } },
+                        onLongClick = seasonLongPress,
+                    )
+                    .then(
+                        if (seasonLongPress != null) {
+                            Modifier.installLongPressAccessibility(seasonActions, seasonLongPress)
+                        } else {
+                            Modifier
+                        },
                     )
                     .padding(
                         horizontal = sizing.seasonChipHorizontalPadding,
@@ -803,44 +949,94 @@ private fun SeasonPosterScrollRow(
     horizontalScrollPadding: Dp,
     onSelect: (Int) -> Unit,
     onLongPress: ((Int) -> Unit)?,
+    progressByVideoId: Map<String, WatchProgressEntry>,
+    watchedKeys: Set<String>,
 ) {
     val seasonListState = rememberLazyListState()
     var hasPositionedSeasonRow by remember(seasons) { mutableStateOf(false) }
+    var deferRailScroll by remember { mutableStateOf(false) }
+    val posterGesture = remember { SeasonPosterGesture() }
+    val placement = LocalSeasonPosterPlacement.current
+    val scope = rememberCoroutineScope()
+    val pendingSelect = remember { PendingSeasonSelect() }
+
+    fun cancelPendingSelect() {
+        pendingSelect.job?.cancel()
+        pendingSelect.job = null
+        posterGesture.cancelDeferredSelect()
+    }
+
+    fun scheduleSelect(season: Int) {
+        pendingSelect.job?.cancel()
+        pendingSelect.job = scope.launch {
+            kotlinx.coroutines.delay(SeasonPosterDoubleTapWindowMillis)
+            if (posterGesture.commitDeferredSelect() == season) {
+                deferRailScroll = true
+                onSelect(season)
+            }
+        }
+    }
+
+    LaunchedEffect(currentSeason) {
+        posterGesture.noteSelectionChanged()
+    }
 
     LaunchedEffect(seasons, currentSeason) {
         val currentIndex = seasons.indexOf(currentSeason)
-        if (currentIndex >= 0) {
-            if (hasPositionedSeasonRow) {
-                seasonListState.animateScrollToItem(currentIndex)
-            } else {
-                seasonListState.scrollToItem(currentIndex)
-                hasPositionedSeasonRow = true
-            }
+        if (currentIndex < 0) return@LaunchedEffect
+        val delayMs = seasonPosterScrollDelayMillis(
+            defer = deferRailScroll,
+            alreadyPositioned = hasPositionedSeasonRow,
+        )
+        deferRailScroll = false
+        if (!hasPositionedSeasonRow) {
+            seasonListState.scrollToItem(currentIndex)
+            hasPositionedSeasonRow = true
+            return@LaunchedEffect
         }
+        if (delayMs > 0L) kotlinx.coroutines.delay(delayMs)
+        seasonListState.animateScrollToItem(currentIndex)
     }
 
     LazyRow(
         state = seasonListState,
         modifier = Modifier
             .nuvioHorizontalScrollBleed(horizontalScrollPadding)
-            .fillMaxWidth(),
+            .fillMaxWidth()
+            .testTag("season_poster_row")
+            .onGloballyPositioned { coordinates ->
+                placement.rowViewport = coordinates.boundsInRoot()
+            },
         contentPadding = PaddingValues(horizontal = horizontalScrollPadding),
         horizontalArrangement = Arrangement.spacedBy(sizing.seasonChipGap),
     ) {
         items(seasons, key = { season -> season }) { season ->
+            val seasonLongPress = onLongPress?.let { handler -> { handler(season) } }
+            val seasonPosterUrl = resolveSeasonPoster(
+                season = season,
+                groupedEpisodes = groupedEpisodes,
+                meta = meta,
+            )
             SeasonPosterButton(
+                season = season,
                 label = season.label(),
-                imageUrl = resolveSeasonPoster(
-                    season = season,
-                    groupedEpisodes = groupedEpisodes,
-                    meta = meta,
-                )
-                    ?: meta.poster
-                    ?: meta.background,
+                imageUrl = seasonPosterUrl ?: meta.poster ?: meta.background,
+                previewUrl = seasonPosterUrl,
                 isSelected = season == currentSeason,
                 sizing = sizing,
+                gesture = posterGesture,
+                onScheduleSelect = { scheduleSelect(season) },
+                onCancelPendingSelect = { cancelPendingSelect() },
                 onClick = { onSelect(season) },
-                onLongClick = onLongPress?.let { handler -> { handler(season) } },
+                onLongClick = seasonLongPress,
+                longPressActions = seasonLongPressActions(
+                    meta = meta,
+                    season = season,
+                    isEpisodeWatched = { episode ->
+                        meta.isEpisodeWatchedForNavigator(episode, progressByVideoId, watchedKeys)
+                    },
+                    enabled = seasonLongPress != null,
+                ),
             )
         }
     }
@@ -858,19 +1054,105 @@ private fun resolveSeasonPoster(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SeasonPosterButton(
+    season: Int,
     label: String,
     imageUrl: String?,
+    previewUrl: String?,
     isSelected: Boolean,
     sizing: SeriesContentSizing,
+    gesture: SeasonPosterGesture,
+    onScheduleSelect: () -> Unit,
+    onCancelPendingSelect: () -> Unit,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)?,
+    longPressActions: List<com.nuvio.app.core.a11y.LongPressAccessibilityAction> = emptyList(),
 ) {
+    val fontScale = LocalDensity.current.fontScale
+    val posterWidth = seasonPosterWidthDp(
+        fontScale = fontScale,
+        defaultWidthDp = sizing.seasonPosterWidth.value,
+        caption = label,
+        captionBaseSp = sizing.seasonChipTextSize.value,
+    ).dp
+    val openPreview = LocalSeasonPosterPreview.current
+    val placement = LocalSeasonPosterPlacement.current
+    DisposableEffect(placement, season) {
+        onDispose { placement.bounds.remove(season) }
+    }
+    val enlargedUrl = largestSeasonPosterUrl(previewUrl)
+    val posterDescription = seasonPosterContentDescription(season)
+    val enlargeLabel = stringResource(Res.string.details_enlarge_poster)
+    val doubleTapSlopPx = with(LocalDensity.current) { SeasonPosterDoubleTapSlopDp.dp.toPx() }
+    var posterBounds by remember { mutableStateOf<Rect?>(null) }
+    val posterOrigin = remember { mutableStateOf(Offset.Zero) }
+    val previewPoster: (() -> Unit)? = if (enlargedUrl != null && openPreview != null) {
+        {
+            val bounds = posterBounds
+            if (bounds != null) {
+                openPreview(
+                    SeasonPosterPreviewRequest(
+                        season = season,
+                        imageUrl = enlargedUrl,
+                        listImageUrl = imageUrl,
+                        anchor = PosterZoomAnchor(
+                            boundsInRoot = bounds,
+                            imageUrl = enlargedUrl,
+                            cornerRadius = sizing.seasonPosterRadius,
+                        ),
+                    ),
+                )
+            }
+        }
+    } else {
+        null
+    }
+    val imageDescription = if (enlargedUrl != null) posterDescription else label
+    val enlargeAction = if (previewPoster != null) {
+        listOf(
+            CustomAccessibilityAction(enlargeLabel) {
+                onCancelPendingSelect()
+                previewPoster()
+                true
+            },
+        )
+    } else {
+        emptyList()
+    }
     Column(
         modifier = Modifier
-            .width(sizing.seasonPosterWidth)
+            .width(posterWidth)
+            .testTag(com.nuvio.app.features.details.seasonPosterTag(season))
+            .semantics(mergeDescendants = true) { contentDescription = label }
             .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick,
+                onClick = {
+                    val decision = gesture.consumeDecision()
+                    when {
+                        decision?.enlargePoster == true -> {
+                            onCancelPendingSelect()
+                            previewPoster?.invoke()
+                        }
+                        decision?.selectSeason == true -> onScheduleSelect()
+                        else -> onClick()
+                    }
+                },
+                onLongClick = onLongClick?.let { menu ->
+                    {
+                        onCancelPendingSelect()
+                        gesture.onLongPress()
+                        menu()
+                    }
+                },
+            )
+            .then(
+                if (onLongClick != null || enlargeAction.isNotEmpty()) {
+                    Modifier.installLongPressAccessibility(
+                        actions = if (onLongClick != null) longPressActions else emptyList(),
+                        onLongPress = { onLongClick?.invoke() },
+                        extraActions = enlargeAction,
+                    )
+                } else {
+                    Modifier
+                },
             ),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -878,6 +1160,13 @@ private fun SeasonPosterButton(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(sizing.seasonPosterHeight)
+                .onGloballyPositioned { coordinates ->
+                    val bounds = coordinates.boundsInRoot()
+                    posterBounds = bounds
+                    placement.bounds[season] = bounds
+                    posterOrigin.value = coordinates.positionInRoot()
+                }
+                .testTag(seasonPosterAccessibilityId(season))
                 .clip(RoundedCornerShape(sizing.seasonPosterRadius))
                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                 .border(
@@ -888,12 +1177,19 @@ private fun SeasonPosterButton(
                         Color.White.copy(alpha = 0.1f)
                     },
                     shape = RoundedCornerShape(sizing.seasonPosterRadius),
-                ),
+                )
+                .observeSeasonPosterTaps(
+                    season = season,
+                    gesture = gesture,
+                    doubleTapSlopPx = doubleTapSlopPx,
+                    rootOrigin = { posterOrigin.value },
+                )
+                .semantics { contentDescription = imageDescription },
         ) {
             if (imageUrl != null) {
                 AsyncImage(
                     model = imageUrl,
-                    contentDescription = label,
+                    contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
                 )
@@ -906,7 +1202,9 @@ private fun SeasonPosterButton(
                 ) {
                     Text(
                         text = label,
-                        modifier = Modifier.padding(horizontal = 12.dp),
+                        modifier = Modifier
+                            .padding(horizontal = 12.dp)
+                            .clearAndSetSemantics { },
                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
@@ -928,10 +1226,178 @@ private fun SeasonPosterButton(
                 MaterialTheme.colorScheme.onSurfaceVariant
             },
             textAlign = TextAlign.Center,
-            maxLines = 1,
+            maxLines = seasonCaptionMaxLines(fontScale),
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth(),
+            softWrap = true,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clearAndSetSemantics { },
         )
+    }
+}
+
+/**
+ * The same stack as the series page: season poster, then the actors row, with the
+ * preview drawn on top only while it is open. Actor taps go to [onPersonOpened].
+ */
+@Composable
+internal fun SeasonPosterCastTouchProbe(
+    cast: List<MetaPerson>,
+    onPersonOpened: (MetaPerson) -> Unit,
+) {
+    var preview by remember { mutableStateOf<SeasonPosterPreviewRequest?>(null) }
+    val sizing = seriesContentSizing(400f)
+    val poster = "fixture://art/season/1/Season_1"
+    val gesture = remember { SeasonPosterGesture() }
+    val placement = remember { SeasonPosterPlacement() }
+    CompositionLocalProvider(
+        LocalSeasonPosterPreview provides { preview = it },
+        LocalSeasonPosterPlacement provides placement,
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                SeasonPosterButton(
+                    season = 3,
+                    label = "Season 3",
+                    imageUrl = poster,
+                    previewUrl = poster,
+                    isSelected = false,
+                    sizing = sizing,
+                    gesture = gesture,
+                    onScheduleSelect = {},
+                    onCancelPendingSelect = {},
+                    onClick = {},
+                    onLongClick = {},
+                )
+                DetailCastSection(
+                    cast = cast,
+                    onCastClick = { person, _ -> onPersonOpened(person) },
+                )
+            }
+            preview?.let { request ->
+                SeasonPosterPreviewOverlay(
+                    request = request,
+                    onDismissed = { preview = null },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * A long season row. [placement] is the same map the overlay reads at close time.
+ */
+@Composable
+internal fun SeasonPosterRailTouchProbe(
+    placement: SeasonPosterPlacement,
+    seasonCount: Int = 12,
+) {
+    val videos = remember(seasonCount) {
+        (1..seasonCount).map { season ->
+            MetaVideo(
+                id = "probe:$season:1",
+                title = "Episode",
+                season = season,
+                episode = 1,
+                seasonPoster = "fixture://art/season/$season/Season_$season",
+            )
+        }
+    }
+    val meta = remember(videos) {
+        MetaDetails(
+            id = "probe-series",
+            type = "series",
+            name = "Probe",
+            videos = videos,
+            seasonPosters = videos.associate { (it.season ?: 0) to (it.seasonPoster ?: "") },
+        )
+    }
+    val seasons = remember(videos) { videos.mapNotNull { it.season } }
+    val grouped = remember(videos) { videos.groupBy { it.season ?: 0 } }
+    var selected by remember { mutableStateOf(seasons.first()) }
+    var opened by remember { mutableStateOf(0) }
+    var preview by remember { mutableStateOf<SeasonPosterPreviewRequest?>(null) }
+    val sizing = seriesContentSizing(400f)
+    CompositionLocalProvider(
+        LocalSeasonPosterPreview provides { request ->
+            opened = request.season
+            preview = request
+        },
+        LocalSeasonPosterPlacement provides placement,
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxWidth()) {
+                Text("selected:$selected", modifier = Modifier.testTag("selected_season"))
+                Text("opened:$opened", modifier = Modifier.testTag("opened_season"))
+                SeasonPosterScrollRow(
+                    seasons = seasons,
+                    groupedEpisodes = grouped,
+                    meta = meta,
+                    currentSeason = selected,
+                    sizing = sizing,
+                    horizontalScrollPadding = 0.dp,
+                    onSelect = { selected = it },
+                    onLongPress = {},
+                    progressByVideoId = emptyMap(),
+                    watchedKeys = emptySet(),
+                )
+            }
+            preview?.let { request ->
+                SeasonPosterPreviewOverlay(
+                    request = request,
+                    onDismissed = { preview = null },
+                )
+            }
+        }
+    }
+}
+
+private class PendingSeasonSelect {
+    var job: Job? = null
+}
+
+/** Sees taps on this poster only. Events are not consumed, so the actors row and the rail still receive theirs. */
+private fun Modifier.observeSeasonPosterTaps(
+    season: Int,
+    gesture: SeasonPosterGesture,
+    doubleTapSlopPx: Float,
+    rootOrigin: () -> Offset,
+): Modifier = pointerInput(season, gesture, doubleTapSlopPx) {
+    val dragSlop = viewConfiguration.touchSlop
+    awaitPointerEventScope {
+        var downLocal: Offset? = null
+        var dragged = false
+        while (true) {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            for (change in event.changes) {
+                val root = rootOrigin() + change.position
+                when {
+                    change.changedToDownIgnoreConsumed() -> {
+                        downLocal = change.position
+                        dragged = false
+                        gesture.onDown(season, change.uptimeMillis, root.x, root.y, doubleTapSlopPx)
+                    }
+                    change.changedToUpIgnoreConsumed() -> {
+                        if (!dragged) {
+                            gesture.onUp(season, change.uptimeMillis, root.x, root.y)
+                        }
+                        downLocal = null
+                        dragged = false
+                    }
+                    change.pressed && downLocal != null && !dragged -> {
+                        val delta = change.position - downLocal
+                        if (delta.x * delta.x + delta.y * delta.y > dragSlop * dragSlop) {
+                            dragged = true
+                            gesture.onDrag()
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -955,6 +1421,9 @@ private fun EpisodeHorizontalRow(
     highlightedKey: String? = null,
     onEpisodeClick: ((MetaVideo) -> Unit)?,
     onEpisodeLongPress: ((MetaVideo) -> Unit)?,
+    meta: MetaDetails? = null,
+    manualPlayAvailable: Boolean = false,
+    downloadEnabled: Boolean = false,
 ) {
     val rowMetrics = rememberEpisodeHorizontalCardMetrics(maxWidthDp)
     var positionedFor by remember { mutableStateOf<Int?>(null) }
@@ -1022,6 +1491,12 @@ private fun EpisodeHorizontalRow(
                 metrics = rowMetrics,
                 onClick = { onEpisodeClick?.invoke(episode) },
                 onLongPress = { onEpisodeLongPress?.invoke(episode) },
+                meta = meta,
+                watchedKeys = watchedKeys,
+                progressByVideoId = progressByVideoId,
+                manualPlayAvailable = manualPlayAvailable,
+                downloadEnabled = downloadEnabled,
+                sheetMenu = false,
             )
             }
         }
@@ -1044,8 +1519,21 @@ private fun EpisodeHorizontalCard(
     metrics: EpisodeHorizontalCardMetrics,
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
+    meta: MetaDetails? = null,
+    watchedKeys: Set<String> = emptySet(),
+    progressByVideoId: Map<String, WatchProgressEntry> = emptyMap(),
+    manualPlayAvailable: Boolean = false,
+    downloadEnabled: Boolean = false,
+    sheetMenu: Boolean = false,
 ) {
     val cardShape = RoundedCornerShape(metrics.cornerRadius)
+    val playEnabled = rememberItemPlayEnabled(
+        parentMetaId = parentMetaId,
+        seasonNumber = video.season,
+        episodeNumber = video.episode,
+        videoId = video.id,
+    )
+    val resolvedClick = if (playEnabled) onClick else null
     val showsRating = episodeRatingsVisibility.showRating(isWatched)
     val tmdbRatingLabel = remember(tmdbRating, showsRating) {
         tmdbRating?.takeIf { it > 0.0 && showsRating }?.let(::formatEpisodeRating)
@@ -1073,6 +1561,7 @@ private fun EpisodeHorizontalCard(
         modifier = Modifier
             .width(metrics.cardWidth)
             .height(metrics.cardHeight)
+            .alpha(if (onClick == null || playEnabled) 1f else 0.38f)
             .clip(cardShape)
             .ambientLiquidGlass(
                 shape = cardShape,
@@ -1086,10 +1575,27 @@ private fun EpisodeHorizontalCard(
                 fallbackBorderAlpha = 0.12f,
             )
             .posterCardClickable(
-                onClick = onClick,
+                onClick = resolvedClick,
                 onLongClick = onLongPress,
                 zoomImageUrl = imageUrl,
                 zoomCornerRadius = metrics.cornerRadius,
+                longPressActions = if (meta == null) {
+                    emptyList()
+                } else {
+                    episodeLongPressActions(
+                        meta = meta,
+                        episode = video,
+                        isWatched = isWatched,
+                        isEpisodeWatched = { episode ->
+                            meta.isEpisodeWatchedForNavigator(episode, progressByVideoId, watchedKeys)
+                        },
+                        sheetMenu = sheetMenu,
+                        downloadEnabled = downloadEnabled,
+                        downloadLabel = downloadProgressLabel(downloadProgress),
+                        manualPlayAvailable = manualPlayAvailable,
+                        enabled = onLongPress != null,
+                    )
+                },
             ),
     ) {
         val shouldBlurArtwork = blurUnwatchedEpisodes && !isWatched
@@ -1134,6 +1640,13 @@ private fun EpisodeHorizontalCard(
             NuvioAnimatedWatchedBadge(isVisible = isWatched)
         }
 
+        EpisodeAvailabilityBadge(
+            video = video,
+            modifier = Modifier
+                .align(if (isWatched) Alignment.TopStart else Alignment.TopEnd)
+                .padding(metrics.contentPadding),
+        )
+
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -1156,7 +1669,7 @@ private fun EpisodeHorizontalCard(
             )
 
             Text(
-                text = video.title,
+                text = localizedEpisodeTitle(video.title, video.episode) ?: video.title,
                 style = MaterialTheme.typography.titleMedium.copy(
                     fontSize = metrics.titleTextSize,
                     fontWeight = FontWeight.ExtraBold,
@@ -1532,10 +2045,25 @@ private fun EpisodeListCard(
     highlightQuery: String? = null,
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
+    meta: MetaDetails? = null,
+    watchedKeys: Set<String> = emptySet(),
+    progressByVideoId: Map<String, WatchProgressEntry> = emptyMap(),
+    manualPlayAvailable: Boolean = false,
+    downloadEnabled: Boolean = false,
+    sheetMenu: Boolean = true,
 ) {
+    val playEnabled = rememberItemPlayEnabled(
+        parentMetaId = parentMetaId,
+        seasonNumber = video.season,
+        episodeNumber = video.episode,
+        videoId = video.id,
+    )
+    val resolvedClick = if (playEnabled) onClick else null
     val matchStyle = episodeMatchStyle()
-    val titleText = remember(video.title, highlightQuery, matchStyle) {
-        highlightEpisodeMatches(video.title, highlightQuery, matchStyle)
+    // Localized title from upstream, with the fork's search-match highlighting on top.
+    val displayTitle = localizedEpisodeTitle(video.title, video.episode) ?: video.title
+    val titleText = remember(displayTitle, highlightQuery, matchStyle) {
+        highlightEpisodeMatches(displayTitle, highlightQuery, matchStyle)
     }
     val overviewText = remember(video.overview, highlightQuery, matchStyle) {
         video.overview?.let { highlightEpisodeMatches(it, highlightQuery, matchStyle) }
@@ -1558,6 +2086,7 @@ private fun EpisodeListCard(
         modifier = modifier
             .fillMaxWidth()
             .height(sizing.cardHeight)
+            .alpha(if (onClick == null || playEnabled) 1f else 0.38f)
             .clip(cardShape)
             .ambientLiquidGlass(
                 shape = cardShape,
@@ -1571,9 +2100,31 @@ private fun EpisodeListCard(
                 shape = cardShape,
             )
             .combinedClickable(
-                enabled = onClick != null || onLongPress != null,
-                onClick = { onClick?.invoke() },
+                enabled = resolvedClick != null || onLongPress != null,
+                onClick = { resolvedClick?.invoke() },
                 onLongClick = onLongPress,
+            )
+            .then(
+                if (meta != null && onLongPress != null) {
+                    Modifier.installLongPressAccessibility(
+                        episodeLongPressActions(
+                            meta = meta,
+                            episode = video,
+                            isWatched = isWatched,
+                            isEpisodeWatched = { episode ->
+                                meta.isEpisodeWatchedForNavigator(episode, progressByVideoId, watchedKeys)
+                            },
+                            sheetMenu = sheetMenu,
+                            downloadEnabled = downloadEnabled,
+                            downloadLabel = downloadProgressLabel(downloadProgress),
+                            manualPlayAvailable = manualPlayAvailable,
+                            enabled = true,
+                        ),
+                        onLongPress,
+                    )
+                } else {
+                    Modifier
+                },
             ),
     ) {
         Row(
@@ -1621,6 +2172,21 @@ private fun EpisodeListCard(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(8.dp),
+                )
+
+                EpisodeAvailabilityBadge(
+                    video = video,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(
+                            start = 8.dp,
+                            end = 8.dp,
+                            bottom = if (progressEntry != null && progressEntry.durationMs > 0L && !progressEntry.isCompleted) {
+                                24.dp
+                            } else {
+                                8.dp
+                            },
+                        ),
                 )
             }
 

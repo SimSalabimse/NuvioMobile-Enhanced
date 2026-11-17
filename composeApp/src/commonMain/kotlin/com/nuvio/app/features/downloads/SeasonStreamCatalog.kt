@@ -1,5 +1,8 @@
 package com.nuvio.app.features.downloads
 
+import com.nuvio.app.core.automation.AUTOMATION_ADDON_ID
+import com.nuvio.app.core.automation.AUTOMATION_ADDON_NAME
+import com.nuvio.app.core.automation.AutomationStubs
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.enabledAddons
@@ -166,6 +169,24 @@ internal object SeasonStreamCatalog {
     }
 
     private suspend fun sources(
+        type: String,
+        videoId: String,
+        season: Int?,
+        episode: Int?,
+    ): List<SeasonCatalogSource> = AutomationStubs.selectClient(
+        real = { realSources(type, videoId, season, episode) },
+        stub = {
+            listOf(
+                SeasonCatalogSource(
+                    addonId = AUTOMATION_ADDON_ID,
+                    addonName = AUTOMATION_ADDON_NAME,
+                    preferred = false,
+                ) { AutomationStubs.sources() },
+            )
+        },
+    )
+
+    private suspend fun realSources(
         type: String,
         videoId: String,
         season: Int?,

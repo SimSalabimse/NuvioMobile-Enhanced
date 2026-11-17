@@ -2,6 +2,11 @@ package com.nuvio.app.features.details
 
 import com.nuvio.app.core.perf.BoundedCache
 import co.touchlab.kermit.Logger
+import kotlin.time.Clock
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
+import com.nuvio.app.core.automation.AutomationStubs
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.features.addons.AddonManifest
 import com.nuvio.app.features.addons.AddonRepository
@@ -12,6 +17,7 @@ import com.nuvio.app.features.addons.httpRequestRaw
 import com.nuvio.app.core.poster.withCustomPosterUrls
 import com.nuvio.app.features.addons.supportsResource
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
+import com.nuvio.app.features.offline.downloadedMetaFor
 import com.nuvio.app.features.home.filterReleasedItems
 import com.nuvio.app.features.mdblist.MdbListMetadataService
 import com.nuvio.app.features.mdblist.MdbListSettingsRepository
@@ -31,11 +37,17 @@ import com.nuvio.app.features.trakt.MoreLikeThisSourcePreference
 import com.nuvio.app.features.tracking.TrackingSettingsRepository
 import com.nuvio.app.features.trakt.shouldUseTraktMoreLikeThis
 import com.nuvio.app.features.watched.WatchedClock
+import com.nuvio.app.features.home.metaHasAiredEpisodeWithoutStill
+import com.nuvio.app.features.home.missingArtworkRetryDue
+import com.nuvio.app.features.home.shouldBypassCachedMetaForMissingArtwork
 import com.nuvio.app.features.watchprogress.CurrentDateProvider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -69,13 +81,42 @@ object MetaDetailsRepository {
     val uiState: StateFlow<MetaDetailsUiState> = _uiState.asStateFlow()
     private var activeRequestKey: String? = null
     private val cachedMetaByRequestKey = BoundedCache<String, CachedMetaEntry>(maxEntries = 150)
+    private val savedAtLock = SynchronizedObject()
+    private val savedAtMsByRequestKey = HashMap<String, Long>()
+    private val refreshing = mutableSetOf<String>()
+    private var boundProfileKey: String? = null
 
-    fun load(type: String, id: String) {
+    private val fixtureMetas = HashMap<String, MetaDetails>()
+
+    internal fun installFixture(meta: MetaDetails) {
+        val key = "${meta.type}:${meta.id}"
+        fixtureMetas[key] = meta
+        _uiState.value = MetaDetailsUiState(isLoading = false, meta = meta, episodesComplete = true)
+        activeRequestKey = key
+    }
+
+    fun load(type: String, id: String, offlineTitle: String? = null) {
+        fixtureMetas["$type:$id"]?.let { meta ->
+            activeRequestKey = "$type:$id"
+            _uiState.value = MetaDetailsUiState(isLoading = false, meta = meta, episodesComplete = true)
+            return
+        }
+        if (AutomationTestMode.isActive) {
+            activeRequestKey = "$type:$id"
+            val meta = AutomationStubs.meta(type, id)
+            _uiState.value = if (meta == null) {
+                MetaDetailsUiState(isLoading = false, errorMessage = "Automation title is not in the stub catalog")
+            } else {
+                MetaDetailsUiState(isLoading = false, meta = meta, episodesComplete = true)
+            }
+            return
+        }
+        bindProfile()
         log.d { "load() called — type=$type id=$id" }
         InAppLogger.info("Metadata/MetaDetailsRepository", "Loading meta type=$type id=$id")
         val requestKey = "$type:$id"
         ServerItemRef.parse(id)?.let { ref ->
-            loadServerMeta(requestKey, ref)
+            loadServerMeta(requestKey, ref, type, id, offlineTitle)
             return
         }
         val currentState = _uiState.value
@@ -83,6 +124,7 @@ object MetaDetailsRepository {
         val metaScreenSettingsFingerprint = buildMetaScreenSettingsFingerprint(mdbListSettings)
 
         cachedMetaByRequestKey[requestKey]?.let { cachedEntry ->
+            refreshIfStale(type, id, requestKey, updateUi = true)
             cachedEntry.metaScreenMeta
                 ?.takeIf { cachedEntry.metaScreenSettingsFingerprint == metaScreenSettingsFingerprint }
                 ?.let { cachedMeta ->
@@ -93,7 +135,10 @@ object MetaDetailsRepository {
                 }
 
             val cachedBaseMeta = cachedEntry.baseMeta
-            if (!shouldEnrichForMetaScreen(cachedBaseMeta, id, mdbListSettings)) {
+            if (
+                currentOfflineDetailsNetwork() == OfflineCacheNetwork.Offline ||
+                !shouldEnrichForMetaScreen(cachedBaseMeta, id, mdbListSettings)
+            ) {
                 InAppLogger.debug("Metadata/MetaDetailsRepository", "Using cached base meta type=$type id=$id")
                 _uiState.value = MetaDetailsUiState(meta = cachedBaseMeta.withUnreleasedFilter())
                 activeRequestKey = requestKey
@@ -160,6 +205,37 @@ object MetaDetailsRepository {
         }
 
         scope.launch {
+            val diskHit = readDiskTitle(requestKey)
+            if (activeRequestKey == requestKey && diskHit != null) {
+                rememberDisk(requestKey, diskHit)
+                val network = currentOfflineDetailsNetwork()
+                val lookup = if (diskHit.fresh) OfflineCacheLookup.DiskFresh else OfflineCacheLookup.DiskStale
+                val decision = offlineCacheDecision(lookup, network)
+                _uiState.value = MetaDetailsUiState(
+                    isLoading = false,
+                    meta = diskHit.meta.withUnreleasedFilter(),
+                )
+                if (!decision.refreshRequested) {
+                    activeRequestKey = requestKey
+                    return@launch
+                }
+                } else if (
+                activeRequestKey == requestKey &&
+                currentOfflineDetailsNetwork() == OfflineCacheNetwork.Offline
+            ) {
+                val local = localOfflineMeta(type, id, offlineTitle)
+                if (local != null) {
+                    _uiState.value = MetaDetailsUiState(meta = local)
+                    activeRequestKey = requestKey
+                } else {
+                    _uiState.value = MetaDetailsUiState(
+                        errorMessage = getString(Res.string.network_no_internet_connection),
+                    )
+                    activeRequestKey = null
+                }
+                return@launch
+            }
+            val keepVisibleOnFailure = _uiState.value.meta != null
             val metaLookupId = resolveMetaLookupId(itemId = id, itemType = type)
             val manifests = findReadyMetaManifests(type = type, id = metaLookupId)
             InAppLogger.info("Metadata/MetaDetailsRepository", "Resolved meta lookup id=$metaLookupId manifests=${manifests.size} originalId=$id")
@@ -180,28 +256,31 @@ object MetaDetailsRepository {
 
                 log.w { "No addon provides meta for type=$type id=$id" }
                 InAppLogger.warn("Metadata/MetaDetailsRepository", "No addon provides meta type=$type id=$id lookup=$metaLookupId")
-                _uiState.value = MetaDetailsUiState(
-                    errorMessage = getString(Res.string.details_no_addon_meta),
-                )
-                activeRequestKey = null
+                publishUnavailable(requestKey, getString(Res.string.details_no_addon_meta), keepVisibleOnFailure)
                 return@launch
             }
 
-            for (manifest in manifests) {
-                val result = withContext(Dispatchers.Default) {
-                    tryFetchMeta(manifest, type, metaLookupId, includeMdbList = false)
+            val result = if (keepVisibleOnFailure) {
+                withTimeoutOrNull(FETCH_TIMEOUT_MS) {
+                    withContext(Dispatchers.Default) {
+                        fetchFirstAvailableMeta(manifests, type, metaLookupId)
+                    }
                 }
-                if (result != null) {
-                    publishLoadedMeta(
-                        requestKey = requestKey,
-                        meta = result,
-                        fallbackItemId = metaLookupId,
-                        fallbackItemType = type,
-                        mdbListSettings = mdbListSettings,
-                        metaScreenSettingsFingerprint = metaScreenSettingsFingerprint,
-                    )
-                    return@launch
+            } else {
+                withContext(Dispatchers.Default) {
+                    fetchFirstAvailableMeta(manifests, type, metaLookupId)
                 }
+            }
+            if (result != null) {
+                publishLoadedMeta(
+                    requestKey = requestKey,
+                    meta = result,
+                    fallbackItemId = metaLookupId,
+                    fallbackItemType = type,
+                    mdbListSettings = mdbListSettings,
+                    metaScreenSettingsFingerprint = metaScreenSettingsFingerprint,
+                )
+                return@launch
             }
 
             val tmdbMeta = tryFetchTmdbFallbackMeta(type = type, id = id)
@@ -218,14 +297,22 @@ object MetaDetailsRepository {
             }
 
             InAppLogger.error("Metadata/MetaDetailsRepository", "Failed to load meta from all providers type=$type id=$id lookup=$metaLookupId")
-            _uiState.value = MetaDetailsUiState(
-                errorMessage = getString(Res.string.details_load_failed_all_addons),
-            )
-            activeRequestKey = null
+            publishUnavailable(requestKey, getString(Res.string.details_load_failed_all_addons), keepVisibleOnFailure)
         }
     }
 
+    suspend fun cachedMeta(type: String, id: String): MetaDetails? {
+        bindProfile()
+        peek(type, id)?.let { return it }
+        val requestKey = "$type:$id"
+        val diskHit = readDiskTitle(requestKey) ?: return null
+        rememberDisk(requestKey, diskHit)
+        return diskHit.meta.withUnreleasedFilter()
+    }
+
     fun peek(type: String, id: String): MetaDetails? {
+        fixtureMetas["$type:$id"]?.let { return it }
+        bindProfile()
         val requestKey = "$type:$id"
         val currentMeta = _uiState.value.meta?.takeIf { it.type == type && it.id == id }
         if (currentMeta != null) return currentMeta
@@ -242,11 +329,22 @@ object MetaDetailsRepository {
 
     fun clearCachedMetadata() {
         cachedMetaByRequestKey.clear()
+        synchronized(savedAtLock) { savedAtMsByRequestKey.clear() }
+    }
+
+    fun onProfileChanged() {
+        clear()
+        boundProfileKey = offlineDetailsProfileKey() ?: "none"
     }
 
     fun clear() {
+        boundProfileKey = null
         activeRequestKey = null
+        fixtureMetas.clear()
         cachedMetaByRequestKey.clear()
+        missingArtAttemptMs.clear()
+        synchronized(savedAtLock) { savedAtMsByRequestKey.clear() }
+        refreshing.clear()
         _uiState.value = MetaDetailsUiState()
     }
 
@@ -296,15 +394,29 @@ object MetaDetailsRepository {
         useCache: Boolean = true,
     ): MetaFetch {
         val requestKey = "$type:$id"
+        fixtureMetas[requestKey]?.let { return MetaFetch(it) }
+        bindProfile()
         if (useCache) {
-            cachedMetaByRequestKey[requestKey]?.let { return MetaFetch(it.baseMeta) }
+            val memory = cachedMetaByRequestKey[requestKey]
+            val diskHit = if (memory == null) readDiskTitle(requestKey) else null
+            if (diskHit != null) rememberDisk(requestKey, diskHit)
+            val cachedMeta = memory?.baseMeta ?: diskHit?.meta
+            if (cachedMeta != null && !takeMissingArtworkRefetch(requestKey, cachedMeta)) {
+                refreshIfStale(type, id, requestKey, updateUi = false)
+                return MetaFetch(cachedMeta)
+            }
         }
         ServerItemRef.parse(id)?.let { ref ->
             return MetaFetch(
                 runCatching { ServerCatalog.details(ref).meta }
                     .onFailure { if (it is CancellationException) throw it }
                     .getOrNull()
-                    ?.also { if (cacheResult) cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = it) },
+                    ?.also { meta ->
+                        if (cacheResult) {
+                            cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = meta)
+                            stampFetched(requestKey, meta)
+                        }
+                    },
             )
         }
 
@@ -318,6 +430,7 @@ object MetaDetailsRepository {
             if (result != null) {
                 if (cacheResult) {
                     cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = result)
+                    stampFetched(requestKey, result)
                 }
                 return MetaFetch(result)
             }
@@ -338,6 +451,7 @@ object MetaDetailsRepository {
             )
         ) {
             cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = fallback.meta)
+            stampFetched(requestKey, fallback.meta)
         }
         return MetaFetch(fallback?.meta, episodesComplete = fallback?.episodesComplete ?: true)
     }
@@ -427,7 +541,13 @@ object MetaDetailsRepository {
     private const val MIN_BACKGROUND_BACKOFF_MS = 30_000L
     private const val MAX_BACKGROUND_BACKOFF_MS = 15L * 60_000L
 
-    private fun loadServerMeta(requestKey: String, ref: ServerItemRef) {
+    private fun loadServerMeta(
+        requestKey: String,
+        ref: ServerItemRef,
+        type: String,
+        id: String,
+        offlineTitle: String?,
+    ) {
         if (_uiState.value.isLoading && activeRequestKey == requestKey) return
         activeRequestKey = requestKey
         _uiState.value = MetaDetailsUiState(
@@ -435,13 +555,49 @@ object MetaDetailsRepository {
             meta = cachedMetaByRequestKey[requestKey]?.baseMeta,
         )
         scope.launch {
-            val result = runCatching { ServerCatalog.details(ref) }
+            if (cachedMetaByRequestKey[requestKey] == null) {
+                val diskHit = readDiskTitle(requestKey)
+                if (activeRequestKey == requestKey && diskHit != null) {
+                    rememberDisk(requestKey, diskHit)
+                    val lookup = if (diskHit.fresh) OfflineCacheLookup.DiskFresh else OfflineCacheLookup.DiskStale
+                    val decision = offlineCacheDecision(lookup, currentOfflineDetailsNetwork())
+                    _uiState.value = MetaDetailsUiState(
+                        isLoading = decision.refreshRequested,
+                        meta = diskHit.meta.withUnreleasedFilter(),
+                    )
+                    if (!decision.refreshRequested) return@launch
+                } else if (currentOfflineDetailsNetwork() == OfflineCacheNetwork.Offline) {
+                    val local = localOfflineMeta(type, id, offlineTitle)
+                    if (local != null) {
+                        _uiState.value = MetaDetailsUiState(meta = local)
+                        activeRequestKey = requestKey
+                    } else {
+                        _uiState.value = MetaDetailsUiState(
+                            errorMessage = getString(Res.string.network_no_internet_connection),
+                        )
+                        activeRequestKey = null
+                    }
+                    return@launch
+                }
+            }
+            val visible = _uiState.value.meta
+            val result = if (visible != null) {
+                val details = withTimeoutOrNull(FETCH_TIMEOUT_MS) { ServerCatalog.details(ref) }
+                if (details == null) {
+                    Result.failure(IllegalStateException("timeout"))
+                } else {
+                    Result.success(details)
+                }
+            } else {
+                runCatching { ServerCatalog.details(ref) }
+            }
             if (activeRequestKey != requestKey) return@launch
             result.fold(
                 onSuccess = { details ->
                     val meta = details.meta
                     ServerUserStateProjection.apply(details)
                     cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = meta)
+                    stampFetched(requestKey, meta)
                     _uiState.value = MetaDetailsUiState(meta = meta)
                 },
                 onFailure = { error ->
@@ -459,15 +615,63 @@ object MetaDetailsRepository {
     }
 
     private const val FETCH_TIMEOUT_MS = 5_000L
+    private const val ADDON_META_TIMEOUT_MS = 10_000L
     private const val METADATA_PROVIDER_READY_TIMEOUT_MS = 10_000L
     private const val TMDB_ENRICH_TIMEOUT_MS = 5_000L
     private const val MDBLIST_ENRICH_TIMEOUT_MS = 5_000L
+
+    private suspend fun fetchFirstAvailableMeta(
+        manifests: List<AddonManifest>,
+        type: String,
+        id: String,
+    ): MetaDetails? = coroutineScope {
+        TmdbSettingsRepository.ensureLoaded()
+        val tmdbWarmup = async {
+            runCatching {
+                TmdbMetadataService.prefetchEnrichment(
+                    type = type,
+                    id = id,
+                    settings = TmdbSettingsRepository.snapshot(),
+                )
+            }.onFailure { if (it is CancellationException) throw it }
+        }
+        val attempts = manifests.map { manifest ->
+            async {
+                withTimeoutOrNull(ADDON_META_TIMEOUT_MS) {
+                    fetchAddonMeta(manifest, type, id)
+                }
+            }
+        }
+        var selected: Pair<AddonManifest, MetaDetails>? = null
+        for ((index, attempt) in attempts.withIndex()) {
+            val meta = attempt.await() ?: continue
+            selected = manifests[index] to meta
+            break
+        }
+        attempts.forEach { it.cancel() }
+        val (manifest, meta) = selected ?: run {
+            tmdbWarmup.cancel()
+            return@coroutineScope null
+        }
+        val enriched = enrichFetchedMeta(manifest, meta, id, includeMdbList = false, tmdbWarmup = tmdbWarmup)
+        tmdbWarmup.cancel()
+        enriched
+    }
 
     private suspend fun tryFetchMeta(
         manifest: AddonManifest,
         type: String,
         id: String,
         includeMdbList: Boolean,
+    ): MetaDetails? {
+        val meta = fetchAddonMeta(manifest, type, id) ?: return null
+        return enrichFetchedMeta(manifest, meta, id, includeMdbList)
+    }
+
+    private suspend fun fetchAddonMeta(
+        manifest: AddonManifest,
+        type: String,
+        id: String,
     ): MetaDetails? {
         val url = buildAddonResourceUrl(
             manifestUrl = manifest.transportUrl,
@@ -477,49 +681,63 @@ object MetaDetailsRepository {
         )
 
         return try {
-            TmdbSettingsRepository.ensureLoaded()
             log.d { "Fetching meta from: $url" }
             InAppLogger.info("Metadata/AddonFetch", "Fetching meta type=$type id=$id url=${InAppLogger.redactUrl(url)}")
             val payload = fetchAddonResponseText(url)
             log.d { "Raw payload length=${payload.length}, first 500 chars: ${payload.take(500)}" }
             InAppLogger.debug("Metadata/AddonFetch", "Meta payload length=${payload.length} type=$type id=$id")
-            val result = withContext(Dispatchers.Default) { MetaDetailsParser.parse(payload) }
-            val tmdbEnriched = withTimeoutOrNull(TMDB_ENRICH_TIMEOUT_MS) {
-                TmdbMetadataService.enrichMeta(
-                    meta = result,
-                    fallbackItemId = id,
-                    settings = TmdbSettingsRepository.snapshot(),
-                )
-            } ?: result
-            val enriched = if (includeMdbList) {
-                MdbListSettingsRepository.ensureLoaded()
-                withTimeoutOrNull(MDBLIST_ENRICH_TIMEOUT_MS) {
-                    MdbListMetadataService.enrichMeta(
-                        meta = tmdbEnriched,
-                        fallbackItemId = id,
-                        settings = MdbListSettingsRepository.snapshot(),
-                    )
-                } ?: tmdbEnriched
-            } else {
-                tmdbEnriched
-            }
-            log.d { "Parsed meta: type=${enriched.type}, name=${enriched.name}, videos=${enriched.videos.size}" }
-            InAppLogger.info(
-                "Metadata/AddonFetch",
-                "Parsed meta source=${manifest.name} type=${enriched.type} id=${enriched.id} name=${enriched.name} videos=${enriched.videos.size}",
-            )
-            if (enriched.videos.isNotEmpty()) {
-                val first = enriched.videos.first()
-                log.d { "First video: id=${first.id} title=${first.title} s=${first.season} e=${first.episode} embeddedStreams=${first.streams.size}" }
-                InAppLogger.debug("Metadata/AddonFetch", "First video id=${first.id} title=${first.title} s=${first.season} e=${first.episode} embeddedStreams=${first.streams.size}")
-            }
-            enriched
+            withContext(Dispatchers.Default) { MetaDetailsParser.parse(payload) }
         } catch (e: Throwable) {
             if (e is CancellationException) throw e
             log.e(e) { "Failed to fetch/parse meta from $url (manifest=${manifest.transportUrl})" }
             InAppLogger.warn("Metadata/AddonFetch", "Failed meta source=${manifest.name} url=${InAppLogger.redactUrl(url)} error=${InAppLogger.throwableSummary(e)}")
             null
         }
+    }
+
+    private suspend fun enrichFetchedMeta(
+        manifest: AddonManifest,
+        result: MetaDetails,
+        id: String,
+        includeMdbList: Boolean,
+        tmdbWarmup: Deferred<*>? = null,
+    ): MetaDetails {
+        TmdbSettingsRepository.ensureLoaded()
+        val tmdbEnriched = runCatching {
+            withTimeoutOrNull(TMDB_ENRICH_TIMEOUT_MS) {
+                tmdbWarmup?.await()
+                TmdbMetadataService.enrichMeta(
+                    meta = result,
+                    fallbackItemId = id,
+                    settings = TmdbSettingsRepository.snapshot(),
+                )
+            }
+        }.onFailure { if (it is CancellationException) throw it }.getOrNull() ?: result
+        val enriched = if (includeMdbList) {
+            MdbListSettingsRepository.ensureLoaded()
+            runCatching {
+                withTimeoutOrNull(MDBLIST_ENRICH_TIMEOUT_MS) {
+                    MdbListMetadataService.enrichMeta(
+                        meta = tmdbEnriched,
+                        fallbackItemId = id,
+                        settings = MdbListSettingsRepository.snapshot(),
+                    )
+                }
+            }.onFailure { if (it is CancellationException) throw it }.getOrNull() ?: tmdbEnriched
+        } else {
+            tmdbEnriched
+        }
+        log.d { "Parsed meta: type=${enriched.type}, name=${enriched.name}, videos=${enriched.videos.size}" }
+        InAppLogger.info(
+            "Metadata/AddonFetch",
+            "Parsed meta source=${manifest.name} type=${enriched.type} id=${enriched.id} name=${enriched.name} videos=${enriched.videos.size}",
+        )
+        if (enriched.videos.isNotEmpty()) {
+            val first = enriched.videos.first()
+            log.d { "First video: id=${first.id} title=${first.title} s=${first.season} e=${first.episode} embeddedStreams=${first.streams.size}" }
+            InAppLogger.debug("Metadata/AddonFetch", "First video id=${first.id} title=${first.title} s=${first.season} e=${first.episode} embeddedStreams=${first.streams.size}")
+        }
+        return enriched
     }
 
     private suspend fun findReadyMetaManifests(type: String, id: String): List<AddonManifest> {
@@ -633,6 +851,7 @@ object MetaDetailsRepository {
     ) {
         val cachedEntry = CachedMetaEntry(baseMeta = meta)
         cachedMetaByRequestKey[requestKey] = cachedEntry
+        stampFetched(requestKey, meta)
 
         if (!shouldEnrichForMetaScreen(meta, fallbackItemId, mdbListSettings)) {
             _uiState.value = MetaDetailsUiState(meta = meta.withUnreleasedFilter())
@@ -658,6 +877,7 @@ object MetaDetailsRepository {
             metaScreenMeta = enrichedMeta,
             metaScreenSettingsFingerprint = metaScreenSettingsFingerprint,
         )
+        stampFetched(requestKey, enrichedMeta)
         _uiState.value = MetaDetailsUiState(meta = enrichedMeta.withUnreleasedFilter())
         activeRequestKey = requestKey
     }
@@ -707,6 +927,7 @@ object MetaDetailsRepository {
                 metaScreenMeta = enrichedMeta,
                 metaScreenSettingsFingerprint = settingsFingerprint,
             )
+        stampFetched(requestKey, enrichedMeta)
 
         return enrichedMeta
     }
@@ -878,6 +1099,142 @@ object MetaDetailsRepository {
     }
 
    
+    private fun bindProfile() {
+        val key = offlineDetailsProfileKey() ?: "none"
+        if (boundProfileKey == key) return
+        val previous = boundProfileKey
+        boundProfileKey = key
+        if (previous == null) return
+        activeRequestKey = null
+        cachedMetaByRequestKey.clear()
+        synchronized(savedAtLock) {
+            savedAtMsByRequestKey.clear()
+            refreshing.clear()
+        }
+        _uiState.value = MetaDetailsUiState()
+    }
+
+    private fun savedAtMs(requestKey: String): Long = synchronized(savedAtLock) {
+        savedAtMsByRequestKey[requestKey] ?: 0L
+    }
+
+    private fun localOfflineMeta(type: String, id: String, offlineTitle: String?): MetaDetails? {
+        downloadedMetaFor(type, id)?.let { return it }
+        val title = offlineTitle?.trim().orEmpty()
+        if (title.isEmpty()) return null
+        return MetaDetails(id = id, type = type, name = title)
+    }
+
+    private fun rememberDisk(requestKey: String, hit: OpenedTitleHit) {
+        cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = hit.meta)
+        synchronized(savedAtLock) { savedAtMsByRequestKey[requestKey] = hit.savedAtMs }
+    }
+
+    private suspend fun readDiskTitle(requestKey: String): OpenedTitleHit? {
+        val profileKey = offlineDetailsProfileKey() ?: return null
+        return OpenedTitleDisk.read(profileKey, requestKey)
+    }
+
+    private fun stampFetched(requestKey: String, meta: MetaDetails) {
+        val savedAtMs = Clock.System.now().toEpochMilliseconds()
+        synchronized(savedAtLock) { savedAtMsByRequestKey[requestKey] = savedAtMs }
+        val profileKey = offlineDetailsProfileKey() ?: return
+        scope.launch(Dispatchers.Default) {
+            OpenedTitleDisk.save(profileKey, requestKey, meta, savedAtMs)
+        }
+    }
+
+    private fun publishUnavailable(requestKey: String, message: String, keepVisibleOnFailure: Boolean) {
+        if (keepVisibleOnFailure && _uiState.value.meta != null) {
+            _uiState.value = _uiState.value.copy(isLoading = false, errorMessage = null)
+            activeRequestKey = requestKey
+            return
+        }
+        _uiState.value = MetaDetailsUiState(errorMessage = message)
+        activeRequestKey = null
+    }
+
+    private val missingArtAttemptMs = mutableMapOf<String, Long>()
+
+    /**
+     * True when an empty episode still may be asked for again.
+     * The stamp lives only in memory, so a restart tries once immediately.
+     */
+    internal fun missingArtworkRefreshDue(type: String, id: String): Boolean {
+        val now = Clock.System.now().toEpochMilliseconds()
+        return synchronized(savedAtLock) {
+            missingArtworkRetryDue(missingArtAttemptMs["$type:$id"] ?: 0L, now)
+        }
+    }
+
+    /**
+     * An aired episode with no still is not a finished cache hit.
+     * Returns true when this call should go to the network, and records the attempt.
+     */
+    private fun takeMissingArtworkRefetch(requestKey: String, meta: MetaDetails): Boolean {
+        val now = Clock.System.now().toEpochMilliseconds()
+        val offline = currentOfflineDetailsNetwork() == OfflineCacheNetwork.Offline
+        val todayIso = CurrentDateProvider.todayIsoDate()
+        return synchronized(savedAtLock) {
+            val bypass = shouldBypassCachedMetaForMissingArtwork(
+                meta = meta,
+                todayIso = todayIso,
+                lastAttemptMs = missingArtAttemptMs[requestKey] ?: 0L,
+                nowMs = now,
+                offline = offline,
+            )
+            if (bypass) missingArtAttemptMs[requestKey] = now
+            bypass
+        }
+    }
+
+    private fun refreshIfStale(
+        type: String,
+        id: String,
+        requestKey: String,
+        updateUi: Boolean,
+    ) {
+        val now = Clock.System.now().toEpochMilliseconds()
+        val savedAtMs = savedAtMs(requestKey)
+        val fresh = savedAtMs > 0L &&
+            offlineStampIsFresh(savedAtMs, now, OfflineDetailsCacheLimits.MetaTtlMs)
+        val missingStill = metaHasAiredEpisodeWithoutStill(
+            cachedMetaByRequestKey[requestKey]?.baseMeta,
+            CurrentDateProvider.todayIsoDate(),
+        )
+        val network = currentOfflineDetailsNetwork()
+        val staleRefresh = savedAtMs > 0L && !fresh &&
+            offlineCacheDecision(OfflineCacheLookup.DiskStale, network).refreshRequested
+        val missingRefresh = missingStill &&
+            network != OfflineCacheNetwork.Offline &&
+            synchronized(savedAtLock) {
+                val due = missingArtworkRetryDue(missingArtAttemptMs[requestKey] ?: 0L, now)
+                if (due) missingArtAttemptMs[requestKey] = now
+                due
+            }
+        if (!staleRefresh && !missingRefresh) return
+        val started = synchronized(savedAtLock) { refreshing.add(requestKey) }
+        if (!started) return
+        scope.launch {
+            try {
+                val fetched = fetchReporting(type, id, cacheResult = true, useCache = false)
+                val meta = fetched.meta ?: return@launch
+                if (!updateUi || activeRequestKey != requestKey) return@launch
+                val settings = MdbListSettingsRepository.snapshot()
+                publishLoadedMeta(
+                    requestKey = requestKey,
+                    meta = meta,
+                    fallbackItemId = id,
+                    fallbackItemType = type,
+                    mdbListSettings = settings,
+                    metaScreenSettingsFingerprint = buildMetaScreenSettingsFingerprint(settings),
+                )
+            } finally {
+                synchronized(savedAtLock) { refreshing.remove(requestKey) }
+            }
+        }
+    }
+
     fun findEmbeddedStreams(videoId: String): List<com.nuvio.app.features.streams.StreamItem> {
         val meta = _uiState.value.meta ?: return emptyList()
         val videosWithStreams = meta.videos.filter { it.streams.isNotEmpty() }

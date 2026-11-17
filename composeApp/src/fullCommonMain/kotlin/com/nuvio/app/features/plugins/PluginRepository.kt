@@ -118,6 +118,7 @@ actual object PluginRepository {
     }
 
     actual suspend fun pullFromServer(profileId: Int) {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         val effectiveProfileId = resolveEffectiveProfileId(profileId)
         ensureStateLoadedForProfile(effectiveProfileId)
         runCatching {

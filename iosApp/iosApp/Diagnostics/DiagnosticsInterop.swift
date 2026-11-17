@@ -1,3 +1,5 @@
+import Foundation
+
 // C ABI for Kotlin/Native (composeApp/src/nativeInterop/cinterop/DiagnosticsInterop.h).
 //
 // Release builds compile this app with whole-module optimization and do not
@@ -44,4 +46,19 @@ public func NuvioDiagnosticsLogError(_ message: UnsafePointer<CChar>?) {
 @_cdecl("NuvioDiagnosticsLogPlaybackStall")
 public func NuvioDiagnosticsLogPlaybackStall(_ durationSeconds: Double) {
     DiagnosticsBridge.logPlaybackStall(durationSeconds)
+}
+
+@_cdecl("NuvioDiagnosticsLogPerformance")
+public func NuvioDiagnosticsLogPerformance(_ message: UnsafePointer<CChar>?) {
+    DiagnosticsBridge.logPerformance(nuvioDiagnosticsString(message))
+}
+
+@_cdecl("NuvioDiagnosticsShareAnalysisLog")
+public func NuvioDiagnosticsShareAnalysisLog(_ text: UnsafePointer<CChar>?) {
+    DiagnosticsBridge.shareAnalysisLog(nuvioDiagnosticsString(text))
+}
+
+@_cdecl("NuvioAnalysisLowPowerMode")
+public func NuvioAnalysisLowPowerMode() -> Int32 {
+    ProcessInfo.processInfo.isLowPowerModeEnabled ? 1 : 0
 }

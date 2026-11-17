@@ -1,9 +1,14 @@
 package com.nuvio.app
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import com.nuvio.app.core.ui.background.AppBackgroundHost
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.ImageLoader
@@ -14,13 +19,19 @@ import coil3.compose.setSingletonImageLoaderFactory
 import coil3.request.CachePolicy
 import coil3.request.crossfade
 import coil3.svg.SvgDecoder
+import com.nuvio.app.core.automation.AUTOMATION_ACCESSIBILITY_ID
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.core.perf.PerformanceOptimization
 import com.nuvio.app.core.perf.PerformanceSettings
+import com.nuvio.app.core.perf.PosterOfflineImageFetcher
 import com.nuvio.app.core.perf.addPerformanceInterceptors
 import com.nuvio.app.core.perf.applyPosterMemoryCachePolicy
 import com.nuvio.app.core.poster.CustomPosterFallbackInterceptor
 import com.nuvio.app.core.ui.NativeProfileSwitcherController
 import com.nuvio.app.core.ui.NuvioTheme
+import com.nuvio.app.core.uifixture.PlayerSubmitBarFixtureScreen
+import com.nuvio.app.core.uifixture.UiFixture
+import com.nuvio.app.core.uifixture.currentUiFixture
 import com.nuvio.app.core.ui.configurePlatformImageLoader
 import com.nuvio.app.core.ui.platformProvidesImageLoader
 import com.nuvio.app.features.settings.ThemeSettingsRepository
@@ -29,6 +40,10 @@ import com.nuvio.app.navigation.TabsRoute
 
 fun disposeRoute(route: AppRoute) {
     disposeRouteResources(route)
+}
+
+fun setPlayerParkedInPictureInPicture(parked: Boolean) {
+    com.nuvio.app.core.ui.background.AppBackgroundRepository.setPlayerParked(parked)
 }
 
 @OptIn(ExperimentalCoilApi::class)
@@ -52,6 +67,19 @@ fun App(
     appGateController: AppGateController? = null,
 ) {
     AppEnvironment {
+        val fixture = currentUiFixture()
+        if (fixture == UiFixture.PlayerSubmitBar ||
+            fixture == UiFixture.PlayerSubmitBarLong ||
+            fixture == UiFixture.PlayerSubmitBarFresh ||
+            fixture == UiFixture.PlayerSubmitBarTouchedInvalid
+        ) {
+            PlayerSubmitBarFixtureScreen()
+            return@AppEnvironment
+        }
+        if (fixture == UiFixture.Walk && com.nuvio.app.core.uifixture.UiWalkScreens.showsOverlay()) {
+            com.nuvio.app.core.uifixture.UiWalkOverlay()
+            return@AppEnvironment
+        }
         AppGate(
             initialTab = initialTab,
             initialRoute = initialRoute,
@@ -77,7 +105,10 @@ fun App(
 
 @OptIn(ExperimentalCoilApi::class)
 @Composable
-internal fun AppEnvironment(content: @Composable () -> Unit) {
+internal fun AppEnvironment(
+    drawAppBackground: Boolean = true,
+    content: @Composable () -> Unit,
+) {
     if (!platformProvidesImageLoader) {
         setSingletonImageLoaderFactory { context ->
             ImageLoader.Builder(context)
@@ -85,6 +116,9 @@ internal fun AppEnvironment(content: @Composable () -> Unit) {
                 .diskCachePolicy(CachePolicy.ENABLED)
                 .memoryCachePolicy(CachePolicy.ENABLED)
                 .components {
+                    add(com.nuvio.app.core.ui.AutomationImageBlock())
+                    add(PosterOfflineImageFetcher.Factory())
+                    add(com.nuvio.app.core.uifixture.FixturePosterFetcher.Factory())
                     add(com.nuvio.app.features.offline.OfflineArtworkInterceptor())
                     add(CustomPosterFallbackInterceptor())
                     addPerformanceInterceptors()
@@ -119,6 +153,21 @@ internal fun AppEnvironment(content: @Composable () -> Unit) {
     val customThemeColors by ThemeSettingsRepository.customThemeColors.collectAsStateWithLifecycle()
 
     NuvioTheme(appTheme = selectedTheme, amoled = amoledEnabled, customThemeColors = customThemeColors) {
-        content()
+        val themed: @Composable () -> Unit = {
+            if (AutomationTestMode.isActive) {
+                Box(Modifier.fillMaxSize().testTag(AUTOMATION_ACCESSIBILITY_ID)) {
+                    content()
+                }
+            } else {
+                content()
+            }
+        }
+        if (drawAppBackground) {
+            AppBackgroundHost {
+                themed()
+            }
+        } else {
+            themed()
+        }
     }
 }

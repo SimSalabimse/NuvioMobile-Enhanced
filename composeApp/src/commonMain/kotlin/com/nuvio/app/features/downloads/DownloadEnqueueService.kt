@@ -35,7 +35,12 @@ internal data class DownloadOutcome(
  */
 internal object DownloadEnqueueService {
     /** Queues an already playable [stream] (the player's current source). */
-    fun enqueue(target: DownloadTarget, stream: StreamItem): DownloadEnqueueResult =
+    fun enqueue(
+        target: DownloadTarget,
+        stream: StreamItem,
+        startedByUser: Boolean = true,
+        analysisTemp: Boolean = false,
+    ): DownloadEnqueueResult =
         DownloadsRepository.enqueueFromStream(
             contentType = target.contentType,
             videoId = target.videoId,
@@ -50,6 +55,8 @@ internal object DownloadEnqueueService {
             episodeTitle = target.episodeTitle,
             episodeThumbnail = target.episodeThumbnail,
             stream = stream,
+            startedByUser = startedByUser,
+            analysisTemp = analysisTemp,
         )
 
     /** Resolves [stream] (falling back to the next good source when it isn't cached) and queues it. */
@@ -57,6 +64,8 @@ internal object DownloadEnqueueService {
         target: DownloadTarget,
         stream: StreamItem,
         notify: Boolean = true,
+        startedByUser: Boolean = true,
+        analysisTemp: Boolean = false,
     ): DownloadOutcome {
         val outcome = DebridSourceFallback.playable(stream, target.seasonNumber, target.episodeNumber, notify) {
             downloadCandidates(target.contentType, target.videoId, target.seasonNumber, target.episodeNumber)
@@ -64,6 +73,8 @@ internal object DownloadEnqueueService {
         val playable = outcome.stream
             ?: return DownloadOutcome(null, outcome.failure ?: DirectDebridPlayableResult.Error)
         // Smart downloads get here on a background dispatcher; the repository's line is the main thread's.
-        return DownloadOutcome(withContext(Dispatchers.Main.immediate) { enqueue(target, playable) })
+        return DownloadOutcome(
+            withContext(Dispatchers.Main.immediate) { enqueue(target, playable, startedByUser, analysisTemp) },
+        )
     }
 }

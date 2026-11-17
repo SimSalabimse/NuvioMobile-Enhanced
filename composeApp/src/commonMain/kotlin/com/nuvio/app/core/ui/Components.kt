@@ -1,5 +1,12 @@
 package com.nuvio.app.core.ui
 
+import androidx.compose.ui.layout.layout
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.Stable
+import com.nuvio.app.core.ui.background.appBackgroundCover
+import com.nuvio.app.core.ui.background.appGlassBackdrop
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState
@@ -25,6 +32,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -55,6 +63,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -76,6 +85,31 @@ import kotlinx.coroutines.flow.asStateFlow
 import com.nuvio.app.navigation.LocalNativeNavigationBarHidden
 import com.nuvio.app.navigation.LocalUseNativeNavigation
 
+@Stable
+internal class NuvioScreenMetrics(val horizontalPadding: Dp) {
+    var hasPinnedHeader by mutableStateOf(false)
+}
+
+internal val LocalNuvioScreenMetrics = staticCompositionLocalOf<NuvioScreenMetrics?> { null }
+
+@Composable
+internal fun Modifier.nuvioScreenSideBleed(): Modifier {
+    val bleed = LocalNuvioScreenMetrics.current?.horizontalPadding ?: return this
+    if (bleed <= NuvioTokens.Space.none) return this
+    return layout { measurable, constraints ->
+        val extra = (bleed * 2).roundToPx()
+        val placeable = measurable.measure(
+            constraints.copy(
+                minWidth = constraints.minWidth + extra,
+                maxWidth = constraints.maxWidth + extra,
+            ),
+        )
+        layout(placeable.width - extra, placeable.height) {
+            placeable.place(-extra / 2, 0)
+        }
+    }
+}
+
 @Composable
 fun NuvioScreen(
     modifier: Modifier = Modifier,
@@ -93,20 +127,28 @@ fun NuvioScreen(
     } else {
         tokens.colors.background
     }
-    LazyColumn(
-        state = listState,
-        modifier = modifier
-            .fillMaxSize()
-            .background(screenBackground),
-        contentPadding = PaddingValues(
-            start = horizontalPadding,
-            top = topPadding ?: tokens.spacing.screenTop + statusBarTop + nuvioPlatformExtraTopPadding,
-            end = horizontalPadding,
-            bottom = nuvioSafeBottomPadding(tokens.spacing.screenBottom),
-        ).withVerticalBar(),
-        verticalArrangement = Arrangement.spacedBy(tokens.spacing.listGap),
-        content = content,
-    )
+    val metrics = remember(horizontalPadding) { NuvioScreenMetrics(horizontalPadding) }
+    val resolvedTopPadding = topPadding ?: if (metrics.hasPinnedHeader) {
+        NuvioTokens.Space.none
+    } else {
+        tokens.spacing.screenTop + statusBarTop + nuvioPlatformExtraTopPadding
+    }
+    CompositionLocalProvider(LocalNuvioScreenMetrics provides metrics) {
+        LazyColumn(
+            state = listState,
+            modifier = modifier
+                .fillMaxSize()
+                .background(screenBackground),
+            contentPadding = PaddingValues(
+                start = horizontalPadding,
+                top = resolvedTopPadding,
+                end = horizontalPadding,
+                bottom = nuvioSafeBottomPadding(tokens.spacing.screenBottom),
+            ).withVerticalBar(),
+            verticalArrangement = Arrangement.spacedBy(tokens.spacing.listGap),
+            content = content,
+        )
+    }
 }
 
 internal fun Modifier.nuvioConsumePointerEvents(): Modifier =
@@ -128,7 +170,7 @@ fun NuvioSurfaceCard(
 ) {
     val tokens = MaterialTheme.nuvio
     Surface(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().appGlassBackdrop(tokens.shapes.card),
         color = tokens.colors.surface,
         shape = tokens.shapes.card,
         tonalElevation = tonalElevation.dp,
@@ -167,24 +209,35 @@ fun NuvioScreenHeader(
         return
     }
     val resolvedTopPadding = topPadding ?: if (includeStatusBarPadding) statusBarTop else NuvioTokens.Space.none
+    val screenMetrics = LocalNuvioScreenMetrics.current
+    if (screenMetrics != null && includeStatusBarPadding && topPadding == null) {
+        DisposableEffect(screenMetrics) {
+            screenMetrics.hasPinnedHeader = true
+            onDispose { screenMetrics.hasPinnedHeader = false }
+        }
+    }
+    val sideBleed = screenMetrics?.horizontalPadding ?: NuvioTokens.Space.none
     Box(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .nuvioScreenSideBleed(),
     ) {
         Row(
             modifier = Modifier
                 .matchParentSize()
-                .background(tokens.colors.background)
+                .appBackgroundCover(tokens.colors.background)
                 .nuvioConsumePointerEvents(),
         ) {}
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(horizontal = sideBleed)
                 .padding(top = resolvedTopPadding, bottom = NuvioTokens.Space.s4),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Bottom,
         ) {
             Row(
-                modifier = Modifier.weight(1f, fill = false),
+                modifier = Modifier.weight(1f),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(tokens.spacing.controlGap),
             ) {
@@ -199,15 +252,16 @@ fun NuvioScreenHeader(
                 }
                 AnimatedContent(
                     targetState = title,
+                    modifier = Modifier.weight(1f),
                     transitionSpec = { fadeIn() togetherWith fadeOut() },
                     label = "screen_header_title",
                 ) { currentTitle ->
                     Text(
                         text = currentTitle,
+                        modifier = Modifier.fillMaxWidth(),
                         style = MaterialTheme.typography.displayLarge,
                         color = tokens.colors.textPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Start,
                     )
                 }
             }
@@ -314,15 +368,25 @@ fun NuvioPrimaryButton(
     text: String,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    minHeight: Dp? = null,
     onClick: () -> Unit = {},
 ) {
     val tokens = MaterialTheme.nuvio
     val palette = MaterialTheme.themePalette
     val dismissKeyboard = rememberDismissSoftwareKeyboard()
-    val containerBrush = if (enabled) {
+    val disabledColors = if (enabled) {
+        null
+    } else {
+        disabledFilledButtonColors(
+            fill = palette.secondary,
+            onFill = tokens.colors.onAccent,
+            backdrop = tokens.colors.surfaceCard,
+        )
+    }
+    val containerBrush = if (disabledColors == null) {
         palette.accentBrush()
     } else {
-        palette.accentBrush(alpha = tokens.opacity.disabled)
+        SolidColor(disabledColors.container)
     }
     Button(
         onClick = {
@@ -331,7 +395,13 @@ fun NuvioPrimaryButton(
         },
         modifier = modifier
             .fillMaxWidth()
-            .height(NuvioTokens.Space.s48 + NuvioTokens.Space.s4)
+            .then(
+                if (minHeight == null) {
+                    Modifier.height(NuvioTokens.Space.s48 + NuvioTokens.Space.s4)
+                } else {
+                    Modifier.heightIn(min = minHeight)
+                },
+            )
             .clip(tokens.shapes.button)
             .background(containerBrush),
         enabled = enabled,
@@ -340,7 +410,7 @@ fun NuvioPrimaryButton(
             containerColor = Color.Transparent,
             contentColor = tokens.colors.onAccent,
             disabledContainerColor = Color.Transparent,
-            disabledContentColor = tokens.colors.onAccent.copy(alpha = tokens.opacity.disabled),
+            disabledContentColor = disabledColors?.content ?: tokens.colors.onAccent,
         ),
     ) {
         AnimatedContent(
@@ -352,6 +422,8 @@ fun NuvioPrimaryButton(
                 text = animatedText,
                 style = MaterialTheme.typography.titleMedium,
                 textAlign = TextAlign.Center,
+                maxLines = if (minHeight == null) Int.MAX_VALUE else 3,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -363,8 +435,10 @@ fun NuvioInputField(
     onValueChange: (String) -> Unit,
     placeholder: String,
     modifier: Modifier = Modifier,
+    shape: Shape = MaterialTheme.nuvio.shapes.compactCard,
     trailingContent: (@Composable (() -> Unit))? = null,
     containerColor: Color = MaterialTheme.nuvio.colors.surfaceCard,
+    enabled: Boolean = true,
 ) {
     val tokens = MaterialTheme.nuvio
     val dismissKeyboard = rememberDismissSoftwareKeyboard()
@@ -372,10 +446,11 @@ fun NuvioInputField(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier.fillMaxWidth(),
+        enabled = enabled,
         singleLine = true,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = { dismissKeyboard() }),
-        shape = RoundedCornerShape(NuvioTokens.Radius.lg),
+        shape = shape,
         placeholder = {
             Text(
                 text = placeholder,

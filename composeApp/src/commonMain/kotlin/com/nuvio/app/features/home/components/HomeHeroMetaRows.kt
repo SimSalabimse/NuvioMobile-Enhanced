@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -15,6 +16,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import com.nuvio.app.features.home.HOME_HERO_BADGES_TAG
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -25,6 +28,7 @@ import com.nuvio.app.features.details.components.DetailHeroMetaBadge
 import com.nuvio.app.features.details.components.ImdbRatingSourceLabel
 import com.nuvio.app.features.details.components.ImdbYellow
 import com.nuvio.app.features.details.components.RatingsRow
+import com.nuvio.app.features.details.components.formatOneDecimal
 import com.nuvio.app.features.details.formatRuntimeForDisplay
 import com.nuvio.app.features.home.MetaPreview
 import nuvio.composeapp.generated.resources.Res
@@ -58,14 +62,18 @@ internal fun HomeHeroMetaRows(
     val ratings = if (showMdbListRatings) item.externalRatings else emptyList()
     val imdbRating = item.imdbRating?.trim()
         ?.takeIf { showImdbRating && ratings.isEmpty() }
-        ?.takeIf { raw -> raw.toDoubleOrNull()?.let { it > 0.0 } == true }
+        ?.toDoubleOrNull()
+        ?.takeIf { it > 0.0 }
+        ?.let(::formatOneDecimal)
     val primaryImdbRating = imdbRating?.takeIf { !isSeries && badges.isEmpty() }
     val secondaryImdbRating = imdbRating?.takeIf { primaryImdbRating == null }
     val horizontalAlignment = if (isTablet) Alignment.Start else Alignment.CenterHorizontally
     val rowArrangement = Arrangement.spacedBy(8.dp, horizontalAlignment)
 
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(HOME_HERO_BADGES_TAG),
         horizontalAlignment = horizontalAlignment,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -118,10 +126,21 @@ internal fun HomeHeroMetaRows(
         }
 
         if (ratings.isNotEmpty()) {
-            RatingsRow(
-                ratings = ratings,
-                maxItems = HERO_RATINGS_LIMIT,
+            val extreme = com.nuvio.app.core.ui.extremeAccessibilityText(
+                androidx.compose.ui.platform.LocalDensity.current.fontScale,
             )
+            if (extreme) {
+                RatingsRow(
+                    ratings = ratings,
+                    maxItems = HERO_RATINGS_LIMIT,
+                    modifier = Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()),
+                )
+            } else {
+                RatingsRow(
+                    ratings = ratings,
+                    maxItems = HERO_RATINGS_LIMIT,
+                )
+            }
         }
     }
 }

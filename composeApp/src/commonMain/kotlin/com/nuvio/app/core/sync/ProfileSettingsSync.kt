@@ -166,6 +166,7 @@ object ProfileSettingsSync {
     }
 
     suspend fun pushCurrentProfileToRemote(): Boolean {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return false
         ensureRepositoriesLoaded()
         return syncMutex.withLock {
             runCatching {

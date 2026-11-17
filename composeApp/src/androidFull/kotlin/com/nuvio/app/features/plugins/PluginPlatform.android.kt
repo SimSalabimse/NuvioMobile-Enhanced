@@ -2,6 +2,8 @@ package com.nuvio.app.features.plugins
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.nuvio.app.core.automation.automationStorageProfileId
+import com.nuvio.app.core.automation.isolateStorageKey
 
 internal object PluginStorage {
     private const val preferencesName = "nuvio_plugins"
@@ -17,35 +19,35 @@ internal object PluginStorage {
     }
 
     fun loadState(profileId: Int): String? =
-        preferences?.getString("${pluginsStateKey}_$profileId", null)
+        preferences?.getString(isolateStorageKey("${pluginsStateKey}_$profileId"), null)
 
     fun saveState(profileId: Int, payload: String) {
         preferences
             ?.edit()
-            ?.putString("${pluginsStateKey}_$profileId", payload)
+            ?.putString(isolateStorageKey("${pluginsStateKey}_$profileId"), payload)
             ?.apply()
     }
 
     fun hasScraperCode(profileId: Int, scraperId: String): Boolean =
-        scraperCodeStore?.contains(profileId, scraperId) == true
+        scraperCodeStore?.contains(automationStorageProfileId(profileId), scraperId) == true
 
     fun loadScraperCode(profileId: Int, scraperId: String): String? =
-        scraperCodeStore?.load(profileId, scraperId)
+        scraperCodeStore?.load(automationStorageProfileId(profileId), scraperId)
 
     fun saveScraperCode(
         profileId: Int,
         scraperId: String,
         code: String,
         overwrite: Boolean,
-    ): Boolean = scraperCodeStore?.save(profileId, scraperId, code, overwrite) == true
+    ): Boolean = scraperCodeStore?.save(automationStorageProfileId(profileId), scraperId, code, overwrite) == true
 
     fun loadScraperSettings(scraperId: String): String? =
-        preferences?.getString("settings_${scraperId}", null)
+        preferences?.getString(isolateStorageKey("settings_${scraperId}"), null)
 
     fun saveScraperSettings(scraperId: String, payload: String) {
         preferences
             ?.edit()
-            ?.putString("settings_${scraperId}", payload)
+            ?.putString(isolateStorageKey("settings_${scraperId}"), payload)
             ?.apply()
     }
 }

@@ -11,9 +11,23 @@ import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.analysis.MediaAnalysisSettings
 import com.nuvio.app.features.analysis.SkipLearning
 import com.nuvio.app.features.player.skip.IntroSubmitService
+import com.nuvio.app.features.player.skip.ManualSkipSubmitOutcome
+import com.nuvio.app.features.player.skip.OwnTheIntroDbLedger
 import com.nuvio.app.features.player.skip.SkipFeedbackPrompt
 import com.nuvio.app.features.player.skip.SkipInterval
+import com.nuvio.app.features.player.skip.TheIntroDb
+import com.nuvio.app.features.player.skip.TheIntroDbAlreadySubmittedMessage
+import com.nuvio.app.features.player.skip.TheIntroDbSegmentCapMessage
+import com.nuvio.app.features.player.skip.TheIntroDbRateLimitMessage
 import com.nuvio.app.features.player.skip.defaultIntroSubmitService
+import com.nuvio.app.features.player.skip.flagSubmitContentKey
+import com.nuvio.app.features.player.skip.OwnAccountMarks
+import com.nuvio.app.features.player.skip.OwnMarkStatus
+import com.nuvio.app.features.player.skip.accountScopeForService
+import com.nuvio.app.features.player.skip.shouldRecordOwnTheIntroDb
+import com.nuvio.app.features.player.skip.withStatus
+import com.nuvio.app.features.player.skip.recordSubmittedSegment
+import com.nuvio.app.features.player.skip.resolvePlaybackSkips
 import com.nuvio.app.features.player.skip.submitManualSkipSegment
 import kotlinx.coroutines.launch
 
@@ -41,7 +55,13 @@ internal const val SKIP_FEEDBACK_DELAY_MS = 4_000L
  * season learn from it, uses it right away, and submits it when submitting is on. With
  * "TheIntroDB only" the submission goes to TheIntroDB.
  */
-internal fun PlayerScreenRuntime.saveUserSkipMark(type: String, startSec: Double, endSec: Double, submit: Boolean) {
+internal fun PlayerScreenRuntime.saveUserSkipMark(
+    type: String,
+    startSec: Double,
+    endSec: Double,
+    submit: Boolean,
+    additional: Boolean = false,
+) {
     val category = SkipLearning.canonicalType(type) ?: return
     if (endSec <= startSec) return
     val season = activeSeasonNumber
@@ -54,34 +74,59 @@ internal fun PlayerScreenRuntime.saveUserSkipMark(type: String, startSec: Double
         ?: metaId.takeIf { it.startsWith("tt") }
         ?: metaUiState.meta?.id?.takeIf { it.startsWith("tt") }
         ?: metaUiState.meta?.imdbId?.takeIf { it.startsWith("tt") }
-    val alreadySubmitted = submittedSegmentTypesByVideoId[videoKey]?.contains(category) == true
+    val contentKey = flagSubmitContentKey(imdbId.orEmpty(), season ?: 0, episode ?: 0, isMovie)
     scope.launch {
-        val taught = SkipLearning.recordMark(
-            parentMetaId = metaId,
-            season = season,
-            episode = episode,
-            type = category,
-            startMs = (startSec * 1000).toLong(),
-            endMs = (endSec * 1000).toLong(),
-            durationMs = durationMs.takeIf {
-                activeSeasonNumber == season && activeEpisodeNumber == episode && parentMetaId == metaId
-            } ?: 0L,
-        )
-        // Use the mark at once in this episode.
-        if (activeSeasonNumber == season && activeEpisodeNumber == episode && parentMetaId == metaId) {
-            val mine = SkipInterval(startSec, endSec, category, SkipLearning.PROVIDER)
-            skipIntervals = (skipIntervals.filter { SkipLearning.canonicalType(it.type) != category } + mine)
-                .sortedBy { it.startTime }
+        val durationForMark = durationMs.takeIf {
+            activeSeasonNumber == season && activeEpisodeNumber == episode && parentMetaId == metaId
+        } ?: 0L
+        val startMs = (startSec * 1000).toLong()
+        val endMs = (endSec * 1000).toLong()
+        val hasPrimary = SkipLearning.userMarks(metaId, season, episode)[category] != null
+        val taught = if (additional && hasPrimary) {
+            if (SkipLearning.addSegment(metaId, season, episode, category, startMs, endMs, durationForMark)) 0 else return@launch
+        } else {
+            SkipLearning.recordMark(
+                parentMetaId = metaId,
+                season = season,
+                episode = episode,
+                type = category,
+                startMs = startMs,
+                endMs = endMs,
+                durationMs = durationForMark,
+            )
         }
-        var sent = false
+        // Use the mark at once. It wins only where it overlaps a TheIntroDB segment.
+        if (activeSeasonNumber == season && activeEpisodeNumber == episode && parentMetaId == metaId) {
+            val online = skipIntervals.filter { !SkipLearning.isUserProvider(it.provider) }
+            skipIntervals = resolvePlaybackSkips(online, userMarkedSkipIntervals(), emptyList())
+        }
+        var outcome: ManualSkipSubmitOutcome? = null
         val settings = PlayerSettingsRepository.uiState.value
-        if (submit && settings.introSubmitEnabled && !alreadySubmitted) {
-            val service = if (MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.TheIntroDbOnly)) {
-                IntroSubmitService.THE_INTRODB
-            } else {
-                defaultIntroSubmitService(settings.introDbApiKey, settings.theIntroDbApiKey)
-            }
-            sent = runCatching {
+        val durationSec = durationMs.takeIf { it > 0L }?.div(1000.0)
+        val maySend = skipFeedbackMaySubmit(category, startSec, endSec, durationSec)
+        val service = if (MediaAnalysisSettings.isEnabled(MediaAnalysisSettings.Flag.TheIntroDbOnly)) {
+            IntroSubmitService.THE_INTRODB
+        } else {
+            defaultIntroSubmitService(settings.introDbApiKey, settings.theIntroDbApiKey)
+        }
+        val reserve = if (submit && maySend && settings.introSubmitEnabled && service == IntroSubmitService.THE_INTRODB) {
+            OwnTheIntroDbLedger.reserveSegment(
+                scope = accountScopeForService(service, settings.introDbApiKey, settings.theIntroDbApiKey),
+                contentKey = contentKey,
+                segmentType = category,
+                status = OwnMarkStatus.Pending,
+                startMs = startMs,
+                endMs = endMs,
+                remoteCount = 0,
+            )
+        } else {
+            null
+        }
+        val capped = submit && maySend && settings.introSubmitEnabled && service == IntroSubmitService.THE_INTRODB && reserve == null
+        val sameRange = reserve != null && !reserve.created
+        if (submit && maySend && settings.introSubmitEnabled && !capped && (service != IntroSubmitService.THE_INTRODB || reserve?.created == true)) {
+            logIntroLengthWarning(category, startSec, endSec, durationSec)
+            val posted = runCatching {
                 submitManualSkipSegment(
                     imdbId = imdbId.orEmpty(),
                     season = season ?: 0,
@@ -97,16 +142,42 @@ internal fun PlayerScreenRuntime.saveUserSkipMark(type: String, startSec: Double
                 )
             }.getOrElse { error ->
                 if (error is kotlinx.coroutines.CancellationException) throw error
-                false
+                ManualSkipSubmitOutcome.FAILED
             }
-            if (sent && videoKey.isNotBlank()) {
+            outcome = posted
+            if (posted.recorded && videoKey.isNotBlank()) {
                 submittedSegmentTypesByVideoId.getOrPut(videoKey) { mutableSetOf() }.add(category)
             }
-            InAppLogger.info("Player/SkipFeedback", "submit type=$category service=$service sent=$sent")
+            val reserved = reserve?.segment
+            if (reserve?.created == true && reserved != null && service == IntroSubmitService.THE_INTRODB) {
+                val scope = accountScopeForService(service, settings.introDbApiKey, settings.theIntroDbApiKey)
+                when (posted) {
+                    ManualSkipSubmitOutcome.FAILED -> OwnTheIntroDbLedger.dropSegment(scope, contentKey, reserved.id)
+                    ManualSkipSubmitOutcome.ALREADY_SUBMITTED -> OwnTheIntroDbLedger.confirmSegment(scope, contentKey, reserved)
+                    ManualSkipSubmitOutcome.SENT -> Unit
+                }
+            }
+            InAppLogger.info(
+                "Player/SkipFeedback",
+                "submit type=$category service=$service sent=${posted.recorded}",
+            )
         }
         val message = buildString {
-            append(if (sent) "Saved and sent. Thanks!" else "Saved on this phone")
-            if (taught > 0) append(" · updated $taught more episode${if (taught == 1) "" else "s"}")
+            append(
+                when {
+                    capped -> TheIntroDbSegmentCapMessage
+                    sameRange || outcome == ManualSkipSubmitOutcome.ALREADY_SUBMITTED -> TheIntroDbAlreadySubmittedMessage
+                    outcome == ManualSkipSubmitOutcome.SENT -> "Saved and sent. Thanks!"
+                    outcome == ManualSkipSubmitOutcome.FAILED ->
+                        TheIntroDb.lastSubmitError
+                            ?.takeIf { service == IntroSubmitService.THE_INTRODB && it == TheIntroDbRateLimitMessage }
+                            ?: "Saved on this phone"
+                    else -> "Saved on this phone"
+                },
+            )
+            if (taught > 0 && outcome != ManualSkipSubmitOutcome.ALREADY_SUBMITTED) {
+                append(" · updated $taught more episode${if (taught == 1) "" else "s"}")
+            }
         }
         NuvioToastController.show(message)
     }
@@ -140,4 +211,37 @@ internal fun BoxScope.RenderSkipFeedbackPrompt(runtime: PlayerScreenRuntime) {
                 .padding(start = sliderEdgePadding, bottom = overlayBottomPadding + 8.dp),
         )
     }
+}
+
+/** Good / Save uses the same length checks as the submit bar. A failing check is not sent. */
+internal fun skipFeedbackMaySubmit(
+    segmentType: String,
+    startSec: Double,
+    endSec: Double,
+    durationSec: Double?,
+): Boolean = markProblems(segmentType, startSec, endSec, durationSec).isEmpty()
+
+/**
+ * Ledger after a Good / Save send. A failed send leaves the marks unchanged.
+ * A 200 is pending. A 409 duplicate from this account is confirmed. Nothing here submits a detection.
+ */
+internal fun skipFeedbackOwnLedger(
+    marks: OwnAccountMarks,
+    contentKey: String,
+    segmentType: String,
+    service: IntroSubmitService,
+    sent: Boolean,
+    duplicate: Boolean = false,
+): OwnAccountMarks {
+    if (!shouldRecordOwnTheIntroDb(service, sent)) return marks
+    val status = if (duplicate) OwnMarkStatus.Confirmed else OwnMarkStatus.Pending
+    return recordSubmittedSegment(
+        marks = marks,
+        contentKey = contentKey,
+        segmentType = segmentType,
+        status = status,
+        startMs = null,
+        endMs = null,
+        remoteCount = 0,
+    ).marks
 }

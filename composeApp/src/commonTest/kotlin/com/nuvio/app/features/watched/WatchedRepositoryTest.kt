@@ -1,5 +1,9 @@
 package com.nuvio.app.features.watched
 
+import com.nuvio.app.core.sync.OfflineOutbox
+import com.nuvio.app.core.sync.applyRemoteConflict
+import com.nuvio.app.core.sync.enqueueOfflineOutbox
+import com.nuvio.app.core.sync.watchedOutboxEntry
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.tracking.TrackingProviderId
@@ -125,6 +129,47 @@ class WatchedRepositoryTest {
         }
 
         assertTrue(result)
+    }
+
+    @Test
+    fun offlineUnwatchStaysUnwatchedWhenServerWatchedAtIsAFewSecondsNewer() {
+        val markedAt = 1_700_000_000_000L
+        val serverWatchedAt = markedAt + 4_000L
+        val unwatchedAt = markedAt + 60_000L
+        val item = WatchedItem(
+            id = "show",
+            type = "series",
+            name = "Show",
+            season = 1,
+            episode = 4,
+            markedAtEpochMs = markedAt,
+        )
+        val entry = watchedOutboxEntry(
+            profileId = 1,
+            item = item.copy(markedAtEpochMs = unwatchedAt),
+            played = false,
+            mirrorTrackers = true,
+            source = WatchProgressSource.NUVIO_SYNC,
+        )
+        assertEquals(unwatchedAt, entry.timestampEpochMs)
+        assertTrue(offlineUnwatchBeatsServerWatchedAt(entry.timestampEpochMs, serverWatchedAt))
+
+        val kept = applyRemoteConflict(
+            enqueueOfflineOutbox(OfflineOutbox(), entry),
+            entry.id,
+            remoteTimestampEpochMs = serverWatchedAt,
+        )
+        assertEquals(unwatchedAt, kept.entries.single().timestampEpochMs)
+        assertFalse(kept.entries.single().played)
+
+        val merged = mergeWatchedSnapshot(
+            serverItems = listOf(item.copy(markedAtEpochMs = serverWatchedAt, name = "server")),
+            localItems = emptyList(),
+            dirtyKeys = emptySet(),
+            offlineUnwatchAtEpochMs = mapOf(entry.subjectKey to entry.timestampEpochMs),
+        )
+        assertTrue(merged.items.isEmpty())
+        assertTrue(merged.dirtyKeys.isEmpty())
     }
 
     @Test

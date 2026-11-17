@@ -1,5 +1,6 @@
 package com.nuvio.app.features.catalog
 
+import com.nuvio.app.core.ui.background.appBackgroundCover
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +23,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.nuvio.app.core.a11y.posterShelfLongPressActions
 import com.nuvio.app.core.ui.NuvioBackButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -51,7 +53,7 @@ import com.nuvio.app.core.ui.NuvioCardDepthSurface
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
-import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
+import com.nuvio.app.core.ui.NuvioPosterResumeBar
 import com.nuvio.app.core.ui.NuvioPosterWatchedOverlay
 import com.nuvio.app.core.ui.SkeletonPoster
 import com.nuvio.app.core.ui.nuvioCardDepth
@@ -65,6 +67,7 @@ import com.nuvio.app.features.settings.ThemeSettingsRepository
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.PosterShape
 import com.nuvio.app.features.home.components.HomeEmptyStateCard
+import com.nuvio.app.features.home.components.rememberMoviePosterProgressById
 import com.nuvio.app.features.home.stableKey
 import com.nuvio.app.features.watched.WatchedRepository
 import com.nuvio.app.features.watching.application.WatchingState
@@ -94,6 +97,7 @@ fun CatalogScreen(
         WatchedRepository.uiState
     }.collectAsStateWithLifecycle()
     val fullyWatchedSeriesKeys by WatchedRepository.fullyWatchedSeriesKeys.collectAsStateWithLifecycle()
+    val movieProgressById = rememberMoviePosterProgressById()
     val initialScrollPosition = remember(
         target,
         homeCatalogSettingsUiState.hideUnreleasedContent,
@@ -154,6 +158,7 @@ fun CatalogScreen(
                 CatalogRepository.load(
                     target = target,
                     force = true,
+                    keepVisibleItems = true,
                 )
             }
 
@@ -196,7 +201,6 @@ fun CatalogScreen(
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         CatalogEmptyState(
                             errorMessage = uiState.errorMessage,
-                            networkCondition = networkStatusUiState.condition,
                             onRetry = {
                                 NetworkStatusRepository.requestRefresh(force = true)
                                 CatalogRepository.load(
@@ -220,6 +224,11 @@ fun CatalogScreen(
                                 watchedKeys = watchedUiState.watchedKeys,
                                 item = item,
                                 fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+                            ),
+                            resumeFraction = WatchingState.posterProgress(
+                                movieId = item.id,
+                                progressByMovieId = movieProgressById,
+                                type = item.type,
                             ),
                             onClick = onPosterClick?.let { { it(item) } },
                             onLongClick = onPosterLongClick?.let { { it(item) } },
@@ -251,19 +260,21 @@ private fun CatalogHeader(
     modifier: Modifier = Modifier,
 ) {
     if (LocalUseNativeNavigation.current) {
-        Box(
-            modifier = modifier
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.statusBars)
-                .height(44.dp),
-        )
+        if (!com.nuvio.app.navigation.LocalHostRespectsTopSafeArea.current) {
+            Box(
+                modifier = modifier
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .height(44.dp),
+            )
+        }
         return
     }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.background)
+            .appBackgroundCover(MaterialTheme.colorScheme.background)
             .padding(horizontal = 16.dp)
             .padding(top = 52.dp, bottom = 12.dp),
     ) {
@@ -303,6 +314,7 @@ private fun CatalogPosterTile(
     cornerRadiusDp: Int,
     hideLabels: Boolean,
     isWatched: Boolean,
+    resumeFraction: Float? = null,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
 ) {
@@ -324,6 +336,12 @@ private fun CatalogPosterTile(
                     onLongClick = onLongClick,
                     zoomImageUrl = item.poster,
                     zoomCornerRadius = cornerRadiusDp.dp,
+                    longPressActions = posterShelfLongPressActions(
+                        id = item.id,
+                        type = item.type,
+                        watched = isWatched,
+                        enabled = onLongClick != null,
+                    ),
                 ),
         ) {
             if (item.poster != null) {
@@ -346,6 +364,12 @@ private fun CatalogPosterTile(
                 )
             }
             NuvioPosterWatchedOverlay(isWatched = isWatched)
+            if (resumeFraction != null) {
+                NuvioPosterResumeBar(
+                    fraction = resumeFraction,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
+            }
         }
         if (!hideLabels) {
             Text(
@@ -374,20 +398,8 @@ private fun CatalogPosterTile(
 @Composable
 private fun CatalogEmptyState(
     errorMessage: String?,
-    networkCondition: NetworkCondition,
     onRetry: (() -> Unit)? = null,
 ) {
-    if (
-        !errorMessage.isNullOrBlank() &&
-        (networkCondition == NetworkCondition.NoInternet || networkCondition == NetworkCondition.ServersUnreachable)
-    ) {
-        NuvioNetworkOfflineCard(
-            condition = networkCondition,
-            onRetry = onRetry,
-        )
-        return
-    }
-
     val loadFailed = !errorMessage.isNullOrBlank()
     HomeEmptyStateCard(
         title = stringResource(

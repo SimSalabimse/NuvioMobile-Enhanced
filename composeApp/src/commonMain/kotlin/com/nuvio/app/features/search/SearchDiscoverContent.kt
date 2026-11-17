@@ -18,10 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.ui.NuvioDropdownChip
 import com.nuvio.app.core.ui.NuvioDropdownOption
-import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.components.PosterGridRow
 import com.nuvio.app.features.home.components.PosterGridSkeletonRow
@@ -33,7 +31,6 @@ internal fun LazyListScope.discoverContent(
     state: DiscoverUiState,
     isSourceLoading: Boolean,
     columns: Int,
-    networkCondition: NetworkCondition,
     onTypeSelected: (String) -> Unit,
     onCatalogSelected: (String) -> Unit,
     onGenreSelected: (String?) -> Unit,
@@ -63,7 +60,7 @@ internal fun LazyListScope.discoverContent(
 
     when {
         (state.isLoading || isSourceLoading) && state.items.isEmpty() -> {
-            items(2) {
+            items(2, contentType = { DiscoverSkeletonRowContentType }) {
                 PosterGridSkeletonRow(
                     columns = columns,
                     modifier = Modifier.padding(horizontal = 16.dp),
@@ -76,7 +73,6 @@ internal fun LazyListScope.discoverContent(
                 DiscoverEmptyStateCard(
                     reason = state.emptyStateReason,
                     errorMessage = state.errorMessage,
-                    networkCondition = networkCondition,
                     onRetry = onRetry,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
@@ -84,7 +80,10 @@ internal fun LazyListScope.discoverContent(
         }
 
         else -> {
-            items(count = (state.items.size + columns - 1) / columns) { rowIndex ->
+            items(
+                count = (state.items.size + columns - 1) / columns,
+                contentType = { DiscoverPosterRowContentType },
+            ) { rowIndex ->
                 val firstIndex = rowIndex * columns
                 PosterGridRow(
                     items = state.items.subList(firstIndex, minOf(firstIndex + columns, state.items.size)),
@@ -107,15 +106,8 @@ internal fun LazyListScope.discoverContent(
     }
 }
 
-@Composable
-internal fun DiscoverSectionHeader(modifier: Modifier = Modifier) {
-    Text(
-        text = stringResource(Res.string.compose_search_discover_title),
-        modifier = modifier,
-        style = MaterialTheme.typography.displaySmall,
-        color = MaterialTheme.colorScheme.onBackground,
-    )
-}
+private const val DiscoverPosterRowContentType = "discover_poster_row"
+private const val DiscoverSkeletonRowContentType = "discover_skeleton_row"
 
 @Composable
 internal fun DiscoverFilterRow(
@@ -184,22 +176,9 @@ private fun CatalogLoadingFooter(modifier: Modifier = Modifier) {
 private fun DiscoverEmptyStateCard(
     reason: DiscoverEmptyStateReason?,
     errorMessage: String?,
-    networkCondition: NetworkCondition,
     onRetry: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    if (
-        reason == DiscoverEmptyStateReason.RequestFailed &&
-        (networkCondition == NetworkCondition.NoInternet || networkCondition == NetworkCondition.ServersUnreachable)
-    ) {
-        NuvioNetworkOfflineCard(
-            condition = networkCondition,
-            modifier = modifier,
-            onRetry = onRetry,
-        )
-        return
-    }
-
     val title: String
     val message: String
 

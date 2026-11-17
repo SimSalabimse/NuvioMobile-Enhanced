@@ -243,31 +243,15 @@ internal object OmdbEpisodeRatingsService {
      * while the read is in flight win over the stale disk copy.
      */
     private suspend fun ensureLoadedFromDisk() {
+        val profileKey = offlineDetailsProfileKey() ?: return
         seasonCache.loadOnce {
-            val payload = OmdbEpisodeRatingsStorage.loadPayload()?.trim().orEmpty()
-            if (payload.isEmpty()) return@loadOnce emptyMap()
-            decodeCachedSeasons(payload)
+            SeasonRatingsDisk.load(profileKey)
         }
-    }
-
-    private fun decodeCachedSeasons(payload: String): Map<String, CachedOmdbSeason>? {
-        val modern = runCatching { json.decodeFromString<Map<String, CachedOmdbSeason>>(payload) }
-        modern.exceptionOrNull()?.let { if (it is CancellationException) throw it }
-        modern.getOrNull()?.let { return it }
-        val legacy = runCatching { json.decodeFromString<Map<String, Map<Int, Double>>>(payload) }
-        legacy.exceptionOrNull()?.let { if (it is CancellationException) throw it }
-        val decoded = legacy.getOrNull()
-        if (decoded == null) {
-            log.w { "Failed to load cached IMDb ratings" }
-            return null
-        }
-        return decoded.mapValues { (_, ratings) -> CachedOmdbSeason(ratings = ratings, fetchedAt = 0L) }
     }
 
     private fun persistToDisk(snapshot: Map<String, CachedOmdbSeason>) {
-        val payload = runCatching { json.encodeToString<Map<String, CachedOmdbSeason>>(snapshot) }
-            .getOrNull() ?: return
-        OmdbEpisodeRatingsStorage.savePayload(payload)
+        val profileKey = offlineDetailsProfileKey() ?: return
+        SeasonRatingsDisk.save(profileKey, snapshot)
     }
 
     private suspend fun fetchSeason(

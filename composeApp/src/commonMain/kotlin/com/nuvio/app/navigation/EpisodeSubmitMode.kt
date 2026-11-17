@@ -1,0 +1,73 @@
+package com.nuvio.app.navigation
+
+/**
+ * One episode opened only to submit or fix a segment.
+ *
+ * [openEpisodeInSubmitMode] is the public entry. A season overview calls it
+ * with the same episode identity the details screen uses to play.
+ */
+data class EpisodeSubmitRequest(
+    val type: String,
+    val videoId: String,
+    val parentMetaId: String,
+    val parentMetaType: String,
+    val title: String,
+    val logo: String? = null,
+    val poster: String? = null,
+    val background: String? = null,
+    val seasonNumber: Int? = null,
+    val episodeNumber: Int? = null,
+    val episodeTitle: String? = null,
+    val episodeThumbnail: String? = null,
+    val pauseDescription: String? = null,
+)
+
+internal enum class IsolatedPlayback {
+    Submit,
+    Private,
+}
+
+private var episodeSubmitLauncher: ((EpisodeSubmitRequest, PlayEntry, IsolatedPlayback) -> Unit)? = null
+
+/** Installed by the app shell while it is composed. */
+internal fun installEpisodeSubmitLauncher(launcher: ((EpisodeSubmitRequest, PlayEntry, IsolatedPlayback) -> Unit)?) {
+    episodeSubmitLauncher = launcher
+}
+
+/**
+ * Opens [request] in the in-app player in submit mode.
+ *
+ * Playback starts at the beginning so a forgotten intro is reachable. The stored
+ * resume position, watched flag, Continue Watching row, scrobbles, next-up, and
+ * watch history stay as they were. The submit panel opens with the player.
+ * Leaving the player returns to the screen that opened it.
+ *
+ * The shell installs the launcher while it is on screen. A call before that does nothing.
+ */
+fun openEpisodeInSubmitMode(request: EpisodeSubmitRequest) {
+    openIsolatedEpisode(request, PlayEntry.Details, IsolatedPlayback.Submit)
+}
+
+/**
+ * Opens [request] for this playback only.
+ *
+ * The saved Private Viewing switch is left as it is. Resume, watched state,
+ * Continue Watching, scrobbles, and autoplay stay unchanged. The submit action
+ * in the player still sends a segment.
+ */
+fun openEpisodePrivately(request: EpisodeSubmitRequest) {
+    openIsolatedEpisode(request, PlayEntry.Details, IsolatedPlayback.Private)
+}
+
+/** Same open as [openEpisodePrivately], with the entry that started it. */
+internal fun openEpisodePrivately(request: EpisodeSubmitRequest, entry: PlayEntry) {
+    openIsolatedEpisode(request, entry, IsolatedPlayback.Private)
+}
+
+private fun openIsolatedEpisode(
+    request: EpisodeSubmitRequest,
+    entry: PlayEntry,
+    kind: IsolatedPlayback,
+) {
+    episodeSubmitLauncher?.invoke(request, entry, kind)
+}

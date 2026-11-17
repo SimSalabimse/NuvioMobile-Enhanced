@@ -962,6 +962,7 @@
     <string name="network_back_online">Wieder online</string>
     <string name="network_cannot_reach_servers">Server nicht erreichbar</string>
     <string name="network_no_internet_connection">Keine Internetverbindung</string>
+    <string name="offline_banner_saved_data">Offline: gespeicherte Daten werden angezeigt</string>
     <string name="person_age">(%1$d Jahre)</string>
     <string name="person_born">Geboren am %1$s%2$s</string>
     <string name="person_died">Gestorben am %1$s</string>

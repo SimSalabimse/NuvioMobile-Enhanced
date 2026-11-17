@@ -212,6 +212,13 @@ internal fun findBestInternalSubtitleTrackIndex(
             val tieBroken = breakSpanishSubtitleTie(tracks, preferredCandidateIndexes, normalizedTarget)
             if (tieBroken >= 0) return tieBroken
         }
+        if (normalizedTarget == "no") {
+            val bokmal = preferredCandidateIndexes.firstOrNull { index ->
+                SubtitleLanguageMatching.normalizeLanguageCode(tracks[index].language.orEmpty())
+                    .substringBefore('-') == "no"
+            }
+            if (bokmal != null) return bokmal
+        }
         return preferredCandidateIndexes.first()
     }
     return -1
@@ -300,6 +307,23 @@ internal fun subtitleTrackMatchesSelectedAudioLanguage(
 internal fun addonSubtitleIsForced(subtitle: AddonSubtitle): Boolean {
     return listOfNotNull(subtitle.id, subtitle.url, subtitle.addonName)
         .any { value -> value.contains("forced", ignoreCase = true) }
+}
+
+/** First add-on subtitle in [target]. Norwegian prefers a Bokmål row over Nynorsk. */
+internal fun firstMatchingAddonSubtitle(
+    subtitles: List<AddonSubtitle>,
+    target: String,
+    predicate: (AddonSubtitle) -> Boolean = { true },
+): AddonSubtitle? {
+    val matches = subtitles.filter { subtitle ->
+        predicate(subtitle) && SubtitleLanguageMatching.matchesLanguageCode(subtitle.language, target)
+    }
+    if (SubtitleLanguageMatching.normalizeLanguageCode(target).substringBefore('-') != "no") {
+        return matches.firstOrNull()
+    }
+    return matches.firstOrNull { subtitle ->
+        SubtitleLanguageMatching.normalizeLanguageCode(subtitle.language).substringBefore('-') == "no"
+    } ?: matches.firstOrNull()
 }
 
 internal fun addonSubtitleMatchesLanguage(subtitle: AddonSubtitle, target: String): Boolean {

@@ -33,6 +33,8 @@ internal enum class DownloadSlowReason {
  * [pauseWhileWatching] is the setting. [playerActive] is a stream open past the idle level.
  * [bufferingThrottle] is the existing buffer throttle (downloads held while the stream buffers).
  * [activeAhead] is how many downloads are already running. [retryCount] is the manager's count.
+ * [downloadedBytes] is the row's progress. [bytesAtLastFailure] is where the last counted retry
+ * left off, or null when the platform clears [retryCount] itself once bytes increase.
  */
 internal data class DownloadSlowSignals(
     val status: DownloadStatus,
@@ -45,6 +47,8 @@ internal data class DownloadSlowSignals(
     val onWifi: Boolean,
     val thermalBlocks: Boolean,
     val retryCount: Int,
+    val downloadedBytes: Long = 0L,
+    val bytesAtLastFailure: Long? = null,
 )
 
 /**
@@ -63,8 +67,20 @@ internal fun downloadSlowReason(signals: DownloadSlowSignals): DownloadSlowReaso
     if (waiting && signals.activeAhead > 0) return DownloadSlowReason.WaitingInQueue
     if (waiting && signals.onlyOnWifi && !signals.onWifi) return DownloadSlowReason.WaitingForWifi
     if (waiting && signals.thermalBlocks) return DownloadSlowReason.DeviceTooHot
-    if (signals.retryCount > 0) return DownloadSlowReason.Retrying
+    if (retryHasNotMoved(signals)) return DownloadSlowReason.Retrying
     return null
+}
+
+/**
+ * A counted retry that is still waiting: queued for the next attempt, or downloading
+ * but with no new bytes since that failure. A null [DownloadSlowSignals.bytesAtLastFailure]
+ * means the count itself is the stall.
+ */
+private fun retryHasNotMoved(signals: DownloadSlowSignals): Boolean {
+    if (signals.retryCount <= 0) return false
+    if (signals.status != DownloadStatus.Downloading) return true
+    val atFailure = signals.bytesAtLastFailure ?: return true
+    return signals.downloadedBytes <= atFailure
 }
 
 /** Bumped about every 2 s while Downloads is showing active rows, so a reason tracks the device. */
@@ -100,7 +116,7 @@ internal fun DownloadSlowReasonLine(items: List<DownloadItem>) {
     val activeAhead = downloads.items.count { it.status == DownloadStatus.Downloading }
     val held = downloads.heldForPlayback
     val signature = remember(items, held) {
-        items.joinToString { "${it.id}:${it.status}:${it.id in held}" }
+        items.joinToString { "${it.id}:${it.status}:${it.downloadedBytes}:${it.id in held}" }
     }
     val reasons = remember(
         signature,
@@ -122,6 +138,8 @@ internal fun DownloadSlowReasonLine(items: List<DownloadItem>) {
                     onWifi = DownloadNetworkGuard.isOnWifi(),
                     thermalBlocks = DownloadThermalGate.blocksNextFile(),
                     retryCount = DownloadsPlatformDownloader.retryCount(item.id),
+                    downloadedBytes = item.downloadedBytes,
+                    bytesAtLastFailure = DownloadsPlatformDownloader.bytesAtLastFailure(item.id),
                 ),
             )
         }.toSet()

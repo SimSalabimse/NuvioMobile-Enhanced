@@ -2,6 +2,8 @@
 
 package com.nuvio.app.features.plugins
 
+import com.nuvio.app.core.automation.automationStorageProfileId
+import com.nuvio.app.core.automation.isolateStorageKey
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
 import kotlinx.cinterop.ExperimentalForeignApi
@@ -27,12 +29,12 @@ internal object PluginStorage {
     private val scraperCodeLock = SynchronizedObject()
 
     fun loadState(profileId: Int): String? =
-        NSUserDefaults.standardUserDefaults.stringForKey("${pluginsStateKey}_$profileId")
+        NSUserDefaults.standardUserDefaults.stringForKey(isolateStorageKey("${pluginsStateKey}_$profileId"))
 
     fun saveState(profileId: Int, payload: String) {
         NSUserDefaults.standardUserDefaults.setObject(
             payload,
-            forKey = "${pluginsStateKey}_$profileId",
+            forKey = isolateStorageKey("${pluginsStateKey}_$profileId"),
         )
     }
 
@@ -84,17 +86,17 @@ internal object PluginStorage {
     }
 
     fun loadScraperSettings(scraperId: String): String? =
-        NSUserDefaults.standardUserDefaults.stringForKey("settings_${scraperId}")
+        NSUserDefaults.standardUserDefaults.stringForKey(isolateStorageKey("settings_${scraperId}"))
 
     fun saveScraperSettings(scraperId: String, payload: String) {
         NSUserDefaults.standardUserDefaults.setObject(
             payload,
-            forKey = "settings_${scraperId}",
+            forKey = isolateStorageKey("settings_${scraperId}"),
         )
     }
 
     private fun scraperCodeDirectory(profileId: Int): String =
-        "${NSHomeDirectory()}/Library/Application Support/$scraperCodeDirectoryName/$profileId"
+        "${NSHomeDirectory()}/Library/Application Support/$scraperCodeDirectoryName/${automationStorageProfileId(profileId)}"
 
     private fun scraperCodePath(profileId: Int, scraperId: String): String =
         "${scraperCodeDirectory(profileId)}/${pluginDigestHex("SHA256", scraperId)}.js"

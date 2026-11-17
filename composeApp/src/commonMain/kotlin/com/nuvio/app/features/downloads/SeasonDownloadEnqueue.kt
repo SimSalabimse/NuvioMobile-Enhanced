@@ -2,6 +2,8 @@ package com.nuvio.app.features.downloads
 
 import com.nuvio.app.features.debrid.DebridAddOffer
 import com.nuvio.app.features.debrid.DirectDebridPlayableResult
+import com.nuvio.app.features.debrid.TorboxSeasonPackEpisode
+import com.nuvio.app.features.debrid.attachTorboxSeasonPackLinks
 import com.nuvio.app.features.debrid.toastMessage
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaVideo
@@ -16,27 +18,49 @@ internal data class SeasonEnqueueRow(
 internal data class SeasonEnqueueResult(
     val queued: Int,
     val failureMessage: String?,
+    /** Episodes left untouched because a finished or in-progress download already covers them. */
+    val alreadyInDownloads: Int = 0,
 )
 
 internal suspend fun enqueueSeasonDownloads(
     meta: MetaDetails,
     rows: List<SeasonEnqueueRow>,
+    startedByUser: Boolean = true,
+    analysisTemp: Boolean = false,
 ): SeasonEnqueueResult {
     var queued = 0
     var failureMessage: String? = null
+    var alreadyInDownloads = 0
     var offered = false
     DownloadsRepository.ensureLoaded()
     // Lowest episode first, whatever order the sheet listed them in.
     val ordered = rows.sortedWith(compareBy({ it.video.season ?: Int.MAX_VALUE }, { it.video.episode ?: Int.MAX_VALUE }))
-    for (row in ordered) {
+    val packStreams = attachTorboxSeasonPackLinks(
+        ordered.map { row ->
+            TorboxSeasonPackEpisode(
+                stream = row.stream,
+                season = row.video.season,
+                episode = row.video.episode,
+            )
+        },
+    )
+    for ((index, row) in ordered.withIndex()) {
+        val rowStream = packStreams[index]
         val season = row.video.season
         val episode = row.video.episode
         // Queuing replaces an existing row for the episode and deletes its file. Leave one the user has.
+        // Analysis only fills an empty slot here; the insert itself repeats that check.
         val existingKey = downloadLogicalContentKey(meta.id, season, episode)
-        val existingStatus = DownloadsRepository.uiState.value.items
+        val existing = DownloadsRepository.uiState.value.items
             .firstOrNull { it.logicalContentKey == existingKey }
-            ?.status
-        if (seasonExistingDownload(existingStatus) != null) continue
+        val tagged = existing?.let { AnalysisTempDownloads.isTagged(it.id) } == true
+        if (analysisTemp) {
+            // Analysis never touches an untagged (user) row.
+            if (existing != null && !tagged) continue
+        } else if (leaveExistingDownloadInPlace(existing?.status, tagged)) {
+            alreadyInDownloads += 1
+            continue
+        }
         val videoId = seasonStreamVideoId(meta.id, row.video)
         val target = DownloadTarget(
             contentType = meta.type,
@@ -52,7 +76,13 @@ internal suspend fun enqueueSeasonDownloads(
             episodeTitle = row.video.title,
             episodeThumbnail = row.video.thumbnail,
         )
-        val outcome = DownloadEnqueueService.resolveAndEnqueue(target, row.stream, notify = false)
+        val outcome = DownloadEnqueueService.resolveAndEnqueue(
+            target,
+            rowStream,
+            notify = false,
+            startedByUser = startedByUser,
+            analysisTemp = analysisTemp,
+        )
         val enqueueResult = outcome.result ?: run {
             val failure = outcome.failure ?: DirectDebridPlayableResult.Error
             // One add offer for the batch (the first uncached episode), not one per row.
@@ -64,10 +94,15 @@ internal suspend fun enqueueSeasonDownloads(
             DownloadEnqueueResult.Started,
             DownloadEnqueueResult.Replaced,
             -> queued += 1
+            DownloadEnqueueResult.LeftExisting -> Unit
             else -> failureMessage = failureMessage ?: enqueueResult.toastMessage()
         }
     }
-    return SeasonEnqueueResult(queued = queued, failureMessage = failureMessage)
+    return SeasonEnqueueResult(
+        queued = queued,
+        failureMessage = failureMessage,
+        alreadyInDownloads = alreadyInDownloads,
+    )
 }
 
 internal fun seasonStreamVideoId(parentMetaId: String, video: MetaVideo): String {

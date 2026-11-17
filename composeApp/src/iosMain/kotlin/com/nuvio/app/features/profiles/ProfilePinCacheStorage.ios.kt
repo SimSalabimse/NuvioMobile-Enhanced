@@ -22,6 +22,7 @@ import platform.Foundation.CFBridgingRetain
 import platform.Foundation.NSData
 import platform.Foundation.NSString
 import platform.Foundation.NSUTF8StringEncoding
+import com.nuvio.app.core.automation.automationStorageProfileId
 import platform.Foundation.NSUserDefaults
 import platform.Foundation.create
 import platform.Foundation.dataUsingEncoding
@@ -45,6 +46,8 @@ actual object ProfilePinCacheStorage {
     private const val LEGACY_PREFIX = "profile_pin_cache_"
 
     actual fun loadPayload(profileIndex: Int): String? {
+        val stored = automationStorageProfileId(profileIndex)
+        if (stored != profileIndex) return loadPayload(stored)
         val (status, data) = copyMatching(createQuery(profileIndex))
         val payload = if (status == errSecSuccess) {
             data?.let {
@@ -57,6 +60,8 @@ actual object ProfilePinCacheStorage {
     }
 
     actual fun savePayload(profileIndex: Int, payload: String) {
+        val stored = automationStorageProfileId(profileIndex)
+        if (stored != profileIndex) return savePayload(stored, payload)
         // Remove a legacy plaintext verifier and verify removal before writing a replacement.
         val legacyKey = "${LEGACY_PREFIX}${profileIndex}"
         val defaults = NSUserDefaults.standardUserDefaults
@@ -100,6 +105,8 @@ actual object ProfilePinCacheStorage {
     }
 
     actual fun removePayload(profileIndex: Int): Boolean {
+        val stored = automationStorageProfileId(profileIndex)
+        if (stored != profileIndex) return removePayload(stored)
         val keychainStatus = deleteExisting(profileIndex)
         val legacyKey = "${LEGACY_PREFIX}${profileIndex}"
         val defaults = NSUserDefaults.standardUserDefaults

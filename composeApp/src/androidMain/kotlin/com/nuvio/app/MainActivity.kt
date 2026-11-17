@@ -18,6 +18,7 @@ import com.nuvio.app.core.deeplink.handleAppUrl
 import com.nuvio.app.core.poster.CustomPosterUrlStorage
 import com.nuvio.app.core.storage.PlatformLocalAccountDataCleaner
 import com.nuvio.app.core.startup.StartupPreloader
+import com.nuvio.app.core.startup.SynchronousLaunch
 import com.nuvio.app.core.sync.SyncClientIdentityStorage
 import com.nuvio.app.core.ui.CardDepthStyleStorage
 import com.nuvio.app.core.ui.NuvioSheetBackdrop
@@ -79,6 +80,8 @@ import com.nuvio.app.features.anilist.PlatformAniListAuthPersistence
 import com.nuvio.app.features.anilist.PlatformAniListSyncStorage
 import com.nuvio.app.features.wetrakr.PlatformWeTrakrAuthPersistence
 import com.nuvio.app.features.wetrakr.PlatformWeTrakrSyncStorage
+import com.nuvio.app.features.publicmetadb.PlatformPublicMetaDbAuthPersistence
+import com.nuvio.app.features.publicmetadb.PlatformPublicMetaDbSyncStorage
 import com.nuvio.app.features.simkl.SimklAuthStorage
 import com.nuvio.app.features.simkl.SimklSyncStorage
 import com.nuvio.app.features.tmdb.TmdbSettingsStorage
@@ -110,6 +113,7 @@ open class MainActivity : AppCompatActivity() {
             ),
         )
         ThemeSettingsStorage.initialize(applicationContext)
+        com.nuvio.app.core.ui.background.AppBackgroundStorage.initialize(applicationContext)
         AppIconPlatform.initialize(applicationContext)
         SentrySettingsStorage.initialize(applicationContext)
         SentryInitializer.start(application)
@@ -126,11 +130,12 @@ open class MainActivity : AppCompatActivity() {
         LiveTvStorage.initialize(applicationContext)
         AppFileCache.initialize(applicationContext)
         WatchedStorage.initialize(applicationContext)
+        com.nuvio.app.core.sync.PlatformOfflineOutboxDisk.initialize(applicationContext)
         MetaScreenSettingsStorage.initialize(applicationContext)
         com.nuvio.app.features.shuffle.EpisodeShuffleStorage.initialize(applicationContext)
         HomeCatalogSettingsStorage.initialize(applicationContext)
         PlayerSettingsStorage.initialize(applicationContext)
-        com.nuvio.app.features.player.SubtitleFontFiles.initialize(applicationContext)
+        com.nuvio.app.features.player.skip.FlagSubmitLedger.initialize(applicationContext)
         com.nuvio.app.features.player.seekpreview.SeekPreviewAndroid.initialize(applicationContext)
         PlayerTrackPreferenceStorage.initialize(applicationContext)
         P2pSettingsStorage.initialize(applicationContext)
@@ -164,6 +169,8 @@ open class MainActivity : AppCompatActivity() {
         PlatformAniListSyncStorage.initialize(applicationContext)
         PlatformWeTrakrAuthPersistence.initialize(applicationContext)
         PlatformWeTrakrSyncStorage.initialize(applicationContext)
+        PlatformPublicMetaDbAuthPersistence.initialize(applicationContext)
+        PlatformPublicMetaDbSyncStorage.initialize(applicationContext)
         DiscordRpcStorage.initialize(applicationContext)
         SimklAuthStorage.initialize(applicationContext)
         SimklSyncStorage.initialize(applicationContext)
@@ -203,6 +210,7 @@ open class MainActivity : AppCompatActivity() {
 
     private fun showContent() {
         handleIncomingAppIntent(intent)
+        SynchronousLaunch.prepare()
         setContent {
             val sheetBackdropSource = rememberNuvioBackdrop()
             val sheetBackdrop = remember(sheetBackdropSource) { NuvioSheetBackdrop(sheetBackdropSource) }

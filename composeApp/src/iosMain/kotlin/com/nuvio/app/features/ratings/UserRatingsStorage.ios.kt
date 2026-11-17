@@ -1,9 +1,10 @@
 package com.nuvio.app.features.ratings
 
+import com.nuvio.app.core.automation.isolateStorageKey
 import platform.Foundation.NSUserDefaults
 
 internal actual object UserRatingsStorage {
-    private fun key(profileId: Int) = "user_ratings_disabled_providers_$profileId"
+    private fun key(profileId: Int) = isolateStorageKey("user_ratings_disabled_providers_$profileId")
 
     actual fun loadDisabledProviders(profileId: Int): String? =
         NSUserDefaults.standardUserDefaults.stringForKey(key(profileId))
@@ -12,7 +13,7 @@ internal actual object UserRatingsStorage {
         NSUserDefaults.standardUserDefaults.setObject(value, forKey = key(profileId))
     }
 
-    private fun enabledKey(profileId: Int) = "user_ratings_in_app_enabled_$profileId"
+    private fun enabledKey(profileId: Int) = isolateStorageKey("user_ratings_in_app_enabled_$profileId")
 
     actual fun loadInAppRatingEnabled(profileId: Int): Boolean? {
         val defaults = NSUserDefaults.standardUserDefaults

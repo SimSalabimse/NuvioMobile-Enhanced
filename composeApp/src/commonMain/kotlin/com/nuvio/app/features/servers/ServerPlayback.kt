@@ -3,6 +3,8 @@ package com.nuvio.app.features.servers
 import co.touchlab.kermit.Logger
 import com.nuvio.app.features.player.AndroidPlaybackEngine
 import com.nuvio.app.features.player.PlayerSettingsRepository
+import com.nuvio.app.features.watchprogress.ProgressWriteTrace
+import com.nuvio.app.features.watchprogress.allowsProgressWrite
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.streams.StreamProxyHeaders
 import com.nuvio.app.isIos
@@ -12,7 +14,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
@@ -104,17 +110,22 @@ internal object ServerPlayback {
         isPlaying: Boolean,
         isLoading: Boolean,
         isEnded: Boolean,
+        persistsProgress: Boolean = true,
     ) {
+        if (!allowsProgressWrite(persistsProgress)) return
+        ProgressWriteTrace.note("ServerPlayback.onPlaybackSnapshot")
         val playback = url?.let { synchronized(lock) { active[it] } } ?: return
         if (isEnded) {
             playback.lastPositionMs = positionMs
-            stop(url)
+            stop(url, persistsProgress = persistsProgress)
             return
         }
         playback.onSnapshot(positionMs, isPlaying, isLoading)
     }
 
-    fun stop(url: String?) {
+    fun stop(url: String?, persistsProgress: Boolean = true) {
+        if (!allowsProgressWrite(persistsProgress)) return
+        ProgressWriteTrace.note("ServerPlayback.stop")
         val playback = url?.let { synchronized(lock) { active.remove(it) } } ?: return
         playback.stop()
     }
@@ -148,24 +159,45 @@ internal object ServerPlayback {
             PlayerSettingsRepository.uiState.value.androidPlaybackEngine == AndroidPlaybackEngine.Libmpv,
     )
 
+    /** A queued report with its enqueue order, so stale progress reports can be skipped. */
+    private class QueuedEvent(val sequence: Long, val event: ServerPlaybackEvent)
+
     private class ActivePlayback(
         val provider: ServerProvider,
         val session: ServerSession,
         val playback: ServerPlaybackSession,
     ) {
         val label = "${provider.id} item ${playback.target.item.itemId}"
-        private val events = Channel<ServerPlaybackEvent>(Channel.UNLIMITED)
+        // Control events (start, pause, resume, stop) must never be lost, so they keep an
+        // unbounded queue. Progress reports are only position updates: they use a bounded queue
+        // that drops the oldest report when the server cannot keep up with the network.
+        private val controlEvents = Channel<QueuedEvent>(Channel.UNLIMITED)
+        private val progressEvents = Channel<QueuedEvent>(
+            capacity = PROGRESS_EVENT_BUFFER,
+            onBufferOverflow = BufferOverflow.DROP_OLDEST,
+        )
         var started = false
             private set
         var lastPositionMs = 0L
         private var paused = false
         private var lastReportPositionMs = 0L
         private var lastReportAtMs = 0L
+        private var sequence = 0L
 
         init {
             log.i { "Prepared $label as ${playback.playMethod} ${playback.transcodeReasons}" }
             scope.launch {
-                for (event in events) {
+                var lastControlSequence = -1L
+                merge(controlEvents.receiveAsFlow(), progressEvents.receiveAsFlow()).collect { queued ->
+                    val event = queued.event
+                    if (event.type == ServerPlaybackEventType.PROGRESS) {
+                        if (queued.sequence < lastControlSequence) {
+                            // Queued before the last control event: it would report a stale state.
+                            return@collect
+                        }
+                    } else {
+                        lastControlSequence = queued.sequence
+                    }
                     try {
                         val sent = withTimeoutOrNull(REPORT_TIMEOUT_MS) { provider.report(session, playback, event) }
                         when {
@@ -210,19 +242,29 @@ internal object ServerPlayback {
 
         fun stop() = synchronized(lock) {
             send(ServerPlaybackEventType.STOP, lastPositionMs, isPaused = true)
-            events.close()
+            controlEvents.close()
+            while (progressEvents.tryReceive().isSuccess) {
+                // Drop pending progress reports; the session is over.
+            }
+            progressEvents.close()
         }
 
         private fun send(type: ServerPlaybackEventType, positionMs: Long, isPaused: Boolean) {
             lastReportAtMs = nowMs()
             lastReportPositionMs = positionMs
-            events.trySend(ServerPlaybackEvent(type, positionMs, isPaused))
+            val queued = QueuedEvent(sequence++, ServerPlaybackEvent(type, positionMs, isPaused))
+            if (type == ServerPlaybackEventType.PROGRESS) {
+                progressEvents.trySend(queued)
+            } else {
+                controlEvents.trySend(queued)
+            }
         }
     }
 
     private fun nowMs(): Long = Clock.System.now().toEpochMilliseconds()
 
     private const val PROGRESS_INTERVAL_MS = 10_000L
+    private const val PROGRESS_EVENT_BUFFER = 8
     private const val SEEK_THRESHOLD_MS = 5_000L
     private const val REPORT_TIMEOUT_MS = 10_000L
     private const val RESUME_TIMEOUT_MS = 2_000L

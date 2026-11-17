@@ -2,6 +2,7 @@ package com.nuvio.app.features.settings
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.nuvio.app.core.automation.isolateStorageKey
 
 internal actual object SentrySettingsPlatform {
     actual val crashReportsSupported: Boolean = true
@@ -19,13 +20,13 @@ internal actual object SentrySettingsStorage {
 
     actual fun loadEnabled(): Boolean? =
         preferences?.let { prefs ->
-            if (prefs.contains(enabledKey)) prefs.getBoolean(enabledKey, true) else null
+            if (prefs.contains(isolateStorageKey(enabledKey))) prefs.getBoolean(isolateStorageKey(enabledKey), true) else null
         }
 
     actual fun saveEnabled(enabled: Boolean) {
         preferences
             ?.edit()
-            ?.putBoolean(enabledKey, enabled)
+            ?.putBoolean(isolateStorageKey(enabledKey), enabled)
             ?.apply()
     }
 }

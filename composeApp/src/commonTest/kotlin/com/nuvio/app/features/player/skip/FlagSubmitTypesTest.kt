@@ -28,7 +28,7 @@ class FlagSubmitTypesTest {
         val records = listOf(
             record(segment = "intro", status = "accepted"),
             record(segment = "credits", status = "pending"),
-            record(segment = "preview", status = "rejected"),
+            record(segment = "preview", status = "declined"),
             record(segment = "recap", status = "accepted", season = 2, episode = 1),
             record(tmdbId = 99, segment = "recap", status = "accepted"),
         )
@@ -65,6 +65,37 @@ class FlagSubmitTypesTest {
             decodeFlagSubmitLedger(encoded),
         )
         assertEquals(emptyMap(), decodeFlagSubmitLedger("   "))
+    }
+
+    @Test
+    fun checksKeepSubmittedTypesAndDropRejectedOnes() {
+        val records = listOf(
+            record(segment = "intro", status = "accepted"),
+            record(segment = "recap", status = "pending"),
+            record(segment = "credits", status = "rejected"),
+            record(segment = "preview", status = "rejected"),
+        )
+        val remote = submittedFlagTypesForTitle(records, tmdbId = 42, isMovie = false, season = 1, episode = 3)
+        val rejected = rejectedFlagTypesForTitle(records, tmdbId = 42, isMovie = false, season = 1, episode = 3)
+        assertEquals(setOf("intro", "recap"), remote)
+        assertEquals(setOf("outro", "preview"), rejected)
+        assertEquals(
+            setOf("intro", "recap"),
+            flagChecksForTitle(
+                ledgerTypes = setOf("outro", "intro"),
+                sessionTypes = setOf("credits", "preview"),
+                remoteTypes = remote,
+                rejectedTypes = rejected,
+            ),
+        )
+        assertEquals(
+            setOf("intro", "outro"),
+            flagChecksForTitle(
+                ledgerTypes = setOf("outro"),
+                sessionTypes = setOf("intro"),
+                remoteTypes = null,
+            ),
+        )
     }
 
     @Test

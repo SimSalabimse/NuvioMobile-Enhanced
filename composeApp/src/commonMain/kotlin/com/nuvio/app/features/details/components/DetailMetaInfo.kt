@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -89,7 +90,9 @@ fun DetailMetaInfo(
         val ageBadge = meta.ageRating?.trim()?.takeIf { it.isNotBlank() }
         val validImdbRating = meta.imdbRating
             ?.takeIf { showOverallRatings && !isMdbListActive }
-            ?.takeIf { raw -> raw.toDoubleOrNull()?.let { it > 0.0 } == true }
+            ?.toDoubleOrNull()
+            ?.takeIf { it > 0.0 }
+            ?.let(::formatOneDecimal)
         val hasMetaRow = releaseLine != null ||
             runtimeText != null ||
             ageBadge != null ||
@@ -175,6 +178,33 @@ fun DetailMetaInfo(
                 style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 22.sp),
             )
         }
+    }
+}
+
+/** The overview column. The catalogue is the next child, so it takes its own height. */
+internal const val DETAIL_OVERVIEW_TAG = "detail-overview"
+
+@Composable
+internal fun DetailOverviewSection(
+    meta: MetaDetails,
+    horizontalScrollPadding: Dp = 0.dp,
+    showOverallRatings: Boolean = true,
+    isMdbListActive: Boolean = false,
+    catalogue: @Composable () -> Unit = {},
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(DETAIL_OVERVIEW_TAG),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        DetailMetaInfo(
+            meta = meta,
+            showOverallRatings = showOverallRatings,
+            isMdbListActive = isMdbListActive,
+            horizontalScrollPadding = horizontalScrollPadding,
+        )
+        catalogue()
     }
 }
 
@@ -269,15 +299,36 @@ internal fun MetaLabelValueRow(
     label: String,
     value: String,
 ) {
-    Row {
+    val extreme = com.nuvio.app.core.ui.extremeAccessibilityText(
+        androidx.compose.ui.platform.LocalDensity.current.fontScale,
+    )
+    if (!extreme) {
+        Row {
+            Text(
+                text = "$label:  ",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        return
+    }
+    Row(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = "$label:  ",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
         )
         Text(
             text = value,
+            modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )
@@ -324,7 +375,7 @@ private fun MetaBadgeText(
         text = text,
         style = MaterialTheme.typography.labelMedium,
         color = color,
-        maxLines = 1,
+        maxLines = if (com.nuvio.app.core.ui.extremeAccessibilityText(androidx.compose.ui.platform.LocalDensity.current.fontScale)) 3 else 1,
         overflow = TextOverflow.Ellipsis,
     )
 }
@@ -418,7 +469,7 @@ private val ratingVisuals = listOf(
     ),
 )
 
-private fun formatOneDecimal(value: Double): String {
+internal fun formatOneDecimal(value: Double): String {
     val rounded = (value * 10.0).roundToInt()
     val whole = rounded / 10
     val decimal = (rounded % 10).absoluteValue

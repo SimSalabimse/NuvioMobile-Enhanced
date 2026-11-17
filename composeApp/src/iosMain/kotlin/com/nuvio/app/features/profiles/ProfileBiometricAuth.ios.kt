@@ -1,5 +1,6 @@
 package com.nuvio.app.features.profiles
 
+import com.nuvio.app.core.automation.AutomationTestMode
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.ObjCObjectVar
@@ -75,6 +76,8 @@ actual object ProfileBiometricAuth {
 
     actual fun initialize(host: Any) {
         initialized = host is UIViewController
+        // Automation must not delete the owner's legacy keychain item on launch.
+        if (AutomationTestMode.isActive) return
         // Initialize is called from app setup and has no suspend boundary. Keep cleanup
         // off the UI thread without blocking it; account-scoped cleanup remains explicit
         // in the repository when the account is known.
@@ -96,6 +99,7 @@ actual object ProfileBiometricAuth {
     }
 
     actual suspend fun isConfigured(profileIndex: Int, userId: String): Boolean {
+        if (AutomationTestMode.isActive) return false
         if (profileIndex != 1 || userId.isBlank()) return false
 
         val status = withContext(Dispatchers.IO) {
@@ -113,6 +117,7 @@ actual object ProfileBiometricAuth {
         profileIndex: Int,
         userId: String,
     ): ProfileBiometricResult {
+        if (AutomationTestMode.isActive) return ProfileBiometricResult.Unavailable
         if (profileIndex != 1 || userId.isBlank()) {
             return ProfileBiometricResult.Unavailable
         }
@@ -193,10 +198,13 @@ actual object ProfileBiometricAuth {
     actual suspend fun authenticate(
         profileIndex: Int,
         userId: String,
-    ): ProfileBiometricResult =
-        authenticateInternal(profileIndex, userId, setup = false)
+    ): ProfileBiometricResult {
+        if (AutomationTestMode.isActive) return ProfileBiometricResult.Unavailable
+        return authenticateInternal(profileIndex, userId, setup = false)
+    }
 
     actual fun disable(profileIndex: Int, userId: String): Boolean {
+        if (AutomationTestMode.isActive) return true
         if (profileIndex != 1) return true
 
         // The legacy Keychain item is not account-scoped; remove it even if the

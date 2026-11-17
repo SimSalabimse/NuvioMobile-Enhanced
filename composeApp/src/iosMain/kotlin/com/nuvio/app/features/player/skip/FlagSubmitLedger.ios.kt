@@ -6,14 +6,14 @@ import platform.Foundation.NSUserDefaults
 internal actual object FlagSubmitLedger {
     private const val keyBase = "flag_submit_ledger"
 
-    actual fun loadAll(): Map<String, Set<String>> {
+    actual fun loadAll(): Map<String, List<String>> {
         val raw = NSUserDefaults.standardUserDefaults.stringForKey(ProfileScopedKey.of(keyBase)) ?: ""
-        return decodeFlagSubmitLedger(raw)
+        return decodeFlagSubmitSegments(raw)
     }
 
-    actual fun saveAll(entries: Map<String, Set<String>>) {
+    actual fun saveAll(entries: Map<String, List<String>>) {
         NSUserDefaults.standardUserDefaults.setObject(
-            encodeFlagSubmitLedger(entries),
+            encodeFlagSubmitSegments(entries),
             forKey = ProfileScopedKey.of(keyBase),
         )
     }

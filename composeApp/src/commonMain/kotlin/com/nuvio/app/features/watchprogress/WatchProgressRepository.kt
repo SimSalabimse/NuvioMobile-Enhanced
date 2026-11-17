@@ -3,6 +3,12 @@ package com.nuvio.app.features.watchprogress
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
+import com.nuvio.app.core.sync.OfflineAccountFlush
+import com.nuvio.app.core.sync.OfflineOutboxEntry
+import com.nuvio.app.core.sync.OfflineOutboxKind
+import com.nuvio.app.core.sync.accountSyncIsOffline
+import com.nuvio.app.core.sync.offlineOutboxId
+import com.nuvio.app.core.sync.progressOutboxEntry
 import com.nuvio.app.core.tracking.ensureTrackingProvidersRegistered
 import com.nuvio.app.features.addons.AddonManifest
 import com.nuvio.app.features.addons.AddonRepository
@@ -21,6 +27,11 @@ import com.nuvio.app.features.tracking.TrackingSettingsRepository
 import com.nuvio.app.features.tracking.WatchProgressSource
 import com.nuvio.app.features.tracking.effectiveWatchProgressSource
 import com.nuvio.app.features.tracking.providerId
+import com.nuvio.app.features.downloads.FinishedDownloadDeletion
+import com.nuvio.app.features.downloads.SyncedWatchCompletion
+import com.nuvio.app.features.downloads.SyncedWatchOrigin
+import com.nuvio.app.features.downloads.SyncedWatchSourceAccount
+import com.nuvio.app.features.downloads.localWatchSnapshot
 import com.nuvio.app.features.watching.application.WatchingActions
 import com.nuvio.app.features.watching.sync.ProgressDeltaEvent
 import com.nuvio.app.features.watching.sync.ProgressSyncRecord
@@ -50,6 +61,7 @@ import kotlinx.coroutines.sync.withPermit
 private const val WATCH_PROGRESS_METADATA_RESOLUTION_CONCURRENCY = 4
 private const val WATCH_PROGRESS_METADATA_RESOLUTION_LIMIT = 64
 private const val WATCH_PROGRESS_METADATA_FETCH_ATTEMPTS = 3
+private const val WATCH_PROGRESS_METADATA_ENRICHMENT_MAX_ATTEMPTS = 3
 private const val WATCH_PROGRESS_METADATA_RETRY_BASE_DELAY_MS = 750L
 private const val WATCH_PROGRESS_DELTA_PAGE_SIZE = 900
 private const val WATCH_PROGRESS_DELTA_OPERATION_UPSERT = "upsert"
@@ -60,6 +72,19 @@ private data class RemoteMetadataResolutionResult(
     val key: WatchProgressMetadataKey,
     val entries: List<WatchProgressEntry>,
     val meta: MetaDetails?,
+)
+
+/**
+ * Snapshot of the state a persist will write. It is kept in memory until the background
+ * write lands so a reload never observes an older file than the state we already have.
+ */
+private data class PendingWatchProgressPayload(
+    val sequence: Long = 0L,
+    val entries: List<WatchProgressEntry>,
+    val lastSuccessfulPushEpochMs: Long,
+    val deltaCursorEventId: Long,
+    val deltaInitialized: Boolean,
+    val dirtyProgressKeys: Set<String>,
 )
 
 private data class MetadataProviderReadiness(
@@ -248,14 +273,16 @@ object WatchProgressRepository {
     private val _activeSourceState = MutableStateFlow(activeSource)
     internal val activeSourceState: StateFlow<WatchProgressSource> = _activeSourceState.asStateFlow()
     private val entriesLock = SynchronizedObject()
-    private val persistLock = SynchronizedObject()
-    private val persistWriteLock = SynchronizedObject()
-    private val persistScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private var pendingPersist: PendingWatchProgressPersist? = null
     private var entriesByProgressKey: MutableMap<String, WatchProgressEntry> = mutableMapOf()
     private var dirtyProgressKeys: MutableSet<String> = mutableSetOf()
     private var metadataResolutionJob: Job? = null
     private val metadataResolutionRetryCoordinator = MetadataResolutionRetryCoordinator()
+    private val metadataEnrichmentLock = SynchronizedObject()
+    private val metadataEnrichmentAttempts = mutableMapOf<String, Int>()
+    private val persistLock = SynchronizedObject()
+    private var persistSequence = 0L
+    private var persistedSequence = 0L
+    private val pendingPersists = mutableMapOf<Int, PendingWatchProgressPayload>()
     private val providerMetadataOverlay = ProviderProgressMetadataOverlay()
     private val nuvioPullMutex = Mutex()
     private var lastSuccessfulPushEpochMs = 0L
@@ -320,8 +347,10 @@ object WatchProgressRepository {
     }
 
     fun clearLocalState() {
-        synchronized(persistWriteLock) {
-            synchronized(persistLock) { pendingPersist = null }
+        // Fork: drop persists still queued so nothing is written back after the local state is cleared.
+        synchronized(persistLock) {
+            pendingPersists.clear()
+            persistedSequence = persistSequence
         }
         val previousAccountJob = synchronized(accountScopeLock) {
             accountScopeJob.also {
@@ -339,6 +368,7 @@ object WatchProgressRepository {
             updateActiveSource(WatchProgressSource.NUVIO_SYNC)
             providerMetadataOverlay.clear()
             clearLocalEntries()
+            clearMetadataEnrichmentAttempts()
             lastSuccessfulPushEpochMs = 0L
             deltaCursorEventId = 0L
             deltaInitialized = false
@@ -348,7 +378,28 @@ object WatchProgressRepository {
         _uiState.value = WatchProgressUiState()
     }
 
+    private var fixtureEntries: List<WatchProgressEntry>? = null
+
+    internal fun installFixtureEntries(entries: List<WatchProgressEntry>) {
+        fixtureEntries = entries
+        synchronized(loadLock) {
+            hasLoaded = true
+            currentProfileId = ProfileRepository.activeProfileId
+            replaceLocalEntries(entries)
+            publish()
+        }
+    }
+
     private fun loadFromDisk(profileId: Int) {
+        val started = kotlin.time.TimeSource.Monotonic.markNow()
+        try {
+        fixtureEntries?.let { entries ->
+            currentProfileId = profileId
+            hasLoaded = true
+            replaceLocalEntries(entries)
+            publish()
+            return
+        }
         cancelMetadataResolution(resetProviderHistory = true)
         currentProfileId = profileId
         profileGeneration += 1L
@@ -356,10 +407,18 @@ object WatchProgressRepository {
         hasLoadedNuvioRemoteProgress = false
         providerMetadataOverlay.clear()
         clearLocalEntries()
+        clearMetadataEnrichmentAttempts()
 
-        flushPendingPersist()
+        val pending = synchronized(persistLock) { pendingPersists[profileId] }
         val payload = WatchProgressStorage.loadPayload(profileId).orEmpty().trim()
-        if (payload.isNotEmpty()) {
+        if (pending != null) {
+            // A persist is still in flight: its snapshot is newer than the stored file.
+            lastSuccessfulPushEpochMs = pending.lastSuccessfulPushEpochMs
+            deltaCursorEventId = pending.deltaCursorEventId
+            deltaInitialized = pending.deltaInitialized
+            replaceLocalEntries(pending.entries)
+            replaceDirtyProgressKeys(pending.dirtyProgressKeys)
+        } else if (payload.isNotEmpty()) {
             val storedPayload = WatchProgressCodec.decodePayload(payload)
             lastSuccessfulPushEpochMs = storedPayload.lastSuccessfulPushEpochMs
             deltaCursorEventId = storedPayload.deltaCursorEventId
@@ -382,6 +441,12 @@ object WatchProgressRepository {
         }
         publish()
         resolveRemoteMetadata()
+        } finally {
+            com.nuvio.app.features.diagnostics.BehaviourEvents.record(
+                "cw-load",
+                mapOf("ms" to started.elapsedNow().inWholeMilliseconds.toString()),
+            )
+        }
     }
 
     private fun activeOperationGeneration(profileId: Int): Long? {
@@ -774,6 +839,11 @@ object WatchProgressRepository {
             newestRemoteByKey
         }
         replaceLocalEntries(updatedEntries)
+        notifySyncedAccountProgress(
+            serverEntries = serverEntries,
+            localEntries = reconciliation.entries,
+            applied = updatedEntries,
+        )
         acknowledgeDirtyProgressFromSnapshot(
             serverEntries = serverEntries,
             localEntriesBeforeApply = reconciliation.entries,
@@ -801,6 +871,7 @@ object WatchProgressRepository {
         var appliedUpserts = 0
         var appliedDeletes = 0
         var preservedLocalItems = false
+        val syncedCompletions = mutableListOf<SyncedWatchCompletion>()
         val latestEventByProgressKey = linkedMapOf<String, ProgressDeltaEvent>()
         events.sortedBy(ProgressDeltaEvent::eventId).forEach { event ->
             val progressKey = event.resolvedProgressKey()
@@ -829,7 +900,9 @@ object WatchProgressRepository {
             )
             when (decision.type) {
                 WatchProgressDeltaDecisionType.UPSERT -> {
-                    upsertLocalEntry(requireNotNull(decision.updatedEntry))
+                    val updated = requireNotNull(decision.updatedEntry)
+                    accountSyncCompletion(updated, localBefore = current)?.let(syncedCompletions::add)
+                    upsertLocalEntry(updated)
                     changed = true
                     appliedUpserts += 1
                 }
@@ -847,13 +920,77 @@ object WatchProgressRepository {
             if (decision.clearsDirtyProgress) {
                 clearProgressDirty(progressKey)
             }
+            if (
+                decision.type == WatchProgressDeltaDecisionType.UPSERT ||
+                decision.type == WatchProgressDeltaDecisionType.DELETE
+            ) {
+                OfflineAccountFlush.drop(
+                    offlineOutboxId(
+                        currentProfileId,
+                        OfflineOutboxKind.WatchProgress,
+                        buildWatchProgressKey(event.contentId, event.season, event.episode),
+                    ),
+                )
+            }
         }
+        FinishedDownloadDeletion.onSyncedCompletions(syncedCompletions)
         return WatchProgressDeltaApplyResult(
             appliedUpserts = appliedUpserts,
             appliedDeletes = appliedDeletes,
             preservedLocalItems = preservedLocalItems,
             changed = changed,
         )
+    }
+
+    /**
+     * A pulled row is fully watched only when its completed flag is set and the playhead is at
+     * the end of a known runtime. A percent short of that, or a missing watch time, is not passed on.
+     */
+    private fun accountSyncCompletion(
+        remote: WatchProgressEntry,
+        localBefore: WatchProgressEntry?,
+    ): SyncedWatchCompletion? {
+        if (!remote.isCompleted) return null
+        if (remote.durationMs <= 0L || remote.lastPositionMs < remote.durationMs) return null
+        return SyncedWatchCompletion(
+            fullyCompleted = true,
+            videoId = remote.videoId,
+            parentMetaId = remote.parentMetaId,
+            seasonNumber = remote.seasonNumber,
+            episodeNumber = remote.episodeNumber,
+            completedAtEpochMs = remote.lastUpdatedEpochMs.takeIf { it > 0L },
+            source = SyncedWatchSourceAccount,
+            origin = SyncedWatchOrigin.AccountSyncPull,
+            requiresPlayheadAtEnd = true,
+            positionMs = remote.lastPositionMs,
+            durationMs = remote.durationMs,
+            localWatchBeforeApply = localBefore?.localWatchSnapshot(),
+        )
+    }
+
+    private fun notifySyncedAccountProgress(
+        serverEntries: Collection<ProgressSyncRecord>,
+        localEntries: Collection<WatchProgressEntry>,
+        applied: Map<String, WatchProgressEntry>,
+    ) {
+        val localByKey = localEntries.newestByProgressKey()
+        val remoteByKey = linkedMapOf<String, WatchProgressEntry>()
+        serverEntries.forEach { record ->
+            val key = record.resolvedProgressKey()
+            val candidate = record.toWatchProgressEntry(cached = localByKey[key])
+            val existing = remoteByKey[key]
+            if (existing == null || candidate.isFresherThan(existing)) {
+                remoteByKey[key] = candidate
+            }
+        }
+        val completions = remoteByKey.mapNotNull { (key, remote) ->
+            val kept = applied[key] ?: return@mapNotNull null
+            if (kept.lastUpdatedEpochMs != remote.lastUpdatedEpochMs || kept.videoId != remote.videoId) {
+                return@mapNotNull null
+            }
+            accountSyncCompletion(remote, localBefore = localByKey[key])
+        }
+        FinishedDownloadDeletion.onSyncedCompletions(completions)
     }
 
     internal fun decideWatchProgressDeltaEvent(
@@ -994,12 +1131,40 @@ object WatchProgressRepository {
         metadataResolutionJob = null
     }
 
+    private fun isMetadataEnrichmentBackedOff(entry: WatchProgressEntry): Boolean =
+        synchronized(metadataEnrichmentLock) {
+            val attempts = metadataEnrichmentAttempts[entry.videoId] ?: 0
+            attempts >= WATCH_PROGRESS_METADATA_ENRICHMENT_MAX_ATTEMPTS
+        }
+
+    private fun recordMetadataEnrichmentFailure(entries: List<WatchProgressEntry>) {
+        synchronized(metadataEnrichmentLock) {
+            entries.forEach { entry ->
+                val attempts = (metadataEnrichmentAttempts[entry.videoId] ?: 0) + 1
+                metadataEnrichmentAttempts[entry.videoId] = attempts
+            }
+        }
+    }
+
+    private fun recordMetadataEnrichmentSuccess(entries: List<WatchProgressEntry>) {
+        synchronized(metadataEnrichmentLock) {
+            entries.forEach { entry -> metadataEnrichmentAttempts.remove(entry.videoId) }
+        }
+    }
+
+    private fun clearMetadataEnrichmentAttempts() {
+        synchronized(metadataEnrichmentLock) {
+            metadataEnrichmentAttempts.clear()
+        }
+    }
+
     private fun resolveRemoteMetadata() {
         val targetProfileId = currentProfileId
         val targetGeneration = profileGeneration
         val targetSource = activeSource
         val missingMetadataEntries = currentEntries()
             .filter(WatchProgressEntry::needsRemoteMetadataEnrichment)
+            .filterNot { entry -> isMetadataEnrichmentBackedOff(entry) }
         val entriesToResolve = missingMetadataEntries.continueWatchingEntries(
             limit = WATCH_PROGRESS_METADATA_RESOLUTION_LIMIT,
         )
@@ -1042,8 +1207,10 @@ object WatchProgressRepository {
                     if (!isActiveMetadataTarget(targetProfileId, targetGeneration, targetSource)) return@launch
                     val meta = result.meta
                     if (meta == null) {
+                        recordMetadataEnrichmentFailure(result.entries)
                         return@repeat
                     }
+                    recordMetadataEnrichmentSuccess(result.entries)
 
                     val appliedEntries = if (targetSource.providerId == null) {
                         var appliedLocalEntries = 0
@@ -1142,6 +1309,14 @@ object WatchProgressRepository {
             val entry = localEntriesSnapshot().resolveIdentityForUpsert(candidate)
             val existing = localEntry(entry.resolvedProgressKey())
             if (existing != null && existing.lastUpdatedEpochMs >= entry.lastUpdatedEpochMs) return@forEach
+            OfflineAccountFlush.drop(
+                offlineOutboxId(
+                    currentProfileId,
+                    OfflineOutboxKind.WatchProgress,
+                    buildWatchProgressKey(entry.parentMetaId, entry.seasonNumber, entry.episodeNumber),
+                ),
+            )
+            clearProgressDirty(entry.resolvedProgressKey())
             upsertLocalEntry(entry)
             changed = true
         }
@@ -1279,6 +1454,8 @@ object WatchProgressRepository {
         persist: Boolean,
         syncRemote: Boolean,
     ) {
+        if (!allowsProgressWrite(session.persistsProgress)) return
+        ProgressWriteTrace.note("WatchProgressRepository.upsert")
         if (session.isLiveTvSession()) return
 
         val targetProfileId = session.profileId
@@ -1289,6 +1466,20 @@ object WatchProgressRepository {
             durationMs = durationMs,
             isEnded = snapshot.isEnded,
         )
+        if (snapshot.isPlaying) {
+            com.nuvio.app.features.downloads.SmartDownloads.onPlaybackSample(
+                parentMetaId = session.parentMetaId,
+                parentMetaType = session.parentMetaType,
+                videoId = session.videoId,
+                seasonNumber = session.seasonNumber,
+                episodeNumber = session.episodeNumber,
+                positionMs = positionMs,
+                durationMs = durationMs,
+                playbackSpeed = snapshot.playbackSpeed.toDouble(),
+                mediaBitrateBps = snapshot.mediaBitrateBps,
+                persistsProgress = session.persistsProgress,
+            )
+        }
         if (!isCompleted && !shouldStoreWatchProgress(positionMs = positionMs, durationMs = durationMs)) {
             return
         }
@@ -1325,8 +1516,13 @@ object WatchProgressRepository {
         ).normalizedCompletion()
         // Delete-after-watch keys off the playback itself, before any profile, dedupe or
         // Trakt/MDBList history branch below can return early.
-        com.nuvio.app.features.downloads.FinishedDownloadDeletion.onLocalProgress(candidateEntry, positionMs, durationMs)
-        com.nuvio.app.features.stats.WatchStats.record(candidateEntry)
+        com.nuvio.app.features.downloads.FinishedDownloadDeletion.onLocalProgress(
+            candidateEntry,
+            positionMs,
+            durationMs,
+            persistsProgress = session.persistsProgress,
+        )
+        com.nuvio.app.features.stats.WatchStats.record(candidateEntry, persistsProgress = session.persistsProgress)
 
         if (targetProfileId != currentProfileId || ProfileRepository.activeProfileId != targetProfileId) {
             val resolvedEntry = resolveStoredProfileProgressIdentity(
@@ -1367,6 +1563,7 @@ object WatchProgressRepository {
         }
 
         if (entry.parentMetaType.equals("series", ignoreCase = true)) {
+            ProgressWriteTrace.note("ContinueWatchingPreferencesRepository.removeDismissedNextUpKeysForContent")
             ContinueWatchingPreferencesRepository.removeDismissedNextUpKeysForContent(entry.parentMetaId)
         }
 
@@ -1375,7 +1572,7 @@ object WatchProgressRepository {
         progressProvider?.applyOptimisticProgress(entry)
         publish()
         if (persist) persist()
-        if (entry.needsRemoteMetadataEnrichment()) {
+        if (entry.needsRemoteMetadataEnrichment() && !isMetadataEnrichmentBackedOff(entry)) {
             resolveRemoteMetadata()
         }
         if (syncRemote) {
@@ -1387,6 +1584,7 @@ object WatchProgressRepository {
                 providerOwnsCompletedHistory = progressProvider?.ownsCompletedHistoryProjection == true,
             )
         ) {
+            ProgressWriteTrace.note("WatchingActions.onProgressEntryUpdated")
             WatchingActions.onProgressEntryUpdated(entry, syncRemote = syncRemote)
         }
     }
@@ -1395,7 +1593,7 @@ object WatchProgressRepository {
         profileId: Int,
         entry: WatchProgressEntry,
     ): WatchProgressEntry {
-        flushPendingPersist()
+        flushPendingWrites()
         val payload = WatchProgressStorage.loadPayload(profileId).orEmpty().trim()
         val storedPayload = if (payload.isNotEmpty()) {
             WatchProgressCodec.decodePayload(payload)
@@ -1423,7 +1621,7 @@ object WatchProgressRepository {
         profileId: Int,
         entry: WatchProgressEntry,
     ): WatchProgressEntry {
-        flushPendingPersist()
+        flushPendingWrites()
         val payload = WatchProgressStorage.loadPayload(profileId).orEmpty().trim()
         val storedEntries = if (payload.isEmpty()) {
             emptyList()
@@ -1434,23 +1632,74 @@ object WatchProgressRepository {
     }
 
     private fun pushScrobbleToServer(entry: WatchProgressEntry, profileId: Int) {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
+        ProgressWriteTrace.note("WatchProgressRepository.pushScrobble")
         if (ServerItemRef.isServerId(entry.parentMetaId)) return
+        val noted = progressOutboxEntry(profileId, entry)
+        OfflineAccountFlush.note(noted)
+        if (accountSyncIsOffline()) return
         val operationGeneration = profileGeneration.takeIf { profileId == currentProfileId }
+        val outboxId = noted.id
         accountScopeSnapshot().launch {
-            runCatching {
+            if (OfflineAccountFlush.tryClaim(outboxId) == null) return@launch
+            OfflineAccountFlush.persistNow()
+            val ok = try {
                 syncAdapter.push(profileId = profileId, entries = listOf(entry))
                 recordSuccessfulPush(
                     profileId = profileId,
                     operationGeneration = operationGeneration,
                     entries = listOf(entry),
                 )
-            }.onFailure { e ->
-                log.e(e) { "Failed to push watch progress scrobble" }
+                true
+            } catch (error: CancellationException) {
+                OfflineAccountFlush.release(outboxId)
+                throw error
+            } catch (error: Throwable) {
+                log.e(error) { "Failed to push watch progress scrobble" }
+                false
+            }
+            if (ok) {
+                OfflineAccountFlush.confirm(outboxId, entry.lastUpdatedEpochMs)
+            } else {
+                OfflineAccountFlush.markFailed(outboxId, scheduleRetry = true)
             }
         }
     }
 
+    internal fun seedOfflineOutbox() {
+        if (!hasLoaded) return
+        val dirty = dirtyProgressKeysSnapshot()
+        if (dirty.isEmpty()) return
+        localEntriesSnapshot()
+            .filter { entry -> entry.resolvedProgressKey() in dirty }
+            .filterNot { entry -> ServerItemRef.isServerId(entry.parentMetaId) }
+            .forEach { entry ->
+                OfflineAccountFlush.note(progressOutboxEntry(currentProfileId, entry))
+            }
+    }
+
+    internal suspend fun deliverOutbox(entry: OfflineOutboxEntry): Boolean {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return true
+        val progress = entry.progressEntry ?: return false
+        if (ServerItemRef.isServerId(progress.parentMetaId)) return true
+        return try {
+            syncAdapter.push(profileId = entry.profileId, entries = listOf(progress))
+            recordSuccessfulPush(
+                profileId = entry.profileId,
+                operationGeneration = profileGeneration.takeIf { entry.profileId == currentProfileId },
+                entries = listOf(progress),
+            )
+            true
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            log.e(error) { "Failed to push watch progress scrobble" }
+            false
+        }
+    }
+
     private fun pushDeleteToServer(entries: Collection<WatchProgressEntry>) {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         if (activeSource.providerId != null) return
         val entries = entries.filterNot { ServerItemRef.isServerId(it.parentMetaId) }
         val profileId = currentProfileId
@@ -1477,34 +1726,50 @@ object WatchProgressRepository {
     }
 
     private fun persist() {
-        val pending = PendingWatchProgressPersist(
-            profileId = currentProfileId,
+        val profileId = currentProfileId
+        val snapshot = PendingWatchProgressPayload(
             entries = localEntriesSnapshot(),
             lastSuccessfulPushEpochMs = lastSuccessfulPushEpochMs,
             deltaCursorEventId = deltaCursorEventId,
             deltaInitialized = deltaInitialized,
             dirtyProgressKeys = dirtyProgressKeysSnapshot(),
         )
-        val shouldSchedule = synchronized(persistLock) {
-            val idle = pendingPersist == null
-            pendingPersist = pending
-            idle
+        val pending = synchronized(persistLock) {
+            persistSequence += 1
+            snapshot.copy(sequence = persistSequence).also { pendingPersists[profileId] = it }
         }
-        if (shouldSchedule) {
-            persistScope.launch { flushPendingPersist() }
+        // The JSON encode and the SharedPreferences write run off the caller's dispatcher:
+        // the player persists progress ticks from the main thread.
+        syncScope.launch {
+            val payload = WatchProgressCodec.encodePayload(
+                entries = pending.entries,
+                lastSuccessfulPushEpochMs = pending.lastSuccessfulPushEpochMs,
+                deltaCursorEventId = pending.deltaCursorEventId,
+                deltaInitialized = pending.deltaInitialized,
+                dirtyProgressKeys = pending.dirtyProgressKeys,
+            )
+            synchronized(persistLock) {
+                if (pending.sequence <= persistedSequence) return@synchronized
+                persistedSequence = pending.sequence
+                WatchProgressStorage.savePayload(profileId, payload)
+                if (pendingPersists[profileId]?.sequence == pending.sequence) {
+                    pendingPersists.remove(profileId)
+                }
+            }
         }
     }
 
-    fun flushPendingWrites() = flushPendingPersist()
-
-    private fun flushPendingPersist() {
-        synchronized(persistWriteLock) {
-            val pending = synchronized(persistLock) {
-                pendingPersist.also { pendingPersist = null }
-            }
-            if (pending != null) {
+    /**
+     * Fork: writes every persist still queued right away, e.g. when the app goes to the background,
+     * so a pending progress tick is not lost if the process is killed.
+     */
+    fun flushPendingWrites() {
+        synchronized(persistLock) {
+            pendingPersists.entries.sortedBy { it.value.sequence }.forEach { (profileId, pending) ->
+                if (pending.sequence <= persistedSequence) return@forEach
+                persistedSequence = pending.sequence
                 WatchProgressStorage.savePayload(
-                    pending.profileId,
+                    profileId,
                     WatchProgressCodec.encodePayload(
                         entries = pending.entries,
                         lastSuccessfulPushEpochMs = pending.lastSuccessfulPushEpochMs,
@@ -1514,6 +1779,7 @@ object WatchProgressRepository {
                     ),
                 )
             }
+            pendingPersists.clear()
         }
     }
 
@@ -1560,7 +1826,7 @@ object WatchProgressRepository {
         profileId: Int,
         pushedEntries: Collection<WatchProgressEntry>,
     ) {
-        flushPendingPersist()
+        flushPendingWrites()
         val payload = WatchProgressStorage.loadPayload(profileId).orEmpty().trim()
         if (payload.isEmpty()) return
         val storedPayload = WatchProgressCodec.decodePayload(payload)
@@ -1828,11 +2094,3 @@ private fun WatchProgressEntry.isLiveTvEntry(): Boolean =
         providerName?.equals("Live TV", ignoreCase = true) == true ||
         providerAddonId?.equals("live-tv", ignoreCase = true) == true
 
-private class PendingWatchProgressPersist(
-    val profileId: Int,
-    val entries: List<WatchProgressEntry>,
-    val lastSuccessfulPushEpochMs: Long,
-    val deltaCursorEventId: Long,
-    val deltaInitialized: Boolean,
-    val dirtyProgressKeys: Set<String>,
-)

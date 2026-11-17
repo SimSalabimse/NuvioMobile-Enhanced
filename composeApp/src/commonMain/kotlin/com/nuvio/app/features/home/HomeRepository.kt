@@ -1,8 +1,11 @@
 package com.nuvio.app.features.home
 
+import com.nuvio.app.core.automation.AutomationStubs
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.features.addons.ManagedAddon
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.enabledAddons
+import com.nuvio.app.features.profiles.shouldDeferLaunchNetwork
 import com.nuvio.app.features.catalog.CatalogTarget
 import com.nuvio.app.features.catalog.fetchCatalogPage
 import com.nuvio.app.core.perf.PerformanceOptimization
@@ -66,8 +69,16 @@ object HomeRepository {
     private var lastRefreshAddonSignature: List<String>? = null
     private var collectionHeroResolving: Boolean = false
     private var deferredRefreshForce: Boolean = false
+    private var launchPaintReleased = false
+    private var snapshotRestorePending = false
+    private var deferredLaunchRefreshAddons: List<ManagedAddon>? = null
+    private var deferredLaunchRefreshForce = false
 
     fun preloadSnapshot() {
+        if (AutomationTestMode.isActive) {
+            _uiState.value = AutomationStubs.homeState()
+            return
+        }
         if (preloadedSnapshot != null || restoreGeneration != 0) return
         val profileKey = HomeSnapshotStore.currentProfileKey() ?: return
         if (preloadedSnapshot != null || restoreGeneration != 0) return
@@ -83,7 +94,39 @@ object HomeRepository {
     /** True while the rows on screen still come from the saved snapshot rather than the network. */
     val isShowingSnapshot: Boolean get() = showingSnapshot
 
+    fun shouldDeferLaunchManifestRefresh(): Boolean =
+        shouldHoldLaunchRefresh() ||
+            (!launchPaintReleased && preloadedSnapshot?.sections?.isNotEmpty() == true)
+
+    fun onLaunchContentPainted() {
+        if (launchPaintReleased) return
+        launchPaintReleased = true
+        AddonRepository.releaseDeferredManifestRefresh()
+        flushDeferredLaunchRefresh()
+    }
+
+    private var fixtureHold: HomeUiState? = null
+
+    internal fun installFixture(state: HomeUiState) {
+        fixtureHold = state
+        activeJob?.cancel()
+        activeJob = null
+        _uiState.value = state
+    }
+
     fun refresh(addons: List<ManagedAddon>, force: Boolean = false) {
+        if (fixtureHold != null) return
+        if (AutomationTestMode.isActive) {
+            activeJob?.cancel()
+            activeJob = null
+            _uiState.value = AutomationStubs.homeState()
+            return
+        }
+        if (shouldHoldLaunchRefresh()) {
+            deferredLaunchRefreshAddons = addons
+            deferredLaunchRefreshForce = deferredLaunchRefreshForce || force
+            return
+        }
         val deferred = PlaybackQuietMode.deferWhilePlaying("home/refresh") {
             val deferredForce = deferredRefreshForce
             deferredRefreshForce = false
@@ -94,8 +137,16 @@ object HomeRepository {
             return
         }
         val activeAddons = addons.enabledAddons()
-        lastRefreshAddonSignature = buildAddonCatalogRefreshSignature(addons)
         val requests = buildHomeCatalogDefinitions(activeAddons)
+        val manifestsMissing = activeAddons.isNotEmpty() && activeAddons.none { it.manifest != null }
+        if (
+            requests.isEmpty() &&
+            manifestsMissing &&
+            (showingSnapshot || cachedSections.isNotEmpty() || _uiState.value.sections.isNotEmpty())
+        ) {
+            return
+        }
+        lastRefreshAddonSignature = buildAddonCatalogRefreshSignature(addons)
         currentDefinitions = requests
         val requestCacheKeys = requests.mapTo(mutableSetOf(), HomeCatalogDefinition::cacheKey)
         cachedSections = cachedSections.filterKeys(requestCacheKeys::contains)
@@ -129,6 +180,7 @@ object HomeRepository {
         _uiState.update { it.copy(isLoading = true, errorMessage = null) }
         val cachedHomeFirst = PerformanceSettings.isEnabled(PerformanceOptimization.CachedHomeFirst)
         activeJob = scope.launch {
+            val homeStarted = TimeSource.Monotonic.markNow()
             val prioritizedRequests = prioritizeDefinitions(
                 definitions = requests,
                 snapshot = HomeCatalogSettingsRepository.snapshot(),
@@ -189,6 +241,10 @@ object HomeRepository {
             cachedSections = loadedSections.toMap()
             lastErrorMessage = firstErrorMessage
             activeRequestKey = null
+            com.nuvio.app.features.diagnostics.BehaviourEvents.record(
+                "home-load",
+                mapOf("ms" to homeStarted.elapsedNow().inWholeMilliseconds.toString()),
+            )
             publishCurrentState(
                 isLoading = false,
                 requestKey = requestKey,
@@ -204,6 +260,11 @@ object HomeRepository {
     }
 
     fun applyCurrentSettings(heroSourcesChanged: Boolean = false) {
+        if (fixtureHold != null) return
+        if (AutomationTestMode.isActive) {
+            _uiState.value = AutomationStubs.homeState()
+            return
+        }
         publishCurrentState(
             isLoading = _uiState.value.isLoading,
             requestKey = currentRequestKey,
@@ -218,6 +279,14 @@ object HomeRepository {
     }
 
     fun clear() {
+        fixtureHold?.let { held ->
+            _uiState.value = held
+            return
+        }
+        launchPaintReleased = false
+        snapshotRestorePending = false
+        deferredLaunchRefreshAddons = null
+        deferredLaunchRefreshForce = false
         activeJob?.cancel()
         activeJob = null
         activeRequestKey = null
@@ -236,8 +305,34 @@ object HomeRepository {
         lastRefreshAddonSignature = null
         collectionHeroResolving = false
         showingSnapshot = false
+        if (AutomationTestMode.isActive) {
+            // Profile selection calls clear() after the launch snapshot. A saved snapshot has
+            // no stub rows, and waiting on addon manifests skips the later refresh.
+            restoreGeneration += 1
+            _uiState.value = AutomationStubs.homeState()
+            return
+        }
         _uiState.value = HomeUiState()
         restoreSnapshot()
+    }
+
+    private fun shouldHoldLaunchRefresh(): Boolean = shouldDeferLaunchNetwork(
+        cachedSnapshotVisible = showingSnapshot && _uiState.value.sections.isNotEmpty(),
+        snapshotRestorePending = snapshotRestorePending,
+        launchPainted = launchPaintReleased,
+    )
+
+    private fun flushDeferredLaunchRefresh() {
+        val addons = deferredLaunchRefreshAddons ?: return
+        val force = deferredLaunchRefreshForce
+        deferredLaunchRefreshAddons = null
+        deferredLaunchRefreshForce = false
+        refresh(addons, force)
+    }
+
+    private fun releaseLaunchNetworkHold() {
+        AddonRepository.releaseDeferredManifestRefresh()
+        flushDeferredLaunchRefresh()
     }
 
     private fun restoreSnapshot() {
@@ -248,19 +343,29 @@ object HomeRepository {
         preloadedSnapshot = null
         if (preloaded != null) {
             applySnapshot(preloaded)
+            if (!showingSnapshot) releaseLaunchNetworkHold()
             return
         }
+        snapshotRestorePending = true
         scope.launch {
-            val loaded = HomeSnapshotStore.load(profileKey) ?: return@launch
+            val loaded = HomeSnapshotStore.load(profileKey)
+            if (restore != restoreGeneration) return@launch
             val stillWanted = if (PerformanceSettings.isEnabled(PerformanceOptimization.CachedHomeFirst)) {
                 // A catalog refresh starting first must not throw the snapshot away; only a newer
                 // restore (profile change) or rows already loaded from the network should.
-                restore == restoreGeneration && lastPublishedEntries.isEmpty()
+                lastPublishedEntries.isEmpty()
             } else {
                 generation == snapshotGeneration
             }
-            if (!stillWanted || cachedSections.isNotEmpty()) return@launch
-            applySnapshot(loaded)
+            val applied = if (loaded != null && stillWanted && cachedSections.isEmpty()) {
+                applySnapshot(loaded)
+                showingSnapshot
+            } else {
+                false
+            }
+            if (restore != restoreGeneration) return@launch
+            snapshotRestorePending = false
+            if (!applied) releaseLaunchNetworkHold()
         }
     }
 
@@ -297,6 +402,14 @@ object HomeRepository {
         requestKey: String?,
         keepVisibleHeroWhilePending: Boolean = true,
     ) {
+        fixtureHold?.let { held ->
+            _uiState.value = held
+            return
+        }
+        if (AutomationTestMode.isActive) {
+            _uiState.value = AutomationStubs.homeState()
+            return
+        }
         if (currentDefinitions.isEmpty() && cachedSections.isNotEmpty()) return
         val snapshot = HomeCatalogSettingsRepository.snapshot()
         val preferences = snapshot.preferences

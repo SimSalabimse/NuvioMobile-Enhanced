@@ -55,6 +55,7 @@ import nuvio.composeapp.generated.resources.lang_marathi
 import nuvio.composeapp.generated.resources.lang_mongolian
 import nuvio.composeapp.generated.resources.lang_nepali
 import nuvio.composeapp.generated.resources.lang_norwegian
+import nuvio.composeapp.generated.resources.lang_norwegian_nynorsk
 import nuvio.composeapp.generated.resources.lang_persian
 import nuvio.composeapp.generated.resources.lang_polish
 import nuvio.composeapp.generated.resources.lang_portuguese_brazil
@@ -226,6 +227,10 @@ private val LanguageCodeAliases = mapOf(
     "pol" to "pl",
     "swe" to "sv",
     "nor" to "no",
+    "nb" to "no",
+    "nob" to "no",
+    "nn" to "nn",
+    "nno" to "nn",
     "dan" to "da",
     "fin" to "fi",
     "tur" to "tr",
@@ -353,6 +358,12 @@ private val LanguageNameAliases = mapOf(
     "marathi" to "mr",
     "mongolian" to "mn",
     "nepali" to "ne",
+    "nynorsk" to "nn",
+    "norwegian nynorsk" to "nn",
+    "norsk nynorsk" to "nn",
+    "bokmal" to "no",
+    "bokmål" to "no",
+    "norsk" to "no",
     "norwegian" to "no",
     "persian" to "fa",
     "polish" to "pl",
@@ -413,6 +424,10 @@ fun normalizeLanguageCode(language: String?): String? {
         }
     }
 
+    // Nynorsk contains the letters of "norsk", so it has to win before the Bokmål names.
+    if (containsAny("nynorsk")) return "nn"
+    if (containsAny("bokmal", "bokmål")) return "no"
+
     LanguageCodeAliases[raw]?.let { return it.replace('_', '-').lowercase() }
     LanguageNameAliases[tokenized]?.let { return it }
     LanguageNameAliases.entries
@@ -444,6 +459,9 @@ fun languageMatchesPreference(trackLanguage: String?, targetLanguage: String): B
 
     val trackPrimary = normalizedTrack.substringBefore('-')
     val targetPrimary = normalizedTarget.substringBefore('-')
+    // The settings row is one Norwegian choice. Bokmål is the usual match; Nynorsk is
+    // still offered, and a Nynorsk code does not swallow a Bokmål track.
+    if (targetPrimary == "no" && trackPrimary == "nn") return true
     return trackPrimary == targetPrimary
 }
 
@@ -468,7 +486,8 @@ fun languageLabelForCode(code: String?): String = when {
     code.equals(AudioLanguageOption.ORIGINAL, ignoreCase = true) ->
         stringResource(Res.string.settings_playback_option_original)
     else -> languageLabelResForCode(code)?.let { stringResource(it) }
-        ?: stringResource(Res.string.subtitle_language_unknown)
+        ?: if (normalizeLanguageCode(code) == "nn") stringResource(Res.string.lang_norwegian_nynorsk)
+        else stringResource(Res.string.subtitle_language_unknown)
 }
 
 suspend fun getLanguageLabelForCode(code: String?): String = when {
@@ -484,7 +503,8 @@ suspend fun getLanguageLabelForCode(code: String?): String = when {
     code.equals(AudioLanguageOption.ORIGINAL, ignoreCase = true) ->
         getString(Res.string.settings_playback_option_original)
     else -> languageLabelResForCode(code)?.let { getString(it) }
-        ?: getString(Res.string.subtitle_language_unknown)
+        ?: if (normalizeLanguageCode(code) == "nn") getString(Res.string.lang_norwegian_nynorsk)
+        else getString(Res.string.subtitle_language_unknown)
 }
 
 fun resolvePreferredAudioLanguageTargets(

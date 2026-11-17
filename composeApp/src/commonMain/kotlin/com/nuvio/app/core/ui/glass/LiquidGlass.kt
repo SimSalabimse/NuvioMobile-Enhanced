@@ -53,7 +53,11 @@ import com.kyant.backdrop.isRuntimeShaderSupported
 import com.kyant.backdrop.shadow.Shadow
 
 object LiquidGlassSettings {
-    var enabled: Boolean by mutableStateOf(true)
+    var userChoice: Boolean? by mutableStateOf(null)
+    var glassUiActive: Boolean by mutableStateOf(false)
+
+    val enabled: Boolean
+        get() = userChoice ?: !glassUiActive
 }
 
 fun isLiquidGlassAvailable(): Boolean = isRenderEffectSupported()

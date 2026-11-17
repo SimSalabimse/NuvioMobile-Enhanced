@@ -16,20 +16,32 @@ private fun isEndedSeriesStatus(status: String?): Boolean {
 }
 
 /**
- * Compact release line under the details hero: movies → year only; TV → "2025 -" or "2021 - 2028".
+ * Compact release line under the details hero.
+ * Movies show the year. An ended series with a later last-air year shows "2021 - 2028".
+ * A missing end year is just the start year, never "2024 -".
  */
 fun formatMetaReleaseLineForDetails(meta: MetaDetails): String? {
     val raw = meta.releaseInfo?.trim()?.takeIf { it.isNotEmpty() } ?: return null
     if (!isTvSeriesType(meta.type)) {
         return extractReleaseYearForDisplay(raw)?.toString()
     }
-    val startYear = extractReleaseYearForDisplay(raw) ?: return raw
-    val endYear = meta.lastAirDate?.let { extractReleaseYearForDisplay(it) }
-    return when {
-        isEndedSeriesStatus(meta.status) && endYear != null ->
-            if (endYear == startYear) startYear.toString()
-            else "$startYear - $endYear"
-        isEndedSeriesStatus(meta.status) -> startYear.toString()
-        else -> "$startYear -"
+    val startYear = extractReleaseYearForDisplay(raw)?.toString()
+    if (startYear == null) return joinMetadataParts(listOf(raw))
+    val endYear = meta.lastAirDate
+        ?.let { extractReleaseYearForDisplay(it)?.toString() }
+        ?.takeIf { isEndedSeriesStatus(meta.status) && it != startYear }
+    return joinMetadataParts(listOf(startYear, endYear))
+}
+
+private val danglingSeparatorEdge = Regex("""^[\s·•|/–—-]+|[\s·•|/–—-]+$""")
+
+/**
+ * Joins the parts that are present. A blank part is dropped with the separator
+ * that would have hung off it, and a part that is only a trailing dash is dropped too.
+ */
+internal fun joinMetadataParts(parts: List<String?>, separator: String = " - "): String? {
+    val present = parts.mapNotNull { part ->
+        part?.trim()?.takeIf { it.isNotEmpty() }?.replace(danglingSeparatorEdge, "")?.trim()?.takeIf { it.isNotEmpty() }
     }
+    return present.takeIf { it.isNotEmpty() }?.joinToString(separator)
 }

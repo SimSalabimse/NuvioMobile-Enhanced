@@ -247,6 +247,14 @@ internal class LibraryLocalState {
             itemsById = reconciliation.itemsByKey
             contentRevision += 1L
         }
+        if (
+            reconciliation.pendingUpsertKeysByKey != pendingUpsertKeysByKey ||
+            reconciliation.pendingDeleteKeysByKey != pendingDeleteKeysByKey
+        ) {
+            pendingUpsertKeysByKey = reconciliation.pendingUpsertKeysByKey.toMutableMap()
+            pendingDeleteKeysByKey = reconciliation.pendingDeleteKeysByKey.toMutableMap()
+            revision += 1L
+        }
         deltaCursorEventId = reconciliation.cursorEventId
         deltaInitialized = true
         revision += 1L
@@ -343,6 +351,28 @@ internal class LibraryLocalState {
             LibraryPushJobInstallResult(installed = true, detachedPushJob = detachedPushJob)
         }
     }
+
+    fun abandonPending(contentId: String, contentType: String): LibraryLocalSnapshot? = synchronized(lock) {
+        val key = libraryItemKey(contentId, contentType)
+        val removedUpsert = pendingUpsertKeysByKey.remove(key) != null
+        val removedDelete = pendingDeleteKeysByKey.remove(key) != null
+        if (!removedUpsert && !removedDelete) return@synchronized null
+        revision += 1L
+        snapshotLocked()
+    }
+
+    fun dropPendingIfMatches(contentId: String, contentType: String, adding: Boolean): LibraryLocalSnapshot? =
+        synchronized(lock) {
+            val key = libraryItemKey(contentId, contentType)
+            val removed = if (adding) {
+                pendingUpsertKeysByKey.remove(key) != null
+            } else {
+                pendingDeleteKeysByKey.remove(key) != null
+            }
+            if (!removed) return@synchronized null
+            revision += 1L
+            snapshotLocked()
+        }
 
     fun clearPushJob(job: Job) {
         synchronized(lock) {

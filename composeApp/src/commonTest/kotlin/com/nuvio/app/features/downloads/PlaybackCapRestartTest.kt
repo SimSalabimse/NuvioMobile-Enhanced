@@ -1,7 +1,9 @@
 package com.nuvio.app.features.downloads
 
+import com.nuvio.app.features.analysis.AnalysisThermal
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -61,6 +63,49 @@ class PlaybackCapRestartTest {
         assertEquals(emptySet(), heldIdsToStart(setOf("e3"), active = setOf("e1"), pauseAll = true, thermalBlocks = false))
         assertEquals(emptySet(), heldIdsToStart(setOf("e3"), active = setOf("e1"), pauseAll = false, thermalBlocks = true))
         assertEquals(setOf("e3"), heldIdsToStart(setOf("e3"), active = setOf("e1"), pauseAll = false, thermalBlocks = false))
+    }
+
+    @Test
+    fun `critical while idle suspends every running transfer`() {
+        val gate = playbackDownloadGate(
+            videoPlaying = false,
+            thermal = AnalysisThermal.Critical,
+            lowPowerMode = false,
+            charging = false,
+            onWifi = true,
+            behindDeadline = false,
+            pauseWhileWatching = false,
+        )
+        assertEquals(0, gate.maxActive)
+        val h = Harness()
+        h.enqueue("a")
+        h.enqueue("b")
+        h.setCap(gate.maxActive)
+        assertEquals(listOf("b", "a"), h.stopped)
+        assertTrue(h.handles.isEmpty(), "a critical cap sends no more bytes")
+        assertEquals(0L, offWindowBytes(cap = 0, reportedDelta = 5_000_000))
+    }
+
+    @Test
+    fun `serious playback keeps one running transfer through the duty cycle`() {
+        val gate = playbackDownloadGate(
+            videoPlaying = true,
+            thermal = AnalysisThermal.Serious,
+            lowPowerMode = false,
+            charging = false,
+            onWifi = true,
+            behindDeadline = false,
+            pauseWhileWatching = false,
+        )
+        assertEquals(TransferPace.Slowest, gate.nextUp.pace)
+        assertTrue(gate.dutyCycle)
+        assertEquals(1, gate.maxActive)
+        assertTrue(nextUpMayTransfer(allowStart = true, dutyCycle = true, windowOpen = false, alreadyRunning = true))
+        val h = Harness()
+        h.enqueue("next")
+        h.setCap(gate.maxActive)
+        assertTrue(h.stopped.isEmpty(), "the off half does not drop the running transfer")
+        assertEquals(setOf("next"), h.handles.keys)
     }
 
     @Test

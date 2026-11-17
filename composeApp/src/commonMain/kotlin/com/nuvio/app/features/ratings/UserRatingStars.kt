@@ -32,6 +32,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
@@ -92,6 +93,7 @@ fun UserRatingStars(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     starSize: Dp = 30.dp,
+    enabled: Boolean = true,
 ) {
     val accent = MaterialTheme.nuvio.colors.accent
     val outline = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
@@ -114,11 +116,13 @@ fun UserRatingStars(
 
     Row(
         modifier = modifier
+            .alpha(if (enabled) 1f else 0.38f)
             .graphicsLayer {
                 scaleX = pressScale
                 scaleY = pressScale
             }
             .clickable(
+                enabled = enabled,
                 interactionSource = interactionSource,
                 indication = LocalIndication.current,
                 role = Role.Button,

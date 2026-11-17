@@ -44,7 +44,7 @@ internal data class Endpoint(
 internal abstract class MediaBrowserProvider(
     authorizationHeader: String,
     private val apiPath: String,
-    http: HttpClient,
+    http: HttpClient?,
 ) : ServerProvider {
     override val capabilities: Set<ServerCapability> = ServerCapability.entries.toSet()
 

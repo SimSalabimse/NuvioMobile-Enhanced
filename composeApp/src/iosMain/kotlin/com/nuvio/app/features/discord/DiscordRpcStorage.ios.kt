@@ -1,5 +1,10 @@
 package com.nuvio.app.features.discord
 
+import com.nuvio.app.core.security.ProtectedCredentialDelete
+import com.nuvio.app.core.security.ProtectedCredentialRead
+import com.nuvio.app.core.security.protectedCredentialDelete
+import com.nuvio.app.core.security.protectedCredentialIntegrationsIsolated
+import com.nuvio.app.core.security.protectedCredentialRead
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.get
@@ -41,14 +46,18 @@ internal actual object DiscordRpcStorage {
         runCatching { writeToken(token?.takeIf { it.isNotBlank() }) }
     }
 
-    private fun readToken(): String? = keychainQuery { query ->
+    private fun readToken(): String? {
+        if (protectedCredentialIntegrationsIsolated()) return null
+        return keychainQuery { query ->
         CFDictionarySetValue(query, kSecReturnData, kCFBooleanTrue)
         CFDictionarySetValue(query, kSecMatchLimit, kSecMatchLimitOne)
         memScoped {
             val result = alloc<CFTypeRefVar>()
             val status = SecItemCopyMatching(query, result.ptr)
-            if (status == errSecItemNotFound) return@memScoped null
-            check(status == errSecSuccess) { "Unable to read Discord token (OSStatus $status)" }
+            when (protectedCredentialRead(status)) {
+                ProtectedCredentialRead.Absent, ProtectedCredentialRead.Unavailable -> return@memScoped null
+                ProtectedCredentialRead.Present -> Unit
+            }
             val data: CFDataRef = result.value?.reinterpret() ?: return@memScoped null
             try {
                 val bytes = CFDataGetBytePtr(data) ?: return@memScoped null
@@ -57,13 +66,17 @@ internal actual object DiscordRpcStorage {
                 CFRelease(data)
             }
         }
+        }
     }
 
-    private fun writeToken(token: String?) = keychainQuery { query ->
+    private fun writeToken(token: String?) {
+        if (protectedCredentialIntegrationsIsolated()) return
+        keychainQuery { query ->
         if (token == null) {
             val status = SecItemDelete(query)
-            check(status == errSecSuccess || status == errSecItemNotFound) {
-                "Unable to clear Discord token (OSStatus $status)"
+            when (protectedCredentialDelete(status)) {
+                ProtectedCredentialDelete.Removed, ProtectedCredentialDelete.AlreadyAbsent -> Unit
+                ProtectedCredentialDelete.Refused -> error("Unable to clear Discord token (OSStatus $status)")
             }
             return@keychainQuery
         }
@@ -85,6 +98,7 @@ internal actual object DiscordRpcStorage {
         } finally {
             CFRelease(attributes)
             CFRelease(data)
+        }
         }
     }
 

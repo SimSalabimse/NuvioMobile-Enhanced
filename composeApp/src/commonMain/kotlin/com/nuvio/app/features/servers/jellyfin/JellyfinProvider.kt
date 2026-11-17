@@ -1,6 +1,5 @@
 package com.nuvio.app.features.servers.jellyfin
 
-import com.nuvio.app.core.network.createApiHttpClient
 import com.nuvio.app.features.servers.ServerTitleQuery
 import com.nuvio.app.features.servers.mediabrowser.Endpoint
 import com.nuvio.app.features.servers.mediabrowser.MediaBrowserProvider
@@ -8,7 +7,7 @@ import com.nuvio.app.features.servers.mediabrowser.pathSegment
 import io.ktor.client.HttpClient
 
 internal class JellyfinProvider(
-    http: HttpClient = createApiHttpClient(),
+    http: HttpClient? = null,
 ) : MediaBrowserProvider(authorizationHeader = "Authorization", apiPath = "", http = http) {
     override val id: String = "jellyfin"
     override val displayName: String = "Jellyfin"

@@ -21,6 +21,10 @@ data class StreamLaunch(
     val startFromBeginning: Boolean = false,
     val downloadMode: Boolean = false,
     val forceExternalPlayer: Boolean = false,
+    /** Carried onto [com.nuvio.app.features.player.PlayerLaunch.submitMode] when a source is chosen. */
+    val submitMode: Boolean = false,
+    /** Carried onto [com.nuvio.app.features.player.PlayerLaunch.privateSession] when a source is chosen. */
+    val privateSession: Boolean = false,
 )
 
 object StreamLaunchStore {

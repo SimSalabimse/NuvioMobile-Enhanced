@@ -1,5 +1,7 @@
 package com.nuvio.app.features.search
 
+import androidx.compose.ui.graphics.Color
+import com.nuvio.app.core.ui.background.appBackgroundCover
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +20,14 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.runtime.mutableIntStateOf
+import com.nuvio.app.core.ui.NuvioIconActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -44,8 +54,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.ui.NuvioInputField
+import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.NuvioScreen
-import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.nuvioConsumePointerEvents
 import com.nuvio.app.core.ui.withDuplicateSafeLazyKeys
@@ -97,6 +107,8 @@ fun SearchScreen(
 ) {
     val focusRequester = remember { FocusRequester() }
     var isSearchFocused by remember { mutableStateOf(false) }
+    var isSearchVisible by rememberSaveable { mutableStateOf(false) }
+    var searchFocusRequest by remember { mutableIntStateOf(0) }
 
     ScreenActivityEffect(listState) { screenActive ->
         if (!screenActive) {
@@ -107,7 +119,8 @@ fun SearchScreen(
 
     ScreenActivityEffect(searchFocusRequestCount) { screenActive ->
         if (screenActive && searchFocusRequestCount > 0) {
-            focusRequester.requestFocus()
+            isSearchVisible = true
+            searchFocusRequest++
         }
     }
 
@@ -128,7 +141,9 @@ fun SearchScreen(
     val watchedUiState by WatchedRepository.uiState.collectAsStateWithLifecycle()
     val fullyWatchedSeriesKeys by WatchedRepository.fullyWatchedSeriesKeys.collectAsStateWithLifecycle()
     val networkStatusUiState by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
-    var query by rememberSaveable { mutableStateOf("") }
+    var query by rememberSaveable {
+        mutableStateOf(com.nuvio.app.core.uifixture.UiWalkSession.searchQuery.orEmpty())
+    }
     var lastRequestedQuery by rememberSaveable { mutableStateOf<String?>(null) }
     var observedOfflineState by remember { mutableStateOf(false) }
     val discoverInFocus by remember(query, listState) {
@@ -150,12 +165,12 @@ fun SearchScreen(
     val addonManifestsLoading = addonsUiState.addons.hasPendingEnabledManifests()
 
     ScreenActivityEffect(addonRefreshKey, homeCatalogSettingsUiState.hideUnreleasedContent) { screenActive ->
-        if (!screenActive) return@ScreenActivityEffect
+        if (!screenActive || networkStatusUiState.isOfflineLike) return@ScreenActivityEffect
         SearchRepository.refreshDiscover(addonsUiState.addons)
     }
 
     ScreenActivityEffect(query, addonRefreshKey, homeCatalogSettingsUiState.hideUnreleasedContent) { screenActive ->
-        if (!screenActive) return@ScreenActivityEffect
+        if (!screenActive || networkStatusUiState.isOfflineLike) return@ScreenActivityEffect
         val normalizedQuery = query.trim()
         if (normalizedQuery.isBlank()) {
             lastRequestedQuery = null
@@ -181,6 +196,7 @@ fun SearchScreen(
             .distinctUntilChanged()
             .filter { it && discoverUiState.canLoadMore && !discoverUiState.isLoading }
             .collect {
+                if (networkStatusUiState.isOfflineLike) return@collect
                 SearchRepository.loadMoreDiscover()
             }
     }
@@ -212,12 +228,14 @@ fun SearchScreen(
                     SearchRepository.refreshDiscover(
                         addons = addonsUiState.addons,
                         forceRefresh = true,
+                        keepVisibleItems = true,
                     )
                 } else {
                     SearchRepository.search(
                         query = normalizedQuery,
                         addons = addonsUiState.addons,
                         forceRefresh = true,
+                        keepVisibleItems = true,
                     )
                 }
             }
@@ -237,27 +255,59 @@ fun SearchScreen(
         val homeSectionPadding = remember(maxWidth) {
             homeSectionHorizontalPaddingForWidth(maxWidth.value)
         }
-        val headerTitle = when {
-            query.isNotBlank() -> stringResource(Res.string.compose_nav_search)
-            discoverInFocus -> stringResource(Res.string.compose_search_discover_title)
-            else -> stringResource(Res.string.compose_nav_search)
+        val searchShown = isSearchVisible || query.isNotBlank()
+        val headerTitle = if (searchShown) {
+            stringResource(Res.string.compose_nav_search)
+        } else {
+            stringResource(Res.string.compose_search_discover_title)
         }
 
         androidx.compose.foundation.layout.Column(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.fillMaxWidth()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .appBackgroundCover(MaterialTheme.colorScheme.background),
+            ) {
                 androidx.compose.foundation.layout.Column(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     NuvioScreenHeader(
                         title = headerTitle,
                         modifier = Modifier.padding(horizontal = 16.dp),
+                        actions = {
+                            NuvioIconActionButton(
+                                icon = if (searchShown) Icons.Rounded.Close else Icons.Rounded.Search,
+                                contentDescription = stringResource(Res.string.compose_nav_search),
+                                onClick = {
+                                    if (searchShown) {
+                                        query = ""
+                                        isSearchFocused = false
+                                        isSearchVisible = false
+                                    } else {
+                                        isSearchVisible = true
+                                        searchFocusRequest++
+                                    }
+                                },
+                            )
+                        },
                     )
                     androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(6.dp))
+                    AnimatedVisibility(
+                        visible = searchShown,
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut(),
+                    ) {
+                    androidx.compose.foundation.layout.Column {
+                    LaunchedEffect(searchFocusRequest) {
+                        if (searchFocusRequest > 0) runCatching { focusRequester.requestFocus() }
+                    }
                     androidx.compose.foundation.layout.Box(modifier = Modifier.padding(horizontal = 16.dp)) {
                         NuvioInputField(
                             value = query,
                             onValueChange = { query = it },
+                            enabled = !networkStatusUiState.isOfflineLike,
                             placeholder = stringResource(Res.string.compose_search_placeholder),
+                            shape = RoundedCornerShape(NuvioTokens.Radius.xl),
                             modifier = Modifier
                                 .focusRequester(focusRequester)
                                 .onFocusChanged { isSearchFocused = it.isFocused },
@@ -277,6 +327,19 @@ fun SearchScreen(
                         )
                     }
                     androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(14.dp))
+                    }
+                    }
+                    if (query.isBlank()) {
+                        DiscoverFilterRow(
+                            state = discoverUiState,
+                            modifier = Modifier
+                                .padding(horizontal = 16.dp)
+                                .padding(top = 8.dp, bottom = 14.dp),
+                            onTypeSelected = SearchRepository::selectDiscoverType,
+                            onCatalogSelected = SearchRepository::selectDiscoverCatalog,
+                            onGenreSelected = SearchRepository::selectDiscoverGenre,
+                        )
+                    }
                 }
             }
 
@@ -287,30 +350,6 @@ fun SearchScreen(
                 autoHidesNativeTabBar = true,
                 modifier = Modifier.weight(1f),
             ) {
-                if (query.isBlank()) {
-                    item {
-                        DiscoverSectionHeader(modifier = Modifier.padding(horizontal = 16.dp))
-                    }
-                    stickyHeader {
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            Box(
-                                modifier = Modifier
-                                    .matchParentSize()
-                                    .background(MaterialTheme.colorScheme.background)
-                                    .nuvioConsumePointerEvents(),
-                            )
-                            DiscoverFilterRow(
-                                state = discoverUiState,
-                                modifier = Modifier
-                                    .padding(horizontal = 16.dp)
-                                    .padding(top = 8.dp, bottom = 14.dp),
-                                onTypeSelected = SearchRepository::selectDiscoverType,
-                                onCatalogSelected = SearchRepository::selectDiscoverCatalog,
-                                onGenreSelected = SearchRepository::selectDiscoverGenre,
-                            )
-                        }
-                    }
-                }
                 if (query.isBlank()) {
                     if (isSearchFocused && recentSearches.isNotEmpty()) {
                         item(key = "recent_searches") {
@@ -325,7 +364,6 @@ fun SearchScreen(
                         state = discoverUiState,
                         isSourceLoading = addonManifestsLoading,
                         columns = discoverColumns,
-                        networkCondition = networkStatusUiState.condition,
                         onTypeSelected = SearchRepository::selectDiscoverType,
                         onCatalogSelected = SearchRepository::selectDiscoverCatalog,
                         onGenreSelected = SearchRepository::selectDiscoverGenre,
@@ -370,7 +408,6 @@ fun SearchScreen(
                                 SearchEmptyStateCard(
                                     reason = uiState.emptyStateReason,
                                     errorMessage = uiState.errorMessage,
-                                    networkCondition = networkStatusUiState.condition,
                                     onRetry = {
                                         if (normalizedQuery.isNotBlank()) {
                                             NetworkStatusRepository.requestRefresh(force = true)
@@ -424,22 +461,9 @@ fun SearchScreen(
 private fun SearchEmptyStateCard(
     reason: SearchEmptyStateReason?,
     errorMessage: String?,
-    networkCondition: NetworkCondition,
     onRetry: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    if (
-        reason == SearchEmptyStateReason.RequestFailed &&
-        (networkCondition == NetworkCondition.NoInternet || networkCondition == NetworkCondition.ServersUnreachable)
-    ) {
-        NuvioNetworkOfflineCard(
-            condition = networkCondition,
-            modifier = modifier,
-            onRetry = onRetry,
-        )
-        return
-    }
-
     val title: String
     val message: String
 

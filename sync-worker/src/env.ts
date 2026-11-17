@@ -1,6 +1,8 @@
 /** Bindings from wrangler.jsonc. ENROLL_SECRET is a secret, not a var. */
 export interface SyncEnv extends Env {
   ENROLL_SECRET?: string;
+  /** Wrangler secret. Never written to the repo or to D1. */
+  TELEMETRY_INGEST_KEY?: string;
   TEST_MIGRATIONS?: unknown;
 }
 

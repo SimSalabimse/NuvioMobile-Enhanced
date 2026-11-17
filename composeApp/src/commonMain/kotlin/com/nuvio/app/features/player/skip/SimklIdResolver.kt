@@ -30,7 +30,8 @@ internal object SimklIdResolver {
     data class EpisodeMapping(
         val animeEpisode: Int,
         val tvdbSeason: Int,
-        val tvdbEpisode: Int
+        val tvdbEpisode: Int,
+        val tvdbEpisodeId: Long? = null,
     )
 
     private val idsCache = BoundedCache<String, ResolvedIds?>(maxEntries = 500)
@@ -109,8 +110,12 @@ internal object SimklIdResolver {
                 val tvdb = obj["tvdb"]?.jsonObject ?: continue
                 val tvdbSeason = tvdb["season"]?.jsonPrimitive?.int ?: continue
                 val tvdbEpisode = tvdb["episode"]?.jsonPrimitive?.int ?: continue
+                val ids = runCatching { obj["ids"]?.jsonObject }.getOrNull()
+                val tvdbEpisodeId = ids.longOrNull("tvdb")
+                    ?: ids.longOrNull("tvdb_id")
+                    ?: tvdb.longOrNull("id")
                 if (epNum > 0 && tvdbSeason > 0 && tvdbEpisode > 0) {
-                    mapping.add(EpisodeMapping(epNum, tvdbSeason, tvdbEpisode))
+                    mapping.add(EpisodeMapping(epNum, tvdbSeason, tvdbEpisode, tvdbEpisodeId))
                 }
             }
             mapping.also { episodeCache[simklId] = it }
@@ -209,3 +214,7 @@ internal object SimklIdResolver {
 }
 
 private data class AnimeSeasonEntry(val simklId: Long, val tvdbSeason: Int)
+
+private fun JsonObject?.longOrNull(key: String): Long? = runCatching {
+    this?.get(key)?.jsonPrimitive?.content?.toLongOrNull()
+}.getOrNull()

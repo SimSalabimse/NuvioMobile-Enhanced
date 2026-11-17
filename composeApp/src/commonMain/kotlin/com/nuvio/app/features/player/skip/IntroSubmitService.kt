@@ -1,5 +1,7 @@
 package com.nuvio.app.features.player.skip
 
+import com.nuvio.app.core.automation.AutomationTestMode
+
 internal enum class IntroSubmitService {
     INTRODB,
     THE_INTRODB,
@@ -23,6 +25,9 @@ internal enum class IntroSubmitBlockReason {
 internal fun defaultIntroSubmitService(introDbApiKey: String, theIntroDbApiKey: String): IntroSubmitService {
     val introDbKey = introDbApiKey.trim()
     val theIntroDbKey = theIntroDbApiKey.trim()
+    if (AutomationTestMode.isActive && theIntroDbKey.isBlank() && !introDbKey.startsWith(INTRODB_KEY_PREFIX, ignoreCase = true)) {
+        return IntroSubmitService.THE_INTRODB
+    }
     return when {
         introDbKey.startsWith(INTRODB_KEY_PREFIX, ignoreCase = true) -> IntroSubmitService.INTRODB
         theIntroDbKey.isNotBlank() || legacyTheIntroDbKey(introDbKey).isNotBlank() -> IntroSubmitService.THE_INTRODB
@@ -54,6 +59,18 @@ internal fun introSubmitShowsServiceSection(service: IntroSubmitService, savedKe
 internal fun introSubmitShowsApiKeyField(service: IntroSubmitService, savedKey: String): Boolean =
     introSubmitShowsServiceSection(service, savedKey)
 
+/**
+ * A saved key of the right shape, or a missing TheIntroDB key while automation mode is on.
+ * The flag-on case does not read or send a key.
+ */
+internal fun introSubmitKeySatisfied(service: IntroSubmitService, apiKey: String): Boolean {
+    val problem = introSubmitKeyProblem(service, apiKey)
+    if (problem == IntroSubmitKeyProblem.NONE) return true
+    return AutomationTestMode.isActive &&
+        service == IntroSubmitService.THE_INTRODB &&
+        problem == IntroSubmitKeyProblem.MISSING
+}
+
 internal fun introSubmitKeyProblem(service: IntroSubmitService, apiKey: String): IntroSubmitKeyProblem {
     val key = apiKey.trim()
     if (key.isEmpty()) return IntroSubmitKeyProblem.MISSING
@@ -72,6 +89,13 @@ internal fun introSubmitBlockReason(
     season: Int,
     episode: Int,
 ): IntroSubmitBlockReason? {
+    if (
+        AutomationTestMode.isActive &&
+        service == IntroSubmitService.THE_INTRODB &&
+        introSubmitKeyProblem(service, apiKey) == IntroSubmitKeyProblem.MISSING
+    ) {
+        return null
+    }
     when (introSubmitKeyProblem(service, apiKey)) {
         IntroSubmitKeyProblem.MISSING -> return IntroSubmitBlockReason.MISSING_KEY
         IntroSubmitKeyProblem.INTRODB_PREFIX -> return IntroSubmitBlockReason.INTRODB_KEY_SHAPE
@@ -88,7 +112,7 @@ internal fun introSubmitBlockReason(
 }
 
 /**
- * TheIntroDB "no intro / recap / credits / preview" submissions use 0 for both times.
+ * TheIntroDB "none of this type" votes are 0 and 0 here. The submit body omits both time keys.
  * A normal range still has to end after it starts. IntroDB has no absent-segment submit.
  */
 internal fun resolveIntroSubmitTimes(

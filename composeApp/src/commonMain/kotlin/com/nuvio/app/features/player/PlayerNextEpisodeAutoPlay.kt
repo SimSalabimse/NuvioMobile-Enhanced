@@ -1,5 +1,6 @@
 package com.nuvio.app.features.player
 
+import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.enabledAddons
@@ -18,6 +19,7 @@ import com.nuvio.app.features.streams.StreamAutoPlaySource
 import com.nuvio.app.features.streams.StreamItem
 import com.nuvio.app.features.watching.domain.isShortPlaceholderDuration
 import com.nuvio.app.features.debrid.DebridSourceFallback
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -32,7 +34,7 @@ internal fun PlayerScreenRuntime.isAtNextEpisodeThreshold(): Boolean {
         isShortPlaceholderDuration(playbackSnapshot.durationMs)
     ) return false
     // Preload: trigger source fetch before the button appears
-    if (playerSettingsUiState.preloadNextEpisodeSources && !nextEpisodePreloadTriggered && nextEpisodeInfo != null) {
+    if (playerSettingsUiState.preloadNextEpisodeSources && !nextEpisodePreloadTriggered && nextEpisodeInfo != null && !isNetworkOffline()) {
         val preloadLeadMs = maxOf(playerSettingsUiState.streamAutoPlayTimeoutSeconds.toLong() * 1_000L, 10_000L)
             .coerceAtMost(30_000L)
         val shouldPreloadByCard = PlayerNextEpisodeRules.shouldShowNextEpisodeCard(
@@ -85,20 +87,23 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
     onCountdownChanged: (Int?) -> Unit,
     onNextEpisodeCardVisibleChanged: (Boolean) -> Unit,
 ): Job? {
-    val nextVideoId = nextEpisodeInfo?.videoId ?: return null
-    val nextVideo = allEpisodes.firstOrNull { video -> video.id == nextVideoId } ?: return null
-    if (nextEpisodeInfo.hasAired != true) return null
+    val nextVideo = PlayerNextEpisodeRules.resolveNextEpisodeVideo(nextEpisodeInfo, allEpisodes) ?: return null
 
-    val downloadedNextEpisode = DownloadsRepository.findPlayableDownload(
-        parentMetaId = parentMetaId,
-        seasonNumber = nextVideo.season,
-        episodeNumber = nextVideo.episode,
-        videoId = nextVideo.id,
-    )
+    val downloadedNextEpisode = runCatching {
+        DownloadsRepository.findPlayableDownload(
+            parentMetaId = parentMetaId,
+            seasonNumber = nextVideo.season,
+            episodeNumber = nextVideo.episode,
+            videoId = nextVideo.id,
+        )
+    }.getOrNull()
     if (downloadedNextEpisode != null) {
         onDownloadedEpisodeSelected(downloadedNextEpisode, nextVideo)
         return null
     }
+
+    // Offline: the auto-play fan-out is a network search, so skip it entirely.
+    if (isNetworkOffline()) return null
 
     previousJob?.cancel()
     onSearchingChanged(true)
@@ -155,6 +160,13 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
     }
 
     return launch {
+        try {
+        // Connectivity may have dropped between the request and the actual search.
+        if (isNetworkOffline()) {
+            onSearchingChanged(false)
+            return@launch
+        }
+
         PlayerStreamsRepository.loadEpisodeStreams(
             type = type,
             videoId = nextVideo.id,
@@ -342,6 +354,14 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
             onManualSelectionRequired(nextVideo)
             onNextEpisodeCardVisibleChanged(false)
         }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            InAppLogger.warn("Player/Next", "next episode search failed: ${error::class.simpleName}")
+            onSearchingChanged(false)
+            onCountdownChanged(null)
+            onSourceNameChanged(null)
+        }
     }
 }
 
@@ -350,6 +370,8 @@ internal fun PlayerScreenRuntime.preloadNextEpisodeSources() {
     val nextEp = nextEpisodeInfo ?: return
     if (nextEp.hasAired != true) return
     val type = contentType ?: return
+    // Offline: preloading streams is a network search; retry once connectivity returns.
+    if (isNetworkOffline()) return
 
     nextEpisodePreloadTriggered = true
     nextEpisodePreloadJob?.cancel()

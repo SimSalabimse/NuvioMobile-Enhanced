@@ -77,6 +77,7 @@ import com.nuvio.app.features.watchprogress.CurrentDateProvider
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
+import com.nuvio.app.core.ui.respectHostTopInset
 import com.nuvio.app.navigation.LocalUseNativeNavigation
 
 private sealed interface PersonDetailUiState {
@@ -161,7 +162,7 @@ fun PersonDetailScreen(
             IconButton(
                 onClick = onBack,
                 modifier = Modifier
-                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .respectHostTopInset()
                     .padding(start = 4.dp, top = 4.dp)
                     .align(Alignment.TopStart),
             ) {
@@ -300,7 +301,7 @@ private fun PersonDetailContent(
                         modifier = Modifier
                             .fillMaxSize()
                             .verticalScroll(scrollState)
-                            .windowInsetsPadding(WindowInsets.statusBars)
+                            .respectHostTopInset()
                             .padding(top = 48.dp),
                     ) {
                         HeroSection(
@@ -384,7 +385,7 @@ private fun WidePersonDetailContent(
     Row(
         modifier = Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars)
+            .respectHostTopInset()
             .padding(top = 34.dp),
     ) {
         PersonIdentitySidebar(
@@ -850,7 +851,7 @@ private fun PersonDetailSkeleton(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
-                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .respectHostTopInset()
                         .padding(top = 48.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
@@ -969,7 +970,7 @@ private fun WidePersonDetailSkeleton(
     Row(
         modifier = Modifier
             .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.statusBars)
+            .respectHostTopInset()
             .padding(top = 34.dp),
     ) {
         Column(

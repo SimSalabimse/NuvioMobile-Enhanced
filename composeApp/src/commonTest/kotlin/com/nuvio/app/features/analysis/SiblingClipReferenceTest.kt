@@ -65,6 +65,77 @@ class SiblingClipReferenceTest {
     }
 
     @Test
+    fun aFortySecondOpeningKeepsFortySecondsOfASeventySecondOne() {
+        val random = Random(21)
+        val shared = IntArray(400) { random.nextInt() }
+        val clip = shared + IntArray(300) { random.nextInt() }
+        val episode = IntArray(3_000) { random.nextInt() }
+        shared.copyInto(episode, destinationOffset = 100)
+        assertEquals(
+            10_000L to 50_000L,
+            ref.locate(
+                episode,
+                0L,
+                clip,
+                0L,
+                100L,
+                0L to 70_000L,
+                targetDurationMs = 1_440_000L,
+                referenceDurationMs = 1_470_000L,
+            ),
+        )
+        val short = IntArray(300) { Random(23).nextInt() }
+        val shortEpisode = IntArray(3_000) { Random(24).nextInt() }
+        short.copyInto(shortEpisode, destinationOffset = 100)
+        assertNull(
+            ref.locate(
+                shortEpisode,
+                0L,
+                short + IntArray(400) { Random(25).nextInt() },
+                0L,
+                100L,
+                0L to 70_000L,
+                targetDurationMs = 1_440_000L,
+                referenceDurationMs = 1_440_000L,
+            ),
+        )
+    }
+
+    @Test
+    fun anExtendedCutIsNotTransferredOntoTheBroadcastCut() {
+        val random = Random(22)
+        val shared = IntArray(600) { random.nextInt() }
+        val episode = IntArray(3_000) { random.nextInt() }
+        shared.copyInto(episode, destinationOffset = 100)
+        val clip = shared.copyOf()
+        assertNull(
+            ref.locate(
+                episode,
+                0L,
+                clip,
+                0L,
+                100L,
+                0L to 60_000L,
+                targetDurationMs = 1_440_000L,
+                referenceDurationMs = 1_471_000L,
+            ),
+        )
+        assertEquals(
+            10_000L to 70_000L,
+            ref.locate(
+                episode,
+                0L,
+                clip,
+                0L,
+                100L,
+                0L to 60_000L,
+                targetDurationMs = 1_440_000L,
+                referenceDurationMs = 0L,
+            ),
+        )
+    }
+
+    @Test
     fun locateRejectsTooShortAMatch() {
         val random = Random(3)
         val episode = IntArray(3_000) { random.nextInt() }

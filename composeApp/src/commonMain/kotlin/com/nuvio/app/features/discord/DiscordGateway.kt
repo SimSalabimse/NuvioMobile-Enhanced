@@ -50,7 +50,12 @@ internal class DiscordGatewayConnection(
 ) {
     private val dispatcher = Dispatchers.Default.limitedParallelism(1)
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
-    private val client: HttpClient = createDiscordGatewayHttpClient()
+    private var client: HttpClient? = null
+
+    private fun gatewayClient(): HttpClient {
+        check(!com.nuvio.app.core.automation.AutomationTestMode.isActive)
+        return client ?: createDiscordGatewayHttpClient().also { client = it }
+    }
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -78,6 +83,11 @@ internal class DiscordGatewayConnection(
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
 
     fun connect() {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) {
+            com.nuvio.app.core.automation.AutomationStubs.noteBlockedNetwork()
+            _state.value = DiscordGatewayState.Failed
+            return
+        }
         scope.launch {
             if (closed || connectionJob?.isActive == true) return@launch
             connectionJob = scope.launch { runConnection() }
@@ -112,7 +122,7 @@ internal class DiscordGatewayConnection(
             }
             connectionJob?.cancel()
             connectionJob = null
-            runCatching { client.close() }
+            runCatching { client?.close() }
             sessionId = null
             resumeGatewayUrl = null
             sequence = null
@@ -135,7 +145,7 @@ internal class DiscordGatewayConnection(
             try {
                 val url = resumeGatewayUrl ?: GATEWAY_URL
                 InAppLogger.info(TAG, "Connecting to $url")
-                client.webSocket(urlString = url) {
+                gatewayClient().webSocket(urlString = url) {
                     websocket = this
                     heartbeatAcknowledged = true
                     InAppLogger.info(TAG, "Gateway socket opened")

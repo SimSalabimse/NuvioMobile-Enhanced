@@ -33,8 +33,6 @@ import kotlinx.coroutines.launch
 import kotlin.math.cos
 import kotlin.math.sin
 
-internal const val AppIntroMinDurationMs = 1300L
-
 @Composable
 internal fun AppIntroContent(modifier: Modifier = Modifier) {
     val wordmarkAlpha = remember { Animatable(0f) }

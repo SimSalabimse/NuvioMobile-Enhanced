@@ -552,6 +552,8 @@ internal fun LazyListScope.detailEpisodeListItems(
     onEpisodeClick: (MetaVideo) -> Unit,
     onEpisodeLongPress: (MetaVideo) -> Unit,
     onSeasonLongPress: (Int) -> Unit,
+    manualPlayAvailable: Boolean = false,
+    downloadEnabled: Boolean = false,
 ): Int {
     val grouped = navigator.grouped(meta.videos) { meta.groupedEpisodesForDisplay() }
     if (grouped.isEmpty()) return 0
@@ -577,6 +579,8 @@ internal fun LazyListScope.detailEpisodeListItems(
                 horizontalScrollPadding = horizontalPadding,
                 onSeasonSelect = navigator::selectSeason,
                 onSeasonLongPress = onSeasonLongPress,
+                progressByVideoId = progressByVideoId,
+                watchedKeys = watchedKeys,
             )
         }
     }
@@ -622,6 +626,8 @@ internal fun LazyListScope.detailEpisodeListItems(
                     blurUnwatchedEpisodes = blurUnwatchedEpisodes,
                     onEpisodeClick = onEpisodeClick,
                     onEpisodeLongPress = onEpisodeLongPress,
+                    manualPlayAvailable = manualPlayAvailable,
+                    downloadEnabled = downloadEnabled,
                     highlightQuery = query,
                     jumpHighlighted = navigator.highlightedEpisodeKey == episode.navigatorKey(),
                 )

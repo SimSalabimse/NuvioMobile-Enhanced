@@ -1,5 +1,7 @@
 package com.nuvio.app.core.ui
 
+import com.nuvio.app.core.ui.background.isGlassUiActive
+import com.nuvio.app.core.ui.background.appGlassBackdrop
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
@@ -117,7 +120,7 @@ fun NuvioSheetBackdropHost(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NuvioModalBottomSheet(
+internal fun NuvioModalBottomSheet(
     onDismissRequest: () -> Unit,
     sheetState: SheetState,
     modifier: Modifier = Modifier,
@@ -126,9 +129,10 @@ fun NuvioModalBottomSheet(
     showDragHandle: Boolean = true,
     fullHeight: Boolean = false,
     liquidGlass: Boolean = false,
+    fitSheet: FitSheetHeightHost? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    if (usesNativeNuvioBottomSheet) {
+    if (usesNativeNuvioBottomSheet && !isGlassUiActive()) {
         NuvioNativeModalBottomSheet(
             onDismissRequest = onDismissRequest,
             modifier = modifier,
@@ -137,6 +141,7 @@ fun NuvioModalBottomSheet(
             showDragHandle = showDragHandle,
             fullHeight = fullHeight,
             liquidGlass = liquidGlass,
+            fitSheet = fitSheet,
             content = content,
         )
     } else {
@@ -162,6 +167,7 @@ fun NuvioModalBottomSheet(
                 Column(
                     modifier = modifier
                         .padding(NuvioTokens.Space.s10)
+                        .appGlassBackdrop(SheetShape)
                         .clip(SheetShape)
                         .nuvioSheetSurface(
                             backdrop = sheetBackdrop?.backdrop,
@@ -199,6 +205,8 @@ fun NuvioBottomSheetActionRow(
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
     selected: Boolean = false,
+    enabled: Boolean = true,
+    titleMaxLines: Int = 2,
     trailingContent: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val tokens = MaterialTheme.nuvio
@@ -207,9 +215,10 @@ fun NuvioBottomSheetActionRow(
             .fillMaxWidth()
             .padding(horizontal = NuvioTokens.Space.s8)
             .heightIn(min = NuvioTokens.Space.s56)
+            .alpha(if (enabled) 1f else 0.38f)
             .clip(tokens.shapes.compactCard)
             .background(if (selected) tokens.colors.accent.copy(alpha = tokens.opacity.hover) else Color.Transparent)
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(NuvioTokens.Space.s8),
         horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s14),
         verticalAlignment = Alignment.CenterVertically,
@@ -236,7 +245,7 @@ fun NuvioBottomSheetActionRow(
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = if (selected) FontWeight.SemiBold else null,
             color = tokens.colors.textPrimary,
-            maxLines = 2,
+            maxLines = titleMaxLines,
             overflow = TextOverflow.Ellipsis,
         )
         trailingContent?.invoke(this)

@@ -1,5 +1,6 @@
 package com.nuvio.app.features.profiles
 
+import com.nuvio.app.core.automation.isolateStorageKey
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Base64
@@ -140,7 +141,7 @@ actual object ProfilePinCacheStorage {
         }.getOrNull()
     }
 
-    private fun payloadKey(profileIndex: Int): String = "profile_pin_cache_$profileIndex"
+    private fun payloadKey(profileIndex: Int): String = isolateStorageKey("profile_pin_cache_$profileIndex")
 
     private const val KEYSTORE = "AndroidKeyStore"
 }

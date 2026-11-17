@@ -485,7 +485,20 @@ object HomeCatalogSettingsRepository {
         enforcePinnedCollectionsAtTop()
     }
 
+    private var fixtureUi: HomeCatalogSettingsUiState? = null
+
+    internal fun installFixture(items: List<HomeCatalogSettingsItem>) {
+        val state = HomeCatalogSettingsUiState(heroEnabled = true, items = items)
+        fixtureUi = state
+        hasLoaded = true
+        _uiState.value = state
+    }
+
     private fun publish() {
+        fixtureUi?.let { held ->
+            _uiState.value = held
+            return
+        }
         val collectionMap = collectionDefinitions.associateBy { it.key }
         val catalogItems = definitions
             .map { definition ->

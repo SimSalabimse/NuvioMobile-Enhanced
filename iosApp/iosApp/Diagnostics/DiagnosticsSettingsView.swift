@@ -4,16 +4,74 @@ import UniformTypeIdentifiers
 struct DiagnosticsSettingsView: View {
     @StateObject private var viewModel = DiagnosticsViewModel()
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var marked = false
+    @State private var confirmCellular = false
+    @AppStorage("NuvioShareBehaviourLog") private var shareBehaviourLog = true
+    @AppStorage("NuvioBehaviourLastUpload") private var lastUploadStamp = 0.0
+    @AppStorage("NuvioBehaviourLastAttempt") private var lastAttemptStamp = 0.0
+    @AppStorage("NuvioBehaviourLastAttemptOk") private var lastAttemptOk = false
+    @AppStorage("NuvioBehaviourLastAttemptDetail") private var lastAttemptDetail = ""
     
     var body: some View {
         List {
             Section {
-                Toggle("Save diagnostics log", isOn: $viewModel.isEnabled)
+                Toggle("Save device error log", isOn: $viewModel.isEnabled)
                     .tint(.accentColor)
                 
-                Text("Stays on this phone. Nothing is uploaded.")
+                Text("The error log stays on this phone.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Share behaviour log", isOn: $shareBehaviourLog)
+                    .tint(.accentColor)
+                Text("Uploaded on Wi-Fi when sharing is on. Upload now can use cellular after you confirm.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                LabeledContent("Last uploaded", value: BehaviourShare.uploadedLabel(stamp: lastUploadStamp))
+                LabeledContent(
+                    "Last attempt",
+                    value: BehaviourShare.lastAttemptLabel(
+                        stamp: lastAttemptStamp,
+                        ok: lastAttemptOk,
+                        detail: lastAttemptDetail
+                    )
+                )
+                Button("Upload now") {
+                    uploadNow()
+                }
+                .disabled(!shareBehaviourLog)
+                .accessibilityHint("Sends the behaviour log. Cellular data asks first.")
+                Button {
+                    BehaviourEvents.markFromSettings()
+                    if reduceMotion {
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) { marked = true }
+                    } else {
+                        marked = true
+                    }
+                } label: {
+                    Label {
+                        Text(marked ? "Marked" : "Something felt off")
+                    } icon: {
+                        Image(systemName: "flag")
+                            .accessibilityHidden(true)
+                    }
+                }
+                .accessibilityLabel("Something felt off")
+                .accessibilityValue(marked ? "Marked" : "Not marked")
+                .accessibilityHint("Saves a marker on this phone")
+            }
+
+            if let analysisTiming = viewModel.analysisTiming, !analysisTiming.isEmpty {
+                Section {
+                    Text(analysisTiming)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                }
             }
             
             if viewModel.isEnabled {
@@ -51,14 +109,22 @@ struct DiagnosticsSettingsView: View {
                 }
             }
         }
-        .navigationTitle("Diagnostics")
+        .navigationTitle("Device error log")
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $viewModel.showingShareSheet) {
             if let url = viewModel.logURL {
                 ShareSheet(items: [url])
             }
         }
-        .alert("Clear diagnostics log?", isPresented: $viewModel.showingClearConfirmation) {
+        .confirmationDialog("Upload using cellular?", isPresented: $confirmCellular, titleVisibility: .visible) {
+            Button("Upload") {
+                BehaviourUploadTask.upload(now: true, allowCellular: true) { _ in }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The behaviour log will use cellular data.")
+        }
+        .alert("Clear device error log?", isPresented: $viewModel.showingClearConfirmation) {
             Button("Cancel", role: .cancel) {}
             Button("Clear", role: .destructive) {
                 viewModel.clearLog()
@@ -68,6 +134,19 @@ struct DiagnosticsSettingsView: View {
         }
         .onAppear {
             viewModel.refresh()
+        }
+    }
+
+    private func uploadNow() {
+        BehaviourUploadTask.route { decided in
+            switch decided {
+            case .wifi:
+                BehaviourUploadTask.upload(now: true) { _ in }
+            case .cellular:
+                confirmCellular = true
+            case .offline:
+                BehaviourShare.recordAttempt(ok: false, detail: "No network")
+            }
         }
     }
 }
@@ -86,6 +165,7 @@ final class DiagnosticsViewModel: ObservableObject {
     @Published var showingShareSheet = false
     @Published var showingClearConfirmation = false
     @Published var logURL: URL?
+    @Published var analysisTiming: String?
     
     init() {
         self.isEnabled = DiagnosticsManager.shared.isEnabled
@@ -95,13 +175,22 @@ final class DiagnosticsViewModel: ObservableObject {
     func refresh() {
         logSize = DiagnosticsManager.shared.getLogSize()
         hasLog = DiagnosticsManager.shared.exportLog() != nil
+        analysisTiming = DiagnosticsManager.shared.latestAnalysisTiming()
     }
     
     func shareLog() {
-        logURL = DiagnosticsManager.shared.exportLog()
-        if logURL != nil {
-            showingShareSheet = true
+        guard let source = DiagnosticsManager.shared.exportLog() else { return }
+        let copy = FileManager.default.temporaryDirectory.appendingPathComponent("nuvio-device-error-\(UUID().uuidString).txt")
+        do {
+            if FileManager.default.fileExists(atPath: copy.path) {
+                try FileManager.default.removeItem(at: copy)
+            }
+            try FileManager.default.copyItem(at: source, to: copy)
+        } catch {
+            return
         }
+        logURL = copy
+        showingShareSheet = true
     }
     
     func clearLog() {

@@ -195,6 +195,11 @@ data class WatchProgressPlaybackSession(
     val lastStreamSubtitle: String? = null,
     val pauseDescription: String? = null,
     val lastSourceUrl: String? = null,
+    /**
+     * False only for a submit-mode playback. [com.nuvio.app.features.watchprogress.allowsProgressWrite]
+     * is the check every writer uses.
+     */
+    val persistsProgress: Boolean = true,
 )
 
 data class ContinueWatchingItem(

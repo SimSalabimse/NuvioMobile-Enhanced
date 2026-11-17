@@ -1,5 +1,6 @@
 package com.nuvio.app.features.home.components
 
+import com.nuvio.app.core.a11y.continueWatchingLongPressActions
 import com.nuvio.app.features.downloads.FinishSeriesGoalBadge
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.background
@@ -229,6 +230,7 @@ private fun FinishSeriesCard(
                     onLongClick = onLongClick,
                     zoomImageUrl = image,
                     zoomCornerRadius = 12.dp,
+                    longPressActions = continueWatchingLongPressActions(item, enabled = onLongClick != null),
                 ),
         ) {
             if (image != null) {

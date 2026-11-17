@@ -51,6 +51,7 @@ object AuthRepository {
             )
         }
 
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         sessionStatusJob = scope.launch {
             SupabaseProvider.client.auth.sessionStatus.collect { status ->
                 if (AuthStorage.loadAnonymousUserId() != null) return@collect
@@ -82,6 +83,7 @@ object AuthRepository {
     }
 
     private suspend fun validateRemoteSession(userId: String): Boolean {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return true
         if (userId.isBlank() || validatedRemoteUserId == userId) return true
         if (trustNextSessionWithoutValidation) {
             trustNextSessionWithoutValidation = false
@@ -145,6 +147,7 @@ object AuthRepository {
     }
 
     suspend fun signOut(): Result<Unit> {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return Result.success(Unit)
         _error.value = null
         val accountUserId = (state.value as? AuthState.Authenticated)?.userId
         val anonymousRead = runCatching { AuthStorage.loadAnonymousUserId() }
@@ -186,6 +189,7 @@ object AuthRepository {
     }
 
     suspend fun prepareForServerSwitch(): Result<Unit> {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return Result.success(Unit)
         _error.value = null
         val anonymousClear = runCatching { AuthStorage.clearAnonymousUserId() }
         validatedRemoteUserId = null
@@ -215,6 +219,7 @@ object AuthRepository {
     }
 
     private suspend fun clearLocalSessionAfterRemoteInvalidation() {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         _error.value = null
         val accountUserId = (state.value as? AuthState.Authenticated)?.userId
         AuthStorage.clearAnonymousUserId()
@@ -232,6 +237,7 @@ object AuthRepository {
     }
 
     suspend fun deleteAccount(): Result<Unit> = runCatching {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return@runCatching
         _error.value = null
         val accountUserId = (state.value as? AuthState.Authenticated)?.userId
         SupabaseProvider.client.functions.invoke("delete-account")

@@ -61,12 +61,21 @@ internal fun List<PluginScraper>.toPluginProviderGroups(
         .sortedBy { it.addonName.lowercase() }
 }
 
-internal fun List<AddonStreamGroup>.toEmptyStateReason(anyLoading: Boolean): StreamsEmptyStateReason? {
-    if (anyLoading || any { it.streams.isNotEmpty() }) {
-        return null
+internal fun List<AddonStreamGroup>.toEmptyStateReason(
+    anyLoading: Boolean,
+    deviceOffline: Boolean = false,
+): StreamsEmptyStateReason? {
+    if (any { it.streams.isNotEmpty() }) return null
+    if (isEmpty()) return null
+    if (deviceOffline && none { it.resolvedFetchStatus() is AddonStreamFetchStatus.Loaded }) {
+        return StreamsEmptyStateReason.Offline
     }
+    if (anyLoading || any { it.isLoading }) return null
 
-    return if (isNotEmpty() && all { !it.error.isNullOrBlank() }) {
+    val allFailed = all { group ->
+        group.resolvedFetchStatus() is AddonStreamFetchStatus.Failed || !group.error.isNullOrBlank()
+    }
+    return if (allFailed) {
         StreamsEmptyStateReason.StreamFetchFailed
     } else {
         StreamsEmptyStateReason.NoStreamsFound

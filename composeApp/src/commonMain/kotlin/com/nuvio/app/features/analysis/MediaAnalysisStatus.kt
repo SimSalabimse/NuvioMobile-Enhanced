@@ -17,7 +17,15 @@ sealed interface AnalysisJobState {
     data object Idle : AnalysisJobState
     data object Starting : AnalysisJobState
     data object WaitingForCharger : AnalysisJobState
+    /** The picture is actually moving. */
     data object WaitingForPlayback : AnalysisJobState
+    /** Fair heat or warmer while a download is transferring. Nothing is playing. */
+    data object WaitingWhileDownloading : AnalysisJobState
+    /** Serious or critical heat. Nothing is playing. */
+    data object WaitingForHeat : AnalysisJobState
+    data object WaitingForLowPower : AnalysisJobState
+    /** A hold this build does not name. Not playback. */
+    data object Paused : AnalysisJobState
     data class Running(
         val itemId: String,
         val title: String,
@@ -25,8 +33,15 @@ sealed interface AnalysisJobState {
         /** 0..1 within the stage; negative when unknown. */
         val stageProgress: Double,
         val inBackground: Boolean,
+        /** Stable step name: audio, match, clip, teach, backfill, recap, preview, previews. */
+        val activity: String = "",
+        /** Wall clock when [activity] started. The row shows elapsed time from this. The percent does not move from it. */
+        val activitySinceEpochMs: Long = 0L,
     ) : AnalysisJobState {
-        /** Overall share of the file: audio pass ~70 %, previews ~25 %, matching and recap the rest. */
+        /**
+         * Overall share of the file. Matching stays at 0.72 for the whole stage.
+         * The row shows the step and the elapsed time; the percent is not animated.
+         */
         val overall: Double
             get() {
                 val p = stageProgress.coerceIn(0.0, 1.0)
@@ -52,20 +67,42 @@ data class AnalysisBackgroundInfo(
 )
 
 /** Readiness of one analysis output for a file. */
-enum class AnalysisPart { Ready, NotFound, NeedsMoreEpisodes, Off, Pending }
+enum class AnalysisPart { Ready, NotFound, NeedsMoreEpisodes, Off, Pending, NotChecked, UserMarkedNone, Suggested }
+
+/** One chip on a downloaded item. Intro is episodes only; movies show Credits. */
+enum class AnalysisChipKind { Intro, Credits, Recap, SubtitleSync, Loudness, Previews }
 
 data class AnalysisParts(
-    val introCredits: AnalysisPart,
+    val intro: AnalysisPart,
+    val credits: AnalysisPart,
     val recap: AnalysisPart,
     val subtitleSync: AnalysisPart,
     val loudness: AnalysisPart,
     val previews: AnalysisPart,
 )
 
+/** Chips in row order, with [AnalysisPart.Off] left out. */
+internal fun analysisChipKinds(item: DownloadItem, parts: AnalysisParts): List<AnalysisChipKind> {
+    val episode = item.seasonNumber != null && item.episodeNumber != null
+    return buildList {
+        if (episode) add(AnalysisChipKind.Intro to parts.intro)
+        add(AnalysisChipKind.Credits to parts.credits)
+        if (episode) add(AnalysisChipKind.Recap to parts.recap)
+        add(AnalysisChipKind.SubtitleSync to parts.subtitleSync)
+        add(AnalysisChipKind.Loudness to parts.loudness)
+        add(AnalysisChipKind.Previews to parts.previews)
+    }.filter { it.second != AnalysisPart.Off }.map { it.first }
+}
+
 sealed interface ItemAnalysisStatus {
     data object Unsupported : ItemAnalysisStatus
     data object Queued : ItemAnalysisStatus
-    data class Running(val stage: AnalysisStage, val overall: Double) : ItemAnalysisStatus
+    data class Running(
+        val stage: AnalysisStage,
+        val overall: Double,
+        val activity: String = "",
+        val activitySinceEpochMs: Long = 0L,
+    ) : ItemAnalysisStatus
     data class Done(val parts: AnalysisParts, val complete: Boolean) : ItemAnalysisStatus
     data class Failed(val reason: String, val parts: AnalysisParts?) : ItemAnalysisStatus
 }
@@ -96,7 +133,13 @@ object MediaAnalysisStatus {
     private val _revision = MutableStateFlow(0)
     val revision: StateFlow<Int> = _revision.asStateFlow()
 
-    val supported: Boolean get() = MediaAnalyzerPlatform.supported
+    /**
+     * Host tests set this to read chip status where the analyzer binary is absent.
+     * Null follows [MediaAnalyzerPlatform.supported].
+     */
+    internal var supportedForTests: Boolean? = null
+
+    val supported: Boolean get() = supportedForTests ?: MediaAnalyzerPlatform.supported
 
     internal fun setJob(state: AnalysisJobState) {
         _job.value = state
@@ -145,38 +188,63 @@ object MediaAnalysisStatus {
     fun statusFor(item: DownloadItem): ItemAnalysisStatus {
         if (!supported) return ItemAnalysisStatus.Unsupported
         val running = _job.value as? AnalysisJobState.Running
-        if (running != null && running.itemId == item.id) return ItemAnalysisStatus.Running(running.stage, running.overall)
+        if (running != null && running.itemId == item.id) {
+            return ItemAnalysisStatus.Running(
+                running.stage,
+                running.overall,
+                running.activity,
+                running.activitySinceEpochMs,
+            )
+        }
         val stored = MediaAnalysisStore.load(MediaAnalysisStore.keyFor(item))?.takeIf { it.fileName == item.fileName }
         val failure = _failures.value[item.id]?.takeIf { it.fileName == null || it.fileName == item.fileName }
         val parts = stored?.let { partsOf(item, it) }
         if (failure != null) return ItemAnalysisStatus.Failed(failure.reason, parts)
         if (parts == null) return ItemAnalysisStatus.Queued
-        val complete = listOf(parts.introCredits, parts.recap, parts.subtitleSync, parts.loudness, parts.previews)
+        val complete = listOf(parts.intro, parts.credits, parts.recap, parts.subtitleSync, parts.loudness, parts.previews)
             .none { it == AnalysisPart.Pending }
         return if (complete) ItemAnalysisStatus.Done(parts, true) else ItemAnalysisStatus.Done(parts, false)
     }
 
     private fun partsOf(item: DownloadItem, r: MediaAnalysisResult): AnalysisParts {
         fun on(flag: MediaAnalysisSettings.Flag) = MediaAnalysisSettings.isEnabled(flag)
-        val isEpisode = item.seasonNumber != null && item.episodeNumber != null
+        val season = item.seasonNumber
+        val isEpisode = season != null && item.episodeNumber != null
         val derivedCurrent = r.derivedVersion >= MEDIA_ANALYSIS_DERIVED_VERSION
-        val introCredits = when {
-            !on(MediaAnalysisSettings.Flag.IntroDetection) -> AnalysisPart.Off
-            !isEpisode -> AnalysisPart.NotFound
-            r.introEndMs != null || r.creditsStartMs != null -> AnalysisPart.Ready
-            MediaAnalysisStore.seasonSiblings(item.parentMetaId, item.seasonNumber, r.key).isEmpty() -> AnalysisPart.NeedsMoreEpisodes
-            else -> AnalysisPart.NotFound
+        val introOn = on(MediaAnalysisSettings.Flag.IntroDetection)
+        val siblingsEmpty = introOn &&
+            season != null &&
+            (r.introEndMs == null || r.creditsStartMs == null) &&
+            MediaAnalysisStore.seasonSiblings(item.parentMetaId, season, r.key).isEmpty()
+        // Episodes: each side is Ready only from its own timestamp. Movies have no intro chip.
+        // Credits on a movie use the stored time only; season matching stays episode-only.
+        val intro = when {
+            !introOn -> AnalysisPart.Off
+            !isEpisode -> AnalysisPart.Off
+            r.introEndMs != null -> AnalysisPart.Ready
+            siblingsEmpty -> AnalysisPart.NeedsMoreEpisodes
+            r.introOutcome in INTRO_CREDITS_CHECKED_NONE -> AnalysisPart.NotFound
+            else -> AnalysisPart.NotChecked
         }
-        val recap = when {
-            !on(MediaAnalysisSettings.Flag.RecapDetection) -> AnalysisPart.Off
+        val credits = when {
+            !introOn -> AnalysisPart.Off
+            r.creditsStartMs != null -> AnalysisPart.Ready
             !isEpisode -> AnalysisPart.NotFound
-            !derivedCurrent -> AnalysisPart.Pending
-            r.recapEndMs != null -> AnalysisPart.Ready
-            // Only "needs another episode" when there truly is no analysed sibling; with siblings
-            // present and derived data current, a missing recap simply means none was found.
-            MediaAnalysisStore.seasonSiblings(item.parentMetaId, item.seasonNumber, r.key).isEmpty() -> AnalysisPart.NeedsMoreEpisodes
-            else -> AnalysisPart.NotFound
+            siblingsEmpty -> AnalysisPart.NeedsMoreEpisodes
+            r.creditsOutcome in INTRO_CREDITS_CHECKED_NONE -> AnalysisPart.NotFound
+            else -> AnalysisPart.NotChecked
         }
+        val recap = recapAnalysisPart(
+            recapEnabled = on(MediaAnalysisSettings.Flag.RecapDetection),
+            isEpisode = isEpisode,
+            derivedCurrent = derivedCurrent,
+            recapEndMs = r.recapEndMs,
+            userRecap = r.userSegments["recap"],
+            durationMs = r.durationMs,
+            siblingsEmpty = season != null &&
+                MediaAnalysisStore.seasonSiblings(item.parentMetaId, season, r.key).isEmpty(),
+            outcome = r.recapOutcome,
+        )
         val subtitleSync = when {
             !on(MediaAnalysisSettings.Flag.SubtitleSync) -> AnalysisPart.Off
             !r.energy.isNullOrEmpty() -> AnalysisPart.Ready
@@ -192,7 +260,7 @@ object MediaAnalysisStatus {
             r.thumbnails != null -> AnalysisPart.Ready
             else -> AnalysisPart.Pending
         }
-        return AnalysisParts(introCredits, recap, subtitleSync, loudness, previews)
+        return AnalysisParts(intro, credits, recap, subtitleSync, loudness, previews)
     }
 
     fun summarize(items: List<DownloadItem>): AnalysisSummary {

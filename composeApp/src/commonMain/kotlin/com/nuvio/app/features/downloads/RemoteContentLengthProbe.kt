@@ -14,6 +14,7 @@ internal object RemoteContentLengthProbe {
     private val client get() = sharedApiHttpClient
 
     suspend fun probe(target: SeasonProbeTarget): Long? {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return null
         probeOnce(target, ranged = false)?.let { return it }
         return probeOnce(target, ranged = true)
     }

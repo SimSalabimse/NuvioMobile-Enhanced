@@ -2,6 +2,7 @@ package com.nuvio.app.features.profiles
 
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.network.ServerConfigurationRepository
+import com.nuvio.app.core.startup.DeferredLaunchNetworkTimeoutMs
 import com.nuvio.app.core.network.SupabaseProvider
 import com.nuvio.app.features.membership.CosmeticEntitlement
 import com.nuvio.app.features.membership.MemberAccessRepository
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -78,6 +80,7 @@ object AvatarRepository {
     private var lastMemberRefresh: TimeMark? = null
 
     suspend fun shareableImageUrl(profile: NuvioProfile): String? {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return null
         val storage = "${ServerConfigurationRepository.active.value.backendUrl}/storage/v1/object/"
         normalizedAvatarUrl(profile.avatarUrl)?.let { url -> return url.takeIf { it.startsWith(storage) } }
         val avatar = profile.avatarId?.let { id -> avatars.value.firstOrNull { it.id == id } } ?: return null
@@ -92,7 +95,12 @@ object AvatarRepository {
         }
     }
 
+    fun hydrateCachedCatalog() {
+        hydrateFromCacheIfNeeded()
+    }
+
     suspend fun fetchAvatars() {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         hydrateFromCacheIfNeeded()
         ensureMemberAccessObserver()
         if (standardLoaded && standardCatalog.isNotEmpty()) {
@@ -103,6 +111,7 @@ object AvatarRepository {
     }
 
     suspend fun refreshAvatars(force: Boolean = false) {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         hydrateFromCacheIfNeeded()
         ensureMemberAccessObserver()
         if (force || isRefreshDue(lastStandardRefresh)) {
@@ -164,8 +173,13 @@ object AvatarRepository {
         if (standardFetchInFlight) return
         standardFetchInFlight = true
         try {
-            val result = SupabaseProvider.client.postgrest.rpc("get_avatar_catalog")
-            val items = result.decodeList<AvatarCatalogItem>()
+            val items = withTimeoutOrNull(DeferredLaunchNetworkTimeoutMs) {
+                SupabaseProvider.client.postgrest.rpc("get_avatar_catalog").decodeList<AvatarCatalogItem>()
+            }
+            if (items == null) {
+                log.w { "Avatar catalog refresh timed out" }
+                return
+            }
             standardCatalog = items.filter { it.isActive }.sortedWith(
                 compareBy({ it.category }, { it.sortOrder }),
             )

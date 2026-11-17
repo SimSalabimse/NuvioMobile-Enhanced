@@ -82,6 +82,8 @@ internal const val AnimatedImageProbeLogging = false
 
 private val animatedSourceHttpClient by lazy { HttpClient(Darwin) }
 private val loadSemaphore = Semaphore(MaxConcurrentLoads)
+private const val MaxConcurrentDecodes = 2
+private val decodeSemaphore = Semaphore(MaxConcurrentDecodes)
 
 // ---------------------------------------------------------------------------
 // Compressed source cache (bytes only)
@@ -218,7 +220,19 @@ private fun trimDiskCache(directory: String) {
 }
 
 private suspend fun fetchSourceBytes(url: String): ByteArray? = loadSemaphore.withPermit {
+    if (com.nuvio.app.core.automation.AutomationTestMode.isActive) {
+        com.nuvio.app.core.automation.AutomationStubs.noteBlockedNetwork()
+        return@withPermit null
+    }
     cachedSourceBytes(url)?.let { return@withPermit it }
+
+    if (url.startsWith("file://")) {
+        val local = withContext(Dispatchers.Default) {
+            NSFileManager.defaultManager.contentsAtPath(url.removePrefix("file://"))?.toByteArray()
+        } ?: return@withPermit null
+        storeSourceBytes(url, local)
+        return@withPermit local
+    }
 
     withContext(Dispatchers.Default) { diskCacheRead(url) }?.let { fromDisk ->
         storeSourceBytes(url, fromDisk)
@@ -370,8 +384,9 @@ private fun decodeAnimation(
 
 private class SharedAnimation(
     val key: String,
-    val animation: AnimationFrames,
+    animation: AnimationFrames,
 ) {
+    var animation: AnimationFrames? = animation
     var refCount: Int = 0
     var job: Job? = null
     var idleEviction: Job? = null
@@ -383,6 +398,52 @@ private val registry = mutableMapOf<String, SharedAnimation>()
 private val pending = mutableMapOf<String, Deferred<SharedAnimation?>>()
 private var budgetUsedBytes = 0L
 private var animationsPaused = false
+
+private var playbackSuspensions = 0
+private val playbackGeneration = mutableStateOf(0)
+
+internal fun suspendAnimatedImagesForPlayback() {
+    pendingResume?.cancel()
+    pendingResume = null
+    playbackSuspensions++
+    if (playbackSuspensions > 1) return
+    registry.values.forEach { shared ->
+        shared.job?.cancel()
+        shared.job = null
+        shared.idleEviction?.cancel()
+        shared.idleEviction = null
+        shared.frame.value = null
+        shared.animation = null
+    }
+    registry.clear()
+    pending.values.forEach { it.cancel() }
+    pending.clear()
+    budgetUsedBytes = 0
+    registryScope.launch {
+        sourceCacheLock.withLock {
+            sourceCache.clear()
+            sourceCacheBytes = 0
+        }
+    }
+}
+
+private const val ResumeAfterPlaybackDelayMillis = 3_000L
+private var pendingResume: Job? = null
+
+internal fun resumeAnimatedImagesAfterPlayback() {
+    if (playbackSuspensions == 0) return
+    playbackSuspensions--
+    if (playbackSuspensions > 0) return
+    pendingResume?.cancel()
+    pendingResume = registryScope.launch {
+        delay(ResumeAfterPlaybackDelayMillis)
+        if (playbackSuspensions == 0) playbackGeneration.value++
+        pendingResume = null
+    }
+}
+
+private val animationsHeldForPlayback: Boolean
+    get() = playbackSuspensions > 0 || pendingResume?.isActive == true
 private var lifecycleObserversInstalled = false
 
 private fun installLifecycleObservers() {
@@ -434,6 +495,7 @@ private fun bucket(value: Int): Int {
 
 private suspend fun acquireShared(url: String, targetWidth: Int, targetHeight: Int): SharedAnimation? {
     installLifecycleObservers()
+    if (animationsHeldForPlayback) return null
     val key = "$url|${targetWidth}x$targetHeight"
 
     registry[key]?.let { existing ->
@@ -449,11 +511,15 @@ private suspend fun acquireShared(url: String, targetWidth: Int, targetHeight: I
         val remaining = MaxAnimationBudgetBytes - budgetUsedBytes
         if (remaining <= 0) return@async null
 
-        val animation = withContext(Dispatchers.Default) {
-            decodeAnimation(bytes, targetWidth, targetHeight, remaining)
+        val animation = decodeSemaphore.withPermit {
+            if (animationsHeldForPlayback) return@withPermit null
+            withContext(Dispatchers.Default) {
+                decodeAnimation(bytes, targetWidth, targetHeight, MaxAnimationBudgetBytes - budgetUsedBytes)
+            }
         } ?: return@async null
 
         registry[key]?.let { return@async it }
+        if (animationsHeldForPlayback) return@async null
 
         if (budgetUsedBytes + animation.bytes > MaxAnimationBudgetBytes) return@async null
 
@@ -482,8 +548,8 @@ private suspend fun acquireShared(url: String, targetWidth: Int, targetHeight: I
 }
 
 private fun startIfNeeded(shared: SharedAnimation) {
-    if (shared.job != null || animationsPaused) return
-    val animation = shared.animation
+    if (shared.job != null || animationsPaused || animationsHeldForPlayback) return
+    val animation = shared.animation ?: return
     if (animation.frames.size <= 1) return
 
     shared.job = registryScope.launch {
@@ -499,6 +565,7 @@ private fun startIfNeeded(shared: SharedAnimation) {
 private fun releaseShared(shared: SharedAnimation) {
     shared.refCount--
     if (shared.refCount > 0) return
+    if (shared.animation == null || registry[shared.key] !== shared) return
 
     shared.idleEviction?.cancel()
     shared.idleEviction = registryScope.launch {
@@ -516,7 +583,8 @@ private fun evictIfIdle(key: String) {
     shared.idleEviction = null
     registry.remove(key)
     shared.frame.value = null
-    budgetUsedBytes -= shared.animation.bytes
+    budgetUsedBytes -= shared.animation?.bytes ?: 0L
+    shared.animation = null
     if (budgetUsedBytes < 0) budgetUsedBytes = 0
 }
 
@@ -537,10 +605,11 @@ internal fun rememberAnimatedFrame(
 ): AnimatedFrame {
     val width = bucket(targetWidthPx)
     val height = bucket(targetHeightPx)
-    var shared by remember(url, width, height) { mutableStateOf<SharedAnimation?>(null) }
-    var unavailable by remember(url, width, height) { mutableStateOf(false) }
+    val generation = playbackGeneration.value
+    var shared by remember(url, width, height, generation) { mutableStateOf<SharedAnimation?>(null) }
+    var unavailable by remember(url, width, height, generation) { mutableStateOf(false) }
 
-    DisposableEffect(url, width, height) {
+    DisposableEffect(url, width, height, generation) {
         var released = false
         var acquired: SharedAnimation? = null
 

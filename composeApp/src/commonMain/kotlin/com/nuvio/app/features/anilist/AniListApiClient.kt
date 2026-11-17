@@ -116,6 +116,10 @@ internal class AniListApiClient(
         scope: AniListAuthScope?,
         allowNotFound: Boolean = false,
     ): JsonObject {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) {
+            com.nuvio.app.core.automation.AutomationStubs.noteBlockedNetwork()
+            throw AniListApiException(204, message = "automation")
+        }
         var attempt = 0
         while (true) {
             attempt += 1

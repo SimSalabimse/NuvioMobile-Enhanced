@@ -26,6 +26,7 @@
 		<string>ru</string>
 		<string>sk</string>
 		<string>es</string>
+		<string>ta</string>
 		<string>tr</string>
 		<string>ur</string>
 		<string>nb</string>
@@ -74,7 +75,12 @@
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.nuvio.app.media-analysis</string>
+		<string>com.nuvio.app.behaviour-upload</string>
 	</array>
+	<key>NuvioTelemetryIngestKey</key>
+	<string>$(NUVIO_TELEMETRY_INGEST_KEY)</string>
+	<key>NuvioTelemetryBaseURL</key>
+	<string>$(NUVIO_TELEMETRY_BASE_URL)</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>

@@ -2,10 +2,11 @@ package com.nuvio.app.features.library
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.nuvio.app.core.automation.isolateStorageKey
 
 actual object LibraryStorage {
     private const val preferencesName = "nuvio_library"
-    private fun payloadKey(profileId: Int) = "library_payload_$profileId"
+    private fun payloadKey(profileId: Int) = isolateStorageKey("library_payload_$profileId")
 
     private var preferences: SharedPreferences? = null
 

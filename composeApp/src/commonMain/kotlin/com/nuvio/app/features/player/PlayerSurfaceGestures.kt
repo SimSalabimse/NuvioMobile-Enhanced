@@ -57,6 +57,7 @@ internal fun Modifier.playerSurfaceDragGestures(
     layoutSize: IntSize,
     playbackGesturesEnabled: Boolean,
     sideGestureSystemEdgeExclusionPx: Float,
+    horizontalSeekSystemEdgeExclusionPx: Float = 0f,
     playerControlsLockedState: State<Boolean>,
     touchGesturesEnabledState: State<Boolean>,
     swipeToSeekEnabledState: State<Boolean>,
@@ -77,18 +78,13 @@ internal fun Modifier.playerSurfaceDragGestures(
         playerController,
         layoutSize,
         sideGestureSystemEdgeExclusionPx,
+        horizontalSeekSystemEdgeExclusionPx,
         playbackGesturesEnabled,
     ) {
         if (!playbackGesturesEnabled) return@pointerInput
         awaitEachGesture {
             val down = awaitFirstDown()
             if (playerControlsLockedState.value) {
-                while (true) {
-                    val event = awaitPointerEvent()
-                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                    if (!change.pressed) break
-                    change.consume()
-                }
                 return@awaitEachGesture
             }
             if (!touchGesturesEnabledState.value) {
@@ -102,6 +98,12 @@ internal fun Modifier.playerSurfaceDragGestures(
             val isInSideGestureSystemEdge =
                 down.position.y <= sideGestureEdgeExclusionPx ||
                     down.position.y >= height - sideGestureEdgeExclusionPx
+            // A swipe that starts inside the system back gesture zone belongs to the OS.
+            // Starting a seek there would fight the back gesture and, when the system
+            // cancels the touch stream, the seek would still be committed on "release".
+            val backGestureEdgePx = horizontalSeekSystemEdgeExclusionPx.coerceAtMost(width * 0.25f)
+            val isInBackGestureEdge = backGestureEdgePx > 0f &&
+                (down.position.x <= backGestureEdgePx || down.position.x >= width - backGestureEdgePx)
             val region = when {
                 isInSideGestureSystemEdge -> null
                 down.position.x < width * PlayerLeftGestureBoundary -> PlayerSideGesture.Brightness
@@ -156,6 +158,7 @@ internal fun Modifier.playerSurfaceDragGestures(
                     val horizontalDominant =
                         !holdToSpeedActive &&
                             swipeToSeekEnabledState.value &&
+                            !isInBackGestureEdge &&
                             abs(totalDx) > horizontalGestureActivationSlop &&
                             abs(totalDx) > abs(totalDy) * PlayerHorizontalGestureDominanceRatio
                     val verticalDominant =
@@ -189,6 +192,15 @@ internal fun Modifier.playerSurfaceDragGestures(
                     }
 
                     if (gestureMode == null) {
+                        // A moving finger is not a press-and-hold. Consuming the movement
+                        // cancels the pending long press in playerSurfaceTapGestures, so a
+                        // slow system back swipe from the edge does not trigger 2x speed.
+                        val touchSlop = viewConfiguration.touchSlop
+                        if (!holdToSpeedActive &&
+                            totalDx * totalDx + totalDy * totalDy > touchSlop * touchSlop
+                        ) {
+                            change.consume()
+                        }
                         continue
                     }
                 }

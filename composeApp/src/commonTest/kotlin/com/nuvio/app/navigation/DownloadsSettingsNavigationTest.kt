@@ -5,6 +5,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import kotlin.test.assertFalse
 
 class DownloadsSettingsNavigationTest {
     @Test
@@ -19,6 +20,14 @@ class DownloadsSettingsNavigationTest {
         // Library, not Settings. A settings-tab route would leave the downloads stack.
         assertEquals("Library", settings?.preferredTabName)
         assertTrue(settings!!.navigationIdentity != downloads.navigationIdentity)
+    }
+
+    @Test
+    fun downloadsHidesTheNativeBarSoTheScreenHeaderIsTheOnlyNavRow() {
+        assertTrue(DownloadsRoute("Downloads").hidesNavigationBar)
+        assertTrue(DownloadShowRoute("show", "Harbor Lane").hidesNavigationBar)
+        assertFalse(DownloadsSettingsRoute("Downloads").hidesNavigationBar)
+        assertFalse(DownloadsStorageRoute("Downloads").hidesNavigationBar)
     }
 
     @Test

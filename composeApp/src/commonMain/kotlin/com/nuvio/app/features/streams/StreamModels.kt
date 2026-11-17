@@ -1,5 +1,7 @@
 package com.nuvio.app.features.streams
 
+import com.nuvio.app.core.automation.AutomationStubs
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.features.servers.ServerPlaybackTarget
 import kotlinx.serialization.Serializable
@@ -201,7 +203,8 @@ fun StreamItem.isSelectableForPlayback(debridEnabled: Boolean): Boolean =
         shouldOpenExternally ||
         youTubeIdToResolve != null ||
         (AppFeaturePolicy.p2pEnabled && needsLocalDebridResolve && p2pInfoHash != null) ||
-        (debridEnabled && isAddonDebridCandidate)
+        (debridEnabled && isAddonDebridCandidate) ||
+        (AutomationTestMode.isActive && AutomationStubs.isStubSource(this))
 
 data class StreamBehaviorHints(
     val bingeGroup: String? = null,
@@ -297,12 +300,29 @@ data class StreamClientResolveParsed(
     val unrated: Boolean? = null,
 )
 
+enum class AddonStreamFailureKind {
+    Timeout,
+    HttpError,
+    Offline,
+}
+
+sealed class AddonStreamFetchStatus {
+    data object Loading : AddonStreamFetchStatus()
+    data class Loaded(val count: Int) : AddonStreamFetchStatus()
+    data class Failed(
+        val kind: AddonStreamFailureKind,
+        val httpStatus: Int? = null,
+    ) : AddonStreamFetchStatus()
+}
+
 data class AddonStreamGroup(
     val addonName: String,
     val addonId: String,
     val streams: List<StreamItem>,
     val isLoading: Boolean = false,
     val error: String? = null,
+    val fetchStatus: AddonStreamFetchStatus? = null,
+    val retryUsed: Boolean = false,
 )
 
 enum class StreamsEmptyStateReason {
@@ -310,6 +330,7 @@ enum class StreamsEmptyStateReason {
     NoCompatibleAddons,
     NoStreamsFound,
     StreamFetchFailed,
+    Offline,
 }
 
 data class StreamsUiState(

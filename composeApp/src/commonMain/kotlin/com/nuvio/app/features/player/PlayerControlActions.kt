@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.PictureInPictureAlt
+import androidx.compose.material.icons.rounded.NightsStay
 import androidx.compose.material.icons.rounded.StayCurrentLandscape
 import androidx.compose.material.icons.rounded.StayCurrentPortrait
 import androidx.compose.material.icons.rounded.SkipNext
@@ -88,6 +89,47 @@ internal fun playerFlagHome(useLegacyLayout: Boolean, submitAvailable: Boolean):
     useLegacyLayout -> PlayerFlagHome.LegacyHeader
     else -> PlayerFlagHome.TopPill
 }
+
+internal enum class PlayerFlagEntry {
+    LegacyHeader,
+    TopPill,
+    FoldRow,
+}
+
+/**
+ * The one Flag that may be on screen. The bottom-bar Submit button and the mark-segment
+ * icon open the same panel, so they are never entries. Portrait does not add another.
+ */
+@Suppress("UNUSED_PARAMETER")
+internal fun visiblePlayerFlagEntries(
+    legacy: Boolean,
+    folded: Boolean,
+    portrait: Boolean,
+    submitAvailable: Boolean,
+    toolsOpen: Boolean,
+    submitBarOpen: Boolean,
+    controlsShown: Boolean,
+    bottomSubmitPinned: Boolean,
+): List<PlayerFlagEntry> {
+    if (!submitAvailable) return emptyList()
+    if (toolsOpen && !submitBarOpen) return emptyList()
+    if (!controlsShown && !submitBarOpen) return emptyList()
+    return listOf(
+        when {
+            folded -> PlayerFlagEntry.FoldRow
+            legacy -> PlayerFlagEntry.LegacyHeader
+            else -> PlayerFlagEntry.TopPill
+        },
+    )
+}
+
+/**
+ * The Player buttons "Submit intro" row shows or hides the Flag.
+ * It is on unless this layout explicitly hides it.
+ * The legacy layout has no Player buttons screen, so its Flag stays.
+ */
+internal fun submitIntroFlagShown(legacyLayout: Boolean, layout: PlayerToolbarLayout): Boolean =
+    legacyLayout || PlayerToolbarButton.SUBMIT_INTRO in layout.visibleButtons
 
 internal enum class PlayerToolbarSlot {
     Download,
@@ -237,11 +279,12 @@ internal fun PlayerControlActions(
     speedPickerVisible: Boolean = false,
     onSpeedSelected: (Float) -> Unit = {},
     onSpeedPickerDismiss: () -> Unit = {},
+    nightModeEnabled: Boolean = false,
+    onNightModeClick: (() -> Unit)? = null,
     onResizeModeClick: () -> Unit,
     onVideoSettingsClick: (() -> Unit)?,
     onOpenInExternalPlayer: (() -> Unit)?,
     onStreamInfoClick: () -> Unit,
-    onSubmitIntroClick: (() -> Unit)? = null,
     qualityLabel: String? = null,
     onQualityClick: (() -> Unit)? = null,
     onSwitchEngineClick: (() -> Unit)? = null,
@@ -249,7 +292,6 @@ internal fun PlayerControlActions(
     onRateClick: (() -> Unit)? = null,
     userRating: Int? = null,
     onInteraction: () -> Unit,
-    onMarkSegmentClick: (() -> Unit)? = null,
     onLiveChannelsClick: (() -> Unit)? = null,
 ) {
     val playerSettings by PlayerSettingsRepository.uiState.collectAsState()
@@ -290,6 +332,16 @@ internal fun PlayerControlActions(
             stringResource(Res.string.compose_player_audio), onAudioClick,
             painter = appIconPainter(AppIconResource.PlayerAudioFilled),
         )
+        onNightModeClick?.let {
+            this[PlayerToolbarButton.NIGHT_MODE] = PlayerControlAction(
+                "${stringResource(Res.string.player_night_mode)} ${
+                    stringResource(if (nightModeEnabled) Res.string.player_night_mode_on else Res.string.player_night_mode_off)
+                }",
+                it,
+                icon = Icons.Rounded.NightsStay,
+                tint = if (nightModeEnabled) MaterialTheme.colorScheme.primary else Color.White,
+            )
+        }
         onQualityClick?.let {
             this[PlayerToolbarButton.QUALITY] = PlayerControlAction(
                 qualityLabel?.takeIf { label -> label.isNotBlank() }
@@ -342,12 +394,6 @@ internal fun PlayerControlActions(
                 icon = Icons.Rounded.Build,
             )
         }
-        onSubmitIntroClick?.let {
-            this[PlayerToolbarButton.SUBMIT_INTRO] = PlayerControlAction(
-                stringResource(Res.string.submit_intro_action), it,
-                icon = Icons.Rounded.Flag,
-            )
-        }
     }
     val toolbarLayout = playerSettings.toolbarLayout
     val primaryActions = toolbarLayout.visibleButtons.mapNotNull(availableActions::get)
@@ -359,9 +405,6 @@ internal fun PlayerControlActions(
         if (expanded) scrollState.animateScrollTo(scrollState.maxValue) else scrollState.scrollTo(0)
     }
     val extraActions = listOfNotNull(
-        onMarkSegmentClick?.let {
-            PlayerControlAction(stringResource(Res.string.player_tools_mark_segment), it, icon = Icons.Rounded.Flag)
-        },
         onLiveChannelsClick?.let {
             PlayerControlAction(stringResource(Res.string.compose_player_channels), it, icon = Icons.Rounded.Tv)
         },
@@ -394,6 +437,7 @@ internal fun PlayerControlActions(
                                 icon = action.icon,
                                 painter = action.painter,
                                 iconSize = action.iconSize,
+                                tint = action.tint,
                             )
                             action.popup?.invoke()
                         }
@@ -591,4 +635,5 @@ internal data class PlayerControlAction(
     val painter: Painter? = null,
     val iconSize: Dp = 24.dp,
     val popup: (@Composable () -> Unit)? = null,
+    val tint: Color = Color.White,
 )

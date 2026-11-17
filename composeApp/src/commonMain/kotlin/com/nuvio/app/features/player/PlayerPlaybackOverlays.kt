@@ -39,6 +39,7 @@ internal fun BoxScope.PlayerPlaybackOverlays(
     onBackWithProgress: () -> Unit,
     openingLoadingMessage: String?,
     openingMessageMaxLines: Int = 2,
+    openingNetworkSpeed: String? = null,
     p2pInitialLoadingProgress: Float?,
     showP2pRebufferStats: Boolean,
     p2pRebufferMessage: String?,
@@ -57,6 +58,9 @@ internal fun BoxScope.PlayerPlaybackOverlays(
     controlsVisible: Boolean,
     onSkipInterval: (SkipInterval) -> Unit,
     onDismissSkipInterval: () -> Unit,
+    showSkipUndo: Boolean = false,
+    onUndoSkip: () -> Unit = {},
+    reduceMotion: Boolean = false,
     sliderEdgePadding: Dp,
     overlayBottomPadding: Dp,
     isSeries: Boolean,
@@ -111,6 +115,7 @@ internal fun BoxScope.PlayerPlaybackOverlays(
             modifier = Modifier.fillMaxSize(),
             message = openingLoadingMessage,
             messageMaxLines = openingMessageMaxLines,
+            networkSpeed = openingNetworkSpeed,
             progress = p2pOpeningProgress(
                 playbackClock = playbackClock,
                 downloadedBytes = p2pDownloadedBytes,
@@ -161,6 +166,9 @@ internal fun BoxScope.PlayerPlaybackOverlays(
                 activeSkipInterval?.let(onSkipInterval)
             },
             onDismiss = onDismissSkipInterval,
+            showUndo = showSkipUndo,
+            onUndo = onUndoSkip,
+            reduceMotion = reduceMotion,
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(start = sliderEdgePadding, bottom = overlayBottomPadding),

@@ -31,6 +31,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.network.NetworkStatusRepository
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -40,6 +42,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Shape
@@ -57,7 +60,10 @@ import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.themePalette
 import com.nuvio.app.core.ui.appIconPainter
 import com.nuvio.app.features.downloads.DetailsDownloadProgress
+import com.nuvio.app.features.downloads.SeriesSmartDownloadCountPicker
+import com.nuvio.app.features.downloads.DetailsDownloadProgressKind
 import com.nuvio.app.features.downloads.resumeDownloadFromMark
+import com.nuvio.app.core.ui.backdropControlColor
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_play
 import nuvio.composeapp.generated.resources.details_download_action
@@ -79,6 +85,9 @@ import nuvio.composeapp.generated.resources.details_action_start_from_beginning
 import nuvio.composeapp.generated.resources.sidebar_library
 import nuvio.composeapp.generated.resources.streams_open_external_player
 import org.jetbrains.compose.resources.stringResource
+import com.nuvio.app.core.a11y.LongPressSite
+import com.nuvio.app.core.a11y.detailLongPressActions
+import com.nuvio.app.core.a11y.installLongPressAccessibility
 import com.nuvio.app.core.ui.glass.ambientLiquidGlass
 import com.nuvio.app.core.ui.glass.isAmbientLiquidGlassActive
 
@@ -89,7 +98,9 @@ data class DetailSecondaryAction(
     val isActive: Boolean = false,
     val onClick: () -> Unit = {},
     val onLongClick: (() -> Unit)? = null,
+    val longPressSite: LongPressSite? = null,
     val downloadProgress: DetailsDownloadProgress = DetailsDownloadProgress.None,
+    val enabled: Boolean = true,
 )
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -110,9 +121,12 @@ fun DetailActionButtons(
     iconActions: List<DetailSecondaryAction> = emptyList(),
     userRating: Int? = null,
     onRateClick: (() -> Unit)? = null,
+    metaType: String? = null,
+    seriesId: String? = null,
 ) {
     val playPainter = appIconPainter(AppIconResource.PlayerPlay)
     val downloadProgress = rememberDetailsDownloadProgress(downloadContentKey)
+    val networkActionsEnabled = rememberDetailNetworkActionsEnabled()
     val buttonHeight = if (isTablet) 56.dp else 52.dp
     val iconButtonSize = buttonHeight
     val playShape = RoundedCornerShape(40.dp)
@@ -151,10 +165,14 @@ fun DetailActionButtons(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
+            if (metaType != null && seriesId != null) {
+                SeriesSmartDownloadCountPicker(metaType = metaType, seriesId = seriesId)
+            }
             onRateClick?.let { rate ->
                 UserRatingStars(
                     rating = userRating,
                     onClick = rate,
+                    enabled = networkActionsEnabled,
                     modifier = Modifier.align(Alignment.CenterHorizontally),
                 )
             }
@@ -193,6 +211,7 @@ fun DetailActionButtons(
                     active = pinnedAction.isActive,
                     progress = 1f,
                     size = iconButtonSize,
+                    enabled = pinnedAction.enabled,
                     onClick = {
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                         pinnedAction.onClick()
@@ -220,6 +239,7 @@ fun DetailActionButtons(
                                 active = action.isActive,
                                 progress = menuProgress,
                                 size = iconButtonSize,
+                                enabled = action.enabled,
                                 onClick = {
                                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                                     action.onClick()
@@ -230,6 +250,7 @@ fun DetailActionButtons(
                                         longClick()
                                     }
                                 },
+                                longPressSite = action.longPressSite,
                             )
                         }
                     }
@@ -263,7 +284,7 @@ fun DetailActionButtons(
                     } else if (moreGlassActive) {
                         Color.Transparent
                     } else {
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.82f)
+                        backdropControlColor(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.82f))
                     },
                     contentColor = if (actionsExpanded) {
                         MaterialTheme.colorScheme.background
@@ -295,12 +316,17 @@ fun DetailActionButtons(
         }
     }
 
+        if (actionsExpanded && metaType != null && seriesId != null) {
+            SeriesSmartDownloadCountPicker(metaType = metaType, seriesId = seriesId)
+        }
+
         if (onDownloadClick != null) {
             val downloadGlassActive = isAmbientLiquidGlassActive()
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(buttonHeight)
+                    .graphicsLayer { alpha = if (networkActionsEnabled) 1f else 0.38f }
                     .then(
                         if (downloadGlassActive) {
                             Modifier.ambientLiquidGlass(
@@ -319,7 +345,7 @@ fun DetailActionButtons(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable(role = Role.Button, onClick = {
+                        .clickable(enabled = networkActionsEnabled, role = Role.Button, onClick = {
                             if (!resumeDownloadFromMark(downloadProgress)) onDownloadClick()
                         })
                         .height(buttonHeight),
@@ -336,6 +362,7 @@ fun DetailActionButtons(
             UserRatingStars(
                 rating = userRating,
                 onClick = rate,
+                enabled = networkActionsEnabled,
                 modifier = Modifier.align(Alignment.CenterHorizontally),
             )
         }
@@ -366,6 +393,8 @@ fun DetailActions(
     iconActionRow: Boolean = false,
     userRating: Int? = null,
     onRateClick: (() -> Unit)? = null,
+    metaType: String? = null,
+    seriesId: String? = null,
 ) {
     val actionSet = detailActionSet(
         isSaved = isSaved,
@@ -402,6 +431,8 @@ fun DetailActions(
         onPlayLongClick = onPlayLongClick,
         userRating = userRating,
         onRateClick = onRateClick,
+        metaType = metaType,
+        seriesId = seriesId,
     )
 }
 
@@ -427,6 +458,8 @@ private fun detailActionSet(
     onPlayExternallyClick: (() -> Unit)?,
 ): DetailActionSet {
     val downloadProgress = rememberDetailsDownloadProgress(downloadContentKey)
+    val networkActionsEnabled = rememberDetailNetworkActionsEnabled()
+    val localPlayback = networkActionsEnabled || downloadProgress.kind == DetailsDownloadProgressKind.Completed
     val shuffleAction = onShuffleClick?.let { onClick ->
         DetailSecondaryAction(
             label = stringResource(if (shuffleEnabled) Res.string.shuffle_stop else Res.string.random_episode_title),
@@ -448,6 +481,7 @@ private fun detailActionSet(
         isActive = isSaved,
         onClick = onSaveClick,
         onLongClick = onSaveLongClick,
+        longPressSite = LongPressSite.DetailSave,
     )
     val downloadLabel = downloadProgressLabel(downloadProgress)
     val playFromStartLabel = stringResource(Res.string.details_action_start_from_beginning)
@@ -460,11 +494,19 @@ private fun detailActionSet(
                     icon = Icons.Rounded.Download,
                     onClick = { if (!resumeDownloadFromMark(downloadProgress)) download() },
                     downloadProgress = downloadProgress,
+                    enabled = networkActionsEnabled,
                 ),
             )
         }
         onPlayFromStartClick?.let { playFromStart ->
-            add(DetailSecondaryAction(label = playFromStartLabel, icon = Icons.Rounded.Replay, onClick = playFromStart))
+            add(
+                DetailSecondaryAction(
+                    label = playFromStartLabel,
+                    icon = Icons.Rounded.Replay,
+                    onClick = playFromStart,
+                    enabled = localPlayback,
+                ),
+            )
         }
         shuffleAction?.let(::add)
         onPlayExternallyClick?.let { playExternally ->
@@ -473,6 +515,7 @@ private fun detailActionSet(
                     label = externalLabel,
                     icon = Icons.AutoMirrored.Rounded.OpenInNew,
                     onClick = playExternally,
+                    enabled = localPlayback,
                 ),
             )
         }
@@ -503,6 +546,8 @@ fun TabletDetailHeroActions(
     onPlayExternallyClick: (() -> Unit)? = null,
     userRating: Int? = null,
     onRateClick: (() -> Unit)? = null,
+    metaType: String? = null,
+    seriesId: String? = null,
 ) {
     val actionSet = detailActionSet(
         isSaved = isSaved,
@@ -518,13 +563,18 @@ fun TabletDetailHeroActions(
         onPlayExternallyClick = onPlayExternallyClick,
     )
     val playPainter = appIconPainter(AppIconResource.PlayerPlay)
+    val networkActionsEnabled = rememberDetailNetworkActionsEnabled()
     val buttonHeight = 56.dp
     val playShape = RoundedCornerShape(40.dp)
     val resolvedPlayLabel = if (playEnabled) playLabel else stringResource(Res.string.playback_unavailable)
 
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
     if (landscape) {
         Row(
-            modifier = modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(TabletHeroActionGap),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -544,7 +594,12 @@ fun TabletDetailHeroActions(
                     modifier = Modifier.weight(1f),
                     contentAlignment = Alignment.Center,
                 ) {
-                    UserRatingStars(rating = userRating, onClick = onRateClick, starSize = TabletRatingStarSize)
+                    UserRatingStars(
+                        rating = userRating,
+                        onClick = onRateClick,
+                        enabled = networkActionsEnabled,
+                        starSize = TabletRatingStarSize,
+                    )
                 }
                 DetailIconActionRow(
                     actions = actionSet.icons,
@@ -564,7 +619,7 @@ fun TabletDetailHeroActions(
         }
     } else {
         Column(
-            modifier = modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -590,9 +645,18 @@ fun TabletDetailHeroActions(
                     .fillMaxWidth(),
             )
             onRateClick?.let { rate ->
-                UserRatingStars(rating = userRating, onClick = rate, starSize = TabletRatingStarSize)
+                UserRatingStars(
+                    rating = userRating,
+                    onClick = rate,
+                    enabled = networkActionsEnabled,
+                    starSize = TabletRatingStarSize,
+                )
             }
         }
+    }
+    if (metaType != null && seriesId != null) {
+        SeriesSmartDownloadCountPicker(metaType = metaType, seriesId = seriesId)
+    }
     }
 }
 
@@ -639,7 +703,9 @@ private fun DetailIconActionRow(
                     size = layout.size,
                     onClick = action.onClick,
                     onLongClick = action.onLongClick,
+                    longPressSite = action.longPressSite,
                     downloadProgress = action.downloadProgress,
+                    enabled = action.enabled,
                 )
             }
         }
@@ -658,13 +724,21 @@ internal fun DetailIconAction(
     size: Dp,
     drawable: DrawableResource? = null,
     onLongClick: (() -> Unit)? = null,
+    longPressSite: LongPressSite? = null,
     downloadProgress: DetailsDownloadProgress = DetailsDownloadProgress.None,
+    enabled: Boolean = true,
 ) {
+    val longPressActions = if (longPressSite != null && onLongClick != null) {
+        detailLongPressActions(longPressSite, enabled = true)
+    } else {
+        emptyList()
+    }
     val glassActive = !active && isAmbientLiquidGlassActive()
+    val shown = if (enabled) progress else progress * 0.38f
     Surface(
         modifier = modifier
             .graphicsLayer {
-                alpha = progress
+                alpha = shown
                 scaleX = 0.86f + (0.14f * progress)
                 scaleY = 0.86f + (0.14f * progress)
             }
@@ -685,7 +759,7 @@ internal fun DetailIconAction(
         } else if (glassActive) {
             Color.Transparent
         } else {
-            MaterialTheme.colorScheme.surfaceVariant
+            backdropControlColor(MaterialTheme.colorScheme.surfaceVariant)
         },
         contentColor = if (active) {
             MaterialTheme.colorScheme.background
@@ -698,10 +772,12 @@ internal fun DetailIconAction(
             modifier = Modifier
                 .size(size)
                 .combinedClickable(
+                    enabled = enabled,
                     onClick = onClick,
                     onLongClick = onLongClick,
                     role = Role.Button,
-                ),
+                )
+                .installLongPressAccessibility(longPressActions) { onLongClick?.invoke() },
             contentAlignment = Alignment.Center,
         ) {
             if (downloadProgress.showsMark) {
@@ -739,8 +815,14 @@ private fun PlayButton(
     onPlayLongClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
+    val playLongPressActions = detailLongPressActions(
+        site = LongPressSite.DetailPlay,
+        enabled = onPlayLongClick != null,
+    )
         Surface(
             modifier = modifier
+                .reportDetailHeaderOcclusion(DetailHeaderOcclusionTarget.Play)
+                .testTag(DETAIL_PLAY_TAG)
                 .height(buttonHeight)
                 .then(
                     if (playEnabled) {
@@ -770,6 +852,7 @@ private fun PlayButton(
                         onLongClick = onPlayLongClick,
                         role = Role.Button,
                     )
+                    .installLongPressAccessibility(playLongPressActions) { onPlayLongClick?.invoke() }
                     .height(buttonHeight),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
@@ -819,4 +902,10 @@ private fun fitIconActionRow(
     } else {
         IconActionRowLayout(minSize, minSpacing, false)
     }
+}
+
+@Composable
+private fun rememberDetailNetworkActionsEnabled(): Boolean {
+    val network by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
+    return !network.isOfflineLike
 }

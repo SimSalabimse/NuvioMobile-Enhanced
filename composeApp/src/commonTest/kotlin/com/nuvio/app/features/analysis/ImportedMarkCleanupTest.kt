@@ -26,7 +26,16 @@ class ImportedMarkCleanupTest {
     fun submissionsOnAnUnknownCutNeverTeachOtherEpisodes() {
         kotlin.test.assertFalse(UserSegment(30_000L, 90_000L, imported = true).canTeach)
         kotlin.test.assertTrue(UserSegment(30_000L, 90_000L, imported = true, durationMs = 2_640_000L).canTeach)
-        kotlin.test.assertTrue(UserSegment(30_000L, 90_000L, markedAtMs = 1L).canTeach)
+        kotlin.test.assertFalse(UserSegment(30_000L, 90_000L, markedAtMs = 1L).canTeach)
+        kotlin.test.assertTrue(UserSegment(30_000L, 90_000L, markedAtMs = 1L, durationMs = 2_640_000L).canTeach)
+        val applied = MediaAnalysisResult(
+            key = "tt1__s1e3",
+            analyzedAtMs = 0L,
+            durationMs = 2_640_000L,
+            userSegments = mapOf("intro" to UserSegment(30_000L, 90_000L, markedAtMs = 1L)),
+        ).withUserSegmentsApplied()
+        kotlin.test.assertEquals(30_000L, applied.introStartMs)
+        kotlin.test.assertEquals(90_000L, applied.introEndMs)
     }
 
     @Test

@@ -4,6 +4,9 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import com.nuvio.app.core.a11y.episodeLongPressActions
+import com.nuvio.app.core.a11y.installLongPressAccessibility
+import com.nuvio.app.features.downloads.downloadLogicalContentKey
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -142,6 +145,8 @@ fun DetailEpisodeRatingMap(
     onEpisodeClick: (MetaVideo) -> Unit,
     onEpisodeLongPress: (MetaVideo) -> Unit,
     modifier: Modifier = Modifier,
+    manualPlayAvailable: Boolean = false,
+    downloadEnabled: Boolean = false,
 ) {
     if (!episodeRatingsVisibility.showRatings) return
 
@@ -267,6 +272,9 @@ fun DetailEpisodeRatingMap(
                     season.cells.chunked(columns).forEach { rowCells ->
                         Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
                             rowCells.forEach { cell ->
+                                val episodeDownload = rememberDetailsDownloadProgress(
+                                    downloadLogicalContentKey(meta.id, cell.season, cell.episode),
+                                )
                                 RatingMapCellView(
                                     cell = cell,
                                     size = cellSize,
@@ -275,6 +283,17 @@ fun DetailEpisodeRatingMap(
                                         selectedKey = if (selectedKey == cell.key) null else cell.key
                                     },
                                     onLongClick = { onEpisodeLongPress(cell.video) },
+                                    longPressActions = episodeLongPressActions(
+                                        meta = meta,
+                                        episode = cell.video,
+                                        isWatched = isEpisodeWatched(cell.video),
+                                        isEpisodeWatched = isEpisodeWatched,
+                                        sheetMenu = true,
+                                        downloadEnabled = downloadEnabled,
+                                        downloadLabel = downloadProgressLabel(episodeDownload),
+                                        manualPlayAvailable = manualPlayAvailable,
+                                        enabled = true,
+                                    ),
                                 )
                             }
                         }
@@ -426,6 +445,7 @@ private fun RatingMapCellView(
     selected: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    longPressActions: List<com.nuvio.app.core.a11y.LongPressAccessibilityAction> = emptyList(),
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(6.dp)
@@ -453,6 +473,7 @@ private fun RatingMapCellView(
                 },
             )
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .installLongPressAccessibility(longPressActions, onLongClick)
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center,
     ) {

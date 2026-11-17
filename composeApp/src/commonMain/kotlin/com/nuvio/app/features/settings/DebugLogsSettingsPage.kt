@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,7 +34,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.logging.InAppLogLevel
 import com.nuvio.app.core.logging.InAppLogger
+import com.nuvio.app.features.analysis.AnalysisExportDocument
+import com.nuvio.app.features.analysis.AnalysisExportLog
+import com.nuvio.app.features.analysis.AnalysisExportStatus
+import com.nuvio.app.features.analysis.AnalysisLogShare
+import com.nuvio.app.features.player.clearSessionMessages
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.settings_debug_export_analysis_log
+import nuvio.composeapp.generated.resources.settings_debug_export_subtitle_sync
+import nuvio.composeapp.generated.resources.settings_debug_export_subtitle_sync_description
+import nuvio.composeapp.generated.resources.settings_debug_export_analysis_log_empty
+import nuvio.composeapp.generated.resources.settings_debug_export_analysis_log_ready
 import nuvio.composeapp.generated.resources.settings_advanced_debugging_clear_logs
 import nuvio.composeapp.generated.resources.settings_advanced_debugging_clear_logs_description
 import nuvio.composeapp.generated.resources.settings_advanced_debugging_copy_logs
@@ -106,6 +115,34 @@ private fun DebugLogsSection(isTablet: Boolean) {
                 isTablet = isTablet,
             )
             SettingsGroupDivider(isTablet = isTablet)
+            val analysisExport = AnalysisExportLog.export()
+            SettingsNavigationRow(
+                title = stringResource(Res.string.settings_debug_export_analysis_log),
+                description = if (analysisExport.status == AnalysisExportStatus.Empty) {
+                    stringResource(Res.string.settings_debug_export_analysis_log_empty)
+                } else {
+                    stringResource(Res.string.settings_debug_export_analysis_log_ready, analysisExport.lineCount)
+                },
+                isTablet = isTablet,
+                onClick = { AnalysisLogShare.share(AnalysisExportLog.export()) },
+            )
+            SettingsGroupDivider(isTablet = isTablet)
+            SettingsNavigationRow(
+                title = stringResource(Res.string.settings_debug_export_subtitle_sync),
+                description = stringResource(Res.string.settings_debug_export_subtitle_sync_description),
+                isTablet = isTablet,
+                onClick = {
+                    val text = com.nuvio.app.features.player.SubtitleSyncExportLog.exportText()
+                    AnalysisLogShare.share(
+                        AnalysisExportDocument(
+                            status = AnalysisExportStatus.Ready,
+                            lineCount = text.lineSequence().count { it.isNotBlank() },
+                            text = text,
+                        ),
+                    )
+                },
+            )
+            SettingsGroupDivider(isTablet = isTablet)
             SettingsNavigationRow(
                 title = stringResource(Res.string.settings_advanced_debugging_copy_logs),
                 description = stringResource(
@@ -124,7 +161,7 @@ private fun DebugLogsSection(isTablet: Boolean) {
                 description = stringResource(Res.string.settings_advanced_debugging_clear_logs_description),
                 enabled = logEntries.isNotEmpty(),
                 isTablet = isTablet,
-                onClick = InAppLogger::clear,
+                onClick = { clearSessionMessages() },
             )
             SettingsGroupDivider(isTablet = isTablet)
             DebugLogTextPanel(
@@ -241,20 +278,18 @@ private fun DebugLogTextPanel(
     isTablet: Boolean,
 ) {
     val verticalScrollState = rememberScrollState()
-    val horizontalScrollState = rememberScrollState()
 
     SelectionContainer {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = if (isTablet) 320.dp else 260.dp, max = if (isTablet) 560.dp else 420.dp)
-                .horizontalScroll(horizontalScrollState)
                 .verticalScroll(verticalScrollState)
                 .padding(horizontal = if (isTablet) 20.dp else 16.dp, vertical = 16.dp),
         ) {
             Text(
                 text = text,
-                modifier = Modifier.widthIn(min = if (isTablet) 920.dp else 760.dp),
+                modifier = Modifier.fillMaxWidth(),
                 style = MaterialTheme.typography.bodySmall,
                 color = if (isEmpty) {
                     MaterialTheme.colorScheme.onSurfaceVariant
@@ -262,7 +297,6 @@ private fun DebugLogTextPanel(
                     MaterialTheme.colorScheme.onSurface
                 },
                 fontFamily = FontFamily.Monospace,
-                softWrap = false,
             )
         }
     }

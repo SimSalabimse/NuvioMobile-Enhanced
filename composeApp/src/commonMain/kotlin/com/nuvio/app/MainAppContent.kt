@@ -8,6 +8,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import com.nuvio.app.core.ui.background.AppBackgroundRepository
+import com.nuvio.app.core.ui.background.OpaqueAppSurfaces
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -26,6 +28,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -50,6 +53,9 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.LocalNavAnimatedContentScope
 import androidx.navigation3.ui.NavDisplay
+import com.nuvio.app.core.uifixture.currentUiFixture
+import com.nuvio.app.core.uifixture.playsBundledClip
+import com.nuvio.app.core.uifixture.withLocalizedSettingsWalkTitle
 import com.nuvio.app.core.ui.LocalPosterClickAnchor
 import com.nuvio.app.core.ui.LocalVerticalBarPadding
 import com.nuvio.app.navigation.PosterNavigationState
@@ -62,11 +68,18 @@ import com.nuvio.app.core.deeplink.AppDeepLink
 import com.nuvio.app.core.deeplink.AppDeepLinkRepository
 import com.nuvio.app.core.logging.InAppLogger
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
+import com.nuvio.app.core.network.ConnectivityEdgeState
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
+import com.nuvio.app.core.network.OfflineBannerScreen
+import com.nuvio.app.core.network.OfflineBannerSurface
+import com.nuvio.app.core.network.reduceConnectivityEdge
+import com.nuvio.app.core.startup.LaunchRefreshController
 import com.nuvio.app.core.startup.StartupPreloader
+import com.nuvio.app.core.startup.connectivityRegained
 import com.nuvio.app.core.startup.startIosStartupPreloadAfterLaunchReady
 import com.nuvio.app.core.sync.AppForegroundMonitor
+import com.nuvio.app.core.sync.OfflineAccountFlush
 import com.nuvio.app.core.sync.AppVisibility
 import com.nuvio.app.core.sync.ProfileSettingsSync
 import com.nuvio.app.core.sync.SyncManager
@@ -80,12 +93,15 @@ import com.nuvio.app.core.ui.continueWatchingDownloadState
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.Flag
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.DownloadDone
 import com.nuvio.app.core.ui.NuvioFloatingPrompt
 import com.nuvio.app.core.ui.NuvioPosterZoomActionOverlay
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.NuvioToastHost
+import com.nuvio.app.core.ui.OfflineBannerHost
+import com.nuvio.app.core.ui.systemReduceMotionEnabled
 import com.nuvio.app.features.debrid.DebridAddOfferHost
 import com.nuvio.app.core.ui.PosterZoomAnchor
 import com.nuvio.app.core.ui.PosterZoomAnchorHolder
@@ -143,6 +159,7 @@ import com.nuvio.app.features.library.toLibraryItem
 import com.nuvio.app.features.library.toMetaPreview
 import com.nuvio.app.features.livetv.LiveTvChannel
 import com.nuvio.app.features.livetv.LiveTvRepository
+import com.nuvio.app.features.livetv.LiveTvVodPlayback
 import com.nuvio.app.features.membership.MemberAccessRepository
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsRepository
 import com.nuvio.app.features.p2p.P2pSettingsRepository
@@ -159,6 +176,8 @@ import com.nuvio.app.features.player.recordExternalPlaybackProgress
 import com.nuvio.app.features.player.ExternalPlayerPlatform
 import com.nuvio.app.features.player.PlayerLaunch
 import com.nuvio.app.features.player.PlayerLaunchStore
+import com.nuvio.app.navigation.carrying
+import com.nuvio.app.navigation.IsolatedPlayback
 import com.nuvio.app.navigation.launchPlayer
 import com.nuvio.app.features.player.PlayerSettingsRepository
 import com.nuvio.app.features.player.SubtitleLanguageOption
@@ -169,6 +188,7 @@ import com.nuvio.app.features.player.MiniPlayerController
 import com.nuvio.app.features.player.MiniPlayerHost
 import com.nuvio.app.features.player.HidePlayerSystemBars
 import com.nuvio.app.features.player.rememberExternalPlayerLauncher
+import com.nuvio.app.features.profiles.AvatarRepository
 import com.nuvio.app.features.profiles.ProfileEditScreen
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.profiles.NuvioProfile
@@ -198,6 +218,9 @@ import com.nuvio.app.features.updater.AppUpdaterHost
 import com.nuvio.app.features.updater.AppUpdaterPlatform
 import com.nuvio.app.features.updater.rememberAppUpdaterController
 import com.nuvio.app.features.watched.WatchedRepository
+import com.nuvio.app.features.offline.OfflineItemFacts
+import com.nuvio.app.features.offline.OfflineSurfaceAction
+import com.nuvio.app.features.offline.offlineSurfaceActionEnabled
 import com.nuvio.app.features.watching.application.WatchingActions
 import com.nuvio.app.features.watching.application.WatchingState
 import com.nuvio.app.features.watchprogress.ContinueWatchingItem
@@ -423,9 +446,8 @@ internal fun MainAppContent(
         0
     }
     var initialHomeReady by rememberSaveable(ownsAppRuntime, appContentGeneration) {
-        mutableStateOf(!ownsAppRuntime)
+        mutableStateOf(!ownsAppRuntime || HomeRepository.uiState.value.sections.isNotEmpty())
     }
-    var offlineLaunchRouteHandled by rememberSaveable { mutableStateOf(false) }
     var networkToastBaselineReady by rememberSaveable { mutableStateOf(false) }
     var lastNetworkToastCondition by rememberSaveable { mutableStateOf(NetworkCondition.Unknown.name) }
     var watchSourceReconnectPending by remember { mutableStateOf(false) }
@@ -615,9 +637,28 @@ internal fun MainAppContent(
                 com.nuvio.app.core.perf.PerformanceMetrics.recordLaunchReady(
                     fromCachedHome = HomeRepository.isShowingSnapshot,
                 )
-                // After the launch sample. On iOS the launch clock is the first touch of
-                // PerformanceMetrics, and markProcessStart does not move it. Starting the
-                // preload any earlier (the intro) folds the 1300 ms intro hold into this number.
+                if (!com.nuvio.app.core.uifixture.uiFixturesActive()) {
+                    launch { AvatarRepository.fetchAvatars() }
+                }
+                HomeRepository.onLaunchContentPainted()
+                val fixtureRoute = com.nuvio.app.core.uifixture.UiFixtureSession.pendingRoute
+                if (fixtureRoute != null) {
+                    com.nuvio.app.core.uifixture.UiFixtureSession.pendingRoute = null
+                    launch {
+                        kotlinx.coroutines.delay(800)
+                        val route = fixtureRoute.withLocalizedSettingsWalkTitle()
+                        if (onNavigate != null) onNavigate(route, false) else navController.navigate(route)
+                    }
+                }
+                val fixtureTab = com.nuvio.app.core.uifixture.UiWalkSession.pendingTabName
+                if (fixtureTab != null) {
+                    com.nuvio.app.core.uifixture.UiWalkSession.pendingTabName = null
+                    launch {
+                        kotlinx.coroutines.delay(800)
+                        activateTab(AppScreenTab.fromName(fixtureTab))
+                    }
+                }
+                if (com.nuvio.app.core.uifixture.uiFixturesActive()) return@LaunchedEffect
                 startIosStartupPreloadAfterLaunchReady(
                     isIosPlatform = isIos,
                     launchReady = true,
@@ -659,7 +700,9 @@ internal fun MainAppContent(
         if (!ownsAppRuntime) return@LaunchedEffect
         InAppLogger.info("App/Runtime", "Starting main app runtime services")
         NetworkStatusRepository.ensureStarted()
-        EpisodeReleaseNotificationsRepository.refreshAsync()
+        if (!com.nuvio.app.core.uifixture.uiFixturesActive()) {
+            EpisodeReleaseNotificationsRepository.refreshAsync()
+        }
         // Safety-net timeout only: the real signal is onInitialHomeContentRendered below, which
         // flips initialHomeReady as soon as the first catalog section renders (often well under
         // 5s) so it always wins the race on its own. This just bounds how long a user can get
@@ -685,24 +728,20 @@ internal fun MainAppContent(
         InAppLogger.info("Network/Status", "condition changed $previousConditionName -> ${condition.name}")
 
         when (condition) {
-            NetworkCondition.NoInternet -> {
-                NuvioToastController.show(getString(Res.string.network_no_internet_connection))
-            }
-
-            NetworkCondition.ServersUnreachable -> {
-                NuvioToastController.show(getString(Res.string.network_cannot_reach_servers))
-            }
-
             NetworkCondition.Online -> {
                 if (
-                    previousConditionName == NetworkCondition.NoInternet.name ||
-                    previousConditionName == NetworkCondition.ServersUnreachable.name
+                    !com.nuvio.app.core.uifixture.uiFixturesActive() &&
+                    (
+                        previousConditionName == NetworkCondition.NoInternet.name ||
+                            previousConditionName == NetworkCondition.ServersUnreachable.name
+                        )
                 ) {
                     MemberAccessRepository.refresh()
-                    NuvioToastController.show(getString(Res.string.network_back_online))
                 }
             }
 
+            NetworkCondition.NoInternet,
+            NetworkCondition.ServersUnreachable,
             NetworkCondition.Unknown,
             NetworkCondition.Checking,
             -> Unit
@@ -729,6 +768,10 @@ internal fun MainAppContent(
 
             NetworkCondition.Online -> {
                 if (!watchSourceReconnectPending) return@LaunchedEffect
+                if (com.nuvio.app.core.uifixture.uiFixturesActive()) {
+                    watchSourceReconnectPending = false
+                    return@LaunchedEffect
+                }
 
                 val profileId = profileState.activeProfile?.profileIndex
                     ?: ProfileRepository.activeProfileId
@@ -758,39 +801,51 @@ internal fun MainAppContent(
         }
     }
 
-    LaunchedEffect(
-        initialHomeReady,
-        offlineLaunchRouteHandled,
-        networkStatusUiState.condition,
-        downloadsUiState.completedItems,
-        downloadsUiState.items.count { it.isPlayable },
-    ) {
+    var previousConnectivity by remember { mutableStateOf(NetworkCondition.Unknown) }
+    var connectivityEdge by remember { mutableStateOf(ConnectivityEdgeState()) }
+    LaunchedEffect(networkStatusUiState.condition) {
         if (!ownsAppRuntime) return@LaunchedEffect
-        if (!initialHomeReady || offlineLaunchRouteHandled) return@LaunchedEffect
-
-        when (networkStatusUiState.condition) {
-            NetworkCondition.Unknown,
-            NetworkCondition.Checking,
-            -> return@LaunchedEffect
-
-            NetworkCondition.Online -> {
-                offlineLaunchRouteHandled = true
-            }
-
+        val previous = previousConnectivity
+        val next = networkStatusUiState.condition
+        previousConnectivity = next
+        val edge = reduceConnectivityEdge(connectivityEdge, next)
+        connectivityEdge = edge.state
+        if (edge.flushOutbox && !com.nuvio.app.core.uifixture.uiFixturesActive()) {
+            OfflineAccountFlush.onOfflineToOnlineEdge()
+        }
+        when (next) {
             NetworkCondition.NoInternet,
             NetworkCondition.ServersUnreachable,
-            -> {
-                offlineLaunchRouteHandled = true
-                val hasPlayableDownload = downloadsUiState.items.any { item ->
-                    item.isPlayable && DownloadsRepository.playableLocalFileUri(item) != null
-                }
-                if (hasPlayableDownload) {
-                    activateTab(AppScreenTab.Library)
-                    navController.navigate(DownloadsRoute(downloadsTitle)) {
-                        launchSingleTop = true
-                    }
+            -> LaunchRefreshController.noteAttemptFailed()
+
+            NetworkCondition.Online -> {
+                if (
+                    !com.nuvio.app.core.uifixture.uiFixturesActive() &&
+                    (connectivityRegained(previous, next) || previous != NetworkCondition.Online)
+                ) {
+                    LaunchRefreshController.onConnectivityRegained()
                 }
             }
+
+            NetworkCondition.Unknown,
+            NetworkCondition.Checking,
+            -> Unit
+        }
+    }
+
+    LaunchedEffect(initialHomeReady, authState, profileState.activeProfile?.profileIndex) {
+        if (!ownsAppRuntime || !initialHomeReady) return@LaunchedEffect
+        val authenticatedState = authState as? AuthState.Authenticated
+        val activeProfileId = profileState.activeProfile?.profileIndex
+        val syncProfileId = activeProfileId?.takeIf {
+            authenticatedState != null && !authenticatedState.isAnonymous
+        }
+        syncProfileId?.let { profileId ->
+            InAppLogger.info("Sync/Foreground", "initial pull profile=$profileId")
+            SyncManager.pullAllForProfile(profileId)
+        }
+        if (networkStatusUiState.condition == NetworkCondition.Online) {
+            OfflineAccountFlush.onSessionReady()
         }
     }
 
@@ -801,14 +856,11 @@ internal fun MainAppContent(
         val syncProfileId = activeProfileId?.takeIf {
             authenticatedState != null && !authenticatedState.isAnonymous
         }
-        syncProfileId?.let { profileId ->
-            InAppLogger.info("Sync/Foreground", "initial pull profile=$profileId")
-            SyncManager.pullAllForProfile(profileId)
-        }
         try {
             AppForegroundMonitor.events().collect { visibility ->
                 when (visibility) {
                     AppVisibility.Foreground -> {
+                        if (com.nuvio.app.core.uifixture.uiFixturesActive()) return@collect
                         InAppLogger.debug("App/Foreground", "foreground event: refreshing network status")
                         NetworkStatusRepository.requestForegroundRefresh()
                         DeviceSessionRegistration.registerIfAuthenticated()
@@ -887,6 +939,7 @@ internal fun MainAppContent(
                                 type = deepLink.type,
                                 id = deepLink.id,
                                 title = routeTitle,
+                                privateSession = deepLink.privateSession,
                             )
                         ) {
                             launchSingleTop = true
@@ -979,6 +1032,7 @@ internal fun MainAppContent(
                 sendSkipSegments = shouldSendSkipSegments,
                 preferredLanguage = playerSettingsUiState.preferredSubtitleLanguage,
                 secondaryLanguage = playerSettingsUiState.secondaryPreferredSubtitleLanguage,
+                subtitleExtras = launch.subtitleExtras,
                 onOverlayMessage = { message -> StreamsRepository.setOverlayVisible(true, message) },
             )
             StreamsRepository.setOverlayVisible(false)
@@ -1071,6 +1125,7 @@ internal fun MainAppContent(
             resumePositionMs: Long? = null,
             resumeProgressFraction: Float? = null,
             startFromBeginning: Boolean = false,
+            play: CarriedPlay = carriedPlay(PlayEntry.ContinueWatching, privateSession = false),
         ): Boolean {
             return when (
                 val resolved = CloudLibraryRepository.resolvePlayback(
@@ -1097,8 +1152,8 @@ internal fun MainAppContent(
                         parentMetaType = CloudLibraryContentType,
                         initialPositionMs = if (startFromBeginning) 0L else (resumePositionMs ?: 0L),
                         initialProgressFraction = if (startFromBeginning) null else resumeProgressFraction,
-                    )
-                    if (playerSettingsUiState.externalPlayerEnabled) {
+                    ).carrying(play)
+                    if (playerSettingsUiState.externalPlayerEnabled && playerLaunch.persistsProgress) {
                         openExternalPlayback(playerLaunch)
                         true
                     } else {
@@ -1131,9 +1186,11 @@ internal fun MainAppContent(
             startFromBeginning: Boolean,
             downloadMode: Boolean = false,
             forceExternalPlayer: Boolean = false,
+            play: CarriedPlay = carriedPlay(PlayEntry.Details, privateSession = false),
         ) {
-            val targetResumePositionMs = if (startFromBeginning) 0L else (resumePositionMs ?: 0L)
-            val targetResumeProgressFraction = if (startFromBeginning) null else resumeProgressFraction
+            val isolated = play.isolated
+            val targetResumePositionMs = if (startFromBeginning || isolated) 0L else (resumePositionMs ?: 0L)
+            val targetResumeProgressFraction = if (startFromBeginning || isolated) null else resumeProgressFraction
 
             if (!manualSelection) {
                 val downloadedItem = DownloadsRepository.findPlayableDownload(
@@ -1178,8 +1235,10 @@ internal fun MainAppContent(
                         parentMetaType = parentMetaType,
                         initialPositionMs = targetResumePositionMs,
                         initialProgressFraction = targetResumeProgressFraction,
-                    )
+                    ).carrying(play)
                     if (
+                        !isolated &&
+                        !currentUiFixture().playsBundledClip() &&
                         (forceExternalPlayer || playerSettingsUiState.externalPlayerEnabled) &&
                         !isLoopbackPartialPlaybackUrl(localSourceUrl)
                     ) {
@@ -1214,17 +1273,49 @@ internal fun MainAppContent(
                     episodeTitle = episodeTitle,
                     episodeThumbnail = episodeThumbnail,
                     pauseDescription = pauseDescription,
-                    resumePositionMs = if (startFromBeginning) 0L else resumePositionMs,
+                    resumePositionMs = if (startFromBeginning || isolated) 0L else resumePositionMs,
                     resumeProgressFraction = targetResumeProgressFraction,
                     manualSelection = manualSelection,
-                    startFromBeginning = startFromBeginning,
+                    startFromBeginning = startFromBeginning || isolated,
                     downloadMode = downloadMode,
-                    forceExternalPlayer = forceExternalPlayer,
-                ),
+                    forceExternalPlayer = forceExternalPlayer && !isolated,
+                ).carrying(play),
             )
             navController.navigate(
                 StreamRoute(launchId = streamLaunchId, title = title),
             )
+        }
+
+        SideEffect {
+            installEpisodeSubmitLauncher { request, entry, kind ->
+                launchPlaybackWithDownloadPreference(
+                    type = request.type,
+                    videoId = request.videoId,
+                    parentMetaId = request.parentMetaId,
+                    parentMetaType = request.parentMetaType,
+                    title = request.title,
+                    logo = request.logo,
+                    poster = request.poster,
+                    background = request.background,
+                    seasonNumber = request.seasonNumber,
+                    episodeNumber = request.episodeNumber,
+                    episodeTitle = request.episodeTitle,
+                    episodeThumbnail = request.episodeThumbnail,
+                    pauseDescription = request.pauseDescription,
+                    resumePositionMs = null,
+                    resumeProgressFraction = null,
+                    manualSelection = false,
+                    startFromBeginning = true,
+                    play = carriedPlay(
+                        entry = entry,
+                        privateSession = kind == IsolatedPlayback.Private,
+                        submitMode = kind == IsolatedPlayback.Submit,
+                    ),
+                )
+            }
+        }
+        DisposableEffect(Unit) {
+            onDispose { installEpisodeSubmitLauncher(null) }
         }
 
         fun openPartyMedia(media: PartyMedia) {
@@ -1408,6 +1499,7 @@ internal fun MainAppContent(
                                     LibrarySourceMode.MDBLIST -> stringResource(Res.string.library_mdblist_title)
             LibrarySourceMode.ANILIST -> stringResource(Res.string.library_anilist_title)
             LibrarySourceMode.WETRAKR -> stringResource(Res.string.library_wetrakr_title)
+            LibrarySourceMode.PUBLICMETADB -> stringResource(Res.string.library_publicmetadb_title)
         }
 
         val openLibraryItem: (LibraryItem) -> Unit = { item ->
@@ -1465,7 +1557,11 @@ internal fun MainAppContent(
             !item.isCloudLibraryContinueWatchingItem() &&
                 playbackAvailability.canStream(item.parentMetaType, item.videoId)
 
-        val openContinueWatching: (ContinueWatchingItem, Boolean, Boolean) -> Unit = { item, manualSelection, startFromBeginning ->
+        val openContinueWatching: (ContinueWatchingItem, Boolean, Boolean, Boolean) -> Unit = { item, manualSelection, startFromBeginning, privateSession ->
+            val play = carriedPlay(
+                entry = if (item.isNextUp) PlayEntry.NextUp else PlayEntry.ContinueWatching,
+                privateSession = privateSession,
+            )
             resumePromptItem = null
             if (item.isCloudLibraryContinueWatchingItem()) {
                 coroutineScope.launch {
@@ -1481,7 +1577,8 @@ internal fun MainAppContent(
                                 file = lookup.target.file,
                                 resumePositionMs = item.resumePositionMs,
                                 resumeProgressFraction = item.resumeProgressFraction,
-                                startFromBeginning = startFromBeginning,
+                                startFromBeginning = startFromBeginning || privateSession,
+                                play = play,
                             )
                             if (!launched) {
                                 NuvioToastController.show(cloudLibraryPlayFailedText)
@@ -1526,20 +1623,25 @@ internal fun MainAppContent(
                     resumeProgressFraction = item.resumeProgressFraction,
                     manualSelection = manualSelection,
                     startFromBeginning = startFromBeginning,
+                    play = play,
                 )
             }
         }
 
         val onContinueWatchingClick: (ContinueWatchingItem) -> Unit = { item ->
-            openContinueWatching(item, false, false)
+            openContinueWatching(item, false, false, false)
         }
 
         val onContinueWatchingStartFromBeginning: (ContinueWatchingItem) -> Unit = { item ->
-            openContinueWatching(item, false, true)
+            openContinueWatching(item, false, true, false)
         }
 
         val onContinueWatchingPlayManually: (ContinueWatchingItem) -> Unit = { item ->
-            openContinueWatching(item, true, false)
+            openContinueWatching(item, true, false, false)
+        }
+
+        val onContinueWatchingPrivately: (ContinueWatchingItem) -> Unit = { item ->
+            openContinueWatching(item, false, true, true)
         }
 
         // Enhanced: Download from the Continue Watching / Next Up hold menu. Same flow as a
@@ -1610,6 +1712,32 @@ internal fun MainAppContent(
             }
         }
 
+        val onLiveTvVodClick: (LiveTvVodPlayback) -> Unit = { vod ->
+            val launchId = PlayerLaunchStore.put(
+                PlayerLaunch(
+                    profileId = activePlaybackProfileId,
+                    title = vod.title,
+                    sourceUrl = vod.streamUrl,
+                    sourceHeaders = vod.headers,
+                    streamType = vod.streamType,
+                    poster = vod.posterUrl,
+                    background = vod.episodeThumbnail ?: vod.posterUrl,
+                    seasonNumber = vod.seasonNumber,
+                    episodeNumber = vod.episodeNumber,
+                    episodeTitle = vod.episodeTitle,
+                    episodeThumbnail = vod.episodeThumbnail,
+                    streamTitle = vod.episodeTitle ?: vod.title,
+                    providerName = "Live TV",
+                    providerAddonId = "live-tv",
+                    contentType = "vod",
+                    videoId = null,
+                    parentMetaId = vod.id,
+                    parentMetaType = "live",
+                ),
+            )
+            navController.navigate(PlayerRoute(launchId = launchId))
+        }
+
         AppUpdaterHost(
             controller = appUpdaterController,
             modifier = Modifier.fillMaxSize(),
@@ -1623,6 +1751,24 @@ internal fun MainAppContent(
                 nativeTabBarOwnsChrome -> 49.dp
                 else -> settingsRouteBarOverlay
             }
+            val offlineBannerSurface = when {
+                launchOverlayState.currentState || launchOverlayState.targetState -> OfflineBannerSurface.LaunchGate
+                currentRoute is PlayerRoute || visiblePlayerEntries > 0 -> OfflineBannerSurface.Player
+                else -> OfflineBannerSurface.Main
+            }
+            val offlineBannerScreen = if (currentRoute is DetailRoute) {
+                OfflineBannerScreen.Details
+            } else {
+                OfflineBannerScreen.Home
+            }
+            OfflineBannerHost(
+                condition = networkStatusUiState.condition,
+                surface = offlineBannerSurface,
+                screen = offlineBannerScreen,
+                reduceMotion = systemReduceMotionEnabled(),
+                onRecheck = { NetworkStatusRepository.requestRefresh(force = true) },
+                modifier = Modifier.fillMaxSize(),
+            ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1647,6 +1793,17 @@ internal fun MainAppContent(
                     LocalNuvioBottomNavigationOverlayPadding provides settingsRouteBottomOverlay,
                     LocalPosterClickAnchor provides if (posterNavigationEnabled) posterNavigation::prepare else null,
                     LocalUseNativeNavigation provides useNativeNavigation,
+                    LocalHostRespectsTopSafeArea provides (
+                        useNativeNavigation && com.nuvio.app.core.ui.hostRespectsTopSafeArea(
+                            when (currentRoute) {
+                                is DetailRoute -> "detail"
+                                is StreamRoute -> "stream"
+                                is PlayerRoute -> "player"
+                                null -> null
+                                else -> "other"
+                            },
+                        )
+                    ),
                     LocalNativeNavigationBarHidden provides (currentRoute?.hidesNavigationBar == true),
                     LocalVerticalBarPadding provides if (drawsUnderVerticalBar) verticalBarPadding else PaddingValues(),
                 ) {
@@ -1770,6 +1927,7 @@ internal fun MainAppContent(
                                 onContinueWatchingClick = onContinueWatchingClick,
                                 onContinueWatchingLongPress = onContinueWatchingLongPress,
                                 onLiveTvChannelClick = onLiveTvChannelClick,
+                                onLiveTvVodClick = onLiveTvVodClick,
                                 onSwitchProfile = onSwitchProfile,
                                 onEditProfile = pushEditProfile,
                                 onSettingsPageClick = if (useNativeNavigation && !isTabletLayout) {
@@ -1853,40 +2011,46 @@ internal fun MainAppContent(
                     )
                 }
                 entry<DetailRoute> { route ->
-                    DetailsDestination(
-                        route = route,
-                        navController = navController,
-                        onPlay = onPlay,
-                        onPlayManually = onPlayManually,
-                        onDownload = onDownloadContent,
-                        onPlayExternally = onPlayExternally,
-                        onPlayFromStart = onPlayFromStart,
-                        sharedTransitionScope = this@SharedTransitionLayout,
-                        animatedVisibilityScope = LocalNavAnimatedContentScope.current,
-                    )
+                    OpaqueAppSurfaces {
+                        DetailsDestination(
+                            route = route,
+                            navController = navController,
+                            onPlay = onPlay,
+                            onPlayManually = onPlayManually,
+                            onDownload = onDownloadContent,
+                            onPlayExternally = onPlayExternally,
+                            onPlayFromStart = onPlayFromStart,
+                            sharedTransitionScope = this@SharedTransitionLayout,
+                            animatedVisibilityScope = LocalNavAnimatedContentScope.current,
+                        )
+                    }
                 }
                 entry<PersonDetailRoute> { route ->
-                    PersonDestination(
-                        route = route,
-                        navController = navController,
-                        sharedTransitionScope = this@SharedTransitionLayout,
-                        animatedVisibilityScope = LocalNavAnimatedContentScope.current,
-                    )
+                    OpaqueAppSurfaces {
+                        PersonDestination(
+                            route = route,
+                            navController = navController,
+                            sharedTransitionScope = this@SharedTransitionLayout,
+                            animatedVisibilityScope = LocalNavAnimatedContentScope.current,
+                        )
+                    }
                 }
                 entry<EntityBrowseRoute> { route ->
                     EntityDestination(route = route, navController = navController)
                 }
                 entry<StreamRoute> { route ->
-                    StreamDestination(
-                        route = route,
-                        onLandscapeLoadingChanged = { visible ->
-                            if (currentRoute == route) streamLandscapeLoadingVisible = visible
-                        },
-                        navController = navController,
-                        p2pEnabled = p2pSettingsUiState.p2pEnabled,
-                        openExternalPlayback = ::openExternalPlayback,
-                        openExternalStreamUrl = ::openExternalStreamUrl,
-                    )
+                    OpaqueAppSurfaces {
+                        StreamDestination(
+                            route = route,
+                            onLandscapeLoadingChanged = { visible ->
+                                if (currentRoute == route) streamLandscapeLoadingVisible = visible
+                            },
+                            navController = navController,
+                            p2pEnabled = p2pSettingsUiState.p2pEnabled,
+                            openExternalPlayback = ::openExternalPlayback,
+                            openExternalStreamUrl = ::openExternalStreamUrl,
+                        )
+                    }
                 }
                 entry<PlayerRoute>(
                     metadata = if (isIos) {
@@ -1916,17 +2080,23 @@ internal fun MainAppContent(
                     ) {
                         HostedPlayerRoutePlaceholder(route)
                     } else {
-                    PlayerDestination(
-                        route = route,
-                        navController = navController,
-                        externalPlayerId = playerSettingsUiState.externalPlayerId,
-                        externalPlayerNotConfiguredText = externalPlayerNotConfiguredText,
-                        externalPlayerFailedText = externalPlayerFailedText,
-                        onExternalPlayerLaunch = { launch -> lastExternalPlayerLaunch = launch },
-                        launchExternalPlayer = launchExternalPlayer,
-                        openExternalStreamUrl = ::openExternalStreamUrl,
-                        onOpenPartyMedia = ::openPartyMedia,
-                    )
+                    DisposableEffect(Unit) {
+                        AppBackgroundRepository.suspend()
+                        onDispose { AppBackgroundRepository.resume() }
+                    }
+                    OpaqueAppSurfaces {
+                        PlayerDestination(
+                            route = route,
+                            navController = navController,
+                            externalPlayerId = playerSettingsUiState.externalPlayerId,
+                            externalPlayerNotConfiguredText = externalPlayerNotConfiguredText,
+                            externalPlayerFailedText = externalPlayerFailedText,
+                            onExternalPlayerLaunch = { launch -> lastExternalPlayerLaunch = launch },
+                            launchExternalPlayer = launchExternalPlayer,
+                            openExternalStreamUrl = ::openExternalStreamUrl,
+                            onOpenPartyMedia = ::openPartyMedia,
+                        )
+                    }
                     }
                 }
                 entry<CatalogRoute> { route ->
@@ -2141,6 +2311,11 @@ internal fun MainAppContent(
                     )
                     val removesFromLibrary = isSaved &&
                         (posterActionTarget.libraryItem != null || !isRemoteLibrarySource)
+                    val offline = networkStatusUiState.isOfflineLike
+                    val accountSyncEnabled = offlineSurfaceActionEnabled(
+                        OfflineItemFacts(online = !offline, cached = true, downloaded = false),
+                        OfflineSurfaceAction.AccountSync,
+                    )
                     NuvioPosterZoomActionOverlay(
                         imageUrl = selectedPosterAnchor?.imageUrl ?: preview.poster,
                         title = preview.name,
@@ -2154,6 +2329,19 @@ internal fun MainAppContent(
                         anchor = selectedPosterAnchor,
                         actions = listOf(
                             PosterZoomOverlayAction(
+                                icon = Icons.Default.Info,
+                                label = stringResource(Res.string.cw_action_go_to_details),
+                                onSelected = {
+                                    navController.navigate(
+                                        DetailRoute(
+                                            type = preview.type,
+                                            id = preview.id,
+                                            title = preview.name,
+                                        ),
+                                    )
+                                },
+                            ),
+                            PosterZoomOverlayAction(
                                 icon = if (isSaved) Icons.Default.DeleteOutline else Icons.Default.Add,
                                 label = if (isSaved) {
                                     stringResource(Res.string.hero_remove_from_library)
@@ -2166,6 +2354,7 @@ internal fun MainAppContent(
                                 } else {
                                     PosterZoomOverlayExitAnimation.COLLAPSE
                                 },
+                                enabled = !isRemoteLibrarySource || accountSyncEnabled,
                                 onSelected = {
                                     val libraryItem = posterActionTarget.libraryItem
                                         ?: preview.toLibraryItem(savedAtEpochMs = 0L)
@@ -2298,8 +2487,44 @@ internal fun MainAppContent(
                     key(item.videoId, anchor) {
                         val showManualPlayOption = StreamAutoPlayPolicy.isEffectivelyEnabled(playerSettingsUiState) && canSelectContinueWatchingStreams(item)
                         val showDetailsOption = !item.isCloudLibraryContinueWatchingItem()
+                        val streamsEnabled = offlineSurfaceActionEnabled(
+                            OfflineItemFacts(
+                                online = !networkStatusUiState.isOfflineLike,
+                                cached = true,
+                                downloaded = false,
+                            ),
+                            OfflineSurfaceAction.StreamsLookup,
+                        )
+                        val itemDownloaded = DownloadsRepository.findPlayableDownload(
+                            parentMetaId = item.parentMetaId,
+                            seasonNumber = item.seasonNumber,
+                            episodeNumber = item.episodeNumber,
+                            videoId = item.videoId,
+                        ) != null
+                        val localPlayEnabled = offlineSurfaceActionEnabled(
+                            OfflineItemFacts(
+                                online = !networkStatusUiState.isOfflineLike,
+                                cached = true,
+                                downloaded = itemDownloaded,
+                            ),
+                            OfflineSurfaceAction.Play,
+                        )
+                        val itemWatched = WatchedRepository.isWatched(
+                            id = item.parentMetaId,
+                            type = item.parentMetaType,
+                            season = item.seasonNumber,
+                            episode = item.episodeNumber,
+                        )
+                        val previewUrls = com.nuvio.app.features.home.continueWatchingPreviewUrls(
+                            anchorImageUrl = anchor.imageUrl,
+                            episodeStill = item.episodeThumbnail,
+                            backdrop = item.background,
+                            poster = item.poster,
+                            imageUrl = item.imageUrl,
+                        ).mapNotNull { cloudLibraryDisplayArtworkUrl(it) }
                         NuvioPosterZoomActionOverlay(
-                            imageUrl = cloudLibraryDisplayArtworkUrl(anchor.imageUrl ?: item.poster ?: item.imageUrl),
+                            imageUrl = previewUrls.firstOrNull(),
+                            fallbackImageUrls = previewUrls.drop(1),
                             title = item.title,
                             subtitle = localizedContinueWatchingSubtitle(item),
                             blurred = item.shouldBlurContinueWatchingArtwork(
@@ -2327,11 +2552,37 @@ internal fun MainAppContent(
                                         ),
                                     )
                                 }
+                                add(
+                                    PosterZoomOverlayAction(
+                                        icon = if (itemWatched) Icons.Default.CheckCircle else Icons.Default.CheckCircleOutline,
+                                        label = if (itemWatched) {
+                                            stringResource(Res.string.hero_mark_unwatched)
+                                        } else {
+                                            stringResource(Res.string.hero_mark_watched)
+                                        },
+                                        onSelected = {
+                                            coroutineScope.launch {
+                                                WatchingActions.toggleContinueWatchingWatched(item)
+                                            }
+                                        },
+                                    ),
+                                )
+                                if (canPlayContinueWatching(item)) {
+                                    add(
+                                        PosterZoomOverlayAction(
+                                            icon = Icons.Rounded.Lock,
+                                            label = stringResource(Res.string.watch_privately),
+                                            enabled = localPlayEnabled,
+                                            onSelected = { onContinueWatchingPrivately(item) },
+                                        ),
+                                    )
+                                }
                                 if (showManualPlayOption) {
                                     add(
                                         PosterZoomOverlayAction(
                                             icon = Icons.Default.PlayArrow,
                                             label = stringResource(Res.string.play_manually),
+                                            enabled = streamsEnabled,
                                             onSelected = { onContinueWatchingPlayManually(item) },
                                         ),
                                     )
@@ -2341,6 +2592,7 @@ internal fun MainAppContent(
                                         PosterZoomOverlayAction(
                                             icon = Icons.Default.Replay,
                                             label = stringResource(Res.string.cw_action_start_from_beginning),
+                                            enabled = localPlayEnabled,
                                             onSelected = { onContinueWatchingStartFromBeginning(item) },
                                         ),
                                     )
@@ -2350,6 +2602,7 @@ internal fun MainAppContent(
                                         PosterZoomOverlayAction(
                                             icon = Icons.Rounded.Download,
                                             label = downloadState.label,
+                                            enabled = streamsEnabled,
                                             onSelected = { onContinueWatchingDownload(item) },
                                         ),
                                     )
@@ -2412,6 +2665,45 @@ internal fun MainAppContent(
                 showManualPlayOption = StreamAutoPlayPolicy.isEffectivelyEnabled(playerSettingsUiState) &&
                     selectedContinueWatchingForActions?.let(::canSelectContinueWatchingStreams) == true,
                 showDetailsOption = selectedContinueWatchingForActions?.isCloudLibraryContinueWatchingItem() != true,
+                detailsEnabled = true,
+                manualPlayEnabled = offlineSurfaceActionEnabled(
+                    OfflineItemFacts(online = !networkStatusUiState.isOfflineLike, cached = true, downloaded = false),
+                    OfflineSurfaceAction.StreamsLookup,
+                ),
+                startEnabled = offlineSurfaceActionEnabled(
+                    OfflineItemFacts(
+                        online = !networkStatusUiState.isOfflineLike,
+                        cached = true,
+                        downloaded = selectedContinueWatchingForActions?.let { item ->
+                            DownloadsRepository.findPlayableDownload(
+                                parentMetaId = item.parentMetaId,
+                                seasonNumber = item.seasonNumber,
+                                episodeNumber = item.episodeNumber,
+                                videoId = item.videoId,
+                            ) != null
+                        } == true,
+                    ),
+                    OfflineSurfaceAction.Play,
+                ),
+                downloadEnabled = offlineSurfaceActionEnabled(
+                    OfflineItemFacts(online = !networkStatusUiState.isOfflineLike, cached = true, downloaded = false),
+                    OfflineSurfaceAction.StreamsLookup,
+                ),
+                isWatched = selectedContinueWatchingForActions?.let { item ->
+                    WatchedRepository.isWatched(
+                        id = item.parentMetaId,
+                        type = item.parentMetaType,
+                        season = item.seasonNumber,
+                        episode = item.episodeNumber,
+                    )
+                } == true,
+                onToggleWatched = selectedContinueWatchingForActions?.let { item ->
+                    {
+                        coroutineScope.launch {
+                            WatchingActions.toggleContinueWatchingWatched(item)
+                        }
+                    }
+                },
                 onDismiss = { selectedContinueWatchingForActions = null },
                 onOpenDetails = {
                     selectedContinueWatchingForActions?.let { item ->
@@ -2429,6 +2721,9 @@ internal fun MainAppContent(
                     ?.let { item -> { onContinueWatchingStartFromBeginning(item) } },
                 onPlayManually = selectedContinueWatchingForActions
                     ?.let { item -> { onContinueWatchingPlayManually(item) } },
+                onWatchPrivately = selectedContinueWatchingForActions
+                    ?.takeIf { canPlayContinueWatching(it) }
+                    ?.let { item -> { onContinueWatchingPrivately(item) } },
                 goalPinned = selectedContinueWatchingForActions
                     ?.takeIf { it.seasonNumber != null }
                     ?.let { SmartDownloadSettings.isGoal(it.parentMetaType, it.parentMetaId) },
@@ -2585,7 +2880,7 @@ internal fun MainAppContent(
                 onAction = {
                     val item = resumePromptItem ?: return@NuvioFloatingPrompt
                     resumePromptItem = null
-                    openContinueWatching(item, false, false)
+                    openContinueWatching(item, false, false, false)
                 },
                 onDismiss = { resumePromptItem = null },
                 modifier = Modifier
@@ -2600,6 +2895,7 @@ internal fun MainAppContent(
             )
             DebridAddOfferHost()
 
+            }
             }
         }
 }

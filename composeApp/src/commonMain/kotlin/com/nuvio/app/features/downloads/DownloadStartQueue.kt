@@ -144,24 +144,33 @@ internal class DownloadStartQueue(
      * without interrupting a transfer that is already active.
      * Returns the ids that may start now, in order.
      */
-    fun request(id: String, thermalBlocksNextFile: Boolean, atFront: Boolean = false): List<String> {
+    fun request(
+        id: String,
+        thermalBlocksNextFile: Boolean,
+        atFront: Boolean = false,
+        canStart: (String) -> Boolean = { true },
+    ): List<String> {
         active.remove(id)
         waiting.remove(id)
         if (atFront) waiting.addFirst(id) else insertInOrder(id)
-        return promote(thermalBlocksNextFile)
+        return promote(thermalBlocksNextFile, canStart)
     }
 
     /**
      * Put [idsInOrder] at the front of the line in exactly that order, ahead of everything
      * already waiting, then fill the free slots once. Used by Resume season.
      */
-    fun requestAllAtFront(idsInOrder: List<String>, thermalBlocksNextFile: Boolean): List<String> {
+    fun requestAllAtFront(
+        idsInOrder: List<String>,
+        thermalBlocksNextFile: Boolean,
+        canStart: (String) -> Boolean = { true },
+    ): List<String> {
         idsInOrder.forEach { id ->
             active.remove(id)
             waiting.remove(id)
         }
         idsInOrder.asReversed().forEach { id -> waiting.addFirst(id) }
-        return promote(thermalBlocksNextFile)
+        return promote(thermalBlocksNextFile, canStart)
     }
 
     fun discard(id: String) {
@@ -170,10 +179,14 @@ internal class DownloadStartQueue(
     }
 
     /** [id] is no longer active or waiting. Returns ids that may start in the free slots. */
-    fun release(id: String, thermalBlocksNextFile: Boolean): List<String> {
+    fun release(
+        id: String,
+        thermalBlocksNextFile: Boolean,
+        canStart: (String) -> Boolean = { true },
+    ): List<String> {
         active.remove(id)
         waiting.remove(id)
-        return promote(thermalBlocksNextFile)
+        return promote(thermalBlocksNextFile, canStart)
     }
 
     /** Put [id] back at the front of the line. It does not keep a slot. */
@@ -187,6 +200,15 @@ internal class DownloadStartQueue(
      * Moves the newest active ids back to the front of the line until at most [max] are active.
      * Ids in [keep] stay active even past [max].
      */
+    fun releaseBlocked(canStart: (String) -> Boolean): List<String> {
+        val blocked = active.filterNot(canStart)
+        blocked.forEach { id ->
+            active.remove(id)
+            waiting.addFirst(id)
+        }
+        return blocked
+    }
+
     fun shrinkTo(max: Int, keep: Set<String> = emptySet()): List<String> {
         val demoted = mutableListOf<String>()
         while (active.size > max) {
@@ -208,11 +230,16 @@ internal class DownloadStartQueue(
         return pinned
     }
 
-    fun promote(thermalBlocksNextFile: Boolean): List<String> {
+    fun promote(
+        thermalBlocksNextFile: Boolean,
+        canStart: (String) -> Boolean = { true },
+    ): List<String> {
         if (thermalBlocksNextFile) return emptyList()
         val started = mutableListOf<String>()
         while (active.size < maxActive && waiting.isNotEmpty()) {
-            val next = waiting.removeFirst()
+            val index = waiting.indexOfFirst(canStart)
+            if (index < 0) break
+            val next = waiting.removeAt(index)
             active.add(next)
             started.add(next)
         }
@@ -228,13 +255,14 @@ internal class DownloadStartQueue(
         activeIdsInOrder: List<String>,
         waitingIdsInOrder: List<String>,
         thermalBlocksNextFile: Boolean,
+        canStart: (String) -> Boolean = { true },
     ): List<String> {
         clear()
         activeIdsInOrder.forEach { id -> active.add(id) }
         waitingIdsInOrder.forEach { id ->
             if (id !in active && id !in waiting) insertInOrder(id)
         }
-        return promote(thermalBlocksNextFile)
+        return promote(thermalBlocksNextFile, canStart)
     }
 
     /** Before the first waiting episode of the same show that comes later; otherwise at the end. */

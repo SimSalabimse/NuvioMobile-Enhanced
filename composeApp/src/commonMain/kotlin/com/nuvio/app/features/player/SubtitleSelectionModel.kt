@@ -33,6 +33,12 @@ internal sealed interface SubtitleSelectionOption {
 internal val AddonSubtitle.selectionKey: String
     get() = url.takeIf { it.isNotBlank() } ?: listOfNotNull(addonName, id).joinToString(":")
 
+/** Addon or provider name already stored on the row. Built-in tracks have none. */
+internal fun subtitleSelectionSource(option: SubtitleSelectionOption): String? = when (option) {
+    is SubtitleSelectionOption.BuiltIn -> null
+    is SubtitleSelectionOption.Addon -> option.subtitle.addonName?.trim()?.takeIf { it.isNotEmpty() }
+}
+
 internal fun AddonSubtitle.matchesSelection(selectedId: String?): Boolean {
     if (selectedId.isNullOrBlank()) return false
     return url == selectedId || id == selectedId || selectionKey == selectedId
@@ -76,7 +82,10 @@ internal fun buildSubtitleLanguageItems(
     val preferredOrder = listOfNotNull(
         preferredLanguage.toPreferredSubtitleKey(),
         secondaryPreferredLanguage.toPreferredSubtitleKey(),
-    ).distinct()
+    ).flatMap { key ->
+        // Nynorsk stays a separate group, listed after Bokmål when Norwegian is preferred.
+        if (key == "no") listOf("no", "nn") else listOf(key)
+    }.distinct()
     val preferredKeys = preferredOrder.toSet()
     val visibleEntries = counts.entries.filter { entry ->
         !showOnlyPreferredLanguages || entry.key in preferredKeys || entry.key == selectedLanguageKey

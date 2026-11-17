@@ -1554,6 +1554,7 @@
     <string name="network_error_empty_response_body">جواب کا متن خالی ہے</string>
     <string name="network_error_request_failed_http">درخواست HTTP %1$d کے ساتھ ناکام ہوئی</string>
     <string name="network_no_internet_connection">انٹرنیٹ کنکشن نہیں ہے</string>
+    <string name="offline_banner_saved_data">آف لائن: محفوظ ڈیٹا دکھایا جا رہا ہے</string>
     <string name="person_age">(عمر %1$d سال)</string>
     <string name="person_born">پیدائش %1$s%2$s</string>
     <string name="person_died">وفات %1$s</string>

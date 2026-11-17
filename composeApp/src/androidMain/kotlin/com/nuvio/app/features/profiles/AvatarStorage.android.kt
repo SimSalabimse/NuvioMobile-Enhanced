@@ -2,6 +2,7 @@ package com.nuvio.app.features.profiles
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.nuvio.app.core.automation.allowStorageWrite
 
 actual object AvatarStorage {
     private const val preferencesName = "nuvio_avatar_cache"
@@ -17,6 +18,7 @@ actual object AvatarStorage {
         preferences?.getString(payloadKey, null)
 
     actual fun savePayload(payload: String) {
+        if (!allowStorageWrite(payloadKey)) return
         preferences
             ?.edit()
             ?.putString(payloadKey, payload)

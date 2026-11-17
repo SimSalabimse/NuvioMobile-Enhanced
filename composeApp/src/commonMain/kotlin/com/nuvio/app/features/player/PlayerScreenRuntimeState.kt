@@ -18,6 +18,7 @@ import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.features.player.skip.EMPTY_SKIP_TIMESTAMP
 import com.nuvio.app.features.player.skip.NextEpisodeInfo
 import com.nuvio.app.features.player.skip.SkipInterval
+import com.nuvio.app.features.player.skip.SkipUndoState
 import com.nuvio.app.features.streams.StreamsUiState
 import com.nuvio.app.features.tracking.TrackingMediaReference
 import com.nuvio.app.features.watched.WatchedUiState
@@ -25,6 +26,21 @@ import com.nuvio.app.features.watchprogress.WatchProgressUiState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlin.time.TimeMark
+
+/**
+ * Audio/subtitle selection captured right before the playback engine changes, together with the
+ * engine expected to take over. Re-applied as soon as the new engine exposes its track list.
+ */
+internal data class PendingEngineSwitchTrackPreference(
+    val sourceIdentity: String,
+    val capturedController: PlayerEngineController?,
+    val targetEngine: AndroidPlaybackEngine,
+    val preference: PersistedPlayerTrackPreference,
+    val hasAudioSelection: Boolean,
+    val hasSubtitleSelection: Boolean,
+    val audioApplied: Boolean = false,
+    val subtitleApplied: Boolean = false,
+)
 
 internal class PlayerScreenRuntime(
     args: PlayerScreenArgs,
@@ -68,7 +84,7 @@ internal class PlayerScreenRuntime(
     lateinit var scope: CoroutineScope
     lateinit var hapticFeedback: HapticFeedback
 
-    var playerSettingsUiState: PlayerSettingsUiState = PlayerSettingsUiState()
+    var playerSettingsUiState by mutableStateOf(PlayerSettingsUiState())
     var p2pSettingsUiState by mutableStateOf(P2pSettingsUiState())
     var p2pStreamingState by mutableStateOf<P2pStreamingState>(P2pStreamingState.Idle)
     var metaScreenSettingsUiState: MetaScreenSettingsUiState = MetaScreenSettingsUiState()
@@ -87,6 +103,7 @@ internal class PlayerScreenRuntime(
     var sliderEdgePadding: Dp = 0.dp
     var overlayBottomPadding: Dp = 0.dp
     var sideGestureSystemEdgeExclusionPx: Float = 0f
+    var horizontalSeekSystemEdgeExclusionPx: Float = 0f
     var resizeModeFitLabel: String = ""
     var resizeModeFillLabel: String = ""
     var resizeModeZoomLabel: String = ""
@@ -134,6 +151,8 @@ internal class PlayerScreenRuntime(
     )
     var activeStreamTitle by mutableStateOf(streamTitle)
     var activeStreamSubtitle by mutableStateOf(streamSubtitle)
+    // behaviorHints filename (or URL basename) for the auto engine resolver's HDR/DV detection.
+    var activeStreamFilename by mutableStateOf(sourceFilenameFromUrl(sourceUrl))
     var activeProviderName by mutableStateOf(providerName)
     var activeProviderAddonId by mutableStateOf(providerAddonId)
     var activeLogo by mutableStateOf(logo)
@@ -147,6 +166,7 @@ internal class PlayerScreenRuntime(
     var activeEpisodeThumbnail by mutableStateOf(episodeThumbnail)
     var activePauseDescription by mutableStateOf(pauseDescription)
     var activeVideoId by mutableStateOf(videoId)
+    var activeSubtitleExtras by mutableStateOf(args.subtitleExtras)
     var activeInitialPositionMs by mutableStateOf(initialPositionMs)
     var activeInitialProgressFraction by mutableStateOf(initialProgressFraction)
     var shouldPlay by mutableStateOf(true)
@@ -159,6 +179,26 @@ internal class PlayerScreenRuntime(
     var playbackSnapshotKey by mutableStateOf<PlaybackKey?>(null)
     var playerController by mutableStateOf<PlayerEngineController?>(null)
     var playerControllerSourceUrl by mutableStateOf<String?>(null)
+    val subtitleDrift: SubtitleDriftCorrection = SubtitleDriftCorrection(
+        transport = object : SubtitleSyncTransport {
+            override val supportsSubtitleRate: Boolean
+                get() = playerController?.supportsSubtitleRate() ?: true
+
+            override fun applyFit(speed: Double, fitDelayMs: Long) {
+                playerController?.applyFittedSubtitleSync(speed, fitDelayMs)
+            }
+
+            override fun applyUserDelay(delayMs: Long) {
+                playerController?.setSubtitleDelayMs(
+                    delayMs.toInt().coerceIn(SUBTITLE_DELAY_MIN_MS, SUBTITLE_DELAY_MAX_MS),
+                )
+            }
+
+            override fun resetFit() {
+                playerController?.applyFittedSubtitleSync(1.0, 0L)
+            }
+        },
+    )
     var errorMessage by mutableStateOf<String?>(null)
     var isScrubbingTimeline by mutableStateOf(false)
     var isTouchingTimeline by mutableStateOf(false)
@@ -206,6 +246,16 @@ internal class PlayerScreenRuntime(
     var submitIntroEndTimeStr by mutableStateOf(EMPTY_SKIP_TIMESTAMP)
     /** Start/end typed per segment type in Submit Timestamps, so switching type keeps each apart. */
     val submitIntroDrafts = mutableMapOf<String, Pair<String, String>>()
+    /** Whether each draft's clocks are showing a tenth after a 0.1 s nudge. */
+    val submitIntroTenthDrafts = mutableMapOf<String, Pair<Boolean, Boolean>>()
+    /**
+     * Segment ids whose Start or End the viewer edited on the episode in
+     * [submitIntroDraftEpisodeKey]. A tab stays untouched until then, which
+     * hides "End must be after the start" without enabling Submit.
+     */
+    val submitIntroUserEdited = mutableSetOf<String>()
+    /** videoId:season:episode. Drafts belong to this episode until it changes. */
+    var submitIntroDraftEpisodeKey: String = ""
     val submittedSegmentTypesByVideoId = mutableMapOf<String, MutableSet<String>>()
     var episodeStreamsPanelState by mutableStateOf(EpisodeStreamsPanelState())
     var playerMetaVideos by mutableStateOf<List<MetaVideo>>(emptyList())
@@ -216,11 +266,22 @@ internal class PlayerScreenRuntime(
     var episodesLoadJob: Job? = null
     var episodesLoadGeneration: Int = 0
     var playerMeta by mutableStateOf<MetaDetails?>(null)
+    val isAnimePlayback: Boolean
+        get() {
+            val genres = playerMeta?.genres.orEmpty()
+            val country = playerMeta?.country
+            return isAnimeContent(activeVideoId, genres, country) || isAnimeContent(parentMetaId, genres, country)
+        }
     var skipIntervals by mutableStateOf<List<SkipInterval>>(emptyList())
+    var chapterSkipIntervals: List<SkipInterval> = emptyList()
+    var apiSkipIntervals: List<SkipInterval> = emptyList()
+    var skipDetectionChapters: List<PlayerChapter> = emptyList()
+    var skipChaptersComputedForDuration: Long = 0L
     val autoSkippedIntervals = mutableSetOf<SkipInterval>()
     var lastManualSkipSeekPositions by mutableStateOf<Pair<Long, Long>?>(null)
     var activeSkipInterval by mutableStateOf<SkipInterval?>(null)
     var skipIntervalDismissed by mutableStateOf(false)
+    var skipUndo by mutableStateOf<SkipUndoState>(SkipUndoState.Hidden)
     /** Segment just skipped, asked about in the Good / Wrong prompt. */
     var skipFeedbackInterval by mutableStateOf<SkipInterval?>(null)
     var skipFeedbackNudging by mutableStateOf(false)
@@ -279,6 +340,10 @@ internal class PlayerScreenRuntime(
     var partialFinishedResumeDone = false
     var streamMediaInfo by mutableStateOf(PlayerMediaInfo())
     var playbackEngineOverride by mutableStateOf<AndroidPlaybackEngine?>(null)
+    var engineFailoverTriggered by mutableStateOf(false)
+    var engineFailoverDisarmed by mutableStateOf(false)
+    var engineFailoverSourceIdentity: String? = null
+    var pendingEngineSwitchTrackPreference by mutableStateOf<PendingEngineSwitchTrackPreference?>(null)
     var audioTracks by mutableStateOf<List<AudioTrack>>(emptyList())
     var serverAudioTracks by mutableStateOf<List<AudioTrack>>(emptyList())
     var serverSubtitleTracks by mutableStateOf<List<SubtitleTrack>>(emptyList())
@@ -303,6 +368,21 @@ internal class PlayerScreenRuntime(
     var downloadSwap by mutableStateOf<PlayerDownloadSwap?>(null)
     var downloadSwapGaveUpVideoIds: Set<String> = emptySet()
     var downloadSwapPartialFallbacks: Int = 0
+    /**
+     * Key of the mpv instance already on screen. The next downloaded episode keeps it so the
+     * player is not destroyed at the end of the file and created again.
+     */
+    var retainedLocalSurfaceKey by mutableStateOf<PlaybackKey?>(null)
+    /** True until the next local file has opened. Ended snapshots from the previous file are ignored. */
+    var localEpisodeHandoff by mutableStateOf(false)
+    /** Resume point applied when the next local file is loaded into the current player. */
+    var localHandoffStartMs by mutableStateOf<Long?>(null)
+    var audioDelayMs by mutableStateOf(0)
+    /** Output the audio delay is remembered for; null while that setting is off. */
+    var audioOutputKey: String? = null
+    var audioAmplificationDb by mutableStateOf(0)
+    var centerMixLevelDb by mutableStateOf(0)
+    var centerMixAvailable by mutableStateOf(false)
     var subtitleAutoSyncState by mutableStateOf(SubtitleAutoSyncUiState())
     var showSubtitleSyncByEar by mutableStateOf(false)
     var playerToolTab by mutableStateOf(PlayerToolTab.Subs)
@@ -311,6 +391,9 @@ internal class PlayerScreenRuntime(
     var markPreviewArmed by mutableStateOf(false)
     var markSent by mutableStateOf(false)
     var markAbsent by mutableStateOf(false)
+    /** Tenth digit on Mark start / Mark end, after a 0.1 s nudge. */
+    var markStartShowsTenth by mutableStateOf(false)
+    var markEndShowsTenth by mutableStateOf(false)
     var markSubmitError by mutableStateOf<String?>(null)
     var markSubmitGeneration by mutableStateOf(0)
     var markingPendingSeekMs by mutableStateOf<Long?>(null)
@@ -343,5 +426,7 @@ internal class PlayerScreenRuntime(
 
     var lastSyncedSettingsResizeMode: PlayerResizeMode? = null
     var lastResetPlaybackIdentity: PlaybackKey? = null
+    var lastResetSourcePlaybackIdentity: PlaybackKey? = null
+    var lastAddonSubtitleSourceIdentity: PlaybackKey? = null
     var lastResetVideoIdentity: String? = null
 }

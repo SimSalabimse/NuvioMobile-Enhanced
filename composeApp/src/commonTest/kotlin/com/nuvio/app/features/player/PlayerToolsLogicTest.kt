@@ -1,8 +1,16 @@
 package com.nuvio.app.features.player
 
+import com.nuvio.app.features.player.skip.AutoSkipSegmentType
+import com.nuvio.app.features.player.skip.FlagSubmissionRecord
 import com.nuvio.app.features.player.skip.IntroSubmitService
+import com.nuvio.app.features.player.skip.flagChecksForTitle
 import com.nuvio.app.features.player.skip.resolveIntroSubmitTimes
+import com.nuvio.app.features.player.skip.submittedFlagTypesForTitle
 import com.nuvio.app.features.player.skip.theIntroDbSubmitPayload
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -39,11 +47,14 @@ class PlayerToolsLogicTest {
     }
 
     @Test
-    fun `end must be after start and a missing clock cannot be sent`() {
+    fun `end must be after start when both clocks are set`() {
         assertEquals(listOf(MarkProblem.EndNotAfterStart), markProblems("intro", 10.0, 10.0, 100.0))
         assertEquals(listOf(MarkProblem.EndNotAfterStart), markProblems("intro", 20.0, 5.0, 100.0))
-        assertEquals(listOf(MarkProblem.EndNotAfterStart), markProblems("intro", null, 5.0, 100.0))
+        assertTrue(markProblems("intro", null, 5.0, 100.0).isEmpty())
         assertEquals(listOf(MarkProblem.EndNotAfterStart), markProblems("intro", 5.0, null, null))
+        assertTrue(markProblems("credits", 10.0, null, 100.0).isEmpty())
+        assertTrue(markProblems("intro", null, null, 100.0).isEmpty())
+        assertEquals(listOf(MarkProblem.EndNotAfterStart), markProblems("credits", null, 20.0, 100.0))
     }
 
     @Test
@@ -89,17 +100,17 @@ class PlayerToolsLogicTest {
             knownStartSec = 12.4,
             knownEndSec = 101.0,
             knownSegmentType = "intro",
-            isMovie = true,
         )
-        assertNull(clocks.startSec)
-        assertNull(clocks.endSec)
+        assertEquals(0.0, clocks.startSec)
+        assertEquals(0.0, clocks.endSec)
+        assertEquals("0:00:00", formatMarkClock(clocks.startSec!!))
+        assertEquals("0:00:00", formatMarkClock(clocks.endSec!!))
         val seriesCredits = clocksForSegment(
             segmentType = "outro",
             draft = null,
             knownStartSec = 6_760.0,
             knownEndSec = 7_101.0,
             knownSegmentType = "credits",
-            isMovie = false,
         )
         assertEquals(6_760.0, seriesCredits.startSec)
         assertEquals(7_101.0, seriesCredits.endSec)
@@ -109,9 +120,84 @@ class PlayerToolsLogicTest {
             knownStartSec = 12.4,
             knownEndSec = 101.0,
             knownSegmentType = "intro",
-            isMovie = true,
         )
         assertEquals(1.0, drafted.startSec)
+        assertEquals(2.0, drafted.endSec)
+    }
+
+    @Test
+    fun `every segment type defaults to zero unless detected or edited`() {
+        val types = (
+            SubmitPanelTab.entries.map { it.segmentId } +
+                listOf("credits") +
+                AutoSkipSegmentType.entries.map { it.storedValue }
+            ).distinct()
+        assertTrue(types.containsAll(listOf("intro", "recap", "outro", "preview", "credits", "movie-credits")))
+        val detectedStart = 12.0
+        val detectedEnd = 40.0
+        val edited = MarkClocks(3.0, 9.0)
+        for (type in types) {
+            val absent = shownSegmentClocks(type, null, null, edited = null, sameEpisode = false)
+            assertEquals(0.0, absent.startSec, type)
+            assertEquals(0.0, absent.endSec, type)
+            assertEquals("0:00:00", formatMarkClock(absent.startSec!!), type)
+            assertEquals("0:00:00", formatMarkClock(absent.endSec!!), type)
+            assertEquals(formatMarkClock(absent.startSec), formatMarkClock(absent.endSec), type)
+
+            val reopenedAbsent = shownSegmentClocks(type, null, null, edited = null, sameEpisode = true)
+            assertEquals(0.0, reopenedAbsent.startSec, type)
+            assertEquals(0.0, reopenedAbsent.endSec, type)
+
+            val halfDetected = shownSegmentClocks(type, detectedStart, null, edited = null, sameEpisode = true)
+            assertEquals(0.0, halfDetected.startSec, type)
+            assertEquals(0.0, halfDetected.endSec, type)
+
+            val found = shownSegmentClocks(type, detectedStart, detectedEnd, edited = null, sameEpisode = true)
+            assertEquals(detectedStart, found.startSec, type)
+            assertEquals(detectedEnd, found.endSec, type)
+            assertEquals("0:00:12", formatMarkClock(found.startSec!!), type)
+            assertEquals("0:00:40", formatMarkClock(found.endSec!!), type)
+
+            val foundOnReopen = shownSegmentClocks(type, detectedStart, detectedEnd, edited = null, sameEpisode = true)
+            assertEquals(detectedStart, foundOnReopen.startSec, type)
+            assertEquals(detectedEnd, foundOnReopen.endSec, type)
+
+            val kept = shownSegmentClocks(type, detectedStart, detectedEnd, edited, sameEpisode = true)
+            assertEquals(3.0, kept.startSec, type)
+            assertEquals(9.0, kept.endSec, type)
+
+            val keptWithoutDetection = shownSegmentClocks(type, null, null, edited, sameEpisode = true)
+            assertEquals(3.0, keptWithoutDetection.startSec, type)
+            assertEquals(9.0, keptWithoutDetection.endSec, type)
+
+            val blankEdit = shownSegmentClocks(
+                type,
+                detectedStart,
+                detectedEnd,
+                MarkClocks(null, null),
+                sameEpisode = true,
+            )
+            assertNull(blankEdit.startSec, type)
+            assertNull(blankEdit.endSec, type)
+
+            val otherEpisode = shownSegmentClocks(type, null, null, edited, sameEpisode = false)
+            assertEquals(0.0, otherEpisode.startSec, type)
+            assertEquals(0.0, otherEpisode.endSec, type)
+
+            val otherEpisodeDetected = shownSegmentClocks(
+                type,
+                detectedStart,
+                detectedEnd,
+                edited,
+                sameEpisode = false,
+            )
+            assertEquals(detectedStart, otherEpisodeDetected.startSec, type)
+            assertEquals(detectedEnd, otherEpisodeDetected.endSec, type)
+        }
+        val longPreview = shownSegmentClocks("preview", 6_760.0, 7_101.0, edited = null, sameEpisode = true)
+        assertEquals("1:52:40", formatMarkClock(longPreview.startSec!!))
+        assertEquals("1:58:21", formatMarkClock(longPreview.endSec!!))
+        assertEquals(formatMarkClock(0.0).length, formatMarkClock(6_760.0).length)
     }
 
     @Test
@@ -122,9 +208,61 @@ class PlayerToolsLogicTest {
         assertEquals(duration, end)
         assertEquals(341.0, markLengthSec(start, end))
         assertTrue(markProblems("outro", start, end, duration).isEmpty())
+        val status = markRangeStatus("outro", start, end, duration)
+        assertTrue(status.bothSet)
+        assertNull(status.problem)
+        assertEquals("0:05:41", status.lengthLabel)
+    }
+
+    @Test
+    fun `start and end shortcuts and the range actions`() {
+        val duration = 7_101.0
         assertTrue(markSegmentOffersRunsToEnd("credits"))
+        assertTrue(markSegmentOffersRunsToEnd("preview"))
         assertTrue(!markSegmentOffersRunsToEnd("intro"))
+        assertTrue(!markSegmentOffersRunsToEnd("recap"))
+        assertTrue(markSegmentOffersStartAtZero("intro"))
         assertTrue(markSegmentOffersStartAtZero("recap"))
+        assertTrue(!markSegmentOffersStartAtZero("credits"))
+        assertTrue(markRunsToEndSelected(duration, duration))
+        assertTrue(!markRunsToEndSelected(duration - 1.0, duration))
+        assertTrue(!markRunsToEndSelected(null, duration))
+        assertTrue(markPlayRangeEnabled(absent = false, timeOk = true, submitting = false))
+        assertTrue(!markPlayRangeEnabled(absent = true, timeOk = true, submitting = false))
+        assertTrue(!markPlayRangeEnabled(absent = false, timeOk = false, submitting = false))
+        assertTrue(!markPlayRangeEnabled(absent = false, timeOk = true, submitting = true))
+    }
+
+    @Test
+    fun `an end on the stream length is valid and a hair past it clamps`() {
+        val duration = 44 * 60 + 8.9
+        val start = duration - 36.7
+        assertTrue(markProblems("outro", start, duration, duration).isEmpty())
+        assertTrue(markProblems("outro", start, duration + 0.0004, duration).isEmpty())
+        assertEquals(
+            listOf(MarkProblem.PastDuration),
+            markProblems("outro", start, duration + 5.0, duration).filter { it == MarkProblem.PastDuration },
+        )
+        val end = runsToEndSec(duration)
+        assertEquals(duration, end)
+        assertTrue(markProblems("credits", start, end, duration).isEmpty())
+        assertTrue(
+            markSubmitEnabled(
+                sent = false,
+                submitting = false,
+                keyProblem = false,
+                blocked = false,
+                absent = false,
+                absentAllowed = true,
+                timeOk = markProblems("outro", start, end, duration).isEmpty(),
+            ),
+        )
+        assertEquals(duration, clampMarkTimeToDuration(duration + 0.0004, duration))
+        assertEquals(duration + 5.0, clampMarkTimeToDuration(duration + 5.0, duration))
+        val stored = formatMarkTimestamp(end)
+        assertEquals(end, parseMarkClock(stored)!!, 0.0005)
+        assertEquals("0:44:08", formatMarkClock(duration))
+        assertEquals("0:44:08.9", formatMarkClock(duration, showTenth = true))
     }
 
     @Test
@@ -155,13 +293,67 @@ class PlayerToolsLogicTest {
 
     @Test
     fun `mark clocks keep a tenth of a second`() {
-        assertEquals("0:00:12.4", formatMarkClock(12.4))
-        assertEquals("0:01:41.0", formatMarkClock(101.0))
-        assertEquals(12.4, parseMarkClock("0:00:12.4"))
+        assertEquals("0:00:12", formatMarkClock(12.4))
+        assertEquals("0:00:12.4", formatMarkClock(12.4, showTenth = true))
+        assertEquals("0:01:41", formatMarkClock(101.0))
+        assertEquals("0:01:41", formatMarkClock(101.0, showTenth = true))
+        assertFalse(markClockShowsTenth(12.4, allowTenth = false))
+        assertTrue(markClockShowsTenth(12.4, allowTenth = true))
+        assertFalse(markClockShowsTenth(101.0, allowTenth = true))
+        assertEquals(12.4, parseMarkClock("0:00:12.400"))
+        assertEquals(12.4, parseMarkClock(formatMarkTimestamp(12.4)))
         assertEquals(12.5, nudgeMarkSeconds(12.4, 0.1, 200.0))
         assertEquals(0.0, nudgeMarkSeconds(0.4, -1.0, 200.0))
         assertEquals(200.0, nudgeMarkSeconds(199.5, 1.0, 200.0))
-        assertEquals("88.6 s", markLengthLabel(88.6))
+        assertEquals(13.4, nudgeMarkSeconds(12.4, 1.0, 200.0))
+        assertEquals("0:01:28.6", markLengthLabel(88.6))
+        assertEquals("0:00:22", markStatusLengthLabel(22.0))
+        assertEquals("0:00:22.1", markStatusLengthLabel(22.14))
+        assertEquals("0:00:04.9", markStatusLengthLabel(4.9))
+        val tooShort = markRangeStatus("intro", 0.0, 4.96, 3_000.0)
+        assertEquals(MarkProblem.TooShort, tooShort.problem)
+        assertEquals("0:00:04.9", tooShort.lengthLabel)
+        assertEquals("0:00:00", markStatusLengthLabel(0.0))
+        assertEquals("0:00:00", markStatusLengthLabel(0.04))
+        assertEquals("0:00:00.1", markStatusLengthLabel(0.05))
+        assertEquals("0:00:00.4", markStatusLengthLabel(0.4))
+        assertEquals("0:00:00", markStatusLengthLabel(-1.5))
+        assertEquals("1:01:01", markStatusLengthLabel(3_661.0))
+        assertEquals("1:01:01", markStatusLengthLabel(3_661.04))
+        assertEquals("1:01:01.2", markStatusLengthLabel(3_661.16))
+        assertEquals("1:00:00", formatMarkClock(3_599.96, showTenth = true))
+        val valid = markRangeStatus("intro", 209.0, 231.0, 3_000.0)
+        assertTrue(valid.bothSet)
+        assertNull(valid.problem)
+        assertEquals("0:00:22", valid.lengthLabel)
+        val preview = markRangeStatus("preview", 0.0, 22.0, 3_000.0)
+        assertEquals(markStatusLengthLabel(22.0), preview.lengthLabel)
+        assertEquals("0:30:00", formatMarkClock(markSegmentLimits("preview").maxSec))
+        assertEquals("0:05:00", formatMarkClock(markSegmentLimits("intro").maxSec))
+        assertEquals(5, valid.minSec)
+        assertEquals(300, valid.maxSec)
+        assertEquals(MarkProblem.TooShort, markRangeStatus("intro", 0.0, 4.9, 3_000.0).problem)
+        assertFalse(markRangeStatus("intro", null, 12.0, 3_000.0).bothSet)
+        assertNull(markRangeStatus("intro", null, 12.0, 3_000.0).problem)
+    }
+
+    @Test
+    fun `a held nudge steps by a tenth and a tap keeps the labelled step`() {
+        assertEquals(-0.1, holdNudgeDelta(-5.0))
+        assertEquals(-0.1, holdNudgeDelta(-1.0))
+        assertEquals(0.1, holdNudgeDelta(1.0))
+        assertEquals(0.1, holdNudgeDelta(5.0))
+        assertEquals(400L, NudgeHoldDelayMs)
+        assertTrue(NudgeHoldRepeatMs in 50L..200L)
+        val tapped = nudgeMarkSeconds(209.0, -5.0, 1_000.0)
+        assertEquals(204.0, tapped)
+        assertFalse(nudgeKeepsTenth(-5.0, alreadyShowing = false))
+        assertTrue(nudgeKeepsTenth(-5.0, alreadyShowing = true))
+        val held = nudgeMarkSeconds(209.0, holdNudgeDelta(-5.0), 1_000.0)
+        assertEquals(208.9, held)
+        assertTrue(nudgeKeepsTenth(holdNudgeDelta(-5.0), alreadyShowing = false))
+        assertEquals("0:03:24", formatMarkClock(tapped, showTenth = nudgeKeepsTenth(-5.0, false)))
+        assertEquals("0:03:28.9", formatMarkClock(held, showTenth = true))
     }
 
     @Test
@@ -240,6 +432,220 @@ class PlayerToolsLogicTest {
         assertEquals(
             MarkPreviewPlayback(positionMs = 0, shouldPlay = true),
             restoredMarkPreview(markPreviewSession(positionMs = -20, shouldPlay = true)),
+        )
+    }
+
+    @Test
+    fun `the no-segment button follows the selected chip`() {
+        assertEquals(NoneChip.Intro, noneChip("intro"))
+        assertEquals(NoneChip.Intro, noneChip("opening"))
+        assertEquals(NoneChip.Recap, noneChip("recap"))
+        assertEquals(NoneChip.Credits, noneChip("outro"))
+        assertEquals(NoneChip.Credits, noneChip("credits"))
+        assertEquals(NoneChip.Credits, noneChip("movie-credits"))
+        assertEquals(NoneChip.Preview, noneChip("preview"))
+    }
+
+    @Test
+    fun `a movie and an episode both offer intro recap credits and preview`() {
+        val four = listOf("intro", "recap", "outro", "preview")
+        assertEquals(four, markSegmentTypes(isMovie = true))
+        assertEquals(four, markSegmentTypes(isMovie = false))
+        for (movie in listOf(true, false)) {
+            var sheet = openSubmitSheet(isMovie = movie)
+            for (tab in SubmitPanelTab.entries) {
+                sheet = reduceSubmitSheet(sheet, SubmitSheetEvent.SelectTab(tab))
+                assertEquals(tab, sheet.tab)
+            }
+        }
+
+        val durationMs = 8_100_000L
+        val intro = Json.parseToJsonElement(
+            checkNotNull(
+                theIntroDbSubmitPayload(
+                    tmdbId = 42,
+                    imdbId = "tt0000042",
+                    type = "movie",
+                    segment = "intro",
+                    season = 1,
+                    episode = 2,
+                    startSec = 0.0,
+                    endSec = 95.0,
+                    videoDurationMs = durationMs,
+                ),
+            ),
+        ).jsonObject
+        assertEquals("movie", intro.getValue("type").jsonPrimitive.content)
+        assertEquals("intro", intro.getValue("segment").jsonPrimitive.content)
+        assertFalse(intro.containsKey("start_ms"))
+        assertEquals(95_000L, intro.getValue("end_ms").jsonPrimitive.long)
+        assertEquals(durationMs, intro.getValue("video_duration_ms").jsonPrimitive.long)
+        assertMoviePayloadOmitsEpisodeFields(intro)
+
+        val introFromStart = Json.parseToJsonElement(
+            checkNotNull(
+                theIntroDbSubmitPayload(
+                    tmdbId = 42,
+                    type = "movie",
+                    segment = "intro",
+                    season = 1,
+                    episode = 2,
+                    startSec = null,
+                    endSec = 95.0,
+                    videoDurationMs = durationMs,
+                ),
+            ),
+        ).jsonObject
+        assertFalse(introFromStart.containsKey("start_ms"))
+        assertEquals(95_000L, introFromStart.getValue("end_ms").jsonPrimitive.long)
+        assertEquals(durationMs, introFromStart.getValue("video_duration_ms").jsonPrimitive.long)
+        assertMoviePayloadOmitsEpisodeFields(introFromStart)
+
+        val preview = Json.parseToJsonElement(
+            checkNotNull(
+                theIntroDbSubmitPayload(
+                    tmdbId = 42,
+                    imdbId = "tt0000042",
+                    type = "Movie",
+                    segment = "preview",
+                    season = 3,
+                    episode = 4,
+                    startSec = 7_800.0,
+                    endSec = null,
+                    videoDurationMs = durationMs,
+                ),
+            ),
+        ).jsonObject
+        assertEquals("movie", preview.getValue("type").jsonPrimitive.content)
+        assertEquals("preview", preview.getValue("segment").jsonPrimitive.content)
+        assertEquals(7_800_000L, preview.getValue("start_ms").jsonPrimitive.long)
+        assertFalse(preview.containsKey("end_ms"))
+        assertEquals(durationMs, preview.getValue("video_duration_ms").jsonPrimitive.long)
+        assertMoviePayloadOmitsEpisodeFields(preview)
+
+        val records = listOf(
+            movieFlag("intro", "accepted"),
+            movieFlag("recap", "pending"),
+            movieFlag("credits", "accepted"),
+            movieFlag("preview", "accepted"),
+            FlagSubmissionRecord(tmdbId = 42, type = "tv", season = 1, episode = 1, segment = "intro", status = "accepted"),
+        )
+        val movieChecks = submittedFlagTypesForTitle(records, tmdbId = 42, isMovie = true, season = 0, episode = 0)
+        assertEquals(setOf("intro", "recap", "outro", "preview"), movieChecks)
+        assertEquals(
+            movieChecks,
+            flagChecksForTitle(
+                ledgerTypes = emptySet(),
+                sessionTypes = emptySet(),
+                remoteTypes = movieChecks,
+            ),
+        )
+        assertEquals(
+            setOf("intro"),
+            submittedFlagTypesForTitle(records, tmdbId = 42, isMovie = false, season = 1, episode = 1),
+        )
+    }
+
+    @Test
+    fun `none chip arms absent mode and the open tab or a clock edit restores the typed range`() {
+        val typedStart = "00:00:30"
+        val typedEnd = "00:01:30"
+        assertTrue(absentAfterNoneChip())
+        assertEquals(SegmentTap.Stay, segmentTap("intro", "intro", absent = false))
+        assertEquals(SegmentTap.ReturnToEditing, segmentTap("intro", "opening", absent = true))
+        assertEquals(SegmentTap.ReturnToEditing, segmentTap("credits", "outro", absent = true))
+        assertEquals(SegmentTap.Switch, segmentTap("intro", "recap", absent = true))
+        assertEquals(SegmentTap.Switch, segmentTap("outro", "preview", absent = false))
+        assertFalse(absentAfterClockEdit())
+        val absentTimes = resolveIntroSubmitTimes(
+            IntroSubmitService.THE_INTRODB,
+            absentSegment = true,
+            startTimeStr = typedStart,
+            endTimeStr = typedEnd,
+        )
+        assertEquals(0.0 to 0.0, absentTimes)
+        assertNull(
+            resolveIntroSubmitTimes(
+                IntroSubmitService.INTRODB,
+                absentSegment = true,
+                startTimeStr = typedStart,
+                endTimeStr = typedEnd,
+            ),
+        )
+        val afterReturn = segmentTap("intro", "intro", absent = true) != SegmentTap.ReturnToEditing
+        val afterClock = absentAfterClockEdit()
+        assertEquals(
+            30.0 to 90.0,
+            resolveIntroSubmitTimes(
+                IntroSubmitService.THE_INTRODB,
+                absentSegment = afterReturn,
+                startTimeStr = typedStart,
+                endTimeStr = typedEnd,
+            ),
+        )
+        assertEquals(
+            30.0 to 90.0,
+            resolveIntroSubmitTimes(
+                IntroSubmitService.THE_INTRODB,
+                absentSegment = afterClock,
+                startTimeStr = typedStart,
+                endTimeStr = typedEnd,
+            ),
+        )
+        assertTrue(
+            markSubmitEnabled(
+                sent = false,
+                submitting = false,
+                keyProblem = false,
+                blocked = false,
+                absent = true,
+                absentAllowed = true,
+                timeOk = true,
+            ),
+        )
+        assertTrue(
+            markSubmitEnabled(
+                sent = false,
+                submitting = false,
+                keyProblem = false,
+                blocked = false,
+                absent = true,
+                absentAllowed = true,
+                timeOk = false,
+            ),
+        )
+        assertFalse(
+            markSubmitEnabled(
+                sent = false,
+                submitting = false,
+                keyProblem = false,
+                blocked = false,
+                absent = true,
+                absentAllowed = false,
+                timeOk = true,
+            ),
+        )
+        assertFalse(
+            markSubmitEnabled(
+                sent = false,
+                submitting = false,
+                keyProblem = false,
+                blocked = false,
+                absent = afterClock,
+                absentAllowed = true,
+                timeOk = false,
+            ),
+        )
+        assertTrue(
+            markSubmitEnabled(
+                sent = false,
+                submitting = false,
+                keyProblem = false,
+                blocked = false,
+                absent = afterReturn,
+                absentAllowed = false,
+                timeOk = true,
+            ),
         )
     }
 
@@ -333,4 +739,350 @@ class PlayerToolsLogicTest {
         )
     }
 
+    @Test
+    fun `an end equal to the stream length is valid and a real overshoot is not`() {
+        val duration = 100.0
+        val start = 80.0
+        assertTrue(markProblems("outro", start, duration, duration).isEmpty())
+        assertEquals(duration, clampMarkTimeToDuration(duration + 0.001, duration))
+        assertEquals(duration, clampMarkTimeToDuration(duration + (MarkDurationSlopSec / 2), duration))
+        assertEquals(duration, clampMarkTimeToDuration(duration + MarkDurationSlopSec, duration))
+        val short = 12.0
+        assertEquals(short, clampMarkTimeToDuration(short + 0.001, short))
+        assertEquals(short, clampMarkTimeToDuration(short + MarkDurationSlopSec, short))
+        assertTrue(markProblems("intro", 0.0, short + 0.001, short).isEmpty())
+        assertTrue(markProblems("intro", 0.0, short + MarkDurationSlopSec, short).isEmpty())
+        assertTrue(markProblems("intro", start, duration + 0.001, duration).isEmpty())
+        assertTrue(markProblems("intro", start, duration + MarkDurationSlopSec, duration).isEmpty())
+        val overshoot = duration + 5.0
+        assertEquals(overshoot, clampMarkTimeToDuration(overshoot, duration))
+        assertEquals(
+            listOf(MarkProblem.PastDuration),
+            markProblems("outro", start, overshoot, duration).filter { it == MarkProblem.PastDuration },
+        )
+        for (segment in listOf("intro", "recap", "outro", "preview", "credits")) {
+            val end = runsToEndSec(duration)
+            assertEquals(duration, end)
+            val problems = markProblems(segment, start, end, duration)
+            assertTrue(problems.none { it == MarkProblem.PastDuration })
+            assertTrue(problems.isEmpty())
+            assertTrue(
+                markSubmitEnabled(
+                    sent = false,
+                    submitting = false,
+                    keyProblem = false,
+                    blocked = false,
+                    absent = false,
+                    absentAllowed = false,
+                    timeOk = problems.isEmpty(),
+                ),
+            )
+        }
+        val tooLong = markProblems("intro", 0.0, runsToEndSec(2_000.0), 2_000.0)
+        assertTrue(tooLong.none { it == MarkProblem.PastDuration })
+        assertFalse(tooLong.isEmpty())
+    }
+
+    @Test
+    fun `clocks stay on whole seconds until a tenth nudge`() {
+        val duration = 1_000.0
+        val tapped = nudgeMarkSeconds(209.0, -5.0, duration)
+        assertEquals(204.0, tapped)
+        assertFalse(nudgeKeepsTenth(-5.0, alreadyShowing = false))
+        assertEquals("0:03:24", formatMarkClock(tapped, showTenth = nudgeKeepsTenth(-5.0, false)))
+        val held = nudgeMarkSeconds(209.0, holdNudgeDelta(-5.0), duration)
+        assertEquals(208.9, held)
+        assertTrue(nudgeKeepsTenth(holdNudgeDelta(-5.0), alreadyShowing = false))
+        assertEquals("0:03:28.9", formatMarkClock(held, showTenth = nudgeKeepsTenth(-0.1, false)))
+        assertEquals("0:03:28", formatMarkClock(held, showTenth = false))
+        for (delta in listOf(-5.0, -1.0, 1.0, 5.0)) {
+            assertFalse(nudgeKeepsTenth(delta, alreadyShowing = false))
+            val tenth = holdNudgeDelta(delta)
+            assertEquals(if (delta < 0.0) -0.1 else 0.1, tenth)
+            assertTrue(nudgeKeepsTenth(tenth, alreadyShowing = false))
+        }
+    }
+
+    @Test
+    fun `none omits both time keys and keeps the stream length`() {
+        val durationMs = 2_649_000L
+        val times = checkNotNull(
+            resolveIntroSubmitTimes(
+                IntroSubmitService.THE_INTRODB,
+                absentSegment = true,
+                startTimeStr = "0:03:29",
+                endTimeStr = "0:03:51",
+            ),
+        )
+        assertEquals(0.0 to 0.0, times)
+        val body = checkNotNull(
+            theIntroDbSubmitPayload(
+                tmdbId = 1396,
+                type = "tv",
+                segment = "intro",
+                season = 1,
+                episode = 22,
+                startSec = times.first,
+                endSec = times.second,
+                videoDurationMs = durationMs,
+            ),
+        )
+        assertFalse(body.contains("start_ms"))
+        assertFalse(body.contains("end_ms"))
+        assertTrue(body.contains("\"video_duration_ms\":$durationMs"))
+        assertNull(
+            resolveIntroSubmitTimes(
+                IntroSubmitService.INTRODB,
+                absentSegment = true,
+                startTimeStr = "0:00:00",
+                endTimeStr = "0:00:00",
+            ),
+        )
+    }
+
+    @Test
+    fun `every submit sheet state can return to editing and only a valid one submits`() {
+        val series = sheetCases(isMovie = false, absentAllowed = true)
+        val movies = sheetCases(isMovie = true, absentAllowed = true)
+        val introDb = sheetCases(isMovie = false, absentAllowed = false)
+        assertEquals(4 * 2 * 2 * 2 * 2 * 2 - 4 * 2 * 2 * 2 - 4 * 2 * 2 - 4 * 2, series.size)
+        assertEquals(4 * 2 * 2 * 2 * 2 * 2 - 4 * 2 * 2 * 2 - 4 * 2 * 2 - 4 * 2, movies.size)
+        assertEquals(4 * 2 * 2 * 2 * 2 * 2 - 4 * 2 * 2 * 2 - 4 * 2 * 2 - 4 * 2 - 4 * 2 * 2, introDb.size)
+        for (state in series + movies + introDb) {
+            assertSheetInvariants(state)
+            val editing = backToEditing(state)
+            assertFalse(editing.closed)
+            assertFalse(editing.absent)
+            assertFalse(editing.submitting)
+            assertFalse(editing.popoverOpen)
+            assertTrue(editing.showsSegmentMarks())
+            assertFalse(editing.showsNudges())
+            val opened = reduceSubmitSheet(editing, SubmitSheetEvent.TapStart)
+            assertTrue(opened.popoverOpen)
+            assertTrue(opened.showsNudges())
+            assertFalse(reduceSubmitSheet(opened, SubmitSheetEvent.DismissPopover).popoverOpen)
+            assertFalse(reduceSubmitSheet(opened, SubmitSheetEvent.TapStart).popoverOpen)
+            if (state.submitting) {
+                assertFalse(reduceSubmitSheet(state, SubmitSheetEvent.Close).closed)
+            }
+            val closed = reduceSubmitSheet(editing, SubmitSheetEvent.Close)
+            assertTrue(closed.closed)
+            assertFalse(closed.showsSegmentMarks())
+            assertFalse(closed.showsNudges())
+            assertFalse(closed.canSubmit())
+            for (event in sheetEvents()) {
+                val next = reduceSubmitSheet(state, event)
+                if (next.closed) {
+                    assertFalse(next.canSubmit())
+                    assertFalse(next.showsSegmentMarks())
+                    assertFalse(next.showsNudges())
+                } else {
+                    assertTrue(submitSheetShapeAllowed(next.shape(), next.absentAllowed))
+                    assertSheetInvariants(next)
+                }
+            }
+        }
+        val blocked = openSubmitSheet().copy(startSec = 10.0, endSec = 12.0)
+        assertFalse(blocked.rangeValid())
+        assertFalse(reduceSubmitSheet(blocked, SubmitSheetEvent.Submit).submitting)
+        val refused = reduceSubmitSheet(
+            openSubmitSheet(absentAllowed = false),
+            SubmitSheetEvent.TapNoneChip,
+        )
+        assertTrue(refused.absent)
+        assertFalse(refused.canSubmit())
+        assertFalse(reduceSubmitSheet(refused, SubmitSheetEvent.Submit).submitting)
+        val sent = reduceSubmitSheet(
+            reduceSubmitSheet(openSubmitSheet(), SubmitSheetEvent.Submit),
+            SubmitSheetEvent.SubmitSuccess,
+        )
+        assertFalse(sent.submitting)
+        assertFalse(sent.canSubmit())
+        val openedSent = reduceSubmitSheet(sent, SubmitSheetEvent.TapStart)
+        val edited = reduceSubmitSheet(openedSent, SubmitSheetEvent.Nudge(deltaSec = 1.0, holding = false))
+        assertTrue(edited.rangeValid())
+        assertTrue(edited.canSubmit())
+        val endOpen = reduceSubmitSheet(openSubmitSheet(), SubmitSheetEvent.TapEnd)
+        val heldCoarse = reduceSubmitSheet(endOpen, SubmitSheetEvent.Nudge(deltaSec = -5.0, holding = true))
+        val heldFine = reduceSubmitSheet(endOpen, SubmitSheetEvent.Nudge(deltaSec = -1.0, holding = true))
+        assertEquals(nudgeMarkSeconds(40.0, -5.0, 100.0), heldCoarse.endSec)
+        assertEquals(nudgeMarkSeconds(40.0, holdNudgeDelta(-1.0), 100.0), heldFine.endSec)
+        val ignored = reduceSubmitSheet(openSubmitSheet(), SubmitSheetEvent.Nudge(deltaSec = -1.0, holding = true))
+        assertEquals(40.0, ignored.endSec)
+        assertFalse(ignored.popoverOpen)
+    }
+
+    @Test
+    fun `submit bar stays inside the safe area and under an eighth of the video`() {
+        val notchLeft = submitBarBounds(
+            screenWidth = 844f,
+            screenHeight = 390f,
+            insets = SubmitBarInsets(left = 47f, top = 0f, right = 0f, bottom = 21f),
+        )
+        assertEquals(47f, notchLeft.left)
+        assertEquals(797f, notchLeft.width)
+        assertEquals(48.75f, notchLeft.height)
+        assertEquals(320.25f, notchLeft.top)
+        assertTrue(notchLeft.top >= 0f)
+        assertTrue(notchLeft.top + notchLeft.height <= 390f - 21f)
+        assertTrue(notchLeft.height <= 390f * SubmitBarMaxVideoFraction)
+        assertTrue(notchLeft.height <= SubmitBarPreferredHeight)
+
+        val notchTop = submitBarBounds(
+            screenWidth = 390f,
+            screenHeight = 844f,
+            insets = SubmitBarInsets(left = 0f, top = 59f, right = 0f, bottom = 34f),
+        )
+        assertEquals(0f, notchTop.left)
+        assertEquals(390f, notchTop.width)
+        assertEquals(64f, notchTop.height)
+        assertEquals(746f, notchTop.top)
+        assertTrue(notchTop.top >= 59f)
+        assertTrue(notchTop.top + notchTop.height <= 844f - 34f)
+        assertTrue(notchTop.height <= 844f * SubmitBarMaxVideoFraction)
+
+        val homeIndicator = submitBarBounds(
+            screenWidth = 390f,
+            screenHeight = 844f,
+            insets = SubmitBarInsets(left = 0f, top = 0f, right = 0f, bottom = 34f),
+        )
+        assertEquals(64f, homeIndicator.height)
+        assertEquals(746f, homeIndicator.top)
+        assertEquals(810f, homeIndicator.top + homeIndicator.height)
+
+        val shortWindow = submitBarBounds(
+            screenWidth = 800f,
+            screenHeight = 200f,
+            insets = SubmitBarInsets(left = 0f, top = 59f, right = 16f, bottom = 34f),
+        )
+        assertEquals(0f, shortWindow.left)
+        assertEquals(784f, shortWindow.width)
+        assertEquals(25f, shortWindow.height)
+        assertEquals(141f, shortWindow.top)
+        assertTrue(shortWindow.top >= 59f)
+        assertTrue(shortWindow.left + shortWindow.width <= 800f - 16f)
+        assertTrue(shortWindow.top + shortWindow.height <= 200f - 34f)
+        assertTrue(shortWindow.height <= 200f * SubmitBarMaxVideoFraction)
+        assertTrue(shortWindow.height < SubmitBarPreferredHeight)
+    }
+
+}
+
+private fun sheetCases(isMovie: Boolean, absentAllowed: Boolean): List<SubmitSheet> {
+    val tabs = SubmitPanelTab.entries
+    val reached = mutableListOf<SubmitSheet>()
+    for (tab in tabs) {
+        for (absent in listOf(false, true)) {
+            for (handle in MarkHandle.entries) {
+                for (popover in listOf(false, true)) {
+                    for (valid in listOf(false, true)) {
+                        for (submitting in listOf(false, true)) {
+                            val shape = SubmitSheetShape(tab, absent, handle, popover, valid, submitting)
+                            if (!submitSheetShapeAllowed(shape, absentAllowed)) continue
+                            val state = reachSheet(isMovie, absentAllowed, shape)
+                            assertEquals(shape, state.shape())
+                            reached += state
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return reached
+}
+
+private fun reachSheet(isMovie: Boolean, absentAllowed: Boolean, shape: SubmitSheetShape): SubmitSheet {
+    var state = openSubmitSheet(isMovie = isMovie, absentAllowed = absentAllowed)
+    if (shape.tab != SubmitPanelTab.Intro) {
+        state = reduceSubmitSheet(state, SubmitSheetEvent.SelectTab(shape.tab))
+    }
+    state = reduceSubmitSheet(state, SubmitSheetEvent.DragHandle(MarkHandle.Start, 10.0))
+    state = reduceSubmitSheet(
+        state,
+        SubmitSheetEvent.DragHandle(MarkHandle.End, if (shape.valid) 40.0 else 12.0),
+    )
+    state = reduceSubmitSheet(
+        state,
+        if (shape.handle == MarkHandle.End) SubmitSheetEvent.TapEnd else SubmitSheetEvent.TapStart,
+    )
+    if (!shape.popover || shape.absent) {
+        state = reduceSubmitSheet(state, SubmitSheetEvent.DismissPopover)
+    }
+    if (shape.absent) state = reduceSubmitSheet(state, SubmitSheetEvent.TapNoneChip)
+    if (shape.submitting) state = reduceSubmitSheet(state, SubmitSheetEvent.Submit)
+    return state
+}
+
+private fun backToEditing(state: SubmitSheet): SubmitSheet {
+    var next = state
+    if (next.submitting) next = reduceSubmitSheet(next, SubmitSheetEvent.SubmitFailure)
+    if (next.absent) next = reduceSubmitSheet(next, SubmitSheetEvent.TapSameTab)
+    if (next.popoverOpen) next = reduceSubmitSheet(next, SubmitSheetEvent.DismissPopover)
+    return next
+}
+
+private fun assertSheetInvariants(state: SubmitSheet) {
+    val acceptable = if (state.absent) state.absentAllowed else state.rangeValid()
+    assertEquals(
+        !state.closed && !state.submitting && !state.sent && !state.keyProblem && !state.blocked && acceptable,
+        state.canSubmit(),
+    )
+    if (state.canSubmit()) assertTrue(acceptable)
+    assertEquals(!state.closed && !state.absent, state.showsSegmentMarks())
+    assertEquals(!state.closed && !state.absent && state.popoverOpen, state.showsNudges())
+    if (!state.popoverOpen) {
+        val nudged = reduceSubmitSheet(state, SubmitSheetEvent.Nudge(deltaSec = -1.0, holding = true))
+        assertEquals(state.startSec, nudged.startSec)
+        assertEquals(state.endSec, nudged.endSec)
+    }
+    if (state.popoverOpen) {
+        assertFalse(reduceSubmitSheet(state, SubmitSheetEvent.DismissPopover).popoverOpen)
+        val sameChip = if (state.handle == MarkHandle.End) SubmitSheetEvent.TapEnd else SubmitSheetEvent.TapStart
+        assertFalse(reduceSubmitSheet(state, sameChip).popoverOpen)
+    }
+    if (state.absent && !state.submitting) {
+        val editing = reduceSubmitSheet(state, SubmitSheetEvent.TapSameTab)
+        assertFalse(editing.absent)
+        assertFalse(editing.popoverOpen)
+    }
+}
+
+private fun movieFlag(segment: String, status: String) = FlagSubmissionRecord(
+    tmdbId = 42,
+    type = "movie",
+    season = null,
+    episode = null,
+    segment = segment,
+    status = status,
+)
+
+private fun assertMoviePayloadOmitsEpisodeFields(json: kotlinx.serialization.json.JsonObject) {
+    assertFalse(json.containsKey("season"))
+    assertFalse(json.containsKey("episode"))
+    assertFalse(json.containsKey("mapping"))
+    assertFalse(json.containsKey("tvdbEpisodeId"))
+    assertFalse(json.containsKey("tvdb_episode_id"))
+}
+
+private fun sheetEvents(): List<SubmitSheetEvent> = buildList {
+    SubmitPanelTab.entries.forEach { add(SubmitSheetEvent.SelectTab(it)) }
+    add(SubmitSheetEvent.TapSameTab)
+    add(SubmitSheetEvent.TapNoneChip)
+    add(SubmitSheetEvent.TapStart)
+    add(SubmitSheetEvent.TapEnd)
+    add(SubmitSheetEvent.DismissPopover)
+    add(SubmitSheetEvent.SetToNow)
+    for (delta in listOf(-5.0, -1.0, 1.0, 5.0)) {
+        add(SubmitSheetEvent.Nudge(delta, holding = false))
+        add(SubmitSheetEvent.Nudge(delta, holding = true))
+    }
+    for (seconds in listOf(0.0, 10.0, 12.0, 20.0, 40.0, 100.0, 100.001, 105.0)) {
+        add(SubmitSheetEvent.DragHandle(MarkHandle.Start, seconds))
+        add(SubmitSheetEvent.DragHandle(MarkHandle.End, seconds))
+    }
+    add(SubmitSheetEvent.ResetMarks)
+    add(SubmitSheetEvent.Submit)
+    add(SubmitSheetEvent.SubmitSuccess)
+    add(SubmitSheetEvent.SubmitFailure)
+    add(SubmitSheetEvent.Close)
 }

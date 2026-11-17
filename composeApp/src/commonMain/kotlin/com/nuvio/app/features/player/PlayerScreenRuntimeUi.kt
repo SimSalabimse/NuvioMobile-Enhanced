@@ -20,9 +20,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,13 +40,19 @@ import com.nuvio.app.features.player.skip.formatSecondsToHms
 import com.nuvio.app.features.player.seekpreview.rememberSeekPreviewController
 import com.nuvio.app.features.player.skip.PlayerNextEpisodeRules
 import com.nuvio.app.core.logging.InAppLogger
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.NuvioStatusModal
+import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.core.ui.LocalFold
 import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.features.party.PartyRepository
 import com.nuvio.app.features.p2p.formatP2pMegabytes
 import com.nuvio.app.features.p2p.formatP2pSpeed
+import com.nuvio.app.core.ui.systemReduceMotionEnabled
+import com.nuvio.app.features.player.skip.SkipUndo
 import com.nuvio.app.features.player.skip.internalSkipAction
 import com.nuvio.app.features.servers.ServerStreams
 import com.nuvio.app.features.streams.streamAddonInstanceId
@@ -62,7 +71,11 @@ import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
-internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
+internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi(
+    partyPanelWidth: Dp,
+    partyPanelInset: Dp,
+    dockPartyPanel: Boolean,
+) {
     val runtime = this
     val isEpisode = activeSeasonNumber != null && activeEpisodeNumber != null
     val currentGestureFeedback = liveGestureFeedback ?: gestureFeedback
@@ -239,6 +252,8 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .padding(end = partyPanelInset)
+            .clipToBounds()
             .onSizeChanged { layoutSize = it }
             .playerKeyboardShortcuts(
                 focusRequester = keyboardFocusRequester,
@@ -261,6 +276,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 layoutSize = layoutSize,
                 playbackGesturesEnabled = playbackGesturesEnabled,
                 sideGestureSystemEdgeExclusionPx = sideGestureSystemEdgeExclusionPx,
+                horizontalSeekSystemEdgeExclusionPx = horizontalSeekSystemEdgeExclusionPx,
                 playerControlsLockedState = gestureCallbacks.playerControlsLocked,
                 touchGesturesEnabledState = gestureCallbacks.touchGesturesEnabled,
                 swipeToSeekEnabledState = gestureCallbacks.swipeToSeekEnabled,
@@ -285,13 +301,34 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     ) {
         val playerSurfaceSourceUrl = if (isP2pPlaybackActive) p2pResolvedSourceUrl else activePlaybackSourceUrl
         val playbackKey = activePlaybackKey
+        val surfaceKey = retainedLocalSurfaceKey ?: playbackKey
         val initialPositionRequestKey = currentInitialPositionRequestKey()
+
+        val resolvedAutoEngineState = remember(sourcePlaybackKey) {
+            mutableStateOf<AndroidPlaybackEngine?>(null)
+        }
+        if (!initialLoadCompleted || resolvedAutoEngineState.value == null) {
+            resolvedAutoEngineState.value = resolveAutoPlaybackEngine(
+                playbackEngineSetting = playerSettingsUiState.androidPlaybackEngine,
+                videoId = activeVideoId,
+                streamFilename = activeTorrentFilename ?: activeStreamFilename,
+                streamName = activeStreamTitle,
+                streamDescription = activeStreamSubtitle,
+                contentTitle = title,
+                genres = playerMeta?.genres.orEmpty(),
+                country = playerMeta?.country,
+            )
+        }
+        val resolvedAutoEngine = resolvedAutoEngineState.value
+
         if (playerSurfaceSourceUrl != null) {
-            key(playbackKey) {
+            key(surfaceKey) {
                 val active = remember { mutableStateOf(true) }
                 DisposableEffect(Unit) {
                     onDispose { active.value = false }
                 }
+                val animeContentState = remember { mutableStateOf(false) }
+                if (isAnimePlayback && !animeContentState.value) animeContentState.value = true
                 PlatformPlayerSurface(
                     sourceUrl = playerSurfaceSourceUrl,
                     sourceAudioUrl = activeSourceAudioUrl,
@@ -303,8 +340,9 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                     playWhenReady = shouldPlay,
                     initialPositionMs = activeInitialPositionMs.takeIf { it > 0L },
                     initialPositionRequestKey = initialPositionRequestKey,
-                    resizeMode = resizeMode,
-                    playbackEngine = playbackEngineOverride,
+                    resizeMode = if (partyPanelInset > 0.dp) PlayerResizeMode.Fit else resizeMode,
+                    playbackEngine = playbackEngineOverride ?: resolvedAutoEngine,
+                    animeContent = animeContentState.value,
                     onInitialPositionHandled = { key, handled ->
                         if (active.value && playbackKey == activePlaybackKey && key == currentInitialPositionRequestKey()) {
                             initialSeekApplied = handled
@@ -322,7 +360,12 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                         refreshAudioTracksIfChanged()
                         if (!snapshot.isLoading) initialLoadCompleted = true
                         if (snapshot.isPlaying && !snapshot.isLoading && snapshot.positionMs > 0L) {
-                            FinishedDownloadDeletion.playbackPlaying(playbackSession.videoId)
+                            FinishedDownloadDeletion.playbackPlaying(playbackSession.videoId, persistsProgress)
+                        }
+                        if (localEpisodeHandoff) {
+                            // The player we kept is still reporting the previous file's end.
+                            if (snapshot.isEnded || snapshot.durationMs <= 0L) return@PlatformPlayerSurface
+                            localEpisodeHandoff = false
                         }
                         if (snapshot.isEnded && handleDownloadSwapPartialEnd()) return@PlatformPlayerSurface
                         // The held state: the end of an in-progress download's bytes is not an end.
@@ -333,8 +376,16 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                     },
                     onError = { message ->
                         if (!active.value || playbackKey != activePlaybackKey) return@PlatformPlayerSurface
+                        if (message != null) {
+                            com.nuvio.app.features.downloads.PlaybackPriority.notePlaybackError(playbackClock.positionMs)
+                        }
                         if (message != null && handleDownloadSwapError(message)) return@PlatformPlayerSurface
                         if (message != null && tryRefreshCredentialedSourceAfterError(message)) {
+                            return@PlatformPlayerSurface
+                        }
+                        // Engine failover is decided here, driven by its own player setting;
+                        // the engine's own decoder/MIME retries have already been tried.
+                        if (message != null && maybeFailoverPlaybackEngine(resolvedAutoEngine)) {
                             return@PlatformPlayerSurface
                         }
                         errorMessage = message
@@ -345,7 +396,8 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                         }
                     },
                     includeMediaInfo = showStreamInfoModal,
-                    sourceSwapStartMs = downloadSwapStartMsFor(playerSurfaceSourceUrl),
+                    sourceSwapStartMs = downloadSwapStartMsFor(playerSurfaceSourceUrl)
+                        ?: localHandoffStartMs,
                 )
             }
         }
@@ -397,13 +449,21 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
                 folded = fold != null,
             )
         }
-        Box(modifier = panelModifier) {
-            RenderPlayerModals()
-            RenderParty(runtime = runtime)
         }
         PlayerDebugReadoutOverlay(
             Modifier.align(Alignment.CenterStart).padding(start = horizontalSafePadding),
         )
+    }
+    // Panels sit outside the clipped video box so the docked party panel can take the freed space.
+    if (!isMiniPresentation) {
+        Box(modifier = panelModifier) {
+            RenderParty(
+                runtime = runtime,
+                panelWidth = partyPanelWidth,
+                modal = !dockPartyPanel,
+                panelVisible = showPartyPanel && !isInPip,
+            )
+            RenderPlayerModals()
         }
     }
 }
@@ -465,6 +525,9 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
     val partyState by PartyRepository.state.collectAsStateWithLifecycle()
     val partyActive = partyState.party != null
     val playerBadges = rememberPlayerBadges()
+    // Live TV channel artwork is not a title logo; retain the program title text instead.
+    val playerTitleLogo = if (isLiveTvPlayback) null else logo
+    val showPlayerTitleLogo = playerSettingsUiState.showPlayerTitleLogo && !isLiveTvPlayback
     LaunchedEffect(folded) {
         if (folded) {
             controlsVisible = true
@@ -472,10 +535,10 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
         }
     }
     AnimatedVisibility(
-        visible = (controlsVisible || folded || showParentalGuide) &&
+        visible = (controlsVisible || folded || showParentalGuide || showSubmitIntroModal) &&
             !playerControlsLocked &&
             !isInPip &&
-            !toolChromeOpen() &&
+            (!toolChromeOpen() || showSubmitIntroModal) &&
             !(folded && isPanelOpen),
         enter = fadeIn(),
         exit = fadeOut(),
@@ -488,8 +551,27 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
         val portraitPlayback by PlayerOrientationPreference.portrait.collectAsStateWithLifecycle()
         val pipAvailable = isIos && playerSettingsUiState.miniPlayerEnabled &&
             playerController?.isPictureInPictureSupported() == true
+        val segmentFractions = submitSegmentMarkFractions(
+            open = showSubmitIntroModal,
+            absent = markAbsent,
+            startSec = parseMarkClock(submitIntroStartTimeStr),
+            endSec = parseMarkClock(submitIntroEndTimeStr),
+            durationSec = playbackSnapshot.durationMs / 1000.0,
+        )
+        val submitChrome = if (showSubmitIntroModal) {
+            SubmitBarChrome(
+                height = submitBarHeightDp(),
+                startFraction = segmentFractions?.start,
+                endFraction = segmentFractions?.end,
+            )
+        } else {
+            null
+        }
+        CompositionLocalProvider(LocalSubmitBarChrome provides submitChrome) {
         PlayerControlsShell(
             title = title,
+            titleLogo = playerTitleLogo,
+            showTitleLogo = showPlayerTitleLogo,
             streamTitle = activeStreamTitle,
             providerName = liveTvNowProgramTitle?.let { programTitle -> "$activeProviderName · $programTitle" } ?: activeProviderName,
             seasonNumber = activeSeasonNumber,
@@ -513,7 +595,11 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
                 }
             } else null,
             onInteraction = { controlsActivityTick += 1 },
-            showPlaybackControls = if (controlsFadingOut) shownBeforeExit[0] else controlsVisible,
+            showPlaybackControls = if (controlsFadingOut) {
+                shownBeforeExit[0]
+            } else {
+                controlsVisible || showSubmitIntroModal
+            },
             onLockToggle = {
                 if (playerControlsLocked) unlockPlayerControls() else lockPlayerControls()
             },
@@ -532,6 +618,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
             onSeekForward = { seekBy(skipStepMs(PlayerSeekDirection.Forward)) },
             skipBackwardSeconds = playerSettingsUiState.skipBackwardSeconds,
             skipForwardSeconds = playerSettingsUiState.skipForwardSeconds,
+            showSkipButtons = playerSettingsUiState.showSkipButtons,
             onResizeModeClick = { cycleResizeMode() },
             onSpeedClick = if (!isLiveTvPlayback) {
                 {
@@ -549,6 +636,15 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
                 showSpeedPanel = false
                 controlsActivityTick += 1
             },
+            nightModeEnabled = playerSettingsUiState.nightModeEnabled,
+            onNightModeClick = if (
+                playerSettingsUiState.nightModeButtonEnabled && playerController?.supportsNightMode == true
+            ) {
+                {
+                    PlayerSettingsRepository.setNightModeEnabled(!PlayerSettingsRepository.uiState.value.nightModeEnabled)
+                    controlsActivityTick += 1
+                }
+            } else null,
             onSubtitleClick = if (!isLiveTvPlayback) {
                 {
                     refreshTracks()
@@ -673,9 +769,6 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
                 )
                 openMarkingStrip(prefillCurrentSegment = true)
             },
-            onMarkSegmentClick = {
-                openMarkingStrip(prefillCurrentSegment = false)
-            },
             onSwitchEngineClick = if (playerController?.playbackEngine != null) {
                 { showSwitchEngineConfirm = true }
             } else {
@@ -713,6 +806,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(
                 controlsActivityTick += 1
             },
         )
+        }
     }
     AnimatedVisibility(
         visible = folded && playerControlsLocked && !isInPip,
@@ -763,19 +857,35 @@ private fun BoxScope.RenderPlaybackOverlays(
         val openingUsesStallCause = p2pInitialLoadingMessage == null && openingStallText != null
         val snapshotIsLoading by remember(runtime) { derivedStateOf { playbackSnapshot.isLoading } }
         val snapshotDurationMs by remember(runtime) { derivedStateOf { playbackSnapshot.durationMs } }
+        val displayedPositionMs = scrubbingPositionMs ?: playbackSnapshot.positionMs
+        val openingOverlayVisible = playerSettingsUiState.showLoadingOverlay && !initialLoadCompleted && errorMessage == null
+        val showNetworkSpeed = openingOverlayVisible &&
+            playerSettingsUiState.showPlayerLoadingStatus &&
+            p2pInitialLoadingMessage == null
+        val networkSpeedText by produceState<String?>(null, playerController, showNetworkSpeed) {
+            value = null
+            if (!showNetworkSpeed) return@produceState
+            var seenTraffic = false
+            while (true) {
+                val bytesPerSecond = playerController?.networkSpeedBytesPerSecond()
+                if (bytesPerSecond != null && bytesPerSecond > 0L) seenTraffic = true
+                value = if (bytesPerSecond != null && seenTraffic) formatNetworkSpeed(bytesPerSecond) else null
+                delay(1_000L)
+            }
+        }
         PlayerPlaybackOverlays(
             playerControlsLocked = playerControlsLocked,
             useLegacyLayout = playerSettingsUiState.useLegacyPlayerLayout,
             lockedOverlayVisible = lockedOverlayVisible && !folded,
             showRemainingTime = showRemainingTime,
             playbackSnapshot = playbackSnapshot,
-            displayedPositionMs = 0L,
+            displayedPositionMs = displayedPositionMs,
             playbackClock = playbackClock,
             scrubbingPositionMs = scrubbingPositionMs,
             metrics = metrics,
         horizontalSafePadding = horizontalSafePadding,
         onUnlock = { unlockPlayerControls() },
-        showOpeningOverlay = playerSettingsUiState.showLoadingOverlay && !initialLoadCompleted && errorMessage == null,
+        showOpeningOverlay = openingOverlayVisible,
         backdropArtwork = if (isLiveTvPlayback) activeLogo?.takeIf(String::isNotBlank) ?: background ?: poster else background ?: poster,
         logo = if (isLiveTvPlayback) activeLogo else logo,
         title = if (isLiveTvPlayback) activeStreamTitle else title,
@@ -791,6 +901,7 @@ private fun BoxScope.RenderPlaybackOverlays(
             )
         } else null,
         openingMessageMaxLines = if (openingUsesStallCause) 4 else 2,
+        openingNetworkSpeed = networkSpeedText,
         p2pInitialLoadingProgress = p2pInitialLoadingProgress,
         showP2pRebufferStats = showP2pRebufferStats,
         p2pRebufferMessage = p2pRebufferMessage,
@@ -820,7 +931,9 @@ private fun BoxScope.RenderPlaybackOverlays(
                         "startSec=${interval.startTime} endSec=${interval.endTime}",
                 )
                 if (seekMs != null) {
-                    com.nuvio.app.features.stats.WatchStats.recordSkip(seekMs - playbackClock.positionMs)
+                    val fromMs = playbackClock.positionMs
+                    com.nuvio.app.features.stats.WatchStats.recordSkip(seekMs - fromMs, persistsProgress)
+                    offerSkipUndo(fromMs, seekMs - fromMs, interval)
                     noteSeek()
                     playerController?.seekTo(seekMs)
                     scheduleProgressSyncAfterSeek()
@@ -839,7 +952,11 @@ private fun BoxScope.RenderPlaybackOverlays(
                 )
             }
             skipIntervalDismissed = true
+            skipUndo = SkipUndo.dismiss(skipUndo)
         },
+        showSkipUndo = SkipUndo.showsBack(skipUndo, com.nuvio.app.features.streams.epochMs(), isPartyControlLocked),
+        onUndoSkip = { undoSkip() },
+        reduceMotion = systemReduceMotionEnabled(),
         sliderEdgePadding = sliderEdgePadding,
         overlayBottomPadding = overlayBottomPadding,
         isSeries = isSeries,

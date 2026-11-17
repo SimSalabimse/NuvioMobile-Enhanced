@@ -41,6 +41,7 @@ import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.Cast
 import androidx.compose.material.icons.rounded.CastConnected
 import androidx.compose.material.icons.rounded.PictureInPictureAlt
+import androidx.compose.material.icons.rounded.NightsStay
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Replay
@@ -60,7 +61,10 @@ import androidx.compose.material3.SliderState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,6 +78,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.testTag
+import com.nuvio.app.core.uifixture.PLAYER_ELAPSED_TAG
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.material.icons.automirrored.rounded.Toc
@@ -113,6 +119,23 @@ import kotlin.math.roundToLong
 import com.nuvio.app.core.i18n.localizedEpisodeTitle
 import com.nuvio.app.core.ui.glass.isAmbientLiquidGlassActive
 
+internal data class PlayerTransportVisibility(
+    val playPause: Boolean,
+    val seek: Boolean,
+)
+
+/** Play/pause and seek stay up while the submit bar is open, on every layout. */
+@Suppress("UNUSED_PARAMETER")
+internal fun playerTransportVisibility(
+    submitOpen: Boolean,
+    controlsShown: Boolean,
+    legacy: Boolean,
+    portrait: Boolean,
+): PlayerTransportVisibility {
+    val available = controlsShown || submitOpen
+    return PlayerTransportVisibility(playPause = available, seek = available)
+}
+
 @Composable
 internal fun PlayerControlsShell(
     title: String,
@@ -145,11 +168,14 @@ internal fun PlayerControlsShell(
     onSeekForward: () -> Unit,
     skipBackwardSeconds: Int = PLAYER_SKIP_SECONDS_DEFAULT,
     skipForwardSeconds: Int = PLAYER_SKIP_SECONDS_DEFAULT,
+    showSkipButtons: Boolean = true,
     onResizeModeClick: () -> Unit,
     onSpeedClick: (() -> Unit)? = null,
     speedPickerVisible: Boolean = false,
     onSpeedSelected: (Float) -> Unit = {},
     onSpeedPickerDismiss: () -> Unit = {},
+    nightModeEnabled: Boolean = false,
+    onNightModeClick: (() -> Unit)? = null,
     onSubtitleClick: (() -> Unit)? = null,
     onAudioClick: (() -> Unit)? = null,
     onVideoSettingsClick: (() -> Unit)? = null,
@@ -171,7 +197,6 @@ internal fun PlayerControlsShell(
     onQualityClick: (() -> Unit)? = null,
     onOpenInExternalPlayer: (() -> Unit)? = null,
     onSubmitIntroClick: (() -> Unit)? = null,
-    onMarkSegmentClick: (() -> Unit)? = null,
     onSwitchEngineClick: (() -> Unit)? = null,
     onStreamInfoClick: () -> Unit = {},
     parentalWarnings: List<ParentalWarning> = emptyList(),
@@ -186,7 +211,26 @@ internal fun PlayerControlsShell(
     foldLayout: Boolean = false,
     gestureController: PlayerGestureController? = null,
     onWake: () -> Unit = {},
+    titleLogo: String? = null,
+    showTitleLogo: Boolean = false,
 ) {
+    val playerSettings by PlayerSettingsRepository.uiState.collectAsState()
+    val submitIntroClick = onSubmitIntroClick?.takeIf {
+        submitIntroFlagShown(
+            legacyLayout = useLegacyLayout && !foldLayout,
+            layout = playerSettings.toolbarLayout,
+        )
+    }
+    val flagEntries = visiblePlayerFlagEntries(
+        legacy = useLegacyLayout,
+        folded = foldLayout,
+        portrait = isPortraitPlayback,
+        submitAvailable = submitIntroClick != null,
+        toolsOpen = false,
+        submitBarOpen = LocalSubmitBarChrome.current != null,
+        controlsShown = showPlaybackControls,
+        bottomSubmitPinned = true,
+    )
     if (foldLayout) {
         FoldControls(
             title = title,
@@ -221,13 +265,15 @@ internal fun PlayerControlsShell(
             onVideoSettingsClick = onVideoSettingsClick,
             onOpenInExternalPlayer = onOpenInExternalPlayer,
             onStreamInfoClick = onStreamInfoClick,
-            onSubmitIntroClick = onSubmitIntroClick,
+            onSubmitIntroClick = submitIntroClick.takeIf { PlayerFlagEntry.FoldRow in flagEntries },
             onSwitchEngineClick = onSwitchEngineClick,
             gestureController = gestureController,
             dimmed = !showPlaybackControls,
             onWake = onWake,
             horizontalSafePadding = horizontalSafePadding,
             modifier = modifier,
+            titleLogo = titleLogo,
+            showTitleLogo = showTitleLogo,
         )
         return
     }
@@ -277,13 +323,11 @@ internal fun PlayerControlsShell(
         Box(
             modifier = Modifier.fillMaxSize(),
         ) {
-            val flagHome = playerFlagHome(
-                useLegacyLayout = useLegacyLayout,
-                submitAvailable = onSubmitIntroClick != null,
-            )
             if (useLegacyLayout) {
                 PlayerHeader(
                     title = title,
+                    titleLogo = titleLogo,
+                    showTitleLogo = showTitleLogo,
                     streamTitle = streamTitle,
                     providerName = providerName,
                     seasonNumber = seasonNumber,
@@ -307,7 +351,7 @@ internal fun PlayerControlsShell(
                     onRateClick = onRateClick,
                     userRating = userRating,
                     onOpenInExternalPlayer = onOpenInExternalPlayer,
-                    onSubmitIntroClick = onSubmitIntroClick.takeIf { flagHome == PlayerFlagHome.LegacyHeader },
+                    onSubmitIntroClick = submitIntroClick.takeIf { PlayerFlagEntry.LegacyHeader in flagEntries },
                     onPartyClick = onPartyClick,
                     partyActive = partyActive,
                     onSwitchEngineClick = onSwitchEngineClick,
@@ -324,7 +368,7 @@ internal fun PlayerControlsShell(
                         isLocked = isLocked,
                         onLockToggle = onLockToggle,
                         onBack = onBack,
-                        onSubmitIntroClick = onSubmitIntroClick.takeIf { flagHome == PlayerFlagHome.TopPill },
+                        onSubmitIntroClick = submitIntroClick.takeIf { PlayerFlagEntry.TopPill in flagEntries },
                         onCastClick = onCastClick,
                         isCasting = isCasting,
                         downloadAction = downloadAction,
@@ -354,7 +398,14 @@ internal fun PlayerControlsShell(
                 )
             }
 
-            if (showPlaybackControls) {
+            val submitChrome = LocalSubmitBarChrome.current
+            val transport = playerTransportVisibility(
+                submitOpen = submitChrome != null,
+                controlsShown = showPlaybackControls,
+                legacy = useLegacyLayout,
+                portrait = isPortraitPlayback,
+            )
+            if (transport.playPause) {
                 CompositionLocalProvider(
                     LocalLayoutDirection provides if (useLegacyLayout) LocalLayoutDirection.current else LayoutDirection.Ltr,
                 ) {
@@ -363,6 +414,7 @@ internal fun PlayerControlsShell(
                         metrics = metrics,
                         skipBackwardSeconds = skipBackwardSeconds,
                         skipForwardSeconds = skipForwardSeconds,
+                        showSkipButtons = showSkipButtons,
                         onSeekBack = {
                             if (!useLegacyLayout) onInteraction()
                             onSeekBack()
@@ -382,7 +434,7 @@ internal fun PlayerControlsShell(
                 }
             }
 
-            if (showPlaybackControls && useLegacyLayout) {
+            if (transport.seek && useLegacyLayout) {
                 ProgressControls(
                     playbackSnapshot = playbackSnapshot,
                     playbackClock = playbackClock,
@@ -398,6 +450,8 @@ internal fun PlayerControlsShell(
                     speedPickerVisible = speedPickerVisible,
                     onSpeedSelected = onSpeedSelected,
                     onSpeedPickerDismiss = onSpeedPickerDismiss,
+                    nightModeEnabled = nightModeEnabled,
+                    onNightModeClick = onNightModeClick,
                     onSubtitleClick = onSubtitleClick,
                     onAudioClick = onAudioClick,
                     onSourcesClick = onSourcesClick,
@@ -405,7 +459,6 @@ internal fun PlayerControlsShell(
                     chapters = chapters,
                     onChaptersClick = onChaptersClick,
                     onLiveChannelsClick = onLiveChannelsClick,
-                    onMarkSegmentClick = onMarkSegmentClick,
                     qualityLabel = qualityLabel,
                     onQualityClick = onQualityClick,
                     seekPreview = seekPreview,
@@ -414,16 +467,18 @@ internal fun PlayerControlsShell(
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .windowInsetsPadding(playerTimelineBottomInsets(metrics))
+                        .padding(bottom = submitChrome?.height ?: 0.dp)
                         .padding(horizontal = metrics.horizontalPadding),
                 )
             }
-            if (showPlaybackControls && !useLegacyLayout) {
+            if (transport.seek && !useLegacyLayout) {
                 Column(
                     modifier = Modifier
                         .onSizeChanged { size -> timelineHeight = with(density) { size.height.toDp() } }
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
                         .windowInsetsPadding(playerTimelineBottomInsets(metrics))
+                        .padding(bottom = submitChrome?.height ?: 0.dp)
                         .padding(horizontal = metrics.horizontalPadding),
                 ) {
                     if (!hideDetails) {
@@ -432,6 +487,8 @@ internal fun PlayerControlsShell(
                                 .padding(horizontal = playerTextCutoutPadding(metrics))
                                 .graphicsLayer { alpha = if (speedPickerVisible) 0f else 1f },
                             title = title,
+                            titleLogo = titleLogo,
+                            showTitleLogo = showTitleLogo,
                             seasonNumber = seasonNumber,
                             episodeNumber = episodeNumber,
                             episodeTitle = episodeTitle,
@@ -481,7 +538,7 @@ internal fun PlayerControlsShell(
                         onTouchChange = onTimelineTouchChange,
                         chapters = chapters,
                     )
-                    PlayerControlActions(
+                    if (submitChrome == null) PlayerControlActions(
                         playbackSnapshot = playbackSnapshot,
                         playbackClock = playbackClock,
                         scrubbingPositionMs = scrubbingPositionMs,
@@ -499,6 +556,8 @@ internal fun PlayerControlsShell(
                         speedPickerVisible = speedPickerVisible,
                         onSpeedSelected = onSpeedSelected,
                         onSpeedPickerDismiss = onSpeedPickerDismiss,
+                        nightModeEnabled = nightModeEnabled,
+                        onNightModeClick = onNightModeClick,
                         onResizeModeClick = onResizeModeClick,
                         onVideoSettingsClick = onVideoSettingsClick,
                         onOpenInExternalPlayer = onOpenInExternalPlayer,
@@ -510,8 +569,6 @@ internal fun PlayerControlsShell(
                         onRateClick = onRateClick,
                         userRating = userRating,
                         onInteraction = onInteraction,
-                        onSubmitIntroClick = onSubmitIntroClick,
-                        onMarkSegmentClick = onMarkSegmentClick,
                         onLiveChannelsClick = onLiveChannelsClick,
                     )
                 }
@@ -523,6 +580,8 @@ internal fun PlayerControlsShell(
 @Composable
 private fun PlayerHeader(
     title: String,
+    titleLogo: String?,
+    showTitleLogo: Boolean,
     streamTitle: String,
     providerName: String,
     seasonNumber: Int?,
@@ -572,16 +631,19 @@ private fun PlayerHeader(
                     modifier = Modifier.graphicsLayer { alpha = metadataAlpha },
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text(
-                        text = title,
-                        style = typeScale.titleLg.copy(
+                    PlayerTitleArtwork(
+                        title = title,
+                        logoUrl = titleLogo,
+                        showLogo = showTitleLogo,
+                        textStyle = typeScale.titleLg.copy(
                             fontSize = metrics.titleSize,
                             lineHeight = metrics.titleSize * 1.16f,
                             fontWeight = FontWeight.Bold,
                         ),
-                        color = Color.White,
+                        textColor = Color.White,
                         maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
+                        maxLogoHeight = metrics.titleLogoMaxHeight,
+                        maxLogoWidth = metrics.logoMaxWidth,
                     )
                     RunningVersionLine(
                         includeVersionWord = false,
@@ -650,110 +712,139 @@ private fun PlayerHeader(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (onOpenInExternalPlayer != null) {
-                        PlayerHeaderIconButton(
-                            icon = Icons.AutoMirrored.Rounded.OpenInNew,
-                            contentDescription = stringResource(Res.string.streams_open_external_player),
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
-                            onClick = onOpenInExternalPlayer,
-                        )
-                    }
-                    if (onSubmitIntroClick != null) {
-                        PlayerHeaderIconButton(
-                            icon = Icons.Rounded.Flag,
-                            contentDescription = stringResource(Res.string.submit_intro_action),
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
-                            onClick = onSubmitIntroClick,
-                        )
-                    }
-                    if (onSwitchEngineClick != null) {
-                        PlayerHeaderIconButton(
-                            icon = Icons.Rounded.SwapHoriz,
-                            contentDescription = stringResource(Res.string.cd_switch_player_engine),
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
-                            onClick = onSwitchEngineClick,
-                        )
-                    }
-                    if (onPartyClick != null) {
-                        PlayerHeaderIconButton(
-                            icon = Icons.Rounded.Groups,
-                            contentDescription = stringResource(Res.string.party_title),
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
-                            onClick = onPartyClick,
-                            tint = if (partyActive) MaterialTheme.colorScheme.primary else Color.White,
-                        )
-                    }
-                    PlayerHeaderIconButton(
-                        icon = if (isLocked) Icons.Rounded.LockOpen else Icons.Rounded.Lock,
-                        contentDescription = if (isLocked) {
-                            stringResource(Res.string.compose_player_unlock_controls)
-                        } else {
-                            stringResource(Res.string.compose_player_lock_controls)
-                        },
-                        buttonSize = metrics.headerIconSize + 16.dp,
-                        iconSize = metrics.headerIconSize,
-                        onClick = onLockToggle,
-                    )
-                    if (onVideoSettingsClick != null) {
-                        PlayerHeaderIconButton(
-                            icon = Icons.Rounded.Build,
-                            contentDescription = stringResource(Res.string.player_action_video_settings),
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
-                            onClick = onVideoSettingsClick,
-                        )
-                    }
+                    val topButtons = PlayerSettingsRepository.uiState.collectAsState().value.legacyTopButtons
+                    topButtons.visibleButtons.forEach { button ->
+                        key(button) {
+                            when (button) {
+                                LegacyTopButton.SUBMIT_INTRO -> {
+                                    if (onSubmitIntroClick != null) {
+                                        PlayerHeaderIconButton(
+                                            icon = Icons.Rounded.Flag,
+                                            contentDescription = stringResource(Res.string.submit_intro_action),
+                                            buttonSize = metrics.headerIconSize + 16.dp,
+                                            iconSize = metrics.headerIconSize,
+                                            onClick = onSubmitIntroClick,
+                                        )
+                                    }
+                                }
+                                LegacyTopButton.EXTERNAL_PLAYER -> {
+                                    if (onOpenInExternalPlayer != null) {
+                                        PlayerHeaderIconButton(
+                                            icon = Icons.AutoMirrored.Rounded.OpenInNew,
+                                            contentDescription = stringResource(Res.string.streams_open_external_player),
+                                            buttonSize = metrics.headerIconSize + 16.dp,
+                                            iconSize = metrics.headerIconSize,
+                                            onClick = onOpenInExternalPlayer,
+                                        )
+                                    }
+                                }
+                                LegacyTopButton.SWITCH_ENGINE -> {
+                                    if (onSwitchEngineClick != null) {
+                                        PlayerHeaderIconButton(
+                                            icon = Icons.Rounded.SwapHoriz,
+                                            contentDescription = stringResource(Res.string.cd_switch_player_engine),
+                                            buttonSize = metrics.headerIconSize + 16.dp,
+                                            iconSize = metrics.headerIconSize,
+                                            onClick = onSwitchEngineClick,
+                                        )
+                                    }
+                                }
+                                LegacyTopButton.PARTY -> {
+                                    if (onPartyClick != null) {
+                                        PlayerHeaderIconButton(
+                                            icon = Icons.Rounded.Groups,
+                                            contentDescription = stringResource(Res.string.party_title),
+                                            buttonSize = metrics.headerIconSize + 16.dp,
+                                            iconSize = metrics.headerIconSize,
+                                            onClick = onPartyClick,
+                                            tint = if (partyActive) MaterialTheme.colorScheme.primary else Color.White,
+                                        )
+                                    }
+                                }
+                                LegacyTopButton.CAST -> {
+                                    if (onCastClick != null) {
+                                        PlayerHeaderIconButton(
+                                            icon = if (isCasting) Icons.Rounded.CastConnected else Icons.Rounded.Cast,
+                                            contentDescription = stringResource(Res.string.player_cast),
+                                            buttonSize = metrics.headerIconSize + 16.dp,
+                                            iconSize = metrics.headerIconSize,
+                                            onClick = onCastClick,
+                                        )
+                                    }
+                                }
+                                LegacyTopButton.PICTURE_IN_PICTURE -> {
+                                    if (onPictureInPictureClick != null) {
+                                        PlayerHeaderIconButton(
+                                            icon = Icons.Rounded.PictureInPictureAlt,
+                                            contentDescription = stringResource(Res.string.compose_player_picture_in_picture),
+                                            buttonSize = metrics.headerIconSize + 16.dp,
+                                            iconSize = metrics.headerIconSize,
+                                            onClick = onPictureInPictureClick,
+                                        )
+                                    }
+                                }
+                                LegacyTopButton.ORIENTATION -> {
+                                    if (onOrientationToggleClick != null) {
+                                        PlayerHeaderIconButton(
+                                            icon = playerOrientationToggleIcon(isPortraitPlayback),
+                                            contentDescription = stringResource(playerOrientationToggleLabel(isPortraitPlayback)),
+                                            buttonSize = metrics.headerIconSize + 16.dp,
+                                            iconSize = metrics.headerIconSize,
+                                            onClick = onOrientationToggleClick,
+                                        )
+                                    }
+                                }
+                                LegacyTopButton.RATE -> {
+                                    if (onRateClick != null) {
+                                        PlayerHeaderIconButton(
+                                            icon = if (userRating != null) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                                            contentDescription = userRating?.let {
+                                                stringResource(Res.string.user_rating_action_rated, it)
+                                            } ?: stringResource(Res.string.user_rating_action_rate),
+                                            buttonSize = metrics.headerIconSize + 16.dp,
+                                            iconSize = metrics.headerIconSize,
+                                            onClick = onRateClick,
+                                        )
+                                    }
+                                }
+                                LegacyTopButton.PLAYBACK_INFO -> {
+                                    if (onInfoClick != null) {
+                                        PlayerHeaderIconButton(
+                                            icon = Icons.Rounded.Info,
+                                            contentDescription = stringResource(Res.string.compose_player_playback_info),
+                                            buttonSize = metrics.headerIconSize + 16.dp,
+                                            iconSize = metrics.headerIconSize,
+                                            onClick = onInfoClick,
+                                        )
+                                    }
+                                }
+                                LegacyTopButton.VIDEO_SETTINGS -> {
+                                    if (onVideoSettingsClick != null) {
+                                        PlayerHeaderIconButton(
+                                            icon = Icons.Rounded.Build,
+                                            contentDescription = stringResource(Res.string.player_action_video_settings),
+                                            buttonSize = metrics.headerIconSize + 16.dp,
+                                            iconSize = metrics.headerIconSize,
+                                            onClick = onVideoSettingsClick,
+                                        )
+                                    }
+                                }
+                                LegacyTopButton.LOCK -> {
+                                    PlayerHeaderIconButton(
+                                        icon = if (isLocked) Icons.Rounded.LockOpen else Icons.Rounded.Lock,
+                                        contentDescription = if (isLocked) {
+                                            stringResource(Res.string.compose_player_unlock_controls)
+                                        } else {
+                                            stringResource(Res.string.compose_player_lock_controls)
+                                        },
+                                        buttonSize = metrics.headerIconSize + 16.dp,
+                                        iconSize = metrics.headerIconSize,
+                                        onClick = onLockToggle,
+                                    )
+                                }
+                            }
+                        }
                     downloadAction?.invoke(metrics.headerIconSize + 16.dp, metrics.headerIconSize)
-                    if (onCastClick != null) {
-                        PlayerHeaderIconButton(
-                            icon = if (isCasting) Icons.Rounded.CastConnected else Icons.Rounded.Cast,
-                            contentDescription = stringResource(Res.string.player_cast),
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
-                            onClick = onCastClick,
-                        )
-                    }
-                    if (onPictureInPictureClick != null) {
-                        PlayerHeaderIconButton(
-                            icon = Icons.Rounded.PictureInPictureAlt,
-                            contentDescription = stringResource(Res.string.compose_player_picture_in_picture),
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
-                            onClick = onPictureInPictureClick,
-                        )
-                    }
-                    if (onOrientationToggleClick != null) {
-                        PlayerHeaderIconButton(
-                            icon = playerOrientationToggleIcon(isPortraitPlayback),
-                            contentDescription = stringResource(playerOrientationToggleLabel(isPortraitPlayback)),
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
-                            onClick = onOrientationToggleClick,
-                        )
-                    }
-                    if (onRateClick != null) {
-                        PlayerHeaderIconButton(
-                            icon = if (userRating != null) Icons.Rounded.Star else Icons.Rounded.StarBorder,
-                            contentDescription = userRating?.let {
-                                stringResource(Res.string.user_rating_action_rated, it)
-                            } ?: stringResource(Res.string.user_rating_action_rate),
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
-                            onClick = onRateClick,
-                        )
-                    }
-                    if (onInfoClick != null) {
-                        PlayerHeaderIconButton(
-                            icon = Icons.Rounded.Info,
-                            contentDescription = stringResource(Res.string.compose_player_playback_info),
-                            buttonSize = metrics.headerIconSize + 16.dp,
-                            iconSize = metrics.headerIconSize,
-                            onClick = onInfoClick,
-                        )
                     }
                     NuvioBackButton(
                         onClick = onBack,
@@ -816,13 +907,14 @@ private fun CenterControls(
     modifier: Modifier = Modifier,
     skipBackwardSeconds: Int = PLAYER_SKIP_SECONDS_DEFAULT,
     skipForwardSeconds: Int = PLAYER_SKIP_SECONDS_DEFAULT,
+    showSkipButtons: Boolean = true,
 ) {
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(metrics.centerGap),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        SideControlButton(
+        if (showSkipButtons) SideControlButton(
             contentDescription = stringResource(Res.string.compose_player_seek_back_seconds, skipBackwardSeconds),
             metrics = metrics,
             onClick = onSeekBack,
@@ -833,7 +925,7 @@ private fun CenterControls(
             metrics = metrics,
             onClick = onTogglePlayback,
         )
-        SideControlButton(
+        if (showSkipButtons) SideControlButton(
             contentDescription = stringResource(Res.string.compose_player_seek_forward_seconds, skipForwardSeconds),
             metrics = metrics,
             onClick = onSeekForward,
@@ -956,6 +1048,8 @@ private fun ProgressControls(
     speedPickerVisible: Boolean = false,
     onSpeedSelected: (Float) -> Unit = {},
     onSpeedPickerDismiss: () -> Unit = {},
+    nightModeEnabled: Boolean = false,
+    onNightModeClick: (() -> Unit)? = null,
     onSubtitleClick: (() -> Unit)? = null,
     onAudioClick: (() -> Unit)? = null,
     onSourcesClick: (() -> Unit)? = null,
@@ -963,7 +1057,6 @@ private fun ProgressControls(
     chapters: List<PlayerChapter> = emptyList(),
     onChaptersClick: (() -> Unit)? = null,
     onLiveChannelsClick: (() -> Unit)? = null,
-    onMarkSegmentClick: (() -> Unit)? = null,
     qualityLabel: String? = null,
     onQualityClick: (() -> Unit)? = null,
     seekPreview: SeekPreviewController? = null,
@@ -1041,99 +1134,125 @@ private fun ProgressControls(
                         onClick = onRuntimeClick,
                     ),
             )
-            Surface(
-                color = Color.Transparent,
-                shape = RoundedCornerShape(24.dp),
-                modifier = Modifier.align(Alignment.TopCenter).playerLiquidGlass(
+            val bottomButtons = PlayerSettingsRepository.uiState.collectAsState().value.legacyBottomButtons
+            if (bottomButtons.visibleButtons.isNotEmpty()) {
+                Surface(
+                    color = Color.Transparent,
                     shape = RoundedCornerShape(24.dp),
-                    refractionHeight = 10.dp,
-                    refractionAmount = 14.dp,
-                ),
-            ) {
-                PlayerChromeBackdrop(
-                    modifier = Modifier.matchParentSize(),
-                    shape = RoundedCornerShape(24.dp),
-                    fallbackColor = Color.Black.copy(alpha = 0.5f),
-                )
-                Row(
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.align(Alignment.TopCenter).playerLiquidGlass(
+                        shape = RoundedCornerShape(24.dp),
+                        refractionHeight = 10.dp,
+                        refractionAmount = 14.dp,
+                    ),
                 ) {
-                    if (onMarkSegmentClick != null) {
-                        PlayerActionPillButton(
-                            label = stringResource(Res.string.player_tools_mark_segment),
-                            icon = Icons.Rounded.Flag,
-                            onClick = onMarkSegmentClick,
-                        )
-                    }
-                    PlayerActionPillButton(
-                        label = stringResource(resizeMode.labelRes),
-                        painter = aspectRatioPainter,
-                        onClick = onResizeModeClick,
-                    )
-                    if (onSpeedClick != null) {
-                        Box {
-                            PlayerActionPillButton(
-                                label = formatPlaybackSpeedLabel(playbackSnapshot.playbackSpeed),
-                                icon = Icons.Rounded.Speed,
-                                onClick = onSpeedClick,
-                            )
-                            PlayerSpeedPopup(
-                                visible = speedPickerVisible,
-                                currentSpeed = playbackSnapshot.playbackSpeed,
-                                onSpeedSelected = onSpeedSelected,
-                                onDismiss = onSpeedPickerDismiss,
-                            )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        bottomButtons.visibleButtons.forEach { button ->
+                            key(button) {
+                                when (button) {
+                                    LegacyBottomButton.RESIZE -> {
+                                        PlayerActionPillButton(
+                                            label = stringResource(resizeMode.labelRes),
+                                            painter = aspectRatioPainter,
+                                            onClick = onResizeModeClick,
+                                        )
+                                    }
+                                    LegacyBottomButton.SPEED -> {
+                                        if (onSpeedClick != null) {
+                                            Box {
+                                                PlayerActionPillButton(
+                                                    label = formatPlaybackSpeedLabel(playbackSnapshot.playbackSpeed),
+                                                    icon = Icons.Rounded.Speed,
+                                                    onClick = onSpeedClick,
+                                                )
+                                                PlayerSpeedPopup(
+                                                    visible = speedPickerVisible,
+                                                    currentSpeed = playbackSnapshot.playbackSpeed,
+                                                    onSpeedSelected = onSpeedSelected,
+                                                    onDismiss = onSpeedPickerDismiss,
+                                                )
+                                            }
+                                        }
+                                    }
+                                    LegacyBottomButton.SUBTITLES -> {
+                                        if (onSubtitleClick != null) {
+                                            PlayerActionPillButton(
+                                                label = stringResource(Res.string.compose_player_subs),
+                                                painter = subtitlesPainter,
+                                                onClick = onSubtitleClick,
+                                            )
+                                        }
+                                    }
+                                    LegacyBottomButton.AUDIO -> {
+                                        if (onAudioClick != null) {
+                                            PlayerActionPillButton(
+                                                label = stringResource(Res.string.compose_player_audio),
+                                                painter = audioPainter,
+                                                onClick = onAudioClick,
+                                            )
+                                        }
+                                    }
+                                    LegacyBottomButton.NIGHT_MODE -> {
+                                        if (onNightModeClick != null) {
+                                            PlayerActionPillButton(
+                                                label = stringResource(
+                                                    if (nightModeEnabled) Res.string.player_night_mode_on else Res.string.player_night_mode_off,
+                                                ),
+                                                icon = Icons.Rounded.NightsStay,
+                                                onClick = onNightModeClick,
+                                            )
+                                        }
+                                    }
+                                    LegacyBottomButton.SOURCES -> {
+                                        if (onSourcesClick != null) {
+                                            PlayerActionPillButton(
+                                                label = stringResource(Res.string.compose_player_sources),
+                                                painter = sourcesPainter,
+                                                onClick = onSourcesClick,
+                                            )
+                                        }
+                                    }
+                                    LegacyBottomButton.CHAPTERS -> {
+                                        if (onChaptersClick != null) {
+                                            PlayerActionPillButton(
+                                                label = stringResource(Res.string.player_chapters),
+                                                icon = Icons.AutoMirrored.Rounded.ListAlt,
+                                                onClick = onChaptersClick,
+                                            )
+                                        }
+                                    }
+                                    LegacyBottomButton.EPISODES -> {
+                                        if (onEpisodesClick != null) {
+                                            PlayerActionPillButton(
+                                                label = stringResource(Res.string.compose_player_episodes),
+                                                icon = Icons.Rounded.VideoLibrary,
+                                                onClick = onEpisodesClick,
+                                            )
+                                        }
+                                    }
+                                    LegacyBottomButton.LIVE_CHANNELS -> {
+                                        if (onLiveChannelsClick != null) {
+                                            PlayerActionPillButton(
+                                                label = stringResource(Res.string.compose_player_channels),
+                                                icon = Icons.Rounded.Tv,
+                                                onClick = onLiveChannelsClick,
+                                            )
+                                        }
+                                    }
+                                    LegacyBottomButton.QUALITY -> {
+                                        if (onQualityClick != null) {
+                                            PlayerActionPillButton(
+                                                label = qualityLabel?.takeIf { it.isNotBlank() } ?: stringResource(Res.string.player_toolbar_button_quality),
+                                                onClick = onQualityClick,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
-                    }
-                    if (onSubtitleClick != null) {
-                        PlayerActionPillButton(
-                            label = stringResource(Res.string.compose_player_subs),
-                            painter = subtitlesPainter,
-                            onClick = onSubtitleClick,
-                        )
-                    }
-                    if (onAudioClick != null) {
-                        PlayerActionPillButton(
-                            label = stringResource(Res.string.compose_player_audio),
-                            painter = audioPainter,
-                            onClick = onAudioClick,
-                        )
-                    }
-                    if (onSourcesClick != null) {
-                        PlayerActionPillButton(
-                            label = stringResource(Res.string.compose_player_sources),
-                            painter = sourcesPainter,
-                            onClick = onSourcesClick,
-                        )
-                    }
-                    if (onChaptersClick != null) {
-                        PlayerActionPillButton(
-                            label = stringResource(Res.string.player_chapters),
-                            icon = Icons.AutoMirrored.Rounded.ListAlt,
-                            onClick = onChaptersClick,
-                        )
-                    }
-                    if (onEpisodesClick != null) {
-                        PlayerActionPillButton(
-                            label = stringResource(Res.string.compose_player_episodes),
-                            icon = Icons.Rounded.VideoLibrary,
-                            onClick = onEpisodesClick,
-                        )
-                    }
-                    if (onLiveChannelsClick != null) {
-                        PlayerActionPillButton(
-                            label = stringResource(Res.string.compose_player_channels),
-                            icon = Icons.Rounded.Tv,
-                            onClick = onLiveChannelsClick,
-                        )
-                    }
-                    if (onQualityClick != null) {
-                        PlayerActionPillButton(
-                            label = qualityLabel?.takeIf { it.isNotBlank() } ?: "Quality",
-                            onClick = onQualityClick,
-                        )
                     }
                 }
             }
@@ -1264,7 +1383,11 @@ internal fun PlayerSeekBar(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TimePill(text = formatPlaybackTime(positionMs), fontSize = metrics.timeSize)
+                TimePill(
+                    text = formatPlaybackTime(positionMs),
+                    fontSize = metrics.timeSize,
+                    modifier = Modifier.testTag(PLAYER_ELAPSED_TAG),
+                )
                 TimePill(text = formatPlaybackTime(durationMs), fontSize = metrics.timeSize)
             }
         }

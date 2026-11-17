@@ -1,7 +1,10 @@
 package com.nuvio.app.features.downloads
 
+import com.nuvio.app.features.player.SubtitleRequestExtras
 import com.nuvio.app.features.player.addonSubtitleRequests
 import com.nuvio.app.features.streams.StreamItem
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -30,7 +33,13 @@ object DownloadsRepository {
     private val activeHandles = mutableMapOf<String, DownloadsTaskHandle>()
     private val partialPrefixCache = mutableMapOf<String, ByteArray>()
     private val startQueue = DownloadStartQueue(orderKeyOf = ::orderKeyOf)
+    private val enqueueLock = SynchronizedObject()
     private val persistGate = DownloadPersistGate()
+
+    private data class CommittedEnqueue(
+        val result: DownloadEnqueueResult,
+        val toStart: List<String>,
+    )
     private var thermalObserverStarted = false
     private var hasLoaded = false
     private var nextDownloadOrdinal = 0L
@@ -38,6 +47,18 @@ object DownloadsRepository {
     private val linkRefreshAttempts = mutableMapOf<String, Int>()
     private val linkRefreshBytes = mutableMapOf<String, Long>()
     private val linkRefreshHandles = mutableMapOf<String, DownloadsTaskHandle>()
+
+    private var fixtureItems: List<DownloadItem>? = null
+
+    internal fun installFixtureItems(items: List<DownloadItem>) {
+        fixtureItems = items
+        activeHandles.values.forEach(DownloadsTaskHandle::cancel)
+        activeHandles.clear()
+        partialPrefixCache.clear()
+        startQueue.clear()
+        hasLoaded = true
+        publish(items)
+    }
 
     fun ensureLoaded() {
         ensureThermalObserver()
@@ -149,13 +170,16 @@ object DownloadsRepository {
      */
     fun submitWaitingForBackground() {
         if (!hasLoaded) return
-        startQueue.maxActive = BACKGROUND_SUBMIT_CAP
-        applyStarts(startQueue.promote(DownloadThermalGate.blocksNextFile()))
+        val gateCap = PlaybackPriority.downloadGate().maxActive
+        val capped = minOf(BACKGROUND_SUBMIT_CAP, gateCap)
+        startQueue.maxActive = if (PlaybackPriority.backgroundSessionHold()) 0 else capped
+        replanSlots()
     }
 
-    /** Back in the app: new starts wait for one of the two slots again. Running files keep going. */
+    /** Back in the app: the foreground cap applies again, and a heat hold can resume. */
     fun restoreForegroundCap() {
         startQueue.maxActive = PlaybackPriority.downloadCap()
+        if (hasLoaded) replanSlots()
         resumeWaitingForAppOpen()
         if (hasLoaded) {
             scheduleSpaceRetry()
@@ -215,6 +239,8 @@ object DownloadsRepository {
         episodeTitle: String?,
         episodeThumbnail: String?,
         stream: StreamItem,
+        startedByUser: Boolean = true,
+        analysisTemp: Boolean = false,
     ): DownloadEnqueueResult {
         ensureLoaded()
 
@@ -234,81 +260,106 @@ object DownloadsRepository {
             episodeNumber = episodeNumber,
         )
 
-        var replacedExisting = false
-        val currentItems = _uiState.value.items.toMutableList()
-        val existing = currentItems.firstOrNull { it.logicalContentKey == logicalKey }
-        if (existing != null) {
-            replacedExisting = true
-            com.nuvio.app.features.analysis.MediaAnalysisScheduler.releaseFile(existing.id)
-            DownloadsPlatformDownloader.discardTransfer(existing.id)
-            activeHandles.remove(existing.id)?.cancel()
-            partialPrefixCache.remove(existing.id)
-            startQueue.discard(existing.id)
-            deleteFilesOf(existing)
-            currentItems.removeAll { it.id == existing.id }
+        // Keep-or-replace, the new row, and an analysis tag happen together. The stream resolve
+        // that leads here suspends, so a user download of the same episode can land in that gap.
+        val committed = synchronized(enqueueLock) {
+            var replacedExisting = false
+            val currentItems = _uiState.value.items.toMutableList()
+            val existing = currentItems.firstOrNull { it.logicalContentKey == logicalKey }
+            if (existing != null) {
+                val tagged = AnalysisTempDownloads.isTagged(existing.id)
+                val keep = when {
+                    startedByUser -> false
+                    analysisTemp -> !tagged
+                    else -> leaveExistingDownloadInPlace(existing.status, tagged)
+                }
+                if (keep) {
+                    return@synchronized CommittedEnqueue(DownloadEnqueueResult.LeftExisting, emptyList())
+                }
+                replacedExisting = true
+                AnalysisTempDownloads.noteReplaced(existing.id)
+                com.nuvio.app.features.analysis.MediaAnalysisScheduler.releaseFile(existing.id)
+                DownloadsPlatformDownloader.discardTransfer(existing.id)
+                activeHandles.remove(existing.id)?.cancel()
+                partialPrefixCache.remove(existing.id)
+                startQueue.discard(existing.id)
+                deleteFilesOf(existing, reason = "replaced")
+                currentItems.removeAll { it.id == existing.id }
+            }
+
+            val downloadId = nextDownloadId(now)
+            val fileName = buildFileName(
+                title = title,
+                seasonNumber = seasonNumber,
+                episodeNumber = episodeNumber,
+                episodeTitle = episodeTitle,
+                fallbackTitle = stream.streamLabel,
+                sourceUrl = sourceUrl,
+                downloadId = downloadId,
+            )
+
+            val item = DownloadItem(
+                id = downloadId,
+                contentType = contentType,
+                parentMetaId = parentMetaId,
+                parentMetaType = parentMetaType,
+                videoId = videoId,
+                title = title,
+                logo = logo,
+                poster = poster,
+                background = background,
+                seasonNumber = seasonNumber,
+                episodeNumber = episodeNumber,
+                episodeTitle = episodeTitle,
+                episodeThumbnail = episodeThumbnail,
+                streamTitle = stream.streamLabel,
+                streamSubtitle = stream.streamSubtitle,
+                providerName = stream.addonName,
+                providerAddonId = stream.addonId,
+                sourceUrl = sourceUrl,
+                sourceHeaders = sanitizeRequestHeaders(stream.behaviorHints.proxyHeaders?.request),
+                sourceResponseHeaders = sanitizeResponseHeaders(stream.behaviorHints.proxyHeaders?.response),
+                sourceFilename = stream.behaviorHints.filename?.trim()?.takeIf { it.isNotBlank() },
+                sourceBingeGroup = stream.behaviorHints.bingeGroup?.trim()?.takeIf { it.isNotBlank() },
+                sourceQualityLabel = streamQualityLabel(stream),
+                subtitleRequests = addonSubtitleRequests(
+                type = contentType,
+                videoId = videoId,
+                extras = SubtitleRequestExtras.from(stream.behaviorHints, sourceUrl),
+            ),
+                sourceSubtitles = stream.externalSubtitles,
+                localFileUri = null,
+                fileName = fileName,
+                // Queued until the line says it may start: the line orders episodes by number, which
+                // needs this row to be in the list first.
+                status = DownloadStatus.Queued,
+                downloadedBytes = 0L,
+                totalBytes = if (com.nuvio.app.core.automation.AutomationStubs.isLocalClip(sourceUrl)) {
+                    com.nuvio.app.core.automation.AutomationStubs.clipByteCount()
+                } else {
+                    null
+                },
+                errorMessage = null,
+                createdAtEpochMs = now,
+                updatedAtEpochMs = now,
+                startedByUser = startedByUser,
+            )
+
+            currentItems.add(0, item)
+            publish(currentItems)
+            val toStart = startQueue.request(downloadId, DownloadThermalGate.blocksNextFile(), canStart = ::downloadMayStart)
+            persistStatus()
+            if (analysisTemp && !startedByUser) AnalysisTempDownloads.tagCreated(downloadId)
+            CommittedEnqueue(
+                result = if (replacedExisting) DownloadEnqueueResult.Replaced else DownloadEnqueueResult.Started,
+                toStart = toStart,
+            )
         }
-
-        val downloadId = nextDownloadId(now)
-        val fileName = buildFileName(
-            title = title,
-            seasonNumber = seasonNumber,
-            episodeNumber = episodeNumber,
-            episodeTitle = episodeTitle,
-            fallbackTitle = stream.streamLabel,
-            sourceUrl = sourceUrl,
-            downloadId = downloadId,
-        )
-
-        val item = DownloadItem(
-            id = downloadId,
-            contentType = contentType,
-            parentMetaId = parentMetaId,
-            parentMetaType = parentMetaType,
-            videoId = videoId,
-            title = title,
-            logo = logo,
-            poster = poster,
-            background = background,
-            seasonNumber = seasonNumber,
-            episodeNumber = episodeNumber,
-            episodeTitle = episodeTitle,
-            episodeThumbnail = episodeThumbnail,
-            streamTitle = stream.streamLabel,
-            streamSubtitle = stream.streamSubtitle,
-            providerName = stream.addonName,
-            providerAddonId = stream.addonId,
-            sourceUrl = sourceUrl,
-            sourceHeaders = sanitizeRequestHeaders(stream.behaviorHints.proxyHeaders?.request),
-            sourceResponseHeaders = sanitizeResponseHeaders(stream.behaviorHints.proxyHeaders?.response),
-            sourceFilename = stream.behaviorHints.filename?.trim()?.takeIf { it.isNotBlank() },
-            sourceBingeGroup = stream.behaviorHints.bingeGroup?.trim()?.takeIf { it.isNotBlank() },
-            sourceQualityLabel = streamQualityLabel(stream),
-            subtitleRequests = addonSubtitleRequests(contentType, videoId),
-            sourceSubtitles = stream.externalSubtitles,
-            localFileUri = null,
-            fileName = fileName,
-            // Queued until the line says it may start: the line orders episodes by number, which
-            // needs this row to be in the list first.
-            status = DownloadStatus.Queued,
-            downloadedBytes = 0L,
-            totalBytes = null,
-            errorMessage = null,
-            createdAtEpochMs = now,
-            updatedAtEpochMs = now,
-        )
-
-        currentItems.add(0, item)
-        publish(currentItems)
-        val toStart = startQueue.request(downloadId, DownloadThermalGate.blocksNextFile())
-        persistStatus()
-        applyStarts(toStart)
-        refreshHeldForPlayback()
-
-        return if (replacedExisting) {
-            DownloadEnqueueResult.Replaced
-        } else {
-            DownloadEnqueueResult.Started
+        if (committed.result != DownloadEnqueueResult.LeftExisting) {
+            applyStarts(committed.toStart)
+            refreshHeldForPlayback()
         }
+        return committed.result
     }
 
     fun pauseDownload(downloadId: String) {
@@ -350,6 +401,7 @@ object DownloadsRepository {
             item.id,
             DownloadThermalGate.blocksNextFile(),
             atFront = true,
+            canStart = { id -> id == item.id || downloadMayStart(id) },
         )
         val reset = item.copy(
             status = if (item.id in toStart) DownloadStatus.Downloading else DownloadStatus.Queued,
@@ -376,7 +428,7 @@ object DownloadsRepository {
         reason?.let { com.nuvio.app.core.ui.NuvioToastController.show("$it, re-downloading ${if (item.isEpisode) "${item.title} S${item.seasonNumber}E${item.episodeNumber}" else item.title}") }
         com.nuvio.app.features.analysis.MediaAnalysisScheduler.releaseFile(item.id)
         com.nuvio.app.features.analysis.MediaAnalysisStore.forgetFileData(com.nuvio.app.features.analysis.MediaAnalysisStore.keyFor(item))
-        deleteFilesOf(item)
+        deleteFilesOf(item, reason = "redownload")
         replaceItem(item.copy(status = DownloadStatus.Failed, downloadedBytes = 0L, localFileUri = null))
         retryDownload(downloadId)
     }
@@ -544,6 +596,10 @@ object DownloadsRepository {
         val differentFile = freshTotal != null && knownTotal != null && freshTotal != knownTotal
         if (differentFile) {
             partialPrefixCache.remove(downloadId)
+            com.nuvio.app.core.logging.InAppLogger.info(
+                "Downloads",
+                "removed file=${current.fileName}.part reason=link-refresh-partial",
+            )
             DownloadsPlatformDownloader.removePartialFile(current.fileName)
         }
         val updated = current.copy(
@@ -629,6 +685,7 @@ object DownloadsRepository {
             downloadId,
             DownloadThermalGate.blocksNextFile(),
             atFront = true,
+            canStart = ::downloadMayStart,
         )
         val published = if (downloadId in toStart) {
             restored
@@ -645,26 +702,41 @@ object DownloadsRepository {
      * Marks the row Completed if the list is loaded; otherwise the next load does it.
      */
     internal fun markFinishedInBackground(downloadId: String, localFileUri: String, totalBytes: Long?) {
-        if (!hasLoaded) return
-        activeHandles.remove(downloadId)
-        partialPrefixCache.remove(downloadId)
-        mutateItem(downloadId) { current ->
-            if (current.status == DownloadStatus.Completed) return@mutateItem current
-            current.copy(
-                status = DownloadStatus.Completed,
-                localFileUri = localFileUri,
-                downloadedBytes = totalBytes?.takeIf { it > 0L } ?: current.downloadedBytes,
-                totalBytes = totalBytes?.takeIf { it > 0L } ?: current.totalBytes,
-                earlyPlayReady = false,
-                playsWhenDownloadFinishes = false,
-                errorMessage = null,
-                updatedAtEpochMs = DownloadsClock.nowEpochMs(),
-            )
+        try {
+            if (!hasLoaded) return
+            activeHandles.remove(downloadId)
+            partialPrefixCache.remove(downloadId)
+            mutateItem(downloadId) { current ->
+                if (current.status == DownloadStatus.Completed) return@mutateItem current
+                current.copy(
+                    status = DownloadStatus.Completed,
+                    localFileUri = localFileUri,
+                    downloadedBytes = totalBytes?.takeIf { it > 0L } ?: current.downloadedBytes,
+                    totalBytes = totalBytes?.takeIf { it > 0L } ?: current.totalBytes,
+                    earlyPlayReady = false,
+                    playsWhenDownloadFinishes = false,
+                    errorMessage = null,
+                    updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                )
+            }
+        } finally {
+            // The file is on disk. Wake a sleeping analysis pass immediately.
+            com.nuvio.app.features.analysis.MediaAnalysisScheduler.kick(0L)
+            val finished = _uiState.value.items.firstOrNull { it.id == downloadId }
+            val uri = finished?.localFileUri
+            if (finished != null && !uri.isNullOrBlank() && PlaybackPriority.isNextUp(finished)) {
+                com.nuvio.app.features.analysis.NextUpAnalysis.consider(
+                    id = finished.id,
+                    fileUri = uri,
+                    atThreshold = false,
+                    videoPlaying = true,
+                )
+            }
         }
     }
 
-    fun cancelDownloads(downloadIds: List<String>) {
-        downloadIds.forEach(::cancelDownload)
+    fun cancelDownloads(downloadIds: List<String>, reason: String = "unspecified") {
+        downloadIds.forEach { cancelDownload(it, reason) }
     }
 
     /**
@@ -730,7 +802,11 @@ object DownloadsRepository {
                 }
             },
         )
-        val toStart = startQueue.requestAllAtFront(orderedIds, DownloadThermalGate.blocksNextFile())
+        val toStart = startQueue.requestAllAtFront(
+            orderedIds,
+            DownloadThermalGate.blocksNextFile(),
+            canStart = { id -> id in orderedIds.toSet() || downloadMayStart(id) },
+        )
         persistStatus()
         applyStarts(toStart)
     }
@@ -738,27 +814,33 @@ object DownloadsRepository {
     private fun DownloadItem.hasBytesOnDisk(): Boolean =
         downloadedBytes > 0L || (DownloadsPlatformDownloader.playableBytesOnDisk(fileName) ?: 0L) > 0L
 
-    fun cancelDownload(downloadId: String) {
+    fun cancelDownload(downloadId: String, reason: String = "unspecified") {
         ensureLoaded()
         val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
 
         // Let go of the file first (analysis run, preview reader, audio capture), then stop the
         // transfer without resume data, then delete and check.
+        com.nuvio.app.core.logging.InAppLogger.info(
+            "Downloads",
+            "removed id=${item.id} video=${item.videoId} status=${item.status} file=${item.fileName} reason=$reason",
+        )
         com.nuvio.app.features.analysis.MediaAnalysisScheduler.releaseFile(downloadId)
         DownloadsPlatformDownloader.discardTransfer(downloadId)
         activeHandles.remove(downloadId)?.cancel()
         linkRefreshAttempts.remove(downloadId)
         linkRefreshBytes.remove(downloadId)
         partialPrefixCache.remove(downloadId)
-        deleteFilesOf(item)
+        // Logged above with [reason]; file deletion itself has nothing further to say.
+        deleteFilesOf(item, reason = null)
 
         publish(_uiState.value.items.filterNot { it.id == downloadId })
         persistStatus()
         forgetAnalysedFile(item)
-        applyStarts(startQueue.release(downloadId, DownloadThermalGate.blocksNextFile()))
+        applyStarts(startQueue.release(downloadId, DownloadThermalGate.blocksNextFile(), ::downloadMayStart))
         appUsageDirty = true
         scheduleSpaceRetry()
         SmartDownloads.retryPending()
+        FinishedDownloadDeletion.onDownloadRemoved(downloadId)
     }
 
     /**
@@ -778,7 +860,13 @@ object DownloadsRepository {
      * that is still there, or a finished file that was found nowhere, goes on the failed-deletes
      * list, retried at launch and on Clean up leftovers.
      */
-    private fun deleteFilesOf(item: DownloadItem) {
+    private fun deleteFilesOf(item: DownloadItem, reason: String?) {
+        if (reason != null) {
+            com.nuvio.app.core.logging.InAppLogger.info(
+                "Downloads",
+                "removed id=${item.id} video=${item.videoId} status=${item.status} file=${item.fileName} reason=$reason",
+            )
+        }
         val playable = runCatching { playableLocalFileUri(item) }.getOrNull()
         val outcome = DownloadsPlatformDownloader.removeFileVerified(
             listOf(playable, item.localFileUri),
@@ -800,7 +888,13 @@ object DownloadsRepository {
             // Downloaded again since: that file is in use.
             if (entry.fileName in owned) return@retry true
             val outcome = DownloadsPlatformDownloader.removeFileVerified(listOf(entry.localFileUri), entry.fileName)
-            if (outcome == FileDeleteOutcome.Deleted) done++
+            if (outcome == FileDeleteOutcome.Deleted) {
+                done++
+                com.nuvio.app.core.logging.InAppLogger.info(
+                    "Downloads",
+                    "removed file=${entry.fileName} reason=retry-failed-delete",
+                )
+            }
             outcome == FileDeleteOutcome.Deleted
         }
         if (done > 0) {
@@ -816,10 +910,15 @@ object DownloadsRepository {
         val incomplete = _uiState.value.items
             .filter { it.id in ids && (it.status == DownloadStatus.Failed || it.status == DownloadStatus.Paused) }
             .map { it.id }
-        incomplete.forEach(::cancelDownload)
+        incomplete.forEach { cancelDownload(it, reason = "incomplete-cleanup") }
     }
 
     private fun loadFromDisk() {
+        fixtureItems?.let { items ->
+            hasLoaded = true
+            publish(items)
+            return
+        }
         ensureThermalObserver()
         _hasUnseenCompleted.value = false
         hasLoaded = true
@@ -828,6 +927,8 @@ object DownloadsRepository {
         if (payload.isEmpty()) {
             _uiState.value = DownloadsUiState()
             notifyLiveStatusPlatform()
+            FinishedDownloadDeletion.resumeAfterLaunch()
+            AnalysisTempDownloads.sweep()
             return
         }
 
@@ -853,6 +954,8 @@ object DownloadsRepository {
         resumeWaitingForAppOpen()
         runCatching { retryFailedDeletes() }
         StorageAutopilot.run()
+        FinishedDownloadDeletion.resumeAfterLaunch()
+        AnalysisTempDownloads.sweep()
     }
 
     private fun startDownload(item: DownloadItem) {
@@ -947,6 +1050,7 @@ object DownloadsRepository {
                     )
                 }
                 com.nuvio.app.features.analysis.MediaAnalysisScheduler.kick()
+                AnalysisTempDownloads.onDownloadFinished(item.id)
                 com.nuvio.app.features.offline.OfflineArtwork.cache(item)
                 StorageAutopilot.run()
             },
@@ -974,6 +1078,7 @@ object DownloadsRepository {
                     totalBytes = item.totalBytes,
                     downloadRunning = false,
                 )
+                AnalysisTempDownloads.onDownloadFailed(item.id)
             },
             onPaused = onPaused@{
                 if (staleAttempt()) return@onPaused
@@ -985,7 +1090,10 @@ object DownloadsRepository {
             },
         )
 
-        activeHandles[item.id] = handle
+        val stillDownloading = _uiState.value.items.firstOrNull { it.id == item.id }?.status == DownloadStatus.Downloading
+        if (!com.nuvio.app.core.automation.AutomationTestMode.isActive || stillDownloading) {
+            activeHandles[item.id] = handle
+        }
     }
 
     private fun mutateItem(downloadId: String, transform: (DownloadItem) -> DownloadItem) {
@@ -1014,7 +1122,7 @@ object DownloadsRepository {
             persistProgressIfDue()
         }
         if (statusChanged && before?.status == DownloadStatus.Downloading && after?.status != DownloadStatus.Downloading) {
-            applyStarts(startQueue.release(downloadId, DownloadThermalGate.blocksNextFile()))
+            applyStarts(startQueue.release(downloadId, DownloadThermalGate.blocksNextFile(), ::downloadMayStart))
             // A finished file owes nothing any more: a waiting one may fit now.
             if (after?.status == DownloadStatus.Completed) retrySpaceFailures()
         }
@@ -1040,7 +1148,9 @@ object DownloadsRepository {
             items = items,
             heldForPlayback = heldForPlayback(items),
         )
-        runCatching { DownloadSpeeds.onItems(items, DownloadsClock.nowEpochMs()) }
+        val now = DownloadsClock.nowEpochMs()
+        runCatching { DownloadSpeeds.onItems(items, now) }
+        runCatching { DownloadSpeedEstimate.onItems(items, now) }
         notifyLiveStatusPlatform()
     }
 
@@ -1091,7 +1201,69 @@ object DownloadsRepository {
      */
     fun setPlaybackDownloadCap(cap: Int) {
         startQueue.maxActive = cap
+        DownloadTransferPriority.setLowPriority(PlaybackPriority.downloadGate().lowPriority)
         if (hasLoaded) replanSlots()
+        logDownloadGate()
+    }
+
+    /** Automatic downloads wait while a video is playing. A tap the user made may use the one slot. */
+    private fun downloadMayStart(id: String): Boolean {
+        val gate = PlaybackPriority.downloadGate()
+        if (id in PartialPlaybackLease.heldIds()) return true
+        val item = _uiState.value.items.firstOrNull { it.id == id } ?: return false
+        val allowed = if (PlaybackPriority.isNextUp(item)) {
+            nextUpMayTransfer(
+                allowStart = gate.nextUp.allowStart,
+                dutyCycle = gate.dutyCycle,
+                windowOpen = PlaybackPriority.dutyWindowOpen(),
+                alreadyRunning = id in startQueue.activeIds(),
+            )
+        } else {
+            gate.other.allowStart
+        }
+        return allowed
+    }
+
+    private var lastDownloadGateLine: String? = null
+
+    private fun logDownloadGate() {
+        val gate = PlaybackPriority.downloadGate()
+        val power = com.nuvio.app.features.analysis.AnalysisPower.snapshot()
+        val line = downloadGateLine(
+            gate = gate,
+            active = startQueue.activeIds().size,
+            queued = startQueue.waitingIds().size,
+            thermal = power.thermal,
+            lowPowerMode = power.lowPowerMode,
+        )
+        if (line == lastDownloadGateLine) return
+        lastDownloadGateLine = line
+        val plain = PlaybackPriority.nextUpPlainId()
+        if (plain != null) {
+            val hash = com.nuvio.app.features.diagnostics.behaviourContentId(
+                com.nuvio.app.features.diagnostics.BehaviourLogFiles.installSalt(),
+                plain,
+            )
+            val eta = PlaybackPriority.nextUpEtaSeconds()
+            val remaining = PlaybackPriority.nextUpRemainingSeconds()
+            val rate = PlaybackPriority.nextUpBytesPerSecond()
+            val nextLine = nextUpLine(hash, gate.state.name.lowercase(), eta, remaining, rate)
+            com.nuvio.app.core.logging.InAppLogger.info("Downloads", nextLine)
+            com.nuvio.app.features.diagnostics.DiagnosticsLogger.logPerformance(nextLine)
+            com.nuvio.app.features.diagnostics.BehaviourEvents.record(
+                "next-up",
+                mapOf(
+                    "id" to hash,
+                    "state" to gate.state.name.lowercase(),
+                    "eta" to eta.toString(),
+                    "remaining" to remaining.toString(),
+                    "rate" to rate.toString(),
+                ),
+            )
+        }
+        lastDownloadGateLine = line
+        com.nuvio.app.core.logging.InAppLogger.info("Downloads", line)
+        com.nuvio.app.features.diagnostics.DiagnosticsLogger.logPerformance(line)
     }
 
     /**
@@ -1102,7 +1274,7 @@ object DownloadsRepository {
     fun onPartialPlaybackLeaseChanged() {
         if (!hasLoaded) return
         if (PartialPlaybackLease.heldIds().isEmpty()) {
-            applyStarts(startQueue.promote(DownloadThermalGate.blocksNextFile()))
+            applyStarts(startQueue.promote(DownloadThermalGate.blocksNextFile(), ::downloadMayStart))
             refreshHeldForPlayback()
         } else {
             replanSlots()
@@ -1110,20 +1282,39 @@ object DownloadsRepository {
     }
 
     private var lastSlotPlan: String? = null
+    private var lastOffWindowLine: String? = null
+    private var rateBytes = -1L
+    private var rateAtMs = 0L
+    private var rateBps = 0L
+
+    /** Active transfers and the measured bytes per second, for the background and foreground lines. */
+    fun transferLine(where: String): String {
+        val power = com.nuvio.app.features.analysis.AnalysisPower.snapshot()
+        val active = if (hasLoaded) startQueue.activeIds().size else 0
+        if (hasLoaded) {
+            val total = _uiState.value.items
+                .filter { it.status == DownloadStatus.Downloading }
+                .sumOf { it.downloadedBytes }
+            rateBps = transferBytesPerSecond(rateBytes, rateAtMs, total, DownloadsClock.nowEpochMs())
+            rateBytes = total
+            rateAtMs = DownloadsClock.nowEpochMs()
+        }
+        return transferActivityLine(where, power.thermal, power.lowPowerMode, active, rateBps)
+    }
 
     private fun replanSlots() {
         val held = PartialPlaybackLease.heldIds()
         val active = startQueue.activeIds()
-        // Cap 0 from the setting pauses new starts. A file that is already running stays, which is
-        // what a plain shrink did; a waiting one is not pulled in past that cap. A hot device
-        // likewise starts nothing new.
-        val pauseAll = startQueue.maxActive == 0 && SmartDownloadSettings.snapshot().pauseDuringPlayback
+        // Cap 0 suspends running transfers. iOS keeps resume data, so the off window moves no bytes.
+        val pauseAll = startQueue.maxActive == 0
+        val blocked = startQueue.releaseBlocked(::downloadMayStart)
         val thermal = DownloadThermalGate.blocksNextFile()
         val pinned = startQueue.pin(heldIdsToStart(held, active, pauseAll, thermal))
         val keep = if (pauseAll || thermal) held.intersect(active) else held
         val demoted = startQueue.shrinkTo(startQueue.maxActive, keep)
-        if (pinned.isNotEmpty() || demoted.isNotEmpty()) alignQueuedStatuses()
-        applyStarts(pinned + startQueue.promote(DownloadThermalGate.blocksNextFile()), pinned.toSet())
+        if (pauseAll) logOffWindow() else lastOffWindowLine = null
+        if (pinned.isNotEmpty() || demoted.isNotEmpty() || blocked.isNotEmpty()) alignQueuedStatuses()
+        applyStarts(pinned + startQueue.promote(DownloadThermalGate.blocksNextFile(), ::downloadMayStart), pinned.toSet())
         refreshHeldForPlayback()
         val plan = "cap=${startQueue.maxActive} running=${startQueue.activeIds()} waiting=${startQueue.waitingIds()} player=$held"
         if (plan != lastSlotPlan) {
@@ -1132,12 +1323,24 @@ object DownloadsRepository {
         }
     }
 
+    private fun logOffWindow() {
+        val bytes = offWindowBytes(cap = 0, reportedDelta = 0L)
+        val line = "off-window bytes=$bytes"
+        if (line == lastOffWindowLine) return
+        lastOffWindowLine = line
+        com.nuvio.app.core.logging.InAppLogger.info("Downloads", line)
+        com.nuvio.app.features.diagnostics.DiagnosticsLogger.logPerformance(line)
+        com.nuvio.app.features.diagnostics.BehaviourEvents.record("off-window", mapOf("bytes" to bytes.toString()))
+    }
+
     private fun ensureThermalObserver() {
         if (thermalObserverStarted) return
         thermalObserverStarted = true
         DownloadThermalGate.startObserving {
             if (!hasLoaded) return@startObserving
-            applyStarts(startQueue.promote(DownloadThermalGate.blocksNextFile()))
+            // Heat and Low Power Mode re-run the gate with no video playing. A lower cap
+            // suspends the extra tasks; iOS keeps resume data for the ones it stops.
+            PlaybackPriority.notePowerChanged()
         }
     }
 
@@ -1151,7 +1354,7 @@ object DownloadsRepository {
             .filter { (it.status == DownloadStatus.Downloading || it.status == DownloadStatus.Queued) && it.id !in activeHandles }
             .sortedBy { it.createdAtEpochMs }
             .map { it.id }
-        val started = startQueue.restore(running, pending, DownloadThermalGate.blocksNextFile())
+        val started = startQueue.restore(running, pending, DownloadThermalGate.blocksNextFile(), ::downloadMayStart)
         alignQueuedStatuses()
         applyStarts(started)
     }
@@ -1194,6 +1397,7 @@ object DownloadsRepository {
     }
 
     private fun applyStarts(startedIds: List<String>, pinned: Set<String> = emptySet()) {
+        PlaybackPriority.noteTransfersChanged(startQueue.activeIds().isNotEmpty())
         if (startedIds.isEmpty()) return
         val now = DownloadsClock.nowEpochMs()
         val plan = planDownloadStarts(startedIds, activeHandles.keys.toSet(), startQueue.maxActive, pinned)
@@ -1382,11 +1586,25 @@ object DownloadsRepository {
         var freed = 0L
         summary.orphans
             .filter { file -> owned.none { ownsDiskFile(it, file.name) } }
-            .forEach { file -> if (DownloadDiskInfo.deleteDownloadFile(file.name)) freed += file.sizeBytes }
+            .forEach { file ->
+                if (DownloadDiskInfo.deleteDownloadFile(file.name)) {
+                    freed += file.sizeBytes
+                    com.nuvio.app.core.logging.InAppLogger.info(
+                        "Downloads",
+                        "removed file=${file.name} reason=orphan-cleanup",
+                    )
+                }
+            }
         summary.app?.leftovers.orEmpty().forEach { leftover ->
             val name = leftover.path.substringAfterLast('/').removeSuffix(".resumedata")
             if (owned.none { it.isNotBlank() && (it == name || ownsDiskFile(it, name)) }) {
-                if (DownloadDiskInfo.deleteLeftover(leftover.path)) freed += leftover.sizeBytes
+                if (DownloadDiskInfo.deleteLeftover(leftover.path)) {
+                    freed += leftover.sizeBytes
+                    com.nuvio.app.core.logging.InAppLogger.info(
+                        "Downloads",
+                        "removed file=${leftover.path} reason=leftover-cleanup",
+                    )
+                }
             }
         }
         appUsageDirty = true
@@ -1401,7 +1619,14 @@ object DownloadsRepository {
             storedFileNames(DownloadDiskInfo.allProfilePayloads())
         orphans
             .filter { file -> owned.none { ownsDiskFile(it, file.name) } }
-            .forEach { DownloadDiskInfo.deleteDownloadFile(it.name) }
+            .forEach { file ->
+                if (DownloadDiskInfo.deleteDownloadFile(file.name)) {
+                    com.nuvio.app.core.logging.InAppLogger.info(
+                        "Downloads",
+                        "removed file=${file.name} reason=orphan-cleanup",
+                    )
+                }
+            }
         appUsageDirty = true
         scheduleSpaceRetry()
     }
@@ -1621,5 +1846,6 @@ internal fun String.isSupportedDownloadUrl(): Boolean {
     if (normalized.endsWith(".m3u8") || normalized.contains(".m3u8?")) return false
     if (normalized.endsWith(".mpd") || normalized.contains(".mpd?")) return false
     if (normalized.endsWith(".torrent") || normalized.contains(".torrent?")) return false
+    if (com.nuvio.app.core.automation.AutomationStubs.isLocalClip(normalized)) return true
     return normalized.startsWith("http://") || normalized.startsWith("https://")
 }

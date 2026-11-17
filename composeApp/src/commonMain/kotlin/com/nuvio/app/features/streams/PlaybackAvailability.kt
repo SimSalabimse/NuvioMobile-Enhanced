@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.automation.AutomationTestMode
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.features.addons.AddonManifest
 import com.nuvio.app.features.addons.AddonRepository
@@ -32,7 +33,8 @@ internal class PlaybackAvailability(
     private val plugins: PluginsUiState,
 ) {
     fun canStream(type: String, videoId: String): Boolean =
-        hasCompatiblePlaybackSource(addons, plugins, type, videoId) ||
+        AutomationTestMode.isActive ||
+            hasCompatiblePlaybackSource(addons, plugins, type, videoId) ||
             MetaDetailsRepository.findEmbeddedStreams(videoId).isNotEmpty() ||
             ServerStreams.canServe(type, videoId)
 

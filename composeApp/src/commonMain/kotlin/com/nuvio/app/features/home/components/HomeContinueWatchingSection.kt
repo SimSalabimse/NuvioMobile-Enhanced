@@ -1,12 +1,11 @@
 package com.nuvio.app.features.home.components
 
+import com.nuvio.app.core.a11y.continueWatchingLongPressActions
 import com.nuvio.app.features.downloads.FinishSeriesGoalBadge
 import com.nuvio.app.features.settings.ThemeSettingsRepository
 import androidx.compose.runtime.collectAsState
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -18,6 +17,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,6 +25,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -32,7 +34,9 @@ import com.nuvio.app.features.shuffle.ShuffleBadge
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.nuvio.app.core.ui.spoilerBlur
@@ -66,6 +70,7 @@ import com.nuvio.app.core.ui.landscapePosterHeightForWidth
 import com.nuvio.app.core.ui.landscapePosterWidth
 import com.nuvio.app.core.ui.posterCardClickable
 import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
+import com.nuvio.app.features.home.continueWatchingArtworkChain
 import com.nuvio.app.features.cloud.CloudLibraryContentType
 import com.nuvio.app.features.cloud.cloudLibraryDisplayArtworkUrl
 import com.nuvio.app.features.tracking.WatchProgressSource
@@ -111,12 +116,13 @@ internal fun continueWatchingHeroViewportReserveHeight(
     style: ContinueWatchingSectionStyle,
     layout: ContinueWatchingLayout,
     basePosterWidthDp: Int,
+    extremeText: Boolean = false,
 ): Dp {
     val bottomNavigationClearance = when (style) {
         ContinueWatchingSectionStyle.Card,
         ContinueWatchingSectionStyle.Wide -> NuvioTokens.Space.s24
-        ContinueWatchingSectionStyle.Poster -> 0.dp
-    }
+        ContinueWatchingSectionStyle.Poster -> if (extremeText) NuvioTokens.Space.s24 else 0.dp
+    } + if (extremeText) NuvioTokens.Space.s24 else 0.dp
     return continueWatchingSectionHeightEstimate(
         style = style,
         layout = layout,
@@ -141,94 +147,13 @@ private fun localizedContinueWatchingMetaLine(item: ContinueWatchingItem): Strin
 private fun ContinueWatchingItem.isCloudLibraryItem(): Boolean =
     parentMetaType.equals(CloudLibraryContentType, ignoreCase = true)
 
-private fun ContinueWatchingItem.continueWatchingArtworkUrl(
-    useEpisodeThumbnails: Boolean,
-): String? = when {
-    isNextUp && useEpisodeThumbnails -> firstNonBlank(
-        episodeThumbnail,
-        poster,
-        background,
-        imageUrl,
+private fun ContinueWatchingItem.artworkCandidates(useEpisodeThumbnails: Boolean): List<String> =
+    continueWatchingArtworkChain(
+        episodeStill = if (useEpisodeThumbnails) episodeThumbnail else null,
+        backdrop = background,
+        poster = poster,
+        imageUrl = imageUrl,
     )
-    isNextUp -> firstNonBlank(
-        poster,
-        background,
-        episodeThumbnail,
-        imageUrl,
-    )
-    useEpisodeThumbnails -> firstNonBlank(
-        episodeThumbnail,
-        poster,
-        background,
-        imageUrl,
-    )
-    else -> firstNonBlank(
-        poster,
-        background,
-        episodeThumbnail,
-        imageUrl,
-    )
-}
-
-private fun ContinueWatchingItem.continueWatchingPosterArtworkUrl(
-    useEpisodeThumbnails: Boolean,
-): String? {
-    if (seasonNumber == null || episodeNumber == null) {
-        return continueWatchingArtworkUrl(useEpisodeThumbnails)
-    }
-
-    val normalizedEpisodeThumbnail = episodeThumbnail?.trim()?.takeIf { it.isNotBlank() }
-    val nonEpisodeImageUrl = imageUrl
-        ?.trim()
-        ?.takeIf { it.isNotBlank() && it != normalizedEpisodeThumbnail }
-
-    return firstNonBlank(
-        poster,
-        background,
-        nonEpisodeImageUrl,
-        if (useEpisodeThumbnails) episodeThumbnail else null,
-        imageUrl,
-    )
-}
-
-private fun ContinueWatchingItem.continueWatchingCardArtworkUrl(
-    useEpisodeThumbnails: Boolean,
-    preferBackdropForNextUp: Boolean,
-): String? = when {
-    isNextUp && preferBackdropForNextUp -> firstNonBlank(
-        background,
-        poster,
-        episodeThumbnail,
-        imageUrl,
-    )
-    isNextUp && useEpisodeThumbnails -> firstNonBlank(
-        episodeThumbnail,
-        background,
-        poster,
-        imageUrl,
-    )
-    isNextUp -> firstNonBlank(
-        background,
-        poster,
-        episodeThumbnail,
-        imageUrl,
-    )
-    useEpisodeThumbnails -> firstNonBlank(
-        episodeThumbnail,
-        background,
-        poster,
-        imageUrl,
-    )
-    else -> firstNonBlank(
-        background,
-        poster,
-        episodeThumbnail,
-        imageUrl,
-    )
-}
-
-private fun firstNonBlank(vararg values: String?): String? =
-    values.firstOrNull { value -> !value.isNullOrBlank() }?.trim()
 
 private fun ContinueWatchingItem.fallbackUrlForArtwork(artworkUrl: String?): String? {
     if (artworkUrl.isNullOrBlank()) return null
@@ -675,7 +600,6 @@ private fun continueWatchingLandscapeCardMetrics(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ContinueWatchingCard(
     item: ContinueWatchingItem,
@@ -698,10 +622,10 @@ private fun ContinueWatchingCard(
         null
     }
     val preferBackdropForNextUp = item.isNextUp && airDateText != null && !item.isReleaseAlert
-    val imageUrl = item.continueWatchingCardArtworkUrl(
-        useEpisodeThumbnails = useEpisodeThumbnails,
-        preferBackdropForNextUp = preferBackdropForNextUp,
+    val artworkChain = item.artworkCandidates(
+        useEpisodeThumbnails = useEpisodeThumbnails && !preferBackdropForNextUp,
     )
+    val imageUrl = artworkChain.firstOrNull()
     val shouldBlurArtwork = item.shouldBlurContinueWatchingArtwork(
         blurUnwatchedEpisodes = blurNextUp,
         useEpisodeThumbnails = useEpisodeThumbnails,
@@ -732,43 +656,36 @@ private fun ContinueWatchingCard(
                 onLongClick = onLongClick,
                 zoomImageUrl = imageUrl,
                 zoomCornerRadius = cardMetrics.cornerRadius,
+                longPressActions = continueWatchingLongPressActions(item, enabled = onLongClick != null),
             ),
     ) {
-        if (imageUrl != null) {
-            val cwFallbackUrl = item.fallbackUrlForArtwork(imageUrl)
-            val cwImageModel = continuewatchingImageModel(
-                imageUrl = cloudLibraryDisplayArtworkUrl(imageUrl),
-                fallbackUrl = cwFallbackUrl,
-            )
-            AsyncImage(
-                model = cwImageModel,
-                contentDescription = item.title,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .then(if (shouldBlurArtwork) Modifier.blur(18.dp) else Modifier)
-                    .drawWithContent {
-                        drawContent()
-
-                        val startY = size.height * 0.45f
-                        val gradient = Brush.verticalGradient(
-                            colorStops = arrayOf(
-                                0.0f to Color.Transparent,
-                                0.60f to backgroundColor.copy(alpha = 0.70f),
-                                1.0f to backgroundColor.copy(alpha = 0.95f),
-                            ),
-                            startY = startY,
-                            endY = size.height,
-                        )
-
-                        drawRect(
-                            brush = gradient,
-                            topLeft = Offset(-2f, startY),
-                            size = Size(size.width + 4f, (size.height - startY) + 4f),
-                        )
-                    },
-                contentScale = ContentScale.Crop,
-            )
-        }
+        ContinueWatchingArtworkImage(
+            chain = artworkChain,
+            contentDescription = item.title,
+            contentScale = ContentScale.Crop,
+            blurred = shouldBlurArtwork,
+            fallbackFor = item::fallbackUrlForArtwork,
+            modifier = Modifier
+                .fillMaxSize()
+                .drawWithContent {
+                    drawContent()
+                    val startY = size.height * 0.45f
+                    val gradient = Brush.verticalGradient(
+                        colorStops = arrayOf(
+                            0.0f to Color.Transparent,
+                            0.60f to backgroundColor.copy(alpha = 0.70f),
+                            1.0f to backgroundColor.copy(alpha = 0.95f),
+                        ),
+                        startY = startY,
+                        endY = size.height,
+                    )
+                    drawRect(
+                        brush = gradient,
+                        topLeft = Offset(-2f, startY),
+                        size = Size(size.width + 4f, (size.height - startY) + 4f),
+                    )
+                },
+        )
         ArtworkBadges(item, Modifier.align(Alignment.TopStart))
         Column(
             modifier = Modifier
@@ -902,7 +819,6 @@ private fun continueWatchingCardBadgeText(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ContinueWatchingWideCard(
     item: ContinueWatchingItem,
@@ -913,10 +829,18 @@ private fun ContinueWatchingWideCard(
     onLongClick: (() -> Unit)?,
 ) {
     val cornerRadius = rememberPosterCardStyleUiState().cornerRadiusDp.dp
+    val artworkChain = item.artworkCandidates(useEpisodeThumbnails)
+    val artworkUrl = artworkChain.firstOrNull()
     Row(
         modifier = Modifier
             .width(layout.wideCardWidth)
-            .height(layout.wideCardHeight)
+            .then(
+                if (com.nuvio.app.core.ui.extremeAccessibilityText(androidx.compose.ui.platform.LocalDensity.current.fontScale)) {
+                    Modifier.heightIn(min = layout.wideCardHeight)
+                } else {
+                    Modifier.height(layout.wideCardHeight)
+                },
+            )
             .clip(RoundedCornerShape(cornerRadius))
             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
             .border(
@@ -924,25 +848,26 @@ private fun ContinueWatchingWideCard(
                 color = Color.White.copy(alpha = 0.15f),
                 shape = RoundedCornerShape(cornerRadius),
             )
-            .combinedClickable(
-                enabled = onClick != null || onLongClick != null,
-                onClick = { onClick?.invoke() },
+            .posterCardClickable(
+                onClick = onClick,
                 onLongClick = onLongClick,
+                zoomImageUrl = artworkUrl,
+                zoomCornerRadius = cornerRadius,
+                longPressActions = continueWatchingLongPressActions(item, enabled = onLongClick != null),
             ),
     ) {
-        val artworkUrl = item.continueWatchingArtworkUrl(useEpisodeThumbnails)
         val shouldBlurArtwork = item.shouldBlurContinueWatchingArtwork(
             blurUnwatchedEpisodes = blurNextUp,
             useEpisodeThumbnails = useEpisodeThumbnails,
             artworkUrl = artworkUrl,
         )
-        ArtworkPanel(
-            imageUrl = artworkUrl,
-            width = layout.widePosterStripWidth,
-            blurred = shouldBlurArtwork,
-            fallbackUrl = item.fallbackUrlForArtwork(artworkUrl),
+        ContinueWatchingArtworkImage(
+            chain = artworkChain,
+            contentDescription = null,
             contentScale = if (item.isCloudLibraryItem()) ContentScale.Fit else ContentScale.Crop,
-            modifier = Modifier.fillMaxHeight(),
+            blurred = shouldBlurArtwork,
+            fallbackFor = item::fallbackUrlForArtwork,
+            modifier = Modifier.fillMaxHeight().width(layout.widePosterStripWidth),
         )
         Column(
             modifier = Modifier
@@ -1038,7 +963,6 @@ private fun ContinueWatchingWideCard(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ContinueWatchingPosterCard(
     item: ContinueWatchingItem,
@@ -1049,7 +973,8 @@ private fun ContinueWatchingPosterCard(
     onLongClick: (() -> Unit)?,
 ) {
     val cornerRadius = rememberPosterCardStyleUiState().cornerRadiusDp.dp
-    val imageUrl = item.continueWatchingPosterArtworkUrl(useEpisodeThumbnails)
+    val artworkChain = item.artworkCandidates(useEpisodeThumbnails)
+    val imageUrl = artworkChain.firstOrNull()
     Column(
         modifier = Modifier.width(layout.posterCardWidth),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -1069,6 +994,7 @@ private fun ContinueWatchingPosterCard(
                     onLongClick = onLongClick,
                     zoomImageUrl = imageUrl,
                     zoomCornerRadius = cornerRadius,
+                    longPressActions = continueWatchingLongPressActions(item, enabled = onLongClick != null),
                 ),
         ) {
             val shouldBlurArtwork = item.shouldBlurContinueWatchingArtwork(
@@ -1076,21 +1002,14 @@ private fun ContinueWatchingPosterCard(
                 useEpisodeThumbnails = useEpisodeThumbnails,
                 artworkUrl = imageUrl,
             )
-            if (imageUrl != null) {
-                val cwFallbackUrl = item.fallbackUrlForArtwork(imageUrl)
-                val cwImageModel = continuewatchingImageModel(
-                    imageUrl = cloudLibraryDisplayArtworkUrl(imageUrl),
-                    fallbackUrl = cwFallbackUrl,
-                )
-                AsyncImage(
-                    model = cwImageModel,
-                    contentDescription = item.title,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .then(if (shouldBlurArtwork) Modifier.blur(18.dp) else Modifier),
-                    contentScale = if (item.isCloudLibraryItem()) ContentScale.Fit else ContentScale.Crop,
-                )
-            }
+            ContinueWatchingArtworkImage(
+                chain = artworkChain,
+                contentDescription = item.title,
+                contentScale = if (item.isCloudLibraryItem()) ContentScale.Fit else ContentScale.Crop,
+                blurred = shouldBlurArtwork,
+                fallbackFor = item::fallbackUrlForArtwork,
+                modifier = Modifier.fillMaxSize(),
+            )
             ArtworkBadges(item, Modifier.align(Alignment.TopStart))
             if (item.progressFraction <= 0f && item.seasonNumber != null && item.episodeNumber != null) {
                 Box(
@@ -1138,10 +1057,19 @@ private fun ContinueWatchingPosterCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Top,
         ) {
+            val extremeTitle = com.nuvio.app.core.ui.extremeAccessibilityText(
+                androidx.compose.ui.platform.LocalDensity.current.fontScale,
+            )
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .height(layout.posterTitleBlockHeight),
+                    .then(
+                        if (extremeTitle) {
+                            Modifier.heightIn(min = layout.posterTitleBlockHeight)
+                        } else {
+                            Modifier.height(layout.posterTitleBlockHeight)
+                        },
+                    ),
             ) {
                 Text(
                     text = item.title,
@@ -1176,34 +1104,37 @@ private fun ContinueWatchingPosterCard(
 }
 
 @Composable
-private fun ArtworkPanel(
-    imageUrl: String?,
-    width: Dp,
-    blurred: Boolean = false,
-    fallbackUrl: String? = null,
-    contentScale: ContentScale = ContentScale.Crop,
+private fun ContinueWatchingArtworkImage(
+    chain: List<String>,
+    contentDescription: String?,
+    contentScale: ContentScale,
+    blurred: Boolean,
+    fallbackFor: (String) -> String?,
     modifier: Modifier = Modifier,
 ) {
-    Box(
-        modifier = modifier
-            .width(width)
-            .background(MaterialTheme.colorScheme.surfaceVariant),
-    ) {
-        if (imageUrl != null) {
-            val artworkModel = continuewatchingImageModel(
-                imageUrl = cloudLibraryDisplayArtworkUrl(imageUrl),
-                fallbackUrl = fallbackUrl,
-            )
-            AsyncImage(
-                model = artworkModel,
-                contentDescription = null,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .then(if (blurred) Modifier.blur(18.dp) else Modifier),
-                contentScale = contentScale,
+    var index by remember(chain) { mutableIntStateOf(0) }
+    val url = chain.getOrNull(index)
+    if (url == null) {
+        Box(modifier = modifier, contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = Icons.Outlined.Movie,
+                contentDescription = contentDescription,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(28.dp),
             )
         }
+        return
     }
+    AsyncImage(
+        model = continuewatchingImageModel(
+            imageUrl = cloudLibraryDisplayArtworkUrl(url),
+            fallbackUrl = fallbackFor(url),
+        ),
+        contentDescription = contentDescription,
+        modifier = modifier.then(if (blurred) Modifier.blur(18.dp) else Modifier),
+        contentScale = contentScale,
+        onError = { if (index < chain.lastIndex) index += 1 },
+    )
 }
 
 @Composable
@@ -1236,7 +1167,7 @@ private fun UpNextBadge(
                 fontWeight = FontWeight.Bold,
             ),
             color = Color.White,
-            maxLines = 1,
+            maxLines = if (com.nuvio.app.core.ui.extremeAccessibilityText(androidx.compose.ui.platform.LocalDensity.current.fontScale)) 3 else 1,
         )
     }
 }

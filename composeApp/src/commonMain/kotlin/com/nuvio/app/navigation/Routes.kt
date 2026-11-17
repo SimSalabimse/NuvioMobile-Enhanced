@@ -40,7 +40,12 @@ data class DetailRoute(
     override val title: String? = null,
     val initialSeasonNumber: Int? = null,
     val initialEpisodeNumber: Int? = null,
-) : AppRoute
+    val privateSession: Boolean = false,
+) : AppRoute {
+    /** The page draws one header. The native bar would be a second opaque row. */
+    override val hidesNavigationBar: Boolean
+        get() = true
+}
 
 @Serializable
 data class PersonDetailRoute(
@@ -95,13 +100,24 @@ data class DownloadsRoute(override val title: String = "") : AppRoute {
     /** One Downloads screen per stack, whatever title it was opened with. */
     override val navigationIdentity: String
         get() = "DownloadsRoute"
+
+    /**
+     * The screen header is the nav row: back, title, folder, and settings.
+     * A visible native bar kept back on its own row and left the actions below it.
+     */
+    override val hidesNavigationBar: Boolean
+        get() = true
 }
 
 @Serializable
 data class DownloadShowRoute(
     val showId: String,
     override val title: String,
-) : AppRoute
+) : AppRoute {
+    /** Same single header row as [DownloadsRoute]; the show title replaces "Downloads". */
+    override val hidesNavigationBar: Boolean
+        get() = true
+}
 
 /**
  * Native iOS back pops one SwiftUI screen. This stays a library-tab route,

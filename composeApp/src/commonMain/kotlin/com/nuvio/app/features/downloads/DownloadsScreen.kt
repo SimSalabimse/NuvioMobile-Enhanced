@@ -4,22 +4,33 @@ import androidx.compose.foundation.layout.PaddingValues
 import org.jetbrains.compose.resources.pluralStringResource
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.asPaddingValues
+import com.nuvio.app.core.a11y.LongPressSite
+import com.nuvio.app.core.a11y.downloadsLongPressActions
+import com.nuvio.app.core.a11y.installLongPressAccessibility
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ExpandLess
@@ -61,7 +72,11 @@ import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.features.details.components.SeasonOverviewSheet
 import com.nuvio.app.features.settings.DownloadsSettingsScreen
+import com.nuvio.app.navigation.PlayEntry
+import com.nuvio.app.navigation.openEpisodeInSubmitMode
+import com.nuvio.app.navigation.openEpisodePrivately
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
@@ -88,6 +103,7 @@ fun DownloadsScreen(
     var expandedSeasonGroups by remember { mutableStateOf<Set<String>>(emptySet()) }
     var groupPendingCancel by remember { mutableStateOf<ActiveSeasonGroup?>(null) }
     var reanalyzeTarget by remember { mutableStateOf<ReanalyzeTarget?>(null) }
+    var overviewSeason by remember { mutableStateOf<Int?>(null) }
     var unwatchedOnly by remember { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var sort by rememberSaveable { mutableStateOf(DownloadsSort.Name) }
@@ -119,19 +135,25 @@ fun DownloadsScreen(
     }
 
     if (showSettings) {
-        PlatformBackHandler(enabled = true) { showSettings = false }
-        DownloadsSettingsScreen(
-            onBack = { showSettings = false },
-        )
+        com.nuvio.app.features.details.ChangedSurfaceTextScale {
+            PlatformBackHandler(enabled = true) { showSettings = false }
+            DownloadsSettingsScreen(
+                onBack = { showSettings = false },
+            )
+        }
         return
     }
 
     if (showStorage) {
-        PlatformBackHandler(enabled = true) { showStorage = false }
-        DownloadStorageScreen(items = uiState.items, onBack = { showStorage = false })
+        com.nuvio.app.features.details.ChangedSurfaceTextScale {
+            PlatformBackHandler(enabled = true) { showStorage = false }
+            DownloadStorageScreen(items = uiState.items, onBack = { showStorage = false })
+        }
         return
     }
 
+    com.nuvio.app.features.details.ChangedSurfaceTextScale {
+    Box(Modifier.fillMaxSize()) {
     var storageRefresh by remember { mutableStateOf(0) }
     val storageSummary = rememberDownloadStorageSummary(uiState.items, storageRefresh)
     // Health check of the finished files (sizes on disk, analysed lengths), off the main thread.
@@ -142,13 +164,15 @@ fun DownloadsScreen(
     val slowReasonTick = rememberDownloadSlowTick(uiState.activeItems.isNotEmpty())
     val tokens = MaterialTheme.nuvio
 
-    // Under the native iOS navigation bar the header collapses to its actions. The list starts
-    // below the bar (status bar + 44 pt), so nothing scrolls up behind the see-through bar and
-    // the status bar, and the actions scroll with the list instead of sticking over the rows.
-    val underNativeNavigationBar = com.nuvio.app.navigation.LocalUseNativeNavigation.current &&
-        !com.nuvio.app.navigation.LocalNativeNavigationBarHidden.current
+    // Downloads hides the native bar so back, the title, and the folder/settings actions
+    // share one row. If a host still shows the bar, the actions stay in their own row under it.
+    val useNativeNavigation = com.nuvio.app.navigation.LocalUseNativeNavigation.current
+    val nativeBarHidden = com.nuvio.app.navigation.LocalNativeNavigationBarHidden.current
+    val underNativeNavigationBar = useNativeNavigation && !nativeBarHidden
     val statusBarTop = androidx.compose.foundation.layout.WindowInsets.statusBars
         .asPaddingValues().calculateTopPadding()
+    val downloadsRootTitle = stringResource(Res.string.compose_settings_root_downloads_title)
+    val downloadsShowFallbackTitle = stringResource(Res.string.downloads_show_downloads)
     androidx.compose.runtime.CompositionLocalProvider(
         LocalDownloadProblems provides problems,
         LocalDownloadSlowTick provides slowReasonTick,
@@ -162,49 +186,57 @@ fun DownloadsScreen(
             },
         ),
         listState = listState,
-        topPadding = if (underNativeNavigationBar) tokens.spacing.screenTop else null,
+        topPadding = when {
+            underNativeNavigationBar -> tokens.spacing.screenTop
+            // The compact header carries the status-bar inset itself, so the list does not add a second one.
+            useNativeNavigation && nativeBarHidden -> 0.dp
+            else -> null
+        },
     ) {
+        val headerTitle = if (selectedShowId == null) {
+            downloadsRootTitle
+        } else {
+            selectedShowTitle ?: downloadsShowFallbackTitle
+        }
+        val headerBack: () -> Unit = {
+            if (selectedShowId != null) {
+                onBackFromShow?.invoke() ?: run { selectedShowId = null }
+            } else {
+                onBack()
+            }
+        }
         val header: @Composable () -> Unit = {
-            NuvioScreenHeader(
-                title = if (selectedShowId == null) {
-                    stringResource(Res.string.compose_settings_root_downloads_title)
-                } else {
-                    selectedShowTitle ?: stringResource(Res.string.downloads_show_downloads)
-                },
-                onBack = {
-                    if (selectedShowId != null) {
-                        onBackFromShow?.invoke() ?: run { selectedShowId = null }
-                    } else {
-                        onBack()
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = {
-                            if (!DownloadsPlatformDownloader.openDownloadsDirectory()) {
-                                NuvioToastController.show(openDownloadsDirectoryFailedText)
-                            }
-                        },
-                    ) {
+            val actions: @Composable RowScope.() -> Unit = {
+                IconButton(
+                    onClick = {
+                        if (!DownloadsPlatformDownloader.openDownloadsDirectory()) {
+                            NuvioToastController.show(openDownloadsDirectoryFailedText)
+                        }
+                    },
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Folder,
+                        contentDescription = stringResource(Res.string.downloads_open_directory),
+                        tint = tokens.colors.textPrimary,
+                    )
+                }
+                if (selectedShowId == null) {
+                    IconButton(onClick = {
+                        onOpenSettings?.invoke() ?: run { showSettings = true }
+                    }) {
                         Icon(
-                            imageVector = Icons.Rounded.Folder,
-                            contentDescription = stringResource(Res.string.downloads_open_directory),
+                            imageVector = Icons.Rounded.Settings,
+                            contentDescription = stringResource(Res.string.compose_settings_page_root),
                             tint = tokens.colors.textPrimary,
                         )
                     }
-                    if (selectedShowId == null) {
-                        IconButton(onClick = {
-                            onOpenSettings?.invoke() ?: run { showSettings = true }
-                        }) {
-                            Icon(
-                                imageVector = Icons.Rounded.Settings,
-                                contentDescription = stringResource(Res.string.compose_settings_page_root),
-                                tint = tokens.colors.textPrimary,
-                            )
-                        }
-                    }
-                },
-            )
+                }
+            }
+            if (useNativeNavigation && nativeBarHidden) {
+                DownloadsCompactHeader(title = headerTitle, onBack = headerBack, actions = actions)
+            } else {
+                NuvioScreenHeader(title = headerTitle, onBack = headerBack, actions = actions)
+            }
         }
         if (underNativeNavigationBar) item(key = "header") { header() } else stickyHeader { header() }
 
@@ -258,12 +290,92 @@ fun DownloadsScreen(
                 unwatchedOnly = unwatchedOnly,
                 watchedIds = watchedIds,
                 onToggleUnwatched = { unwatchedOnly = !unwatchedOnly },
+                onOpenOverview = { season -> overviewSeason = season },
             )
         }
     }
     }
 
     ReanalyzeModal(target = reanalyzeTarget, onDismiss = { reanalyzeTarget = null })
+    val overviewSeasonNumber = overviewSeason
+    val overviewShowId = selectedShowId
+    if (overviewSeasonNumber != null && overviewShowId != null) {
+        val showItems = uiState.items.filter { it.parentMetaId == overviewShowId }
+        val showType = showItems.firstOrNull()?.parentMetaType?.takeIf { it.isNotBlank() } ?: "series"
+        var catalogMeta by remember(overviewShowId, showType) { mutableStateOf<com.nuvio.app.features.details.MetaDetails?>(null) }
+        LaunchedEffect(overviewShowId, showType) {
+            catalogMeta = com.nuvio.app.features.details.MetaDetailsRepository.cachedMeta(showType, overviewShowId)
+                ?: com.nuvio.app.features.details.MetaDetailsRepository.fetch(showType, overviewShowId)
+        }
+        val downloadsOnline by com.nuvio.app.core.network.NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
+        val ledgerRevision by com.nuvio.app.features.player.skip.OwnTheIntroDbLedger.revision.collectAsStateWithLifecycle()
+        val overviewEpisodes = remember(catalogMeta, overviewShowId, overviewSeasonNumber, ledgerRevision, showItems) {
+            val imdb = buildSet {
+                if (overviewShowId.startsWith("tt", ignoreCase = true)) add(overviewShowId)
+                catalogMeta?.let { addAll(com.nuvio.app.features.details.showImdbIds(it)) }
+                showItems.forEach { item ->
+                    item.videoId.split(":").firstOrNull()?.let { add(it) }
+                }
+            }
+            com.nuvio.app.features.details.seasonSheetEpisodes(
+                catalog = catalogMeta?.videos.orEmpty(),
+                ledger = com.nuvio.app.features.player.skip.OwnTheIntroDbLedger.load(
+                    com.nuvio.app.features.details.overviewLedgerScope(),
+                ),
+                showImdbIds = imdb,
+                season = overviewSeasonNumber,
+            )
+        }
+        val overviewMeta = catalogMeta ?: com.nuvio.app.features.details.MetaDetails(
+            id = overviewShowId,
+            type = showType,
+            name = showItems.firstOrNull()?.title.orEmpty(),
+            imdbId = overviewShowId.takeIf { it.startsWith("tt", ignoreCase = true) },
+        )
+        if (overviewEpisodes.isNotEmpty()) {
+            val seasonLabel = if (overviewSeasonNumber == 0) {
+                stringResource(Res.string.episodes_specials)
+            } else {
+                stringResource(Res.string.episodes_season, overviewSeasonNumber)
+            }
+            SeasonOverviewSheet(
+                meta = overviewMeta,
+                season = overviewSeasonNumber,
+                seasonLabel = seasonLabel,
+                episodes = overviewEpisodes,
+                isWatched = { video ->
+                    uiState.items.any { item ->
+                        item.videoId == video.id &&
+                            item.seasonNumber == video.season &&
+                            item.episodeNumber == video.episode &&
+                            downloadWatchState(item).watched
+                    }
+                },
+                loading = false,
+                offline = !downloadsOnline.isOnline,
+                fromDownloads = true,
+                onDismiss = { overviewSeason = null },
+                onOpenEpisode = { video ->
+                    val item = uiState.items.firstOrNull { candidate ->
+                        candidate.parentMetaId == overviewShowId &&
+                            candidate.videoId == video.id &&
+                            candidate.seasonNumber == video.season &&
+                            candidate.episodeNumber == video.episode
+                    }
+                    if (item != null) openEpisodeInSubmitMode(item.toEpisodeSubmitRequest())
+                },
+                onWatchPrivately = { video ->
+                    val item = uiState.items.firstOrNull { candidate ->
+                        candidate.parentMetaId == overviewShowId &&
+                            candidate.videoId == video.id &&
+                            candidate.seasonNumber == video.season &&
+                            candidate.episodeNumber == video.episode
+                    }
+                    if (item != null) openEpisodePrivately(item.toEpisodeSubmitRequest(), PlayEntry.SeasonRow)
+                },
+            )
+        }
+    }
 
     val pendingDeletionId = downloadPendingDeletionId
     if (pendingDeletionId != null) {
@@ -275,7 +387,7 @@ fun DownloadsScreen(
             confirmText = stringResource(Res.string.action_yes),
             dismissText = stringResource(Res.string.action_no),
             onConfirm = {
-                DownloadsRepository.cancelDownload(pendingDeletionId)
+                DownloadsRepository.cancelDownload(pendingDeletionId, reason = "manual")
                 downloadPendingDeletionId = null
             },
             onDismiss = { downloadPendingDeletionId = null },
@@ -292,11 +404,13 @@ fun DownloadsScreen(
             confirmText = stringResource(Res.string.action_yes),
             dismissText = stringResource(Res.string.action_no),
             onConfirm = {
-                DownloadsRepository.cancelDownloads(pendingGroup.items.map { it.id })
+                DownloadsRepository.cancelDownloads(pendingGroup.items.map { it.id }, reason = "manual")
                 groupPendingCancel = null
             },
             onDismiss = { groupPendingCancel = null },
         )
+    }
+    }
     }
 }
 
@@ -356,6 +470,7 @@ private fun LazyListScope.downloadsRootContent(
                         onLongPress = unfinishedSeasonGroup(uiState.items, entry.item)?.let { group ->
                             { onCancelSeasonGroup(group) }
                         },
+                        longPressSite = LongPressSite.DownloadsActiveRow,
                     )
                 }
                 is ActiveDownloadEntry.Season -> {
@@ -381,6 +496,7 @@ private fun LazyListScope.downloadsRootContent(
                                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                                 onDelete = { onDeleteDownload(item.id) },
                                 onLongPress = { onCancelSeasonGroup(group) },
+                                longPressSite = LongPressSite.DownloadsActiveRow,
                             )
                         }
                     }
@@ -405,6 +521,7 @@ private fun LazyListScope.downloadsRootContent(
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                 onDelete = { onDeleteDownload(item.id) },
                 onLongPress = { onReanalyze(ReanalyzeTarget(item.title, listOf(item.id))) },
+                longPressSite = LongPressSite.DownloadsCompletedItem,
             )
         }
     }
@@ -417,13 +534,18 @@ private fun LazyListScope.downloadsRootContent(
             items = completedShows,
             key = { (item, _) -> item.parentMetaId },
         ) { (item, episodes) ->
+            val reanalyzeShow = { onReanalyze(ReanalyzeTarget(item.title, episodes.map { it.id })) }
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 6.dp)
                     .combinedClickable(
                         onClick = { onOpenShow(item.parentMetaId, item.title) },
-                        onLongClick = { onReanalyze(ReanalyzeTarget(item.title, episodes.map { it.id })) },
+                        onLongClick = reanalyzeShow,
+                    )
+                    .installLongPressAccessibility(
+                        downloadsLongPressActions(LongPressSite.DownloadsCompletedShow, enabled = true),
+                        reanalyzeShow,
                     ),
                 shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.surfaceContainer,
@@ -463,8 +585,8 @@ private fun LazyListScope.downloadsRootContent(
                             val group = unfinishedSeasons.first()
                             TextButton(
                                 onClick = { onCancelSeasonGroup(group) },
-                                contentPadding = PaddingValues(0.dp),
-                                modifier = Modifier.height(32.dp),
+                                contentPadding = PaddingValues(horizontal = 0.dp),
+                                modifier = Modifier.heightIn(min = 44.dp),
                             ) {
                                 Text(
                                     text = stringResource(Res.string.downloads_season_cancel),
@@ -502,6 +624,7 @@ private fun LazyListScope.downloadsRootContent(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 private fun LazyListScope.downloadsShowContent(
     showId: String,
     episodes: List<DownloadItem>,
@@ -513,6 +636,7 @@ private fun LazyListScope.downloadsShowContent(
     unwatchedOnly: Boolean,
     watchedIds: Set<String>,
     onToggleUnwatched: () -> Unit,
+    onOpenOverview: (Int) -> Unit,
 ) {
     val allShowEpisodes = episodes.filter { it.parentMetaId == showId }
     val showEpisodes = allShowEpisodes
@@ -569,43 +693,60 @@ private fun LazyListScope.downloadsShowContent(
     seasons.forEach { (seasonNumber, entries) ->
         val unfinished = unfinishedSeasonGroup(allItems, entries.first())
         item(key = "show-season:$seasonNumber") {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
+            val seasonTitle = if (seasonNumber == 0) {
+                stringResource(Res.string.episodes_specials)
+            } else {
+                stringResource(Res.string.episodes_season, seasonNumber)
+            }
+            val seasonLabel = if (seasonNumber == 0) "Specials" else "Season $seasonNumber"
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Box(modifier = Modifier.weight(1f)) {
-                    SectionTitle(
-                        if (seasonNumber == 0) {
-                            stringResource(Res.string.episodes_specials)
-                        } else {
-                            stringResource(Res.string.episodes_season, seasonNumber)
-                        },
-                    )
-                }
-                val seasonLabel = if (seasonNumber == 0) "Specials" else "Season $seasonNumber"
-                if (entries.any { it.status == DownloadStatus.Completed }) {
-                    IconButton(
-                        onClick = {
-                            onReanalyze(
-                                ReanalyzeTarget(
-                                    "${entries.first().title} – $seasonLabel",
-                                    entries.map { it.id },
-                                ),
-                            )
-                        },
+                Text(
+                    text = seasonTitle,
+                    modifier = Modifier.fillMaxWidth(),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    TextButton(
+                        onClick = { onOpenOverview(seasonNumber) },
+                        modifier = Modifier
+                            .heightIn(min = 44.dp)
+                            .testTag(com.nuvio.app.features.details.DOWNLOADS_SEASON_OVERVIEW_TAG),
                     ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Refresh,
-                            contentDescription = "Re-analyze $seasonLabel",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        Text(text = stringResource(Res.string.season_overview))
+                    }
+                    if (entries.any { it.status == DownloadStatus.Completed }) {
+                        TextButton(
+                            onClick = {
+                                onReanalyze(
+                                    ReanalyzeTarget(
+                                        "${entries.first().title} – $seasonLabel",
+                                        entries.map { it.id },
+                                    ),
+                                )
+                            },
+                            modifier = Modifier.heightIn(min = 44.dp),
+                        ) {
+                            Text(text = "Re-analyze $seasonLabel")
+                        }
+                    }
+                    if (unfinished != null) {
+                        SeasonGroupActions(
+                            group = unfinished,
+                            onCancel = { onCancelSeasonGroup(unfinished) },
                         )
                     }
-                }
-                if (unfinished != null) {
-                    SeasonGroupActions(
-                        group = unfinished,
-                        onCancel = { onCancelSeasonGroup(unfinished) },
-                    )
                 }
             }
         }
@@ -637,6 +778,11 @@ private fun LazyListScope.downloadsShowContent(
                 } else {
                     null
                 },
+                longPressSite = if (item.status == DownloadStatus.Completed) {
+                    LongPressSite.DownloadsCompletedItem
+                } else {
+                    LongPressSite.DownloadsActiveRow
+                },
             )
         }
     }
@@ -652,8 +798,13 @@ private fun DownloadRow(
     onRetry: () -> Unit,
     onDelete: () -> Unit,
     onLongPress: (() -> Unit)? = null,
+    longPressSite: LongPressSite? = null,
 ) {
     val displayTitle = item.displayTitle()
+    val longPressActions = downloadsLongPressActions(
+        site = longPressSite ?: LongPressSite.DownloadsCompletedItem,
+        enabled = onLongPress != null && longPressSite != null,
+    )
     val displaySubtitle = downloadDisplaySubtitle(
         item = item,
         displayTitle = displayTitle,
@@ -665,10 +816,12 @@ private fun DownloadRow(
             .padding(horizontal = 12.dp, vertical = 6.dp)
             .then(
                 if (onLongPress != null) {
-                    Modifier.combinedClickable(
-                        onClick = { if (item.isPlayable) onOpen() },
-                        onLongClick = onLongPress,
-                    )
+                    Modifier
+                        .combinedClickable(
+                            onClick = { if (item.isPlayable) onOpen() },
+                            onLongClick = onLongPress,
+                        )
+                        .installLongPressAccessibility(longPressActions, onLongPress)
                 } else {
                     Modifier.clickable(enabled = item.isPlayable, onClick = onOpen)
                 },
@@ -829,7 +982,7 @@ private fun DownloadRow(
                 }
                 if (item.totalBytes != null && item.totalBytes > 0L) {
                     LinearProgressIndicator(
-                        progress = item.progressFraction,
+                        progress = { item.progressFraction },
                         modifier = Modifier.fillMaxWidth(),
                     )
                 } else {
@@ -876,6 +1029,7 @@ private fun downloadDisplaySubtitle(
  * The season's own card at the top of Active: name, count and progress, and labelled
  * Pause/Resume season and Cancel season buttons. Tapping the card lists its episodes.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ActiveSeasonGroupHeader(
     group: ActiveSeasonGroup,
@@ -902,7 +1056,7 @@ private fun ActiveSeasonGroupHeader(
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurface,
                         fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                     val speeds by DownloadSpeeds.speeds.collectAsState()
@@ -957,25 +1111,25 @@ private fun ActiveSeasonGroupHeader(
                     modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
                 )
             }
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 if (group.anyRunning) {
-                    TextButton(onClick = onPauseAll) {
+                    TextButton(onClick = onPauseAll, modifier = Modifier.heightIn(min = 44.dp)) {
                         Icon(Icons.Rounded.Pause, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.size(4.dp))
                         Text(stringResource(Res.string.downloads_season_pause))
                     }
                 } else if (group.anyPaused) {
-                    TextButton(onClick = onResumeAll) {
+                    TextButton(onClick = onResumeAll, modifier = Modifier.heightIn(min = 44.dp)) {
                         Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.size(4.dp))
                         Text(stringResource(Res.string.downloads_season_resume))
                     }
                 }
-                TextButton(onClick = onCancelAll) {
+                TextButton(onClick = onCancelAll, modifier = Modifier.heightIn(min = 44.dp)) {
                     Icon(
                         Icons.Rounded.Delete,
                         contentDescription = null,
@@ -993,23 +1147,33 @@ private fun ActiveSeasonGroupHeader(
     }
 }
 
-/** Pause/Resume season and Cancel season next to a season title in a show's downloads. */
+/** Pause/Resume season and Cancel season under a season title. They wrap instead of squeezing the title. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SeasonGroupActions(
     group: ActiveSeasonGroup,
     onCancel: () -> Unit,
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
         if (group.anyRunning) {
-            TextButton(onClick = { DownloadsRepository.pauseDownloads(group.items.map { it.id }) }) {
+            TextButton(
+                onClick = { DownloadsRepository.pauseDownloads(group.items.map { it.id }) },
+                modifier = Modifier.heightIn(min = 44.dp),
+            ) {
                 Text(stringResource(Res.string.downloads_season_pause))
             }
         } else if (group.anyPaused) {
-            TextButton(onClick = { DownloadsRepository.resumeDownloads(group.items.map { it.id }) }) {
+            TextButton(
+                onClick = { DownloadsRepository.resumeDownloads(group.items.map { it.id }) },
+                modifier = Modifier.heightIn(min = 44.dp),
+            ) {
                 Text(stringResource(Res.string.downloads_season_resume))
             }
         }
-        TextButton(onClick = onCancel) {
+        TextButton(onClick = onCancel, modifier = Modifier.heightIn(min = 44.dp)) {
             Text(
                 text = stringResource(Res.string.downloads_season_cancel),
                 color = MaterialTheme.colorScheme.error,
@@ -1058,6 +1222,43 @@ private fun statusText(item: DownloadItem, heldForPlayback: Boolean): String {
             compactDownloadBytes(item.totalBytes ?: item.downloadedBytes),
         )
         DownloadStatus.Failed -> item.errorMessage ?: stringResource(Res.string.downloads_status_failed)
+    }
+}
+
+@Composable
+private fun DownloadsCompactHeader(
+    title: String,
+    onBack: () -> Unit,
+    actions: @Composable RowScope.() -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    val statusBarTop = androidx.compose.foundation.layout.WindowInsets.statusBars
+        .asPaddingValues()
+        .calculateTopPadding()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(tokens.colors.background)
+            .padding(top = statusBarTop + com.nuvio.app.core.ui.nuvioPlatformExtraTopPadding)
+            .heightIn(min = 44.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onBack) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                contentDescription = stringResource(Res.string.action_back),
+                tint = tokens.colors.textPrimary,
+            )
+        }
+        Text(
+            text = title,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.titleLarge,
+            color = tokens.colors.textPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        actions()
     }
 }
 

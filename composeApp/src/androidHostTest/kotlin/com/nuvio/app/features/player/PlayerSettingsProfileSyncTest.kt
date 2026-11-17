@@ -2,7 +2,6 @@ package com.nuvio.app.features.player
 
 import android.app.Application
 import android.content.Context
-import com.nuvio.app.core.sync.decodeSyncBoolean
 import com.nuvio.app.core.sync.decodeSyncInt
 import com.nuvio.app.core.sync.decodeSyncString
 import kotlinx.serialization.json.buildJsonObject
@@ -27,32 +26,27 @@ class PlayerSettingsProfileSyncTest {
 
     @Test
     fun skipAndSubtitleSettingsRoundTripThroughProfileSync() {
+        val appearance = SubtitleAppearance(
+            fontId = "custom-11111111-1111-1111-1111-111111111111",
+            shadowEnabled = true,
+            shadowOpacity = 40,
+        ).encode()
         PlayerSettingsStorage.saveSkipBackwardSeconds(15)
-        PlayerSettingsStorage.saveSubtitleCustomFont("Noto.ttf")
-        PlayerSettingsStorage.saveSubtitleShadowEnabled(true)
-        PlayerSettingsStorage.saveSubtitleShadowStrength(40)
+        PlayerSettingsStorage.saveSubtitleAppearance(appearance)
 
         val payload = PlayerSettingsStorage.exportToSyncPayload()
         assertEquals(15, payload.decodeSyncInt("skip_backward_seconds"))
-        assertEquals("Noto.ttf", payload.decodeSyncString("subtitle_custom_font"))
-        assertEquals(true, payload.decodeSyncBoolean("subtitle_shadow_enabled"))
-        assertEquals(40, payload.decodeSyncInt("subtitle_shadow_strength"))
+        assertEquals(appearance, payload.decodeSyncString("subtitle_appearance"))
 
         PlayerSettingsStorage.saveSkipBackwardSeconds(10)
-        PlayerSettingsStorage.saveSubtitleCustomFont(null)
-        PlayerSettingsStorage.saveSubtitleShadowEnabled(false)
-        PlayerSettingsStorage.saveSubtitleShadowStrength(0)
+        PlayerSettingsStorage.saveSubtitleAppearance(SubtitleAppearance().encode())
         PlayerSettingsStorage.replaceFromSyncPayload(payload)
 
         assertEquals(15, PlayerSettingsStorage.loadSkipBackwardSeconds())
-        assertEquals("Noto.ttf", PlayerSettingsStorage.loadSubtitleCustomFont())
-        assertEquals(true, PlayerSettingsStorage.loadSubtitleShadowEnabled())
-        assertEquals(40, PlayerSettingsStorage.loadSubtitleShadowStrength())
+        assertEquals(appearance, PlayerSettingsStorage.loadSubtitleAppearance())
 
         PlayerSettingsStorage.replaceFromSyncPayload(buildJsonObject {})
         assertNull(PlayerSettingsStorage.loadSkipBackwardSeconds())
-        assertNull(PlayerSettingsStorage.loadSubtitleCustomFont())
-        assertNull(PlayerSettingsStorage.loadSubtitleShadowEnabled())
-        assertNull(PlayerSettingsStorage.loadSubtitleShadowStrength())
+        assertNull(PlayerSettingsStorage.loadSubtitleAppearance())
     }
 }

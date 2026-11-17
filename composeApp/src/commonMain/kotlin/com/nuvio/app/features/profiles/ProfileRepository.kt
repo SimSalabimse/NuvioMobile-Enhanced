@@ -2,6 +2,8 @@ package com.nuvio.app.features.profiles
 
 import co.touchlab.kermit.Logger
 import com.nuvio.app.core.auth.AuthRepository
+import com.nuvio.app.core.automation.AutomationTestMode
+import com.nuvio.app.core.automation.withAutomationProfileName
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.auth.isAnonymous
 import com.nuvio.app.core.network.SupabaseProvider
@@ -13,6 +15,7 @@ import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.collection.CollectionMobileSettingsRepository
 import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.HomeRepository
@@ -47,6 +50,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.CancellationException
@@ -72,6 +77,8 @@ private data class StoredProfilePayload(
     val profiles: List<NuvioProfile> = emptyList(),
 )
 
+private const val AUTOMATION_CACHE_USER_ID = "automation"
+
 object ProfileRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val log = Logger.withTag("ProfileRepository")
@@ -84,8 +91,24 @@ object ProfileRepository {
     private var activeProfileIndex: Int = 1
     private var loadedCacheForUserId: String? = null
     private val cachedProfileLoad = Mutex()
+    private val cacheStateLock = SynchronizedObject()
+    private var cacheEpoch = 0
 
     val activeProfileId: Int get() = activeProfileIndex
+
+    private fun showProfiles(state: ProfileState) {
+        val shown = state.withAutomationProfileName()
+        _state.value = shown
+        shown.activeProfile?.let { activeProfileIndex = it.profileIndex }
+        if (
+            AutomationTestMode.isActive &&
+            shown.profiles.isNotEmpty() &&
+            loadedCacheForUserId.isNullOrEmpty()
+        ) {
+            // In memory only, so a fresh launch counts as signed in and opens Home.
+            loadedCacheForUserId = AUTOMATION_CACHE_USER_ID
+        }
+    }
 
     fun setRememberLastProfileEnabled(enabled: Boolean) {
         if (_state.value.rememberLastProfileEnabled == enabled) return
@@ -94,65 +117,199 @@ object ProfileRepository {
         persist()
     }
 
-    suspend fun loadCachedProfiles(): Boolean = cachedProfileLoad.withLock {
-        val stored = decodeStoredPayload() ?: return@withLock false
-        if (loadedCacheForUserId == stored.userId && _state.value.isLoaded) {
-            return@withLock _state.value.profiles.isNotEmpty()
+    internal fun applyCacheSynchronously(): SynchronousProfileCache = synchronized(cacheStateLock) {
+        if (_state.value.cachePhase != ProfileCachePhase.Reading && loadedCacheForUserId != null) {
+            return@synchronized synchronousCacheSnapshot()
         }
+        val stored = decodeStoredPayload()
+        if (stored == null) {
+            loadedCacheForUserId = ""
+            activeProfileIndex = 1
+            showProfiles(
+                ProfileState(
+                    isLoaded = true,
+                    cachePhase = ProfileCachePhase.ConfirmedNone,
+                ),
+            )
+            return@synchronized synchronousCacheSnapshot()
+        }
+        val profiles = stored.profiles.sortedBy { it.profileIndex }
+        activeProfileIndex = stored.activeProfileIndex
         loadedCacheForUserId = stored.userId
-        applyStoredPayload(stored)
-        ThemeSettingsRepository.onProfileChanged()
-        _state.value.profiles.isNotEmpty()
+        showProfiles(
+            ProfileState(
+                profiles = profiles,
+                activeProfile = profiles.find { it.profileIndex == activeProfileIndex } ?: profiles.firstOrNull(),
+                isLoaded = true,
+                cachePhase = profileCachePhaseForProfiles(profiles),
+                hasEverSelectedProfile = stored.hasEverSelectedProfile,
+                rememberLastProfileEnabled = stored.rememberLastProfileEnabled,
+            ),
+        )
+        syncPinCache(profiles)
+        synchronousCacheSnapshot()
     }
 
+    private fun synchronousCacheSnapshot(): SynchronousProfileCache {
+        val fresh = _state.value
+        val profiles = fresh.profiles.map { ProfileStartupProfile(it.profileIndex, it.pinEnabled) }
+        val cachePresent = loadedCacheForUserId != ""
+        return SynchronousProfileCache(
+            cachePresent = cachePresent,
+            profileCount = fresh.profiles.size,
+            rememberOn = fresh.rememberLastProfileEnabled,
+            hasEverSelectedProfile = fresh.hasEverSelectedProfile,
+            activeProfileIndex = activeProfileIndex,
+            rememberedPin = when {
+                fresh.profiles.size == 1 && fresh.profiles.first().pinEnabled -> RememberedPinKind.HasPin
+                fresh.profiles.size == 1 -> RememberedPinKind.NoPin
+                else -> rememberedPinKind(
+                    rememberOn = fresh.rememberLastProfileEnabled,
+                    activeProfileIndex = activeProfileIndex,
+                    profiles = profiles,
+                )
+            },
+        )
+    }
+
+    suspend fun loadCachedProfiles(): Boolean = readSharedCache(expectedUserId = null)
+
     suspend fun ensureLoaded(userId: String) {
-        if (loadedCacheForUserId == userId && _state.value.isLoaded) return
-
-        val stored = decodeStoredPayload()
-        loadedCacheForUserId = userId
-        if (stored == null) {
-            _state.value = ProfileState()
-            activeProfileIndex = 1
-            return
-        }
-
-        if (stored.userId != userId) {
-            // A persisted profile snapshot can belong to a previous account. Clear its
-            // in-memory state and local PIN payloads before suspending so cleanup cannot
-            // overwrite new-account state or remove newly populated cache entries.
-            _state.value = ProfileState()
-            activeProfileIndex = 1
-            (1..MAX_PROFILES).forEach { ProfilePinCacheStorage.removePayload(it) }
-            withContext(Dispatchers.IO) {
-                ProfileBiometricAuth.disable(1, stored.userId)
-            }
-            return
-        }
-
-        applyStoredPayload(stored)
+        readSharedCache(expectedUserId = userId)
     }
 
     fun clearInMemory() {
-        loadedCacheForUserId = null
-        activeProfileIndex = 1
-        _state.value = ProfileState()
+        synchronized(cacheStateLock) {
+            cacheEpoch += 1
+            loadedCacheForUserId = null
+            activeProfileIndex = 1
+            _state.value = ProfileState(
+                isLoaded = true,
+                cachePhase = ProfileCachePhase.ConfirmedNone,
+            )
+        }
+    }
+
+    private suspend fun readSharedCache(expectedUserId: String?): Boolean {
+        val epoch = synchronized(cacheStateLock) { cacheEpoch }
+        return cachedProfileLoad.withLock {
+            if (!sameCacheEpoch(epoch)) return@withLock false
+            if (cacheReadAlreadySettled(expectedUserId)) {
+                return@withLock _state.value.profiles.isNotEmpty()
+            }
+
+            val stored = decodeStoredPayload()
+            if (!sameCacheEpoch(epoch)) return@withLock false
+            val kind = classifyProfileCacheRead(
+                payloadPresent = stored != null,
+                storedUserId = stored?.userId,
+                expectedUserId = expectedUserId,
+                profileCount = stored?.profiles?.size ?: 0,
+            )
+            when (kind) {
+                ProfileCacheReadKind.NoPayload -> {
+                    publishSettledCache(epoch, expectedUserId, storedProfiles = null)
+                    false
+                }
+                ProfileCacheReadKind.Empty -> {
+                    val payload = stored ?: return@withLock false
+                    if (!publishCacheMutation(epoch) { loadedCacheForUserId = expectedUserId ?: payload.userId }) {
+                        return@withLock false
+                    }
+                    applyStoredPayload(payload)
+                    false
+                }
+                ProfileCacheReadKind.OtherAccount -> {
+                    val previousUserId = stored?.userId.orEmpty()
+                    val published = publishCacheMutation(epoch) {
+                        if (expectedUserId != null) loadedCacheForUserId = expectedUserId
+                        activeProfileIndex = 1
+                        showProfiles(
+                            ProfileState(
+                                isLoaded = true,
+                                cachePhase = ProfileCachePhase.ConfirmedNone,
+                            ),
+                        )
+                        if (!AutomationTestMode.isActive) {
+                            (1..MAX_PROFILES).forEach { ProfilePinCacheStorage.removePayload(it) }
+                        }
+                    }
+                    if (published) {
+                        withContext(Dispatchers.IO) {
+                            if (!sameCacheEpoch(epoch)) return@withContext
+                            ProfileBiometricAuth.disable(1, previousUserId)
+                        }
+                    }
+                    false
+                }
+                ProfileCacheReadKind.Profiles -> {
+                    val payload = stored ?: return@withLock false
+                    if (!publishCacheMutation(epoch) { loadedCacheForUserId = payload.userId }) {
+                        return@withLock false
+                    }
+                    applyStoredPayload(payload)
+                    if (!sameCacheEpoch(epoch)) return@withLock false
+                    ThemeSettingsRepository.onProfileChanged()
+                    _state.value.profiles.isNotEmpty()
+                }
+            }
+        }
+    }
+
+    private fun cacheReadAlreadySettled(expectedUserId: String?): Boolean = synchronized(cacheStateLock) {
+        if (_state.value.cachePhase == ProfileCachePhase.Reading) return@synchronized false
+        val loadedFor = loadedCacheForUserId
+        expectedUserId == null && loadedFor != null || expectedUserId != null && loadedFor == expectedUserId
+    }
+
+    private fun sameCacheEpoch(epoch: Int): Boolean = synchronized(cacheStateLock) { cacheEpoch == epoch }
+
+    private fun publishSettledCache(epoch: Int, userId: String?, storedProfiles: List<NuvioProfile>?) {
+        publishCacheMutation(epoch) {
+            if (userId != null) loadedCacheForUserId = userId
+            val profiles = storedProfiles.orEmpty()
+            activeProfileIndex = if (profiles.isEmpty()) 1 else activeProfileIndex
+            showProfiles(
+                ProfileState(
+                    profiles = profiles,
+                    isLoaded = true,
+                    cachePhase = profileCachePhaseForProfiles(profiles),
+                ),
+            )
+        }
+    }
+
+    private fun publishCacheMutation(epoch: Int, block: () -> Unit): Boolean = synchronized(cacheStateLock) {
+        if (epoch != cacheEpoch) return@synchronized false
+        block()
+        true
     }
 
     suspend fun pullProfiles() {
+        if (AutomationTestMode.isActive) {
+            showProfiles(_state.value)
+            return
+        }
         if (AuthRepository.state.value.isAnonymous) {
+            if (_state.value.cachePhase == ProfileCachePhase.Reading) return
             if (!_state.value.isLoaded) {
-                _state.value = _state.value.copy(isLoaded = true)
+                _state.value = _state.value.copy(
+                    isLoaded = true,
+                    cachePhase = profileCachePhaseForProfiles(_state.value.profiles),
+                )
             }
             return
         }
         try {
             val result = SupabaseProvider.client.postgrest.rpc("sync_pull_profiles")
             val profiles = result.decodeList<NuvioProfile>()
+            val sorted = profiles.sortedBy { it.profileIndex }
             _state.value = _state.value.copy(
-                profiles = profiles.sortedBy { it.profileIndex },
+                profiles = sorted,
                 isLoaded = true,
-                activeProfile = profiles.find { it.profileIndex == activeProfileIndex }
-                    ?: profiles.firstOrNull(),
+                cachePhase = profileCachePhaseForProfiles(sorted),
+                activeProfile = sorted.find { it.profileIndex == activeProfileIndex }
+                    ?: sorted.firstOrNull(),
             )
             if (_state.value.activeProfile != null) {
                 activeProfileIndex = _state.value.activeProfile!!.profileIndex
@@ -166,8 +323,12 @@ object ProfileRepository {
         } catch (e: Throwable) {
             if (AuthRepository.signOutIfSessionInvalid(e, "Profile pull")) return
             log.e(e) { "Failed to pull profiles" }
+            if (_state.value.cachePhase == ProfileCachePhase.Reading) return
             if (!_state.value.isLoaded) {
-                _state.value = _state.value.copy(isLoaded = true)
+                _state.value = _state.value.copy(
+                    isLoaded = true,
+                    cachePhase = profileCachePhaseForProfiles(_state.value.profiles),
+                )
             }
         }
     }
@@ -204,6 +365,7 @@ object ProfileRepository {
         com.nuvio.app.features.shuffle.EpisodeShuffleRepository.onProfileChanged()
         ContinueWatchingPreferencesRepository.onProfileChanged()
         com.nuvio.app.features.watchprogress.ContinueWatchingEnrichmentCache.onProfileChanged()
+        MetaDetailsRepository.onProfileChanged()
         EpisodeReleaseNotificationsRepository.onProfileChanged()
         TmdbSettingsRepository.onProfileChanged()
         MdbListSettingsRepository.onProfileChanged()
@@ -217,6 +379,7 @@ object ProfileRepository {
     }
 
     suspend fun pushProfiles(profiles: List<ProfilePushPayload>) {
+        if (AutomationTestMode.isActive) return
         if (AuthRepository.state.value.isAnonymous) {
             applyPayloadsLocally(profiles)
             return
@@ -555,6 +718,7 @@ object ProfileRepository {
         _state.value = _state.value.copy(
             profiles = profiles,
             isLoaded = true,
+            cachePhase = profileCachePhaseForProfiles(profiles),
             activeProfile = profiles.find { it.profileIndex == activeProfileIndex } ?: profiles.firstOrNull(),
         )
         if (_state.value.activeProfile != null) {
@@ -578,14 +742,16 @@ object ProfileRepository {
     private suspend fun applyStoredPayload(stored: StoredProfilePayload) {
         val profiles = stored.profiles.sortedBy { it.profileIndex }
         activeProfileIndex = stored.activeProfileIndex
-        _state.value = ProfileState(
-            profiles = profiles,
-            activeProfile = profiles.find { it.profileIndex == activeProfileIndex } ?: profiles.firstOrNull(),
-            isLoaded = profiles.isNotEmpty(),
-            hasEverSelectedProfile = stored.hasEverSelectedProfile,
-            rememberLastProfileEnabled = stored.rememberLastProfileEnabled,
+        showProfiles(
+            ProfileState(
+                profiles = profiles,
+                activeProfile = profiles.find { it.profileIndex == activeProfileIndex } ?: profiles.firstOrNull(),
+                isLoaded = true,
+                cachePhase = profileCachePhaseForProfiles(profiles),
+                hasEverSelectedProfile = stored.hasEverSelectedProfile,
+                rememberLastProfileEnabled = stored.rememberLastProfileEnabled,
+            ),
         )
-        _state.value.activeProfile?.let { activeProfileIndex = it.profileIndex }
         withContext(Dispatchers.IO) {
             syncPinCache(profiles)
         }
@@ -655,6 +821,7 @@ object ProfileRepository {
     }
 
     private fun syncPinCache(profiles: List<NuvioProfile>) {
+        if (AutomationTestMode.isActive) return
         val profilesByIndex = profiles.associateBy { it.profileIndex }
         val accountUserId =
             (AuthRepository.state.value as? AuthState.Authenticated)?.userId.orEmpty()
@@ -700,6 +867,7 @@ object ProfileRepository {
     }
 
     private fun persist() {
+        if (AutomationTestMode.isActive) return
         val authState = AuthRepository.state.value as? AuthState.Authenticated ?: return
         val state = _state.value
         ProfileStorage.savePayload(
@@ -715,6 +883,15 @@ object ProfileRepository {
         )
     }
 }
+
+internal data class SynchronousProfileCache(
+    val cachePresent: Boolean,
+    val profileCount: Int,
+    val rememberOn: Boolean,
+    val hasEverSelectedProfile: Boolean,
+    val activeProfileIndex: Int,
+    val rememberedPin: RememberedPinKind,
+)
 
 @kotlinx.serialization.Serializable
 data class ProfileLockState(

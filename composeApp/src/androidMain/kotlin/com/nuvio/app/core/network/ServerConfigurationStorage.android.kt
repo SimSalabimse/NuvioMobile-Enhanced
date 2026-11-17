@@ -2,6 +2,7 @@ package com.nuvio.app.core.network
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.nuvio.app.core.automation.allowStorageWrite
 
 internal actual object ServerConfigurationStorage {
     private const val preferencesName = "server_configuration"
@@ -40,8 +41,9 @@ internal actual object ServerConfigurationStorage {
         )
     }
 
-    actual fun saveCustom(configuration: ServerConfiguration): Boolean =
-        preferences
+    actual fun saveCustom(configuration: ServerConfiguration): Boolean {
+        if (!allowStorageWrite(customEnabledKey)) return false
+        return preferences
             ?.edit()
             ?.putBoolean(customEnabledKey, true)
             ?.putString(backendUrlKey, configuration.backendUrl)
@@ -51,6 +53,10 @@ internal actual object ServerConfigurationStorage {
             ?.putBoolean(watchPartyKey, configuration.capabilities.watchParty)
             ?.putString(discoveryUrlKey, configuration.discoveryUrl)
             ?.commit() == true
+    }
 
-    actual fun useOfficial(): Boolean = preferences?.edit()?.clear()?.commit() == true
+    actual fun useOfficial(): Boolean {
+        if (!allowStorageWrite(customEnabledKey)) return false
+        return preferences?.edit()?.clear()?.commit() == true
+    }
 }

@@ -56,6 +56,7 @@ internal fun PlayerToolRow(
     trailing: String? = null,
     badge: String? = null,
     showCheck: Boolean = selected,
+    leading: ImageVector? = null,
 ) {
     val tokens = MaterialTheme.nuvio
     val titleColor = if (selected) tokens.colors.onAccent else Color.White
@@ -70,6 +71,14 @@ internal fun PlayerToolRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        if (leading != null) {
+            Icon(
+                imageVector = leading,
+                contentDescription = null,
+                tint = titleColor,
+                modifier = Modifier.size(22.dp),
+            )
+        }
         androidx.compose.foundation.layout.Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,

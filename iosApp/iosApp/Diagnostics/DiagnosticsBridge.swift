@@ -12,7 +12,7 @@ import UIKit
             guard let presenter = topmostViewController() else { return }
 
             let hostingController = UIHostingController(rootView: DiagnosticsSettingsView())
-            hostingController.title = "Diagnostics"
+            hostingController.title = "Device error log"
             hostingController.navigationItem.rightBarButtonItem = UIBarButtonItem(
                 systemItem: .done,
                 primaryAction: UIAction { [weak hostingController] _ in
@@ -37,6 +37,35 @@ import UIKit
     
     @objc public static func logPlaybackStall(_ duration: Double) {
         DiagnosticsManager.shared.logPlaybackStall(duration: duration)
+    }
+
+    @objc public static func logPerformance(_ message: String) {
+        DiagnosticsManager.shared.logAnalysisTimings(message)
+    }
+
+    /// Share sheet for the analysis log only. Does not write diagnostics.jsonl and does not upload.
+    @objc public static func shareAnalysisLog(_ text: String) {
+        DispatchQueue.main.async {
+            guard let presenter = topmostViewController() else { return }
+            let name = "nuvio-share-\(UUID().uuidString).txt"
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+            do {
+                try text.write(to: url, atomically: true, encoding: .utf8)
+            } catch {
+                return
+            }
+            let controller = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+            if let popover = controller.popoverPresentationController {
+                popover.sourceView = presenter.view
+                popover.sourceRect = CGRect(
+                    x: presenter.view.bounds.midX,
+                    y: presenter.view.bounds.midY,
+                    width: 1,
+                    height: 1
+                )
+            }
+            presenter.present(controller, animated: true)
+        }
     }
     
     /// The screen the user is looking at. The app has one navigation stack per tab, so there is

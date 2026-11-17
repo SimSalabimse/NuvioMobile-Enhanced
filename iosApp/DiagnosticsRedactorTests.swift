@@ -48,6 +48,16 @@ final class DiagnosticsRedactorTests: XCTestCase {
         XCTAssertFalse(result.contains("token=secret"))
     }
     
+    func testKeepsAllowlistedReasonCodesAndRedactsSecrets() {
+        let input = "why=rejected-audio-miss-prior-unused why=accepted-previous-ending why=skip-user-declined why=notasecretvalueabcdefghijklmnopqrstuvwxyz"
+        let result = DiagnosticsRedactor.redact(input)
+        XCTAssertTrue(result.contains("why=rejected-audio-miss-prior-unused"))
+        XCTAssertTrue(result.contains("why=accepted-previous-ending"))
+        XCTAssertTrue(result.contains("why=skip-user-declined"))
+        XCTAssertFalse(result.contains("notasecretvalueabcdefghijklmnopqrstuvwxyz"))
+        XCTAssertTrue(result.contains("[REDACTED_TOKEN]"))
+    }
+
     func testPreservesNonSensitiveText() {
         let input = "Playback failed with HTTP 404"
         let result = DiagnosticsRedactor.redact(input)

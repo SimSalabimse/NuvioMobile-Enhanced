@@ -49,6 +49,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.features.debrid.DEBRID_PREPARE_INSTANT_PLAYBACK_DEFAULT_LIMIT
 import com.nuvio.app.features.debrid.DebridCredentialValidator
+import com.nuvio.app.features.debrid.deviceAuthorizationPollDelayMillis
+import com.nuvio.app.features.debrid.deviceAuthorizationStartDelayMillis
 import com.nuvio.app.features.debrid.DebridDeviceAuthorization
 import com.nuvio.app.features.debrid.DebridDeviceAuthorizationTokenResult
 import com.nuvio.app.features.debrid.DebridProvider
@@ -213,6 +215,8 @@ private const val CLOUD_SERVICES_FAQ_URL = "https://nuvioapp.space/faq#common-cl
 // expire server-side within minutes (TorBox/Premiumize), so this is comfortably beyond any code's
 // lifetime — it only exists to stop an indefinitely-offline dialog from polling forever.
 private val DEVICE_AUTH_MAX_POLL_DURATION = 15.minutes
+
+private var lastTorboxDeviceStartMark: TimeSource.Monotonic.ValueTimeMark? = null
 
 internal fun LazyListScope.debridSettingsContent(
     isTablet: Boolean,
@@ -1349,6 +1353,12 @@ private fun DebridDeviceAuthDialog(
                 return@LaunchedEffect
             }
         }
+        if (provider.id == DebridProviders.TORBOX_ID) {
+            val since = lastTorboxDeviceStartMark?.elapsedNow()?.inWholeMilliseconds
+            val wait = deviceAuthorizationStartDelayMillis(provider.id, since)
+            if (wait > 0L) delay(wait)
+            lastTorboxDeviceStartMark = TimeSource.Monotonic.markNow()
+        }
         val startResult = runCatching {
             DebridProviderApis.apiFor(provider.id)?.startDeviceAuthorization("Nuvio")
         }.onFailure { error ->
@@ -1374,7 +1384,7 @@ private fun DebridDeviceAuthDialog(
         // airplane mode / captive portal), not a brief background-network blip — give up then.
         val pollDeadline = TimeSource.Monotonic.markNow() + DEVICE_AUTH_MAX_POLL_DURATION
         while (true) {
-            delay(activeSession.intervalSeconds.coerceAtLeast(1) * 1_000L)
+            delay(deviceAuthorizationPollDelayMillis(provider.id, activeSession.intervalSeconds))
             isPolling = true
             val result = runCatching {
                 DebridProviderApis.apiFor(provider.id)

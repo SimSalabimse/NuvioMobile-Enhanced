@@ -63,6 +63,8 @@ data class DownloadItem(
     val needsLinkRefresh: Boolean = false,
     /** The refresh could not run in the background; it runs the next time the app is opened. */
     val waitingForAppOpen: Boolean = false,
+    /** False for a download the app started on its own (smart downloads, the next episode while playing). */
+    val startedByUser: Boolean = true,
 ) {
     val isEpisode: Boolean
         get() = seasonNumber != null && episodeNumber != null
@@ -106,6 +108,8 @@ data class DownloadsUiState(
 enum class DownloadEnqueueResult {
     Started,
     Replaced,
+    /** The episode already had a download this caller must not replace. */
+    LeftExisting,
     MissingUrl,
     UnsupportedFormat,
     RequiresWifi;
@@ -114,6 +118,7 @@ enum class DownloadEnqueueResult {
         when (this@DownloadEnqueueResult) {
             Started -> getString(Res.string.downloads_enqueue_started)
             Replaced -> getString(Res.string.downloads_enqueue_replaced)
+            LeftExisting -> ""
             MissingUrl -> getString(Res.string.downloads_enqueue_missing_url)
             UnsupportedFormat -> getString(Res.string.downloads_enqueue_unsupported_format)
             RequiresWifi -> getString(Res.string.downloads_enqueue_requires_wifi)

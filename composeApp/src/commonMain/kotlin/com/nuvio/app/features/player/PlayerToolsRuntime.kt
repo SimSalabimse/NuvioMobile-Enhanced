@@ -1,6 +1,12 @@
 package com.nuvio.app.features.player
 
 import com.nuvio.app.core.logging.InAppLogger
+import com.nuvio.app.features.player.skip.FlagSubmitLedger
+import com.nuvio.app.features.player.skip.loadSegments
+import com.nuvio.app.features.player.skip.segmentRows
+import com.nuvio.app.features.player.skip.rememberType
+import com.nuvio.app.features.player.skip.SkipInterval
+import com.nuvio.app.features.player.skip.flagSubmitContentKey
 /**
  * Opens and closes the player tools without touching the lock.
  * A tool that was already open is cleared first, so two panels never stack.
@@ -109,7 +115,6 @@ internal fun PlayerScreenRuntime.dismissPlayerTools() {
     if (!restoringPreview) markingPendingSeekMs = null
     closePlayerTools()
     controlsVisible = next.controlsVisible
-    clearSubmitIntroForm()
     markSent = false
     markAbsent = false
     markSubmitError = null
@@ -150,11 +155,17 @@ internal fun PlayerScreenRuntime.restoreMarkPreview() {
     if (playback.shouldPlay) playerController?.play() else playerController?.pause()
 }
 
-internal fun PlayerScreenRuntime.clearSubmitIntroForm() {
-    submitIntroSegmentType = "intro"
-    submitIntroStartTimeStr = ""
-    submitIntroEndTimeStr = ""
+internal fun markDraftEpisodeKey(videoId: String?, season: Int?, episode: Int?): String =
+    "${videoId.orEmpty()}:$season:$episode"
+
+/** Drop saved clocks when the episode on screen is a different one. */
+internal fun PlayerScreenRuntime.syncMarkDraftEpisode() {
+    val key = markDraftEpisodeKey(activeVideoId, activeSeasonNumber, activeEpisodeNumber)
+    if (key == submitIntroDraftEpisodeKey) return
+    submitIntroDraftEpisodeKey = key
     submitIntroDrafts.clear()
+    submitIntroTenthDrafts.clear()
+    submitIntroUserEdited.clear()
 }
 
 internal fun PlayerScreenRuntime.selectToolTab(tab: PlayerToolTab) {
@@ -192,57 +203,106 @@ internal fun PlayerScreenRuntime.loadToolSources() {
 }
 
 /**
- * Flag pre-fills the segment under the playhead, or the known intro.
- * Mark segment opens blank. Movie credits never inherit the intro.
+ * Flag selects the segment under the playhead, or Intro when nothing is under it.
+ * Mark segment opens on Intro. Clocks come from [shownSegmentClocks].
  */
 internal fun PlayerScreenRuntime.openMarkingStrip(prefillCurrentSegment: Boolean) {
     markSent = false
     markAbsent = false
     markSubmitError = null
-    clearSubmitIntroForm()
-    if (prefillCurrentSegment) {
+    val allowed = markSegmentTypes(isMoviePlayback)
+    submitIntroSegmentType = if (prefillCurrentSegment) {
         val positionSec = playbackClock.positionMs / 1000.0
         val underPlayhead = skipIntervals.firstOrNull { interval ->
             positionSec >= interval.startTime && positionSec <= interval.endTime
         }
         val chosen = underPlayhead ?: skipIntervals.firstOrNull { markSegmentId(it.type) == "intro" }
-        if (chosen != null) {
-            val type = markSegmentId(chosen.type)
-            val allowed = markSegmentTypes(isMoviePlayback)
-            submitIntroSegmentType = if (type in allowed) type else "intro"
-            if (submitIntroSegmentType == markSegmentId(chosen.type)) {
-                submitIntroStartTimeStr = formatMarkClock(chosen.startTime)
-                submitIntroEndTimeStr = formatMarkClock(chosen.endTime)
-            }
-        }
+        val type = chosen?.let { markSegmentId(it.type) } ?: "intro"
+        if (type in allowed) type else "intro"
+    } else {
+        "intro"
     }
+    refreshSegmentClocks()
     showPlayerTool(PlayerTool.Marking)
 }
 
+internal fun PlayerScreenRuntime.handleSegmentTap(newType: String) {
+    when (segmentTap(submitIntroSegmentType, newType, markAbsent)) {
+        SegmentTap.Stay -> Unit
+        SegmentTap.ReturnToEditing -> {
+            markAbsent = false
+            markSent = false
+            markSubmitError = null
+        }
+        SegmentTap.Switch -> switchSubmitSegmentType(newType)
+    }
+}
+
+internal fun PlayerScreenRuntime.resetMarkRange() {
+    setMarkClock(start = true, seconds = null)
+    setMarkClock(start = false, seconds = null)
+    markSubmitError = null
+}
+
 internal fun PlayerScreenRuntime.switchSubmitSegmentType(newType: String) {
+    syncMarkDraftEpisode()
     val wanted = markSegmentId(newType)
     val old = markSegmentId(submitIntroSegmentType)
     if (wanted == old) return
-    submitIntroDrafts[old] = submitIntroStartTimeStr to submitIntroEndTimeStr
+    if (old in submitIntroUserEdited) {
+        submitIntroDrafts[old] = submitIntroStartTimeStr to submitIntroEndTimeStr
+        submitIntroTenthDrafts[old] = markStartShowsTenth to markEndShowsTenth
+    }
     submitIntroSegmentType = wanted
     markSent = false
     markAbsent = false
     markSubmitError = null
-    val draft = submitIntroDrafts[wanted]
-    val known = skipIntervals.firstOrNull { markSegmentId(it.type) == wanted }
-    val clocks = clocksForSegment(
-        segmentType = wanted,
-        draft = draft?.let { (start, end) -> MarkClocks(parseMarkClock(start), parseMarkClock(end)) },
-        knownStartSec = known?.startTime,
-        knownEndSec = known?.endTime,
-        knownSegmentType = known?.let { markSegmentId(it.type) },
-        isMovie = isMoviePlayback,
-    )
-    submitIntroStartTimeStr = clocks.startSec?.let(::formatMarkClock).orEmpty()
-    submitIntroEndTimeStr = clocks.endSec?.let(::formatMarkClock).orEmpty()
+    refreshSegmentClocks()
 }
 
-internal fun PlayerScreenRuntime.noteMarkingSubmitted(result: IntroSubmitResult) {
+internal fun PlayerScreenRuntime.refreshSegmentClocks(intervals: List<SkipInterval> = skipIntervals) {
+    syncMarkDraftEpisode()
+    showSegmentClocks(submitIntroSegmentType, intervals)
+}
+
+private fun PlayerScreenRuntime.showSegmentClocks(
+    segmentType: String,
+    intervals: List<SkipInterval>,
+) {
+    val id = markSegmentId(segmentType)
+    val known = intervals.firstOrNull { markSegmentId(it.type) == id }
+    val saved = submitIntroDrafts[id]
+    val edited = if (id in submitIntroUserEdited) {
+        saved?.let { (start, end) -> MarkClocks(parseMarkClock(start), parseMarkClock(end)) }
+            ?: MarkClocks(null, null)
+    } else {
+        null
+    }
+    val clocks = shownSegmentClocks(
+        segmentType = id,
+        detectedStartSec = known?.startTime,
+        detectedEndSec = known?.endTime,
+        edited = edited,
+        sameEpisode = true,
+    )
+    submitIntroStartTimeStr = clocks.startSec?.let(::formatMarkTimestamp).orEmpty()
+    submitIntroEndTimeStr = clocks.endSec?.let(::formatMarkTimestamp).orEmpty()
+    val tenths = if (id in submitIntroUserEdited) submitIntroTenthDrafts[id] else null
+    markStartShowsTenth = tenths?.first == true
+    markEndShowsTenth = tenths?.second == true
+}
+
+internal fun PlayerScreenRuntime.noteMarkingSubmitted(
+    result: IntroSubmitResult,
+    countSubmission: Boolean = true,
+    recordSharedFlagList: Boolean = true,
+) {
+    val contentKey = flagSubmitContentKey()
+    val canonical = com.nuvio.app.features.player.skip.canonicalFlagSegmentType(result.segmentType)
+    val alreadyListed = canonical != null && canonical in FlagSubmitLedger.loadSegments(contentKey)
+    if (recordSharedFlagList && (countSubmission || !alreadyListed)) {
+        FlagSubmitLedger.rememberType(contentKey, result.segmentType)
+    }
     InAppLogger.info(
         "Player/SkipIntro",
         "submit success videoId=${activeVideoId.orEmpty()} s=${activeSeasonNumber ?: 0} " +
@@ -256,17 +316,94 @@ internal fun PlayerScreenRuntime.noteMarkingSubmitted(result: IntroSubmitResult)
     }
     val saved = submittedSkipMarkToSave(result)
     if (saved != null) {
-        saveUserSkipMark(saved.segmentType, saved.startSec, saved.endSec, submit = false)
+        val category = com.nuvio.app.features.analysis.SkipLearning.canonicalType(saved.segmentType)
+        val hasPrimary = category != null &&
+            com.nuvio.app.features.analysis.SkipLearning.userMarks(parentMetaId, activeSeasonNumber, activeEpisodeNumber)[category] != null
+        if (countSubmission || !hasPrimary) {
+            saveUserSkipMark(
+                saved.segmentType,
+                saved.startSec,
+                saved.endSec,
+                submit = false,
+                additional = countSubmission && hasPrimary,
+            )
+        }
+    } else if (result.absentSegment) {
+        val downloadShowId = com.nuvio.app.features.downloads.downloadOpenedBySource(
+            activeSourceUrl.trim(),
+            com.nuvio.app.features.downloads.DownloadsRepository.uiState.value.items,
+        )?.parentMetaId
+        com.nuvio.app.features.player.skip.absentMarkShowIds(parentMetaId, downloadShowId).forEach { showId ->
+            com.nuvio.app.features.analysis.SkipLearning.recordAbsent(
+                parentMetaId = showId,
+                season = activeSeasonNumber,
+                episode = activeEpisodeNumber,
+                type = result.segmentType,
+                durationMs = playbackSnapshot.durationMs,
+            )
+        }
     }
-    markSent = true
+    val sentType = markSegmentId(result.segmentType)
+    val sentCount = com.nuvio.app.features.player.skip.accountSubmissionCount(
+        ledgerRows = com.nuvio.app.features.player.skip.OwnTheIntroDbLedger.load(
+            com.nuvio.app.features.player.skip.accountScopeForService(
+                com.nuvio.app.features.player.skip.IntroSubmitService.THE_INTRODB,
+                PlayerSettingsRepository.uiState.value.introDbApiKey,
+                PlayerSettingsRepository.uiState.value.theIntroDbApiKey,
+            ),
+        ).segmentRows(flagSubmitContentKey()),
+        type = sentType,
+        remoteCount = 0,
+    )
+    if (com.nuvio.app.features.player.skip.canAcceptSubmission(sentCount)) {
+        markSent = false
+        submitIntroUserEdited += sentType
+        submitIntroDrafts[sentType] = "" to ""
+        submitIntroTenthDrafts.remove(sentType)
+        refreshSegmentClocks()
+    } else {
+        markSent = true
+    }
     markSubmitError = null
 }
 
-internal fun PlayerScreenRuntime.setMarkClock(start: Boolean, seconds: Double?) {
-    val text = seconds?.let(::formatMarkClock).orEmpty()
-    if (start) submitIntroStartTimeStr = text else submitIntroEndTimeStr = text
-    submitIntroDrafts[markSegmentId(submitIntroSegmentType)] = submitIntroStartTimeStr to submitIntroEndTimeStr
+private fun PlayerScreenRuntime.flagSubmitContentKey(): String {
+    val imdb = activeVideoId?.split(":")?.firstOrNull()?.takeIf { it.startsWith("tt") }
+        ?: parentMetaId.takeIf { it.startsWith("tt") }
+        ?: metaUiState.meta?.id?.takeIf { it.startsWith("tt") }
+        ?: metaUiState.meta?.imdbId?.takeIf { it.startsWith("tt") }
+        ?: ""
+    return flagSubmitContentKey(
+        imdb,
+        activeSeasonNumber ?: 0,
+        activeEpisodeNumber ?: 0,
+        isMoviePlayback,
+    )
+}
+
+internal fun PlayerScreenRuntime.setMarkClock(
+    start: Boolean,
+    seconds: Double?,
+    showTenth: Boolean = false,
+) {
+    syncMarkDraftEpisode()
+    val duration = playbackSnapshot.durationMs / 1000.0
+    val clamped = seconds?.let { clampMarkTimeToDuration(it, duration.takeIf { it > 0.0 }) }
+    val text = clamped?.let(::formatMarkTimestamp).orEmpty()
+    val tenth = clamped?.let { markClockShowsTenth(it, showTenth) } == true
+    if (start) {
+        submitIntroStartTimeStr = text
+        markStartShowsTenth = tenth
+    } else {
+        submitIntroEndTimeStr = text
+        markEndShowsTenth = tenth
+    }
+    val editedId = markSegmentId(submitIntroSegmentType)
+    submitIntroUserEdited += editedId
+    submitIntroDrafts[editedId] = submitIntroStartTimeStr to submitIntroEndTimeStr
+    submitIntroTenthDrafts[editedId] = markStartShowsTenth to markEndShowsTenth
     markSent = false
+    markAbsent = absentAfterClockEdit()
 }
 
 internal fun PlayerScreenRuntime.seekWhileMarking(seconds: Double) {

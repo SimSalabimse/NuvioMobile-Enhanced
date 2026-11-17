@@ -13,7 +13,7 @@ object MediaAnalysisSettings {
     enum class Flag(val key: String, val defaultValue: Boolean) {
         /** Measure speech in downloaded files and line subtitles up with it. */
         SubtitleSync("analysis_subtitle_sync", true),
-        /** Fingerprint episode openings/endings and find intros and credits across a season. */
+        /** Find intros and credits from chapter markers, then fingerprints across a season. */
         IntroDetection("analysis_intro_detection", true),
         /** Measure loudness (EBU R128) and even out the volume between files. */
         Loudness("analysis_loudness", false),

@@ -38,6 +38,10 @@ fi
 
 cd "${repository_root}"
 
+if [[ "${configuration}" == "Release" ]]; then
+    "${repository_root}/scripts/check-approved-prs.sh"
+fi
+
 ipa_status_helper="${IPA_STATUS_HELPER:-${repository_root}/scripts/ipa-live-status.sh}"
 if [[ ! -f "${ipa_status_helper}" ]]; then
     echo "ipa-status: helper missing: ${ipa_status_helper}" >&2
@@ -46,8 +50,8 @@ fi
 # shellcheck source=ipa-live-status.sh
 source "${ipa_status_helper}"
 
-# Release builds keep a dSYM, so stripping the shipped binary loses nothing for crash reports.
-# Fast builds use plain dwarf without a dSYM and stay unstripped unless asked.
+# Release configuration keeps a dSYM (app and Kotlin framework). Stripping the shipped
+# binary does not remove that bundle. Debug fast builds stay on plain dwarf unless asked.
 # NUVIO_IOS_STRIP_SYMBOLS=1/0 overrides the default for either mode.
 if [[ "${build_mode}" == "release" ]]; then
     strip_symbols="${NUVIO_IOS_STRIP_SYMBOLS:-1}"
@@ -92,11 +96,34 @@ fast_flags=()
 caffeinate_cmd=()
 if [[ "${build_mode}" == "fast" ]]; then
     build_environment+=(KOTLIN_FRAMEWORK_BUILD_TYPE=debug)
-    fast_flags=(ARCHS=arm64 ONLY_ACTIVE_ARCH=YES DEBUG_INFORMATION_FORMAT=dwarf -parallelizeTargets -jobs "$(sysctl -n hw.ncpu)")
+    fast_flags=(ARCHS=arm64 ONLY_ACTIVE_ARCH=YES -parallelizeTargets -jobs "$(sysctl -n hw.ncpu)")
+    # Release uses the project dwarf-with-dsym setting. Debug stays on plain dwarf.
+    if [[ "${configuration}" != "Release" ]]; then
+        fast_flags+=(DEBUG_INFORMATION_FORMAT=dwarf)
+    fi
 elif [[ "${build_mode}" != "release" ]]; then
     echo "Unsupported IOS_BUILD_MODE: ${build_mode}" >&2
     exit 1
 fi
+# Telemetry keys come from the environment or from local.properties.
+# That file is produced outside the repo (NUVIO_LOCAL_PROPERTIES_BASE64). Values are not printed.
+telemetry_build_settings=()
+append_telemetry_setting() {
+    local name="$1"
+    local value="${!name-}"
+    if [[ -z "${value}" && -f "${repository_root}/local.properties" ]]; then
+        value="$(sed -nE "s/^[[:space:]]*${name}[[:space:]]*=[[:space:]]*//p" "${repository_root}/local.properties" | head -n 1)"
+    fi
+    if [[ -n "${value}" ]]; then
+        telemetry_build_settings+=("${name}=${value}")
+        echo "telemetry packaging: ${name} present"
+    else
+        echo "telemetry packaging: ${name} absent"
+    fi
+}
+append_telemetry_setting NUVIO_TELEMETRY_INGEST_KEY
+append_telemetry_setting NUVIO_TELEMETRY_BASE_URL
+
 command -v caffeinate >/dev/null && caffeinate_cmd=(caffeinate -dims)
 ${caffeinate_cmd[@]+"${caffeinate_cmd[@]}"} "${build_environment[@]}" \
     xcodebuild \
@@ -112,6 +139,7 @@ ${caffeinate_cmd[@]+"${caffeinate_cmd[@]}"} "${build_environment[@]}" \
     ${NUVIO_IOS_SKIP_DSYM:+DEBUG_INFORMATION_FORMAT=dwarf} \
     ${fast_flags[@]+"${fast_flags[@]}"} \
     ${strip_symbols_flags[@]+"${strip_symbols_flags[@]}"} \
+    ${telemetry_build_settings[@]+"${telemetry_build_settings[@]}"} \
     build
 
 ipa_live_status stage --name checks
@@ -182,5 +210,15 @@ temporary_ipa="${package_root}/nuvio-${version}-enhanced-${configuration_slug}.i
 unzip -tq "${temporary_ipa}"
 mv "${temporary_ipa}" "${ipa_path}"
 ipa_live_status_record_ipa "${ipa_path}" "${version}"
+
+if [[ "${configuration}" == "Release" ]]; then
+    dsym_dest="${output_directory}/dsym"
+    rm -rf "${dsym_dest}"
+    REQUIRE_APP_DSYM=1 REQUIRE_KOTLIN_DSYM=1 \
+        "${repository_root}/scripts/collect-ios-dsyms.sh" \
+        "${dsym_dest}" \
+        "${products_directory}" \
+        "${repository_root}/composeApp/build/bin"
+fi
 
 echo "Created ${ipa_path}"

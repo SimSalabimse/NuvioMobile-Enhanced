@@ -70,6 +70,7 @@ object MemberAccessRepository {
     }
 
     private suspend fun loadAccess(auth: AuthState) {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         when (auth) {
             AuthState.Loading -> return
             AuthState.Unauthenticated -> {

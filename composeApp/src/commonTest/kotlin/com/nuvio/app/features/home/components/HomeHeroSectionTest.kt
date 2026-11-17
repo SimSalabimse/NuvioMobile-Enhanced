@@ -25,14 +25,14 @@ class HomeHeroSectionTest {
     }
 
     @Test
-    fun `mobile hero height stays compact without continue watching`() {
+    fun `portrait hero fills most of the screen`() {
         val layout = homeHeroLayout(
             maxWidthDp = 390f,
             viewportHeightDp = 844f,
         )
 
         assertEquals(false, layout.isTablet)
-        assertEquals(390f * 1.5f, layout.heroHeight.value, 0.001f)
+        assertEquals(844f * 0.82f, layout.heroHeight.value, 0.01f)
     }
 
     @Test
@@ -66,12 +66,12 @@ class HomeHeroSectionTest {
             mobileBelowSectionHeightHintDp = reserveHeight.value,
         )
 
-        assertEquals(390f * 1.5f, layout.heroHeight.value, 0.001f)
+        assertEquals(635.97f, layout.heroHeight.value, 0.05f)
         assertTrue(viewportHeight - layout.heroHeight.value >= continueWatchingHeight.value)
     }
 
     @Test
-    fun `portrait hero keeps the poster ratio on a short screen`() {
+    fun `portrait hero still leaves the section below on a short screen`() {
         val layout = homeHeroLayout(
             maxWidthDp = 390f,
             viewportHeightDp = 568f,
@@ -79,6 +79,6 @@ class HomeHeroSectionTest {
         )
 
         assertEquals(false, layout.isTablet)
-        assertEquals(390f * 1.5f, layout.heroHeight.value, 0.001f)
+        assertEquals(268f, layout.heroHeight.value, 0.01f)
     }
 }

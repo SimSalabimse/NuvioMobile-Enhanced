@@ -188,6 +188,14 @@ internal actual object DownloadDiskInfo {
     }
 }
 
-/** Sizes exactly as iOS shows them (decimal units, ByteCountFormatter file style). */
-internal actual fun platformByteCountString(bytes: Long): String? =
-    NSByteCountFormatter.stringFromByteCount(bytes, NSByteCountFormatterCountStyleFile)
+/**
+ * Sizes as iOS Settings shows them (decimal units, ByteCountFormatter file style).
+ * The shared formatter spells a zero count as "Zero KB"; this one keeps a numeric "0 KB".
+ */
+@OptIn(ExperimentalForeignApi::class)
+internal actual fun platformByteCountString(bytes: Long): String? {
+    val formatter = NSByteCountFormatter()
+    formatter.countStyle = NSByteCountFormatterCountStyleFile
+    formatter.allowsNonnumericFormatting = false
+    return formatter.stringFromByteCount(bytes)
+}

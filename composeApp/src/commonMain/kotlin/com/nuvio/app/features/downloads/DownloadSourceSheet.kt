@@ -10,8 +10,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -25,8 +28,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.episode_download_no_sources
+import org.jetbrains.compose.resources.stringResource
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
@@ -125,10 +132,10 @@ internal fun DownloadSourceSheet(
             listPending = snapshot.pendingSources
         }
     }
-    val heading = listOfNotNull(
-        request.title.takeIf { it.isNotBlank() },
-        request.episodeCode,
-        request.episodeTitle?.takeIf { it.isNotBlank() },
+    val heading = downloadSheetHeadingLines(
+        title = request.title,
+        episodeCode = request.episodeCode,
+        episodeTitle = request.episodeTitle,
     ).joinToString(" · ")
 
     NuvioModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
@@ -144,13 +151,10 @@ internal fun DownloadSourceSheet(
                 )
                 return@Column
             }
-            Text(
-                text = heading,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(horizontal = 16.dp),
+            DownloadSheetHeading(
+                title = request.title,
+                episodeCode = request.episodeCode,
+                episodeTitle = request.episodeTitle,
             )
             Text(
                 text = "Choose a source",
@@ -199,15 +203,67 @@ internal fun DownloadSourceSheet(
                     }
                 } else if (candidates.isEmpty()) {
                     item(key = "download-source-empty") {
-                        Text(
-                            text = "No downloadable sources found.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(16.dp),
-                        )
+                        DownloadSourcesEmpty()
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * Show title on one line, episode code and title on the next. Each line shortens on its own,
+ * so a long show name does not cut off "S1E1" in the middle of one ellipsized line.
+ */
+internal fun downloadSheetHeadingLines(title: String, episodeCode: String?, episodeTitle: String?): List<String> {
+    val show = title.trim().takeIf { it.isNotEmpty() }
+    val episode = listOfNotNull(
+        episodeCode?.trim()?.takeIf { it.isNotEmpty() },
+        episodeTitle?.trim()?.takeIf { it.isNotEmpty() },
+    ).joinToString(" · ").takeIf { it.isNotEmpty() }
+    return listOfNotNull(show, episode)
+}
+
+@Composable
+private fun DownloadSheetHeading(title: String, episodeCode: String?, episodeTitle: String?) {
+    val lines = downloadSheetHeadingLines(title, episodeCode, episodeTitle)
+    if (lines.isEmpty()) return
+    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+        lines.forEachIndexed { index, line ->
+            Text(
+                text = line,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = if (index == 0) FontWeight.SemiBold else FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DownloadSourcesEmpty() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 180.dp)
+            .padding(horizontal = 24.dp, vertical = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.SearchOff,
+            contentDescription = null,
+            modifier = Modifier.size(40.dp),
+            tint = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = stringResource(Res.string.episode_download_no_sources),
+            modifier = Modifier.padding(top = 12.dp),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+        )
     }
 }

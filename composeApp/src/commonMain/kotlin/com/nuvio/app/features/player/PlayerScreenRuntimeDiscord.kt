@@ -30,7 +30,11 @@ internal fun PlayerScreenRuntime.BindDiscordRpcEffects() {
     }
     val currentSubtitle = rememberUpdatedState(subtitle)
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(persistsProgress) {
+        if (!persistsProgress) {
+            DiscordRpcRepository.clearPlayback()
+            return@LaunchedEffect
+        }
         snapshotFlow { buildDiscordPlaybackInfo(currentSubtitle.value) }
             .distinctUntilChanged()
             .collect { info -> DiscordRpcRepository.updatePlayback(info) }

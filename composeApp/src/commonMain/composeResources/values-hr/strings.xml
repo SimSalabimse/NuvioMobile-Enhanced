@@ -1606,6 +1606,7 @@
     <string name="network_error_empty_response_body">Prazno tijelo odgovora</string>
     <string name="network_error_request_failed_http">Zahtjev nije uspio s HTTP statusom %1$d</string>
     <string name="network_no_internet_connection">Nema internetske veze</string>
+    <string name="offline_banner_saved_data">Izvan mreže: prikaz spremljenih podataka</string>
     <string name="person_age">(dob: %1$d)</string>
     <string name="person_born">Rođen/a %1$s%2$s</string>
     <string name="person_died">Preminuo/la %1$s</string>

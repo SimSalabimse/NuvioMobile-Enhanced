@@ -1,5 +1,10 @@
 package com.nuvio.app.features.servers
 
+import com.nuvio.app.core.security.ProtectedCredentialDelete
+import com.nuvio.app.core.security.ProtectedCredentialRead
+import com.nuvio.app.core.security.protectedCredentialDelete
+import com.nuvio.app.core.security.protectedCredentialIntegrationsIsolated
+import com.nuvio.app.core.security.protectedCredentialRead
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.alloc
 import kotlinx.cinterop.get
@@ -13,14 +18,18 @@ import platform.Security.*
 
 @OptIn(ExperimentalForeignApi::class)
 internal actual object ServerStorage {
-    actual fun read(key: String): String? = query(key) { query ->
+    actual fun read(key: String): String? {
+        if (protectedCredentialIntegrationsIsolated()) return null
+        return query(key) { query ->
         CFDictionarySetValue(query, kSecReturnData, kCFBooleanTrue)
         CFDictionarySetValue(query, kSecMatchLimit, kSecMatchLimitOne)
         memScoped {
             val result = alloc<CFTypeRefVar>()
             val status = SecItemCopyMatching(query, result.ptr)
-            if (status == errSecItemNotFound) return@memScoped null
-            check(status == errSecSuccess) { "Unable to read server credentials (OSStatus $status)" }
+            when (protectedCredentialRead(status)) {
+                ProtectedCredentialRead.Absent, ProtectedCredentialRead.Unavailable -> return@memScoped null
+                ProtectedCredentialRead.Present -> Unit
+            }
             val data: CFDataRef = result.value?.reinterpret() ?: return@memScoped null
             try {
                 val bytes = CFDataGetBytePtr(data) ?: return@memScoped null
@@ -29,9 +38,12 @@ internal actual object ServerStorage {
                 CFRelease(data)
             }
         }
+        }
     }
 
-    actual fun write(key: String, value: String?) = query(key) { query ->
+    actual fun write(key: String, value: String?) {
+        if (protectedCredentialIntegrationsIsolated()) return
+        query(key) { query ->
         if (value == null) {
             checkDelete(SecItemDelete(query))
         } else {
@@ -56,12 +68,19 @@ internal actual object ServerStorage {
                 CFRelease(data)
             }
         }
+        }
     }
 
-    actual fun clear() = query(null) { checkDelete(SecItemDelete(it)) }
+    actual fun clear() {
+        if (protectedCredentialIntegrationsIsolated()) return
+        query(null) { checkDelete(SecItemDelete(it)) }
+    }
 
     private fun checkDelete(status: Int) {
-        check(status == errSecSuccess || status == errSecItemNotFound) { "Unable to clear server credentials (OSStatus $status)" }
+        when (protectedCredentialDelete(status)) {
+            ProtectedCredentialDelete.Removed, ProtectedCredentialDelete.AlreadyAbsent -> Unit
+            ProtectedCredentialDelete.Refused -> error("Unable to clear server credentials (OSStatus $status)")
+        }
     }
 
     private fun dictionary(): CFMutableDictionaryRef =

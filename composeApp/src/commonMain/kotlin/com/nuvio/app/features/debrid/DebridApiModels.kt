@@ -77,6 +77,11 @@ internal data class TorboxCheckCachedRequestDto(
 )
 
 @Serializable
+internal data class TorboxRequestDownloadBatchDto(
+    @SerialName("file_ids") val fileIds: List<Int> = emptyList(),
+)
+
+@Serializable
 internal data class TorboxDeviceAuthorizationDto(
     @SerialName("device_code") val deviceCode: String? = null,
     val code: String? = null,

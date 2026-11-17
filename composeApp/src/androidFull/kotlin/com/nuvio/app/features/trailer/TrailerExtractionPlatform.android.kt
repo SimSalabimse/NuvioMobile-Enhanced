@@ -50,7 +50,12 @@ internal object TrailerExtractionPlatform {
         headers: Map<String, String>,
         body: String?,
         timeoutMillis: Long,
-    ): TrailerRequestResponse = withContext(Dispatchers.IO) {
+    ): TrailerRequestResponse {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) {
+            com.nuvio.app.core.automation.AutomationStubs.noteBlockedNetwork()
+            return TrailerRequestResponse(ok = false, status = 0, statusText = "automation", url = "", body = "")
+        }
+        return withContext(Dispatchers.IO) {
         val requestBuilder = Request.Builder()
             .url(url)
             .headers(buildHeaders(headers))
@@ -78,9 +83,12 @@ internal object TrailerExtractionPlatform {
                     body = response.body?.string().orEmpty(),
                 )
             }
+        }
     }
 
-    suspend fun resolvePlayableUrl(url: String): String? = withContext(Dispatchers.IO) {
+    suspend fun resolvePlayableUrl(url: String): String? {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return null
+        return withContext(Dispatchers.IO) {
         if (!url.contains("googlevideo.com")) return@withContext url
 
         val candidates = buildHostCandidates(url)
@@ -95,6 +103,7 @@ internal object TrailerExtractionPlatform {
             withTimeoutOrNull(PROBE_TIER_TIMEOUT_MS) {
                 probes.awaitAll().firstOrNull { !it.isNullOrBlank() }
             }
+        }
         }
     }
 

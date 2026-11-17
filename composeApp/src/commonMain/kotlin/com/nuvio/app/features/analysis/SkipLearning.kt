@@ -1,6 +1,7 @@
 package com.nuvio.app.features.analysis
 
 import com.nuvio.app.core.logging.InAppLogger
+import com.nuvio.app.features.player.skip.MAX_SUBMISSIONS_PER_TYPE
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -11,6 +12,23 @@ import kotlinx.coroutines.withContext
  * matched against the other episodes (also ones where nothing was found before), and new episodes
  * are matched against it when they are analysed.
  */
+/**
+ * The range a saved correction moved off, or null when nothing moved.
+ * A Wrong tap does not call this: nothing is stored until a different range is saved.
+ */
+internal fun rejectedRangeForCorrection(
+    category: String,
+    previousStartMs: Long?,
+    previousEndMs: Long?,
+    savedStartMs: Long,
+    savedEndMs: Long,
+): RejectedSegment? {
+    if (category != "intro" && category != "outro" && category != "recap") return null
+    if (previousStartMs == null || previousEndMs == null) return null
+    if (previousStartMs == savedStartMs && previousEndMs == savedEndMs) return null
+    return RejectedSegment(category, previousStartMs, previousEndMs)
+}
+
 internal object SkipLearning {
     /** Provider name of skip intervals that come from the user's own marks. */
     const val PROVIDER = "you"
@@ -52,20 +70,73 @@ internal object SkipLearning {
         val category = canonicalType(type) ?: return 0
         if (parentMetaId.isBlank() || endMs <= startMs || startMs < 0L) return 0
         val key = MediaAnalysisStore.keyFor(parentMetaId, season, episode)
-        val existing = MediaAnalysisStore.load(key)
-            ?: MediaAnalysisResult(key = key, analyzedAtMs = 0L, durationMs = 0L)
-        val updated = existing.copy(
-            userSegments = existing.userSegments +
-                (category to UserSegment(startMs, endMs, com.nuvio.app.features.streams.epochMs(), durationMs = durationMs)),
-            learnedTypes = existing.learnedTypes - category,
-            // A new intro bounds the recap search, so run it again.
-            derivedVersion = if (category == "intro") 0 else existing.derivedVersion,
-        )
-        MediaAnalysisStore.save(updated)
+        MediaAnalysisStore.update(key) { stored ->
+            val existing = stored ?: MediaAnalysisResult(key = key, analyzedAtMs = 0L, durationMs = 0L)
+            val previous = when (category) {
+                "intro" -> existing.introStartMs to existing.introEndMs
+                "outro" -> existing.creditsStartMs to existing.creditsEndMs
+                "recap" -> existing.recapStartMs to existing.recapEndMs
+                else -> null to null
+            }
+            val rejection = rejectedRangeForCorrection(category, previous.first, previous.second, startMs, endMs)
+            val rejected = if (rejection == null || rejection in existing.rejectedSegments) {
+                existing.rejectedSegments
+            } else {
+                existing.rejectedSegments + rejection
+            }
+            existing.copy(
+                userSegments = existing.userSegments +
+                    (category to UserSegment(startMs, endMs, com.nuvio.app.features.streams.epochMs(), durationMs = durationMs)),
+                learnedTypes = existing.learnedTypes - category,
+                rejectedSegments = rejected,
+                introConfidence = if (category == "intro") null else existing.introConfidence,
+                creditsConfidence = if (category == "outro") null else existing.creditsConfidence,
+                chapterTypes = existing.chapterTypes - category,
+                // A new intro bounds the recap search, so run it again.
+                derivedVersion = if (category == "intro") 0 else existing.derivedVersion,
+            )
+        }
         InAppLogger.info("SkipLearning", "mark key=$key type=$category ${startMs}-${endMs}")
         val taught = if (season != null && episode != null) teachSeason(parentMetaId, season, key) else 0
         MediaAnalysisStatus.resultsChanged()
         return taught
+    }
+
+    /**
+     * Stores the user's "none of this segment" answer.
+     * It is not a skip range and it does not teach the season.
+     */
+    fun recordAbsent(
+        parentMetaId: String,
+        season: Int?,
+        episode: Int?,
+        type: String,
+        durationMs: Long,
+        imported: Boolean = false,
+    ): Boolean {
+        val category = canonicalType(type) ?: return false
+        if (parentMetaId.isBlank()) return false
+        val key = MediaAnalysisStore.keyFor(parentMetaId, season, episode)
+        val existing = MediaAnalysisStore.load(key)
+            ?: MediaAnalysisResult(key = key, analyzedAtMs = 0L, durationMs = durationMs)
+        val mark = UserSegment(
+            startMs = 0L,
+            endMs = 0L,
+            markedAtMs = com.nuvio.app.features.streams.epochMs(),
+            durationMs = durationMs,
+            absent = true,
+            imported = imported,
+        )
+        MediaAnalysisStore.save(
+            existing.copy(
+                userSegments = existing.userSegments + (category to mark),
+                learnedTypes = existing.learnedTypes - category,
+                chapterTypes = existing.chapterTypes - category,
+                durationMs = existing.durationMs.takeIf { it > 0L } ?: durationMs,
+            ).withUserSegmentsApplied(),
+        )
+        MediaAnalysisStatus.resultsChanged()
+        return true
     }
 
     /**
@@ -93,9 +164,55 @@ internal object SkipLearning {
             existing.copy(
                 userSegments = existing.userSegments + (category to UserSegment(startMs, endMs, 0L, imported = fromTheIntroDb, durationMs = durationMs)),
                 learnedTypes = existing.learnedTypes - category,
+                chapterTypes = existing.chapterTypes - category,
                 derivedVersion = if (category == "intro") 0 else existing.derivedVersion,
             )
         }
+        return added
+    }
+
+    /**
+     * Stores another mark of a type this episode already has.
+     * The first mark of that type stays the one detection teaches from.
+     * Returns false when the episode already has [MAX_SUBMISSIONS_PER_TYPE] of that type,
+     * or the same range is already stored.
+     */
+    fun addSegment(
+        parentMetaId: String,
+        season: Int?,
+        episode: Int?,
+        type: String,
+        startMs: Long,
+        endMs: Long,
+        durationMs: Long = 0L,
+        imported: Boolean = false,
+    ): Boolean {
+        val category = canonicalType(type) ?: return false
+        if (parentMetaId.isBlank() || endMs <= startMs || startMs < 0L) return false
+        val key = MediaAnalysisStore.keyFor(parentMetaId, season, episode)
+        var added = false
+        MediaAnalysisStore.update(key) { stored ->
+            val existing = stored ?: MediaAnalysisResult(key = key, analyzedAtMs = 0L, durationMs = 0L)
+            val marks = existing.storedUserMarks()
+            if (marks.any { it.type == category && it.startMs == startMs && it.endMs == endMs }) return@update null
+            if (marks.count { it.type == category } >= MAX_SUBMISSIONS_PER_TYPE) return@update null
+            val mapKey = nextUserSegmentKey(category, existing.userSegments.keys)
+            added = true
+            existing.copy(
+                userSegments = existing.userSegments + (
+                    mapKey to UserSegment(
+                        startMs = startMs,
+                        endMs = endMs,
+                        markedAtMs = if (imported) 0L else com.nuvio.app.features.streams.epochMs(),
+                        imported = imported,
+                        durationMs = durationMs,
+                        type = category,
+                        id = mapKey,
+                    )
+                    ),
+            )
+        }
+        if (added) MediaAnalysisStatus.resultsChanged()
         return added
     }
 
@@ -138,13 +255,19 @@ internal object SkipLearning {
                 if (match.third > (best?.third ?: 0)) best = match
             }
             val found = best ?: continue
+            if (episode.rejectedSegments.covers(category, found.first, found.second)) continue
             out = when (category) {
                 "intro" -> out.copy(
                     introStartMs = found.first,
                     introEndMs = found.second,
+                    introConfidence = if (out.introStartMs != found.first || out.introEndMs != found.second) null else out.introConfidence,
                     derivedVersion = if (out.introStartMs != found.first || out.introEndMs != found.second) 0 else out.derivedVersion,
                 )
-                else -> out.copy(creditsStartMs = found.first, creditsEndMs = found.second)
+                else -> out.copy(
+                    creditsStartMs = found.first,
+                    creditsEndMs = found.second,
+                    creditsConfidence = if (out.creditsStartMs != found.first || out.creditsEndMs != found.second) null else out.creditsConfidence,
+                )
             }
             out = out.copy(learnedTypes = out.learnedTypes + category)
         }
@@ -159,6 +282,11 @@ internal object SkipLearning {
     ): Triple<Long, Long, Int>? {
         val mark = reference.userSegments[category]?.takeIf { it.canTeach } ?: return null
         if (!com.nuvio.app.features.player.sameCut(mark.durationMs, reference.durationMs)) return null
+        if (reference.durationMs > 0L && target.durationMs > 0L &&
+            !com.nuvio.app.features.player.sameCut(reference.durationMs, target.durationMs)
+        ) {
+            return null
+        }
         if (reference.fingerprintStepMs != target.fingerprintStepMs) return null
         val step = reference.fingerprintStepMs.coerceAtLeast(1).toLong()
         val isIntro = category == "intro"
@@ -173,10 +301,9 @@ internal object SkipLearning {
         if (targetFrames.isEmpty()) return null
         val needed = maxOf(minFrames, window.size / 2)
         val segment = FingerprintMatcher.longestSharedSegment(window, targetFrames, minFrames = needed) ?: return null
-        // The whole marked window, placed where the shared part lines up in the target.
-        val shift = segment.startB - segment.startA
-        val startFrame = shift.coerceAtLeast(0)
-        val endFrame = (window.size + shift).coerceAtMost(targetFrames.size)
+        if (segment.length * 2 < window.size) return null
+        val startFrame = segment.startB
+        val endFrame = segment.endB
         if (endFrame - startFrame < needed) return null
         val targetOffset = if (isIntro) 0L else target.tailStartMs
         val start = targetOffset + startFrame * step
@@ -184,4 +311,12 @@ internal object SkipLearning {
         if (!isIntro && target.durationMs > 0L && target.durationMs - end < END_SNAP_MS) end = target.durationMs
         return Triple(start, end, segment.length)
     }
+}
+
+/** The first mark keeps the type as its key. Later marks of that type get `intro-2`, `intro-3`. */
+internal fun nextUserSegmentKey(type: String, keys: Set<String>): String {
+    if (type !in keys) return type
+    var n = 2
+    while ("$type-$n" in keys) n += 1
+    return "$type-$n"
 }

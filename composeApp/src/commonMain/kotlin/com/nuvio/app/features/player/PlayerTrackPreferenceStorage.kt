@@ -16,6 +16,8 @@ data class PersistedPlayerTrackPreference(
     val playbackSpeed: String? = null,
     /** Per show: auto-skip override, a [ShowAutoSkip] name; null = follow the setting. */
     val autoSkip: String? = null,
+    /** Per series: Smart Downloads count override ("0","1","2","3","5"); null = the global count. */
+    val smartDownloadCount: String? = null,
 )
 
 object PersistedSubtitleSelectionType {
@@ -29,4 +31,6 @@ internal expect object PlayerTrackPreferenceStorage {
     fun save(contentId: String, preference: PersistedPlayerTrackPreference)
     fun loadSubtitleDelayMs(videoId: String): Int?
     fun saveSubtitleDelayMs(videoId: String, delayMs: Int)
+    fun loadAudioDelayMs(audioOutputKey: String): Int?
+    fun saveAudioDelayMs(audioOutputKey: String, delayMs: Int)
 }

@@ -1240,6 +1240,7 @@
     <string name="network_error_empty_response_body">Prázdné tělo odpovědi</string>
     <string name="network_error_request_failed_http">Požadavek selhal s chybou HTTP %1$d</string>
     <string name="network_no_internet_connection">Žádné připojení k internetu</string>
+    <string name="offline_banner_saved_data">Offline: zobrazení uložených dat</string>
     <string name="person_age">(věk %1$d)</string>
     <string name="person_born">Narozen/a %1$s%2$s</string>
     <string name="person_died">Zemřel/a %1$s</string>

@@ -10,6 +10,7 @@ import cryptoVector from "../../docs/sync/test-vectors/v1/crypto.json";
 
 const TOKEN = cryptoVector.authTokenBase64Url;
 const ENROLL = "test-enroll-not-a-real-secret";
+const INGEST = "test-ingest-not-a-real-secret";
 
 function space(n: number): string {
   return `12121212-1212-4121-8121-1212121212${n.toString(16).padStart(2, "0")}`;
@@ -425,5 +426,142 @@ describe("worker protocol", () => {
     expect(limited.status).toBe(429);
     expect(limited.headers.get("retry-after")).toBeTruthy();
     expect(await limited.json()).toEqual({ error: "rate_limited", message: "Too many requests" });
+  });
+
+  it("rejects telemetry without a known bearer and prunes old rows", async () => {
+    const missing = await call("/telemetry", { method: "POST" });
+    expect(missing.status).toBe(401);
+    const stranger = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+    const unknown = await call("/telemetry", {
+      method: "POST",
+      headers: { authorization: `Bearer ${stranger}`, "content-encoding": "gzip" },
+      body: new Uint8Array([1, 2, 3]),
+    });
+    expect(unknown.status).toBe(401);
+    expect((await createSpace(space(11))).status).toBe(201);
+    const plain = await call("/telemetry", {
+      method: "POST",
+      headers: bearer(TOKEN, false),
+      body: new Uint8Array([1, 2, 3]),
+    });
+    expect(plain.status).toBe(415);
+    const old = Date.now() - 31 * 24 * 60 * 60 * 1000;
+    await env.DB.prepare(
+      "INSERT INTO telemetry_batches (device, received_at, app_build, kind, body) VALUES (?1, ?2, ?3, ?4, ?5)",
+    ).bind("old", old, "1", "behaviour", new Uint8Array([9])).run();
+    const stored = await call("/telemetry", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${TOKEN}`,
+        "content-encoding": "gzip",
+        "x-nuvio-app-build": "222",
+        "x-nuvio-kind": "behaviour",
+      },
+      body: new Uint8Array([1, 2, 3, 4]),
+    });
+    expect(stored.status).toBe(200);
+    const left = await env.DB.prepare("SELECT COUNT(*) AS n FROM telemetry_batches").first<{ n: number }>();
+    expect(left?.n).toBe(1);
+    const row = await env.DB.prepare("SELECT app_build, kind FROM telemetry_batches").first<{ app_build: string; kind: string }>();
+    expect(row?.app_build).toBe("222");
+    expect(row?.kind).toBe("behaviour");
+  });
+
+  it("accepts the ingest key, rejects a wrong one, and has no read route", async () => {
+    expect((await call("/telemetry")).status).toBe(405);
+    expect((await call("/telemetry/batches")).status).toBe(404);
+    const wrong = await call("/telemetry", {
+      method: "POST",
+      headers: {
+        "x-nuvio-ingest": "wrong-ingest-key-value",
+        "x-nuvio-install": "install-a",
+        "content-encoding": "gzip",
+      },
+      body: new Uint8Array([1, 2, 3, 4]),
+    });
+    expect(wrong.status).toBe(401);
+    const unknownField = await call("/telemetry?extra=1", {
+      method: "POST",
+      headers: {
+        "x-nuvio-ingest": INGEST,
+        "x-nuvio-install": "install-a",
+        "content-encoding": "gzip",
+      },
+      body: new Uint8Array([1, 2, 3, 4]),
+    });
+    expect(unknownField.status).toBe(400);
+    const accepted = await call("/telemetry", {
+      method: "POST",
+      headers: {
+        "x-nuvio-ingest": INGEST,
+        "x-nuvio-install": "install-a",
+        "content-encoding": "gzip",
+        "x-nuvio-app-build": "222",
+        "x-nuvio-kind": "behaviour",
+      },
+      body: new Uint8Array([1, 2, 3, 4]),
+    });
+    expect(accepted.status).toBe(200);
+    const stored = await env.DB.prepare("SELECT device FROM telemetry_batches ORDER BY id DESC LIMIT 1").first<{ device: string }>();
+    expect(stored?.device).toBeTruthy();
+    expect(stored?.device).not.toContain(INGEST);
+    expect(stored?.device).not.toContain("install-a");
+  });
+
+  it("limits an install to twenty batches a day", async () => {
+    const headers = {
+      "x-nuvio-ingest": INGEST,
+      "x-nuvio-install": "install-rate",
+      "content-encoding": "gzip",
+    };
+    const statuses: number[] = [];
+    for (let i = 0; i < 21; i++) {
+      const response = await call("/telemetry", {
+        method: "POST",
+        headers,
+        body: new Uint8Array([1, 2, 3, 4]),
+      });
+      statuses.push(response.status);
+    }
+    expect(statuses.slice(0, 20)).toEqual(Array(20).fill(200));
+    expect(statuses[20]).toBe(429);
+  });
+
+  it("accepts the app upload shape and rejects a form content type", async () => {
+    const raw = new TextEncoder().encode('{"t":1,"seq":1,"launch":"ab","kind":"launch"}\n');
+    const stream = new Blob([raw]).stream().pipeThrough(new CompressionStream("gzip"));
+    const body = new Uint8Array(await new Response(stream).arrayBuffer());
+    const headers = {
+      "content-type": "application/octet-stream",
+      "content-encoding": "gzip",
+      "x-nuvio-ingest": INGEST,
+      "x-nuvio-install": "install-shape",
+      "x-nuvio-app-build": "223",
+      "x-nuvio-kind": "behaviour",
+    };
+    const accepted = await call("/telemetry", { method: "POST", headers, body });
+    expect(accepted.status).toBe(200);
+    const stored = await env.DB.prepare(
+      "SELECT app_build, kind, length(body) AS n FROM telemetry_batches ORDER BY id DESC LIMIT 1",
+    ).first<{ app_build: string; kind: string; n: number }>();
+    expect(stored?.app_build).toBe("223");
+    expect(stored?.kind).toBe("behaviour");
+    expect(stored?.n).toBe(body.byteLength);
+    const form = await call("/telemetry", {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/x-www-form-urlencoded", "x-nuvio-install": "install-form" },
+      body,
+    });
+    expect(form.status).toBe(400);
+    const missingType = await call("/telemetry", {
+      method: "POST",
+      headers: {
+        "content-encoding": "gzip",
+        "x-nuvio-ingest": INGEST,
+        "x-nuvio-install": "install-bare",
+      },
+      body,
+    });
+    expect(missingType.status).toBe(200);
   });
 });

@@ -705,7 +705,10 @@ internal object SettingsConfigTransfer {
         PlayerSettingsStorage.loadHoldToSpeedEnabled()?.let { put("hold_to_speed_enabled", encodeSyncBoolean(it)) }
         PlayerSettingsStorage.loadHoldToSpeedValue()?.let { put("hold_to_speed_value", encodeSyncFloat(it)) }
         PlayerSettingsStorage.loadSkipBackwardSeconds()?.let { put("skip_backward_seconds", encodeSyncInt(it)) }
+        PlayerSettingsStorage.loadSkipIntroOffsetSeconds()?.let { put("skip_intro_offset_seconds", encodeSyncInt(it)) }
         PlayerSettingsStorage.loadToolbarLayout()?.let { put("player_toolbar_layout", encodeSyncString(it)) }
+        PlayerSettingsStorage.loadLegacyBottomButtons()?.let { put("legacy_player_bottom_buttons", encodeSyncString(it)) }
+        PlayerSettingsStorage.loadLegacyTopButtons()?.let { put("legacy_player_top_buttons", encodeSyncString(it)) }
         PlayerSettingsStorage.loadSkipForwardSeconds()?.let { put("skip_forward_seconds", encodeSyncInt(it)) }
         PlayerSettingsStorage.loadTouchGesturesEnabled()?.let { put("touch_gestures_enabled", encodeSyncBoolean(it)) }
         PlayerSettingsStorage.loadSwipeToSeekEnabled()?.let { put("swipe_to_seek_enabled", encodeSyncBoolean(it)) }
@@ -726,8 +729,7 @@ internal object SettingsConfigTransfer {
         PlayerSettingsStorage.loadSubtitleOutlineColor()?.let { put("subtitle_outline_color", encodeSyncString(it)) }
         PlayerSettingsStorage.loadSubtitleOutlineEnabled()?.let { put("subtitle_outline_enabled", encodeSyncBoolean(it)) }
         PlayerSettingsStorage.loadSubtitleOutlineWidth()?.let { put("subtitle_outline_width", encodeSyncInt(it)) }
-        PlayerSettingsStorage.loadSubtitleShadowEnabled()?.let { put("subtitle_shadow_enabled", encodeSyncBoolean(it)) }
-        PlayerSettingsStorage.loadSubtitleShadowStrength()?.let { put("subtitle_shadow_strength", encodeSyncInt(it)) }
+        PlayerSettingsStorage.loadSubtitleAppearance()?.let { put("subtitle_appearance", encodeSyncString(it)) }
         PlayerSettingsStorage.loadSubtitleBold()?.let { put("subtitle_bold", encodeSyncBoolean(it)) }
         PlayerSettingsStorage.loadSubtitleFontSizeSp()?.let { put("subtitle_font_size_sp", encodeSyncInt(it)) }
         PlayerSettingsStorage.loadSubtitleBottomOffset()?.let { put("subtitle_bottom_offset", encodeSyncInt(it)) }
@@ -740,10 +742,14 @@ internal object SettingsConfigTransfer {
         PlayerSettingsStorage.loadAndroidLibmpvVideoOutput()?.let { put("android_libmpv_video_output", encodeSyncString(it)) }
         PlayerSettingsStorage.loadAndroidLibmpvHardwareDecodingEnabled()?.let { put("android_libmpv_hardware_decoding_enabled", encodeSyncBoolean(it)) }
         PlayerSettingsStorage.loadAndroidLibmpvYuv420pEnabled()?.let { put("android_libmpv_yuv420p_enabled", encodeSyncBoolean(it)) }
+        PlayerSettingsStorage.loadAndroidAnimeUpscaleEnabled()?.let { put("android_anime_upscale_enabled", encodeSyncBoolean(it)) }
+        PlayerSettingsStorage.loadAndroidAnimeLineSharpenEnabled()?.let { put("android_anime_line_sharpen_enabled", encodeSyncBoolean(it)) }
         PlayerSettingsStorage.loadDecoderPriority()?.let { put("decoder_priority", encodeSyncInt(it)) }
         PlayerSettingsStorage.loadMapDV7ToHevc()?.let { put("map_d_v7_to_hevc", encodeSyncBoolean(it)) }
         PlayerSettingsStorage.loadTunnelingEnabled()?.let { put("tunneling_enabled", encodeSyncBoolean(it)) }
         PlayerSettingsStorage.loadAndroidAudioPassthroughEnabled()?.let { put("android_audio_passthrough_enabled", encodeSyncBoolean(it)) }
+        PlayerSettingsStorage.loadNightModeButtonEnabled()?.let { put("night_mode_button_enabled", encodeSyncBoolean(it)) }
+        PlayerSettingsStorage.loadNightModeEnabled()?.let { put("night_mode_enabled", encodeSyncBoolean(it)) }
         PlayerSettingsStorage.loadExoNativeMemoryEnabled()?.let { put("exo_native_memory_enabled", encodeSyncBoolean(it)) }
         PlayerSettingsStorage.loadCustomPlaybackBuffersEnabled()?.let { put("custom_playback_buffers_enabled", encodeSyncBoolean(it)) }
         PlayerSettingsStorage.loadVodDiskCacheEnabled()?.let { put("vod_disk_cache_enabled", encodeSyncBoolean(it)) }
@@ -809,7 +815,10 @@ internal object SettingsConfigTransfer {
         payload.decodeSyncBoolean("hold_to_speed_enabled")?.let { PlayerSettingsStorage.saveHoldToSpeedEnabled(it) }
         payload.decodeSyncFloat("hold_to_speed_value")?.let { PlayerSettingsStorage.saveHoldToSpeedValue(it) }
         payload.decodeSyncInt("skip_backward_seconds")?.let { PlayerSettingsStorage.saveSkipBackwardSeconds(it) }
+        payload.decodeSyncInt("skip_intro_offset_seconds")?.let { PlayerSettingsStorage.saveSkipIntroOffsetSeconds(it) }
         payload.decodeSyncString("player_toolbar_layout")?.let { PlayerSettingsStorage.saveToolbarLayout(it) }
+        payload.decodeSyncString("legacy_player_bottom_buttons")?.let { PlayerSettingsStorage.saveLegacyBottomButtons(it) }
+        payload.decodeSyncString("legacy_player_top_buttons")?.let { PlayerSettingsStorage.saveLegacyTopButtons(it) }
         payload.decodeSyncInt("skip_forward_seconds")?.let { PlayerSettingsStorage.saveSkipForwardSeconds(it) }
         payload.decodeSyncBoolean("touch_gestures_enabled")?.let { PlayerSettingsStorage.saveTouchGesturesEnabled(it) }
         payload.decodeSyncBoolean("swipe_to_seek_enabled")?.let { PlayerSettingsStorage.saveSwipeToSeekEnabled(it) }
@@ -830,8 +839,7 @@ internal object SettingsConfigTransfer {
         payload.decodeSyncString("subtitle_outline_color")?.let { PlayerSettingsStorage.saveSubtitleOutlineColor(it) }
         payload.decodeSyncBoolean("subtitle_outline_enabled")?.let { PlayerSettingsStorage.saveSubtitleOutlineEnabled(it) }
         payload.decodeSyncInt("subtitle_outline_width")?.let { PlayerSettingsStorage.saveSubtitleOutlineWidth(it) }
-        payload.decodeSyncBoolean("subtitle_shadow_enabled")?.let { PlayerSettingsStorage.saveSubtitleShadowEnabled(it) }
-        payload.decodeSyncInt("subtitle_shadow_strength")?.let { PlayerSettingsStorage.saveSubtitleShadowStrength(it) }
+        payload.decodeSyncString("subtitle_appearance")?.let { PlayerSettingsStorage.saveSubtitleAppearance(it) }
         payload.decodeSyncBoolean("subtitle_bold")?.let { PlayerSettingsStorage.saveSubtitleBold(it) }
         payload.decodeSyncInt("subtitle_font_size_sp")?.let { PlayerSettingsStorage.saveSubtitleFontSizeSp(it) }
         payload.decodeSyncInt("subtitle_bottom_offset")?.let { PlayerSettingsStorage.saveSubtitleBottomOffset(it) }
@@ -844,10 +852,14 @@ internal object SettingsConfigTransfer {
         payload.decodeSyncString("android_libmpv_video_output")?.let { PlayerSettingsStorage.saveAndroidLibmpvVideoOutput(it) }
         payload.decodeSyncBoolean("android_libmpv_hardware_decoding_enabled")?.let { PlayerSettingsStorage.saveAndroidLibmpvHardwareDecodingEnabled(it) }
         payload.decodeSyncBoolean("android_libmpv_yuv420p_enabled")?.let { PlayerSettingsStorage.saveAndroidLibmpvYuv420pEnabled(it) }
+        payload.decodeSyncBoolean("android_anime_upscale_enabled")?.let { PlayerSettingsStorage.saveAndroidAnimeUpscaleEnabled(it) }
+        payload.decodeSyncBoolean("android_anime_line_sharpen_enabled")?.let { PlayerSettingsStorage.saveAndroidAnimeLineSharpenEnabled(it) }
         payload.decodeSyncInt("decoder_priority")?.let { PlayerSettingsStorage.saveDecoderPriority(it) }
         payload.decodeSyncBoolean("map_d_v7_to_hevc")?.let { PlayerSettingsStorage.saveMapDV7ToHevc(it) }
         payload.decodeSyncBoolean("tunneling_enabled")?.let { PlayerSettingsStorage.saveTunnelingEnabled(it) }
         payload.decodeSyncBoolean("android_audio_passthrough_enabled")?.let { PlayerSettingsStorage.saveAndroidAudioPassthroughEnabled(it) }
+        payload.decodeSyncBoolean("night_mode_button_enabled")?.let { PlayerSettingsStorage.saveNightModeButtonEnabled(it) }
+        payload.decodeSyncBoolean("night_mode_enabled")?.let { PlayerSettingsStorage.saveNightModeEnabled(it) }
         payload.decodeSyncBoolean("exo_native_memory_enabled")?.let { PlayerSettingsStorage.saveExoNativeMemoryEnabled(it) }
         payload.decodeSyncBoolean("custom_playback_buffers_enabled")?.let { PlayerSettingsStorage.saveCustomPlaybackBuffersEnabled(it) }
         payload.decodeSyncBoolean("vod_disk_cache_enabled")?.let { PlayerSettingsStorage.saveVodDiskCacheEnabled(it) }

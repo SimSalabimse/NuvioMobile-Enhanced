@@ -20,6 +20,8 @@ internal actual object PlayerTrackPreferenceStorage {
     private const val subtitleDelayMsKey = "subtitle_delay_ms"
     private const val playbackSpeedKey = "playback_speed"
     private const val autoSkipKey = "auto_skip"
+    private const val smartDownloadCountKey = "smart_download_count"
+    private const val audioDelayMsKey = "audio_delay_ms"
 
     private var preferences: SharedPreferences? = null
 
@@ -42,6 +44,7 @@ internal actual object PlayerTrackPreferenceStorage {
             audioTrackId = loadString(audioTrackIdKey, id),
             playbackSpeed = loadString(playbackSpeedKey, id),
             autoSkip = loadString(autoSkipKey, id),
+            smartDownloadCount = loadString(smartDownloadCountKey, id),
             subtitleIsForced = loadBoolean(subtitleIsForcedKey, id),
         )
         return preference.takeIf {
@@ -58,6 +61,7 @@ internal actual object PlayerTrackPreferenceStorage {
                 it.audioTrackId,
                 it.playbackSpeed,
                 it.autoSkip,
+                it.smartDownloadCount,
             ).any { value -> !value.isNullOrBlank() } || it.subtitleIsForced != null
         }
     }
@@ -77,6 +81,7 @@ internal actual object PlayerTrackPreferenceStorage {
             putOptionalString(audioTrackIdKey, id, preference.audioTrackId)
             putOptionalString(playbackSpeedKey, id, preference.playbackSpeed)
             putOptionalString(autoSkipKey, id, preference.autoSkip)
+            putOptionalString(smartDownloadCountKey, id, preference.smartDownloadCount)
             putOptionalBoolean(subtitleIsForcedKey, id, preference.subtitleIsForced)
         }?.apply()
     }
@@ -95,6 +100,26 @@ internal actual object PlayerTrackPreferenceStorage {
             ?.edit()
             ?.putInt(scopedKey(subtitleDelayMsKey, id), delayMs.coerceIn(SUBTITLE_DELAY_MIN_MS, SUBTITLE_DELAY_MAX_MS))
             ?.apply()
+    }
+
+    actual fun loadAudioDelayMs(audioOutputKey: String): Int? {
+        val id = audioOutputKey.normalizedStorageId() ?: return null
+        val key = scopedKey(audioDelayMsKey, id)
+        return preferences?.let { prefs ->
+            if (prefs.contains(key)) prefs.getInt(key, 0) else null
+        }
+    }
+
+    actual fun saveAudioDelayMs(audioOutputKey: String, delayMs: Int) {
+        val id = audioOutputKey.normalizedStorageId() ?: return
+        val key = scopedKey(audioDelayMsKey, id)
+        preferences?.edit()?.apply {
+            if (delayMs == 0) {
+                remove(key)
+            } else {
+                putInt(key, delayMs.coerceIn(AUDIO_DELAY_MIN_MS, AUDIO_DELAY_MAX_MS))
+            }
+        }?.apply()
     }
 
     private fun loadString(field: String, contentId: String): String? =

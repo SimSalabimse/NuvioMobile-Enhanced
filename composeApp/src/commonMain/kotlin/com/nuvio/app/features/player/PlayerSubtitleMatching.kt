@@ -51,6 +51,10 @@ internal object SubtitleLanguageMatching {
         "eng" to "en",
         "swe" to "sv",
         "nor" to "no",
+        "nb" to "no",
+        "nob" to "no",
+        "nn" to "nn",
+        "nno" to "nn",
         "dan" to "da",
         "fin" to "fi",
         "tur" to "tr",
@@ -188,6 +192,7 @@ internal object SubtitleLanguageMatching {
         "mn" to "mongolian",
         "ne" to "nepali",
         "no" to "norwegian",
+        "nn" to "nynorsk",
         "pa" to "punjabi",
         "fa" to "persian",
         "pl" to "polish",
@@ -268,7 +273,23 @@ internal object SubtitleLanguageMatching {
             return "ms"
         }
 
-        return LANGUAGE_OVERRIDES[code] ?: normalizedCode
+        // "nynorsk" contains "norsk", so the Nynorsk name has to win first.
+        if (containsAny("nynorsk")) return "nn"
+        if (containsAny("bokmal", "bokmål")) return "no"
+        if (containsAny("norwegian") || tokenized == "norsk" || tokenized.startsWith("norsk ") || tokenized.endsWith(" norsk")) {
+            return "no"
+        }
+
+        val overridden = LANGUAGE_OVERRIDES[code] ?: LANGUAGE_OVERRIDES[normalizedCode]
+        if (overridden != null) return overridden
+        val primary = normalizedCode.substringBefore('-')
+        val primaryOverride = LANGUAGE_OVERRIDES[primary]
+        val suffix = normalizedCode.substringAfter('-', "")
+        return if (primaryOverride != null && suffix.isNotEmpty() && !primaryOverride.contains('-')) {
+            "$primaryOverride-$suffix"
+        } else {
+            primaryOverride ?: normalizedCode
+        }
     }
 
     fun matchesLanguageCode(language: String?, target: String): Boolean {
@@ -310,6 +331,12 @@ internal object SubtitleLanguageMatching {
     ): Boolean {
         if (normalizedTarget == "pt") return normalizedLanguage == "pt"
         if (normalizedTarget == "es") return normalizedLanguage == "es"
+        val targetPrimary = normalizedTarget.substringBefore('-')
+        val languagePrimary = normalizedLanguage.substringBefore('-')
+        // One Norwegian preference. Bokmål (no/nb/nob) is preferred by the caller;
+        // Nynorsk (nn) is accepted and kept as its own code.
+        if (targetPrimary == "no" && (languagePrimary == "no" || languagePrimary == "nn")) return true
+        if (targetPrimary == "nn") return languagePrimary == "nn"
         return normalizedLanguage == normalizedTarget ||
             normalizedLanguage.startsWith("$normalizedTarget-") ||
             normalizedLanguage.startsWith("${normalizedTarget}_")

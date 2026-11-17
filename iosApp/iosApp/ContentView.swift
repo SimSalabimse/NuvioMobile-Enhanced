@@ -788,6 +788,13 @@ final class NativeTabIconStore: ObservableObject {
     private static let profileNameKey = "NuvioNativeProfileName"
     private static let profileColorKey = "NuvioNativeProfileAvatarColor"
     private static let profileURLKey = "NuvioNativeProfileAvatarURL"
+
+    /// Same launch argument as Kotlin `AutomationTestMode`. A normal icon tap never sets it.
+    private static var automationLaunchIsOn: Bool {
+        let arguments = ProcessInfo.processInfo.arguments
+        let env = ProcessInfo.processInfo.environment["NUVIO_AUTOMATION"]?.lowercased()
+        return arguments.contains("-NuvioAutomation") || env == "1" || env == "true"
+    }
     private static let profileBackgroundKey = "NuvioNativeProfileAvatarBackgroundColor"
 
     @Published private(set) var revision = 0
@@ -879,6 +886,8 @@ final class NativeTabIconStore: ObservableObject {
         revision &+= 1
 
         guard let nextURL, let url = URL(string: nextURL) else { return }
+        // The stored avatar URL is the owner's. Automation must not fetch it.
+        if Self.automationLaunchIsOn { return }
         profileAvatarTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
             guard let data, let image = UIImage(data: data) else { return }
             DispatchQueue.main.async {
@@ -1170,6 +1179,9 @@ final class AppNavigationCoordinator: ObservableObject {
     let profileTabInteraction = NativeProfileTabInteractionCoordinator()
 
     init() {
+        if MainViewControllerKt.coldLaunchSkipsProfilePicker() {
+            isMainContentMounted = true
+        }
         PlayerPictureInPictureParking.shared.appCoordinator = self
         setTabBarVisible(true)
         reloadTabBarBehavior()
@@ -1718,8 +1730,15 @@ private struct DetailDestinationView: View {
         wrapper.route is DetailRoute || wrapper.route is StreamRoute
     }
 
+    /// Stream, player, and detail artwork run under the status area. Detail draws one
+    /// header over that artwork. Compose applies the inset to the header once.
+    /// Every other pushed screen stays below the top safe area.
+    private var artworkBleedsUnderStatusBar: Bool {
+        wrapper.route is StreamRoute || wrapper.route is PlayerRoute || wrapper.route is DetailRoute
+    }
+
     private var respectsNativeNavigationSafeArea: Bool {
-        wrapper.route is FolderDetailRoute
+        !artworkBleedsUnderStatusBar
     }
 
     private var showsReadabilityFade: Bool {

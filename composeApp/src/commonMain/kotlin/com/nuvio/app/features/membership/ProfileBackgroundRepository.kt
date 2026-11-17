@@ -45,6 +45,7 @@ object ProfileBackgroundRepository {
     private var remoteLoaded = false
 
     fun ensureLoaded() {
+        if (com.nuvio.app.core.automation.AutomationTestMode.isActive) return
         hydrateFromCacheIfNeeded()
         if (remoteLoaded || loadJob?.isActive == true) return
         loadJob = scope.launch {

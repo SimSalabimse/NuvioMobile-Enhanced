@@ -1,5 +1,10 @@
 package com.nuvio.app.core.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.foundation.ExperimentalFoundationApi
+import com.nuvio.app.features.settings.ThemeSettingsRepository
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -8,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -16,9 +22,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.gestures.stopScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,7 +37,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import com.nuvio.app.features.settings.ThemeSettingsRepository
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,12 +44,16 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import kotlin.math.roundToInt
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.home_continue_watching_watched
 import nuvio.composeapp.generated.resources.home_view_all
 import nuvio.composeapp.generated.resources.poster_logo_content_description
 import org.jetbrains.compose.resources.stringResource
@@ -60,6 +69,7 @@ enum class NuvioViewAllPillSize {
     Compact,
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun <T> NuvioShelfSection(
     title: String,
@@ -100,6 +110,7 @@ fun <T> NuvioShelfSection(
             state = state,
             contentPadding = rowContentPadding.withVerticalBar(),
             horizontalArrangement = Arrangement.spacedBy(itemSpacing),
+            cacheWindow = ShelfRowCacheWindow,
         ) {
             if (key != null) {
                 items(
@@ -139,8 +150,11 @@ fun NuvioPosterCard(
     isWatched: Boolean = false,
     /** Small top-start badge such as "In library"; null shows none. */
     statusLabel: String? = null,
+    /** Part-watched movie fraction, already thresholded. Null hides the bar. */
+    resumeFraction: Float? = null,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
+    longPressActions: List<com.nuvio.app.core.a11y.LongPressAccessibilityAction> = emptyList(),
 ) {
     val posterCardStyle = rememberPosterCardStyleUiState()
     val tokens = MaterialTheme.nuvio
@@ -150,7 +164,18 @@ fun NuvioPosterCard(
         basePosterWidthDp = posterCardStyle.widthDp,
         shape = shape,
     )
-    val shouldShowTitleBelow = showTitleBelow && !posterCardStyle.hideLabelsEnabled
+    val chrome = posterCardChrome(
+        bottomLeftLogoUrl = bottomLeftLogoUrl,
+        bottomLeftText = bottomLeftText,
+        isWatched = isWatched,
+        statusLabel = statusLabel,
+        hasClick = onClick != null,
+        hasLongClick = onLongClick != null,
+        showTitleBelow = showTitleBelow,
+        hideLabels = posterCardStyle.hideLabelsEnabled,
+        detailLine = detailLine,
+        resumeFraction = resumeFraction,
+    )
 
     Column(
         modifier = modifier.width(cardWidth),
@@ -167,10 +192,11 @@ fun NuvioPosterCard(
                     surface = NuvioCardDepthSurface.Posters,
                 )
                 .posterCardClickable(
-                    onClick = onClick,
-                    onLongClick = onLongClick,
+                    onClick = if (chrome.clickEnabled) onClick else null,
+                    onLongClick = if (chrome.longClickEnabled) onLongClick else null,
                     zoomImageUrl = imageUrl,
                     zoomCornerRadius = posterCardStyle.cornerRadiusDp.dp,
+                    longPressActions = longPressActions,
                 ),
             contentAlignment = Alignment.Center,
         ) {
@@ -203,7 +229,7 @@ fun NuvioPosterCard(
                 )
             }
 
-            if (!bottomLeftLogoUrl.isNullOrBlank() || !bottomLeftText.isNullOrBlank()) {
+            if (chrome.showBottomScrim) {
                 // Gradient scrim for readability — matching NuvioTV Modern Home style
                 Box(
                     modifier = Modifier
@@ -224,7 +250,7 @@ fun NuvioPosterCard(
                         .align(Alignment.BottomStart)
                         .padding(horizontal = NuvioTokens.Space.s10, vertical = NuvioTokens.Space.s10),
                 ) {
-                    if (!bottomLeftLogoUrl.isNullOrBlank()) {
+                    if (chrome.showBottomLeftLogo) {
                         AsyncImage(
                             model = bottomLeftLogoUrl,
                             contentDescription = stringResource(Res.string.poster_logo_content_description, title),
@@ -234,7 +260,7 @@ fun NuvioPosterCard(
                             contentScale = ContentScale.Fit,
                             alignment = Alignment.CenterStart,
                         )
-                    } else {
+                    } else if (chrome.showBottomLeftText) {
                         Text(
                             text = bottomLeftText.orEmpty(),
                             style = MaterialTheme.typography.labelMedium,
@@ -247,8 +273,8 @@ fun NuvioPosterCard(
                 }
             }
 
-            NuvioPosterWatchedOverlay(isWatched = isWatched)
-            if (statusLabel != null) {
+            NuvioPosterWatchedOverlay(isWatched = chrome.showWatchedBadge)
+            if (chrome.showStatusLabel && statusLabel != null) {
                 Text(
                     text = statusLabel,
                     style = MaterialTheme.typography.labelSmall,
@@ -261,8 +287,14 @@ fun NuvioPosterCard(
                         .padding(horizontal = 6.dp, vertical = 2.dp),
                 )
             }
+            if (chrome.showResumeBar && resumeFraction != null) {
+                NuvioPosterResumeBar(
+                    fraction = resumeFraction,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
+            }
         }
-        if (shouldShowTitleBelow) {
+        if (chrome.showTitle) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyMedium,
@@ -270,7 +302,7 @@ fun NuvioPosterCard(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (!detailLine.isNullOrBlank()) {
+            if (chrome.showDetailLine && !detailLine.isNullOrBlank()) {
                 Text(
                     text = detailLine,
                     style = MaterialTheme.typography.labelSmall,
@@ -288,6 +320,50 @@ fun NuvioPosterCard(
 }
 
 @Composable
+internal fun NuvioPosterResumeBar(
+    fraction: Float,
+    modifier: Modifier = Modifier,
+) {
+    val reduceMotion = systemReduceMotionEnabled()
+    val barModifier = modifier.fillMaxWidth()
+    if (reduceMotion) {
+        PosterResumeBarTrack(fraction = fraction, modifier = barModifier)
+    } else {
+        AnimatedVisibility(
+            visible = true,
+            enter = fadeIn(),
+            exit = ExitTransition.None,
+            modifier = barModifier,
+        ) {
+            PosterResumeBarTrack(fraction = fraction)
+        }
+    }
+}
+
+@Composable
+private fun PosterResumeBarTrack(
+    fraction: Float,
+    modifier: Modifier = Modifier,
+) {
+    val percent = (fraction * 100f).roundToInt().coerceIn(1, 99)
+    val description = stringResource(Res.string.home_continue_watching_watched, "$percent%")
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(NuvioTokens.Space.s3)
+            .semantics { contentDescription = description }
+            .background(Color.White.copy(alpha = 0.28f)),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                .fillMaxHeight()
+                .background(MaterialTheme.themePalette.accentBrush()),
+        )
+    }
+}
+
+@Composable
 private fun NuvioShelfSectionHeader(
     title: String,
     modifier: Modifier = Modifier,
@@ -296,7 +372,7 @@ private fun NuvioShelfSectionHeader(
     onShuffleClick: (() -> Unit)? = null,
 ) {
     val tokens = MaterialTheme.nuvio
-    val showAccent by ThemeSettingsRepository.showCatalogAccentEnabled.collectAsState()
+    val showAccent = rememberShowCatalogAccentEnabled()
     Column(
         modifier = modifier.fillMaxWidth(),
     ) {
@@ -374,7 +450,7 @@ private fun NuvioViewAllPill(
     }
 }
 
-private val NuvioPosterShape.aspectRatio: Float
+internal val NuvioPosterShape.aspectRatio: Float
     get() = when (this) {
         NuvioPosterShape.Poster -> 0.675f
         NuvioPosterShape.Square -> 1f
@@ -407,7 +483,7 @@ private fun catalogLogoOverlaySize(
         }
     }
 
-private fun NuvioPosterShape.cardWidth(basePosterWidthDp: Int): Dp =
+internal fun NuvioPosterShape.cardWidth(basePosterWidthDp: Int): Dp =
     when (this) {
         NuvioPosterShape.Poster -> basePosterWidthDp.dp
         NuvioPosterShape.Square -> basePosterWidthDp.dp

@@ -1,5 +1,6 @@
 package com.nuvio.app.core.network
 
+import com.nuvio.app.core.automation.allowStorageWrite
 import platform.Foundation.NSUserDefaults
 
 internal actual object ServerConfigurationStorage {
@@ -33,6 +34,7 @@ internal actual object ServerConfigurationStorage {
     }
 
     actual fun saveCustom(configuration: ServerConfiguration): Boolean {
+        if (!allowStorageWrite(customEnabledKey)) return false
         val values = NSUserDefaults.standardUserDefaults
         values.setBool(true, forKey = customEnabledKey)
         values.setObject(configuration.backendUrl, forKey = backendUrlKey)
@@ -45,6 +47,7 @@ internal actual object ServerConfigurationStorage {
     }
 
     actual fun useOfficial(): Boolean {
+        if (!allowStorageWrite(customEnabledKey)) return false
         val values = NSUserDefaults.standardUserDefaults
         values.removeObjectForKey(customEnabledKey)
         values.removeObjectForKey(backendUrlKey)

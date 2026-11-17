@@ -5,6 +5,7 @@ import { fail, json, tooMany } from "./http";
 import { isUuidV4 } from "./ids";
 import { spaceBucket, takeRateHit } from "./rate";
 import { pullBlobs, pushBatch } from "./blobs";
+import { storeTelemetry } from "./telemetry";
 import { createSpace, denySpace, joinSpace, listSpaces, loadSpace, readSpaceId, revokeSpace } from "./spaces";
 import type { Authed } from "./auth";
 
@@ -17,6 +18,10 @@ export async function route(request: Request, env: SyncEnv): Promise<Response> {
   }
 
   const limits = limitsOf(env);
+  if (url.pathname === "/telemetry") {
+    if (request.method !== "POST") return fail(405, "method_not_allowed", "Method not allowed");
+    return storeTelemetry(request, env, Date.now());
+  }
   if (url.pathname === "/v1/spaces") {
     if (request.method === "GET") return listRoute(request, env);
     if (request.method !== "POST") return fail(405, "method_not_allowed", "Method not allowed");

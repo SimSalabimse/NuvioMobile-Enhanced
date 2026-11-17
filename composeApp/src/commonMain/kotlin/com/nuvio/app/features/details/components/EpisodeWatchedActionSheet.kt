@@ -7,7 +7,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material.icons.rounded.ViewList
 import androidx.compose.material.icons.filled.PlaylistAddCheckCircle
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Star
@@ -19,6 +22,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -33,6 +37,7 @@ import com.nuvio.app.features.details.MetaVideo
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
+import com.nuvio.app.core.i18n.localizedEpisodeTitle
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,12 +54,15 @@ fun EpisodeWatchedActionSheet(
     onToggleSeasonWatched: () -> Unit,
     showPlayManually: Boolean = false,
     onPlayManually: (() -> Unit)? = null,
+    networkActionsEnabled: Boolean = true,
     onDownload: (() -> Unit)? = null,
     downloadContentKey: String? = null,
     userRating: Int? = null,
     onRate: (() -> Unit)? = null,
     /** Marks every earlier episode and this one watched; null hides it (all already watched). */
     onMarkUpToHereWatched: (() -> Unit)? = null,
+    onSubmitSegment: (() -> Unit)? = null,
+    onWatchPrivately: (() -> Unit)? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
@@ -95,7 +103,7 @@ fun EpisodeWatchedActionSheet(
             if (onMarkUpToHereWatched != null) {
                 NuvioBottomSheetActionRow(
                     icon = Icons.Default.DoneAll,
-                    title = "Mark watched up to here",
+                    title = stringResource(Res.string.a11y_mark_watched_up_to_here),
                     onClick = {
                         onMarkUpToHereWatched()
                         coroutineScope.launch {
@@ -138,6 +146,7 @@ fun EpisodeWatchedActionSheet(
                 UserRatingActionRow(
                     title = stringResource(Res.string.user_rating_rate_episode),
                     userRating = userRating,
+                    enabled = networkActionsEnabled,
                     onClick = {
                         onRate()
                         coroutineScope.launch {
@@ -152,6 +161,8 @@ fun EpisodeWatchedActionSheet(
                     // Shows the episode's download state: "Download 42%", Waiting, "Paused 42%",
                     // failed or downloaded. Paused resumes and failed retries instead of re-queuing.
                     title = downloadProgressLabel(downloadProgress),
+                    enabled = networkActionsEnabled || downloadProgress.showsMark &&
+                        downloadProgress.kind != com.nuvio.app.features.downloads.DetailsDownloadProgressKind.Completed,
                     onClick = {
                         if (!com.nuvio.app.features.downloads.resumeDownloadFromMark(downloadProgress)) onDownload()
                         coroutineScope.launch {
@@ -164,8 +175,33 @@ fun EpisodeWatchedActionSheet(
                 NuvioBottomSheetActionRow(
                     icon = Icons.Default.PlayArrow,
                     title = stringResource(Res.string.play_manually),
+                    enabled = networkActionsEnabled,
                     onClick = {
                         onPlayManually()
+                        coroutineScope.launch {
+                            dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
+                        }
+                    },
+                )
+            }
+            if (onSubmitSegment != null) {
+                NuvioBottomSheetActionRow(
+                    icon = Icons.Default.Flag,
+                    title = stringResource(Res.string.episode_submit_segment_only),
+                    onClick = {
+                        onSubmitSegment()
+                        coroutineScope.launch {
+                            dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
+                        }
+                    },
+                )
+            }
+            if (onWatchPrivately != null) {
+                NuvioBottomSheetActionRow(
+                    icon = Icons.Rounded.VisibilityOff,
+                    title = stringResource(Res.string.watch_privately),
+                    onClick = {
+                        onWatchPrivately()
                         coroutineScope.launch {
                             dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
                         }
@@ -187,6 +223,8 @@ fun SeasonWatchedActionSheet(
     onMarkPreviousSeasonsWatched: () -> Unit,
     userRating: Int? = null,
     onRate: (() -> Unit)? = null,
+    networkActionsEnabled: Boolean = true,
+    onOpenOverview: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
@@ -232,6 +270,7 @@ fun SeasonWatchedActionSheet(
                 UserRatingActionRow(
                     title = stringResource(Res.string.user_rating_rate_season, seasonLabel),
                     userRating = userRating,
+                    enabled = networkActionsEnabled,
                     onClick = {
                         onRate()
                         coroutineScope.launch {
@@ -252,6 +291,17 @@ fun SeasonWatchedActionSheet(
                     },
                 )
             }
+            NuvioBottomSheetActionRow(
+                icon = Icons.Rounded.ViewList,
+                title = stringResource(Res.string.season_overview),
+                modifier = Modifier.testTag(com.nuvio.app.features.details.DETAILS_SEASON_OVERVIEW_TAG),
+                onClick = {
+                    onOpenOverview()
+                    coroutineScope.launch {
+                        dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
+                    }
+                },
+            )
         }
     }
 }
@@ -261,10 +311,12 @@ private fun UserRatingActionRow(
     title: String,
     userRating: Int?,
     onClick: () -> Unit,
+    enabled: Boolean = true,
 ) {
     NuvioBottomSheetActionRow(
         icon = if (userRating != null) Icons.Rounded.Star else Icons.Rounded.StarBorder,
         title = title,
+        enabled = enabled,
         onClick = onClick,
         trailingContent = if (userRating != null) {
             {
@@ -293,7 +345,7 @@ private fun EpisodeActionSheetHeader(
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(
-            text = episode.title,
+            text = localizedEpisodeTitle(episode.title, episode.episode) ?: episode.title,
             style = MaterialTheme.typography.titleLarge,
             color = MaterialTheme.colorScheme.onSurface,
             fontWeight = FontWeight.SemiBold,

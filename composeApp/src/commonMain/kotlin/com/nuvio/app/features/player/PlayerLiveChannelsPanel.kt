@@ -72,6 +72,7 @@ import com.nuvio.app.features.livetv.rememberLiveTvEpgNowMillis
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_close
+import nuvio.composeapp.generated.resources.compose_search_clear
 import nuvio.composeapp.generated.resources.compose_player_channels
 import nuvio.composeapp.generated.resources.compose_player_playing
 import nuvio.composeapp.generated.resources.live_tv_action_back_to_top
@@ -339,7 +340,12 @@ private fun PlayerLiveChannelSearchField(
                     IconButton(onClick = { onQueryChange("") }) {
                         Icon(
                             imageVector = Icons.Rounded.Close,
-                            contentDescription = null,
+                            contentDescription = playerIconControlDescription(
+                                PlayerIconControl.LiveSearchClear,
+                                decrease = "",
+                                increase = "",
+                                clearSearch = stringResource(Res.string.compose_search_clear),
+                            ),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }

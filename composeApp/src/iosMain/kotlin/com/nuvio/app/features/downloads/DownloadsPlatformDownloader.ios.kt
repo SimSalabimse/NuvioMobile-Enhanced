@@ -1,5 +1,7 @@
 package com.nuvio.app.features.downloads
 
+import com.nuvio.app.core.automation.AutomationStubs
+import com.nuvio.app.core.automation.AutomationTestMode
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.convert
@@ -99,6 +101,7 @@ fun handleDownloadsBackgroundEvents(
 ) {
     backgroundSessionCompletionHandlers[identifier] = completionHandler
     IosBackgroundDownloadCoordinator.ensureSessionCreated()
+    com.nuvio.app.features.diagnostics.nuvioRecordHeat("session")
 }
 
 /** willResignActive: move every transfer onto the background session while still in the foreground. */
@@ -119,6 +122,13 @@ internal actual object DownloadsPlatformDownloader {
         onFailure: (message: String) -> Unit,
         onPaused: () -> Unit,
     ): DownloadsTaskHandle {
+        if (AutomationTestMode.isActive && !AutomationStubs.isLocalClip(request.sourceUrl)) {
+            AutomationStubs.noteBlockedNetwork()
+            onFailure("Download blocked during automation")
+            return object : DownloadsTaskHandle {
+                override fun cancel() = Unit
+            }
+        }
         prepareDownloadSubtitles(request.item.id, request)
         IosForegroundDownloads.ensureObserver()
         IosTransferControl.allow(request.item.id)
@@ -132,7 +142,9 @@ internal actual object DownloadsPlatformDownloader {
     }
 
     actual fun pauseRunningTransfer(item: DownloadItem) {
-        // A start still looking up the session's tasks would otherwise begin after this stop.
+        // Cap 0 suspends this task. The foreground writer keeps the .part file.
+        // A background task is cancelled with resume data, including one the session
+        // still holds after this process dropped its map entry. The off window then moves no bytes.
         IosTransferControl.suppress(item.id)
         IosForegroundDownloads.cancel(item.id)
         IosBackgroundDownloadCoordinator.cancelDownload(item.id)
@@ -309,6 +321,8 @@ internal actual object DownloadsPlatformDownloader {
     actual fun finishPartialPlayback(downloadId: String): String? = finishIosPartialPlayback(downloadId)
 
     actual fun retryCount(downloadId: String): Int = IosDownloadRetries.attempts(downloadId)
+
+    actual fun bytesAtLastFailure(downloadId: String): Long? = IosDownloadRetries.bytesAtLastFailure(downloadId)
 }
 
 /**
@@ -371,6 +385,16 @@ internal val IosBackgroundDownloadCoordinator: IosBackgroundDownloadCoordinatorI
     IosBackgroundDownloadCoordinatorImpl()
 }
 
+/** 0.25 is NSURLSessionTaskPriorityLow. 0.5 is the default. */
+internal var lowPriorityTransfers: Boolean = false
+
+internal actual object DownloadTransferPriority {
+    actual fun setLowPriority(low: Boolean) {
+        lowPriorityTransfers = low
+        IosBackgroundDownloadCoordinator.setTaskPriority(if (low) 0.25f else 0.5f)
+    }
+}
+
 @OptIn(ExperimentalForeignApi::class)
 internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDownloadDelegateProtocol {
     private var session: NSURLSession? = null
@@ -391,6 +415,10 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         var callbacks: DownloadCallbacks,
     )
 
+    fun setTaskPriority(priority: Float) {
+        tasksByDownloadId.values.forEach { task -> task.priority = priority }
+    }
+
     fun ensureSessionCreated(): NSURLSession {
         session?.let { return it }
         val configuration = NSURLSessionConfiguration.backgroundSessionConfigurationWithIdentifier(
@@ -398,7 +426,8 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         ).apply {
             val policy = speedFirstBackgroundSessionPolicy
             timeoutIntervalForResource = DOWNLOAD_RESOURCE_TIMEOUT_SECONDS
-            discretionary = policy.discretionary
+            // A session that already exists cannot change this. New tasks also set priority.
+            discretionary = policy.discretionary || lowPriorityTransfers
             allowsCellularAccess = policy.allowsCellularAccess
             sessionSendsLaunchEvents = policy.sendsLaunchEvents
             // Queued files are all submitted before the app leaves the foreground; the session
@@ -734,6 +763,7 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
             val resumeData = takeResumeData(request.destinationFileName)
             if (resumeData != null) {
                 val task = ensureSessionCreated().downloadTaskWithResumeData(resumeData)
+                task.priority = transferTaskPriority(lowPriorityTransfers)
                 task.taskDescription = downloadId
                 IosBackgroundTaskFiles.remember(downloadId, request.destinationFileName)
                 applyRetryDelay(task, notBeforeSeconds)
@@ -764,6 +794,7 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
 
             val nativeRequest = buildRequest(request, rangeStart = resumeFromBytes.takeIf { it > 0L })
             val task = ensureSessionCreated().downloadTaskWithRequest(nativeRequest)
+            task.priority = transferTaskPriority(lowPriorityTransfers)
             task.taskDescription = downloadId
             IosBackgroundTaskFiles.remember(downloadId, request.destinationFileName)
             applyRetryDelay(task, notBeforeSeconds)
@@ -826,21 +857,34 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
     }
 
     fun cancelDownload(downloadId: String) {
+        val rememberedName = IosBackgroundTaskFiles.fileName(downloadId)
         IosBackgroundTaskFiles.forget(downloadId)
         val active = activeDownloads.remove(downloadId)
         active?.deliberatelyCancelled = true
         if (active != null) {
             IosWriterOwnership.release(downloadId, DownloadWriterKind.Background)
         }
-        val task = tasksByDownloadId.remove(downloadId) ?: return
-        val fileName = active?.request?.destinationFileName
+        val fileName = active?.request?.destinationFileName ?: rememberedName
+        val task = tasksByDownloadId.remove(downloadId)
+        if (task != null) suspendTask(downloadId, task, fileName)
+        val already = task?.taskIdentifier
+        ensureSessionCreated().getAllTasksWithCompletionHandler { tasks ->
+            tasks.orEmpty()
+                .mapNotNull { it as? NSURLSessionDownloadTask }
+                .filter { it.taskDescription == downloadId && it.taskIdentifier != already }
+                .filter {
+                    it.state != NSURLSessionTaskStateCompleted && it.state != NSURLSessionTaskStateCanceling
+                }
+                .forEach { suspendTask(downloadId, it, fileName) }
+        }
+    }
+
+    private fun suspendTask(downloadId: String, task: NSURLSessionDownloadTask, fileName: String?) {
         if (fileName == null) {
             task.cancel()
             return
         }
-
-        val pending = PendingPause(fileName)
-        pendingPauses[downloadId] = pending
+        val pending = pendingPauses[downloadId] ?: PendingPause(fileName).also { pendingPauses[downloadId] = it }
         task.cancelByProducingResumeData { resumeData ->
             dispatch_async(dispatch_get_main_queue()) {
                 if (pendingPauses[downloadId] === pending) pendingPauses.remove(downloadId)
@@ -923,6 +967,7 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         expectedTotalBytes: Long,
     ) {
         val (downloadId, _) = activeFor(downloadTask) ?: return
+        if (IosTransferControl.isSuppressed(downloadId)) return
         reportProgress(
             downloadId = downloadId,
             downloadedBytes = didResumeAtOffset,
@@ -938,6 +983,7 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
         totalBytesExpectedToWrite: Long,
     ) {
         val (downloadId, _) = activeFor(downloadTask) ?: return
+        if (IosTransferControl.isSuppressed(downloadId)) return
         reportProgress(
             downloadId = downloadId,
             downloadedBytes = resumeOffset(downloadTask) + totalBytesWritten,
@@ -1132,6 +1178,7 @@ internal class IosBackgroundDownloadCoordinatorImpl : NSObject(), NSURLSessionDo
      */
     override fun URLSessionDidFinishEventsForBackgroundURLSession(session: NSURLSession) {
         val identifier = session.configuration.identifier ?: return
+        com.nuvio.app.features.diagnostics.nuvioRecordHeat("session")
         dispatch_async(dispatch_get_main_queue()) {
             DownloadsLiveStatusPlatform.flushNow()
             backgroundSessionCompletionHandlers.remove(identifier)?.invoke()

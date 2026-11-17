@@ -390,21 +390,30 @@ private fun SupportersContributorsBody(
     Column(
         verticalArrangement = Arrangement.spacedBy(if (isTablet) 18.dp else 14.dp),
     ) {
-        SupporterMembershipCard(
-            state = membershipState,
-            isTablet = isTablet,
-            showAction = AppFeaturePolicy.donationActionsEnabled,
-            actionEnabled = membershipState.overview?.subscriptionActive == true || donateConfigured,
-            onAction = {
-                val url = if (membershipState.overview?.subscriptionActive == true) {
-                    PatreonMembershipUrl
-                } else {
-                    donateUrl
-                }
-                if (url.isNotBlank()) uriHandler.openUri(url)
-            },
-            onRefresh = MembershipOverviewRepository::refresh,
-        )
+        val listFailed = when (uiState.selectedTab) {
+            CommunityTab.Contributors -> uiState.contributorsErrorMessage != null
+            CommunityTab.Supporters -> uiState.supportersErrorMessage != null
+        }
+        val membershipSpinnerOnly = membershipState.isLoading &&
+            membershipState.overview == null &&
+            membershipState.errorMessage == null
+        if (!membershipSpinnerOnly || !listFailed) {
+            SupporterMembershipCard(
+                state = membershipState,
+                isTablet = isTablet,
+                showAction = AppFeaturePolicy.donationActionsEnabled,
+                actionEnabled = membershipState.overview?.subscriptionActive == true || donateConfigured,
+                onAction = {
+                    val url = if (membershipState.overview?.subscriptionActive == true) {
+                        PatreonMembershipUrl
+                    } else {
+                        donateUrl
+                    }
+                    if (url.isNotBlank()) uriHandler.openUri(url)
+                },
+                onRefresh = MembershipOverviewRepository::refresh,
+            )
+        }
 
         if (AppFeaturePolicy.donationProgressEnabled) {
             NuvioSurfaceCard {
@@ -578,12 +587,12 @@ private fun ContributorsCard(
 ) {
     NuvioSurfaceCard {
         when {
-            isLoading -> LoadingState(label = stringResource(Res.string.community_loading_contributors))
             errorMessage != null -> ErrorState(
                 title = stringResource(Res.string.community_load_contributors_failed),
                 message = errorMessage,
                 onRetry = onRetry,
             )
+            isLoading -> LoadingState(label = stringResource(Res.string.community_loading_contributors))
             contributors.isEmpty() -> EmptyState(label = stringResource(Res.string.community_empty_contributors))
             else -> LazyColumn(
                 modifier = Modifier
@@ -616,12 +625,12 @@ private fun SupportersCard(
 ) {
     NuvioSurfaceCard {
         when {
-            isLoading -> LoadingState(label = stringResource(Res.string.community_loading_supporters))
             errorMessage != null -> ErrorState(
                 title = stringResource(Res.string.community_load_supporters_failed),
                 message = errorMessage,
                 onRetry = onRetry,
             )
+            isLoading -> LoadingState(label = stringResource(Res.string.community_loading_supporters))
             supporters.isEmpty() -> EmptyState(label = stringResource(Res.string.community_empty_supporters))
             else -> LazyColumn(
                 modifier = Modifier
@@ -679,21 +688,23 @@ private fun DonationProgressSection(
             }
         }
 
-        if (isLoading && progress == null) {
-            LinearProgressIndicator(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(999.dp)),
-            )
-        } else {
-            LinearProgressIndicator(
-                progress = { progressFraction },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(999.dp)),
-            )
+        if (errorMessage == null) {
+            if (isLoading && progress == null) {
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(999.dp)),
+                )
+            } else {
+                LinearProgressIndicator(
+                    progress = { progressFraction },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(999.dp)),
+                )
+            }
         }
 
         Text(

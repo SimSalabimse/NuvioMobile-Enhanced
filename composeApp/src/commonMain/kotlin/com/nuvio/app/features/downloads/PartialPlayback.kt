@@ -106,3 +106,12 @@ internal fun partialPlaybackDownloadId(url: String): String? {
 
 internal fun isLoopbackPartialPlaybackUrl(url: String?): Boolean =
     !url.isNullOrBlank() && partialPlaybackDownloadId(url) != null
+
+/** A file on disk or the early-play loopback server. Not a network stream. */
+internal fun isOnDiskPlaybackUrl(url: String?): Boolean {
+    val value = url?.trim().orEmpty()
+    if (value.isEmpty()) return false
+    return value.startsWith("file:", ignoreCase = true) ||
+        value.startsWith("/") ||
+        isLoopbackPartialPlaybackUrl(value)
+}

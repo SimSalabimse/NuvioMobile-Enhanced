@@ -88,6 +88,18 @@ data class BundledRelease(
     /** "0.6.1.1(181)", the same form as [ReleaseNotes.currentKey]; just the version without a build. */
     val key: String get() = build?.let { "$version($it)" } ?: version
     val label: String get() = build?.let { "$version ($it)" } ?: version
+
+    /**
+     * The installed build's line comes from the binary. An older bundled build keeps its own number.
+     */
+    fun displayLabel(
+        versionName: String = AppVersionConfig.VERSION_NAME,
+        versionCode: Int = AppVersionConfig.VERSION_CODE,
+    ): String = if (version == versionName && build == versionCode) {
+        "$versionName ($versionCode)"
+    } else {
+        label
+    }
     val noteCount: Int get() = new.size + improved.size + fixed.size
 }
 
@@ -215,7 +227,7 @@ internal fun WhatsNewLaunchHost(enabled: Boolean) {
     var pending by remember { mutableStateOf<Pair<List<BundledRelease>, Boolean>?>(null) }
     var checked by remember { mutableStateOf(false) }
     LaunchedEffect(enabled) {
-        if (!enabled || checked) return@LaunchedEffect
+        if (!enabled || checked || com.nuvio.app.core.uifixture.uiFixturesActive()) return@LaunchedEffect
         checked = true
         kotlinx.coroutines.delay(900)
         pending = ReleaseNotes.pendingForLaunch()
@@ -289,10 +301,6 @@ internal fun WhatsNewSheet(releases: List<BundledRelease>, firstRun: Boolean, on
                 }
                 val background = MaterialTheme.nuvio.colors.surfaceSheet
                 Box(
-                    Modifier.align(Alignment.TopCenter).fillMaxWidth().height(16.dp)
-                        .background(Brush.verticalGradient(listOf(background, background.copy(alpha = 0f)))),
-                )
-                Box(
                     Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(32.dp)
                         .background(Brush.verticalGradient(listOf(background.copy(alpha = 0f), background))),
                 )
@@ -320,7 +328,7 @@ private fun formatReleaseDate(iso: String?): String? {
 
 @Composable
 private fun releaseSubtitle(release: BundledRelease): String {
-    val version = stringResource(Res.string.whats_new_version_label, release.label)
+    val version = stringResource(Res.string.whats_new_version_label, release.displayLabel())
     return listOfNotNull(version, formatReleaseDate(release.date)).joinToString("  ·  ")
 }
 
@@ -336,7 +344,7 @@ private fun BuildNotes(release: BundledRelease, initiallyExpanded: Boolean, unse
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(release.label, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = colors.textPrimary)
+                Text(release.displayLabel(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = colors.textPrimary)
                 val summary = listOfNotNull(
                     formatReleaseDate(release.date),
                     "${release.noteCount} ${if (release.noteCount == 1) "change" else "changes"}".takeIf { !expanded },

@@ -114,7 +114,7 @@ private fun PlayerScreenRuntime.restartServerStream(
             return@launch
         }
         if (activeSourceUrl != url) {
-            ServerPlayback.stop(playback.url)
+            ServerPlayback.stop(playback.url, persistsProgress = persistsProgress)
             return@launch
         }
         externalSubtitles = playback.subtitles

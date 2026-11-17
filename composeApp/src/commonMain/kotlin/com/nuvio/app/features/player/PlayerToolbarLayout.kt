@@ -7,6 +7,7 @@ enum class PlayerToolbarButton(val storageId: String) {
     SUBTITLES("subtitles"),
     CHAPTERS("chapters"),
     AUDIO("audio"),
+    NIGHT_MODE("night_mode"),
     QUALITY("quality"),
     SOURCES("sources"),
     EPISODES("episodes"),
@@ -58,8 +59,10 @@ data class PlayerToolbarLayout(val entries: List<PlayerToolbarEntry>) {
                 PlayerToolbarButton.RESIZE,
                 PlayerToolbarButton.SUBTITLES,
                 PlayerToolbarButton.CHAPTERS,
+                PlayerToolbarButton.SUBMIT_INTRO,
             ).map { PlayerToolbarEntry(it, visible = true) } +
                 listOf(
+                    PlayerToolbarButton.NIGHT_MODE,
                     PlayerToolbarButton.AUDIO,
                     PlayerToolbarButton.QUALITY,
                     PlayerToolbarButton.SOURCES,
@@ -69,19 +72,23 @@ data class PlayerToolbarLayout(val entries: List<PlayerToolbarEntry>) {
                     PlayerToolbarButton.PLAYBACK_INFO,
                     PlayerToolbarButton.SWITCH_ENGINE,
                     PlayerToolbarButton.VIDEO_SETTINGS,
-                    PlayerToolbarButton.SUBMIT_INTRO,
                 ).map { PlayerToolbarEntry(it, visible = false) },
         )
 
         fun decode(value: String?): PlayerToolbarLayout {
             if (value.isNullOrBlank()) return Default
-            val parsed = value.split(',').mapNotNull { token ->
+            val tokens = value.split(',')
+            val parsed = tokens.mapNotNull { token ->
                 val button = PlayerToolbarButton.fromStorageId(token.substringBefore(':').trim())
                     ?: return@mapNotNull null
                 PlayerToolbarEntry(button, visible = token.substringAfter(':', "v").trim() != "h")
             }.distinctBy { it.button }
             val missing = Default.entries.filter { default -> parsed.none { it.button == default.button } }
-            return PlayerToolbarLayout(parsed + missing)
+            val merged = PlayerToolbarLayout(parsed + missing)
+            // A saved layout that never names Submit intro kept the Flag before this row existed.
+            // Only an explicit hidden token hides it.
+            val mentionedSubmitIntro = parsed.any { it.button == PlayerToolbarButton.SUBMIT_INTRO }
+            return if (mentionedSubmitIntro) merged else merged.withVisibility(PlayerToolbarButton.SUBMIT_INTRO, true)
         }
     }
 }

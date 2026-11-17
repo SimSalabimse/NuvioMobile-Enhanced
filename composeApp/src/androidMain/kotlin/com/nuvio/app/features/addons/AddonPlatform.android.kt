@@ -2,8 +2,10 @@ package com.nuvio.app.features.addons
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.nuvio.app.core.automation.isolateStorageKey
 import com.nuvio.app.core.diagnostics.SentryNetworkBreadcrumbInterceptor
 import com.nuvio.app.core.network.IPv4FirstDns
+import com.nuvio.app.core.network.NetworkErrorInterceptor
 import com.nuvio.app.core.network.SharedOkHttpClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -44,9 +46,12 @@ actual object AddonStorage {
         preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
     }
 
+    private fun urlsKey(profileId: Int) = isolateStorageKey("${addonUrlsKey}_$profileId")
+    private fun enabledKey(profileId: Int) = isolateStorageKey("${addonEnabledStatesKey}_$profileId")
+
     actual fun loadInstalledAddonUrls(profileId: Int): List<String> =
         preferences
-            ?.getString("${addonUrlsKey}_$profileId", null)
+            ?.getString(urlsKey(profileId), null)
             .orEmpty()
             .lineSequence()
             .map { it.trim() }
@@ -56,13 +61,13 @@ actual object AddonStorage {
     actual fun saveInstalledAddonUrls(profileId: Int, urls: List<String>) {
         preferences
             ?.edit()
-            ?.putString("${addonUrlsKey}_$profileId", urls.joinToString(separator = "\n"))
+            ?.putString(urlsKey(profileId), urls.joinToString(separator = "\n"))
             ?.apply()
     }
 
     actual fun loadAddonEnabledStates(profileId: Int): Map<String, Boolean> =
         preferences
-            ?.getString("${addonEnabledStatesKey}_$profileId", null)
+            ?.getString(enabledKey(profileId), null)
             .orEmpty()
             .lineSequence()
             .mapNotNull(::parseEnabledStateLine)
@@ -74,7 +79,7 @@ actual object AddonStorage {
         }
         preferences
             ?.edit()
-            ?.putString("${addonEnabledStatesKey}_$profileId", payload)
+            ?.putString(enabledKey(profileId), payload)
             ?.apply()
     }
 }
@@ -120,6 +125,7 @@ private fun buildAddonHttpClient(cache: Cache? = null): OkHttpClient =
         .writeTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
+        .addInterceptor(NetworkErrorInterceptor())
         .addInterceptor(SentryNetworkBreadcrumbInterceptor())
         .proxy(Proxy.NO_PROXY)
         .apply {
@@ -202,7 +208,9 @@ private suspend fun executeTextRequest(
     url: String,
     headers: Map<String, String> = emptyMap(),
     body: String = "",
-): String = withContext(Dispatchers.IO) {
+): String {
+    com.nuvio.app.core.automation.blockedAutomationHttpText()?.let { return it }
+    return withContext(Dispatchers.IO) {
     val normalizedMethod = method.uppercase()
     val sanitizedHeaders = headers.withoutAcceptEncoding()
     val builder = Request.Builder().url(url)
@@ -265,6 +273,7 @@ private suspend fun executeTextRequest(
             },
         )
     }
+    }
 }
 
 actual suspend fun httpGetText(url: String): String =
@@ -318,8 +327,16 @@ actual suspend fun httpRequestRaw(
     followRedirects: Boolean,
     maxResponseBodyBytes: Int,
     bodyBytes: ByteArray?,
-): RawHttpResponse =
-    withContext(Dispatchers.IO) {
+): RawHttpResponse {
+    if (com.nuvio.app.core.ui.automationRawRequestBlocked(
+            automationActive = com.nuvio.app.core.automation.AutomationTestMode.isActive,
+            url = url,
+        )
+    ) {
+        com.nuvio.app.core.automation.AutomationStubs.noteBlockedNetwork()
+        return RawHttpResponse(status = 204, statusText = "automation", url = "", body = "", headers = emptyMap())
+    }
+    return withContext(Dispatchers.IO) {
         val normalizedMethod = method.uppercase()
         val sanitizedHeaders = headers.withoutAcceptEncoding()
         val builder = Request.Builder().url(url)
@@ -381,3 +398,4 @@ actual suspend fun httpRequestRaw(
             cancelHandle?.dispose()
         }
     }
+}

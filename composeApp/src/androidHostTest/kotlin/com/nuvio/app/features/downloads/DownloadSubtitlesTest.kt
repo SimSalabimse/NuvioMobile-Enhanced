@@ -90,7 +90,9 @@ class DownloadSubtitlesTest {
         val tracks = DownloadSubtitles.localSubtitles(uri)
         assertEquals(DownloadStatus.Completed, restored.status)
         assertEquals(setOf("en", "fr"), tracks.map { it.language }.toSet())
-        assertEquals("/video", paths.last())
+        // The video transfer starts while subtitle bytes are still arriving, so the video
+        // request is not the last one. Both tracks are on disk before the file is completed.
+        assertEquals(1, paths.count { it == "/video" })
         assertEquals(1, paths.count { it == "/english" })
         assertEquals(1, paths.count { it == "/french" })
         assertTrue(tracks.single { it.language == "en" }.name.orEmpty().contains("OpenSubtitles"))

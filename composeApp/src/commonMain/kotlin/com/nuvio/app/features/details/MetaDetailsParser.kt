@@ -159,7 +159,7 @@ internal object MetaDetailsParser {
                 link.category.equals("actor", ignoreCase = true) ||
                 link.category.equals("actors", ignoreCase = true)
         }.map { link ->
-            MetaPerson(name = link.name)
+            MetaPerson(name = link.name, tmdbId = personIdFromUrl(link.url))
         }
 
         return mergePeople(appExtraCast, topLevelCast, linkedCast)
@@ -197,6 +197,7 @@ internal object MetaDetailsParser {
                             name = personName,
                             role = element.string("character")?.trim()?.takeIf(String::isNotBlank),
                             photo = element.string("photo")?.trim()?.takeIf(String::isNotBlank),
+                            tmdbId = element.metadataPersonId(),
                         )
                     }
                     is JsonPrimitive -> element.contentOrNull
@@ -216,6 +217,15 @@ internal object MetaDetailsParser {
         }
     }
 
+    private fun JsonObject.metadataPersonId(): Int? {
+        val names = listOf("id", "tmdb_id", "tmdbId", "person_id", "personId")
+        for (name in names) {
+            val value = this[name] as? JsonPrimitive ?: continue
+            navigablePersonId(value.contentOrNull)?.let { return it }
+        }
+        return null
+    }
+
     private fun mergePeople(vararg groups: List<MetaPerson>): List<MetaPerson> {
         val merged = linkedMapOf<String, MetaPerson>()
         groups.forEach { group ->
@@ -230,6 +240,7 @@ internal object MetaDetailsParser {
                     existing.copy(
                         role = existing.role ?: person.role,
                         photo = existing.photo ?: person.photo,
+                        tmdbId = navigablePersonId(existing.tmdbId) ?: navigablePersonId(person.tmdbId),
                     )
                 }
             }

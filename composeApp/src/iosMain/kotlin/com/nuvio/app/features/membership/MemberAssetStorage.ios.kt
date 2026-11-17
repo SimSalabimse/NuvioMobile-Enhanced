@@ -1,5 +1,6 @@
 package com.nuvio.app.features.membership
 
+import com.nuvio.app.core.automation.allowStorageWrite
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
 import kotlinx.cinterop.convert
@@ -29,6 +30,7 @@ internal actual object MemberAssetStorage {
         NSUserDefaults.standardUserDefaults.stringForKey(accessPayloadKey)
 
     actual fun saveAccessPayload(payload: String) {
+        if (!allowStorageWrite(accessPayloadKey)) return
         NSUserDefaults.standardUserDefaults.setObject(payload, forKey = accessPayloadKey)
         NSFileManager.defaultManager.removeItemAtPath(legacyBrandingPath, null)
     }
@@ -37,6 +39,7 @@ internal actual object MemberAssetStorage {
         NSUserDefaults.standardUserDefaults.stringForKey(backgroundCatalogPayloadKey)
 
     actual fun saveProfileBackgroundCatalogPayload(payload: String) {
+        if (!allowStorageWrite(backgroundCatalogPayloadKey)) return
         NSUserDefaults.standardUserDefaults.setObject(payload, forKey = backgroundCatalogPayloadKey)
     }
 
@@ -44,6 +47,7 @@ internal actual object MemberAssetStorage {
         readFile("$backgroundDirectory/${safeKey(cacheKey)}.png")
 
     actual fun saveProfileBackground(cacheKey: String, bytes: ByteArray) {
+        if (!allowStorageWrite(accessPayloadKey)) return
         writeFile(backgroundDirectory, "$backgroundDirectory/${safeKey(cacheKey)}.png", bytes)
     }
 
@@ -53,11 +57,13 @@ internal actual object MemberAssetStorage {
     }
 
     actual fun saveProfileAvatar(cacheKey: String, bytes: ByteArray): String? {
+        if (!allowStorageWrite(accessPayloadKey)) return null
         val path = "$avatarDirectory/${safeKey(cacheKey)}"
         return if (writeFile(avatarDirectory, path, bytes)) fileUrl(path) else null
     }
 
     actual fun clearAccess() {
+        if (!allowStorageWrite(accessPayloadKey)) return
         NSUserDefaults.standardUserDefaults.removeObjectForKey(accessPayloadKey)
         NSFileManager.defaultManager.removeItemAtPath(legacyBrandingPath, null)
     }

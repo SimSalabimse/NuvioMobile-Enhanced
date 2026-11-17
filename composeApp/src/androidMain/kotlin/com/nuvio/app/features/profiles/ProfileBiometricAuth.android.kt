@@ -1,5 +1,6 @@
 package com.nuvio.app.features.profiles
 
+import com.nuvio.app.core.automation.AutomationTestMode
 import android.os.Build
 import android.app.KeyguardManager
 import android.content.Context
@@ -41,6 +42,8 @@ actual object ProfileBiometricAuth {
 
     actual fun initialize(host: Any) {
         activityReference = (host as? FragmentActivity)?.let(::WeakReference)
+        // Automation must not delete the owner's legacy keystore alias on launch.
+        if (AutomationTestMode.isActive) return
         // Keystore access is synchronous; keep legacy cleanup off the UI thread.
         // This legacy alias is not account-scoped and is never used by current credentials.
         LegacyBiometricCleanupScope.launch {
@@ -59,6 +62,7 @@ actual object ProfileBiometricAuth {
     }
 
     actual suspend fun isConfigured(profileIndex: Int, userId: String): Boolean {
+        if (AutomationTestMode.isActive) return false
         if (profileIndex != 1 || userId.isBlank()) return false
 
         return withContext(Dispatchers.IO) {
@@ -90,6 +94,7 @@ actual object ProfileBiometricAuth {
     }
 
     actual suspend fun enable(profileIndex: Int, userId: String): ProfileBiometricResult {
+        if (AutomationTestMode.isActive) return ProfileBiometricResult.Unavailable
         if (profileIndex != 1 || userId.isBlank() || !isAvailable()) {
             return ProfileBiometricResult.Unavailable
         }
@@ -131,6 +136,7 @@ actual object ProfileBiometricAuth {
     }
 
     actual suspend fun authenticate(profileIndex: Int, userId: String): ProfileBiometricResult {
+        if (AutomationTestMode.isActive) return ProfileBiometricResult.Unavailable
         if (profileIndex != 1 || userId.isBlank()) return ProfileBiometricResult.Unavailable
         if (!isConfigured(profileIndex, userId)) return ProfileBiometricResult.NotConfigured
 
@@ -149,6 +155,7 @@ actual object ProfileBiometricAuth {
     }
 
     actual fun disable(profileIndex: Int, userId: String): Boolean {
+        if (AutomationTestMode.isActive) return true
         if (profileIndex != 1) return true
 
         // The legacy alias is global, not account-scoped, so it can be removed even

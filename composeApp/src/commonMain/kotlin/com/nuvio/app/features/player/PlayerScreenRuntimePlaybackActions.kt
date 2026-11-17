@@ -11,6 +11,9 @@ import com.nuvio.app.features.downloads.partialDownloadWaitReason
 import com.nuvio.app.features.downloads.partialEndCanResume
 import com.nuvio.app.features.downloads.partialFilePlayhead
 import com.nuvio.app.features.downloads.partialPlaybackDownloadId
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineScope
 import com.nuvio.app.features.servers.ServerItemRef
 import com.nuvio.app.features.servers.ServerStreams
 import com.nuvio.app.features.tmdb.TmdbService
@@ -22,12 +25,13 @@ import com.nuvio.app.features.tracking.buildTrackingMediaReference
 import com.nuvio.app.features.watchprogress.WatchProgressClock
 import com.nuvio.app.features.watchprogress.WatchProgressPlaybackSession
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
+import com.nuvio.app.features.watchprogress.allowsProgressWrite
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
 import com.nuvio.app.features.watching.domain.isShortPlaceholderDuration
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.player_engine_switching_automatic_message
 import nuvio.composeapp.generated.resources.player_engine_switching_manual_message
 import kotlin.math.abs
 import kotlin.time.Duration.Companion.seconds
@@ -163,9 +167,24 @@ internal val PlayerScreenRuntime.activePlaybackIdentity: String
         ?: downloadSwapIdentity
         ?: activeSourceUrl
 
+internal val PlayerScreenRuntime.playbackIsolation: com.nuvio.app.features.watchprogress.PlaybackIsolation
+    get() = com.nuvio.app.features.watchprogress.playbackIsolation(
+        submitMode = args.submitMode,
+        privateSession = args.privateSession,
+        globalPrivateViewing = playerSettingsUiState.privateViewingEnabled,
+    )
+
 internal val PlayerScreenRuntime.shouldTrackWatchProgress: Boolean
     get() = !isLiveTvPlayback && !parentMetaType.equals("live", ignoreCase = true) &&
-        !playerSettingsUiState.privateViewingEnabled
+        persistsProgress
+
+/** Submit mode, a private session, and the saved Private Viewing switch all make this false. */
+internal val PlayerScreenRuntime.persistsProgress: Boolean
+    get() = playbackIsolation.persistsProgress
+
+/** Private session and submit mode do not roll into the next episode. */
+internal val PlayerScreenRuntime.blocksAutoplay: Boolean
+    get() = !playbackIsolation.allowsAutoplay
 
 internal val PlayerScreenRuntime.activePlaybackKey: PlaybackKey
     get() = PlaybackKey(
@@ -174,6 +193,14 @@ internal val PlayerScreenRuntime.activePlaybackKey: PlaybackKey
         seasonNumber = activeSeasonNumber,
         episodeNumber = activeEpisodeNumber,
         playbackEngine = playbackEngineOverride,
+    )
+
+internal val PlayerScreenRuntime.sourcePlaybackKey: PlaybackKey
+    get() = PlaybackKey(
+        sourceIdentity = activePlaybackIdentity,
+        videoId = activeVideoId,
+        seasonNumber = activeSeasonNumber,
+        episodeNumber = activeEpisodeNumber,
     )
 
 internal val PlayerScreenRuntime.playbackSession: WatchProgressPlaybackSession
@@ -202,6 +229,7 @@ internal val PlayerScreenRuntime.playbackSession: WatchProgressPlaybackSession
         lastStreamSubtitle = activeStreamSubtitle,
         pauseDescription = activePauseDescription,
         lastSourceUrl = activeSourceUrl.takeUnless { ServerStreams.isServerSourceId(activeProviderAddonId) },
+        persistsProgress = persistsProgress,
     )
 
 internal fun PlayerScreenRuntime.currentLaunch(launch: PlayerLaunch): PlayerLaunch {
@@ -231,12 +259,30 @@ internal fun PlayerScreenRuntime.currentLaunch(launch: PlayerLaunch): PlayerLaun
         torrentFilename = activeTorrentFilename,
         torrentTrackers = activeTorrentTrackers,
         sourceFilename = activeSourceFilename,
-        initialPositionMs = positionMs ?: activeInitialPositionMs,
-        initialProgressFraction = activeInitialProgressFraction.takeIf { positionMs == null },
+        initialPositionMs = if (persistsProgress) {
+            positionMs ?: activeInitialPositionMs
+        } else {
+            launch.initialPositionMs
+        },
+        initialProgressFraction = if (persistsProgress) {
+            activeInitialProgressFraction.takeIf { positionMs == null }
+        } else {
+            launch.initialProgressFraction
+        },
     )
 }
 
 internal fun PlayerScreenRuntime.resetIdentityStateIfNeeded() {
+    val sourceIdentity = sourcePlaybackKey
+    if (lastResetSourcePlaybackIdentity != sourceIdentity) {
+        lastResetSourcePlaybackIdentity = sourceIdentity
+        engineFailoverTriggered = false
+        engineFailoverDisarmed = false
+        engineFailoverSourceIdentity = null
+        playbackEngineOverride = null
+        autoFetchedAddonSubtitlesForKey = null
+    }
+
     val identity = activePlaybackKey
     if (lastResetPlaybackIdentity != identity) {
         lastResetPlaybackIdentity = identity
@@ -248,7 +294,6 @@ internal fun PlayerScreenRuntime.resetIdentityStateIfNeeded() {
         lastProgressPersistEpochMs = 0L
         previousIsPlaying = false
         pendingSeekScrobbleRestart = false
-        autoFetchedAddonSubtitlesForKey = null
         trackPreferenceRestoreApplied = false
         preferredAudioSelectionApplied = false
         appliedAudioPreferences = null
@@ -270,7 +315,19 @@ internal fun PlayerScreenRuntime.resetIdentityStateIfNeeded() {
         currentTrackingMedia = null
         abandonMarkPreview()
         dismissPlayerTools()
+        if (submitMode) openMarkingStrip(prefillCurrentSegment = false)
     }
+}
+
+internal val PlayerScreenRuntime.submitMode: Boolean
+    get() = args.submitMode
+
+internal fun PlayerScreenRuntime.resetAddonSubtitlesIfSourceChanged() {
+    val sourceIdentity = sourcePlaybackKey
+    if (lastAddonSubtitleSourceIdentity == sourceIdentity) return
+    lastAddonSubtitleSourceIdentity = sourceIdentity
+    SubtitleRepository.clear()
+    autoFetchedAddonSubtitlesForKey = null
 }
 
 internal fun PlayerScreenRuntime.currentPlaybackProgressPercent(
@@ -325,6 +382,7 @@ internal fun PlayerScreenRuntime.currentTrackingMedia(): TrackingMediaReference 
     snapshotTrackingScrobbleItemInputs().buildMedia()
 
 internal fun PlayerScreenRuntime.emitTrackingScrobbleStart() {
+    if (!allowsProgressWrite(persistsProgress)) return
     if (!shouldTrackWatchProgress) return
     if (isShortPlaceholderDuration(playbackSnapshot.durationMs)) return
     if (hasRequestedScrobbleStartForCurrentItem) return
@@ -350,6 +408,7 @@ internal fun PlayerScreenRuntime.emitTrackingScrobbleStart() {
                 media = media,
                 progressPercent = currentPlaybackProgressPercent().toDouble(),
             ),
+            persistsProgress = persistsProgress,
         )
     }
 }
@@ -372,6 +431,7 @@ private fun PlayerScreenRuntime.emitTrackingScrobbleTerminal(
     action: TrackingScrobbleAction,
     progressPercent: Float?,
 ) {
+    if (!allowsProgressWrite(persistsProgress)) return
     if (!shouldTrackWatchProgress) return
     if (isShortPlaceholderDuration(playbackSnapshot.durationMs)) return
     val provided = progressPercent
@@ -380,13 +440,14 @@ private fun PlayerScreenRuntime.emitTrackingScrobbleTerminal(
     val percent = provided ?: currentPlaybackProgressPercent()
     val mediaSnapshot = currentTrackingMedia
     val inputsSnapshot = snapshotTrackingScrobbleItemInputs()
-    scope.launch(NonCancellable) {
+    CoroutineScope(scope.coroutineContext.minusKey(Job) + SupervisorJob()).launch {
         val media = mediaSnapshot ?: inputsSnapshot.buildMedia()
         if (!media.hasResolvableIdentity) return@launch
         TrackingScrobbleCoordinator.scrobble(
             profileId = profileId,
             action = action,
             event = TrackingScrobbleEvent(media = media, progressPercent = percent.toDouble()),
+            persistsProgress = persistsProgress,
         )
     }
     currentTrackingMedia = null
@@ -423,6 +484,7 @@ internal fun shouldUpdateTrackingScrobbleAfterSeek(
 ): Boolean = hasActiveScrobble && progressPercent >= 1f && progressPercent < 80f
 
 internal fun PlayerScreenRuntime.emitTrackingSeekScrobbleStart() {
+    if (!allowsProgressWrite(persistsProgress)) return
     if (isShortPlaceholderDuration(playbackSnapshot.durationMs)) return
     val mediaSnapshot = currentTrackingMedia
     val inputsSnapshot = snapshotTrackingScrobbleItemInputs()
@@ -437,6 +499,7 @@ internal fun PlayerScreenRuntime.emitTrackingSeekScrobbleStart() {
                 media = media,
                 progressPercent = currentPlaybackProgressPercent().toDouble(),
             ),
+            persistsProgress = persistsProgress,
         )
     }
 }
@@ -469,6 +532,7 @@ internal suspend fun PlayerScreenRuntime.resolveParentalGuideImdbId(): String? {
 internal fun PlayerScreenRuntime.flushWatchProgress(
     scrobbleAction: TrackingScrobbleAction = TrackingScrobbleAction.STOP,
 ) {
+    if (!allowsProgressWrite(persistsProgress)) return
     if (!shouldTrackWatchProgress) return
     when (scrobbleAction) {
         TrackingScrobbleAction.PAUSE -> emitTrackingScrobblePause()
@@ -482,6 +546,7 @@ internal fun PlayerScreenRuntime.flushWatchProgress(
 }
 
 internal fun PlayerScreenRuntime.scheduleProgressSyncAfterSeek() {
+    if (!allowsProgressWrite(persistsProgress)) return
     if (!shouldTrackWatchProgress) return
     val shouldRestartScrobbleAfterSeek = shouldPlay || playbackSnapshot.isPlaying
     seekProgressSyncJob?.cancel()
@@ -515,6 +580,7 @@ internal fun PlayerScreenRuntime.scheduleProgressSyncAfterSeek() {
                 profileId = profileId,
                 action = TrackingScrobbleAction.STOP,
                 event = stopEvent,
+                persistsProgress = persistsProgress,
             )
             if (!shouldRestartScrobbleAfterSeek || !shouldPlay || playbackSnapshot.isEnded ||
                 isShortPlaceholderDuration(playbackSnapshot.durationMs)
@@ -527,6 +593,7 @@ internal fun PlayerScreenRuntime.scheduleProgressSyncAfterSeek() {
                     event = stopEvent.copy(
                         progressPercent = currentPlaybackProgressPercent().toDouble(),
                     ),
+                    persistsProgress = persistsProgress,
                 )
             } else {
                 pendingSeekScrobbleRestart = true
@@ -536,6 +603,7 @@ internal fun PlayerScreenRuntime.scheduleProgressSyncAfterSeek() {
 }
 
 internal fun PlayerScreenRuntime.persistPlaybackProgressTick() {
+    if (!allowsProgressWrite(persistsProgress)) return
     if (!shouldTrackWatchProgress) return
     val now = WatchProgressClock.nowEpochMs()
     if (now - lastProgressPersistEpochMs < PlaybackProgressPersistIntervalMs) return
@@ -557,13 +625,63 @@ internal fun PlayerScreenRuntime.switchPlaybackEngine() {
         activeInitialPositionMs = playbackClock.positionMs.coerceAtLeast(0L)
         activeInitialProgressFraction = null
     }
+    // Capture the current track selection so it can be restored on the new engine.
+    rememberCurrentTrackPreferenceForEngineSwitch(target)
     playbackEngineOverride = target
+    // A manual switch is an explicit user decision: never let the automatic engine
+    // failover drag the user back to the engine they just switched away from.
+    engineFailoverDisarmed = true
     showGestureFeedback(
         GestureFeedbackState(
             messageRes = Res.string.player_engine_switching_manual_message,
             messageArgs = listOf(target.label),
         ),
     )
+}
+
+/**
+ * Switches to the opposite playback engine after a playback error, when the
+ * "auto-switch engine on playback error" setting is enabled. Applies whichever engine is
+ * selected; fires at most once per source, after the engine's own retries, and never after a
+ * manual engine switch.
+ *
+ * @return true when the failover was started and the caller should swallow the error.
+ */
+internal fun PlayerScreenRuntime.maybeFailoverPlaybackEngine(
+    resolvedAutoEngine: AndroidPlaybackEngine?,
+): Boolean {
+    if (!playerSettingsUiState.autoSwitchPlaybackEngineOnError) return false
+    if (engineFailoverDisarmed) return false
+    val sourceIdentity = activePlaybackIdentity
+    if (engineFailoverSourceIdentity == sourceIdentity) return false
+
+    val current = playerController?.playbackEngine
+        ?: playbackEngineOverride
+        ?: resolvedAutoEngine
+        ?: playerSettingsUiState.androidPlaybackEngine
+    val target = if (current == AndroidPlaybackEngine.Libmpv) {
+        AndroidPlaybackEngine.ExoPlayer
+    } else {
+        AndroidPlaybackEngine.Libmpv
+    }
+
+    engineFailoverTriggered = true
+    engineFailoverSourceIdentity = sourceIdentity
+    flushWatchProgress()
+    if (initialSeekApplied) {
+        activeInitialPositionMs = playbackSnapshot.positionMs.coerceAtLeast(0L)
+        activeInitialProgressFraction = null
+    }
+    // Capture the current track selection so it can be restored on the new engine.
+    rememberCurrentTrackPreferenceForEngineSwitch(target)
+    playbackEngineOverride = target
+    showGestureFeedback(
+        GestureFeedbackState(
+            messageRes = Res.string.player_engine_switching_automatic_message,
+            messageArgs = listOf(target.label),
+        ),
+    )
+    return true
 }
 
 internal fun PlayerScreenRuntime.openStreamInfo() {

@@ -19,4 +19,16 @@ actual object DownloadNetworkGuard {
         val isCellular = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
         return !isCellular
     }
+
+    actual fun isLowDataOrExpensive(): Boolean {
+        val manager = connectivityManager ?: return false
+        val dataSaver = runCatching {
+            manager.restrictBackgroundStatus == ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED
+        }.getOrDefault(false)
+        if (dataSaver) return true
+        val network = manager.activeNetwork ?: return false
+        val capabilities = manager.getNetworkCapabilities(network) ?: return false
+        if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return false
+        return !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+    }
 }
