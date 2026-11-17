@@ -1,6 +1,6 @@
 # Upstream 1.0.0 sync design
 
-Design only. This file does not change the app. The sync itself is not started.
+This file is the plan. It does not by itself change the app. Implementation is branch `cursor/upstream-1.0.0-sync`, cut from `81572208`.
 
 Target tree: `origin/enhanced` at `81572208faeaf871239a1a3087f250d5cf3d630c` (build 224, marketing `0.6.10.1`).
 
@@ -30,7 +30,7 @@ Range `0.6.10-beta..1.0.0`, measured with git:
 - 241 files
 - 12007 insertions, 1263 deletions
 
-`git merge-base enhanced 1.0.0` is empty. `git rev-list --count enhanced..1.0.0` is 4169, because the rebuilt `enhanced` history does not contain the upstream commits. Use the 145-commit range for the content review. Do not treat 4169 as the size of the feature delta.
+`git merge-base 81572208 6c2ad793` is `313ca3d15c3a31d1d1b456fbbb09d6c31711b8b2` (`chore(store): publish 0.6.5-beta`). That commit is an ancestor of both sides and of `03536e36`. Histories are related. `git rev-list --count 81572208..6c2ad793` is 552. 4169 is every commit reachable from the tag, not the commits this fork lacks. The 145-commit range above is the content delta since the last sync. The earlier sync merge `9d5d91c86` is not an ancestor of `81572208`, so git will not choose `0.6.10-beta` as the merge base. The merge in section 3 uses the real base, `313ca3d15`.
 
 Grouped by area, from the commit subjects and the file diff:
 
@@ -42,7 +42,7 @@ Grouped by area, from the commit subjects and the file diff:
 - Blu-ray. ExoPlayer path for raw Blu-ray files, plus new `bluray` sources and tests. Android only.
 - Auth and lists. Session stays signed in when refresh fails, Simkl OAuth v1 to v2, MDBList remap cache.
 - i18n. French, Vietnamese, Slovak, Dutch, Bulgarian, and other locale updates.
-- Release. Store publishes `0.6.11-beta` through `0.6.13-beta`, then `1.0.0`. `ci(release)` adds stable and beta. `Version.xcconfig` on the tag is `MARKETING_VERSION=1.0.0` and `CURRENT_PROJECT_VERSION=157`.
+- Release. Store publishes `0.6.11-beta` through `0.6.13-beta`, then the `1.0.0` tag. Commit `70b7a6c5d` (`ci(release)`) touches `android-release.yml` and `scripts/release-metadata.sh`, and the net diff of those two paths from `0.6.10-beta` to `1.0.0` is empty. The only workflow delta is the prerelease guard in `update-store-source.yml`. `Version.xcconfig` on the tag is `MARKETING_VERSION=1.0.0` and `CURRENT_PROJECT_VERSION=157`. Their `store.json` `versions[0]` is marketing `0.6.13`, build `156`, on the upstream download host. There is no `1.0.0` row. Ours `versions[0]` is `0.6.5.1` build `198` on this fork's download host. A JSON union would offer their IPA from our source.
 
 Upstream did not touch these trees between the two tags (0 files): `features/analysis`, `features/downloads`, `features/player/skip`, `SeasonOverview.kt`, `sync-worker`, `iosApp/iosApp/Diagnostics`, `scripts/build-ios-ipa.sh`, `scripts/ci`. No `PlaybackPriority` path is in the upstream diff.
 
@@ -58,69 +58,121 @@ Each row is one decision. Paths not in the 109 are upstream-only and follow the 
 
 | Area | What upstream changed | Decision |
 | --- | --- | --- |
-| Auto Sync | Android coordinator, engine controller, `AutoSyncMpvCoordinator`, contracts, preferences, run policy, settings rows. Those seven files on `enhanced` still match `0.6.10-beta`. Overlap is `PlayerRuntimeAutoSync.kt`. Upstream also defaults Auto Sync to on and allows enabling it with no preferred language. | Combine. Take the search-further scope (`SELECTED_THEN_SEARCH`) and the settings-row fix. Keep our default off (`MutableStateFlow(false)` and the persisted fallback `false`). In `PlayerRuntimeAutoSync.kt`, keep our call sites. Auto Sync must not start work on the playback lane or bypass the idle heat gate. |
+| Auto Sync | Android coordinator, engine controller, `AutoSyncMpvCoordinator`, contracts, preferences, run policy, settings rows. Those seven files on `enhanced` still match `0.6.10-beta`, so a real merge takes them with no conflict. Overlap is `PlayerRuntimeAutoSync.kt`, which clean-merges to `setSubtitleUriWithRestoredAutoSync`. Upstream `a6065c8b1` sets both the in-memory default and the persisted fallback to `true`. | Combine, then put both `false` sites back. Take `SELECTED_THEN_SEARCH` and the settings-row fix (Auto Sync can be enabled with no preferred language). Default and persisted fallback stay `MutableStateFlow(false)` and `?: false`. A false preference must not call `coordinator.start`. iOS still must not construct `AutoSyncMpvEngineController` (`IosAutoSyncCallSiteTest`). |
 | TheIntroDB | 0 files under `features/player/skip`. | Keep ours. |
 | Segment analysis and season overview | 0 files under `features/analysis` and no `SeasonOverview` diff. | Keep ours, including the pause sentences and the four-icon key. |
-| Downloads and the heat gate | 0 files under `features/downloads`. No `PlaybackPriority` diff. | Keep ours, byte for byte. A player-file conflict is not a reason to edit the gate. |
-| Player and PiP | Overlap: `PlayerEngine.kt`, `PlayerEngine.android.kt`, `PlayerEngine.ios.kt`, `PlayerBridge.kt`, `PlayerControls.kt`, `PlayerControlActions.kt`, `FoldControls.kt`, `OpeningOverlay.kt`, `PlayerModels.kt`, `PlayerScreen.kt`, `PlayerScreenArgs.kt`, `PlayerScreenRuntime*.kt`, `PlayerSettingsRepository.kt`, `PlayerSettingsStorage.android.kt`, `PlayerSettingsStorage.ios.kt`, `PlayerStreamsRepository.kt`, `PlayerTimeline.kt`, `PlayerTrackSelection.kt`, `SeekPreviewController.kt`, `MetalLayer.swift`, `MPVPlayerBridge.swift`, `PlayerPictureInPictureController.swift`, plus the player tests in the 109. New: `PictureInPictureDolbyVisionConverter.swift`. | Combine. Take Dolby Vision PiP, HDR subtitle compositing, backing-scale rendering, chapters, HLS init, seek-preview pause, and error wording when they compile against our player. Keep our playback lane, stale playback flag, analysis pause, and next-episode behaviour exactly. PiP teardown stays on the main queue, as `0.6.10-beta` fixed. The Dolby converter does its frame work off the main actor and publishes the layer back on main. See Swift Concurrency below. Simple controls win over new panels. |
-| MPVKit | Gitlink only, to `359a88534`. Our pin on `enhanced` is `7f40522ab`. | Keep our pin in the sync commit. Adopt `359a88534` only if a taken PiP or mpv source does not compile against `7f40522ab`. Adopting the pin does not rewrite the lane or the heat gate. |
+| Downloads and the heat gate | 0 files under `features/downloads` since `0.6.10-beta`. No `PlaybackPriority` diff in that range. A merge from `313ca3d15` can still conflict these files, because both sides edited them after `0.6.5-beta`. | Keep ours, byte for byte against `81572208`. That includes `MediaAnalysisScheduler.kt`, `DownloadGate.kt`, and `PlaybackPriority.kt`. If the merge conflicts them, resolve to ours. A player-file conflict is not a reason to edit the gate. |
+| Player and PiP | Overlap includes the player runtime files, `MetalLayer.swift`, `MPVPlayerBridge.swift`, and `PlayerPictureInPictureController.swift`. Several of these clean-merge and will not show conflict markers. New: `PictureInPictureDolbyVisionConverter.swift` (410 lines). `PictureInPictureSubtitleComposer.swift` already exists here and is replaced by the upstream HDR compositor with no conflict. `PlayerBridge.kt` clean-merges `getIsOpening()`, which no Swift file on `81572208` implements. Store minimum is iOS 16.1 (`IPHONEOS_DEPLOYMENT_TARGET`), so the pre-iOS 17 branch ships. Upstream sets `frameQueue = .main` below iOS 17, which would run Dolby conversion on the main queue. | Combine. Take Dolby Vision PiP, HDR subtitle compositing, backing-scale rendering, chapters, HLS init, seek-preview pause, error wording, and the jetsam trim in `MPVPlayerBridge.swift` (`b147e233a`, +17/−3) when they compile against our pin. Keep the playback lane, the stale playback flag, analysis pause, and next-episode behaviour exactly. `MPVPlayerBridge.swift` must grow `getIsOpening()` or the iOS export breaks. The new `submit` signature may be required to compile. Dolby conversion stays off the main queue on every OS we ship, including below iOS 17. Do not take `frameQueue = .main`. Closing a parked PiP stays on the main queue, because that call updates the UI object and is the crash fix in `0.6.10-beta`. No other PiP or playback work runs on the main queue. `PlayerSettingsStorage.ios.kt` clean-merges `migrateLegacySubtitlePreferencesToDeviceStore` (`d65fa7ab6`). That migration stays. It is the data-preserving half of the device-subtitle change. Simple controls win over new panels. |
+| MPVKit | Gitlink only, to `359a88534`. Our pin on `enhanced` is `7f40522ab`, which still matches `0.6.10-beta`, so the merge takes `359a88534` with no conflict. | Keep `7f40522ab`. After the merge, restore that gitlink before committing. Compile against it. If the build cannot compile, stop and report. Do not move the pin. |
 | Home hero | Overlap: `HomeHeroSection.kt`, `HomeScreen.kt`, `HomeRepository.kt`, `PosterGrid.kt`, `BackdropFocus.kt`, `DetailHero.kt`, `TabletDetailHero.kt`, `ContentView.swift`. Upstream-only nearby: `HomeHeroMetaRepository.kt` (not in the 109). | Combine the catalog-load gate, startup recomposition cuts, mute-button placement, and backdrop focus. Keep our layout: artwork starts below the status inset, and that inset is applied once (`HomeInsets.kt`). Do not take a treatment that draws the picture under the Dynamic Island. The A/C follow-up is a separate change in the same build, after the sync (section 5). |
-| Sync worker and telemetry | 0 files under `sync-worker`. | Keep ours, including `/telemetry`, `migrations/0002_telemetry.sql`, and `src/telemetry.ts`. Do not copy a placeholder database id or turn logs on. |
+| Sync worker and telemetry | 0 files under `sync-worker` since `0.6.10-beta`. | Keep the directory byte-identical to `81572208`, including `/telemetry`, `migrations/0002_telemetry.sql`, and `src/telemetry.ts`. A green `npm test` is not enough. The gate diffs the directory. Do not copy a placeholder database id or turn logs on. |
 | Diagnostics | 0 files under `iosApp/iosApp/Diagnostics`. | Keep ours, including the behaviour log. |
-| Build and release scripts | Overlap: `.github/workflows/update-store-source.yml`, `store.json`, `README.md`. Our `scripts/build-ios-ipa.sh` and `scripts/ci` are untouched upstream. | Keep our IPA scripts and `store.json` (the personal SideStore source). Take release-workflow ideas only when they do not publish, do not rewrite `store.json`, and do not change the IPA path. Combine `README.md`: keep our `### Sync` section and add upstream feature notes that are still true. |
+| Build and release scripts | Overlap: `.github/workflows/update-store-source.yml`, `store.json`, `README.md`. `update-store-source.yml` clean-merges one line: skip the job when the event is a prerelease. Our `scripts/build-ios-ipa.sh` and `scripts/ci` are untouched upstream since `0.6.10-beta`. | `store.json` stays byte-identical to `81572208`. Do not union `versions`. The prerelease guard is taken: it does not edit `store.json` and it does not change the publish path. It only skips that job for a prerelease event. Keep our IPA scripts. Combine `README.md`: keep our `### Sync` section and add upstream feature notes that are still true. |
 | Versioning xcconfig | Overlap: `iosApp/Configuration/Version.xcconfig`. Ours is `CURRENT_PROJECT_VERSION = 224` and `MARKETING_VERSION=0.6.10.1`, plus empty telemetry placeholders. Theirs is `157` and `1.0.0` and drops the placeholders. | Keep ours, then set marketing `1.0.0.1` and build `225`. Leave the telemetry placeholders empty. Never commit a key. |
 | Strings | 28 `values*/strings.xml` files are in the 109, including `values/strings.xml`. | Combine. Add new upstream keys. Do not drop our analysis, season-overview, or diagnostics strings. |
-| Auth, profiles, sync badge | Overlap: `AuthRepository.kt`, `AuthStorage.android.kt`, `AuthStorage.ios.kt`, `LocalAccountDataCleaner.kt`, `ProfileSettingsSync.kt`, `ProfileRepository.kt`, `AppGate.kt`. Upstream-only: `AuthSessionErrors.kt`. | Combine. Take the session-refresh stay-signed-in fix and the stream-badge push. Keep our profile and account-cleaner behaviour where the hunks are ours. |
-| Streams, debrid, Live TV, Continue Watching, Simkl, Discord | Overlap includes `StreamsRepository.kt`, `StreamsScreen.kt`, `StreamCard.kt`, `StreamModels.kt`, `ProviderFilterRow.kt`, `DirectDebridResolver.kt`, `LiveTvRepository.kt`, `ContinueWatchingPreferencesRepository.kt`, `ContinueWatchingSettingsPage.kt`, `WatchProgressModels.kt`, `SimklAuthRepository.kt`, `SimklRelatedRepository.kt`, `SimklPlatform.ios.kt`, `DiscordRpcRepository.kt`, `MetaDetailsRepository.kt`, `MetaDetailsScreen.kt`, `SearchScreen.kt`, `FolderDetailScreen.kt`, `MainAppContent.kt`, `PlayerDestination.kt`, `StreamDestination.kt`. | Take their bugfixes (debrid cache, tokenized links, Live TV buffering, Continue Watching dismiss, Simkl related titles). Keep our simple stream and details UI when both sides restyle the same composable. |
-| Settings chrome | Overlap: `SettingsScreen.kt`, `SettingsComponents.kt`, `SettingsFullScreenPages.kt`, `SettingsSearch.kt`, `PlaybackInterfaceSettings.kt`, `PlaybackPlayerSettings.kt`, `Components.kt`, `LiquidGlass.kt`, `PlatformImageLoader.ios.kt`. | Keep our simple settings UI. Take new setting rows only for features we are taking (chapters, device subtitles). Do not adopt a new glass treatment. The SwiftUI skill says to adopt Liquid Glass only when someone asks. Nobody has asked. |
+| Auth, profiles, sync badge | Overlap: `AuthRepository.kt` (conflicts; `daa966d36` is +94/−45), `AuthStorage.android.kt`, `AuthStorage.ios.kt` (both clean), `LocalAccountDataCleaner.kt`, `ProfileSettingsSync.kt`, `ProfileRepository.kt`, `AppGate.kt`. Upstream-only: `AuthSessionErrors.kt`. | Take the stay-signed-in path in `AuthRepository.kt`. Resolving that file to ours leaves `AuthSessionErrors.kt` unused. Keep our profile and account-cleaner behaviour where the hunks are ours. Take the stream-badge push. |
+| Streams, debrid, Live TV, Continue Watching, Simkl, Discord | Overlap includes `StreamsRepository.kt`, `StreamsScreen.kt`, `StreamCard.kt`, `StreamModels.kt`, `ProviderFilterRow.kt`, `DirectDebridResolver.kt`, `LiveTvRepository.kt`, `ContinueWatchingPreferencesRepository.kt`, `ContinueWatchingSettingsPage.kt`, `WatchProgressModels.kt`, `SimklAuthRepository.kt`, `SimklRelatedRepository.kt`, `SimklPlatform.ios.kt`, `DiscordRpcRepository.kt`, `MetaDetailsRepository.kt`, `MetaDetailsScreen.kt`, `SearchScreen.kt`, `FolderDetailScreen.kt`, `MainAppContent.kt`, `PlayerDestination.kt`, `StreamDestination.kt`. `ProviderFilterRow.kt` and `StreamCard.kt` clean-merge `staticFromBackdrop = true`. `StreamsScreen.kt` conflicts and their side sets it too. `81572208` has no `staticFromBackdrop`. | Take their bugfixes (debrid cache, tokenized links, Live TV buffering, Continue Watching dismiss, Simkl related titles). Remove every `staticFromBackdrop = true`. The new parameter on `LiquidGlass.kt` may stay if its default is false and nothing passes true. Keep our simple stream and details UI when both sides restyle the same composable. |
+| Forced subtitles | `SubtitleAudioModels.kt` is upstream-only. `a6065c8b1` sets `useForcedSubtitles` from `false` to `true`. The merge takes that blob with no conflict. | Keep `false`. This is a default change, not a bug fix. |
+| Settings chrome | Overlap: `SettingsScreen.kt`, `SettingsComponents.kt`, `SettingsFullScreenPages.kt`, `SettingsSearch.kt`, `PlaybackInterfaceSettings.kt`, `PlaybackPlayerSettings.kt`, `Components.kt`, `LiquidGlass.kt`, `PlatformImageLoader.ios.kt`. | Keep our simple settings UI. Take new setting rows only for features we are taking (chapters, device subtitles). Take the jetsam trim in `PlatformImageLoader.ios.kt` (`1b60c0a94`, +11/−2). That hunk is a memory fix, not a new screen. Do not adopt a new glass treatment. The SwiftUI skill says to adopt Liquid Glass only when someone asks. Nobody has asked. |
 | Player subtitle restore test | `PlayerSubtitleRestoreTest.kt`, `PlayerTrackSelectionTest.kt`, `BackdropFocusTest.kt`. | Combine. Keep our assertions. Add upstream cases that still match the kept behaviour. |
 
 ## 3. Merge method, conflict hot spots, risks
 
-Method, when implementation starts:
+Branch `cursor/upstream-1.0.0-sync` from `81572208`. Then a real merge:
 
-1. Branch from `enhanced` at `81572208`.
-2. Make a merge commit whose first parent is that `enhanced` commit and whose second parent is `6c2ad793` (tag `1.0.0`). No rebase. No force-push.
-3. Do not use `git merge --allow-unrelated-histories`. There is no merge base, so that merge would treat every shared path as add/add against an empty tree.
-4. Use `0.6.10-beta` (`03536e36f`) as the content base. `git merge-tree 03536e36f HEAD 6c2ad793` is the dry run. Resolve with the table in section 2, then `git commit-tree` (or an equivalent index commit) with the two parents above. The result is a merge commit, not a squash and not a rewritten `enhanced`.
-5. After the merge commit, in the same build, set `Version.xcconfig` to `1.0.0.1` and `225`, then do the Home hero follow-up in section 5.
+```bash
+git switch -c cursor/upstream-1.0.0-sync 81572208faeaf871239a1a3087f250d5cf3d630c
+git merge --no-ff --no-commit 6c2ad7937171965608d05005080b96ca19345379
+```
 
-Expected conflict hot spots, from the 109 and from the empty merge base:
+Git uses merge base `313ca3d15`. Do not pass `--allow-unrelated-histories`. Do not use `git commit-tree`, `git read-tree`, or a grafted base of `03536e36`. Do not force-push.
 
-- `PlayerScreen.kt` and the `PlayerScreenRuntime*` files. Both sides edited playback startup, streams, and overlays.
-- `PlayerEngine.ios.kt`, `MPVPlayerBridge.swift`, `MetalLayer.swift`, `PlayerPictureInPictureController.swift`. PiP, scale, and our lane hooks land in the same functions.
-- `HomeHeroSection.kt`, `HomeScreen.kt`, `ContentView.swift`. Insets versus upstream trailer and framing.
-- `values/strings.xml` and the translated copies. Key additions on both sides.
-- `Version.xcconfig`, `store.json`, `README.md`, `update-store-source.yml`.
-- `PlayerRuntimeAutoSync.kt` and `PlayerSettingsStorage.ios.kt`.
+Resolve every conflict by hand using section 2. A file upstream did not change since `0.6.10-beta` resolves to ours, even when the `0.6.5-beta` base makes it conflict. A file only upstream changed since `0.6.10-beta` takes theirs, then the restores below. A file both sides changed since `0.6.10-beta` is combined by hand.
+
+These clean merges are not conflict markers. Restore them before the commit:
+
+- `MPVKit` gitlink back to `7f40522ab9a18c7f14c04316f71c7dd47e2a7e05`.
+- `AutoSyncPreferencesRepository.kt`: both the initial value and the persisted fallback stay `false`.
+- `useForcedSubtitles` stays `false`.
+- Every `staticFromBackdrop = true` is removed.
+- `store.json` is checked out from `81572208`.
+- `MediaAnalysisScheduler.kt`, `DownloadGate.kt`, `PlaybackPriority.kt`, and `sync-worker/` match `81572208` byte for byte.
+- `Version.xcconfig` becomes marketing `1.0.0.1` and build `225`, with the telemetry placeholders still empty.
+
+The prerelease guard in `update-store-source.yml` stays. It does not touch `store.json` or the publish path.
+
+Before committing, this must print nothing. Docs that use the marker text on purpose are excluded:
+
+```bash
+git grep -nE '^(<<<<<<<|>>>>>>>|=======$)' ':!docs'
+```
+
+Then commit the merge. No force-push. Set the version in that commit or the one immediately after, still before the hero follow-up. If the iOS compile cannot succeed on pin `7f40522ab`, stop and report. Do not move the pin.
+
+A dry run of `git merge-tree --write-tree 81572208 6c2ad793` reported 164 conflicts, including `DownloadsRepository.kt`, `SkipIntroRepository.kt`, and `SubmitIntroDialog.kt`. Resolving those three toward upstream drops TheIntroDB and the download gate. They resolve to ours.
+
+Hot spots that conflict and need a hand combine:
+
+- `MPVPlayerBridge.swift`. Keep our lane hooks, take `b147e233a`, add `getIsOpening()`, and do not leave Dolby work on the main queue.
+- `PlatformImageLoader.ios.kt`. Take `1b60c0a94`.
+- `AuthRepository.kt`. Take `daa966d36`.
+- `HomeHeroSection.kt` and `HomeScreen.kt`. Keep the artwork below the status inset.
+- `Version.xcconfig`. Do not take `157` or `1.0.0`.
+- Locale files that conflict (`values-ar`, `values-bn`, `values-fr`, `values-he`, `values-id`, `values-in`, `values-sk`, `values-vi`): union the keys. Do not replace our strings with theirs.
+- `PlayerScreen.kt` and the `PlayerScreenRuntime*` files where they actually conflict.
+
+Hot spots that clean-merge and still have to be checked, because a marker search will not see them:
+
+- `PlayerEngine.ios.kt`, `PlayerPictureInPictureController.swift`, `PlayerRuntimeAutoSync.kt`, `ContentView.swift`, `values/strings.xml`, `update-store-source.yml`, `PlayerSettingsStorage.ios.kt`.
+- `ContentView.swift` gains `.ignoresSafeArea` on the toolbar fade, not on the hero. The island risk stays in `HomeHeroSection.kt`. `HomeInsets.kt` is untouched upstream.
 
 Top risks:
 
-1. A merge against the empty base drops or duplicates the playback lane and the idle heat gate. Those files are not in the upstream diff, so a correct 3-way merge leaves them untouched. An unrelated-histories merge does not.
-2. The PiP and MPVKit combine changes playback timing or moves Dolby conversion onto the main thread. The lane and the heat gate must stay as they are even if the kit pin later moves to `359a88534`.
-3. The hero merge draws artwork under the Dynamic Island, or applies the top inset twice (`HomeInsets.kt` already refuses the double add).
-4. `Version.xcconfig` or `store.json` is resolved toward upstream, which resets the build to 157 and can publish the wrong SideStore source.
-5. Auto Sync default-on, or a restored-subtitle search, starts analysis during playback and bypasses the pause gate. Default stays off. Analysis still waits on playback, heat, and Low Power.
+1. Hand resolution of a `0.6.5-beta` conflict toward upstream rewrites `MediaAnalysisScheduler`, the download gate, or TheIntroDB. The gate diffs those files against `81572208`.
+2. The clean MPVKit take moves the pin to `359a88534`. The pin stays. If the compile fails, the sync stops.
+3. Dolby conversion runs on the main queue below iOS 17. Minimum iOS is 16.1, so that branch ships. Conversion stays off the main queue.
+4. `store.json` is unioned with upstream rows, or `Version.xcconfig` becomes `157`. Both gates fail the commit.
+5. Auto Sync's clean merge leaves the default and the persisted fallback on, and a restored subtitle starts work during playback. Both sites stay `false`.
 
 ## 4. How the sync will be verified
 
-Nothing in this section has been run for the sync. Results of the future runs: not measured.
+`scripts/check-upstream-sync-1.0.0.sh` runs the gates below and exits non-zero on the first failure. A green test suite does not replace a gate. Timings, binary size, and frame rates for this sync: not measured, until a run in this section records them.
+
+Gates, all required. Each one fails the sync:
+
+- Wrong base. `git merge-base 81572208faeaf871239a1a3087f250d5cf3d630c 6c2ad7937171965608d05005080b96ca19345379` is `313ca3d15c3a31d1d1b456fbbb09d6c31711b8b2`. The merge commit on this branch has those two commits as parents, in that order.
+- Conflict markers. `git grep -nE '^(<<<<<<<|>>>>>>>|=======$)' ':!docs'` is empty.
+- Pin move. `git ls-tree HEAD MPVKit` contains `7f40522ab9a18c7f14c04316f71c7dd47e2a7e05` and does not contain `359a885342d4eeda757f8e1d2c24fb01fe6d39c2`.
+- Auto Sync default on. `AutoSyncPreferencesRepository.kt` contains `MutableStateFlow(false)` for the start preference and `loadPersistedValue?.invoke() ?: false`. It does not contain `MutableStateFlow(true)` or `?: true` for that preference.
+- Version reset. `iosApp/Configuration/Version.xcconfig` has `MARKETING_VERSION=1.0.0.1` and `CURRENT_PROJECT_VERSION = 225`. It does not have `157` or `MARKETING_VERSION=1.0.0`. The telemetry lines are empty.
+- Playback lane or heat gate. `git diff --exit-code 81572208 --` these paths is empty: `MediaAnalysisScheduler.kt`, `DownloadGate.kt`, `PlaybackPriority.kt`.
+- Sync worker. `git diff --exit-code 81572208 -- sync-worker` is empty.
+- `store.json`. `git diff --exit-code 81572208 -- store.json` is empty.
+
+Also fail, from the majors:
+
+- `useForcedSubtitles` default is `true`.
+- Any `staticFromBackdrop = true`.
+- `frameQueue = .main` in the PiP controller.
+- `getIsOpening` missing from `MPVPlayerBridge.swift`.
 
 Host tests, from the repo root, after the merge and the hero follow-up:
 
-- Analysis and the pause sentences: `AnalysisRunGateTest`.
-- Playback lane and the heat gate: the existing playback-priority and download-gate host tests.
-- Season overview: `SeasonOverviewListTest`, `SeasonOverviewTest`, `SeasonOverviewChipLayoutTest`.
-- Hero insets and the new A/C switch: `HomeInsetsTest`, `HomeHeroFollowLayoutTest`, `HomeHeroSectionTest`, `HomeHeroBoundsTest`.
-- Auto Sync policy tests that cover `SELECTED_THEN_SEARCH` and the default remaining off.
+- `AnalysisRunGateTest`
+- `DownloadGateDecisionTest`
+- `IosAutoSyncCallSiteTest`
+- `SeasonOverviewListTest`, `SeasonOverviewTest`, `SeasonOverviewChipLayoutTest`
+- `HomeInsetsTest`, `HomeHeroFollowLayoutTest`, `HomeHeroSectionTest`, `HomeHeroBoundsTest`
+- A test that the Auto Sync in-memory default and the persisted fallback are `false`, and that a false preference does not call `coordinator.start`
+- A test that a failed session refresh does not clear the session
 
-Sync worker, in `sync-worker/`: `npm test`. The worker sources should be unchanged. A green run confirms the merge did not touch them.
+Sync worker, in `sync-worker/`: `npm test`. The diff gate above is what proves the sources were not edited.
 
-iOS CI: the existing pull-request workflow on the sync branch. Duration and result: not measured. The last measured iOS CI on current `enhanced` is run `44051970087` for `5811e1805`, success, 32 minutes 15 seconds. That number is the pre-sync tree, not a before/after of this work.
+iOS CI: the existing pull-request workflow on `cursor/upstream-1.0.0-sync`. One compile against pin `7f40522ab`. There is no second compile, because the pin does not move. Duration and result: not measured until that run finishes. Run `44051970087` is real (success, "iOS simulator compile", title "Build 222: next episode stays ready", head `5811e1805`). That commit is not `81572208`. It is an older run, not a before-measurement of this sync.
 
 Sim gates, one pass per changed screen on the iPhone simulator, including an AX5 text size pass where the screen has a new control:
 
-- Home, for the hero inset and the A/C toggle.
+- Home, for the hero inset and the A/C toggle, including Reduce Motion.
 - Player, including PiP start and stop, without Dolby hardware.
 - Streams, details, Continue Watching, Live TV, and Settings (the new hero toggle and any taken rows).
 - Season overview and an analysis pause line, to confirm the merge left them alone.
@@ -130,7 +182,7 @@ Real device, left for Simsalabim. Not measured here:
 - Idle heat gate and the playback lane under serious and critical thermal state, including Low Power Mode.
 - Dolby Vision Picture in Picture and HDR subtitles in PiP.
 - Home hero under the Dynamic Island: art starts below the island for both A and C, in portrait and landscape.
-- Battery and jetsam during a long play, if the MPVKit pin moves.
+- Battery and jetsam during a long play. The MPVKit pin does not move in this sync.
 
 Name and secret scan before the sync pull request: no owner legal name, no ingest key, no enroll token. The telemetry placeholders in `Version.xcconfig` stay empty.
 
@@ -140,7 +192,8 @@ One component. `HomeHeroSection` already draws the picture. Do not add a second 
 
 - A, soft fade, is the default. The artwork fades into the page at the bottom. The picture starts at the window's top safe inset, which on current iPhones is below the Dynamic Island. Side edges stay slightly inset so the fade reads as a card of art, not a second component.
 - C, full width, is a Settings switch, off by default. Same component, same top inset, no side inset, same bottom fade. The switch does not change the card style that already exists (`HomeHeroStyle.CARD`).
-- The top inset is applied once. `homeContentTopInsetDp` already takes the larger of the status bar and the window top and does not add them twice.
+- The top inset is applied once. `homeContentTopInsetDp` already takes the larger of the status bar and the window top and does not add them twice. The host does not add a second pad.
+- Reduce Motion snaps the fade and any page crossfade. The layout of A and C does not change. Compose reads `systemReduceMotionEnabled()`. A SwiftUI host reads `accessibilityReduceMotion` (or `UIAccessibility.isReduceMotionEnabled` where the host is still UIKit). The SwiftUI skill's animation rule is `.animation(_:value:)`, with the value, and no animation that ignores that setting.
 
 Files:
 
@@ -156,11 +209,13 @@ Files:
 Skills to follow when that follow-up is written:
 
 - SwiftUI Expert (`.agents/skills/swiftui-expert-skill/SKILL.md`), for the host chrome only. The hero itself is Compose. Read the safe area nearest the view that consumes it. Do not read `UIScreen`. Do not adopt Liquid Glass. Keep Dynamic Type on the new Settings row (`lineLimit` and a wrap that does not break one letter per line). The skill does not apply to Compose.
-- Swift Concurrency (`.agents/skills/swift-concurrency/SKILL.md`), for any iOS host change and for the PiP work in the sync. The app target is Swift language version 5.0. Do not assume the Xcode 26 defaults (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, approachable concurrency). Do not mark types `@MainActor` unless the work is UI-bound. Frame conversion waits off the main actor. Layer and PiP teardown hop back to the main actor.
+- Swift Concurrency (`.agents/skills/swift-concurrency/SKILL.md`), for any iOS host change and for the PiP work in the sync. The checked-in language mode is Swift 5.0. Do not assume the Xcode 26 defaults (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, approachable concurrency). Do not mark types `@MainActor` unless the work is UI-bound. Dolby frame conversion stays off the main actor on iOS 16 and 17. The only main-queue PiP call that stays is closing a parked controller, which is the existing crash fix. Playback setup and conversion do not hop to the main queue to "be safe".
 
 The follow-up does not touch the playback lane, the heat gate, analysis, or the season overview.
 
 ## Adversarial review
+
+The sections above were corrected after this review. The procedure is the real `git merge` in section 3, with base `313ca3d15` and hand resolution. The `commit-tree` recipe in the blocker below is the finding, not the method. The rest of this section is the review record.
 
 Reviewed against a fetch of `luqmanfadlli/NuvioMobile-Enhanced` tags `1.0.0` (`6c2ad7937171965608d05005080b96ca19345379`) and `0.6.10-beta` (`03536e36f34daacac7fb27d7e12276cd7bf410d4`), compared with `81572208faeaf871239a1a3087f250d5cf3d630c`. No merge commit was created. Verdict: **ready after the listed fixes**. The content base, the untouched-directory claims, the 109-path count, and the version target are right. The merge commands are not executable as written, and a clean merge already violates two keep-decisions that protect playback.
 
