@@ -2517,4 +2517,29 @@
 <string name="subtitle_reset_appearance">Obnoviť predvolený vzhľad</string>
 <string name="offline_banner_saved_data">Offline: zobrazenie uložených dát</string>
 <string name="submit_intro_segment_preview">Preview</string>
+
+<string name="collections_editor_source_count">%1$d zdrojov</string>
+<string name="collections_folder_count">%1$d priečinkov</string>
+<string name="player_error_stream_expired">Odkaz na stream vypršal. Skúste iný zdroj.</string>
+<string name="player_error_stream_removed">Odkaz na stream vypršal alebo bol odstránený. Skúste iný zdroj.</string>
+<string name="player_error_stream_rate_limited">Príliš veľa požiadaviek na zdroj streamu. Počkajte chvíľu a skúste to znova.</string>
+<string name="player_error_stream_unavailable">Server streamu je momentálne nedostupný. Skúste iný zdroj.</string>
+<string name="player_error_stream_blocked">Zdroj streamu je zablokovaný alebo obmedzený. Skúste iný zdroj.</string>
+<string name="player_error_source_invalid_content">Chyba zdroja: Zdroj streamu vrátil neplatný alebo neprehrateľný obsah. Odkaz mohol vypršať alebo server vrátil chybovú stránku namiesto videa.\n\nSkúste iný zdroj. [%1$s]</string>
+<string name="player_error_unsupported_format">Tento stream používa formát, ktorý vaše zariadenie nemusí podporovať. Skúste iný zdroj. [%1$s]</string>
+<string name="compose_player_audio_delay">Odozva zvuku</string>
+<string name="compose_player_audio_amplification">Zosilnenie</string>
+<string name="compose_player_audio_amplification_keep">Ponechať pre ďalšie videá</string>
+<string name="compose_player_center_mix">Úroveň zmiešania stredového kanála</string>
+<string name="settings_playback_chapter_title">Zobrazovať názov kapitoly</string>
+<string name="settings_playback_chapter_title_description">Zobrazovať názov aktuálnej kapitoly nad časovou osou.</string>
+<string name="settings_playback_remember_audio_delay">Zapamätať si odozvu zvuku pre každé zariadenie</string>
+<string name="settings_playback_remember_audio_delay_description">Obnoviť odozvu zvuku nastavenú v prehrávači pri každom prehrávaní cez rovnaký výstup, napríklad reproduktor telefónu, káblové slúchadlá alebo jednotlivé Bluetooth zariadenia</string>
+<string name="settings_playback_downmix_section">Downmix</string>
+<string name="settings_playback_downmix">Povoliť downmix</string>
+<string name="settings_playback_downmix_description">Zmieša priestorový zvuk na nižší počet kanálov uvedený nižšie pomocou FFmpeg dekodéra aplikácie. Vyžaduje prioritu dekodéra videa „Preferovať dekodéry aplikácie (FFmpeg)“. Bluetooth výstup vždy dostane downmix na 2.0.</string>
+<string name="settings_playback_downmix_channels">Počet kanálov</string>
+<string name="settings_playback_downmix_maintain_volume">Zachovať pôvodnú hlasitosť pri downmixovaní</string>
+<string name="settings_playback_downmix_maintain_volume_description">Keď je možnosť vypnutá, normalizácia downmixu môže znížiť celkovú hlasitosť.</string>
+<string name="auth_notice_signed_out">Boli ste odhlásení z Nuvio. Prihláste sa znova.</string>
 </resources>

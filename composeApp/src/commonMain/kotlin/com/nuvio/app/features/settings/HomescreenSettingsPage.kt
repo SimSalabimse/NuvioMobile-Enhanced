@@ -54,6 +54,8 @@ import nuvio.composeapp.generated.resources.layout_hide_unreleased_sub
 import nuvio.composeapp.generated.resources.layout_catalog_type
 import nuvio.composeapp.generated.resources.layout_catalog_type_sub
 import nuvio.composeapp.generated.resources.settings_homescreen_empty_message
+import nuvio.composeapp.generated.resources.settings_homescreen_hero_full_width
+import nuvio.composeapp.generated.resources.settings_homescreen_hero_full_width_description
 import nuvio.composeapp.generated.resources.settings_homescreen_hero_style
 import nuvio.composeapp.generated.resources.settings_homescreen_hero_style_card
 import nuvio.composeapp.generated.resources.settings_homescreen_hero_style_card_description
@@ -200,6 +202,13 @@ internal fun LazyListScope.homescreenSettingsContent(
                     HeroStyleOptions(
                         isTablet = isTablet,
                         selectedStyle = settingsUiState.heroStyle,
+                    )
+                    SettingsSwitchRow(
+                        title = stringResource(Res.string.settings_homescreen_hero_full_width),
+                        description = stringResource(Res.string.settings_homescreen_hero_full_width_description),
+                        checked = settingsUiState.heroFullWidth,
+                        isTablet = isTablet,
+                        onCheckedChange = HomeCatalogSettingsRepository::setHeroFullWidth,
                     )
                     HeroSourcesDropdown(
                         isTablet = isTablet,

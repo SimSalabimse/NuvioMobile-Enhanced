@@ -16,10 +16,12 @@ final class PlayerPictureInPictureController: NSObject,
     private let enqueueFrame: (CMSampleBuffer) -> Void
     private let clearFrameRenderer: () -> Void
     private let frameLock = NSLock()
-    private var pendingFrame: (CVPixelBuffer, Double, Bool)?
+    private var pendingFrame: (CVPixelBuffer, Double, Bool, Data?)?
     private var subtitleText = ""
     private var subtitleBold = false
     private let subtitleComposer = PictureInPictureSubtitleComposer()
+    private let dolbyVisionConverter = PictureInPictureDolbyVisionConverter()
+    private var convertsDolbyVision = false
     private var drainScheduled = false
     private var acceptingFrames = true
     private var feedingRestoreTransition = false
@@ -111,7 +113,8 @@ final class PlayerPictureInPictureController: NSObject,
             enqueueFrame = { renderer.enqueue($0) }
             clearFrameRenderer = { renderer.flush(removingDisplayedImage: true, completionHandler: nil) }
         } else {
-            frameQueue = .main
+            // iOS 16 still ships. Conversion stays off the main queue; only the layer enqueue hops over.
+            frameQueue = DispatchQueue(label: "com.nuvio.pip.frames", qos: .userInitiated)
             prepareFrameRenderer = {
                 if layer.status == .failed { layer.flush() }
                 return layer.isReadyForMoreMediaData
@@ -145,7 +148,7 @@ final class PlayerPictureInPictureController: NSObject,
         }
     }
 
-    func submit(_ buffer: CVPixelBuffer, pts: Double, isPictureInPictureFrame: Bool) {
+    func submit(_ buffer: CVPixelBuffer, pts: Double, isPictureInPictureFrame: Bool, doviMetadata: Data?) {
         frameLock.lock()
         guard acceptingFrames else { frameLock.unlock(); return }
         let now = ProcessInfo.processInfo.systemUptime
@@ -154,7 +157,7 @@ final class PlayerPictureInPictureController: NSObject,
             return
         }
         lastPrimeTime = now
-        pendingFrame = (buffer, pts, isPictureInPictureFrame)
+        pendingFrame = (buffer, pts, isPictureInPictureFrame, doviMetadata)
         let schedule = !drainScheduled
         drainScheduled = true
         frameLock.unlock()
@@ -171,11 +174,27 @@ final class PlayerPictureInPictureController: NSObject,
         let accepts = acceptingFrames
         let cue = subtitleText
         let cueBold = subtitleBold
+        let dolbyVision = convertsDolbyVision
         frameLock.unlock()
-        guard accepts, let (sourceBuffer, pts, isPictureInPictureFrame) = frame, pts.isFinite else { return }
+        guard accepts, let (decodedBuffer, pts, isPictureInPictureFrame, doviMetadata) = frame, pts.isFinite else { return }
+        let sourceBuffer = dolbyVision
+            ? (dolbyVisionConverter.convert(decodedBuffer, doviMetadata: doviMetadata) ?? decodedBuffer)
+            : decodedBuffer
         let buffer = isPictureInPictureFrame && !cue.isEmpty
             ? (subtitleComposer.compose(sourceBuffer, text: cue, bold: cueBold) ?? sourceBuffer)
             : sourceBuffer
+        let publish = { [weak self] in
+            guard let self else { return }
+            self.enqueuePreparedFrame(buffer, pts: pts)
+        }
+        if #available(iOS 17.0, *) {
+            publish()
+        } else {
+            DispatchQueue.main.async(execute: publish)
+        }
+    }
+
+    private func enqueuePreparedFrame(_ buffer: CVPixelBuffer, pts: Double) {
         guard prepareFrameRenderer() else { return }
         if cachedFormat.map({ CMVideoFormatDescriptionMatchesImageBuffer($0, imageBuffer: buffer) }) != true {
             var format: CMVideoFormatDescription?
@@ -207,6 +226,15 @@ final class PlayerPictureInPictureController: NSObject,
             }
         }
         enqueueFrame(sample)
+    }
+
+    func setDolbyVisionColorspace(_ enabled: Bool) {
+        frameLock.lock()
+        convertsDolbyVision = enabled
+        frameLock.unlock()
+        if enabled {
+            frameQueue.async { [weak self] in self?.dolbyVisionConverter.warmUp() }
+        }
     }
 
     func setSubtitleText(_ text: String, bold: Bool) {

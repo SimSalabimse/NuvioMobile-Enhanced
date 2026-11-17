@@ -2526,4 +2526,14 @@
 <string name="subtitle_reset_appearance">إعادة ضبط المظهر</string>
 <string name="offline_banner_saved_data">غير متصل: عرض البيانات المحفوظة</string>
 <string name="submit_intro_segment_preview">Preview</string>
+
+<string name="collections_editor_source_count">%1$d مصدر · %2$s</string>
+<string name="collections_folder_count">%1$d مجلد</string>
+<string name="player_error_stream_expired">انتهت صلاحية رابط البث. يرجى اختيار مصدر آخر.</string>
+<string name="player_error_stream_removed">رابط البث منتهي الصلاحية أو تم حذفه. يرجى اختيار مصدر آخر.</string>
+<string name="player_error_stream_rate_limited">طلبات كثيرة جداً لمصدر البث. انتظر لحظة ثم حاول مجدداً.</string>
+<string name="player_error_stream_unavailable">خادم البث غير متوفر حالياً. يرجى اختيار مصدر آخر.</string>
+<string name="player_error_stream_blocked">مصدر البث محجوب أو مقيد. يرجى اختيار مصدر آخر.</string>
+<string name="player_error_source_invalid_content">خطأ في المصدر: أرجع مصدر البث محتوى غير صالح أو غير قابل للتشغيل. قد يكون الرابط قد انتهت صلاحيته أو أرجع الخادم صفحة خطأ بدلاً من الفيديو.\n\nيرجى اختيار مصدر آخر. [%1$s]</string>
+<string name="player_error_unsupported_format">يستخدم هذا البث تنسيقاً قد لا يدعمه جهازك. يرجى اختيار مصدر آخر. [%1$s]</string>
 </resources>

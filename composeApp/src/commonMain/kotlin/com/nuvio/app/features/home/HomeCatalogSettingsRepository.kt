@@ -38,6 +38,7 @@ data class HomeCatalogSettingsItem(
 internal data class HomeCatalogSettingsUiState(
     val heroEnabled: Boolean = true,
     val heroStyle: HomeHeroStyle = HomeHeroStyle.FULL_BLEED,
+    val heroFullWidth: Boolean = false,
     val heroTrailerPlaybackEnabled: Boolean = false,
     val heroTrailerStartDelaySeconds: Int = HomeCatalogSettingsRepository.DEFAULT_HERO_TRAILER_START_DELAY_SECONDS,
     val heroTrailerStartUnmuted: Boolean = false,
@@ -50,6 +51,8 @@ internal data class HomeCatalogSettingsUiState(
             append(heroEnabled)
             append('|')
             append(heroStyle.storageValue)
+            append('|')
+            append(heroFullWidth)
             append('|')
             append(heroTrailerPlaybackEnabled)
             append('|')
@@ -113,6 +116,7 @@ internal data class HomeCatalogPreference(
 internal data class HomeCatalogSettingsSnapshot(
     val heroEnabled: Boolean,
     val heroStyle: HomeHeroStyle,
+    val heroFullWidth: Boolean = false,
     val showCatalogType: Boolean,
     val hideUnreleasedContent: Boolean,
     val preferences: Map<String, HomeCatalogPreference>,
@@ -131,6 +135,7 @@ private data class StoredHomeCatalogPreference(
 private data class StoredHomeCatalogSettingsPayload(
     val heroEnabled: Boolean = true,
     val heroStyle: String = HomeHeroStyle.FULL_BLEED.storageValue,
+    val heroFullWidth: Boolean = false,
     val heroTrailerPlaybackEnabled: Boolean = false,
     val heroTrailerStartDelaySeconds: Int = HomeCatalogSettingsRepository.DEFAULT_HERO_TRAILER_START_DELAY_SECONDS,
     val heroTrailerStartUnmuted: Boolean = false,
@@ -168,6 +173,7 @@ object HomeCatalogSettingsRepository {
         }
     private var heroEnabled = true
     private var heroStyle = HomeHeroStyle.FULL_BLEED
+    private var heroFullWidth = false
     private var heroTrailerPlaybackEnabled = false
     private var heroTrailerStartDelaySeconds = DEFAULT_HERO_TRAILER_START_DELAY_SECONDS
     private var heroTrailerStartUnmuted = false
@@ -179,6 +185,7 @@ object HomeCatalogSettingsRepository {
         preferences = emptyMap()
         heroEnabled = true
         heroStyle = HomeHeroStyle.FULL_BLEED
+        heroFullWidth = false
         heroTrailerPlaybackEnabled = false
         heroTrailerStartDelaySeconds = DEFAULT_HERO_TRAILER_START_DELAY_SECONDS
         heroTrailerStartUnmuted = false
@@ -200,6 +207,7 @@ object HomeCatalogSettingsRepository {
         preferences = emptyMap()
         heroEnabled = true
         heroStyle = HomeHeroStyle.FULL_BLEED
+        heroFullWidth = false
         heroTrailerPlaybackEnabled = false
         heroTrailerStartDelaySeconds = DEFAULT_HERO_TRAILER_START_DELAY_SECONDS
         heroTrailerStartUnmuted = false
@@ -248,6 +256,7 @@ object HomeCatalogSettingsRepository {
         return HomeCatalogSettingsSnapshot(
             heroEnabled = heroEnabled,
             heroStyle = heroStyle,
+            heroFullWidth = heroFullWidth,
             showCatalogType = showCatalogType,
             hideUnreleasedContent = hideUnreleasedContent,
             preferences = preferences.mapValues { (_, value) ->
@@ -267,6 +276,15 @@ object HomeCatalogSettingsRepository {
         publish()
         persist()
         HomeRepository.applyCurrentSettings()
+    }
+
+    internal fun setHeroFullWidth(enabled: Boolean) {
+        ensureLoaded()
+        if (heroFullWidth == enabled) return
+        heroFullWidth = enabled
+        publish()
+        persist()
+        HomeCatalogSettingsSyncService.triggerPush()
     }
 
     internal fun setHeroStyle(style: HomeHeroStyle) {
@@ -359,6 +377,7 @@ object HomeCatalogSettingsRepository {
         ensureLoaded()
         heroEnabled = true
         heroStyle = HomeHeroStyle.FULL_BLEED
+        heroFullWidth = false
         heroTrailerPlaybackEnabled = false
         heroTrailerStartDelaySeconds = DEFAULT_HERO_TRAILER_START_DELAY_SECONDS
         heroTrailerStartUnmuted = false
@@ -415,6 +434,7 @@ object HomeCatalogSettingsRepository {
         if (parsedPayload != null) {
             heroEnabled = parsedPayload.heroEnabled
             heroStyle = HomeHeroStyle.fromStorageValue(parsedPayload.heroStyle)
+            heroFullWidth = parsedPayload.heroFullWidth
             heroTrailerPlaybackEnabled = parsedPayload.heroTrailerPlaybackEnabled
             heroTrailerStartDelaySeconds = parsedPayload.heroTrailerStartDelaySeconds.coerceIn(
                 MIN_HERO_TRAILER_START_DELAY_SECONDS,
@@ -536,6 +556,7 @@ object HomeCatalogSettingsRepository {
         _uiState.value = HomeCatalogSettingsUiState(
             heroEnabled = heroEnabled,
             heroStyle = heroStyle,
+            heroFullWidth = heroFullWidth,
             heroTrailerPlaybackEnabled = heroTrailerPlaybackEnabled,
             heroTrailerStartDelaySeconds = heroTrailerStartDelaySeconds,
             heroTrailerStartUnmuted = heroTrailerStartUnmuted,
@@ -551,6 +572,7 @@ object HomeCatalogSettingsRepository {
                 StoredHomeCatalogSettingsPayload(
                     heroEnabled = heroEnabled,
                     heroStyle = heroStyle.storageValue,
+                    heroFullWidth = heroFullWidth,
                     heroTrailerPlaybackEnabled = heroTrailerPlaybackEnabled,
                     heroTrailerStartDelaySeconds = heroTrailerStartDelaySeconds,
                     heroTrailerStartUnmuted = heroTrailerStartUnmuted,

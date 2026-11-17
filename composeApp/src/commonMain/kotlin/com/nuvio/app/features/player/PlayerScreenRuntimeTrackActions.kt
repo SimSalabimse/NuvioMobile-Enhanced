@@ -279,6 +279,9 @@ internal fun PlayerScreenRuntime.refreshTracks() {
     ) {
         tryAutoSelectPreferredSubtitleFromAvailableTracks(preferredAudioTargets)
     }
+
+    // The engine may have just switched: restore the selection captured before the switch.
+    applyPendingEngineSwitchTrackPreference()
 }
 
 private fun PlayerScreenRuntime.tryAutoSelectPreferredSubtitleFromAvailableTracks(

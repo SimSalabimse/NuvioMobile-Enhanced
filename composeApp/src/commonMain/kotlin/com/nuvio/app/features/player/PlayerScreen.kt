@@ -50,6 +50,8 @@ fun PlayerScreen(
     stream: com.nuvio.app.features.streams.StreamItem? = null,
     submitMode: Boolean = false,
     privateSession: Boolean = false,
+    sourceFromLinkCache: Boolean = false,
+    sourceAutoSelected: Boolean = false,
 ) {
     PlayerScreenContent(
         PlayerScreenArgs(
@@ -97,6 +99,8 @@ fun PlayerScreen(
             stream = stream,
             submitMode = submitMode,
             privateSession = privateSession,
+            sourceFromLinkCache = sourceFromLinkCache,
+            sourceAutoSelected = sourceAutoSelected,
         )
     )
 }

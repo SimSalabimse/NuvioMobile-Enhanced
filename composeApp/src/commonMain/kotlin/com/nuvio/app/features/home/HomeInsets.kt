@@ -46,3 +46,9 @@ internal fun homeHeroTopPaddingDp(cardStyle: Boolean, contentTopDp: Float): Floa
     if (contentTopDp < 0f || cardStyle) return 0f
     return 0f
 }
+
+/** Side inset for the soft-fade hero. Full width and the card style stay flush. */
+internal const val HOME_HERO_SOFT_FADE_SIDE_DP = 16f
+
+internal fun homeHeroSideInsetDp(fullWidth: Boolean, cardStyle: Boolean): Float =
+    if (fullWidth || cardStyle) 0f else HOME_HERO_SOFT_FADE_SIDE_DP

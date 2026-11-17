@@ -1,4 +1,5 @@
 import Foundation
+import os
 import UIKit
 import AVFoundation
 import Metal
@@ -276,6 +277,7 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
 
     // State - refreshes position from mpv on each call (polled from Kotlin every 250ms)
     func getIsLoading() -> Bool { playerVC?.refreshPlaybackState(); return playerVC?.isPlayerLoading ?? true }
+    func getIsOpening() -> Bool { !(playerVC?.isFileLoaded ?? false) }
     func getIsPlaying() -> Bool { return playerVC?.isPlayerPlaying ?? false }
     func getIsEnded() -> Bool { return playerVC?.isPlayerEnded ?? false }
     func getDurationMs() -> Int64 { return playerVC?.durationMs ?? 0 }
@@ -382,6 +384,15 @@ final class MPVPlayerViewController: UIViewController {
     private var pictureInPictureController: PlayerPictureInPictureController?
     var systemControlHandler: PlayerSystemControlHandler?
     var keepsPlaybackInBackground: Bool { pictureInPictureController?.keepsPlaybackAlive == true }
+
+    private var isDolbyVisionColorspace = false
+
+    private func setVideoColorMatrix(_ matrix: String?) {
+        let dolbyVision = matrix?.lowercased() == "dolbyvision"
+        guard dolbyVision != isDolbyVisionColorspace else { return }
+        isDolbyVisionColorspace = dolbyVision
+        pictureInPictureController?.setDolbyVisionColorspace(dolbyVision)
+    }
     private var lastAppliedDrawableSize: CGSize = .zero
     private var externallyManagedViewSize: CGSize?
     private var pendingSurfaceLayoutWorkItems: [DispatchWorkItem] = []
@@ -390,7 +401,7 @@ final class MPVPlayerViewController: UIViewController {
     /// mpv's sub-add needs a loaded file. An add-on subtitle selected before that (Nuvio restores
     /// the remembered one as soon as add-ons answer, often while the stream still opens) waits here.
     private var pendingSubtitleUrl: String?
-    private var isFileLoaded = false
+    private(set) var isFileLoaded = false
     private var pendingLoadRetryWorkItem: DispatchWorkItem?
     var mpv: OpaquePointer?
     private var cachedNowPlayingMetadata: CachedNowPlayingMetadata?
@@ -646,12 +657,19 @@ final class MPVPlayerViewController: UIViewController {
         view.layer.masksToBounds = true
 
         metalLayer.contentsGravity = .resize
-        metalLayer.contentsScale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
+        metalLayer.contentsScale = renderScale()
         metalLayer.framebufferOnly = true
         metalLayer.backgroundColor = UIColor.black.cgColor
         metalLayer.wantsExtendedDynamicRangeContent = lastVideoOutputSettings?.extendedDynamicRange ?? true
         metalLayer.anchorPoint = CGPoint(x: 0, y: 0)
         metalLayer.position = .zero
+        metalLayer.onPreferredDrawableSizeRestored = { requested, preferred in
+            InAppLogBridge.shared.warn(
+                tag: "MPV/iOS",
+                message: "Drawable size \(Int(requested.width))x\(Int(requested.height)) below the view's " +
+                    "\(Int(preferred.width))x\(Int(preferred.height)); keeping the native size"
+            )
+        }
         metalLayer.onRenderingSuspensionChanged = { suspended, reason in
             if suspended {
                 InAppLogBridge.shared.warn(
@@ -668,6 +686,7 @@ final class MPVPlayerViewController: UIViewController {
         }
         let pip = PlayerPictureInPictureController(owner: self, metalLayer: metalLayer)
         pictureInPictureController = pip
+        pip.setDolbyVisionColorspace(isDolbyVisionColorspace)
         if mpv != nil {
             pip.setSubtitleText(getString("sub-text") ?? "", bold: lastSubtitleStyle?.bold ?? false)
         }
@@ -835,12 +854,17 @@ final class MPVPlayerViewController: UIViewController {
         }
     }
 
+    private func renderScale() -> CGFloat {
+        let screen = view.window?.screen ?? UIScreen.main
+        return max(screen.scale, screen.nativeScale)
+    }
+
     private func layoutPlayerSurfaces() {
         PlayerSurfaceThreading.assertMainThread()
         let bounds = CGRect(origin: .zero, size: externallyManagedViewSize ?? view.bounds.size)
         guard bounds.width > 1, bounds.height > 1 else { return }
 
-        let scale = view.window?.screen.nativeScale ?? UIScreen.main.nativeScale
+        let scale = renderScale()
         let drawableSize = CGSize(
             width: (bounds.width * scale).rounded(.toNearestOrAwayFromZero),
             height: (bounds.height * scale).rounded(.toNearestOrAwayFromZero)
@@ -852,7 +876,8 @@ final class MPVPlayerViewController: UIViewController {
         metalLayer.position = .zero
         metalLayer.bounds = CGRect(origin: .zero, size: bounds.size)
         pictureInPictureController?.displayLayer.frame = bounds
-        let drawableSizeChanged = drawableSize != lastAppliedDrawableSize
+        metalLayer.preferredDrawableSize = drawableSize
+        let drawableSizeChanged = drawableSize != lastAppliedDrawableSize || metalLayer.drawableSize != drawableSize
         if drawableSizeChanged {
             // mpv's moltenvk context polls drawableSize and resizes its swapchain.
             metalLayer.drawableSize = drawableSize
@@ -890,7 +915,7 @@ final class MPVPlayerViewController: UIViewController {
         setSetupOption("hr-seek-framedrop", "no")
         // After repeated VideoToolbox failures, fall back to software decoding instead of a frozen picture.
         setSetupOption("hwdec-software-fallback", "300")
-        setSetupOption("hwdec-extra-frames", "3")
+        setSetupOption("hwdec-extra-frames", Self.isMemoryConstrained ? "1" : "3")
         setSetupOption("ao", Self.defaultAudioOutput)
         setSetupOption("audio-exclusive", "yes")
         setSetupOption("audio-channels", "auto")
@@ -915,8 +940,13 @@ final class MPVPlayerViewController: UIViewController {
         setSetupOption("target-colorspace-hint", "yes")
         setSetupOption("tone-mapping", "auto")
         setSetupOption("hdr-compute-peak", "yes")
-        setSetupOption("demuxer-max-bytes", "\(Self.demuxerMaxBytes)")
-        setSetupOption("demuxer-max-back-bytes", "\(Self.demuxerMaxBackBytes)")
+        setSetupOption("demuxer-max-bytes", "\(Self.isMemoryConstrained ? Self.constrainedDemuxerMaxBytes : Self.demuxerMaxBytes)")
+        setSetupOption("demuxer-max-back-bytes", "\(Self.isMemoryConstrained ? Self.constrainedDemuxerMaxBackBytes : Self.demuxerMaxBackBytes)")
+        if Self.isMemoryConstrained {
+            setSetupOption("linear-downscaling", "no")
+            setSetupOption("correct-downscaling", "no")
+            setSetupOption("dscale", "bilinear")
+        }
         setSetupOption("demuxer-lavf-o", "protocol_whitelist=[file,crypto,data,http,https,tcp,tls]")
 
         checkError(mpv_initialize(mpv))
@@ -930,6 +960,7 @@ final class MPVPlayerViewController: UIViewController {
         mpv_observe_property(mpv, 0, "track-list/count", MPV_FORMAT_INT64)
         mpv_observe_property(mpv, 0, "current-tracks/sub/id", MPV_FORMAT_INT64)
         mpv_observe_property(mpv, 0, "sub-text", MPV_FORMAT_STRING)
+        mpv_observe_property(mpv, 0, "video-params/colormatrix", MPV_FORMAT_STRING)
 
         mpv_set_wakeup_callback(mpv, { ctx in
             let vc = unsafeBitCast(ctx, to: MPVPlayerViewController.self)
@@ -942,6 +973,14 @@ final class MPVPlayerViewController: UIViewController {
 
     private static let demuxerMaxBackBytes = 32 * 1024 * 1024
 
+    private static let constrainedDemuxerMaxBytes = 32 * 1024 * 1024
+
+    private static let constrainedDemuxerMaxBackBytes = 8 * 1024 * 1024
+
+    private static var isMemoryConstrained: Bool {
+        os_proc_available_memory() < 2 * 1024 * 1024 * 1024
+    }
+
     /// file:// and downloaded paths: cache=no, 8 MiB forward, 2 MiB back.
     /// Streams stay at cache=auto, 64 MiB forward, 32 MiB back.
     /// Matches demuxerCacheOptions in PlaybackMemory.kt.
@@ -949,8 +988,8 @@ final class MPVPlayerViewController: UIViewController {
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         let local = trimmed.hasPrefix("file:") || trimmed.hasPrefix("/") || trimmed.hasPrefix("content:")
         let cache = local ? "no" : "auto"
-        let maxBytes = local ? 8 * 1024 * 1024 : Self.demuxerMaxBytes
-        let maxBackBytes = local ? 2 * 1024 * 1024 : Self.demuxerMaxBackBytes
+        let maxBytes = local ? 8 * 1024 * 1024 : (Self.isMemoryConstrained ? Self.constrainedDemuxerMaxBytes : Self.demuxerMaxBytes)
+        let maxBackBytes = local ? 2 * 1024 * 1024 : (Self.isMemoryConstrained ? Self.constrainedDemuxerMaxBackBytes : Self.demuxerMaxBackBytes)
         setStringProperty("cache", cache)
         setStringProperty("demuxer-max-bytes", "\(maxBytes)")
         setStringProperty("demuxer-max-back-bytes", "\(maxBackBytes)")
@@ -1132,6 +1171,7 @@ final class MPVPlayerViewController: UIViewController {
     }
 
     @objc private func didBecomeActive() {
+        layoutPlayerSurfaces()
         resumeRenderingAfterDeviceLossIfPossible(reason: "did-become-active")
         restoreHardwareDecodingIfLost()
     }
@@ -3179,6 +3219,12 @@ final class MPVPlayerViewController: UIViewController {
                     let name = property?.pointee.name.map { String(cString: $0) }
                     if name == "sub-text" {
                         DispatchQueue.main.async { self.updateStyledSubtitle() }
+                    } else if name == "video-params/colormatrix" {
+                        let matrix = property?.pointee.format == MPV_FORMAT_STRING
+                            ? property?.pointee.data?.assumingMemoryBound(to: UnsafePointer<CChar>?.self).pointee
+                                .map { String(cString: $0) }
+                            : nil
+                        DispatchQueue.main.async { self.setVideoColorMatrix(matrix) }
                     } else {
                         DispatchQueue.main.async { self.updateState() }
                     }
@@ -3473,6 +3519,8 @@ final class MPVPlayerViewController: UIViewController {
         case togglePlayback = "toggle_playback"
         case seekBackward = "seek_backward"
         case seekForward = "seek_forward"
+        case volumeUp = "volume_up"
+        case volumeDown = "volume_down"
         case exit
 
         init?(key: UIKey) {
@@ -3480,6 +3528,8 @@ final class MPVPlayerViewController: UIViewController {
             case UIKeyCommand.inputEscape: self = .exit
             case UIKeyCommand.inputLeftArrow: self = .seekBackward
             case UIKeyCommand.inputRightArrow: self = .seekForward
+            case UIKeyCommand.inputUpArrow: self = .volumeUp
+            case UIKeyCommand.inputDownArrow: self = .volumeDown
             case " ": self = .togglePlayback
             default: return nil
             }

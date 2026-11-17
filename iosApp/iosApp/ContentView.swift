@@ -1712,7 +1712,7 @@ private struct NativeToolbarReadabilityFade: View {
                 )
             )
             .frame(height: 120)
-            .ignoresSafeArea(edges: .top)
+            .ignoresSafeArea(edges: [.top, .leading, .trailing])
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }

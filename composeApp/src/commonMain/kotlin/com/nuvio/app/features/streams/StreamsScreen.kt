@@ -29,6 +29,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
@@ -54,6 +55,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -116,7 +121,6 @@ import com.nuvio.app.core.ui.glass.isAmbientLiquidGlassActive
 import com.nuvio.app.core.ui.NuvioTokens
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.ui.graphics.compositeOver
 import com.nuvio.app.core.ui.glass.nuvioBackdropSource
 import com.nuvio.app.core.ui.glass.rememberNuvioBackdrop
 import com.nuvio.app.core.i18n.localizedEpisodeTitle
@@ -498,12 +502,10 @@ private fun MobileStreamsLayout(
     val streamsGlassBackdrop = rememberNuvioBackdrop()
     Box(modifier = modifier.fillMaxSize()) {
         if (cinematic) {
-            // Upstream's pre-blurred artwork backdrop. The fork keeps its glass source and the
-            // darker flat scrim it used with the old 12dp blur.
             ArtworkBackdrop(
                 image = rememberArtworkBackdrop(heroArtwork),
                 modifier = Modifier.nuvioBackdropSource(streamsGlassBackdrop),
-                scrim = SolidColor(Color.Black.copy(alpha = if (isEpisode) 0.46f else 0.36f)),
+                scrim = SolidColor(Color.Black.copy(alpha = if (isEpisode) 0.48f else 0.36f)),
             )
         }
 
@@ -515,7 +517,6 @@ private fun MobileStreamsLayout(
                     Box(modifier = Modifier.fillMaxWidth()) {
                         EpisodeHeaderArtwork(
                             imageUrl = heroArtwork,
-                            cinematic = cinematic,
                             blurred = blurEpisodeThumbnail,
                             modifier = Modifier.matchParentSize(),
                         )
@@ -630,7 +631,7 @@ internal fun ResumeBanner(
             .clip(RoundedCornerShape(18.dp))
             .ambientLiquidGlass(
                 shape = RoundedCornerShape(18.dp),
-                tint = MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
+                tint = StreamGlassTint,
                 fallback = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f),
             )
             .padding(horizontal = 14.dp, vertical = 10.dp),
@@ -696,12 +697,27 @@ private fun MovieHeroBlock(
 @Composable
 private fun EpisodeHeaderArtwork(
     imageUrl: String?,
-    cinematic: Boolean,
     blurred: Boolean,
     modifier: Modifier,
 ) {
-    if (cinematic && blurred) return
-    Box(modifier = if (cinematic) modifier.featherArtwork() else modifier) {
+    Box(
+        modifier = modifier
+            .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+            .drawWithContent {
+                drawContent()
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        0.0f to Color.Black,
+                        0.45f to Color.Black,
+                        0.65f to Color.Black.copy(alpha = 0.8f),
+                        0.8f to Color.Black.copy(alpha = 0.45f),
+                        0.92f to Color.Black.copy(alpha = 0.15f),
+                        1.0f to Color.Transparent,
+                    ),
+                    blendMode = BlendMode.DstIn,
+                )
+            },
+    ) {
         if (imageUrl != null) {
             AsyncImage(
                 model = imageUrl,
@@ -716,25 +732,20 @@ private fun EpisodeHeaderArtwork(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = if (cinematic) 0.34f else 0.1f)),
+                .background(Color.Black.copy(alpha = 0.1f)),
         )
 
-        if (!cinematic) {
-            val background = MaterialTheme.colorScheme.background
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0.0f to Color.Transparent,
-                            0.58f to Color.Transparent,
-                            0.8f to Color.Black.copy(alpha = 0.42f),
-                            0.93f to background.copy(alpha = 0.84f),
-                            1.0f to background,
-                        ),
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0.0f to Color.Transparent,
+                        0.5f to Color.Transparent,
+                        1.0f to Color.Black.copy(alpha = 0.42f),
                     ),
-            )
-        }
+                ),
+        )
     }
 }
 
@@ -827,8 +838,19 @@ internal fun StreamList(
         deviceOffline = deviceOffline,
     )
 
+    val listState = rememberLazyListState()
+    // As on TV, picking another addon filter starts at the top of its results. Only a change of
+    // filter does it, so the position kept when coming back from the player stays.
+    var shownFilter by remember { mutableStateOf(uiState.selectedFilter) }
+    LaunchedEffect(uiState.selectedFilter) {
+        if (uiState.selectedFilter == shownFilter) return@LaunchedEffect
+        shownFilter = uiState.selectedFilter
+        listState.scrollToItem(0)
+    }
+
     CompositionLocalProvider(LocalStreamSizeLabelFormat provides formatStreamSize) {
     LazyColumn(
+        state = listState,
         modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(
             horizontal = 12.dp,
@@ -1571,7 +1593,7 @@ internal fun StreamSearchField(
             .clip(fieldShape)
             .ambientLiquidGlass(
                 shape = fieldShape,
-                tint = Color.White.copy(alpha = 0.05f).compositeOver(Color.Black.copy(alpha = StreamGlassTintAlpha)),
+                tint = StreamGlassTint,
                 fallback = tokens.colors.surfaceCard,
                 blurRadius = 14.dp,
                 refractionHeight = 8.dp,

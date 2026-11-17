@@ -48,4 +48,6 @@ internal data class PlayerScreenArgs(
     val stream: com.nuvio.app.features.streams.StreamItem? = null,
     val submitMode: Boolean = false,
     val privateSession: Boolean = false,
+    val sourceFromLinkCache: Boolean = false,
+    val sourceAutoSelected: Boolean = false,
 )

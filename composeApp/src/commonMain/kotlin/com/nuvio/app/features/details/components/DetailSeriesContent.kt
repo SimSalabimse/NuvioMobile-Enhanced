@@ -1647,6 +1647,13 @@ private fun EpisodeHorizontalCard(
                 .padding(metrics.contentPadding),
         )
 
+        EpisodeAvailabilityBadge(
+            video = video,
+            modifier = Modifier
+                .align(if (isWatched) Alignment.TopStart else Alignment.TopEnd)
+                .padding(metrics.contentPadding),
+        )
+
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)

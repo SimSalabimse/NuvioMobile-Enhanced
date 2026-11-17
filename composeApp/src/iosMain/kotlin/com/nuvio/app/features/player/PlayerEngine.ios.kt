@@ -63,6 +63,8 @@ actual fun PlatformPlayerSurface(
     playbackEngine: AndroidPlaybackEngine?,
     animeContent: Boolean,
     useNativeController: Boolean,
+    discPlaybackEnabled: Boolean,
+    liveStream: Boolean,
     onInitialPositionHandled: (key: String, handled: Boolean) -> Unit,
     onControllerReady: (PlayerEngineController) -> Unit,
     onSnapshot: (PlayerPlaybackSnapshot) -> Unit,
@@ -317,6 +319,9 @@ actual fun PlatformPlayerSurface(
             override suspend fun getMediaInfo(): PlayerMediaInfo =
                 mpvMediaInfo { name -> bridge.getProperty(name).ifBlank { null } }
 
+            override suspend fun getChapters(): List<PlayerChapter> =
+                mpvChapters { name -> bridge.getProperty(name).ifBlank { null } }
+
             override fun selectSubtitleTrack(index: Int) {
                 InAppLogger.info("Player/iOS", "select subtitle track index=$index")
                 if (index < 0) {
@@ -566,7 +571,7 @@ actual fun PlatformPlayerSurface(
             val durationMs = bridge.getDurationMs()
             if (durationMs > 0L && durationMs != chaptersDurationMs) {
                 chaptersDurationMs = durationMs
-                chapters = mpvChapters { name -> bridge.getProperty(name).ifBlank { null } }
+                chapters = PlayerChapters.normalize(mpvChapters { name -> bridge.getProperty(name).ifBlank { null } })
             }
             if (latestIncludeMediaInfo.value) {
                 val refreshed = bridge.getMediaInfoJson()
@@ -579,6 +584,7 @@ actual fun PlatformPlayerSurface(
             val mediaBitrateBps = bridge.getMediaBitrateBps()
             val snapshot = PlayerPlaybackSnapshot(
                 isLoading = bridge.getIsLoading(),
+                isOpening = bridge.getIsOpening(),
                 isPlaying = bridge.getIsPlaying(),
                 isEnded = bridge.getIsEnded(),
                 durationMs = durationMs,

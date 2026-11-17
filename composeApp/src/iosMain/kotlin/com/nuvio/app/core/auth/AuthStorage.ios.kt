@@ -18,4 +18,11 @@ actual object AuthStorage {
         if (!allowStorageWrite(KEY_ANONYMOUS_USER_ID)) return
         NSUserDefaults.standardUserDefaults.removeObjectForKey(KEY_ANONYMOUS_USER_ID)
     }
+
+    actual fun loadFlag(key: String): Boolean =
+        NSUserDefaults.standardUserDefaults.boolForKey(key)
+
+    actual fun saveFlag(key: String, value: Boolean) {
+        NSUserDefaults.standardUserDefaults.setBool(value, forKey = key)
+    }
 }
