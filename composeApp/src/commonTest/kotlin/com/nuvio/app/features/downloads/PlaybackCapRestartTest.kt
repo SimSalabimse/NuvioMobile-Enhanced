@@ -87,8 +87,8 @@ class PlaybackCapRestartTest {
     }
 
     @Test
-    fun `an off window suspends the running transfer and moves no bytes`() {
-        val early = playbackDownloadGate(
+    fun `serious playback keeps one running transfer through the duty cycle`() {
+        val gate = playbackDownloadGate(
             videoPlaying = true,
             thermal = AnalysisThermal.Serious,
             lowPowerMode = false,
@@ -96,16 +96,16 @@ class PlaybackCapRestartTest {
             onWifi = true,
             behindDeadline = false,
             pauseWhileWatching = false,
-            justInTime = false,
         )
-        assertEquals(0, early.maxActive)
-        assertFalse(early.dutyCycle)
+        assertEquals(TransferPace.Slowest, gate.nextUp.pace)
+        assertTrue(gate.dutyCycle)
+        assertEquals(1, gate.maxActive)
+        assertTrue(nextUpMayTransfer(allowStart = true, dutyCycle = true, windowOpen = false, alreadyRunning = true))
         val h = Harness()
         h.enqueue("next")
-        h.setCap(early.maxActive)
-        assertEquals(listOf("next"), h.stopped)
-        assertTrue(h.handles.isEmpty(), "cap 0 drops the writer, so the off window cannot move bytes")
-        assertEquals(0L, offWindowBytes(cap = early.maxActive, reportedDelta = 7 * 1024 * 1024))
+        h.setCap(gate.maxActive)
+        assertTrue(h.stopped.isEmpty(), "the off half does not drop the running transfer")
+        assertEquals(setOf("next"), h.handles.keys)
     }
 
     @Test

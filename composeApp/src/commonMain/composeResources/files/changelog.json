@@ -8,7 +8,6 @@
       "improved": [],
       "fixed": [
         "Downloads slow down when the phone is warm and pause when it is hot, even when nothing is playing.",
-        "While you watch on a hot phone, the next episode waits until it needs the time, then one quiet transfer finishes it.",
         "The behaviour log can be uploaded from Device error log."
       ]
     },

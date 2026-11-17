@@ -1212,7 +1212,12 @@ object DownloadsRepository {
         if (id in PartialPlaybackLease.heldIds()) return true
         val item = _uiState.value.items.firstOrNull { it.id == id } ?: return false
         val allowed = if (PlaybackPriority.isNextUp(item)) {
-            gate.nextUp.allowStart && PlaybackPriority.dutyWindowOpen()
+            nextUpMayTransfer(
+                allowStart = gate.nextUp.allowStart,
+                dutyCycle = gate.dutyCycle,
+                windowOpen = PlaybackPriority.dutyWindowOpen(),
+                alreadyRunning = id in startQueue.activeIds(),
+            )
         } else {
             gate.other.allowStart
         }

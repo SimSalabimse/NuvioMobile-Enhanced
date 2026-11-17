@@ -59,8 +59,6 @@ internal object PlaybackPriority {
     private var nextUpSeason: Int? = null
     private var nextUpEpisode: Int? = null
     private var behindDeadline = false
-    /** Latched once the next episode would miss its analysis window. It does not flap back off. */
-    private var justInTime = false
     private var lastDeadlineCheckMs = 0L
     private var lastRemainingMs = -1L
     private var dutyAnchorMs = 0L
@@ -266,7 +264,6 @@ internal object PlaybackPriority {
         nextUpSeason = season
         nextUpEpisode = episode
         behindDeadline = false
-        justInTime = false
         lastDeadlineCheckMs = 0L
         lastRemainingMs = -1L
         appliedDownloadGateKey = null
@@ -286,23 +283,12 @@ internal object PlaybackPriority {
         nextUpBytesLeft = bytesLeft
         nextUpBytesPerSecond = bytesPerSecond
         nextUpRemainingMs = episodeRemainingMs
-        var changed = false
-        if (nextUpJustInTime(bytesLeft, bytesPerSecond, episodeRemainingMs) && !justInTime) {
-            justInTime = true
-            changed = true
-        }
-        val check = deadlineRecheckDue(nowMs, lastDeadlineCheckMs, episodeRemainingMs, lastRemainingMs)
-        if (!check && !changed) return
-        if (check) {
-            lastDeadlineCheckMs = nowMs
-            lastRemainingMs = episodeRemainingMs
-            val late = nextUpBehindDeadline(bytesLeft, bytesPerSecond, episodeRemainingMs)
-            if (late != behindDeadline) {
-                behindDeadline = late
-                changed = true
-            }
-        }
-        if (!changed) return
+        if (!deadlineRecheckDue(nowMs, lastDeadlineCheckMs, episodeRemainingMs, lastRemainingMs)) return
+        lastDeadlineCheckMs = nowMs
+        lastRemainingMs = episodeRemainingMs
+        val late = nextUpBehindDeadline(bytesLeft, bytesPerSecond, episodeRemainingMs)
+        if (late == behindDeadline) return
+        behindDeadline = late
         appliedDownloadGateKey = null
         publishDownloadGate()
     }
@@ -317,7 +303,6 @@ internal object PlaybackPriority {
             onWifi = DownloadNetworkGuard.isOnWifi(),
             behindDeadline = behindDeadline,
             pauseWhileWatching = SmartDownloadSettings.snapshot().pauseDuringPlayback,
-            justInTime = justInTime,
         )
         if (level != Level.Strained || !videoPlaying) return gate
         val held = gate.nextUp.copy(
@@ -334,7 +319,7 @@ internal object PlaybackPriority {
     /** Serious or critical heat, and nothing playing: the background session transfers nothing. */
     fun backgroundSessionHold(): Boolean {
         val power = AnalysisPower.snapshot()
-        return backgroundSessionHolds(power.thermal)
+        return backgroundSessionHolds(videoPlaying, power.thermal)
     }
 
     fun reapplyDownloadCap() = DownloadsRepository.setPlaybackDownloadCap(downloadCap())
@@ -393,7 +378,6 @@ internal object PlaybackPriority {
         nextUpSeason = null
         nextUpEpisode = null
         behindDeadline = false
-        justInTime = false
         lastDeadlineCheckMs = 0L
         lastRemainingMs = -1L
         dutyAnchorMs = 0L
