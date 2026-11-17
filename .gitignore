@@ -42,11 +42,13 @@ scripts/*
 !scripts/builds_page/**
 !scripts/check-ios-objc-export.sh
 !scripts/check-approved-prs.sh
+!scripts/check-approved-prs-test.sh
 !scripts/collect-ios-dsyms.sh
 !scripts/ui-shots.sh
 !scripts/ui-manifest.sh
 !scripts/ui-manifest.tsv
 !scripts/ci-local.sh
+!scripts/check-upstream-sync-1.0.0.sh
 !scripts/ci/
 !scripts/ci/**
 scripts/ci/__pycache__/

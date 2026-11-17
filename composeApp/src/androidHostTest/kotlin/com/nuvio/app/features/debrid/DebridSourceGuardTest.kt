@@ -17,6 +17,7 @@ class DebridSourceGuardTest {
         "DirectDebridStreamPreparer.kt" to "background pre-resolve, plays nothing",
         "SiblingClipReference.kt" to "intro/credits analysis, not play or download",
         "DownloadLinkRefresh.kt" to "refreshes the same file's link; another source would not resume",
+        "PlayerScreenRuntimeEffects.kt" to "refreshes the expired link of the source already playing",
     )
 
     @Test

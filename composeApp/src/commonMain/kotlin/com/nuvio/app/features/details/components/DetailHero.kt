@@ -71,12 +71,14 @@ import com.nuvio.app.core.ui.detailChromeTopInset
 import com.nuvio.app.core.ui.headingTopPaddingDp
 import com.nuvio.app.core.ui.heroStretchHeight
 import com.nuvio.app.core.ui.heroStretchZoom
+import com.nuvio.app.core.ui.platformPhysicalTopInset
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.player.MiniPlayerController
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 import com.nuvio.app.core.ui.LocalVerticalBarPadding
 import com.nuvio.app.core.ui.verticalBarWidth
+import com.nuvio.app.navigation.LocalUseNativeNavigation
 
 internal const val DETAIL_HERO_ART_TAG = "detail-hero-art"
 internal const val DETAIL_HERO_HEADING_TAG = "detail-hero-heading"
@@ -170,7 +172,6 @@ fun DetailHero(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .then(if (cinematicBackground) Modifier.featherArtwork() else Modifier),
                 ) {
                     val imageUrl = meta.background ?: meta.poster
                     if (imageUrl != null) {
@@ -247,6 +248,7 @@ fun DetailHero(
                                     loadedBackdropImageBitmap(state.result),
                                 )
                             },
+                            onError = { backdropFocus.onImageFailed() },
                         )
                     } else {
                         Box(

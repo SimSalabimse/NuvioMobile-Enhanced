@@ -388,6 +388,8 @@ internal fun StreamDestination(
                         bingeGroup = cached.bingeGroup,
                     ),
                 ),
+                sourceFromLinkCache = true,
+                sourceAutoSelected = true,
             ).carrying(carriedPlay(PlayEntry.SourceSheet, launch.privateSession, launch.submitMode))
             if (playerSettings.externalPlayerEnabled && playerLaunch.persistsProgress) {
                 openExternalPlayback(playerLaunch)
@@ -549,6 +551,7 @@ internal fun StreamDestination(
             contentLanguage = resolveLaunchContentLanguage(),
             sourceFilename = stream.behaviorHints.filename,
             stream = stream,
+            sourceAutoSelected = true,
         ).carrying(carriedPlay(PlayEntry.SourceSheet, launch.privateSession, launch.submitMode))
         if (playerSettings.externalPlayerEnabled && stream.serverTarget == null && playerLaunch.persistsProgress) {
             openExternalPlayback(playerLaunch)

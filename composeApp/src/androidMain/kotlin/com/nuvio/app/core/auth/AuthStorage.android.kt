@@ -26,4 +26,11 @@ actual object AuthStorage {
         if (!allowStorageWrite(KEY_ANONYMOUS_USER_ID)) return
         preferences?.edit()?.remove(KEY_ANONYMOUS_USER_ID)?.apply()
     }
+
+    actual fun loadFlag(key: String): Boolean =
+        preferences?.getBoolean(key, false) == true
+
+    actual fun saveFlag(key: String, value: Boolean) {
+        preferences?.edit()?.putBoolean(key, value)?.apply()
+    }
 }

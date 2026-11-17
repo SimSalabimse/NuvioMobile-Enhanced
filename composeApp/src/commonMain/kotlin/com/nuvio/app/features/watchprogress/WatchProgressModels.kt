@@ -32,6 +32,13 @@ enum class ContinueWatchingSortMode {
 }
 
 @Serializable
+enum class ContinueWatchingClickAction {
+    STREAM,
+    DETAILS,
+    DETAILS_FOR_UPCOMING,
+}
+
+@Serializable
 data class WatchProgressEntry(
     val contentType: String,
     val parentMetaId: String,
@@ -255,6 +262,7 @@ data class ContinueWatchingPreferencesUiState(
     val pauseStaleAfterDays: Int = 60,
     /** Paused items brought back, with when (key: show or video id). */
     val restoredStale: Map<String, Long> = emptyMap(),
+    val clickAction: ContinueWatchingClickAction = ContinueWatchingClickAction.STREAM,
 )
 
 /** Choices for "Pause untouched items after" (days; 0 = never). */
@@ -277,13 +285,7 @@ internal fun nextUpDismissKey(
     contentId: String,
     seasonNumber: Int?,
     episodeNumber: Int?,
-): String = buildString {
-    append(contentId.trim())
-    append("|")
-    append(seasonNumber ?: -1)
-    append("|")
-    append(episodeNumber ?: -1)
-}
+): String = contentId.trim()
 
 internal fun WatchProgressEntry.toContinueWatchingItem(): ContinueWatchingItem {
     val normalizedEntry = normalizedCompletion()

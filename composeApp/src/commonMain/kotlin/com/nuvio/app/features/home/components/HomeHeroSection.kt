@@ -76,6 +76,7 @@ import com.nuvio.app.core.ui.platformPhysicalTopInset
 import com.nuvio.app.core.ui.systemReduceMotionEnabled
 import com.nuvio.app.features.home.HOME_FOREGROUND_GAP_DP
 import com.nuvio.app.features.home.HOME_HERO_ART_TAG
+import com.nuvio.app.features.home.homeHeroSideInsetDp
 import com.nuvio.app.features.home.HOME_HERO_CONTENT_TAG
 import com.nuvio.app.features.home.HOME_HERO_DOTS_TAG
 import com.nuvio.app.features.home.HOME_HERO_LOGO_TAG
@@ -105,6 +106,7 @@ import com.nuvio.app.core.build.TrailerPlaybackMode
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.ui.atLeastIosHitTarget
 import com.nuvio.app.core.ui.LocalDynamicArtworkBackgroundColor
+import com.nuvio.app.core.ui.platformPhysicalTopInset
 import com.nuvio.app.core.ui.rememberDynamicArtworkBackgroundEnabled
 import com.nuvio.app.core.ui.PrefetchArtworkDominantColors
 import com.nuvio.app.core.ui.HeroArtworkFit
@@ -118,6 +120,7 @@ import com.nuvio.app.core.ui.phonePortraitHeroArtwork
 import com.nuvio.app.core.ui.portraitHeroFrame
 import com.nuvio.app.core.ui.rememberHeroArtworkSize
 import com.nuvio.app.core.ui.rememberBackdropFocusState
+import com.nuvio.app.core.ui.revealAlpha
 import com.nuvio.app.core.ui.heroStretchHeight
 import com.nuvio.app.core.ui.LocalVerticalBarPadding
 import com.nuvio.app.core.ui.ScreenActivityEffect
@@ -138,6 +141,7 @@ import com.nuvio.app.features.trailer.TrailerPlaybackSource
 import com.nuvio.app.core.ui.centeredVerticalBarPadding
 import com.nuvio.app.core.ui.withVerticalBar
 import com.nuvio.app.features.home.stableKey
+import com.nuvio.app.navigation.LocalUseNativeNavigation
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -258,6 +262,7 @@ internal fun HomeHeroSection(
     viewportHeight: Dp? = null,
     mobileBelowSectionHeightHint: Dp? = null,
     heroStyle: HomeHeroStyle = HomeHeroStyle.FULL_BLEED,
+    heroFullWidth: Boolean = false,
     listState: LazyListState? = null,
     stretchPx: () -> Float = { 0f },
     trailerPlaybackEnabled: Boolean = false,
@@ -269,6 +274,7 @@ internal fun HomeHeroSection(
     onActiveArtworkChange: ((String?) -> Unit)? = null,
 ) {
     if (items.isEmpty()) return
+    val reduceMotion = systemReduceMotionEnabled()
 
     val pagerState = key(items.size) {
         rememberPagerState(
@@ -329,7 +335,11 @@ internal fun HomeHeroSection(
         }
 
         val nextPage = pagerState.currentPage + 1
-        pagerState.animateScrollToPage(nextPage)
+        if (reduceMotion) {
+            pagerState.scrollToPage(nextPage)
+        } else {
+            pagerState.animateScrollToPage(nextPage)
+        }
     }
 
     val isCardStyle = heroStyle == HomeHeroStyle.CARD
@@ -527,9 +537,11 @@ internal fun HomeHeroSection(
             // A tall title, logo, meta row and overview need a taller picture so they
             // stay inside it. The picture itself starts below the status inset.
             val artworkSlotHeight = maxOf(layout.heroHeight, foregroundTop + copyHeight)
+            val sideInset = homeHeroSideInsetDp(fullWidth = heroFullWidth, cardStyle = isCardStyle).dp
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = sideInset)
                     .heroStretchHeight(artworkSlotHeight, stretchPx)
                     .testTag(HOME_HERO_ART_TAG),
             ) {
@@ -616,7 +628,7 @@ internal fun HomeHeroSection(
                                         .graphicsLayer {
                                             val offset = heroPageOffset(pagerState, layer.page)
                                             val visibility = (1f - abs(offset)).coerceIn(0f, 1f)
-                                            alpha = when {
+                                            alpha = backdropFocus.revealAlpha * when {
                                                 isCurrentLayer -> visibility
                                                 visibility > 0f -> 1f
                                                 else -> 0f

@@ -51,6 +51,8 @@ fun trimImageMemoryForPlayback() {
     InAppLogger.info("ImageLoader", "cleared image memory cache for playback")
     suspendAnimatedImagesForPlayback()
     kotlin.native.runtime.GC.collect()
+    // Phones need a second collect after the cache clear. The cache itself stays at 48 MB.
+    kotlin.native.runtime.GC.collect()
 }
 
 @OptIn(kotlin.native.runtime.NativeRuntimeApi::class)

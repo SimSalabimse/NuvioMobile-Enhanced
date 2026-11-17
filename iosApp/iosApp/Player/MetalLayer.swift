@@ -76,7 +76,11 @@ class MetalLayer: CAMetalLayer {
     }
 
     @objc func nuvioEnqueuePiPFrame(_ pixelBuffer: CVPixelBuffer, presentationTime: Double, isPictureInPictureFrame: Bool) {
-        pictureInPictureSink?.submit(pixelBuffer, pts: presentationTime, isPictureInPictureFrame: isPictureInPictureFrame)
+        pictureInPictureSink?.submit(pixelBuffer, pts: presentationTime, isPictureInPictureFrame: isPictureInPictureFrame, doviMetadata: nil)
+    }
+
+    @objc func nuvioEnqueuePiPFrame(_ pixelBuffer: CVPixelBuffer, presentationTime: Double, isPictureInPictureFrame: Bool, doviMetadata: Data?) {
+        pictureInPictureSink?.submit(pixelBuffer, pts: presentationTime, isPictureInPictureFrame: isPictureInPictureFrame, doviMetadata: doviMetadata)
     }
 
     var onDrawablePresented: ((CAMetalDrawable) -> Void)?
@@ -133,14 +137,23 @@ class MetalLayer: CAMetalLayer {
         return isRenderingSuspended
     }
 
+    var preferredDrawableSize: CGSize?
+
+    var onPreferredDrawableSizeRestored: ((CGSize, CGSize) -> Void)?
+
     override var drawableSize: CGSize {
         get { return super.drawableSize }
         set {
-            if Int(newValue.width) > 1 && Int(newValue.height) > 1 {
-                // MoltenVK writes this from the vo thread. Commit that write
-                // before returning so the thread's exit has nothing to lay out.
-                withoutLeakingVoTransaction { super.drawableSize = newValue }
+            guard Int(newValue.width) > 1 && Int(newValue.height) > 1 else { return }
+            // MoltenVK writes this from the vo thread. Commit that write
+            // before returning so the thread's exit has nothing to lay out.
+            if let preferred = preferredDrawableSize,
+               newValue.width < preferred.width || newValue.height < preferred.height {
+                withoutLeakingVoTransaction { super.drawableSize = preferred }
+                onPreferredDrawableSizeRestored?(newValue, preferred)
+                return
             }
+            withoutLeakingVoTransaction { super.drawableSize = newValue }
         }
     }
 
