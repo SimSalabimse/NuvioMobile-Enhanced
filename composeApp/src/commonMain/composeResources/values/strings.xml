@@ -3290,6 +3290,7 @@
     <string name="analysis_summary_waiting_heat">Paused while the phone is hot. It continues when it cools down.</string>
     <string name="analysis_summary_waiting_download">Waiting while the phone is warm and downloading.</string>
     <string name="analysis_summary_waiting_low_power">Paused while Low Power Mode is on. It continues when you turn it off.</string>
+    <string name="analysis_summary_paused">Paused</string>
     <string name="analysis_summary_idle_done">Everything is analysed.</string>
     <string name="analysis_summary_idle_charging">Not running. %1$d waiting for the charger (“Only while charging” is on).</string>
     <string name="analysis_summary_idle_waiting">Not running. %1$d waiting. It starts shortly after the app opens, and in the background when iOS allows it.</string>

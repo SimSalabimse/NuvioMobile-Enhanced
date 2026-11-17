@@ -39,6 +39,20 @@ class AnalysisRunGateTest {
     }
 
     @Test
+    fun anUnknownPauseReasonSaysPaused() {
+        assertEquals(AnalysisJobState.Paused, analysisWaitJob("power"))
+        assertEquals("Paused", analysisHoldMessage("power"))
+        assertEquals(AnalysisJobState.Paused, analysisWaitJob("not-a-reason"))
+        assertEquals("Paused", analysisHoldMessage("not-a-reason"))
+        assertEquals(AnalysisJobState.WaitingForPlayback, analysisWaitJob("playback"))
+        assertEquals(AnalysisJobState.WaitingForPlayback, analysisWaitJob("playback-strained"))
+        assertEquals(
+            "Paused while something is playing. It continues when you stop watching.",
+            analysisHoldMessage("playback-strained"),
+        )
+    }
+
+    @Test
     fun seriousOrCriticalThermalPausesEvenWhenNothingIsPlaying() {
         assertEquals("thermal-serious", analysisPauseReason(videoPlaying = false, AnalysisThermal.Serious, lowPowerMode = false))
         assertEquals("thermal-critical", analysisPauseReason(videoPlaying = false, AnalysisThermal.Critical, lowPowerMode = false))

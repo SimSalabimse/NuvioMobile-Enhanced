@@ -24,6 +24,8 @@ sealed interface AnalysisJobState {
     /** Serious or critical heat. Nothing is playing. */
     data object WaitingForHeat : AnalysisJobState
     data object WaitingForLowPower : AnalysisJobState
+    /** A hold this build does not name. Not playback. */
+    data object Paused : AnalysisJobState
     data class Running(
         val itemId: String,
         val title: String,

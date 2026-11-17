@@ -33,10 +33,11 @@ internal fun analysisPauseReason(
 
 /** Job state for a pause reason. Heat, downloading, and Low Power are not playback. */
 internal fun analysisWaitJob(reason: String): AnalysisJobState = when (reason) {
+    "playback", "playback-strained" -> AnalysisJobState.WaitingForPlayback
     "download" -> AnalysisJobState.WaitingWhileDownloading
     "thermal-serious", "thermal-critical" -> AnalysisJobState.WaitingForHeat
     "low-power" -> AnalysisJobState.WaitingForLowPower
-    else -> AnalysisJobState.WaitingForPlayback
+    else -> AnalysisJobState.Paused
 }
 
 /** The settings row for this hold. Heat is not worded as playback. */
@@ -47,7 +48,7 @@ internal fun analysisHoldMessage(reason: String): String = when (reason) {
     "low-power" -> "Paused while Low Power Mode is on. It continues when you turn it off."
     "playback", "playback-strained" ->
         "Paused while something is playing. It continues when you stop watching."
-    else -> "Paused while the phone is hot. It continues when it cools down."
+    else -> "Paused"
 }
 
 /** Live heat. A stored throttle of 0 does not allow a start while this is false. */

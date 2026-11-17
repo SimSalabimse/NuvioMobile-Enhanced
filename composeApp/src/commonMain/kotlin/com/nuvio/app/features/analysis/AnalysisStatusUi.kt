@@ -52,6 +52,7 @@ import nuvio.composeapp.generated.resources.analysis_summary_waiting_playback
 import nuvio.composeapp.generated.resources.analysis_summary_waiting_heat
 import nuvio.composeapp.generated.resources.analysis_summary_waiting_download
 import nuvio.composeapp.generated.resources.analysis_summary_waiting_low_power
+import nuvio.composeapp.generated.resources.analysis_summary_paused
 import nuvio.composeapp.generated.resources.analysis_summary_idle_done
 import nuvio.composeapp.generated.resources.analysis_summary_idle_charging
 import nuvio.composeapp.generated.resources.analysis_summary_idle_waiting
@@ -422,6 +423,7 @@ internal fun AnalysisSummarySection(isTablet: Boolean) {
                     AnalysisJobState.WaitingForHeat -> stringResource(Res.string.analysis_summary_waiting_heat)
                     AnalysisJobState.WaitingWhileDownloading -> stringResource(Res.string.analysis_summary_waiting_download)
                     AnalysisJobState.WaitingForLowPower -> stringResource(Res.string.analysis_summary_waiting_low_power)
+                    AnalysisJobState.Paused -> stringResource(Res.string.analysis_summary_paused)
                     AnalysisJobState.Idle -> if (summary.queued.isEmpty()) {
                         stringResource(Res.string.analysis_summary_idle_done)
                     } else if (onlyCharging) {

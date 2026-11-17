@@ -10,6 +10,8 @@
         "Season overview uses a small icon for each segment instead of a legend and repeated sentences.",
         "On-device analysis says when the phone is hot, instead of saying something is playing.",
         "The playing pause clears when playback actually stops.",
+        "The season overview key stays readable at the largest text size.",
+        "An unknown analysis pause says Paused.",
         "Upload now waits for the network path, then sends the current log after an old one."
       ]
     },

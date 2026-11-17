@@ -239,7 +239,7 @@ struct SeasonOverviewListRoot: View {
                         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                         .accessibilityIdentifier("season-overview-status")
                 } else {
-                    SeasonOverviewKey(rows: snapshot.rows)
+                    SeasonOverviewKey()
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                         .listRowSeparator(.hidden)
                     ForEach(snapshot.rows) { row in
@@ -484,43 +484,45 @@ private struct SegmentIcon: View {
     }
 }
 
-/// One line. The words name the three states. They are not repeated on each episode.
+/// One line at the normal size. When that line does not fit, one icon and word per line.
+/// The words never break one letter at a time.
 private struct SeasonOverviewKey: View {
-    let rows: [SeasonOverviewRow]
-
     var body: some View {
-        HStack(spacing: 16) {
-            keyItem(state: "Y", fallback: "Yours")
-            keyItem(state: "U", fallback: "Public")
-            keyItem(state: "M", fallback: "Missing")
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 16) {
+                keyItems
+            }
+            .fixedSize(horizontal: true, vertical: true)
+            VStack(alignment: .leading, spacing: 4) {
+                keyItems
+            }
+            .fixedSize(horizontal: true, vertical: true)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .font(.caption)
         .foregroundStyle(.secondary)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("Yours, filled. Public, outlined. Missing, dim.")
         .accessibilityIdentifier("season-overview-key")
     }
 
-    private func keyItem(state: String, fallback: String) -> some View {
-        let word = spokenWord(state: state) ?? fallback
-        return HStack(spacing: 4) {
+    @ViewBuilder
+    private var keyItems: some View {
+        keyItem(state: "Y", word: "Yours")
+        keyItem(state: "U", word: "Public")
+        keyItem(state: "M", word: "Missing")
+    }
+
+    private func keyItem(state: String, word: String) -> some View {
+        HStack(spacing: 4) {
             SegmentIcon(
                 symbol: SeasonOverviewSymbol(state: state, token: "0:\(state)", accessibility: word)
             )
             Text(word)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
         }
         .accessibilityHidden(true)
-    }
-
-    private func spokenWord(state: String) -> String? {
-        for row in rows {
-            guard let symbol = row.symbols.first(where: { $0.state == state }) else { continue }
-            let parts = symbol.accessibility.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
-            guard parts.count == 2 else { continue }
-            let word = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-            if !word.isEmpty { return word }
-        }
-        return nil
     }
 }
 
