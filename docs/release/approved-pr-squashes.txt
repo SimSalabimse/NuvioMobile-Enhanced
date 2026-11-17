@@ -1,0 +1,6 @@
+# Squash commits that carry approved pull requests whose own commits are not in HEAD.
+# One squash per line: <40-character sha> <included pull request numbers>
+# The commit must be an ancestor of HEAD, and its subject must end with (#N).
+# 81572208 is the squash of #142. These six are ancestors of aa7e05ba, and
+# aa7e05ba is an ancestor of #142's head 5811e1805dbda73592ff8539c168c8aca7eec9c3.
+81572208faeaf871239a1a3087f250d5cf3d630c 131 132 133 136 137 139
